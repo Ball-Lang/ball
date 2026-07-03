@@ -3385,9 +3385,6 @@ export class BallEngine {
         }
       }
     }
-    if (((__ball_eq(name, 'List') || __ball_eq(name, 'Map')) || __ball_eq(name, 'Set'))) {
-      return { ['__class_ref__']: name, ['__type__']: '__builtin_class__' };
-    }
     if (scope.has(name)) {
       let bound = scope.lookup(name);
       if (!__ball_eq(bound, null)) {
@@ -3498,6 +3495,9 @@ export class BallEngine {
       }
       this._globalScope.bind(staticField.fullName, value);
       return value;
+    }
+    if (((__ball_eq(name, 'List') || __ball_eq(name, 'Map')) || __ball_eq(name, 'Set'))) {
+      return { ['__class_ref__']: name, ['__type__']: '__builtin_class__' };
     }
     return scope.lookup(name);
   }
@@ -3992,15 +3992,17 @@ export class BallEngine {
         }
         let instanceFields = {};
         let allFieldNames = this._collectAllFieldNames(msg.typeName);
-        for (const fieldName of typeDef.fieldNames) {
-          instanceFields[fieldName] = null;
-        }
         for (const entry of fields.entries) {
           if (!entry.key.startsWith('arg')) {
             instanceFields[entry.key] = entry.value;
           }
         }
         this._initFieldDefaults(msg.typeName, instanceFields);
+        for (const fieldName of typeDef.fieldNames) {
+          if (!(fieldName in instanceFields)) {
+            instanceFields[fieldName] = null;
+          }
+        }
         let ctorEntry = this._lookupConstructor(msg.typeName);
         let resolvedParams = {};
         if ((!__ball_eq(ctorEntry, null) && hasMetadata(ctorEntry.func))) {
@@ -4282,6 +4284,24 @@ export class BallEngine {
     if ((__ball_eq(trimmed, '""') || __ball_eq(trimmed, '\'\''))) {
       return '';
     }
+    if ((((trimmed.length >= 2) && trimmed.startsWith('[')) && trimmed.endsWith(']'))) {
+      let inner = trimmed.substring(1, __ball_sub(trimmed.length, 1)).trim();
+      if ((inner.length === 0)) {
+        return [];
+      }
+      if ((!inner.includes('[') && !inner.includes('{'))) {
+        return [...inner.split(',').map(((s) => {
+          const input = s;
+          return s.trim();
+        })).filter(((s) => {
+          const input = s;
+          return !(s.length === 0);
+        })).map(((s) => {
+          const input = s;
+          return this._parseInitializer(s);
+        }))];
+      }
+    }
     let intVal = int.tryParse(trimmed);
     if (!__ball_eq(intVal, null)) {
       return intVal;
@@ -4290,7 +4310,7 @@ export class BallEngine {
     if (!__ball_eq(doubleVal, null)) {
       return doubleVal;
     }
-    if (((trimmed.startsWith('\'') && trimmed.endsWith('\'')) || (trimmed.startsWith('"') && trimmed.endsWith('"')))) {
+    if (((trimmed.length >= 2) && ((trimmed.startsWith('\'') && trimmed.endsWith('\'')) || (trimmed.startsWith('"') && trimmed.endsWith('"'))))) {
       return trimmed.substring(1, __ball_sub(trimmed.length, 1));
     }
     return trimmed;
@@ -4332,6 +4352,12 @@ export class BallEngine {
       for (const fname of parentTypeDef.fieldNames) {
         if ((fname in childFields)) {
           superFields[fname] = __ball_index(childFields, fname);
+        }
+      }
+      this._initFieldDefaults(superclass, superFields);
+      for (const fname of parentTypeDef.fieldNames) {
+        if (!(fname in superFields)) {
+          superFields[fname] = null;
         }
       }
       let parentMethods = this._resolveTypeMethods(qualifiedSuperclass);

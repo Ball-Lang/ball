@@ -966,16 +966,29 @@ extension BallEngineStd on BallEngine {
       },
       'map_keys': (i) {
         final m = _stdAsMap(i)!;
+        final target = m['map'];
         // A set has no map keys (it is a one-key set map, not a data map).
-        if (_isBallSet(m['map'])) return const <Object?>[];
-        final result = _ballMapKeysDyn(m['map']);
+        // Must precede the Map branch: an ordered set is stored as a one-key
+        // map (issue #68).
+        if (_isBallSet(target)) return const <Object?>[];
+        // Fail loud on a non-Map receiver instead of silently returning [] —
+        // that silent degradation is the class of bug that hid issue #55.
+        // Mirrors map_contains_key's guard (issue #197).
+        if (target is! Map && target is! BallMap) {
+          throw BallRuntimeError('map_keys: expected Map or Set');
+        }
+        final result = _ballMapKeysDyn(target);
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
       },
       'map_values': (i) {
         final m = _stdAsMap(i)!;
-        if (_isBallSet(m['map'])) return const <Object?>[];
-        final result = _ballMapValuesDyn(m['map']);
+        final target = m['map'];
+        if (_isBallSet(target)) return const <Object?>[];
+        if (target is! Map && target is! BallMap) {
+          throw BallRuntimeError('map_values: expected Map or Set');
+        }
+        final result = _ballMapValuesDyn(target);
         _trackMemoryAllocation(result.length * _ballPointerBytes);
         return result;
       },

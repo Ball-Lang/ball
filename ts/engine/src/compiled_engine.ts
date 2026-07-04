@@ -3736,6 +3736,7 @@ export class BallEngine {
             return e.key;
           }))];
         }
+        throw new BallRuntimeError(('Cannot access field "keys" on ' + __ball_to_string(((__ball_eq(object, null) ? null : object.runtimeType) ?? 'null'))));
       }
       else if ((__sw === 'values')) {
         if ((typeof object === 'object' && object !== null && !Array.isArray(object) && !(object instanceof BallDouble) && !(object instanceof Set))) {
@@ -3753,6 +3754,7 @@ export class BallEngine {
           }
           return vals;
         }
+        throw new BallRuntimeError(('Cannot access field "values" on ' + __ball_to_string(((__ball_eq(object, null) ? null : object.runtimeType) ?? 'null'))));
       }
       else if ((__sw === 'isNaN')) {
         return _ballNumIsNaN(object);
@@ -7450,19 +7452,27 @@ export class BallEngine {
       }), ['map_keys']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        if (this._isBallSet(__ball_index(m, 'map'))) {
+        let target = __ball_index(m, 'map');
+        if (this._isBallSet(target)) {
           return [];
         }
-        let result = _ballMapKeysDyn(__ball_index(m, 'map'));
+        if ((!((typeof target === 'object' && target !== null && !Array.isArray(target) && !(target instanceof BallDouble) && !(target instanceof Set))) && !(false /* BallMap is Map in TS */))) {
+          throw new BallRuntimeError('map_keys: expected Map or Set');
+        }
+        let result = _ballMapKeysDyn(target);
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
       }), ['map_values']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        if (this._isBallSet(__ball_index(m, 'map'))) {
+        let target = __ball_index(m, 'map');
+        if (this._isBallSet(target)) {
           return [];
         }
-        let result = _ballMapValuesDyn(__ball_index(m, 'map'));
+        if ((!((typeof target === 'object' && target !== null && !Array.isArray(target) && !(target instanceof BallDouble) && !(target instanceof Set))) && !(false /* BallMap is Map in TS */))) {
+          throw new BallRuntimeError('map_values: expected Map or Set');
+        }
+        let result = _ballMapValuesDyn(target);
         this._trackMemoryAllocation(__ball_mul(result.length, _ballPointerBytes));
         return result;
       }), ['map_entries']: ((i) => {

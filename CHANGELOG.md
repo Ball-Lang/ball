@@ -1,3 +1,10 @@
+## [1.5.5](https://github.com/Ball-Lang/ball/compare/v1.5.4...v1.5.5) (2026-07-04)
+
+
+### Bug Fixes
+
+* **ts-compiler:** operator overloading naming + MapPattern/LogicalAndPattern emission ([#205](https://github.com/Ball-Lang/ball/issues/205), [#206](https://github.com/Ball-Lang/ball/issues/206), [#207](https://github.com/Ball-Lang/ball/issues/207)) ([#212](https://github.com/Ball-Lang/ball/issues/212)) ([7bf19c5](https://github.com/Ball-Lang/ball/commit/7bf19c578b96c5a30de914284dfef9400b30a3f1)), closes [#204](https://github.com/Ball-Lang/ball/issues/204) [#213](https://github.com/Ball-Lang/ball/issues/213)
+
 ## [1.5.4](https://github.com/Ball-Lang/ball/compare/v1.5.3...v1.5.4) (2026-07-04)
 
 

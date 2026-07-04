@@ -140,19 +140,17 @@ jobs:
           npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
             node --experimental-strip-types --test test/*.test.ts
 
-      # cli depends on sibling @ball-lang packages via registry versions that are
-      # NOT published (ts/ is not an npm workspace), so `npm ci` fails and its
-      # black-box subprocess test (test/cli_test.ts) can't run standalone — it's
-      # ungated in ci.yml too (cf. #75). Make its src VISIBLE by exercising the
-      # dep-free modules under c8 (capability_analyzer pulls in capability_table);
-      # `--all` adds index.ts (which imports the unpublished engine) at 0%. No
-      # deps needed. Proper line coverage of cli needs ts/ workspace linking.
-      - name: Coverage — @ball-lang/cli (dep-free src; entry-point at 0%)
+      # cli depends on the in-repo engine via `file:../engine` — since the
+      # @ball-lang/engine step above already ran `npm ci && npm run build`
+      # in the same job/checkout, `npm ci` here resolves and links it fine
+      # (this is the same order ci.yml uses). test/cli_test.ts spawns the
+      # built CLI via spawnSync, which inherits NODE_V8_COVERAGE from the c8
+      # parent process, so the black-box subprocess suite's coverage is
+      # captured too — not just the dependency-free capability_* unit tests.
+      - name: Coverage — @ball-lang/cli
         run: |
-          cd ts/cli
-          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
-            node --experimental-strip-types --disable-warning=ExperimentalWarning \
-            src/capability_analyzer.ts
+          cd ts/cli && npm ci && npm run build
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all npm test
 
       - name: Upload TypeScript coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

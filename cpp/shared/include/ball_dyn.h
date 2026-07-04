@@ -2567,34 +2567,49 @@ inline BallDyn ball_map_entries(const BallDyn& v) {
 }
 inline BallDyn ball_map_keys(const BallDyn& v) {
     std::vector<std::any> r;
+    bool matched = false;
     try {
         auto a0 = static_cast<std::any>(v);
         const std::any& a = _BallDynUnwrapper::unwrap(a0);
         if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            matched = true;
             for (const auto& [k, val] : omp->entries_) r.push_back(std::any(k));
         } else {
             const BallMap* mp = nullptr;
             if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
             else { mp = _ball_object_base_map(a); }
-            if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
+            if (mp) { matched = true; for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
         }
-    } catch (...) {}
+    } catch (...) {
+        // Defensive: a malformed value handle can throw during unwrap/detection;
+        // `matched` stays false and we fall through to the fail-loud throw below.
+    }
+    // Fail loud on a non-Map receiver instead of silently returning [] — the
+    // Dart/TS/C++-self-host engines throw for `.keys` on a non-Map, and silent
+    // degradation is the class of bug that hid issue #55 (issue #197). Thrown
+    // AFTER the try so the defensive `catch(...)` above doesn't swallow it.
+    if (!matched) throw BallException("TypeError", "map_keys: expected Map");
     return BallDyn(BallList(r));
 }
 inline BallDyn ball_map_values(const BallDyn& v) {
     std::vector<std::any> r;
+    bool matched = false;
     try {
         auto a0 = static_cast<std::any>(v);
         const std::any& a = _BallDynUnwrapper::unwrap(a0);
         if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            matched = true;
             for (const auto& [k, val] : omp->entries_) r.push_back(val);
         } else {
             const BallMap* mp = nullptr;
             if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
             else { mp = _ball_object_base_map(a); }
-            if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
+            if (mp) { matched = true; for (const auto& [k, val] : *mp) r.push_back(val); }
         }
-    } catch (...) {}
+    } catch (...) {
+        // Defensive: see ball_map_keys — unmatched input falls through to throw.
+    }
+    if (!matched) throw BallException("TypeError", "map_values: expected Map");
     return BallDyn(BallList(r));
 }
 

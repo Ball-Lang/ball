@@ -14,8 +14,9 @@
 //                            (every literal kind), _invokeSuperConstructor
 //                            (explicit + default super, all arg token kinds),
 //                            and the lazy module-resolver path.
-//   • engine_types.dart    — _ballToDouble's non-numeric fallback and the
-//                            map_keys/map_values non-map fallbacks.
+//   • engine_types.dart    — _ballToDouble's non-numeric fallback.
+//   • engine_std.dart      — map_keys/map_values fail loud on a non-map
+//                            receiver, consistent with map_contains_key (#197).
 //
 // Kept self-contained (does not import engine_test.dart helpers), mirroring the
 // engine_tail_coverage_test.dart house style.
@@ -333,30 +334,36 @@ void main() {
     });
   });
 
-  group('map_keys/map_values non-map fallback (engine_types.dart)', () {
-    test('map_keys on a non-map value returns []', () async {
-      expect(
-        await evalPrint(
-          stdCall('map_keys', msg([field('map', literal(5))])),
-          std: ['print', 'to_string', 'map_keys'],
-        ),
-        '[]',
+  group('map_keys/map_values fail loud on a non-map (engine_std.dart, #197)', () {
+    // map_keys/map_values now THROW on a non-map receiver instead of silently
+    // returning [] — consistent with map_contains_key (which always threw). The
+    // silent-[] degradation was the class of bug that hid issue #55. A user's
+    // `.keys`/`.values` never reaches these std handlers (the encoder emits a
+    // fieldAccess, handled by engine_eval's getter path, which already threw),
+    // so this invariant is covered here directly.
+    Future<void> expectNonMapThrows(String fn) async {
+      final p = program(
+        std: ['print', 'to_string', fn],
+        functions: [
+          mainFn([
+            stmt(printToString(stdCall(fn, msg([field('map', literal(5))])))),
+          ]),
+        ],
       );
-    });
-    test('map_values on a non-map value returns []', () async {
-      expect(
-        await evalPrint(
-          stdCall('map_values', msg([field('map', literal(5))])),
-          std: ['print', 'to_string', 'map_values'],
-        ),
-        '[]',
-      );
-    });
+      await expectLater(runAndCapture(p), throwsA(isA<BallRuntimeError>()));
+    }
+
     test(
-      'map_contains_key on a non-map value throws (inconsistency)',
+      'map_keys on a non-map value throws',
+      () => expectNonMapThrows('map_keys'),
+    );
+    test(
+      'map_values on a non-map value throws',
+      () => expectNonMapThrows('map_values'),
+    );
+    test(
+      'map_contains_key on a non-map value throws (now consistent)',
       () async {
-        // Documents that map_contains_key FAILS LOUD on a non-map while
-        // map_keys/map_values silently return [] (see report).
         final p = program(
           std: ['print', 'to_string', 'map_contains_key'],
           functions: [

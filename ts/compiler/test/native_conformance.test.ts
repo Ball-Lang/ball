@@ -15,6 +15,18 @@
  *     for/comprehension headers emitted `var`, so closures created in the
  *     loop body shared one binding instead of Dart's per-iteration
  *     bindings (#69).
+ *   - 113_operator_overloading: preamble.ts's `__ball_add`/`__ball_sub`/
+ *     `__ball_mul`/`__ball_eq` looked up `a.__op_mul` (no trailing double
+ *     underscore) but the encoder's canonical operator names always end in
+ *     `__op_mul__` — the names never matched, so overloaded operators
+ *     silently fell through to raw JS arithmetic (#205).
+ *   - 394_mappattern_excludes_set / 258_logical_and_pattern: `MapPattern`
+ *     and `LogicalAndPattern` (and the `RelationalPattern`/`ObjectPattern`
+ *     kinds the audit turned up) were missing from
+ *     `compiler.ts`'s `KNOWN_PATTERN_KINDS`, so they fell to the legacy
+ *     text-pattern parser, which embedded literal Dart syntax (e.g. `final
+ *     items`) into the emitted TS and crashed with
+ *     `ERR_INVALID_TYPESCRIPT_SYNTAX` (#206, #207).
  *
  * Run: node --experimental-strip-types --test test/native_conformance.test.ts
  */
@@ -52,6 +64,9 @@ const NATIVE_FIXTURES = [
   "223_closure_loop_capture",
   "229_closure_loop_var_semantics",
   "312_collection_for_capture",
+  "113_operator_overloading",
+  "394_mappattern_excludes_set",
+  "258_logical_and_pattern",
 ];
 
 describe("compiler — native conformance spot checks", () => {

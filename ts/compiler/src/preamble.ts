@@ -133,8 +133,14 @@ class BallDouble {
 
 // Arithmetic helpers that propagate BallDouble through operations.
 // If either operand is BallDouble, the result is BallDouble (preserving .0).
+//
+// Operator-overload dispatch checks for __op_X__ methods (TRAILING double
+// underscore) — this MUST match the Dart encoder's canonical operator naming
+// (_canonicalOperatorName in dart/encoder/lib/encoder.dart), which always
+// emits a trailing __. A single-underscore lookup (__op_mul) never matches,
+// so overloaded operators silently fall through to raw JS arithmetic (#205).
 function __ball_mul(a: any, b: any): any {
-  if (a != null && typeof a === 'object' && typeof a.__op_mul === 'function') return a.__op_mul(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_mul__ === 'function') return a.__op_mul__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) * __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
@@ -142,7 +148,7 @@ function __ball_mul(a: any, b: any): any {
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_add(a: any, b: any): any {
-  if (a != null && typeof a === 'object' && typeof a.__op_add === 'function') return a.__op_add(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_add__ === 'function') return a.__op_add__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) + __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
@@ -150,7 +156,7 @@ function __ball_add(a: any, b: any): any {
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_sub(a: any, b: any): any {
-  if (a != null && typeof a === 'object' && typeof a.__op_sub === 'function') return a.__op_sub(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_sub__ === 'function') return a.__op_sub__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) - __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
@@ -160,7 +166,7 @@ function __ball_sub(a: any, b: any): any {
 
 // Dart equality: NaN != NaN, BallDouble value comparison, null == undefined.
 function __ball_eq(a: any, b: any): boolean {
-  if (a != null && typeof a === 'object' && typeof a.__op_eq === 'function') return a.__op_eq(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_eq__ === 'function') return a.__op_eq__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') {
     if (typeof a === 'bigint' && typeof b === 'bigint') return a === b;
     if (typeof a === 'bigint' && typeof b === 'number') return a === BigInt(b);
@@ -176,6 +182,39 @@ function __ball_eq(a: any, b: any): boolean {
   if (a == null && b == null) return true;
   if (a == null || b == null) return a == b;
   return a === b;
+}
+
+// Relational operator-overload dispatch (less-than/greater-than/etc.),
+// matching the __op_add__-style convention above. Unlike arithmetic,
+// relational comparisons had NO overload attempt at all before #205 — every
+// overloaded Vec2 < x etc. compiled straight to raw JS comparison.
+function __ball_lt(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_lt__ === 'function') return a.__op_lt__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) < __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av < bv;
+}
+function __ball_gt(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_gt__ === 'function') return a.__op_gt__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) > __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av > bv;
+}
+function __ball_le(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_le__ === 'function') return a.__op_le__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) <= __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av <= bv;
+}
+function __ball_ge(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_ge__ === 'function') return a.__op_ge__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) >= __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av >= bv;
 }
 
 function __ball_to_string(v: any): string {

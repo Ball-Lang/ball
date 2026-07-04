@@ -4245,10 +4245,13 @@ function __isUnknownFnError(e: any): boolean {
         if (l && r) return `!__ball_eq(${this.expr(l)}, ${this.expr(r)})`;
         return `!__ball_eq(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
       }
-      case "less_than":    return bin("<");
-      case "greater_than": return bin(">");
-      case "lte":          return bin("<=");
-      case "gte":          return bin(">=");
+      // Relational comparisons route through __ball_lt/__ball_gt/__ball_le/__ball_ge
+      // so operator-overloaded types (e.g. a class defining `<`) dispatch to
+      // their `__op_lt__`-style method instead of raw JS comparison (#205).
+      case "less_than":    return `__ball_lt(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "greater_than": return `__ball_gt(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "lte":          return `__ball_le(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
+      case "gte":          return `__ball_ge(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
       // Logical
       case "and":          return bin("&&");
       case "or":           return bin("||");
@@ -5870,6 +5873,12 @@ const KNOWN_PATTERN_KINDS = new Set([
   "ConstPattern", "VarPattern", "var", "WildcardPattern", "wildcard", "_",
   "ListPattern", "RestPattern", "rest", "record", "RecordPattern",
   "LogicalOrPattern", "CastPattern", "NullCheckPattern", "NullAssertPattern",
+  // MapPattern/LogicalAndPattern/ObjectPattern/RelationalPattern were missing
+  // (#206, #207) — every pattern kind the encoder can emit (see
+  // dart/encoder/lib/encoder.dart's `_encodePattern`) must be listed here, or
+  // it falls to the legacy cosmetic-text parser, which cannot round-trip
+  // `final`-bound entries and other structured shapes.
+  "MapPattern", "LogicalAndPattern", "ObjectPattern", "RelationalPattern",
 ]);
 
 /** Generate a JS type-check condition for a Dart type name against `subject`.
@@ -5959,6 +5968,102 @@ function compileStructuredPattern(
         }
       }
       return undefined;
+    }
+    case "LogicalAndPattern": {
+      // `p1 && p2` matches only if BOTH alternatives match against the SAME
+      // subject (Dart's guard-combinator syntax, e.g. `int n && > 0`). Mirrors
+      // LogicalOrPattern but ANDs the conditions instead of ORing them; bindings
+      // from both sides are unioned (in practice the right operand of a
+      // relational combinator binds nothing). Falls through (undefined) if
+      // either operand isn't structured.
+      const left = fields.get("left");
+      const right = fields.get("right");
+      if (left && right) {
+        const lr = compileStructuredPattern(left, subject, exprFn);
+        const rr = compileStructuredPattern(right, subject, exprFn);
+        if (lr && rr) {
+          return {
+            condition: `(${lr.condition} && ${rr.condition})`,
+            bindings: [...lr.bindings, ...rr.bindings],
+          };
+        }
+      }
+      return undefined;
+    }
+    case "RelationalPattern": {
+      // `== x` / `!= x` / `> x` / `< x` / `>= x` / `<= x` as a standalone
+      // (or LogicalAndPattern-combined) pattern. Numeric comparisons require
+      // BOTH the subject and operand to be `num` (mirrors engine_std.dart's
+      // `_matchRelationalPattern`) — a non-numeric subject simply fails to
+      // match rather than throwing.
+      const op = fields.get("operator")?.literal?.stringValue;
+      const operandExpr = fields.get("operand");
+      if (!op || !operandExpr) return { condition: "true", bindings: [] };
+      const operandStr = exprFn(operandExpr);
+      if (op === "==") return { condition: `__ball_eq(${subject}, ${operandStr})`, bindings: [] };
+      if (op === "!=") return { condition: `(!__ball_eq(${subject}, ${operandStr}))`, bindings: [] };
+      const isNum = (v: string) => `(typeof (${v}) === 'number' || (${v}) instanceof BallDouble)`;
+      const numVal = (v: string) => `((${v}) instanceof BallDouble ? (${v}).value : (${v}))`;
+      return {
+        condition: `(${isNum(subject)} && ${isNum(operandStr)} && (${numVal(subject)} ${op} ${numVal(operandStr)}))`,
+        bindings: [],
+      };
+    }
+    case "MapPattern": {
+      // `{'key': subpattern, ...}`. Ball maps compile to a plain JS object for
+      // the common `map_create` path (bracket access, e.g. `{'k': 7}`) but to a
+      // native `Map` for the `typed_map` path (`<K,V>{}` / `Map()`) — both
+      // representations must match. A Ball Set compiles to a native `Set`
+      // (set_create), which IS `typeof 'object'` and not an array, so it must
+      // be explicitly excluded (issue #178's "MapPattern must exclude Set").
+      // Extra keys beyond the ones listed are fine (unlike RecordPattern's
+      // exact-arity rule) — mirrors engine_std.dart's 'map' case.
+      const entries = fields.get("entries")?.literal?.listValue?.elements ?? [];
+      const conds: string[] = [
+        `(typeof ${subject} === 'object' && ${subject} !== null && !Array.isArray(${subject}) && !(${subject} instanceof Set))`,
+      ];
+      const binds: Array<{ varName: string; expr: string }> = [];
+      for (const entry of entries) {
+        const ef = mcFields(entry);
+        const keyExpr = ef.get("key");
+        const valuePattern = ef.get("value");
+        if (!keyExpr) continue;
+        const keyStr = exprFn(keyExpr);
+        conds.push(`(${subject} instanceof Map ? ${subject}.has(${keyStr}) : (${keyStr} in ${subject}))`);
+        if (valuePattern) {
+          const valueExpr = `(${subject} instanceof Map ? ${subject}.get(${keyStr}) : ${subject}[${keyStr}])`;
+          const sub = compileStructuredPattern(valuePattern, valueExpr, exprFn);
+          if (sub) {
+            if (sub.condition !== "true") conds.push(sub.condition);
+            binds.push(...sub.bindings);
+          }
+        }
+      }
+      return { condition: conds.join(" && "), bindings: binds };
+    }
+    case "ObjectPattern": {
+      // `Type(field: subpattern, ...)` matches by TYPE (reusing the same
+      // instanceof/`__type__` gate CastPattern relies on via typeCheckCondition)
+      // plus each named field's GETTER against its sub-pattern — field access,
+      // not positional arity (mirrors engine_std.dart's 'object' case, which
+      // reads `objMap[fieldName]` rather than requiring an exact key set).
+      const typeName = fields.get("type")?.literal?.stringValue;
+      const objFields = fields.get("fields")?.literal?.listValue?.elements ?? [];
+      const conds: string[] = [];
+      if (typeName) conds.push(typeCheckCondition(typeName, subject));
+      const binds: Array<{ varName: string; expr: string }> = [];
+      for (const of_ of objFields) {
+        const ofFields = mcFields(of_);
+        const fieldName = ofFields.get("name")?.literal?.stringValue;
+        const fieldPattern = ofFields.get("pattern");
+        if (!fieldName || !fieldPattern) continue;
+        const sub = compileStructuredPattern(fieldPattern, `${subject}.${fieldName}`, exprFn);
+        if (sub) {
+          if (sub.condition !== "true") conds.push(sub.condition);
+          binds.push(...sub.bindings);
+        }
+      }
+      return { condition: conds.length > 0 ? conds.join(" && ") : "true", bindings: binds };
     }
     case "CastPattern": {
       // A cast pattern (subpat as T) ASSERTS the runtime type — it matches

@@ -1,3 +1,10 @@
+## [1.5.9](https://github.com/Ball-Lang/ball/compare/v1.5.8...v1.5.9) (2026-07-04)
+
+
+### Bug Fixes
+
+* **ts-compiler:** inline class construction as a call argument ([#213](https://github.com/Ball-Lang/ball/issues/213)) ([#217](https://github.com/Ball-Lang/ball/issues/217)) ([4829c30](https://github.com/Ball-Lang/ball/commit/4829c307dd68bdeb98c952590c88ff96143e55df))
+
 ## [1.5.8](https://github.com/Ball-Lang/ball/compare/v1.5.7...v1.5.8) (2026-07-04)
 
 

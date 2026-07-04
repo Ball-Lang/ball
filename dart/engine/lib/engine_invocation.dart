@@ -458,6 +458,16 @@ extension BallEngineInvocation on BallEngine {
           instance[p] = val;
         }
       }
+      // Preserve ALL explicitly-supplied fields (named, non-positional), not
+      // just this.-params — mirroring the messageCreation constructor path
+      // (engine_eval.dart) and the typeDef-based _callObjectConstructor. Without
+      // this a typeDef-LESS constructor silently dropped any explicitly-passed
+      // field that wasn't a this.-param (issue #198). Explicit values take
+      // precedence over defaults; the `__`-prefix filter below strips metadata.
+      for (final entry in inputMap.entries) {
+        if (entry.key.startsWith('arg')) continue;
+        instance[entry.key] = entry.value;
+      }
     } else if (params.length == 1) {
       resolvedParams[params[0]] = input;
       final isThis = paramsMeta.isNotEmpty && paramsMeta[0]['is_this'] == true;

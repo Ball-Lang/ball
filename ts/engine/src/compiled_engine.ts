@@ -2213,6 +2213,12 @@ export class BallEngine {
           instance[p] = val;
         }
       }
+      for (const entry of inputMap.entries) {
+        if (entry.key.startsWith('arg')) {
+          continue;
+        }
+        instance[entry.key] = entry.value;
+      }
     } else {
       if (__ball_eq(params.length, 1)) {
         resolvedParams[__ball_index(params, 0)] = input;

@@ -1,3 +1,10 @@
+## [1.5.8](https://github.com/Ball-Lang/ball/compare/v1.5.7...v1.5.8) (2026-07-04)
+
+
+### Bug Fixes
+
+* **engine:** typeDef-less constructor must preserve explicit non-this fields ([#198](https://github.com/Ball-Lang/ball/issues/198)) ([#216](https://github.com/Ball-Lang/ball/issues/216)) ([4cf4747](https://github.com/Ball-Lang/ball/commit/4cf4747e5792771362071e4880a4fff8f124efc1))
+
 ## [1.5.7](https://github.com/Ball-Lang/ball/compare/v1.5.6...v1.5.7) (2026-07-04)
 
 

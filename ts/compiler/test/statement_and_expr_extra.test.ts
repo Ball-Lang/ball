@@ -204,4 +204,93 @@ describe("compiler — control-flow text fallbacks", () => {
     const ts = compile(mainProgram({ block: { statements: [{ expression: labeled }] } }), { includePreamble: false });
     assert.match(ts, /outer:/);
   });
+
+  test("a for-loop init encoded as a bare cosmetic string (pre-`variable`/`start` convention) is translated to `let`", () => {
+    // emitForStmt supports three init shapes: the current `variable`/`start`
+    // fields, a `block`-wrapped LetBinding, and this older cosmetic-string
+    // fallback (translateInitString) — `"var i = 0"` -> `"let i = 0"`.
+    const forStmt: Expression = {
+      call: {
+        module: "std",
+        function: "for",
+        input: mc({
+          init: lit("var i = 0"),
+          condition: { lambda: { body: std("less_than", { left: ref("i"), right: lit(3) }) } },
+          update: { lambda: { body: std("post_increment", { value: ref("i") }) } },
+          body: {
+            lambda: {
+              body: std("print", {
+                message: { call: { module: "std", function: "to_string", input: mc({ value: ref("i") }) } },
+              }),
+            },
+          },
+        }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ expression: forStmt }] } }), { includePreamble: false });
+    assert.match(ts, /for \(let i = 0; /, "the cosmetic `var i = 0` string is translated to a `let` declaration");
+  });
+});
+
+describe("compiler — reified generic type args on class construction (typeRefMetaToString/wrapWithTypeArgs)", () => {
+  test("a messageCreation with metadata.type_args wraps the constructor call in __ball_with_type_args", () => {
+    // wrapWithTypeArgs is a no-op (returns `expr` unchanged) when type_args is
+    // absent/empty — that branch is already covered elsewhere. This exercises
+    // the non-trivial branch: type_args present -> typeRefMetaToString stringifies
+    // each TypeRef ({name, type_args?, nullable?}) and the call gets wrapped.
+    const program: Program = {
+      name: "type_args_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main:Box.new",
+              outputType: "main:Box",
+              metadata: { kind: "constructor", params: [{ name: "value", is_this: true }] },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      let: {
+                        name: "b",
+                        value: {
+                          messageCreation: {
+                            typeName: "main:Box",
+                            fields: [{ name: "arg0", value: lit(5) }],
+                            metadata: { type_args: [{ name: "int" }] },
+                          },
+                        },
+                        metadata: { keyword: "final", type: "Box" },
+                      },
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [
+            {
+              name: "main:Box",
+              descriptor: {
+                name: "main:Box",
+                field: [{ name: "value", number: 1, label: "LABEL_OPTIONAL", type: "TYPE_INT64" }],
+              },
+              metadata: { kind: "class", fields: [{ name: "value", type: "int" }] },
+            },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /__ball_with_type_args\(new Box\(5\), \["int"\]\)/);
+  });
 });

@@ -611,3 +611,169 @@ describe("compiler — ObjectPattern (audit-discovered gap, #207)", () => {
     }
   });
 });
+
+// ── Legacy cosmetic-TEXT pattern fallback (patternLiteralText/
+// parseTypeTestPattern/parseMapPattern/patternBindings/patternToTsCondition/
+// splitTopLevel). Before #206/#207, 237_map_pattern_switch and
+// 239_switch_expr_relational were this fallback's ONLY real-fixture callers
+// (their pattern_expr kinds — MapPattern, RelationalPattern — fell out of
+// KNOWN_PATTERN_KINDS into the text parser). Now that those kinds are
+// structured, both fixtures route through compileStructuredPattern instead,
+// which orphaned the text-fallback functions from any test. This direct-IR
+// test exercises a case with a cosmetic `pattern` string and NO `pattern_expr`
+// field at all — the shape the text fallback exists for (older/hand-authored
+// Ball JSON without structured pattern_expr nodes) — so the fallback stays a
+// tested, working code path in its own right. ──
+
+describe("compiler — legacy cosmetic-text pattern fallback (no pattern_expr field)", () => {
+  test("a switch STATEMENT with only cosmetic `pattern` strings dispatches via the text parser", () => {
+    const textCase = (patternText: string, body: Expression): Expression => ({
+      messageCreation: {
+        fields: [
+          { name: "pattern", value: { literal: { stringValue: patternText } } },
+          { name: "body", value: body },
+        ],
+      },
+    });
+    const returnValue = (v: Expression): Expression => ({
+      call: { module: "std", function: "return", input: { messageCreation: { fields: [{ name: "value", value: v }] } } },
+    });
+    const concatOf = (left: Expression, right: Expression): Expression => ({
+      call: { module: "std", function: "concat", input: { messageCreation: { fields: [{ name: "left", value: left }, { name: "right", value: right }] } } },
+    });
+    const toStringOf = (v: Expression): Expression => ({
+      call: { module: "std", function: "to_string", input: { messageCreation: { fields: [{ name: "value", value: v }] } } },
+    });
+    const strLit = (s: string): Expression => ({ literal: { stringValue: s } });
+    const printClassifyOf = (arg: Expression) => ({
+      expression: {
+        call: {
+          module: "std",
+          function: "print",
+          input: {
+            messageCreation: {
+              typeName: "PrintInput",
+              fields: [{ name: "message", value: { call: { function: "classify", input: arg } } }],
+            },
+          },
+        },
+      },
+    });
+
+    const program: Program = {
+      name: "legacy_text_pattern_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "std",
+          functions: [
+            { name: "switch", isBase: true },
+            { name: "return", isBase: true },
+            { name: "concat", isBase: true },
+            { name: "to_string", isBase: true },
+            { name: "print", isBase: true },
+          ] as FunctionDef[],
+        },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "classify",
+              inputType: "Object",
+              outputType: "String",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      expression: {
+                        call: {
+                          module: "std",
+                          function: "switch",
+                          input: {
+                            messageCreation: {
+                              fields: [
+                                { name: "subject", value: { reference: { name: "obj" } } },
+                                {
+                                  name: "cases",
+                                  value: {
+                                    literal: {
+                                      listValue: {
+                                        elements: [
+                                          // parseTypeTestPattern + patternBindings' type-test branch.
+                                          textCase("int n", returnValue(concatOf(strLit("int:"), toStringOf({ reference: { name: "n" } })))),
+                                          // parseMapPattern (var-bound) + patternBindings' map branch.
+                                          textCase("{'x': var v}", returnValue(concatOf(strLit("map:"), toStringOf({ reference: { name: "v" } })))),
+                                          // patternToTsCondition's `||` branch -> splitTopLevel.
+                                          textCase("'a' || 'b'", returnValue(strLit("or:matched"))),
+                                          textCase("_", returnValue(strLit("other"))),
+                                        ],
+                                      },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function", params: [{ name: "obj", type: "Object" }] },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    // The map literal is built via an intermediate `let` (matching
+                    // every real fixture's convention), not inline in the call's
+                    // input — inline construction as a call argument hits a
+                    // SEPARATE, pre-existing compiler bug (#213) where a
+                    // single-field messageCreation gets unwrapped to just that
+                    // field's value instead of the `{'x': 99}` object literal.
+                    {
+                      let: {
+                        name: "m",
+                        value: { messageCreation: { fields: [{ name: "x", value: { literal: { intValue: "99" } } }] } },
+                        metadata: { keyword: "final", type: "Object" },
+                      },
+                    },
+                    printClassifyOf({ literal: { intValue: "42" } }),
+                    printClassifyOf({ reference: { name: "m" } }),
+                    printClassifyOf({ literal: { stringValue: "a" } }),
+                    printClassifyOf({ literal: { boolValue: true } }),
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          moduleImports: [{ name: "std" }],
+        },
+      ],
+    };
+
+    const ts = compile(program);
+    const tmpPath = join(tmpdir(), `ball_legacy_text_pattern_${process.pid}.ts`);
+    writeFileSync(tmpPath, ts);
+    try {
+      let stdout: string;
+      try {
+        stdout = execSync(`node --experimental-strip-types "${tmpPath}"`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (e: any) {
+        throw new Error(`Node failed:\nstderr:\n${e.stderr}\n\nTS:\n${ts}`);
+      }
+      const norm = (s: string) => s.replace(/\r\n/g, "\n").trimEnd();
+      assert.equal(norm(stdout), "int:42\nmap:99\nor:matched\nother");
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  });
+});

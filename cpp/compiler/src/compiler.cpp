@@ -2822,7 +2822,12 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
 
         std::vector<std::string> conds;
         std::vector<std::pair<std::string, std::string>> binds;
-        conds.push_back("ball_is_map_dyn(BallDyn(" + subject + "))");
+        // A portable Ball Set is `{'__ball_set__': [...]}` — a real
+        // BallOrderedMap with one key — so it passes ball_is_map_dyn. Exclude it
+        // (as every other ball_is_map_dyn call site does) so a MapPattern such as
+        // `case {}:` does not spuriously match a Set value (issue #178).
+        conds.push_back("(ball_is_map_dyn(BallDyn(" + subject +
+                        ")) && !ball_is_ball_set(BallDyn(" + subject + ")))");
 
         for (auto* entry : entries) {
             std::string key = _patternStringField(*entry, "key");

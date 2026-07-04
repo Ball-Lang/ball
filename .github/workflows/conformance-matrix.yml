@@ -183,6 +183,59 @@ jobs:
       total: ${{ steps.conformance.outputs.total }}
 
   # ──────────────────────────────────────────────────
+  # TS compiled (direct): Ball → TS compiler → node, per fixture (#210)
+  # ──────────────────────────────────────────────────
+  ts-compiled-direct:
+    name: TS Compiled (Direct)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/compiler/package-lock.json
+
+      - name: Install dependencies
+        run: cd ts/compiler && npm ci
+
+      - name: Build
+        run: cd ts/compiler && npm run build
+
+      - name: Run TS compiler e2e conformance
+        id: conformance
+        run: |
+          cd ts/compiler
+          set +e
+          output=$(node --experimental-strip-types test/full_e2e.ts 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse "Results: N passed, M failed, T total" line (N/M/T exclude
+          # the fixed-size carve-out list; a carve-out that starts passing or
+          # a non-carved-out regression both make full_e2e.ts exit non-zero).
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+
+          echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
+          echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== TS Compiled (Direct) ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+
+          exit $exit_code
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  # ──────────────────────────────────────────────────
   # C++ compiled engine (Ball → C++ → g++ → run)
   # ──────────────────────────────────────────────────
   cpp-compiled:
@@ -300,7 +353,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, cpp-compiled]
+    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled]
     steps:
       - name: Print conformance matrix
         run: |
@@ -336,6 +389,12 @@ jobs:
             "${{ needs.ts-compiled-engine.outputs.total }}" \
             "${{ needs.ts-compiled-engine.result }}"
 
+          print_row "TS Compiled (Direct)" \
+            "${{ needs.ts-compiled-direct.outputs.passed }}" \
+            "${{ needs.ts-compiled-direct.outputs.failed }}" \
+            "${{ needs.ts-compiled-direct.outputs.total }}" \
+            "${{ needs.ts-compiled-direct.result }}"
+
           print_row "C++ Compiled" \
             "${{ needs.cpp-compiled.outputs.passed }}" \
             "${{ needs.cpp-compiled.outputs.failed }}" \
@@ -348,6 +407,7 @@ jobs:
           if [ "${{ needs.dart-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-compiled-engine.result }}" != "success" ] || \
+             [ "${{ needs.ts-compiled-direct.result }}" != "success" ] || \
              [ "${{ needs.cpp-compiled.result }}" != "success" ]; then
             echo ""
             echo "One or more engines failed conformance. See individual job logs above."

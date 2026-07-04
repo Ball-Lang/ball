@@ -1347,7 +1347,7 @@ public:
         return *this;
     }
 
-    // BallGenerator.values / protobuf ListValue.values — access the values list.
+    // BallGenerator.values / protobuf ListValue.values / Map.values.
     BallDyn values() const {
         // BallGenerator: return a copy of the accumulated values list.
         if (_val.type() == typeid(BallGenerator)) {
@@ -1358,7 +1358,28 @@ public:
         if (v.has_value()) return v;
         // If this IS a list, return self.
         if (_isList()) return *this;
-        return BallDyn();
+        // A real Map (but NOT a portable Set, which is the one-key
+        // `{'__ball_set__': [...]}` marker map) — return its values in insertion
+        // order. Previously this fell through to `return BallDyn()`, so
+        // `m.values.toList()` on a real Map yielded null instead of the values
+        // list (issue #202). Inlined rather than calling ball_map_values (which
+        // is declared later in this header).
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
+            if (_setBackingList() == nullptr) {
+                std::vector<std::any> r;
+                for (const auto& [k, val] : omp->entries_) r.push_back(val);
+                return BallDyn(BallList(r));
+            }
+        } else if (_val.type() == typeid(BallMap)) {
+            std::vector<std::any> r;
+            for (const auto& [k, val] : std::any_cast<const BallMap&>(_val))
+                r.push_back(val);
+            return BallDyn(BallList(r));
+        }
+        // Non-Map, non-list, non-generator receiver (a Set, null, or a scalar):
+        // `.values` is invalid — fail loud instead of silently returning null
+        // (issue #202, mirroring the `.keys`/ball_map_keys fix in #197).
+        throw BallException("TypeError", "Cannot access .values on a non-Map");
     }
 
     bool has(const BallDyn& key) const;

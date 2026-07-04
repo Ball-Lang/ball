@@ -82,19 +82,6 @@ export class BallCompiler {
   /** All function names in the entry module (function vs ctor routing). */
   private allFunctionNames: Set<string> = new Set();
 
-  /**
-   * Declared parameter count for every user function/method, keyed by both
-   * its full name and short name (mirrors allFunctionNames/
-   * currentClassMethodNames' dual keying). Used by compileCall to tell a
-   * genuinely multi-parameter Ball function (whose single Ball input is a
-   * synthesized wrapper message, unwrapped to positional JS args) apart from
-   * a single-parameter function whose one argument just happens to BE a
-   * messageCreation (a class instance or plain map/record literal
-   * constructed inline) — the latter must compile as ONE value, not get its
-   * fields flattened into positional args (#213).
-   */
-  private functionParamCountByName: Map<string, number> = new Map();
-
   /** typeDefs in the entry module (typeName → definition). */
   private typeDefByName: Map<string, TypeDefinition> = new Map();
 
@@ -179,15 +166,6 @@ export class BallCompiler {
         (m.typeDefs ?? []).map((td) => [td.name, td] as [string, TypeDefinition]),
       ),
     );
-    this.functionParamCountByName = new Map();
-    for (const mod of userModules) {
-      for (const f of mod.functions ?? []) {
-        if (f.isBase) continue;
-        const count = extractParams(f).length;
-        this.functionParamCountByName.set(f.name, count);
-        this.functionParamCountByName.set(memberShortName(f.name), count);
-      }
-    }
 
     // Group functions by their enclosing class (if any) — matches the
     // `<typeDef.name>.<member>` naming convention from the encoder.
@@ -4226,23 +4204,34 @@ function __isUnknownFnError(e: any): boolean {
           ? `${selfStr}.${fn}()`
           : `${selfStr}.${fn}(${otherArgs})`;
       }
-      // A callee KNOWN to take exactly one parameter receives `input` as a
-      // single value even when it's a messageCreation — a class instance or
-      // plain map/record literal constructed inline as the call argument
-      // (e.g. `classify(Pt(3, 4))`, `classify({'x': 99})`). Ball's one-input
-      // model only synthesizes a multi-field WRAPPER message (unwrapped to
-      // positional JS args below) for genuinely multi-parameter functions; a
-      // single-parameter function's messageCreation argument is always the
-      // real value, never such a wrapper (#213). When the callee's arity is
-      // UNKNOWN (not a user Ball function we have metadata for — a `self`-
-      // field shim already returned above, so this is some other dynamic/
-      // unrecognized call), keep the pre-existing flatten-to-positional-args
-      // behavior rather than guessing.
-      const paramCount = this.functionParamCountByName.get(call.function);
-      if (paramCount !== 1) {
-        const args = fields.filter((f) => f.name !== "__type_args__" && f.name !== "__const__").map((f) => this.expr(f.value)).join(", ");
-        return `${awaitPfx}${thisPrefix}${fn}(${args})`;
+      // A messageCreation with a REAL typeName is always a genuine value (a
+      // class instance), never a synthesized call-argument wrapper — Dart's
+      // encoder (_setCallInput) unwraps a single positional argument to a
+      // bare value with NO wrapper at all, so `input` IS directly that
+      // construction's own messageCreation when the sole argument is e.g.
+      // `Pt(3, 4)` (#213: this used to get its arg0/arg1 constructor fields
+      // wrongly flattened into positional JS args instead of `new Pt(3, 4)`
+      // being recognized). Compile it as ONE value.
+      if (input.messageCreation.typeName) {
+        return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
       }
+      // Otherwise this messageCreation is ALWAYS a synthesized call-argument
+      // wrapper (never a bare map/record/set literal — those always route
+      // through std.map_create/set_create/record, not a bare
+      // messageCreation), regardless of field count or naming: Ball's
+      // one-input model bundles every argument (including a lone one) into
+      // one struct, and both encoders wrap this way for 2+ arguments; the TS
+      // encoder (encodeCall) additionally wraps even a SINGLE argument as
+      // `{fields: [{name: "arg0", value: <arg>}]}` (e.g. `fib(n - 1)` was
+      // wrongly becoming `fib({'arg0': n - 1})` here before this fix).
+      // Flattening a single field naturally unwraps it to just its value
+      // (a 1-element join), so this one rule covers both arities and both
+      // encoders' single-argument conventions uniformly.
+      const args = fields
+        .filter((f) => f.name !== "__type_args__" && f.name !== "__const__")
+        .map((f) => this.expr(f.value))
+        .join(", ");
+      return `${awaitPfx}${thisPrefix}${fn}(${args})`;
     }
     return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
   }

@@ -321,17 +321,30 @@ describe("compiler — reified generic type args on class construction (typeRefM
 });
 
 describe("compiler — inline construction as a call argument (#213)", () => {
-  // compileCall's messageCreation-input handling (~4203-4243) used to ALWAYS
-  // flatten a messageCreation argument's fields into positional JS call
-  // arguments, regardless of the callee's declared arity. That's correct for
-  // a genuinely multi-parameter Ball function (whose single Ball input is a
-  // synthesized wrapper message), but wrong for a single-parameter function
-  // whose one argument just happens to BE a messageCreation — a class
-  // instance or plain map/record literal constructed INLINE as the call's
-  // argument (no intermediate `let`). Fixed by looking up the callee's
-  // declared parameter count (functionParamCountByName) and, for a
-  // single-parameter callee, compiling the whole messageCreation as ONE
-  // value instead of flattening it.
+  // compileCall's messageCreation-input handling used to ALWAYS flatten a
+  // messageCreation argument's fields into positional JS call arguments.
+  // That's correct for the universal synthesized-wrapper shape both
+  // encoders use (Ball's one-input model bundles every argument into one
+  // struct; `map/set/record` literals always route through their own
+  // std.map_create/set_create/record CALLS, never a bare messageCreation
+  // with real keys), EXCEPT when the messageCreation's `typeName` is set --
+  // that always means a genuine class instance value (never a synthesized
+  // wrapper, since a wrapper is always anonymous), which Dart's encoder
+  // emits BARE (unwrapped) as a single positional argument's entire input
+  // (`_setCallInput`). Fixed by checking `typeName` first: non-empty ->
+  // compile as ONE value; empty -> always flatten (unchanged from before),
+  // which also correctly unwraps a lone `arg0` field (a 1-element flatten
+  // is just that element) -- the shape the TS encoder's `encodeCall`
+  // ALWAYS produces, even for a single scalar/expression argument.
+  //
+  // An earlier version of this fix instead kept ANY single non-"arg0"-named
+  // field as an object outright (assuming a bare Dart map/record literal
+  // could produce that shape) -- but map/record/set literals never do, and
+  // this broke a REAL case: a Dart single NAMED argument (`foo(bar: 5)`)
+  // wraps as `{fields: [{name: "bar", value: 5}]}` and must ALSO flatten to
+  // just `5`, not stay as `{bar: 5}`. Caught by the full ts/compiler suite
+  // (dart/self_host/engine.ball.json silently produced empty output) and
+  // ts/encoder's round-trip suite before pushing.
 
   const concatOf = (left: Expression, right: Expression): Expression => std("concat", { left, right });
   const toStringOf = (v: Expression): Expression => ({ call: { module: "std", function: "to_string", input: mc({ value: v }) } });
@@ -410,11 +423,17 @@ describe("compiler — inline construction as a call argument (#213)", () => {
     assert.equal(compileAndRun(program, "inline_ctor"), "x=3,y=4");
   });
 
-  test("a plain map literal constructed inline as a call argument (single-field messageCreation)", () => {
-    // Before the fix: `describe({'x': 99})` compiled to `describe(99)` (the
-    // single field's VALUE, unwrapped, dropping the 'x' key entirely) instead
-    // of `describe({'x': 99})`.
-    const describeBody: Expression = concatOf(lit("x="), toStringOf({ fieldAccess: { object: ref("m"), field: "x" } }));
+  test("a lone `arg0`-wrapped scalar argument unwraps to its value, not an object (TS encoder's single-argument convention)", () => {
+    // The TS encoder (ts/encoder/src/encoder.ts's encodeCall) wraps EVERY
+    // call argument as `{fields: [{name: "arg0", value: <arg>}, ...]}`, even
+    // a single scalar/expression argument. Before this fix this was fine
+    // (unconditional flatten); the REGRESSION this test guards against is a
+    // fix that special-cases "keep as object" too broadly and stops
+    // unwrapping this shape -- e.g. `fib(n - 1)` silently became
+    // `fib({'arg0': n - 1})`, corrupting every recursive/nested call (was
+    // caught via ts/encoder's round-trip suite: fibonacci recursion overflowed
+    // the call stack since `{arg0: n-1} <= 1` is always false).
+    const doubleBody: Expression = std("multiply", { left: ref("n"), right: lit(2) });
     const program: Program = mainProgram(
       {
         block: {
@@ -423,8 +442,16 @@ describe("compiler — inline construction as a call argument (#213)", () => {
               expression: std("print", {
                 message: {
                   call: {
-                    function: "describe",
-                    input: { messageCreation: { fields: [{ name: "x", value: lit(99) }] } },
+                    function: "to_string",
+                    module: "std",
+                    input: mc({
+                      value: {
+                        call: {
+                          function: "double_",
+                          input: { messageCreation: { fields: [{ name: "arg0", value: lit(21) }] } },
+                        },
+                      },
+                    }),
                   },
                 },
               }),
@@ -434,22 +461,69 @@ describe("compiler — inline construction as a call argument (#213)", () => {
       },
       [
         {
-          name: "describe",
-          inputType: "Object",
-          outputType: "String",
-          body: describeBody,
-          metadata: { kind: "function", params: [{ name: "m", type: "Object" }] },
+          name: "double_",
+          inputType: "int",
+          outputType: "int",
+          body: doubleBody,
+          metadata: { kind: "function", params: [{ name: "n", type: "int" }] },
         },
       ],
     );
-    // std needs concat/to_string for describeBody's body (mainProgram only
-    // declares print by default).
     (program.modules[0].functions as FunctionDef[]).push(
-      { name: "concat", isBase: true },
+      { name: "multiply", isBase: true },
       { name: "to_string", isBase: true },
     );
     const ts = compile(program, { includePreamble: false });
-    assert.match(ts, /describe\(\{ ?'x': 99 ?\}\)/, "the inline {'x': 99} stays a real object literal, not unwrapped to just 99");
-    assert.equal(compileAndRun(program, "inline_map"), "x=99");
+    assert.match(ts, /double_\(21\)/, "the arg0-wrapped scalar unwraps to a bare `21`, not `{'arg0': 21}`");
+    assert.equal(compileAndRun(program, "inline_arg0"), "42");
+  });
+
+  test("a Dart single NAMED argument unwraps to its value too (not kept as an object)", () => {
+    // Dart's encoder (_encodeArgList/_setCallInput) uses the argument's real
+    // name for a NAMED argument (`foo(bar: 5)` -> field "bar", not "arg0")
+    // and, since the field name doesn't start with "arg", wraps it in a
+    // messageCreation rather than unwrapping bare. This is STILL a
+    // synthesized single-argument wrapper (typeName empty) and must flatten
+    // to the raw value `5`, not stay as `{'bar': 5}` -- this is exactly the
+    // shape an earlier version of the #213 fix mishandled.
+    const program: Program = mainProgram(
+      {
+        block: {
+          statements: [
+            {
+              expression: std("print", {
+                message: {
+                  call: {
+                    function: "to_string",
+                    module: "std",
+                    input: mc({
+                      value: {
+                        call: {
+                          function: "identity_",
+                          input: { messageCreation: { fields: [{ name: "bar", value: lit(5) }] } },
+                        },
+                      },
+                    }),
+                  },
+                },
+              }),
+            },
+          ],
+        },
+      },
+      [
+        {
+          name: "identity_",
+          inputType: "int",
+          outputType: "int",
+          body: ref("bar"),
+          metadata: { kind: "function", params: [{ name: "bar", type: "int" }] },
+        },
+      ],
+    );
+    (program.modules[0].functions as FunctionDef[]).push({ name: "to_string", isBase: true });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /identity_\(5\)/, "the single named-argument wrapper unwraps to a bare `5`, not `{'bar': 5}`");
+    assert.equal(compileAndRun(program, "inline_named_arg"), "5");
   });
 });

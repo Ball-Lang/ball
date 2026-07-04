@@ -75,6 +75,13 @@ const PATTERN_FIXTURES = [
   "305_record_patterns",
   // Nullable VarPattern/WildcardPattern types (`int?`, `double? _`).
   "306_nullable_type_patterns",
+  // MapPattern (var-bound entries): "MapPattern" is NOT in
+  // KNOWN_PATTERN_KINDS, so this exercises the legacy TEXT-based pattern
+  // fallback (parseMapPattern/patternToTsCondition) — which works correctly
+  // for `var`-bound entries. See the coverage report for the `final`-bound
+  // variant that is NOT correctly handled (a confirmed bug, not exercised
+  // here on purpose).
+  "237_map_pattern_switch",
 ];
 
 describe("compiler — structured pattern matching (real fixtures, native codegen)", () => {

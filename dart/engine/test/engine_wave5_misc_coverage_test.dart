@@ -733,6 +733,62 @@ void main() {
       expect(await runAndCapture(p), ['5']);
     });
 
+    test('bodyless ctor preserves explicit non-this fields (#198)', () async {
+      // A BODYLESS constructor routes through _buildConstructorInstance (not
+      // _callObjectConstructor). A field explicitly supplied in the call that is
+      // NOT a this.-param (`extra`) must be preserved on the instance, matching
+      // the messageCreation and typeDef-based constructor paths. Before the fix
+      // only this.-params were kept, so `extra` was silently dropped and reading
+      // it back failed. Not reachable via the encoder (Dart source can't pass a
+      // field that isn't a constructor param), so covered as a direct-IR test.
+      final p = program(
+        std: ['print', 'to_string'],
+        functions: [
+          {
+            'name': 'Foo.new',
+            'metadata': {
+              'kind': 'constructor',
+              'params': [
+                {'name': 'x', 'is_this': true},
+              ],
+            },
+            // No 'body' -> _buildConstructorInstance.
+          },
+          mainFn([
+            letStmt(
+              'o',
+              call(
+                'Foo',
+                input: msg([
+                  field('x', literal(5)),
+                  field('extra', literal(99)),
+                ]),
+              ),
+            ),
+            stmt(printToString(fieldAcc(ref('o'), 'x'))),
+            stmt(printToString(fieldAcc(ref('o'), 'extra'))),
+          ]),
+        ],
+        typeDefs: [
+          {
+            'name': 'main:Foo',
+            'descriptor': {
+              'name': 'Foo',
+              'field': [
+                {
+                  'name': 'x',
+                  'number': 1,
+                  'label': 'LABEL_OPTIONAL',
+                  'type': 'TYPE_INT64',
+                },
+              ],
+            },
+          },
+        ],
+      );
+      expect(await runAndCapture(p), ['5', '99']);
+    });
+
     test(
       'superclass without a constructor uses _buildSuperObject fallback',
       () async {

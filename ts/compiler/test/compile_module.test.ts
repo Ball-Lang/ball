@@ -157,4 +157,51 @@ describe("compileModule — facade with inline sub-modules", () => {
     const ts = compileModule(facade, { includePreamble: false });
     assert.match(ts, /export (?:async )?function ok\b/);
   });
+
+  test("dedup rename also rewrites a BARE reference to a colliding name (e.g. passed as a callback value)", () => {
+    // Both sub-modules define `helper`; module a's `usesHelperAsValue`
+    // references `helper` as a bare value (not a call) — e.g. passing it as
+    // a callback. The rename pass must rewrite this reference too, not just
+    // call sites.
+    const subA: Module = {
+      name: "a",
+      functions: [
+        { name: "helper", body: { literal: { intValue: 1 } } },
+        { name: "usesHelperAsValue", body: { reference: { name: "helper" } } },
+      ],
+    };
+    const subB: Module = {
+      name: "b",
+      functions: [{ name: "helper", body: { literal: { intValue: 2 } } }],
+    };
+    const facade: Module = {
+      name: "dup2",
+      functions: [],
+      moduleImports: [
+        { name: "a", inline: { json: JSON.stringify(subA) } },
+        { name: "b", inline: { json: JSON.stringify(subB) } },
+      ],
+    };
+    const ts = compileModule(facade, { includePreamble: false });
+    // usesHelperAsValue's body must reference the RENAMED symbol, not the
+    // stale/ambiguous bare "helper".
+    const fnMatch = /function usesHelperAsValue\(\)[^{]*\{([\s\S]*?)\n\}/.exec(ts);
+    assert.ok(fnMatch, "usesHelperAsValue function found");
+    assert.match(fnMatch![1], /_a__helper\b/);
+  });
+});
+
+describe("compileModule — facade with no non-base functions/typeDefs and no inline modules", () => {
+  test("treats the facade itself as the single module (the empty-facade fallback path)", () => {
+    // A facade whose only functions are ALL base (or none at all) and with
+    // no moduleImports: allModules stays empty after both population loops,
+    // so compileModule falls back to pushing the facade module itself.
+    const facade: Module = {
+      name: "allbase",
+      functions: [{ name: "noop", isBase: true }],
+    };
+    // Must not throw, and must produce a (trivially empty of user code) module.
+    const ts = compileModule(facade, { includePreamble: false });
+    assert.equal(typeof ts, "string");
+  });
 });

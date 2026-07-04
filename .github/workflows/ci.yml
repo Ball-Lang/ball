@@ -186,6 +186,16 @@ jobs:
       - name: Resolver tests
         run: cd dart/resolver && dart test
 
+      # dart/cli (depends on ball_compiler/ball_encoder/ball_engine/
+      # ball_resolver, tested above). `--exclude-tags network` excludes only
+      # the one test that hits the real pub.dev registry (ball_add's
+      # `resolve` integration test) — that stays a manual/local-only check so
+      # CI never depends on external network availability; every other CLI
+      # test (arg parsing, command dispatch, mock-registry resolution,
+      # local-file publish/init/add) runs here for real.
+      - name: CLI tests
+        run: cd dart/cli && dart test --exclude-tags network
+
       # engine_roundtrip.dart is a generated artifact (gitignored, like its
       # engine_rt.* siblings). Regenerate it from the live engine so the parity
       # test below has its import. Runs AFTER analyze/format so the generated

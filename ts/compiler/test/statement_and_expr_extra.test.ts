@@ -18,8 +18,33 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execSync } from "node:child_process";
 import { compile } from "../src/index.ts";
 import type { Expression, FunctionDef, Program } from "../src/index.ts";
+
+/** Compile `program`, run it with node, and return trimmed/newline-normalized stdout. */
+function compileAndRun(program: Program, tmpNameHint: string): string {
+  const ts = compile(program);
+  const tmpPath = join(tmpdir(), `ball_${tmpNameHint}_${process.pid}.ts`);
+  writeFileSync(tmpPath, ts);
+  try {
+    let stdout: string;
+    try {
+      stdout = execSync(`node --experimental-strip-types "${tmpPath}"`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (e: any) {
+      throw new Error(`Node failed:\nstderr:\n${e.stderr}\n\nTS:\n${ts}`);
+    }
+    return stdout.replace(/\r\n/g, "\n").trimEnd();
+  } finally {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+}
 
 const ref = (name: string): Expression => ({ reference: { name } });
 const lit = (v: string | number | boolean): Expression =>
@@ -292,5 +317,139 @@ describe("compiler — reified generic type args on class construction (typeRefM
     } as any;
     const ts = compile(program, { includePreamble: false });
     assert.match(ts, /__ball_with_type_args\(new Box\(5\), \["int"\]\)/);
+  });
+});
+
+describe("compiler — inline construction as a call argument (#213)", () => {
+  // compileCall's messageCreation-input handling (~4203-4243) used to ALWAYS
+  // flatten a messageCreation argument's fields into positional JS call
+  // arguments, regardless of the callee's declared arity. That's correct for
+  // a genuinely multi-parameter Ball function (whose single Ball input is a
+  // synthesized wrapper message), but wrong for a single-parameter function
+  // whose one argument just happens to BE a messageCreation — a class
+  // instance or plain map/record literal constructed INLINE as the call's
+  // argument (no intermediate `let`). Fixed by looking up the callee's
+  // declared parameter count (functionParamCountByName) and, for a
+  // single-parameter callee, compiling the whole messageCreation as ONE
+  // value instead of flattening it.
+
+  const concatOf = (left: Expression, right: Expression): Expression => std("concat", { left, right });
+  const toStringOf = (v: Expression): Expression => ({ call: { module: "std", function: "to_string", input: mc({ value: v }) } });
+
+  test("a class instance constructed inline as a call argument (multi-field messageCreation)", () => {
+    // Before the fix: `classify(Pt(3, 4))` compiled to `classify(3, 4)`
+    // (Pt's arg0/arg1 constructor fields flattened to positional JS args)
+    // instead of `classify(new Pt(3, 4))`.
+    const program: Program = {
+      name: "inline_ctor_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }, { name: "concat", isBase: true }, { name: "to_string", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main:Pt.new",
+              outputType: "main:Pt",
+              metadata: { kind: "constructor", params: [{ name: "x", is_this: true }, { name: "y", is_this: true }] },
+            },
+            {
+              name: "describe",
+              inputType: "main:Pt",
+              outputType: "String",
+              body: concatOf(
+                concatOf(
+                  concatOf(lit("x="), toStringOf({ fieldAccess: { object: ref("p"), field: "x" } })),
+                  lit(",y="),
+                ),
+                toStringOf({ fieldAccess: { object: ref("p"), field: "y" } }),
+              ),
+              metadata: { kind: "function", params: [{ name: "p", type: "Pt" }] },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      expression: std("print", {
+                        message: {
+                          call: {
+                            function: "describe",
+                            input: { messageCreation: { typeName: "main:Pt", fields: [{ name: "arg0", value: lit(3) }, { name: "arg1", value: lit(4) }] } },
+                          },
+                        },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [
+            {
+              name: "main:Pt",
+              descriptor: {
+                name: "main:Pt",
+                field: [
+                  { name: "x", number: 1, label: "LABEL_OPTIONAL", type: "TYPE_INT64" },
+                  { name: "y", number: 2, label: "LABEL_OPTIONAL", type: "TYPE_INT64" },
+                ],
+              },
+              metadata: { kind: "class", fields: [{ name: "x", type: "int" }, { name: "y", type: "int" }] },
+            },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /describe\(new Pt\(3, 4\)\)/, "the inline Pt(3, 4) constructs a real Pt instance, not flattened positional args");
+    assert.equal(compileAndRun(program, "inline_ctor"), "x=3,y=4");
+  });
+
+  test("a plain map literal constructed inline as a call argument (single-field messageCreation)", () => {
+    // Before the fix: `describe({'x': 99})` compiled to `describe(99)` (the
+    // single field's VALUE, unwrapped, dropping the 'x' key entirely) instead
+    // of `describe({'x': 99})`.
+    const describeBody: Expression = concatOf(lit("x="), toStringOf({ fieldAccess: { object: ref("m"), field: "x" } }));
+    const program: Program = mainProgram(
+      {
+        block: {
+          statements: [
+            {
+              expression: std("print", {
+                message: {
+                  call: {
+                    function: "describe",
+                    input: { messageCreation: { fields: [{ name: "x", value: lit(99) }] } },
+                  },
+                },
+              }),
+            },
+          ],
+        },
+      },
+      [
+        {
+          name: "describe",
+          inputType: "Object",
+          outputType: "String",
+          body: describeBody,
+          metadata: { kind: "function", params: [{ name: "m", type: "Object" }] },
+        },
+      ],
+    );
+    // std needs concat/to_string for describeBody's body (mainProgram only
+    // declares print by default).
+    (program.modules[0].functions as FunctionDef[]).push(
+      { name: "concat", isBase: true },
+      { name: "to_string", isBase: true },
+    );
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /describe\(\{ ?'x': 99 ?\}\)/, "the inline {'x': 99} stays a real object literal, not unwrapped to just 99");
+    assert.equal(compileAndRun(program, "inline_map"), "x=99");
   });
 });

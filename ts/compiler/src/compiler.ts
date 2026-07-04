@@ -4204,7 +4204,33 @@ function __isUnknownFnError(e: any): boolean {
           ? `${selfStr}.${fn}()`
           : `${selfStr}.${fn}(${otherArgs})`;
       }
-      const args = fields.filter((f) => f.name !== "__type_args__" && f.name !== "__const__").map((f) => this.expr(f.value)).join(", ");
+      // A messageCreation with a REAL typeName is always a genuine value (a
+      // class instance), never a synthesized call-argument wrapper — Dart's
+      // encoder (_setCallInput) unwraps a single positional argument to a
+      // bare value with NO wrapper at all, so `input` IS directly that
+      // construction's own messageCreation when the sole argument is e.g.
+      // `Pt(3, 4)` (#213: this used to get its arg0/arg1 constructor fields
+      // wrongly flattened into positional JS args instead of `new Pt(3, 4)`
+      // being recognized). Compile it as ONE value.
+      if (input.messageCreation.typeName) {
+        return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;
+      }
+      // Otherwise this messageCreation is ALWAYS a synthesized call-argument
+      // wrapper (never a bare map/record/set literal — those always route
+      // through std.map_create/set_create/record, not a bare
+      // messageCreation), regardless of field count or naming: Ball's
+      // one-input model bundles every argument (including a lone one) into
+      // one struct, and both encoders wrap this way for 2+ arguments; the TS
+      // encoder (encodeCall) additionally wraps even a SINGLE argument as
+      // `{fields: [{name: "arg0", value: <arg>}]}` (e.g. `fib(n - 1)` was
+      // wrongly becoming `fib({'arg0': n - 1})` here before this fix).
+      // Flattening a single field naturally unwraps it to just its value
+      // (a 1-element join), so this one rule covers both arities and both
+      // encoders' single-argument conventions uniformly.
+      const args = fields
+        .filter((f) => f.name !== "__type_args__" && f.name !== "__const__")
+        .map((f) => this.expr(f.value))
+        .join(", ");
       return `${awaitPfx}${thisPrefix}${fn}(${args})`;
     }
     return `${awaitPfx}${thisPrefix}${fn}(${this.expr(input)})`;

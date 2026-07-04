@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/Ball-Lang/ball/compare/v1.5.9...v1.6.0) (2026-07-04)
+
+
+### Features
+
+* **conformance:** blocking Ball->TS-compiler conformance leg ([#210](https://github.com/Ball-Lang/ball/issues/210)) ([#229](https://github.com/Ball-Lang/ball/issues/229)) ([24b5cd7](https://github.com/Ball-Lang/ball/commit/24b5cd7cc48ddc2a835966e90026d043bd582b34)), closes [#218](https://github.com/Ball-Lang/ball/issues/218) [197/#202](https://github.com/Ball-Lang/ball/issues/202) [#219](https://github.com/Ball-Lang/ball/issues/219) [#220](https://github.com/Ball-Lang/ball/issues/220) [187/#198](https://github.com/Ball-Lang/ball/issues/198) [#222](https://github.com/Ball-Lang/ball/issues/222) [#223](https://github.com/Ball-Lang/ball/issues/223) [#224](https://github.com/Ball-Lang/ball/issues/224) [#225](https://github.com/Ball-Lang/ball/issues/225) [#226](https://github.com/Ball-Lang/ball/issues/226) [#227](https://github.com/Ball-Lang/ball/issues/227) [#228](https://github.com/Ball-Lang/ball/issues/228) [#218](https://github.com/Ball-Lang/ball/issues/218) [#223](https://github.com/Ball-Lang/ball/issues/223) [#226](https://github.com/Ball-Lang/ball/issues/226)
+
 ## [1.5.9](https://github.com/Ball-Lang/ball/compare/v1.5.8...v1.5.9) (2026-07-04)
 
 

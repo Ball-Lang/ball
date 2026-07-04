@@ -1,3 +1,10 @@
+## [1.5.6](https://github.com/Ball-Lang/ball/compare/v1.5.5...v1.5.6) (2026-07-04)
+
+
+### Bug Fixes
+
+* **cpp-compiler:** switch-case must fall through when a case doesn't return ([#211](https://github.com/Ball-Lang/ball/issues/211)) ([#214](https://github.com/Ball-Lang/ball/issues/214)) ([e9271ab](https://github.com/Ball-Lang/ball/commit/e9271ab4e64cb4db786dcda8046e633a58decdba)), closes [#197](https://github.com/Ball-Lang/ball/issues/197) [#203](https://github.com/Ball-Lang/ball/issues/203)
+
 ## [1.5.5](https://github.com/Ball-Lang/ball/compare/v1.5.4...v1.5.5) (2026-07-04)
 
 

@@ -1,3 +1,10 @@
+## [1.5.3](https://github.com/Ball-Lang/ball/compare/v1.5.2...v1.5.3) (2026-07-04)
+
+
+### Bug Fixes
+
+* MapPattern must exclude portable Set value across compiler + engines ([#178](https://github.com/Ball-Lang/ball/issues/178)) ([#200](https://github.com/Ball-Lang/ball/issues/200)) ([369f9da](https://github.com/Ball-Lang/ball/commit/369f9dabbae93491a0d3240d238da4a28f613dbc))
+
 ## [1.5.2](https://github.com/Ball-Lang/ball/compare/v1.5.1...v1.5.2) (2026-07-03)
 
 

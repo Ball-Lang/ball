@@ -1709,9 +1709,11 @@ export function createEngineSetup(mod: EngineModule) {
       };
     }
   
-    // Patch __bts (ball-to-string) to unwrap BallFuture/BallGenerator.
-    // The compiled engine sets globalThis.__bts during preamble execution.
-    // We wrap it after the engine runs its preamble.
+    // Patch __bts (ball-to-string) to unwrap BallFuture/BallGenerator, IF the
+    // compiled engine has installed one on globalThis. As of the current
+    // compiled_engine.ts, it never does (grepped: zero assignments to
+    // globalThis.__bts) — this is a defensive no-op guarding against a future
+    // preamble that starts exposing one, not an active code path today.
     const origBts = (globalThis as any).__bts;
     if (typeof origBts === 'function') {
       (globalThis as any).__bts = function(v: any): string {

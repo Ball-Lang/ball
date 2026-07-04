@@ -1,3 +1,10 @@
+## [1.5.4](https://github.com/Ball-Lang/ball/compare/v1.5.3...v1.5.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* **engine:** map_keys/map_values must fail loud on non-Map input ([#197](https://github.com/Ball-Lang/ball/issues/197)) ([#203](https://github.com/Ball-Lang/ball/issues/203)) ([9e1ac96](https://github.com/Ball-Lang/ball/commit/9e1ac96ed7cbf0262d965b21fbea5c0a1b1a7b6a)), closes [#55](https://github.com/Ball-Lang/ball/issues/55) [#202](https://github.com/Ball-Lang/ball/issues/202)
+
 ## [1.5.3](https://github.com/Ball-Lang/ball/compare/v1.5.2...v1.5.3) (2026-07-04)
 
 

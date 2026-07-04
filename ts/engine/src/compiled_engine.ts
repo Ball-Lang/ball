@@ -120,8 +120,14 @@ class BallDouble {
 
 // Arithmetic helpers that propagate BallDouble through operations.
 // If either operand is BallDouble, the result is BallDouble (preserving .0).
+//
+// Operator-overload dispatch checks for __op_X__ methods (TRAILING double
+// underscore) — this MUST match the Dart encoder's canonical operator naming
+// (_canonicalOperatorName in dart/encoder/lib/encoder.dart), which always
+// emits a trailing __. A single-underscore lookup (__op_mul) never matches,
+// so overloaded operators silently fall through to raw JS arithmetic (#205).
 function __ball_mul(a: any, b: any): any {
-  if (a != null && typeof a === 'object' && typeof a.__op_mul === 'function') return a.__op_mul(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_mul__ === 'function') return a.__op_mul__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) * __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
@@ -129,7 +135,7 @@ function __ball_mul(a: any, b: any): any {
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_add(a: any, b: any): any {
-  if (a != null && typeof a === 'object' && typeof a.__op_add === 'function') return a.__op_add(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_add__ === 'function') return a.__op_add__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) + __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
@@ -137,7 +143,7 @@ function __ball_add(a: any, b: any): any {
   return (a instanceof BallDouble || b instanceof BallDouble) ? new BallDouble(r) : r;
 }
 function __ball_sub(a: any, b: any): any {
-  if (a != null && typeof a === 'object' && typeof a.__op_sub === 'function') return a.__op_sub(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_sub__ === 'function') return a.__op_sub__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') return __i64_wrap(__to_bigint(a) - __to_bigint(b));
   const av = a instanceof BallDouble ? a.value : a;
   const bv = b instanceof BallDouble ? b.value : b;
@@ -147,7 +153,7 @@ function __ball_sub(a: any, b: any): any {
 
 // Dart equality: NaN != NaN, BallDouble value comparison, null == undefined.
 function __ball_eq(a: any, b: any): boolean {
-  if (a != null && typeof a === 'object' && typeof a.__op_eq === 'function') return a.__op_eq(b);
+  if (a != null && typeof a === 'object' && typeof a.__op_eq__ === 'function') return a.__op_eq__(b);
   if (typeof a === 'bigint' || typeof b === 'bigint') {
     if (typeof a === 'bigint' && typeof b === 'bigint') return a === b;
     if (typeof a === 'bigint' && typeof b === 'number') return a === BigInt(b);
@@ -163,6 +169,39 @@ function __ball_eq(a: any, b: any): boolean {
   if (a == null && b == null) return true;
   if (a == null || b == null) return a == b;
   return a === b;
+}
+
+// Relational operator-overload dispatch (less-than/greater-than/etc.),
+// matching the __op_add__-style convention above. Unlike arithmetic,
+// relational comparisons had NO overload attempt at all before #205 — every
+// overloaded Vec2 < x etc. compiled straight to raw JS comparison.
+function __ball_lt(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_lt__ === 'function') return a.__op_lt__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) < __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av < bv;
+}
+function __ball_gt(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_gt__ === 'function') return a.__op_gt__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) > __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av > bv;
+}
+function __ball_le(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_le__ === 'function') return a.__op_le__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) <= __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av <= bv;
+}
+function __ball_ge(a: any, b: any): any {
+  if (a != null && typeof a === 'object' && typeof a.__op_ge__ === 'function') return a.__op_ge__(b);
+  if (typeof a === 'bigint' || typeof b === 'bigint') return __to_bigint(a) >= __to_bigint(b);
+  const av = a instanceof BallDouble ? a.value : a;
+  const bv = b instanceof BallDouble ? b.value : b;
+  return av >= bv;
 }
 
 function __ball_to_string(v: any): string {
@@ -1437,13 +1476,13 @@ export class BallEngine {
 
   _validateProgramLimits(): any {
     let moduleCount = this.program.modules.length;
-    if ((moduleCount > this.maxModules)) {
+    if (__ball_gt(moduleCount, this.maxModules)) {
       throw new BallRuntimeError((((('Too many modules: ' + __ball_to_string(moduleCount)) + ' (max ') + __ball_to_string(this.maxModules)) + ')'));
     }
     let maxProgramBytes = this.maxProgramSizeBytes;
     if (!__ball_eq(maxProgramBytes, null)) {
       let programSizeBytes = this.program.writeToBuffer().length;
-      if ((programSizeBytes > maxProgramBytes)) {
+      if (__ball_gt(programSizeBytes, maxProgramBytes)) {
         throw new BallRuntimeError((((('Program too large: ' + __ball_to_string(programSizeBytes)) + ' bytes (max ') + __ball_to_string(maxProgramBytes)) + ')'));
       }
     }
@@ -1466,7 +1505,7 @@ export class BallEngine {
     while (!(stack.length === 0)) {
       let current = stack.pop();
       let depth = current.depth;
-      if ((depth > this.maxExpressionDepth)) {
+      if (__ball_gt(depth, this.maxExpressionDepth)) {
         throw new BallRuntimeError((((('Expression too deep: ' + __ball_to_string(depth)) + ' levels (max ') + __ball_to_string(this.maxExpressionDepth)) + ')'));
       }
       do {
@@ -1536,7 +1575,7 @@ export class BallEngine {
 
   _checkExpressionDepth(): any {
     this._expressionDepth += 1;
-    if ((this._expressionDepth > this.maxExpressionDepth)) {
+    if (__ball_gt(this._expressionDepth, this.maxExpressionDepth)) {
       throw new BallRuntimeError((((('Expression too deep: ' + __ball_to_string(this._expressionDepth)) + ' levels (max ') + __ball_to_string(this.maxExpressionDepth)) + ')'));
     }
   }
@@ -1551,7 +1590,7 @@ export class BallEngine {
         if (hasDescriptor(td)) {
           this._types[td.name] = td.descriptor;
           let tc = td.name.indexOf(':');
-          if ((tc >= 0)) {
+          if (__ball_ge(tc, 0)) {
             this._types[td.name.substring(__ball_add(tc, 1))] = td.descriptor;
           }
         }
@@ -1560,14 +1599,14 @@ export class BallEngine {
         let enumName = enumDesc.name;
         let enumMap = {};
         let enumValueList = enumDesc.value;
-        for (let vi = 0; (vi < enumValueList.length); (vi++)) {
+        for (let vi = 0; __ball_lt(vi, enumValueList.length); (vi++)) {
           let v = __ball_index(enumValueList, vi);
           let entry = { ['__type__']: enumName, ['name']: v.name, ['index']: v.number };
           enumMap[v.name] = entry;
         }
         this._enumValues[enumName] = enumMap;
         let ec = enumName.indexOf(':');
-        if ((ec >= 0)) {
+        if (__ball_ge(ec, 0)) {
           this._enumValues[enumName.substring(__ball_add(ec, 1))] = enumMap;
         }
       }
@@ -1603,7 +1642,7 @@ export class BallEngine {
           if (__ball_eq((__ball_eq(kindField, null) ? null : kindField.stringValue), 'constructor')) {
             let entry = { module: module.name, func: func };
             let dotIdx = func.name.indexOf('.');
-            if ((dotIdx >= 0)) {
+            if (__ball_ge(dotIdx, 0)) {
               let className = func.name.substring(0, dotIdx);
               let ctorSuffix = func.name.substring(__ball_add(dotIdx, 1));
               if (__ball_eq(ctorSuffix, 'new')) {
@@ -1639,7 +1678,7 @@ export class BallEngine {
       }
       if (__ball_eq(kind, 'static_field')) {
         let dotIdx = func.name.lastIndexOf('.');
-        if ((dotIdx >= 0)) {
+        if (__ball_ge(dotIdx, 0)) {
           let bareName = func.name.substring(__ball_add(dotIdx, 1));
           (this._staticFieldRefs[bareName] ??= ((() => {
             return { module: module.name, func: func, fullName: func.name };
@@ -1649,7 +1688,7 @@ export class BallEngine {
     }
     let funcName = func.name;
     let dotIdx = funcName.lastIndexOf('.');
-    if ((dotIdx < 0)) {
+    if (__ball_lt(dotIdx, 0)) {
       return;
     }
     let methodName = funcName.substring(__ball_add(dotIdx, 1));
@@ -1686,7 +1725,7 @@ export class BallEngine {
 
   _lookupTypeMethodWithInheritance(typeName: any, methodName: any): any {
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let current = typeName;
     while (!(current.length === 0)) {
       let direct = __ball_index(this._typeMethodDispatch, BallEngine._typeMethodKey(current, methodName));
@@ -1694,7 +1733,7 @@ export class BallEngine {
         return direct;
       }
       let currentColon = current.indexOf(':');
-      if ((currentColon >= 0)) {
+      if (__ball_ge(currentColon, 0)) {
         let bare = current.substring(__ball_add(currentColon, 1));
         let bareHit = __ball_index(this._typeMethodDispatch, BallEngine._typeMethodKey(bare, methodName));
         if (!__ball_eq(bareHit, null)) {
@@ -1716,7 +1755,7 @@ export class BallEngine {
         return mixinHit;
       }
       let mixinColon = qualMixin.indexOf(':');
-      if ((mixinColon >= 0)) {
+      if (__ball_ge(mixinColon, 0)) {
         let bareMixin = qualMixin.substring(__ball_add(mixinColon, 1));
         let bareMixinHit = __ball_index(this._typeMethodDispatch, BallEngine._typeMethodKey(bareMixin, methodName));
         if (!__ball_eq(bareMixinHit, null)) {
@@ -1784,7 +1823,7 @@ export class BallEngine {
       return;
     }
     let elapsed = __ball_sub(DateTime.now().millisecondsSinceEpoch, start);
-    if ((elapsed > timeout)) {
+    if (__ball_gt(elapsed, timeout)) {
       throw new BallRuntimeError('Execution timeout exceeded');
     }
   }
@@ -1804,10 +1843,10 @@ export class BallEngine {
   _trackMemoryAllocation(bytes: any): any {
     const input = bytes;
     let limit = this.maxMemoryBytes;
-    if ((__ball_eq(limit, null) || (bytes <= 0))) {
+    if ((__ball_eq(limit, null) || __ball_le(bytes, 0))) {
       return;
     }
-    if ((__ball_add(this._memoryUsedBytes, bytes) > limit)) {
+    if (__ball_gt(__ball_add(this._memoryUsedBytes, bytes), limit)) {
       throw new BallRuntimeError('Memory limit exceeded');
     }
     this._memoryUsedBytes += bytes;
@@ -1834,7 +1873,7 @@ export class BallEngine {
     if (func.isBase) {
       return this._callBaseFunction(moduleName, func.name, input);
     }
-    if ((this._recursionDepth >= this.maxRecursionDepth)) {
+    if (__ball_ge(this._recursionDepth, this.maxRecursionDepth)) {
       throw new BallRuntimeError(('Maximum recursion depth exceeded: ' + __ball_to_string(this.maxRecursionDepth)));
     }
     (this._recursionDepth++);
@@ -1851,7 +1890,7 @@ export class BallEngine {
       if (__ball_eq(kind, 'constructor')) {
         let constructorInput = this._asMap(input);
         let dotIdx = func.name.indexOf('.');
-        let typeName = ((dotIdx >= 0) ? func.name.substring(0, dotIdx) : func.name);
+        let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
         let isFactory = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_factory')));
         if (((!isFactory && (__ball_eq(constructorInput, null) || !('self' in constructorInput))) && !__ball_eq(this._findTypeDef(typeName), null))) {
           return this._callObjectConstructor(moduleName, func, input);
@@ -1878,7 +1917,7 @@ export class BallEngine {
           }
         } else {
           if (!__ball_eq(inputMap, null)) {
-            for (let i = 0; (i < params.length); (i++)) {
+            for (let i = 0; __ball_lt(i, params.length); (i++)) {
               let p = __ball_index(params, i);
               if ((p in inputMap)) {
                 scope.bind(p, __ball_index(inputMap, p));
@@ -1894,7 +1933,7 @@ export class BallEngine {
             }
           } else {
             if (Array.isArray(input)) {
-              for (let i = 0; ((i < params.length) && (i < input.length)); (i++)) {
+              for (let i = 0; (__ball_lt(i, params.length) && __ball_lt(i, input.length)); (i++)) {
                 scope.bind(__ball_index(params, i), __ball_index(input, i));
               }
             }
@@ -2014,7 +2053,7 @@ export class BallEngine {
 
   async _callObjectConstructor(moduleName: any, func: any, input: any): Promise<any> {
     let dotIdx = func.name.indexOf('.');
-    let typeName = ((dotIdx >= 0) ? func.name.substring(0, dotIdx) : func.name);
+    let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
     let typeDef = this._findTypeDef(typeName);
     if (__ball_eq(typeDef, null)) {
       return null;
@@ -2028,7 +2067,7 @@ export class BallEngine {
     let params = (hasMetadata(func) ? this._extractParams(func.metadata) : []);
     let paramsMeta = (hasMetadata(func) ? this._extractParamsMeta(func.metadata) : []);
     let resolvedParams = {};
-    for (let i = 0; (i < params.length); (i++)) {
+    for (let i = 0; __ball_lt(i, params.length); (i++)) {
       let param = __ball_index(params, i);
       let value = __no_init__;
       if ((param in inputMap)) {
@@ -2038,11 +2077,11 @@ export class BallEngine {
           value = __ball_index(inputMap, ('arg' + __ball_to_string(i)));
         }
       }
-      if (((__ball_eq(value, null) && (i < paramsMeta.length)) && ('default' in __ball_index(paramsMeta, i)))) {
+      if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_index(paramsMeta, i)))) {
         value = __ball_index(__ball_index(paramsMeta, i), 'default');
       }
       resolvedParams[param] = value;
-      let isThis = ((i < paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
+      let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
       if ((isThis || allFieldNames.includes(param))) {
         instanceFields[param] = value;
       } else {
@@ -2110,7 +2149,7 @@ export class BallEngine {
           let idx = __ball_parse_int(indexMatch.group(2));
           let rawArr = __ball_index(resolvedParams, arrName);
           let arr = (false /* BallList is List in TS */ ? rawArr.items : rawArr);
-          if ((Array.isArray(arr) && (idx < arr.length))) {
+          if ((Array.isArray(arr) && __ball_lt(idx, arr.length))) {
             targetFields[name] = __ball_index(arr, idx);
           } else {
             targetFields[name] = null;
@@ -2151,14 +2190,14 @@ export class BallEngine {
     let paramsMeta = this._extractParamsMeta(func.metadata);
     let instance = {};
     let dotIdx = func.name.indexOf('.');
-    let typeName = ((dotIdx >= 0) ? func.name.substring(0, dotIdx) : func.name);
+    let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
     instance['__type__'] = typeName;
     let resolvedParams = {};
     let inputMap = this._asMap(input);
     if (!__ball_eq(inputMap, null)) {
-      for (let i = 0; (i < params.length); (i++)) {
+      for (let i = 0; __ball_lt(i, params.length); (i++)) {
         let p = __ball_index(params, i);
-        let isThis = ((i < paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
+        let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
         let val = __no_init__;
         if ((p in inputMap)) {
           val = __ball_index(inputMap, p);
@@ -2166,7 +2205,7 @@ export class BallEngine {
           if ((('arg' + __ball_to_string(i)) in inputMap)) {
             val = __ball_index(inputMap, ('arg' + __ball_to_string(i)));
           } else {
-            val = ((i < paramsMeta.length) ? __ball_index(__ball_index(paramsMeta, i), 'default') : null);
+            val = (__ball_lt(i, paramsMeta.length) ? __ball_index(__ball_index(paramsMeta, i), 'default') : null);
           }
         }
         resolvedParams[p] = val;
@@ -2234,7 +2273,7 @@ export class BallEngine {
             })() ?? '');
             let argNames = this._parseSuperArgs(argsStr);
             let superInput = {};
-            for (let i = 0; (i < argNames.length); (i++)) {
+            for (let i = 0; __ball_lt(i, argNames.length); (i++)) {
               let token = __ball_index(argNames, i);
               if ((token in resolvedParams)) {
                 superInput[('arg' + __ball_to_string(i))] = __ball_index(resolvedParams, token);
@@ -2268,7 +2307,7 @@ export class BallEngine {
     let superCtorEntry = this._lookupConstructor(superclass);
     if (!__ball_eq(superCtorEntry, null)) {
       let superInput = {};
-      for (let i = 0; (i < resolvedParams.length); (i++)) {
+      for (let i = 0; __ball_lt(i, resolvedParams.length); (i++)) {
         superInput[('arg' + __ball_to_string(i))] = resolvedParams.values.elementAt(i);
       }
       return this._callFunction(superCtorEntry.module, superCtorEntry.func, superInput);
@@ -2289,7 +2328,7 @@ export class BallEngine {
     for (const entry of this._constructors.entries) {
       let key = entry.key;
       let colonIdx = key.indexOf(':');
-      let bare = ((colonIdx >= 0) ? key.substring(__ball_add(colonIdx, 1)) : key);
+      let bare = (__ball_ge(colonIdx, 0) ? key.substring(__ball_add(colonIdx, 1)) : key);
       if (__ball_eq(bare, name)) {
         return entry.value;
       }
@@ -2812,7 +2851,7 @@ export class BallEngine {
         if (__ball_eq((__ball_eq(kindField, null) ? null : kindField.stringValue), 'constructor')) {
           let entry = { module: module.name, func: func };
           let dotIdx = func.name.indexOf('.');
-          if ((dotIdx >= 0)) {
+          if (__ball_ge(dotIdx, 0)) {
             let className = func.name.substring(0, dotIdx);
             let ctorSuffix = func.name.substring(__ball_add(dotIdx, 1));
             if (__ball_eq(ctorSuffix, 'new')) {
@@ -3042,7 +3081,7 @@ export class BallEngine {
           let className = __ball_index(selfMap, '__class_ref__');
           let qualifiedName = (className.includes(':') ? className : ((__ball_to_string(this._currentModule) + ':') + __ball_to_string(className)));
           let colonIdx2 = qualifiedName.indexOf(':');
-          let modPart2 = ((colonIdx2 >= 0) ? qualifiedName.substring(0, colonIdx2) : this._currentModule);
+          let modPart2 = (__ball_ge(colonIdx2, 0) ? qualifiedName.substring(0, colonIdx2) : this._currentModule);
           let staticKey = ((((__ball_to_string(modPart2) + '.') + __ball_to_string(qualifiedName)) + '.') + __ball_to_string(call.function));
           let staticFunc = __ball_index(this._functions, staticKey);
           if (!__ball_eq(staticFunc, null)) {
@@ -3398,7 +3437,7 @@ export class BallEngine {
       });
     }
     let colonIdx = name.indexOf(':');
-    if ((colonIdx >= 0)) {
+    if (__ball_ge(colonIdx, 0)) {
       let bare = name.substring(__ball_add(colonIdx, 1));
       let bareEntry = __ball_index(this._constructors, bare);
       if (!__ball_eq(bareEntry, null)) {
@@ -3564,7 +3603,7 @@ export class BallEngine {
         });
       }
       let colonIdx = qualifiedName.indexOf(':');
-      let modPart = ((colonIdx >= 0) ? qualifiedName.substring(0, colonIdx) : this._currentModule);
+      let modPart = (__ball_ge(colonIdx, 0) ? qualifiedName.substring(0, colonIdx) : this._currentModule);
       let staticKey = ((((__ball_to_string(modPart) + '.') + __ball_to_string(qualifiedName)) + '.') + __ball_to_string(fieldName));
       let staticFunc = __ball_index(this._functions, staticKey);
       if (!__ball_eq(staticFunc, null)) {
@@ -3835,7 +3874,7 @@ export class BallEngine {
       return _sentinel;
     }
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let getterKey = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName));
     let getterFunc = (__ball_index(this._getters, getterKey) ?? __ball_index(this._functions, getterKey));
     if ((!__ball_eq(getterFunc, null) && this._isGetter(getterFunc))) {
@@ -3847,8 +3886,8 @@ export class BallEngine {
       let superType = __ball_index(superMap, '__type__');
       if (!__ball_eq(superType, null)) {
         let sColonIdx = superType.indexOf(':');
-        let sModPart = ((sColonIdx >= 0) ? superType.substring(0, sColonIdx) : modPart);
-        let sTypeName = ((sColonIdx >= 0) ? superType : ((__ball_to_string(sModPart) + ':') + __ball_to_string(superType)));
+        let sModPart = (__ball_ge(sColonIdx, 0) ? superType.substring(0, sColonIdx) : modPart);
+        let sTypeName = (__ball_ge(sColonIdx, 0) ? superType : ((__ball_to_string(sModPart) + ':') + __ball_to_string(superType)));
         let superGetterKey = ((((__ball_to_string(sModPart) + '.') + __ball_to_string(sTypeName)) + '.') + __ball_to_string(fieldName));
         let superGetterFunc = (__ball_index(this._getters, superGetterKey) ?? __ball_index(this._functions, superGetterKey));
         if ((!__ball_eq(superGetterFunc, null) && this._isGetter(superGetterFunc))) {
@@ -3896,7 +3935,7 @@ export class BallEngine {
       return _sentinel;
     }
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let setterKey = (((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName)) + '=');
     let setterKeyNoEq = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName));
     let setterFunc = ((__ball_index(this._setters, setterKey) ?? __ball_index(this._setters, setterKeyNoEq)) ?? __ball_index(this._functions, setterKey));
@@ -3911,8 +3950,8 @@ export class BallEngine {
       let superType = __ball_index(superMap, '__type__');
       if (!__ball_eq(superType, null)) {
         let sColonIdx = superType.indexOf(':');
-        let sModPart = ((sColonIdx >= 0) ? superType.substring(0, sColonIdx) : modPart);
-        let sTypeName = ((sColonIdx >= 0) ? superType : ((__ball_to_string(sModPart) + ':') + __ball_to_string(superType)));
+        let sModPart = (__ball_ge(sColonIdx, 0) ? superType.substring(0, sColonIdx) : modPart);
+        let sTypeName = (__ball_ge(sColonIdx, 0) ? superType : ((__ball_to_string(sModPart) + ':') + __ball_to_string(superType)));
         let superSetterKey = (((((__ball_to_string(sModPart) + '.') + __ball_to_string(sTypeName)) + '.') + __ball_to_string(fieldName)) + '=');
         let superSetterKeyNoEq = ((((__ball_to_string(sModPart) + '.') + __ball_to_string(sTypeName)) + '.') + __ball_to_string(fieldName));
         let superSetterFunc = ((__ball_index(this._setters, superSetterKey) ?? __ball_index(this._setters, superSetterKeyNoEq)) ?? __ball_index(this._functions, superSetterKey));
@@ -4010,7 +4049,7 @@ export class BallEngine {
         if ((!__ball_eq(ctorEntry, null) && hasMetadata(ctorEntry.func))) {
           let params = this._extractParams(ctorEntry.func.metadata);
           let paramsMeta = this._extractParamsMeta(ctorEntry.func.metadata);
-          for (let i = 0; (i < params.length); (i++)) {
+          for (let i = 0; __ball_lt(i, params.length); (i++)) {
             let param = __ball_index(params, i);
             let value = __no_init__;
             if ((param in fields)) {
@@ -4020,11 +4059,11 @@ export class BallEngine {
                 value = __ball_index(fields, ('arg' + __ball_to_string(i)));
               }
             }
-            if (((__ball_eq(value, null) && (i < paramsMeta.length)) && ('default' in __ball_index(paramsMeta, i)))) {
+            if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_index(paramsMeta, i)))) {
               value = __ball_index(__ball_index(paramsMeta, i), 'default');
             }
             resolvedParams[param] = value;
-            let isThis = ((i < paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
+            let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
             if ((isThis || allFieldNames.includes(param))) {
               instanceFields[param] = value;
             } else {
@@ -4155,7 +4194,7 @@ export class BallEngine {
             let selfType = __ball_index(selfObjMap, '__type__');
             if (!__ball_eq(selfType, null)) {
               let colonIdx = msg.typeName.indexOf(':');
-              let methodName = ((colonIdx >= 0) ? msg.typeName.substring(__ball_add(colonIdx, 1)) : msg.typeName);
+              let methodName = (__ball_ge(colonIdx, 0) ? msg.typeName.substring(__ball_add(colonIdx, 1)) : msg.typeName);
               let resolved = this._resolveMethod(selfType, methodName);
               if (!__ball_eq(resolved, null)) {
                 fields['self'] = selfObj;
@@ -4286,7 +4325,7 @@ export class BallEngine {
     if ((__ball_eq(trimmed, '""') || __ball_eq(trimmed, '\'\''))) {
       return '';
     }
-    if ((((trimmed.length >= 2) && trimmed.startsWith('[')) && trimmed.endsWith(']'))) {
+    if (((__ball_ge(trimmed.length, 2) && trimmed.startsWith('[')) && trimmed.endsWith(']'))) {
       let inner = trimmed.substring(1, __ball_sub(trimmed.length, 1)).trim();
       if ((inner.length === 0)) {
         return [];
@@ -4312,7 +4351,7 @@ export class BallEngine {
     if (!__ball_eq(doubleVal, null)) {
       return doubleVal;
     }
-    if (((trimmed.length >= 2) && ((trimmed.startsWith('\'') && trimmed.endsWith('\'')) || (trimmed.startsWith('"') && trimmed.endsWith('"'))))) {
+    if ((__ball_ge(trimmed.length, 2) && ((trimmed.startsWith('\'') && trimmed.endsWith('\'')) || (trimmed.startsWith('"') && trimmed.endsWith('"'))))) {
       return trimmed.substring(1, __ball_sub(trimmed.length, 1));
     }
     return trimmed;
@@ -4332,7 +4371,7 @@ export class BallEngine {
       return names;
     }
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let superclass = typeDef.superclass;
     if ((!__ball_eq(superclass, null) && !(superclass.length === 0))) {
       let qualifiedSuper = (superclass.includes(':') ? superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(superclass)));
@@ -4388,7 +4427,7 @@ export class BallEngine {
             });
             methods[func.name] = closure;
             let dotIdx = func.name.lastIndexOf('.');
-            if ((dotIdx >= 0)) {
+            if (__ball_ge(dotIdx, 0)) {
               methods[func.name.substring(__ball_add(dotIdx, 1))] = closure;
             }
             continue;
@@ -4396,7 +4435,7 @@ export class BallEngine {
         }
         let funcName = func.name;
         let dotIdx = funcName.lastIndexOf('.');
-        if ((dotIdx >= 0)) {
+        if (__ball_ge(dotIdx, 0)) {
           let prefix = funcName.substring(0, dotIdx);
           let suffix = funcName.substring(__ball_add(dotIdx, 1));
           if (__ball_eq(suffix, 'new')) {
@@ -4426,7 +4465,7 @@ export class BallEngine {
     const input = typeName;
     let methods = {};
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let typeDef = this._findTypeDef(typeName);
     if (((!__ball_eq(typeDef, null) && !__ball_eq(typeDef.superclass, null)) && !(typeDef.superclass.length === 0))) {
       let qualSuper = (typeDef.superclass.includes(':') ? typeDef.superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(typeDef.superclass)));
@@ -4514,7 +4553,7 @@ export class BallEngine {
           }
         }
         if (!(paramNames.length === 0)) {
-          for (let i = 0; (i < paramNames.length); (i++)) {
+          for (let i = 0; __ball_lt(i, paramNames.length); (i++)) {
             let p = __ball_index(paramNames, i);
             if (!lambdaScope.has(p)) {
               if ((p in inputMap)) {
@@ -5044,7 +5083,7 @@ export class BallEngine {
 
   _matchSwitchPattern(subject: any, pattern: any): any {
     let dotIdx = pattern.indexOf('.');
-    if ((dotIdx >= 0)) {
+    if (__ball_ge(dotIdx, 0)) {
       let enumType = pattern.substring(0, dotIdx);
       let enumValue = pattern.substring(__ball_add(dotIdx, 1));
       let subjectMap = this._cfAsMap(subject);
@@ -5052,7 +5091,7 @@ export class BallEngine {
         let typeName = __ball_index(subjectMap, '__type__');
         if (!__ball_eq(typeName, null)) {
           let colonIdx = typeName.indexOf(':');
-          let bareType = ((colonIdx >= 0) ? typeName.substring(__ball_add(colonIdx, 1)) : typeName);
+          let bareType = (__ball_ge(colonIdx, 0) ? typeName.substring(__ball_add(colonIdx, 1)) : typeName);
           if ((__ball_eq(bareType, enumType) && __ball_eq(__ball_index(subjectMap, 'name'), enumValue))) {
             return true;
           }
@@ -5126,13 +5165,13 @@ export class BallEngine {
             if ((e instanceof BallException)) {
               let eType = e['typeName'];
               let eColonIdx = eType.indexOf(':');
-              let eBare = ((eColonIdx >= 0) ? eType.substring(__ball_add(eColonIdx, 1)) : eType);
+              let eBare = (__ball_ge(eColonIdx, 0) ? eType.substring(__ball_add(eColonIdx, 1)) : eType);
               matches = (__ball_eq(eType, catchType) || __ball_eq(eBare, catchType));
             } else {
               if (((typeof e === 'object' && e !== null && !Array.isArray(e) && !(e instanceof BallDouble) && !(e instanceof Set)) && !__ball_eq(__ball_index(e, '__type__'), null))) {
                 let eType = __ball_to_string(__ball_index(e, '__type__'));
                 let eColonIdx = eType.indexOf(':');
-                let eBare = ((eColonIdx >= 0) ? eType.substring(__ball_add(eColonIdx, 1)) : eType);
+                let eBare = (__ball_ge(eColonIdx, 0) ? eType.substring(__ball_add(eColonIdx, 1)) : eType);
                 matches = (__ball_eq(eType, catchType) || __ball_eq(eBare, catchType));
               } else {
                 matches = __ball_eq(__ball_to_string(e['runtimeType']), catchType);
@@ -6085,15 +6124,15 @@ export class BallEngine {
         else if ((__sw === 'sort')) {
           if ((typeof arg0 === 'function')) {
             let sorted = [...self];
-            for (let j = 1; (j < sorted.length); (j++)) {
+            for (let j = 1; __ball_lt(j, sorted.length); (j++)) {
               let key = __ball_index(sorted, j);
               let k = __ball_sub(j, 1);
-              while ((k >= 0)) {
+              while (__ball_ge(k, 0)) {
                 let r = arg0({ ['arg0']: __ball_index(sorted, k), ['arg1']: key, ['a']: __ball_index(sorted, k), ['b']: key, ['left']: __ball_index(sorted, k), ['right']: key });
                 if ((r != null)) {
                   r = await r;
                 }
-                if (((typeof r === 'number' || r instanceof BallDouble) && (r > 0))) {
+                if (((typeof r === 'number' || r instanceof BallDouble) && __ball_gt(r, 0))) {
                   sorted[__ball_add(k, 1)] = __ball_index(sorted, k);
                   (k--);
                 } else {
@@ -6626,14 +6665,14 @@ export class BallEngine {
     }
     let typeName = __ball_index(leftMap, '__type__');
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let current = leftMap;
     while (!__ball_eq(current, null)) {
       let curType = __ball_index(current, '__type__');
       if (!__ball_eq(curType, null)) {
         let cColonIdx = curType.indexOf(':');
-        let cModPart = ((cColonIdx >= 0) ? curType.substring(0, cColonIdx) : modPart);
-        let cTypeName = ((cColonIdx >= 0) ? curType : ((__ball_to_string(cModPart) + ':') + __ball_to_string(curType)));
+        let cModPart = (__ball_ge(cColonIdx, 0) ? curType.substring(0, cColonIdx) : modPart);
+        let cTypeName = (__ball_ge(cColonIdx, 0) ? curType : ((__ball_to_string(cModPart) + ':') + __ball_to_string(curType)));
         let opSymbol = __ball_index(_stdFunctionToOperatorSymbol, function_);
         let method = __ball_index(this._functions, ((((__ball_to_string(cModPart) + '.') + __ball_to_string(cTypeName)) + '.') + __ball_to_string(op)));
         method ??= (__ball_eq(opSymbol, null) ? null : __ball_index(this._functions, ((((__ball_to_string(cModPart) + '.') + __ball_to_string(cTypeName)) + '.') + __ball_to_string(opSymbol))));
@@ -6760,22 +6799,22 @@ export class BallEngine {
       }), ['less_than']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
-          return (a < b);
+          return __ball_lt(a, b);
         }));
       }), ['greater_than']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
-          return (a > b);
+          return __ball_gt(a, b);
         }));
       }), ['lte']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
-          return (a <= b);
+          return __ball_le(a, b);
         }));
       }), ['gte']: ((i) => {
         const input = i;
         return this._stdBinaryComp(i, ((a, b) => {
-          return (a >= b);
+          return __ball_ge(a, b);
         }));
       }), ['and']: ((i) => {
         const input = i;
@@ -6887,7 +6926,7 @@ export class BallEngine {
         }
         let a = this._toNum(v);
         let b = this._toNum(other);
-        return ((a < b) ? __ball_negate(1) : (((a > b) ? 1 : 0)));
+        return (__ball_lt(a, b) ? __ball_negate(1) : ((__ball_gt(a, b) ? 1 : 0)));
       }), ['to_string_as_fixed']: ((i) => {
         const input = i;
         let m = (this._stdAsMap(i) ?? { ['value']: i });
@@ -6895,7 +6934,7 @@ export class BallEngine {
         let digits = (__ball_index(m, 'digits') ?? __ball_index(m, 'fractionDigits'));
         let n = this._toNum(v);
         let s = (+(n)).toFixed(this._toInt(digits));
-        if (((__ball_eq(n, 0) && (new BallDouble(Number(new BallDouble(1)) / Number(n)) < 0)) && !s.startsWith('-'))) {
+        if (((__ball_eq(n, 0) && __ball_lt(new BallDouble(Number(new BallDouble(1)) / Number(n)), 0)) && !s.startsWith('-'))) {
           return ('-' + __ball_to_string(s));
         }
         return s;
@@ -7181,16 +7220,16 @@ export class BallEngine {
           }));
           return sorted;
         }
-        for (let j = 1; (j < sorted.length); (j++)) {
+        for (let j = 1; __ball_lt(j, sorted.length); (j++)) {
           let key = __ball_index(sorted, j);
           let k = __ball_sub(j, 1);
-          while ((k >= 0)) {
+          while (__ball_ge(k, 0)) {
             let r = cb({ ['left']: __ball_index(sorted, k), ['right']: key, ['arg0']: __ball_index(sorted, k), ['arg1']: key, ['a']: __ball_index(sorted, k), ['b']: key });
             if ((r != null)) {
               r = await r;
             }
             let cmp = ((typeof r === 'number' && Number.isInteger(r)) ? r : __ball_to_int(r));
-            if ((cmp <= 0)) {
+            if (__ball_le(cmp, 0)) {
               break;
             }
             sorted[__ball_add(k, 1)] = __ball_index(sorted, k);
@@ -7242,7 +7281,7 @@ export class BallEngine {
           } else {
             if (('value' in m)) {
               let v = __ball_index(m, 'value');
-              if ((Array.isArray(v) && (v.length >= 2))) {
+              if ((Array.isArray(v) && __ball_ge(v.length, 2))) {
                 s = this._toInt(__ball_index(v, 0));
                 e = this._toInt(__ball_index(v, 1));
               } else {
@@ -7288,7 +7327,7 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let a = this._stdAsList(__ball_index(m, 'list'));
         let b = this._stdAsList(__ball_index(m, 'value'));
-        let len = ((a.length < b.length) ? a.length : b.length);
+        let len = (__ball_lt(a.length, b.length) ? a.length : b.length);
         this._trackMemoryAllocation(__ball_mul(len, _ballPointerBytes));
         return List.generate(len, ((j) => {
           const input = j;
@@ -7929,12 +7968,12 @@ export class BallEngine {
       }), ['math_min']: ((i) => {
         const input = i;
         return this._stdBinary(i, ((a, b) => {
-          return ((a < b) ? a : b);
+          return (__ball_lt(a, b) ? a : b);
         }));
       }), ['math_max']: ((i) => {
         const input = i;
         return this._stdBinary(i, ((a, b) => {
-          return ((a > b) ? a : b);
+          return (__ball_gt(a, b) ? a : b);
         }));
       }), ['math_clamp']: this._stdMathClamp.bind(this), ['math_pi']: ((_) => {
         const input = _;
@@ -8003,7 +8042,7 @@ export class BallEngine {
       }), ['sleep_ms']: (async (i) => {
         const input = i;
         let ms = ((typeof i === 'number' || i instanceof BallDouble) ? __ball_to_int(i) : 0);
-        if ((ms > 0)) {
+        if (__ball_gt(ms, 0)) {
           await Future.delayed(new Duration({ milliseconds: ms }));
         }
       }), ['timestamp_ms']: ((_) => {
@@ -8181,7 +8220,7 @@ export class BallEngine {
   _manualReverse(list: any): any {
     const input = list;
     let result = [];
-    for (let i = __ball_sub(list.length, 1); (i >= 0); (i--)) {
+    for (let i = __ball_sub(list.length, 1); __ball_ge(i, 0); (i--)) {
       result = (result.push(__ball_index(list, i)), result);
     }
     return result;
@@ -8189,7 +8228,7 @@ export class BallEngine {
 
   _resolveMethod(typeName: any, methodName: any): any {
     let colonIdx = typeName.indexOf(':');
-    let modPart = ((colonIdx >= 0) ? typeName.substring(0, colonIdx) : this._currentModule);
+    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let methodKey = ((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(methodName));
     let method = __ball_index(this._functions, methodKey);
     if ((!__ball_eq(method, null) && !method.isBase)) {
@@ -8439,7 +8478,7 @@ export class BallEngine {
     }
     this._trackMemoryAllocation(__ball_mul(length, _ballPointerBytes));
     let result = [];
-    for (let index = 0; (index < length); (index++)) {
+    for (let index = 0; __ball_lt(index, length); (index++)) {
       let value = generator(index);
       if ((value != null)) {
         value = await value;
@@ -8589,7 +8628,7 @@ export class BallEngine {
           }
         }
         if (__ball_eq(objTypeArgs.length, typeArgs.length)) {
-          for (let i = 0; (i < typeArgs.length); (i++)) {
+          for (let i = 0; __ball_lt(i, typeArgs.length); (i++)) {
             if (!__ball_eq(__ball_index(objTypeArgs, i), __ball_index(typeArgs, i))) {
               return false;
             }
@@ -8672,7 +8711,7 @@ export class BallEngine {
     }
     let objColon = objType.indexOf(':');
     let checkColon = checkType.indexOf(':');
-    if (((objColon >= 0) && (checkColon >= 0))) {
+    if ((__ball_ge(objColon, 0) && __ball_ge(checkColon, 0))) {
       return __ball_eq(objType.substring(__ball_add(objColon, 1)), checkType.substring(__ball_add(checkColon, 1)));
     }
     return false;
@@ -8683,7 +8722,7 @@ export class BallEngine {
     let args = [];
     let depth = 0;
     let start = 0;
-    for (let i = 0; (i < str.length); (i++)) {
+    for (let i = 0; __ball_lt(i, str.length); (i++)) {
       if (__ball_eq(__ball_index(str, i), '<')) {
         (depth++);
       }
@@ -8854,7 +8893,7 @@ export class BallEngine {
       let rhsStr = relMatch.group(2).trim();
       let rhs = num.tryParse(rhsStr);
       if (!__ball_eq(rhs, null)) {
-        return ((op === '==') ? (__ball_eq(value, rhs)) : ((op === '!=') ? (!__ball_eq(value, rhs)) : ((op === '>') ? ((value > rhs)) : ((op === '<') ? ((value < rhs)) : ((op === '>=') ? ((value >= rhs)) : ((op === '<=') ? ((value <= rhs)) : false))))));
+        return ((op === '==') ? (__ball_eq(value, rhs)) : ((op === '!=') ? (!__ball_eq(value, rhs)) : ((op === '>') ? (__ball_gt(value, rhs)) : ((op === '<') ? (__ball_lt(value, rhs)) : ((op === '>=') ? (__ball_ge(value, rhs)) : ((op === '<=') ? (__ball_le(value, rhs)) : false))))));
       }
     }
     if (this._matchesTypePattern(value, trimmed)) {
@@ -8917,10 +8956,10 @@ export class BallEngine {
         if ((__ball_eq(restIndex, __ball_negate(1)) && !__ball_eq(listVal.length, fixedCount))) {
           return false;
         }
-        if ((!__ball_eq(restIndex, __ball_negate(1)) && (listVal.length < fixedCount))) {
+        if ((!__ball_eq(restIndex, __ball_negate(1)) && __ball_lt(listVal.length, fixedCount))) {
           return false;
         }
-        for (let i = 0; (i < elements.length); (i++)) {
+        for (let i = 0; __ball_lt(i, elements.length); (i++)) {
           let elem = __ball_index(elements, i);
           let elemMap = this._stdAsMap(elem);
           if ((!__ball_eq(elemMap, null) && __ball_eq(this._patternKind(elemMap), 'rest'))) {
@@ -8931,7 +8970,7 @@ export class BallEngine {
             }
             continue;
           }
-          let valueIndex = ((__ball_eq(restIndex, __ball_negate(1)) || (i < restIndex)) ? i : __ball_sub(listVal.length, __ball_sub(elements.length, i)));
+          let valueIndex = ((__ball_eq(restIndex, __ball_negate(1)) || __ball_lt(i, restIndex)) ? i : __ball_sub(listVal.length, __ball_sub(elements.length, i)));
           if (!this._matchPattern(__ball_index(listVal, valueIndex), elem, bindings)) {
             return false;
           }
@@ -9100,7 +9139,7 @@ export class BallEngine {
     if (__ball_eq(operator, null)) {
       return false;
     }
-    return ((operator === '==') ? (this._ballEquals(value, operand)) : ((operator === '!=') ? (!this._ballEquals(value, operand)) : ((operator === '>') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && (value > operand))) : ((operator === '<') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && (value < operand))) : ((operator === '>=') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && (value >= operand))) : ((operator === '<=') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && (value <= operand))) : false))))));
+    return ((operator === '==') ? (this._ballEquals(value, operand)) : ((operator === '!=') ? (!this._ballEquals(value, operand)) : ((operator === '>') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && __ball_gt(value, operand))) : ((operator === '<') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && __ball_lt(value, operand))) : ((operator === '>=') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && __ball_ge(value, operand))) : ((operator === '<=') ? ((((typeof value === 'number' || value instanceof BallDouble) && (typeof operand === 'number' || operand instanceof BallDouble)) && __ball_le(value, operand))) : false))))));
   }
 
   _matchesObjectType(value: any, patternType: any): any {
@@ -9176,7 +9215,7 @@ export class BallEngine {
 
   _matchesTypePattern(value: any, pattern: any): any {
     let p = ((typeof pattern === 'string') ? pattern : this._ballToStringSimple(pattern));
-    if ((((p.length > 1) && p.endsWith('?')) && !p.includes(' '))) {
+    if (((__ball_gt(p.length, 1) && p.endsWith('?')) && !p.includes(' '))) {
       if ((__ball_eq(value, null) || (value == null))) {
         return true;
       }
@@ -9242,7 +9281,7 @@ export class BallEngine {
 
   _repeatString(s: any, count: any): any {
     let out = '';
-    for (let k = 0; (k < count); (k++)) {
+    for (let k = 0; __ball_lt(k, count); (k++)) {
       out = (__ball_to_string(out) + __ball_to_string(s));
     }
     return out;
@@ -10003,14 +10042,14 @@ function _ballDoubleToInt64(value: any): any {
     return value.value;
   }
   let d = (((typeof value === 'number' || value instanceof BallDouble) ? value.value : new BallDouble(Number(value))));
-  if ((d >= new BallDouble(9223372036854776000))) {
+  if (__ball_ge(d, new BallDouble(9223372036854776000))) {
     return 9223372036854775807n;
   }
-  if ((d <= __ball_negate(new BallDouble(9223372036854776000)))) {
+  if (__ball_le(d, __ball_negate(new BallDouble(9223372036854776000)))) {
     return __ball_negate(0);
   }
   let r = __ball_to_int(d);
-  if (((d > new BallDouble(0)) && (r < 0))) {
+  if ((__ball_gt(d, new BallDouble(0)) && __ball_lt(r, 0))) {
     return 9223372036854775807n;
   }
   return r;

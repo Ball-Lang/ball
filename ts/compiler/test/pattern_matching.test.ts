@@ -10,24 +10,25 @@
  * cosmetic legacy `pattern` string. `compileStructuredPattern` is the
  * modern path; unknown kinds fall back to the legacy text parser. This
  * is a currently HOT area (recent fix: "MapPattern must exclude portable
- * Set value across compiler + engines", #178) — see the bug noted below.
+ * Set value across compiler + engines", #178) — see the notes below.
  *
  * None of these real fixtures (`tests/conformance/{238,239,252,302,303,
  * 305,306}_*.ball.json`) were previously exercised through the native
  * TS-codegen path (only via the interpreted-engine conformance corpus).
  *
- * KNOWN BUG (flagged, not fixed here — see the coverage report):
- * `KNOWN_PATTERN_KINDS` (compiler.ts ~line 5869) does not include
- * "MapPattern", so a structured MapPattern ALWAYS falls back to the
- * legacy text pattern. That fallback (`parseMapPattern`, ~line 5751) only
- * recognizes `var`-bound entries (`{'k': var v}`); the real encoder also
- * emits `final`-bound entries (`{'k': final v}`,
- * tests/conformance/394_mappattern_excludes_set.ball.json), which the
- * parser rejects and falls through to a bogus default condition that
- * embeds raw Dart pattern syntax into the emitted TS — a hard
- * `SyntaxError` at runtime, not just wrong output. Intentionally NOT
- * exercised as a passing test here (that would freeze in broken
- * behavior); see the coverage report for the full repro.
+ * FIXED (#206, #207): `KNOWN_PATTERN_KINDS` (compiler.ts ~line 5869) used
+ * to omit "MapPattern", "LogicalAndPattern", "ObjectPattern", and
+ * "RelationalPattern", so a structured MapPattern/LogicalAndPattern ALWAYS
+ * fell back to the legacy text pattern. That fallback (`parseMapPattern`,
+ * ~line 5751) only recognized `var`-bound entries (`{'k': var v}`); the
+ * real encoder also emits `final`-bound entries (`{'k': final v}`), which
+ * the parser rejected and fell through to a bogus default condition that
+ * embedded raw Dart pattern syntax into the emitted TS — a hard
+ * `SyntaxError` at runtime, not just wrong output. All four kinds are now
+ * in `KNOWN_PATTERN_KINDS` with structured cases in
+ * `compileStructuredPattern`; the `final`-bound-entry regression is
+ * pinned by `394_mappattern_excludes_set` and `258_logical_and_pattern`
+ * in native_conformance.test.ts.
  *
  * Run: node --experimental-strip-types --test test/*.test.ts
  */
@@ -69,18 +70,17 @@ const PATTERN_FIXTURES = [
   "303_or_typed_patterns",
   // Structured LogicalOrPattern with plain const alternatives.
   "238_switch_or_patterns",
-  // RelationalPattern (falls back to the legacy text path; still correct).
+  // RelationalPattern: now routed through the structured path (#207 audit);
+  // previously fell back to the legacy text path (also correct there).
   "239_switch_expr_relational",
   // RecordPattern: positional-only and mixed positional+named shapes.
   "305_record_patterns",
   // Nullable VarPattern/WildcardPattern types (`int?`, `double? _`).
   "306_nullable_type_patterns",
-  // MapPattern (var-bound entries): "MapPattern" is NOT in
-  // KNOWN_PATTERN_KINDS, so this exercises the legacy TEXT-based pattern
-  // fallback (parseMapPattern/patternToTsCondition) — which works correctly
-  // for `var`-bound entries. See the coverage report for the `final`-bound
-  // variant that is NOT correctly handled (a confirmed bug, not exercised
-  // here on purpose).
+  // MapPattern (var-bound entries): now routed through the structured
+  // MapPattern case (#206). The `final`-bound-entry variant that used to
+  // crash with ERR_INVALID_TYPESCRIPT_SYNTAX is pinned by
+  // 394_mappattern_excludes_set in native_conformance.test.ts.
   "237_map_pattern_switch",
 ];
 
@@ -334,5 +334,280 @@ describe("compiler — structured pattern guard clauses (`when`)", () => {
     const bigIdx = ts.indexOf("'big'");
     const smallIdx = ts.indexOf("'small'");
     assert.ok(bigIdx >= 0 && smallIdx >= 0 && bigIdx < smallIdx);
+  });
+});
+
+// ── ObjectPattern: also missing from KNOWN_PATTERN_KINDS (found by the
+// #207 audit alongside MapPattern/LogicalAndPattern/RelationalPattern), but
+// with no real conformance fixture exercising `Type(field: pattern)`. This
+// direct-IR test compiles AND executes a switch_expr over ObjectPattern so
+// the fix is proven end-to-end, not just structurally plausible. ──
+
+describe("compiler — ObjectPattern (audit-discovered gap, #207)", () => {
+  test("Type(field: pattern) type-gates by class and matches a named field's getter", () => {
+    const program: Program = {
+      name: "object_pattern_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "std",
+          functions: [
+            { name: "switch_expr", isBase: true },
+            { name: "concat", isBase: true },
+            { name: "to_string", isBase: true },
+            { name: "print", isBase: true },
+          ] as FunctionDef[],
+        },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main:Pt.new",
+              outputType: "main:Pt",
+              metadata: {
+                kind: "constructor",
+                params: [
+                  { name: "x", is_this: true },
+                  { name: "y", is_this: true },
+                ],
+              },
+            },
+            {
+              name: "classify",
+              inputType: "Object",
+              outputType: "String",
+              body: {
+                call: {
+                  module: "std",
+                  function: "switch_expr",
+                  input: {
+                    messageCreation: {
+                      fields: [
+                        { name: "subject", value: { reference: { name: "obj" } } },
+                        {
+                          name: "cases",
+                          value: {
+                            literal: {
+                              listValue: {
+                                elements: [
+                                  {
+                                    messageCreation: {
+                                      fields: [
+                                        {
+                                          name: "body",
+                                          value: {
+                                            call: {
+                                              module: "std",
+                                              function: "concat",
+                                              input: {
+                                                messageCreation: {
+                                                  fields: [
+                                                    { name: "left", value: { literal: { stringValue: "x=" } } },
+                                                    {
+                                                      name: "right",
+                                                      value: {
+                                                        call: {
+                                                          module: "std",
+                                                          function: "to_string",
+                                                          input: {
+                                                            messageCreation: {
+                                                              fields: [{ name: "value", value: { reference: { name: "px" } } }],
+                                                            },
+                                                          },
+                                                        },
+                                                      },
+                                                    },
+                                                  ],
+                                                },
+                                              },
+                                            },
+                                          },
+                                        },
+                                        {
+                                          name: "pattern_expr",
+                                          value: {
+                                            messageCreation: {
+                                              typeName: "ObjectPattern",
+                                              fields: [
+                                                { name: "type", value: { literal: { stringValue: "Pt" } } },
+                                                {
+                                                  name: "fields",
+                                                  value: {
+                                                    literal: {
+                                                      listValue: {
+                                                        elements: [
+                                                          {
+                                                            messageCreation: {
+                                                              fields: [
+                                                                { name: "name", value: { literal: { stringValue: "x" } } },
+                                                                {
+                                                                  name: "pattern",
+                                                                  value: {
+                                                                    messageCreation: {
+                                                                      typeName: "VarPattern",
+                                                                      fields: [{ name: "name", value: { literal: { stringValue: "px" } } }],
+                                                                    },
+                                                                  },
+                                                                },
+                                                              ],
+                                                            },
+                                                          },
+                                                        ],
+                                                      },
+                                                    },
+                                                  },
+                                                },
+                                              ],
+                                            },
+                                          },
+                                        },
+                                      ],
+                                    },
+                                  },
+                                  {
+                                    messageCreation: {
+                                      fields: [
+                                        { name: "is_default", value: { literal: { boolValue: true } } },
+                                        { name: "body", value: { literal: { stringValue: "not-pt" } } },
+                                      ],
+                                    },
+                                  },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              metadata: { kind: "function", params: [{ name: "obj", type: "Object" }] },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    // Construct via an intermediate `let` (matching every real
+                    // fixture's convention) rather than inline in the call's
+                    // input — inline construction as a call argument hits a
+                    // SEPARATE, pre-existing compiler bug where a messageCreation's
+                    // arg0/arg1 fields get flattened into positional JS call
+                    // arguments instead of `new Pt(3, 4)` being recognized and
+                    // passed as one argument. Out of scope for #205-#207; flagged
+                    // to the team separately.
+                    {
+                      let: {
+                        name: "p",
+                        value: {
+                          messageCreation: {
+                            typeName: "main:Pt",
+                            fields: [
+                              { name: "arg0", value: { literal: { intValue: "3" } } },
+                              { name: "arg1", value: { literal: { intValue: "4" } } },
+                            ],
+                          },
+                        },
+                        metadata: { keyword: "final", type: "Pt" },
+                      },
+                    },
+                    {
+                      expression: {
+                        call: {
+                          module: "std",
+                          function: "print",
+                          input: {
+                            messageCreation: {
+                              typeName: "PrintInput",
+                              fields: [
+                                {
+                                  name: "message",
+                                  value: {
+                                    call: {
+                                      function: "classify",
+                                      input: { reference: { name: "p" } },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      expression: {
+                        call: {
+                          module: "std",
+                          function: "print",
+                          input: {
+                            messageCreation: {
+                              typeName: "PrintInput",
+                              fields: [
+                                {
+                                  name: "message",
+                                  value: {
+                                    call: {
+                                      function: "classify",
+                                      input: { literal: { stringValue: "hi" } },
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          moduleImports: [{ name: "std" }],
+          typeDefs: [
+            {
+              name: "main:Pt",
+              descriptor: {
+                name: "main:Pt",
+                field: [
+                  { name: "x", number: 1, label: "LABEL_OPTIONAL", type: "TYPE_INT64" },
+                  { name: "y", number: 2, label: "LABEL_OPTIONAL", type: "TYPE_INT64" },
+                ],
+              },
+              metadata: {
+                kind: "class",
+                fields: [
+                  { name: "x", type: "int" },
+                  { name: "y", type: "int" },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program);
+    const tmpPath = join(tmpdir(), `ball_object_pattern_${process.pid}.ts`);
+    writeFileSync(tmpPath, ts);
+    try {
+      let stdout: string;
+      try {
+        stdout = execSync(`node --experimental-strip-types "${tmpPath}"`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (e: any) {
+        throw new Error(`Node failed:\nstderr:\n${e.stderr}\n\nTS:\n${ts}`);
+      }
+      const norm = (s: string) => s.replace(/\r\n/g, "\n").trimEnd();
+      assert.equal(norm(stdout), "x=3\nnot-pt");
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
   });
 });

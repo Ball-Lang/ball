@@ -6913,10 +6913,34 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                 }
                             }
                         } else {
+                            // A control-flow case body (`if`/`for`/`while`/...) is
+                            // a STATEMENT, not a value. Emit it via
+                            // compile_statement so a conditional return
+                            // (`case X: if (c) return Y;`) FALLS THROUGH past the
+                            // switch when its guard is false: the switch lowers to
+                            // an `if (subj==X) { <body> }` chain, so a fall-through
+                            // here continues to the post-switch code. Compiling it
+                            // as a value — `return compile_expr(<if>)` — produced
+                            // the if-EXPRESSION form
+                            // `[&]{ if(c) return Y; return BallDyn(); }()`, which
+                            // returns null on the else and swallows the
+                            // fall-through (issue #211). The block-body path above
+                            // already compiles its statements this way.
+                            static const std::set<std::string> stmt_like_case_body = {
+                                "if", "for", "while", "do_while", "for_each",
+                                "for_in", "try", "labeled", "switch",
+                            };
                             bool nonblk_is_throw = case_body->expr_case() == ball::v1::Expression::kCall &&
                                 (case_body->call().function() == "throw" ||
                                  case_body->call().function() == "rethrow");
-                            if (nonblk_is_throw) {
+                            bool is_stmt_like =
+                                case_body->expr_case() == ball::v1::Expression::kCall &&
+                                stmt_like_case_body.count(case_body->call().function()) > 0;
+                            if (is_stmt_like) {
+                                ball::v1::Statement inner;
+                                *inner.mutable_expression() = *case_body;
+                                compile_statement(inner);
+                            } else if (nonblk_is_throw) {
                                 emit_line(compile_expr(*case_body) + ";");
                             } else if (current_return_type_ == "void") {
                                 // Void function: emit the case body as a bare

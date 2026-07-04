@@ -18,7 +18,8 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsc",
-    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/cli_test.ts",
+    "test": "node --experimental-strip-types --disable-warning=ExperimentalWarning test/cli_test.ts && node --experimental-strip-types --test test/*.test.ts",
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --check-coverage --lines 98 --branches 95 --functions 100 --statements 98 npm test",
     "prepublishOnly": "npm run build",
     "prepack": "npm run build"
   },
@@ -61,6 +62,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "c8": "^11.0.0",
     "typescript": "^6.0.2"
   }
 }

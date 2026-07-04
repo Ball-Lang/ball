@@ -14,7 +14,7 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { encode } from "../src/index.ts";
+import { encode, encodeWithWarnings } from "../src/index.ts";
 import type { Module } from "../src/types.ts";
 
 function userModule(program: { modules: Module[] }, name = "main"): Module {
@@ -208,6 +208,22 @@ describe("encoder expression kinds", () => {
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     assert.equal(main.body!.block!.statements[0].let!.value!.literal!.intValue, "5");
+  });
+
+  // `**` (exponentiation) has no entry in BINARY_OPS — unlike the Dart
+  // encoder, which maps it (and `>>>`) to a std base function. This is a
+  // genuine TS-encoder gap, not a fixture-of-convenience: both operators fall
+  // through to the same "Unhandled binary operator" warn() + placeholder path.
+  test("an unhandled binary operator (**) warns and falls back to a placeholder literal", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { const z = 2 ** 3; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const value = main.body!.block!.statements[0].let!.value!;
+    assert.ok(value.literal!.stringValue?.includes("binary:"), "falls back to a placeholder literal");
+    assert.ok(
+      warnings.some((w) => w.includes("Unhandled binary operator")),
+      "should warn about the unhandled operator",
+    );
   });
 });
 

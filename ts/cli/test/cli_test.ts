@@ -140,7 +140,135 @@ test('run on missing file errors out', () => {
   assert(r.stderr.includes('File not found'), 'missing error message');
 });
 
+// A program that writes to stderr via std_io.print_error — exercises the
+// `stderr` callback wired into `new BallEngine(...)` in cmdRun (line 188),
+// which the stdout-only fibonacci happy-path test never triggers.
+const stderrProgram = {
+  name: 'writes_stderr',
+  version: '1.0.0',
+  entryModule: 'main',
+  entryFunction: 'main',
+  modules: [
+    { name: 'std_io', functions: [{ name: 'print_error', isBase: true }] },
+    {
+      name: 'main',
+      functions: [
+        {
+          name: 'main',
+          body: {
+            call: {
+              module: 'std_io',
+              function: 'print_error',
+              input: { messageCreation: { fields: [{ name: 'message', value: { literal: { stringValue: 'oops' } } }] } },
+            },
+          },
+        },
+      ],
+    },
+  ],
+};
+
+test('run wires a program\'s std_io.print_error to the process stderr stream', () => {
+  const stderrProgramPath = join(tmpdir(), `ball-cli-stderr-${process.pid}.ball.json`);
+  writeFileSync(stderrProgramPath, JSON.stringify(stderrProgram));
+  try {
+    const r = runCli(['run', stderrProgramPath]);
+    assert(r.status === 0, `expected exit 0, got ${r.status}: ${r.stderr}`);
+    assert(r.stderr.includes('oops'), `expected "oops" on stderr, got:\n${r.stderr}`);
+    assert(!r.stdout.includes('oops'), 'stderr output leaked onto stdout');
+  } finally {
+    rmSync(stderrProgramPath, { force: true });
+  }
+});
+
+// A program that throws at runtime (std.null_check on an explicit null) —
+// exercises cmdRun's `catch (e) { fail(\`runtime error: ...\`) }` path, which
+// the fibonacci happy-path test above never reaches.
+const nullCheckProgram = {
+  name: 'crashes',
+  version: '1.0.0',
+  entryModule: 'main',
+  entryFunction: 'main',
+  modules: [
+    { name: 'std', functions: [{ name: 'null_check', isBase: true }] },
+    {
+      name: 'main',
+      functions: [
+        {
+          name: 'main',
+          body: {
+            block: {
+              statements: [{ let: { name: 'x', value: { literal: {} } } }],
+              result: {
+                call: {
+                  module: 'std',
+                  function: 'null_check',
+                  input: {
+                    messageCreation: { fields: [{ name: 'value', value: { reference: { name: 'x' } } }] },
+                  },
+                },
+              },
+            },
+          },
+        },
+      ],
+    },
+  ],
+};
+
+test('run reports a runtime error (not a silent crash) when the program throws', () => {
+  const nullCheckPath = join(tmpdir(), `ball-cli-null-check-${process.pid}.ball.json`);
+  writeFileSync(nullCheckPath, JSON.stringify(nullCheckProgram));
+  try {
+    const r = runCli(['run', nullCheckPath]);
+    assert(r.status === 1, `expected exit 1, got ${r.status}`);
+    assert(r.stderr.includes('runtime error:'), `missing "runtime error:" prefix in stderr:\n${r.stderr}`);
+    assert(r.stderr.includes('Null check'), `missing null-check message in stderr:\n${r.stderr}`);
+  } finally {
+    rmSync(nullCheckPath, { force: true });
+  }
+});
+
+test('run on a directory path reports the non-ENOENT read error, not "File not found"', () => {
+  // Reading a directory throws EISDIR (not ENOENT) — exercises loadProgram's
+  // second `fail()` branch, distinct from the "File not found" ENOENT case.
+  const r = runCli(['run', projectRoot]);
+  assert(r.status === 1, `expected exit 1, got ${r.status}`);
+  assert(r.stderr.includes('Could not read'), `missing "Could not read" in stderr:\n${r.stderr}`);
+  assert(!r.stderr.includes('File not found'), 'should not be misreported as ENOENT');
+});
+
+test('run on malformed JSON reports an "Invalid JSON" error', () => {
+  const badJsonPath = join(tmpdir(), `ball-cli-bad-json-${process.pid}.ball.json`);
+  writeFileSync(badJsonPath, '{ not valid json');
+  try {
+    const r = runCli(['run', badJsonPath]);
+    assert(r.status === 1, `expected exit 1, got ${r.status}`);
+    assert(r.stderr.includes('Invalid JSON'), `missing "Invalid JSON" in stderr:\n${r.stderr}`);
+  } finally {
+    rmSync(badJsonPath, { force: true });
+  }
+});
+
+test('run on a ball file with an unrecognized @type reports an "Invalid ball file" error', () => {
+  const badTypePath = join(tmpdir(), `ball-cli-bad-type-${process.pid}.ball.json`);
+  writeFileSync(badTypePath, JSON.stringify({ '@type': 'type.googleapis.com/ball.v1.Widget' }));
+  try {
+    const r = runCli(['run', badTypePath]);
+    assert(r.status === 1, `expected exit 1, got ${r.status}`);
+    assert(r.stderr.includes('Invalid ball file'), `missing "Invalid ball file" in stderr:\n${r.stderr}`);
+  } finally {
+    rmSync(badTypePath, { force: true });
+  }
+});
+
 // ── audit ───────────────────────────────────────────────────────────────────
+
+test('audit without path errors out', () => {
+  const r = runCli(['audit']);
+  assert(r.status === 1, `expected exit 1, got ${r.status}`);
+  assert(r.stderr.includes('requires a program path'), 'missing error message');
+});
 
 console.log('\naudit:');
 
@@ -243,6 +371,44 @@ test('audit --output writes JSON file', () => {
   assert(existsSync(outPath), 'report file not written');
   const report = JSON.parse(readFileSync(outPath, 'utf8'));
   assert(report.summary.readsFilesystem === true, 'fs not detected in JSON report');
+});
+
+test('audit --output=<path> (inline "=" form) works the same as the two-token form', () => {
+  const outPath = join(tmpDir, 'report-eq.json');
+  const r = runCli(['audit', fsProgramPath, `--output=${outPath}`]);
+  assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+  assert(existsSync(outPath), 'report file not written via --output=<path>');
+});
+
+test('a "--" separator forces everything after it to be positional, even flag-like text', () => {
+  // Passing `--` before a path that starts with "-" proves it isn't
+  // misparsed as a flag: parseArgs's `arg === "--"` branch drains the rest
+  // of argv into `positional` unconditionally.
+  const dashLikePath = join(tmpDir, '-looks-like-a-flag.ball.json');
+  writeFileSync(dashLikePath, JSON.stringify(fsProgram));
+  const r = runCli(['audit', '--', dashLikePath]);
+  assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+  assert(r.stdout.includes('fs'), 'fs capability not mentioned; path may have been misparsed as a flag');
+});
+
+test('audit --output to an unwritable path reports a clean error, not a crash', () => {
+  const outPath = join(tmpDir, 'no-such-subdir', 'report.json');
+  const r = runCli(['audit', fsProgramPath, '--output', outPath]);
+  assert(r.status === 1, `expected exit 1, got ${r.status}`);
+  assert(r.stderr.includes('could not write'), `missing "could not write" in stderr:\n${r.stderr}`);
+});
+
+// A program whose `modules` field is missing entirely: analyzeCapabilities
+// (called with no try/catch around it in cmdAudit) throws a raw TypeError,
+// not a CliError — this exercises the top-level `else { throw e; }` rethrow
+// in index.ts, which deliberately lets truly unexpected internal errors
+// crash loudly instead of being reported as a normal `ball: <message>` error.
+test('audit on a program missing `modules` crashes loudly (unexpected error, not swallowed)', () => {
+  const malformedPath = join(tmpDir, 'malformed.ball.json');
+  writeFileSync(malformedPath, JSON.stringify({ entryModule: 'main', entryFunction: 'main' }));
+  const r = runCli(['audit', malformedPath]);
+  assert(r.status !== 0, `expected a nonzero (crash) exit, got ${r.status}`);
+  assert(!r.stderr.startsWith('ball:'), `expected an unhandled-exception crash, not a clean "ball:" error:\n${r.stderr}`);
 });
 
 // ── Summary ─────────────────────────────────────────────────────────────────

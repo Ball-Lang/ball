@@ -528,8 +528,11 @@ jobs:
         run: cd ts/cli && npm ci
       - name: Build @ball-lang/cli
         run: cd ts/cli && npm run build
-      - name: Test @ball-lang/cli
-        run: cd ts/cli && npm test
+      # Coverage-gated (issue #62): `npm run coverage` runs the full `npm test`
+      # (the black-box subprocess suite in test/cli_test.ts + the dependency-free
+      # capability_analyzer/capability_table unit tests) under c8.
+      - name: Test @ball-lang/cli (coverage-gated)
+        run: cd ts/cli && npm run coverage
 
       # @ball-lang/compiler (self-host TS-native compiler)
       - name: Install @ball-lang/compiler deps

@@ -16,10 +16,12 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { createEngineSetup } from "../src/engine_setup.ts";
 import * as CompiledEngineModule from "../src/compiled_engine.ts";
+import { BallEngine } from "../src/index.ts";
 
 const setup = createEngineSetup(CompiledEngineModule as any);
 const { wrapValue, __bts, BallFuture, MethodDispatchHandler, registerExtraStdFunctions,
-  seedGlobalScope, _isFutureLike, _unwrapBallValue } = setup;
+  seedGlobalScope, _isFutureLike, _unwrapBallValue, protoWrap, patchCompiledEngine } = setup;
+const _FlowSignal = (CompiledEngineModule as any)._FlowSignal;
 
 const BallDouble = (globalThis as any).BallDouble;
 const BallGenerator = (CompiledEngineModule as any).BallGenerator;
@@ -84,6 +86,13 @@ describe("wrapValue", () => {
     assert.equal(wrapValue(42).toString(), "42");
     assert.equal(wrapValue(42).valueOf(), 42);
     assert.equal(String(wrapValue("x")), "x");
+  });
+
+  test("whichKind falls back to nullValue for a type with no proto3-JSON representation (bigint)", () => {
+    // bigint is not string/boolean/number/array/object, so it falls through
+    // every branch to the final `return 'nullValue'` — proto3 JSON (and this
+    // Struct.Value shim) has no representation for it.
+    assert.equal(wrapValue(10n).whichKind(), "nullValue");
   });
 });
 
@@ -171,6 +180,46 @@ describe("__bts", () => {
   test("plain objects format as Dart map-literal syntax, skipping __-prefixed keys", () => {
     assert.equal(__bts({ a: 1, __hidden: 2 }), "{a: 1}");
     assert.equal(__bts({ __hidden: 1 }), "{}");
+  });
+
+  test("a value with no matching case at all (function) falls back to String(v)", () => {
+    // A function is not null/boolean/BallDouble/bigint/number/string/future/
+    // generator/array/Map/Set/plain-object — it falls through every branch to
+    // the final `return String(v)`.
+    function namedFn() {}
+    assert.equal(__bts(namedFn), String(namedFn));
+  });
+});
+
+// ── protoWrap: return-statement normalization ───────────────────────────────
+
+describe("protoWrap", () => {
+  test("normalizes a `return` statement with a value into a std.return call expression", () => {
+    const wrapped = protoWrap({ return: { value: { literal: { intValue: "5" } } } });
+    assert.equal(wrapped.expression.call.module, "std");
+    assert.equal(wrapped.expression.call.function, "return");
+    const fields = wrapped.expression.call.input.messageCreation.fields;
+    assert.equal(fields.length, 1);
+    assert.equal(fields[0].name, "value");
+    assert.equal(fields[0].value.literal.intValue, "5");
+  });
+
+  test("a bare (non-`.value`-wrapped) return payload is used directly as the value", () => {
+    const wrapped = protoWrap({ return: { literal: { intValue: "9" } } });
+    const fields = wrapped.expression.call.input.messageCreation.fields;
+    assert.equal(fields[0].value.literal.intValue, "9");
+  });
+
+  test("a null return payload normalizes to an empty-fields messageCreation (bare `return;`)", () => {
+    const wrapped = protoWrap({ return: null });
+    assert.deepEqual(wrapped.expression.call.input.messageCreation.fields, []);
+  });
+
+  test("does not re-wrap a statement that already has `expression` or `let`", () => {
+    const exprStmt = { expression: { literal: { intValue: "1" } }, return: "ignored" };
+    const passthrough = protoWrap(exprStmt);
+    assert.equal(passthrough.call, undefined);
+    assert.equal(passthrough.expression.literal.intValue, "1");
   });
 });
 
@@ -464,6 +513,10 @@ describe("registerExtraStdFunctions: list_*", () => {
     assert.deepEqual(await h.call("list_expand", { list: [1, 2], function: (x: number) => [x, x] }), [1, 1, 2, 2]);
   });
 
+  test("list_find returns null when no element satisfies the predicate", async () => {
+    assert.equal(await h.call("list_find", { list: [1, 2, 3], function: (x: number) => x === 99 }), null);
+  });
+
   test("list_foreach also iterates a Set and a plain-object map", async () => {
     const seen: any[] = [];
     await h.call("list_foreach", { list: new Set([1, 2]), function: (x: any) => seen.push(x) });
@@ -615,6 +668,10 @@ describe("registerExtraStdFunctions: map_*", () => {
     const created = await h.call("map_create", { entry: [{ key: "a", value: 1 }] });
     assert.deepEqual(created, { a: 1 });
 
+    // A single entry (not wrapped in an array) — the non-array `entries`/`entry` branch.
+    const createdSingle = await h.call("map_create", { entry: { key: "b", value: 2 } });
+    assert.deepEqual(createdSingle, { b: 2 });
+
     const upd: any = { a: 1 };
     assert.equal(await h.call("map_update", { map: upd, key: "a", update: (v: number) => v + 1 }), 2);
     assert.equal(await h.call("map_update", { map: upd, key: "b", ifAbsent: () => 5 }), 5);
@@ -724,6 +781,14 @@ describe("registerExtraStdFunctions: conversion / equality / math / async", () =
     assert.equal(await h.call("not_equals", { left: "a", right: "b" }), true);
   });
 
+  test("not_equals falls back to true when one side is null/undefined (can't __bts-compare)", async () => {
+    // Neither the number path nor `av === bv` nor the "both non-null" __bts
+    // comparison applies when exactly one side is null — the function falls
+    // through to its final `return true`.
+    assert.equal(await h.call("not_equals", { left: null, right: 5 }), true);
+    assert.equal(await h.call("not_equals", { left: 5, right: undefined }), true);
+  });
+
   test("concat / null_check / compare_to / divide_double", async () => {
     assert.equal(await h.call("concat", { left: "a", right: "b" }), "ab");
     assert.equal(await h.call("null_check", { value: 5 }), 5);
@@ -788,6 +853,20 @@ describe("registerExtraStdFunctions: std_time / std_convert", () => {
     assert.equal(typeof b64, "string");
     assert.deepEqual(await h.call("base64_decode", { value: b64 }), [104, 105]);
   });
+
+  test("base64_encode/decode fall back to btoa/atob when Buffer is unavailable (browser-like environment)", async () => {
+    const realBuffer = (globalThis as any).Buffer;
+    // @ts-expect-error deliberately simulating a non-Node (Buffer-less) host.
+    delete (globalThis as any).Buffer;
+    try {
+      const encoded = await h.call("base64_encode", { value: [104, 105] });
+      assert.equal(encoded, btoa("hi"));
+      const decoded = await h.call("base64_decode", { value: encoded });
+      assert.deepEqual(decoded, [104, 105]);
+    } finally {
+      (globalThis as any).Buffer = realBuffer;
+    }
+  });
 });
 
 // ── typed_list ───────────────────────────────────────────────────────────
@@ -797,5 +876,272 @@ describe("registerExtraStdFunctions: typed_list", () => {
     const h = makeStdHandler();
     assert.deepEqual(await h.call("typed_list", { elements: [1, 2, 3] }), [1, 2, 3]);
     assert.deepEqual(await h.call("typed_list", {}), []);
+  });
+});
+
+// ── registerExtraStdFunctions: 'sort' (std-registered, distinct from the
+// MethodDispatchHandler's array `sort` case tested above) ──────────────────
+
+describe("registerExtraStdFunctions: sort (std base function)", () => {
+  const h = makeStdHandler();
+
+  test("returns null without mutating a non-array `self`", async () => {
+    assert.equal(await h.call("sort", { self: "not an array" }), null);
+  });
+
+  test("with no comparator, sorts the array in place using the default (<, >) ordering", async () => {
+    const arr = [3, 1, 2];
+    assert.equal(await h.call("sort", { self: arr }), null);
+    assert.deepEqual(arr, [1, 2, 3]);
+  });
+
+  test("with an async comparator, merge-sorts the array in place (accepts `list` as well as `self`)", async () => {
+    const arr = [3, 1, 2];
+    assert.equal(await h.call("sort", { list: arr, compare: async (i: any) => i.arg0 - i.arg1 }), null);
+    assert.deepEqual(arr, [1, 2, 3]);
+  });
+});
+
+// ── Numeric coercion helpers: _extractNumericArg / _toIntValue / ───────────
+// _toDoubleValue / _coerceInt / _coerceNum (private — exercised indirectly
+// through the std functions that route through them) ───────────────────────
+
+describe("registerExtraStdFunctions: numeric coercion edge cases", () => {
+  const h = makeStdHandler();
+
+  test("to_int/double_to_int clamp a raw bigint outside the int64 range", async () => {
+    const tooBig = 10n ** 30n;
+    const tooSmall = -(10n ** 30n);
+    assert.equal(await h.call("to_int", { value: tooBig }), 9223372036854775807n);
+    assert.equal(await h.call("to_int", { value: tooSmall }), -9223372036854775808n);
+    assert.equal(await h.call("double_to_int", { value: tooBig }), 9223372036854775807n);
+  });
+
+  test("to_int keeps a within-int64-but-unsafe-magnitude bigint as a bigint (not a lossy Number)", async () => {
+    // 2^53 + 1 : within int64 range but not exactly representable as a
+    // JS Number, so `_toIntValue` must return it as a bigint verbatim.
+    const unsafe = 9007199254740993n;
+    assert.equal(await h.call("to_int", { value: unsafe }), unsafe);
+  });
+
+  test("to_double/int_to_double extract a nested numeric raw value from an object shape", async () => {
+    // The outer std-function registration already extracts `i.value`, so
+    // nesting a plain object one level deeper as that extracted value drives
+    // `_extractNumericArg`'s own object-unwrapping branch.
+    assert.equal((await h.call("to_double", { value: { value: 7 } })).value, 7);
+    assert.equal((await h.call("to_double", { value: { arg0: 7 } })).value, 7);
+  });
+
+  test("to_double unwraps a BallDouble nested inside an object's value/arg0 field", async () => {
+    assert.equal((await h.call("to_double", { value: { value: new BallDouble(3.5) } })).value, 3.5);
+  });
+
+  test("to_double coerces a non-numeric nested raw value via Number(raw)", async () => {
+    assert.equal((await h.call("to_double", { value: { value: "42" } })).value, 42);
+  });
+
+  test("to_double falls back to 0 when the value cannot be parsed as a number at all", async () => {
+    assert.equal((await h.call("to_double", { value: "not a number" })).value, 0);
+  });
+
+  test("to_double falls back to a plain number (not a BallDouble) when BallDouble is unavailable", async () => {
+    const real = (globalThis as any).BallDouble;
+    delete (globalThis as any).BallDouble;
+    try {
+      assert.equal(await h.call("to_double", { value: 5 }), 5);
+    } finally {
+      (globalThis as any).BallDouble = real;
+    }
+  });
+
+  test("math_abs coerces a digit string via _coerceInt's string branch", async () => {
+    assert.equal(await h.call("math_abs", { value: "-5" }), 5);
+  });
+
+  test("math_abs coerces a huge digit string (beyond safe-integer magnitude, within int64) to a bigint result", async () => {
+    assert.equal(await h.call("math_abs", { value: "-9223372036854775000" }), 9223372036854775000n);
+  });
+
+  test("math_abs falls back to 0 for a non-digit string (parseInt fails)", async () => {
+    assert.equal(await h.call("math_abs", { value: "not-a-number" }), 0);
+  });
+
+  test("math_abs coerces booleans (true=1, false=0)", async () => {
+    assert.equal(await h.call("math_abs", { value: true }), 1);
+    assert.equal(await h.call("math_abs", { value: false }), 0);
+  });
+
+  test("math_abs falls back to 0 for a value _coerceInt has no case for (array/object)", async () => {
+    assert.equal(await h.call("math_abs", { value: [1, 2] }), 0);
+  });
+
+  test("compare_to coerces a digit string against a number via _coerceNum's string branch", async () => {
+    assert.equal(await h.call("compare_to", { left: "5", right: 3 }), 1);
+    assert.equal(await h.call("compare_to", { left: "2", right: 3 }), -1);
+  });
+
+  test("compare_to coerces a huge digit string (beyond safe-integer magnitude) via _toIntValue", async () => {
+    assert.equal(await h.call("compare_to", { left: "9007199254740993", right: 0 }), 1);
+  });
+
+  test("compare_to coerces a decimal (non-digit-regex) string via Number(s)", async () => {
+    assert.equal(await h.call("compare_to", { left: "5.5", right: 3 }), 1);
+    assert.equal(await h.call("compare_to", { left: "not-a-number", right: 0 }), 0);
+  });
+
+  test("compare_to coerces booleans and falls back to 0 for a value with no numeric case", async () => {
+    assert.equal(await h.call("compare_to", { left: true, right: 0 }), 1);
+    assert.equal(await h.call("compare_to", { left: [1, 2], right: 0 }), 0);
+  });
+});
+
+// ── patchCompiledEngine: internals only reachable through a real, patched ──
+// compiled-engine instance (constructed the same way src/index.ts's
+// `BallEngine` does) ─────────────────────────────────────────────────────────
+
+describe("patchCompiledEngine (via a real BallEngine instance)", () => {
+  function makeEngine(): any {
+    return (new BallEngine({}) as any)._compiledEngine;
+  }
+
+  test("_matchesTypePattern covers the num/List/Map/Set/Object/dynamic/Null/null cases", () => {
+    const ce = makeEngine();
+    assert.equal(ce._matchesTypePattern(5, "num"), true);
+    assert.equal(ce._matchesTypePattern(5n, "num"), true);
+    assert.equal(ce._matchesTypePattern("x", "num"), false);
+    assert.equal(ce._matchesTypePattern([1, 2], "List"), true);
+    assert.equal(ce._matchesTypePattern({ a: 1 }, "Map"), true);
+    assert.equal(ce._matchesTypePattern(new Set(), "Map"), false);
+    assert.equal(ce._matchesTypePattern(new Set([1]), "Set"), true);
+    assert.equal(ce._matchesTypePattern(null, "Object"), false);
+    assert.equal(ce._matchesTypePattern(5, "Object"), true);
+    assert.equal(ce._matchesTypePattern("anything", "dynamic"), true);
+    assert.equal(ce._matchesTypePattern(null, "null"), true);
+    assert.equal(ce._matchesTypePattern(null, "Null"), true);
+  });
+
+  test("_stdMapCreate ingests a single (non-array) entries object", () => {
+    const ce = makeEngine();
+    assert.deepEqual(ce._stdMapCreate({ entries: { key: "x", value: 5 } }), { x: 5 });
+  });
+
+  test("_callFunction's async-metadata getBool reads a raw (non-Value-wrapped) boolean field", async () => {
+    // Real Ball IR wraps metadata booleans in a Struct Value (`{boolValue: true}`);
+    // this drives the `typeof v === 'object'` check false so `getBool` falls
+    // through to its raw-truthiness `return !!v` branch instead.
+    const ce = makeEngine();
+    const func = {
+      name: "asyncRaw", isBase: false, inputType: "", metadata: { fields: { is_async: true } },
+      body: { literal: { intValue: "42" } },
+    };
+    const result = await ce._callFunction("main", func, {}, ce._globalScope);
+    // Whatever the native engine's own async handling produces, it must be
+    // future-like (proves `is_async` was actually detected as true).
+    assert.equal(_isFutureLike(result), true);
+  });
+
+  test("_callFunction unwraps a FlowSignal('return', ...) result and re-wraps a non-future result in BallFuture", async () => {
+    // The native compiled engine's own async handling already wraps ordinary
+    // results in a future marker before our patch ever sees them (verified
+    // empirically), so these two defensive branches in the patch's own
+    // decision logic are unit-tested here directly: stub the *native*
+    // `_callFunction` (captured as `origCallFunction` by a second
+    // `patchCompiledEngine` application) to hand back exactly the shapes the
+    // patch is defending against.
+    const ce = makeEngine();
+    let call = 0;
+    ce._callFunction = async (_moduleName: string, _func: any, _input: any, _parentScope: any) => {
+      call++;
+      if (call === 1) return new _FlowSignal("return", { value: 777 });
+      return 55; // a plain, non-future value
+    };
+    patchCompiledEngine(ce);
+
+    const asyncFunc = { name: "f", isBase: false, body: {}, metadata: { fields: { is_async: true } } };
+    const viaFlowSignal = await ce._callFunction("main", asyncFunc, {}, ce._globalScope);
+    assert.equal(_isFutureLike(viaFlowSignal), true);
+    assert.equal(_unwrapBallValue(viaFlowSignal), 777);
+
+    const viaPlainFallback = await ce._callFunction("main", asyncFunc, {}, ce._globalScope);
+    assert.equal(_isFutureLike(viaPlainFallback), true);
+    assert.equal(_unwrapBallValue(viaPlainFallback), 55);
+  });
+
+  test("_evalCall auto-unwraps a BallFuture-like result from the native call evaluator", async () => {
+    const ce = makeEngine();
+    ce._evalCall = async (_call: any, _scope: any) => ({ __ball_future__: true, value: 321, completed: true });
+    patchCompiledEngine(ce);
+    assert.equal(await ce._evalCall({}, ce._globalScope), 321);
+  });
+
+  test("_callBaseFunction('yield'/'yield_each') push into the current generator when one is active", () => {
+    const ce = makeEngine();
+    const BallGenerator = (CompiledEngineModule as any).BallGenerator;
+
+    // No active generator: returns the (unwrapped) value without pushing anywhere.
+    ce._currentGenerator = null;
+    assert.equal(ce._callBaseFunction("std", "yield", { value: 5 }), 5);
+
+    // An active generator: the value is pushed into it.
+    ce._currentGenerator = new BallGenerator();
+    assert.equal(ce._callBaseFunction("std", "yield", { value: 7 }), 7);
+    assert.deepEqual(ce._currentGenerator.values, [7]);
+
+    // yield_each with a plain array iterable.
+    ce._currentGenerator = new BallGenerator();
+    ce._callBaseFunction("std", "yield_each", { value: [1, 2] });
+    assert.deepEqual(ce._currentGenerator.values, [1, 2]);
+
+    // yield_each with a BallGenerator iterable (spreads its .values).
+    const inner = new BallGenerator();
+    inner.values.push(9, 10);
+    ce._currentGenerator = new BallGenerator();
+    ce._callBaseFunction("std", "yield_each", { value: inner });
+    assert.deepEqual(ce._currentGenerator.values, [9, 10]);
+  });
+
+  test("_evalMessageCreation merges duplicate Object.prototype-polluted field names into an array", async () => {
+    const ce = makeEngine();
+    const msg = {
+      typeName: "",
+      fields: [
+        { name: "length", value: { literal: { intValue: "1" } } },
+        { name: "length", value: { literal: { intValue: "2" } } },
+        { name: "length", value: { literal: { intValue: "3" } } },
+      ],
+    };
+    const result = await ce._evalMessageCreation(msg, ce._globalScope);
+    assert.deepEqual(result.length, [1, 2, 3]);
+  });
+
+  test("BallGenerator.prototype.yieldAll appends from any iterable, not just arrays", () => {
+    makeEngine(); // ensures patchCompiledEngine has run at least once
+    const BallGenerator = (CompiledEngineModule as any).BallGenerator;
+    const gen = new BallGenerator();
+    gen.values.push(1);
+    gen.yieldAll(new Set([2, 3]));
+    assert.deepEqual(gen.values, [1, 2, 3]);
+  });
+
+  test("wraps a pre-existing globalThis.__bts to unwrap BallFuture/BallGenerator before delegating", () => {
+    // compiled_engine.ts never actually sets globalThis.__bts today (grepped:
+    // zero occurrences), so in every real run `origBts` is undefined and this
+    // wrapping is skipped — same "otherwise-dead escape hatch" shape as the
+    // globalThis._patchScopeBindings test in index_wrapper.test.ts. Drive it
+    // explicitly by pre-seeding the global before construction.
+    const calls: any[] = [];
+    const mockOrig = (v: any) => { calls.push(v); return "ORIG:" + String(v); };
+    (globalThis as any).__bts = mockOrig;
+    try {
+      makeEngine();
+      const patched = (globalThis as any).__bts;
+      assert.notEqual(patched, mockOrig);
+      assert.equal(patched(42), "ORIG:42");
+      const fut = new BallFuture(7);
+      assert.equal(patched(fut), "ORIG:7");
+      assert.deepEqual(calls, [42, 7]);
+    } finally {
+      delete (globalThis as any).__bts;
+    }
   });
 });

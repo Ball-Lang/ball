@@ -1,3 +1,10 @@
+## [1.5.7](https://github.com/Ball-Lang/ball/compare/v1.5.6...v1.5.7) (2026-07-04)
+
+
+### Bug Fixes
+
+* **cpp:** .values returns the values list for a Map and fails loud on non-Map ([#202](https://github.com/Ball-Lang/ball/issues/202)) ([#215](https://github.com/Ball-Lang/ball/issues/215)) ([3730ee3](https://github.com/Ball-Lang/ball/commit/3730ee31ea212dfcca4b18d4ca2c68b43b2d3d16)), closes [#197](https://github.com/Ball-Lang/ball/issues/197)
+
 ## [1.5.6](https://github.com/Ball-Lang/ball/compare/v1.5.5...v1.5.6) (2026-07-04)
 
 

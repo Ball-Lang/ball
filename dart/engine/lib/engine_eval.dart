@@ -1031,6 +1031,14 @@ extension BallEngineEval on BallEngine {
         if (rawList != null) return _manualReverse(rawList);
       case 'keys':
         if (object is Map) return object.entries.map((e) => e.key).toList();
+        // Explicit throw (rather than relying on the post-switch throw below):
+        // a case whose only non-return exit is the fall-through throw compiles,
+        // on the C++ self-host, to `return <null-on-else>` — swallowing the
+        // fall-through and yielding null/[] instead of throwing, so `.keys` on a
+        // non-Map returned [] there while Dart/TS threw (issue #203/#197).
+        throw BallRuntimeError(
+          'Cannot access field "keys" on ${object?.runtimeType ?? "null"}',
+        );
       case 'values':
         if (object is Map) {
           final vals = object.entries.map((e) => e.value).toList();
@@ -1049,6 +1057,10 @@ extension BallEngineEval on BallEngine {
           }
           return vals;
         }
+        // Explicit throw — see the 'keys' case above (self-host fall-through).
+        throw BallRuntimeError(
+          'Cannot access field "values" on ${object?.runtimeType ?? "null"}',
+        );
       case 'isNaN':
         return _ballNumIsNaN(object);
       case 'isFinite':

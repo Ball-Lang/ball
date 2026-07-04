@@ -3736,6 +3736,7 @@ export class BallEngine {
             return e.key;
           }))];
         }
+        throw new BallRuntimeError(('Cannot access field "keys" on ' + __ball_to_string(((__ball_eq(object, null) ? null : object.runtimeType) ?? 'null'))));
       }
       else if ((__sw === 'values')) {
         if ((typeof object === 'object' && object !== null && !Array.isArray(object) && !(object instanceof BallDouble) && !(object instanceof Set))) {
@@ -3753,6 +3754,7 @@ export class BallEngine {
           }
           return vals;
         }
+        throw new BallRuntimeError(('Cannot access field "values" on ' + __ball_to_string(((__ball_eq(object, null) ? null : object.runtimeType) ?? 'null'))));
       }
       else if ((__sw === 'isNaN')) {
         return _ballNumIsNaN(object);

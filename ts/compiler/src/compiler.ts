@@ -4961,15 +4961,23 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "map_keys": {
         const map = f.get("map") ?? f.get("value");
-        return map ? `Object.keys(${this.expr(map)})` : "[]";
+        // Fail loud on a non-Map receiver instead of silently returning [] —
+        // that silent degradation is the class of bug that hid issue #55
+        // (mirrors the .keys DART-GETTER guard already installed in
+        // preamble.ts's defDartGetter block, and the engine/C++-compiler
+        // guards for the same base function, #218).
+        return map ? `__ball_map_keys(${this.expr(map)})` : "[]";
       }
       case "map_values": {
         const map = f.get("map") ?? f.get("value");
-        return map ? `Object.values(${this.expr(map)})` : "[]";
+        return map ? `__ball_map_values(${this.expr(map)})` : "[]";
       }
       case "map_entries": {
         const map = f.get("map") ?? f.get("value");
-        return map ? `Object.entries(${this.expr(map)}).map(([k, v]) => ({key: k, value: v}))` : "[]";
+        // Same silent-degradation class as map_keys/map_values (#218): a
+        // bare Object.entries(...) on a non-Map silently returns garbage
+        // instead of failing loud.
+        return map ? `__ball_map_entries(${this.expr(map)})` : "[]";
       }
       case "map_length": {
         const map = f.get("map") ?? f.get("value");

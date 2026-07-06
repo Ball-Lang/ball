@@ -994,14 +994,11 @@ function __ball_cascade(target: any, ops: any[]): any {
       },
     });
   }
-  defDartGetter('entries', function (this: any) {
-    if (this instanceof Map) return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
-    if (this == null || typeof this !== 'object') return [];
-    return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
-  });
-  // .keys/.values on a non-Map must FAIL LOUD (throw a catchable error), not
-  // silently return [] — the silent-degradation class of bug that hid issue
-  // #55 (mirrors the fix already applied to the Dart/C++ compilers).
+  // .entries/.keys/.values on a non-Map must FAIL LOUD (throw a catchable
+  // error), not silently return [] — the silent-degradation class of bug
+  // that hid issue #55 (mirrors the fix already applied to the Dart/C++
+  // compilers). .entries used to be the odd one out here, silently
+  // returning [] instead of throwing — same bug family as #218.
   //
   // A getter installed on Object.prototype is invoked in "sloppy" (non-strict)
   // script contexts with this auto-boxed to a Number/String/Boolean WRAPPER
@@ -1014,6 +1011,13 @@ function __ball_cascade(target: any, ops: any[]): any {
     typeof v === 'object' && v !== null && !Array.isArray(v) &&
     !(v instanceof BallDouble) && !(v instanceof Set) &&
     !(v instanceof Number) && !(v instanceof String) && !(v instanceof Boolean);
+  defDartGetter('entries', function (this: any) {
+    if (this instanceof Map) return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
+    if (!__isGenuineMap(this)) {
+      throw new Error('type \'' + __ball_to_string(this) + '\' has no .entries getter (not a Map)');
+    }
+    return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
+  });
   defDartGetter('keys', function (this: any) {
     if (this instanceof Map) return [..._nativeMapKeys.call(this)];
     if (!__isGenuineMap(this)) {
@@ -1075,6 +1079,40 @@ function __ball_cascade(target: any, ops: any[]): any {
     get() { return 'bool'; },
   });
 })();
+
+// std.map_keys/std.map_values/std.map_entries (the base-function-call form,
+// as opposed to the .keys/.values/.entries DART-GETTER-STYLE property
+// access the defDartGetter block above already guards) must ALSO fail loud
+// on a non-Map receiver instead of silently returning [] — same "genuine
+// Map" check, exposed as top-level helpers so compileStdCall's emitted code
+// can call them (#218).
+function __ball_map_keys(m: any): any {
+  if (m instanceof Map) return [...m.keys()];
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .keys getter (not a Map)');
+  }
+  return Object.keys(m);
+}
+function __ball_map_values(m: any): any {
+  if (m instanceof Map) return [...m.values()];
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .values getter (not a Map)');
+  }
+  return Object.values(m);
+}
+function __ball_map_entries(m: any): any {
+  if (m instanceof Map) return [...m.entries()].map(([k, v]) => ({ key: k, value: v }));
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .entries getter (not a Map)');
+  }
+  return Object.entries(m).map(([k, v]) => ({ key: k, value: v }));
+}
 
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //

@@ -11,7 +11,7 @@ The `ball_shared` CMake library — common types, runtime helpers, and generated
 | `include/ball_shared.h` | Umbrella header: `BallValue`/`BallList`/`BallMap`/`BallFunction` type aliases, std module builders, pulls in `ball_emit_runtime.h` and generated protos |
 | `include/ball_emit_runtime.h` | Runtime helpers (exception type, `ball_to_string`, `std_time` helpers) embedded verbatim into every compiler-emitted program — single source of truth for both interpreter and emitted code |
 | `include/ball_file.h` | Header-only `ball::LoadProgram` / `LoadModule` / `DecodeProgram`; reads `.ball.json` / `.ball.bin` / `.ball.pb` `google.protobuf.Any` envelopes |
-| `include/ball_ir.h` | Protobuf-free IR (`ball::ir` namespace) loaded via nlohmann/json; supports both camelCase and snake_case field names |
+| `include/ball_ir.h` | Protobuf-free IR (`ball::ir` namespace) loaded via nlohmann/json; supports both camelCase and snake_case field names on read, and serializes back to proto3-JSON (camelCase, canonical) via `toJson`/`programToJsonString` |
 | `include/ball_dyn.h` | Dynamic value helpers used by the self-hosted engine harness |
 | `include/ball_ordered_map.h` / `ball_ordered_map_impl.h` | Ordered-map interface and implementation |
 | `src/ball_shared.cpp` | `ball_shared` implementation (std module builders) |
@@ -38,6 +38,36 @@ loading.
   `test_ball_ir` (CTest `ball_ir_loader`) parses the WHOLE conformance corpus
   through it with zero libprotobuf. This is the real replacement for JSON IR
   loading.
+  - **Write direction (Phase 2a, #18):** `toJson`/`programToJsonString` mirror
+    every `parseX` — the serializer the encoder migration will need (ball_ir.h
+    was previously parse-only). Proven via a struct→JSON→re-parse round-trip
+    against the whole conformance corpus (informational tally in
+    `test_ball_ir`'s output, not gating `ball_ir_loader`'s pass/fail — see the
+    "not byte-perfect" note below): 315/321 fixtures match exactly. The 6 that
+    don't are a genuine representational limit, not a bug: `ball::ir`'s plain
+    (non-`std::optional`) struct fields can't distinguish "the source omitted
+    this field" from "the source wrote it at its own zero value" once parsed,
+    and the real corpus is occasionally inconsistent about which shape the
+    SAME field uses across otherwise-identical call sites (e.g. some
+    `MessageCreation.typeName` are explicit `""`, others of the identical
+    shape omit the key). Closing the gap fully needs presence-tracking added
+    to `ball::ir`'s types — left for a future pass; two narrow, documented
+    normalizations (`normalizeMessageCreationTypeName`,
+    `normalizeEmptyModulePlaceholders` in `test_ball_ir.cpp`) already close
+    the majority of these without touching the serializer's otherwise-correct
+    default-omission behavior.
+  - **`@type` envelope handling fixed:** `parseProgram`'s Any-envelope
+    handling used to be a dead no-op (`root = &j` in both branches of an
+    `if`). It turned out to be harmless-by-accident (a non-well-known
+    message's Any JSON form merges fields alongside `@type` at the same
+    level, so nothing needs unwrapping — verified: all 321 corpus fixtures
+    use exactly this shape), but now also validates the envelope names
+    `ball.v1.Program` and fails loud on a mismatch (e.g. a Module file handed
+    to the wrong loader) instead of silently parsing a garbage/empty Program.
+  - **`Module.typeAliases` was silently unparsed:** `parseModule` never read
+    the `typeAliases`/`type_aliases` field at all (no `parseTypeAlias`
+    existed). Fixed; one corpus fixture (`85_closure_counter.ball.json`)
+    actually uses it.
 - `ball_protobuf_rt.h` (+ `ball_protobuf_rt_smoke.cpp`) builds behind
   `-DBALL_BUILD_PROTOBUF_RT=ON` as the standalone, dependency-free proof target
   `ball_protobuf_rt_smoke` (CTest `protobuf_rt_smoke`). CI enables the flag on

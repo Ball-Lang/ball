@@ -246,32 +246,51 @@ export function createEngineSetup(mod: EngineModule) {
 
   function _int64Add(a: any, b: any): any {
     const [l, r] = _coerceIntPair(a, b);
+    // The false branch (neither operand a bigint) is unreachable via this
+    // function's one caller (_stdAdd's 'add' handler): it only calls
+    // _int64Add once it has already confirmed _coerceInt(left) or
+    // _coerceInt(right) is a bigint, and _coerceIntPair coerces BOTH
+    // operands to bigint whenever either one is -- so this `if` always
+    // takes the true branch here.
+    /* c8 ignore next */
     if (typeof l === 'bigint' || typeof r === 'bigint') {
       const lb = typeof l === 'bigint' ? l : BigInt(l);
       const rb = typeof r === 'bigint' ? r : BigInt(r);
       return _int64Result(lb + rb);
     }
+    /* c8 ignore start -- defensive fallback, see the comment above */
     return l + r;
+    /* c8 ignore stop */
   }
 
   function _int64Subtract(a: any, b: any): any {
     const [l, r] = _coerceIntPair(a, b);
+    // Unreachable false branch via this function's one caller (see
+    // _int64Add above).
+    /* c8 ignore next */
     if (typeof l === 'bigint' || typeof r === 'bigint') {
       const lb = typeof l === 'bigint' ? l : BigInt(l);
       const rb = typeof r === 'bigint' ? r : BigInt(r);
       return _int64Result(lb - rb);
     }
+    /* c8 ignore start -- defensive fallback, see the comment above */
     return l - r;
+    /* c8 ignore stop */
   }
 
   function _int64Multiply(a: any, b: any): any {
     const [l, r] = _coerceIntPair(a, b);
+    // Unreachable false branch via this function's one caller (see
+    // _int64Add above).
+    /* c8 ignore next */
     if (typeof l === 'bigint' || typeof r === 'bigint') {
       const lb = typeof l === 'bigint' ? l : BigInt(l);
       const rb = typeof r === 'bigint' ? r : BigInt(r);
       return _int64Result(lb * rb);
     }
+    /* c8 ignore start -- defensive fallback, see the comment above */
     return l * r;
+    /* c8 ignore stop */
   }
 
   function _int64Negate(v: any): any {

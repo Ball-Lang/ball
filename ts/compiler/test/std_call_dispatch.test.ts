@@ -1161,4 +1161,22 @@ describe("compiler — typed_map throws on a malformed entry instead of silently
       /typed_map entry is missing "key" or "value"/,
     );
   });
+
+  test("an entry that isn't a key/value messageCreation at all also throws", () => {
+    // A distinct malformed shape from the "missing key or value" case above:
+    // an entry that isn't a messageCreation (key/value record) in the first
+    // place -- e.g. a bare literal slipped into the entries list.
+    const program: Program = {
+      name: "typed_map_non_mc_entry_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [
+        { name: "main", body: std("typed_map", { entries: listLit([lit("not-a-record")]) }) },
+      ] }],
+    };
+    assert.throws(
+      () => compile(program, { includePreamble: false }),
+      /typed_map entry is not a key\/value messageCreation/,
+    );
+  });
 });

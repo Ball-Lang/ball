@@ -712,6 +712,18 @@ describe("TsEncoder", () => {
     assert.equal(warnings.length, 0);
   });
 
+  test("an unhandled EXPRESSION kind (delete) warns and falls back to a placeholder literal", () => {
+    // The `with` tests above exercise encodeStatement's unhandled-kind
+    // fallback; `delete` is a distinct TS node kind (DeleteExpression, not
+    // a PrefixUnaryExpression) with no Ball mapping, so it exercises
+    // encodeExpr's OWN unhandled-kind fallback instead.
+    const { program, warnings } = encodeWithWarnings(`function main() { delete obj.prop; }`);
+    assert.ok(warnings.some(w => w.includes("DeleteExpression")));
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const stmt = mainFn.body!.block!.statements[0].expression!.literal!.stringValue!;
+    assert.ok(stmt.includes("unhandled: DeleteExpression"));
+  });
+
   test("full encode produces valid Program structure", () => {
     const source = `
       function add(a: number, b: number): number {

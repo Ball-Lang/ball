@@ -285,4 +285,46 @@ describe("TS compiler — std_memory executed end-to-end", () => {
       try { unlinkSync(tmpPath); } catch { /* ignore */ }
     }
   });
+
+  test("memory_copy/memory_set/memory_compare round-trip real bytes through node", () => {
+    // let a = memory_alloc(size: 8); memory_write_u32(a, 0x11223344);
+    // let b = memory_alloc(size: 8); memory_write_u32(b, 0x11223344);
+    // print(memory_compare(a, b, size: 4));      -> 0 (equal)
+    // memory_set(address: b, value: 0, size: 4); print(memory_read_u32(b)); -> 0
+    // print(memory_compare(a, b, size: 4));      -> 68 (0x44 - 0, first differing byte)
+    // memory_copy(dest: b, src: a, size: 4); print(memory_read_u32(b)); -> 287454020 (copied)
+    // print(memory_compare(a, b, size: 4));      -> 0 (equal again)
+    const program = programWithMemory([
+      { let: { name: "a", value: call("memory_alloc", { size: intLit(8) }) } },
+      { expression: call("memory_write_u32", { address: ref("a"), value: intLit(0x11223344) }) },
+      { let: { name: "b", value: call("memory_alloc", { size: intLit(8) }) } },
+      { expression: call("memory_write_u32", { address: ref("b"), value: intLit(0x11223344) }) },
+      { expression: printCall(call("memory_compare", { a: ref("a"), b: ref("b"), size: intLit(4) })) },
+      { expression: call("memory_set", { address: ref("b"), value: intLit(0), size: intLit(4) }) },
+      { expression: printCall(call("memory_read_u32", { address: ref("b") })) },
+      { expression: printCall(call("memory_compare", { a: ref("a"), b: ref("b"), size: intLit(4) })) },
+      { expression: call("memory_copy", { dest: ref("b"), src: ref("a"), size: intLit(4) }) },
+      { expression: printCall(call("memory_read_u32", { address: ref("b") })) },
+      { expression: printCall(call("memory_compare", { a: ref("a"), b: ref("b"), size: intLit(4) })) },
+    ]);
+
+    const ts = compile(program);
+    const tmpPath = join(tmpdir(), `ball_std_memory_bulk_${process.pid}.ts`);
+    writeFileSync(tmpPath, ts);
+    try {
+      let stdout: string;
+      try {
+        stdout = execSync(`node --experimental-strip-types "${tmpPath}"`, {
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (e: any) {
+        throw new Error(`Node failed:\nstderr:\n${e.stderr}\n\n---compiled---\n${ts}`);
+      }
+      const lines = stdout.replace(/\r\n/g, "\n").trimEnd().split("\n");
+      assert.deepEqual(lines, ["0", "0", "68", "287454020", "0"]);
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  });
 });

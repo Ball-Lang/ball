@@ -1,3 +1,10 @@
+## [1.7.7](https://github.com/Ball-Lang/ball/compare/v1.7.6...v1.7.7) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** stop internal Map.entries/keys/values calls from hitting the Dart-property-style getter shadow ([#259](https://github.com/Ball-Lang/ball/issues/259)) ([#260](https://github.com/Ball-Lang/ball/issues/260)) ([d2e60fb](https://github.com/Ball-Lang/ball/commit/d2e60fb8bed75dafb22574f095f354735d295ddf))
+
 ## [1.7.6](https://github.com/Ball-Lang/ball/compare/v1.7.5...v1.7.6) (2026-07-06)
 
 

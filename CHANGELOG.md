@@ -1,3 +1,10 @@
+## [1.6.2](https://github.com/Ball-Lang/ball/compare/v1.6.1...v1.6.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* **release:** stop dual CHANGELOG.md writes that conflict the rolling release PR ([#194](https://github.com/Ball-Lang/ball/issues/194)) ([#231](https://github.com/Ball-Lang/ball/issues/231)) ([b870388](https://github.com/Ball-Lang/ball/commit/b870388f58998f56aca0a88362fe5b70028c005b))
+
 ## [1.6.1](https://github.com/Ball-Lang/ball/compare/v1.6.0...v1.6.1) (2026-07-06)
 
 

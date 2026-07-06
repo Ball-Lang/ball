@@ -430,6 +430,16 @@ Set<String> _harvestEmittable(String src) {
   // emittable; spot-check the gap report rather than trusting it blindly.
   addAllMatches(RegExp(r"'([a-zA-Z_][a-zA-Z0-9_]*)'"));
 
+  // The broad single-quoted scan above also matches base-function names the
+  // encoder mentions but never emits as a std CALL. `length` is such a case:
+  // its only occurrence in encoder.dart is the `unaryFunctions` input-type
+  // selection set — there is no `_buildStdCall('length')` / `..function =
+  // 'length'` emit site, because `.length` encodes to a FieldAccess, not a
+  // `std.length` call. The strict gate `check_encoder_completeness.dart`
+  // agrees (it scans only emit sites, so it never treats `length` as
+  // emittable). Subtract it so the coverage report shows no phantom gap.
+  candidates.remove('length');
+
   return candidates;
 }
 

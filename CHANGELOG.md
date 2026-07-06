@@ -1,3 +1,10 @@
+## [1.7.3](https://github.com/Ball-Lang/ball/compare/v1.7.2...v1.7.3) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** record type_args exclusion + self->this for undeclared fields ([#236](https://github.com/Ball-Lang/ball/issues/236) [#253](https://github.com/Ball-Lang/ball/issues/253)) ([#254](https://github.com/Ball-Lang/ball/issues/254)) ([6b76a7b](https://github.com/Ball-Lang/ball/commit/6b76a7b5076851a21a5bc91919d209f945f23e94)), closes [#252](https://github.com/Ball-Lang/ball/issues/252)
+
 ## [1.7.2](https://github.com/Ball-Lang/ball/compare/v1.7.1...v1.7.2) (2026-07-06)
 
 

@@ -1,3 +1,10 @@
+## [1.7.8](https://github.com/Ball-Lang/ball/compare/v1.7.7...v1.7.8) (2026-07-06)
+
+
+### Bug Fixes
+
+* **compiler:** TS+C++ bytes-literal codegen decodes real content; close [#64](https://github.com/Ball-Lang/ball/issues/64) bytes carve-out ([#265](https://github.com/Ball-Lang/ball/issues/265)) ([8d40a67](https://github.com/Ball-Lang/ball/commit/8d40a671a9ae06278d87f2bd5b2010f9c2015dca)), closes [#244](https://github.com/Ball-Lang/ball/issues/244) [#245](https://github.com/Ball-Lang/ball/issues/245) [#244](https://github.com/Ball-Lang/ball/issues/244)
+
 ## [1.7.7](https://github.com/Ball-Lang/ball/compare/v1.7.6...v1.7.7) (2026-07-06)
 
 

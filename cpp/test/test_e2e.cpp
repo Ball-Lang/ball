@@ -555,6 +555,7 @@ int main() {
         "255_string_surrogate_astral",
         "256_editions_resolver",
         "398_const_constructor",
+        "399_bytes_literal",
     };
 
     fs::path conformance_dir(BALL_CONFORMANCE_DIR);

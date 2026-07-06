@@ -1149,8 +1149,28 @@ std::string CppCompiler::compile_literal(const ball::v1::Literal& lit) {
             result += "}";
             return result;
         }
-        case ball::v1::Literal::kBytesValue:
-            return "std::vector<uint8_t>{/* bytes */}";
+        case ball::v1::Literal::kBytesValue: {
+            // protobuf's JSON parser (JsonStringToMessage, used to load the
+            // program) already base64-DECODES a `bytes` field into raw bytes
+            // stored in this std::string — no decoding needed here, just emit
+            // each byte's value in the initializer list. Emitted as
+            // std::vector<int64_t> (matching Dart, whose bytes literal also
+            // evaluates to a List<int>), NOT std::vector<uint8_t> — BallDyn
+            // has no constructor for the latter, so index()/length() (which
+            // go through static_cast<BallDyn>) would fail to compile or
+            // silently misbehave. (issue #244: this case previously discarded
+            // the value entirely, always emitting an empty vector regardless
+            // of the source bytes.)
+            std::string result = "std::vector<int64_t>{";
+            bool first = true;
+            for (unsigned char b : lit.bytes_value()) {
+                if (!first) result += ", ";
+                result += std::to_string(static_cast<int>(b));
+                first = false;
+            }
+            result += "}";
+            return result;
+        }
         default:
             return "BallDyn()";
     }

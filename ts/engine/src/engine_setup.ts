@@ -405,6 +405,20 @@ export function createEngineSetup(mod: EngineModule) {
     for (const f of REPEATED_DEFAULTS) {
       if (base[f] === undefined) base[f] = [];
     }
+
+    // A Literal.bytesValue arrives here as the raw proto3-JSON value: a
+    // base64 string, un-decoded (this is a plain JSON.parse of the target
+    // program, not a real protobuf deserializer). Dart's protobuf runtime
+    // decodes `bytes` fields into raw bytes immediately on JSON parse, so
+    // match that here — otherwise the engine's own Literal-eval logic
+    // (`lit.bytesValue.toList()`, compiled from engine_eval.dart) sees a
+    // STRING and `.toList()` on a string just iterates its characters,
+    // silently returning the base64 text's own bytes instead of the value
+    // it encodes. (issue #244)
+    if (typeof base.bytesValue === 'string') {
+      const bin = atob(base.bytesValue);
+      base.bytesValue = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    }
   
     // Ensure metadata is present on definition-like objects.
     if (base['name'] !== undefined && base['name'] !== '') {

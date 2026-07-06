@@ -46,3 +46,9 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `goto`/label statement, so it cannot be generated from portable source. Hand-authored
   (issue #184); it is the regression guard for the C++ self-host label loop — the
   reified thrown `_FlowSignal` fix in `engine_control_flow.dart._gotoSignalLabel`.
+- `399_bytes_literal` — exercises a `Literal.bytes_value` node (the `literal.bytes_value`
+  node-shape carve-out, #64 Phase 2b). No Dart source construct maps to a bytes literal
+  (`Uint8List.fromList([...])` encodes as a constructor call), so it cannot be generated
+  from portable source. Hand-authored; it is the regression guard for issue #244 (the
+  TS and C++ compilers, plus the self-hosted TS engine, all discarded a bytes literal's
+  real content before that fix).

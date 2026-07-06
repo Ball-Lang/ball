@@ -1010,6 +1010,69 @@ describe("compiler — remaining map_* base functions fail loud on a non-Map rec
   });
 });
 
+describe("compiler — printing/reading a real Map doesn't hit the Map.prototype getter shadow (#259)", () => {
+  test("typed_map builds a genuine Map; print + map_keys/map_values/map_entries all succeed with real output", () => {
+    // preamble.ts shadows Map.prototype.entries/keys/values with GETTERS so
+    // Dart's property-style `map.entries` access works. That shadow broke
+    // every INTERNAL call site that still invoked them as METHODS on a real
+    // Map (`x.entries()` first evaluates the getter -- returning an array --
+    // then tries to call THAT as a function): __ball_to_string's Map
+    // printer, the Map-like addAll copy sites, and __ball_map_keys/values/
+    // entries itself (the very helpers #256/#257 added to fix #218 — their
+    // non-Map-throws branch was already fixed, but their real-Map SUCCESS
+    // branch was silently broken by this pre-existing, unrelated shadow).
+    // typed_map (unlike map_create, which emits a plain object) is what
+    // exercises a genuine `new Map(...)`.
+    const program: Program = {
+      name: "map_proto_shadow_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main",
+              body: block([
+                {
+                  let: {
+                    name: "m",
+                    value: std("typed_map", {
+                      entries: listLit([
+                        mc({ key: lit("a"), value: lit(1) }),
+                        mc({ key: lit("b"), value: lit(2) }),
+                      ]),
+                    }),
+                  },
+                },
+                { expression: std("print", { message: ref("m") }) },
+                { expression: std("print", { message: std("map_keys", { map: ref("m") }) }) },
+                { expression: std("print", { message: std("map_values", { map: ref("m") }) }) },
+                { expression: std("print", { message: std("map_entries", { map: ref("m") }) }) },
+              ]),
+            },
+          ],
+        },
+      ],
+    };
+    const tmpPath = join(tmpdir(), `ball_map_proto_shadow_${process.pid}.ts`);
+    writeFileSync(tmpPath, compile(program));
+    try {
+      const out = execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
+      const lines = out.split("\n");
+      assert.deepEqual(lines, [
+        "{a: 1, b: 2}",
+        "[a, b]",
+        "[1, 2]",
+        "[{key: a, value: 1}, {key: b, value: 2}]",
+      ]);
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  });
+});
+
 describe("compiler — compileStdCall default fallback throws at compile time (#257)", () => {
   test("an unknown std function name throws a compile-time Error naming it, instead of a bare-identifier call", () => {
     // Used to silently emit `/* std.foo */ foo(args)` -- a call on a

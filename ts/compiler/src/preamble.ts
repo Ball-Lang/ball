@@ -247,7 +247,11 @@ function __ball_to_string(v: any): string {
   }
   if (v instanceof Map) {
     const parts: string[] = [];
-    for (const [k, val] of v.entries()) {
+    // v.entries() as a method call would hit the Dart-property-style
+    // getter of the same name (installed further down in this file) and
+    // try to invoke its return value -- an array -- as a function.
+    // _nativeMapEntries is the real, un-shadowed method (issue #259).
+    for (const [k, val] of _nativeMapEntries.call(v)) {
       parts.push(__ball_to_string(k) + ': ' + __ball_to_string(val));
     }
     return '{' + parts.join(', ') + '}';
@@ -719,6 +723,21 @@ function __ball_cascade(target: any, ops: any[]): any {
 // ── Dart \u2192 JS method-name polyfills ────────────────────────────────
 //
 // Idempotent: guarded so multiple preamble inclusions don't double-install.
+
+// Native Map.prototype.entries/keys/values, captured BEFORE the
+// installBallPolyfills IIFE below shadows them with Dart-property-style
+// getters of the same name. Top-level (not IIFE-scoped) so every internal
+// call site that needs the REAL iterator method -- not the property-style
+// getter -- can reach it: the getters themselves (which must call the
+// original to avoid recursing into themselves), __ball_to_string's Map
+// printer, the Map-like constructor copy sites, and the map_keys/values/
+// entries base-function helpers (issue #259 -- calling .entries()/etc.
+// as a METHOD on a real Map after the shadow is installed throws, since
+// the getter's return value -- an array -- isn't itself callable).
+const _nativeMapEntries = Map.prototype.entries;
+const _nativeMapKeys = Map.prototype.keys;
+const _nativeMapValues = Map.prototype.values;
+
 (function installBallPolyfills() {
   const mp: any = Map.prototype;
   if (!mp.containsKey) mp.containsKey = function (k: any) { return this.has(k); };
@@ -731,7 +750,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!mp.addAll) {
     mp.addAll = function (other: any) {
       if (other instanceof Map) {
-        for (const [k, v] of other.entries()) this.set(k, v);
+        // _nativeMapEntries, not other.entries() -- see __ball_to_string's
+        // Map printer above for why (issue #259).
+        for (const [k, v] of _nativeMapEntries.call(other)) this.set(k, v);
       } else if (other && typeof other === 'object') {
         for (const k of Object.keys(other)) this.set(k, other[k]);
       }
@@ -908,7 +929,8 @@ function __ball_cascade(target: any, ops: any[]): any {
       value: function (other: any) {
         if (this instanceof Map) {
           if (other instanceof Map) {
-            for (const [k, v] of other.entries()) this.set(k, v);
+            // _nativeMapEntries, not other.entries() (issue #259).
+            for (const [k, v] of _nativeMapEntries.call(other)) this.set(k, v);
           } else if (other && typeof other === 'object') {
             for (const k of Object.keys(other)) this.set(k, other[k]);
           }
@@ -961,9 +983,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   // JS Map has them as METHODS (need parens). The compiled engine
   // accesses map.entries as a getter. Shadow BOTH Map.prototype AND
   // Object.prototype so Map and plain-object dispatch tables work.
-  const _nativeMapEntries = Map.prototype.entries;
-  const _nativeMapKeys = Map.prototype.keys;
-  const _nativeMapValues = Map.prototype.values;
+  // (_nativeMapEntries/_nativeMapKeys/_nativeMapValues are captured at
+  // top level above, not here, so other call sites outside this IIFE
+  // can reach them too -- issue #259.)
   // Shadow Map.prototype.entries with a getter (Dart uses it as a getter).
   Object.defineProperty(Map.prototype, 'entries', {
     configurable: true, enumerable: false,
@@ -1087,7 +1109,10 @@ function __ball_cascade(target: any, ops: any[]): any {
 // Map" check, exposed as top-level helpers so compileStdCall's emitted code
 // can call them (#218).
 function __ball_map_keys(m: any): any {
-  if (m instanceof Map) return [...m.keys()];
+  // _nativeMapKeys, not m.keys() -- m.keys() would hit the Dart-property-
+  // style getter shadowing Map.prototype.keys and try to invoke its
+  // return value (an array) as a function (issue #259).
+  if (m instanceof Map) return [..._nativeMapKeys.call(m)];
   if (typeof m !== 'object' || m === null || Array.isArray(m) ||
       m instanceof BallDouble || m instanceof Set ||
       m instanceof Number || m instanceof String || m instanceof Boolean) {
@@ -1096,7 +1121,8 @@ function __ball_map_keys(m: any): any {
   return Object.keys(m);
 }
 function __ball_map_values(m: any): any {
-  if (m instanceof Map) return [...m.values()];
+  // _nativeMapValues, not m.values() (issue #259 -- see __ball_map_keys).
+  if (m instanceof Map) return [..._nativeMapValues.call(m)];
   if (typeof m !== 'object' || m === null || Array.isArray(m) ||
       m instanceof BallDouble || m instanceof Set ||
       m instanceof Number || m instanceof String || m instanceof Boolean) {
@@ -1105,7 +1131,8 @@ function __ball_map_values(m: any): any {
   return Object.values(m);
 }
 function __ball_map_entries(m: any): any {
-  if (m instanceof Map) return [...m.entries()].map(([k, v]) => ({ key: k, value: v }));
+  // _nativeMapEntries, not m.entries() (issue #259 -- see __ball_map_keys).
+  if (m instanceof Map) return [..._nativeMapEntries.call(m)].map(([k, v]) => ({ key: k, value: v }));
   if (typeof m !== 'object' || m === null || Array.isArray(m) ||
       m instanceof BallDouble || m instanceof Set ||
       m instanceof Number || m instanceof String || m instanceof Boolean) {

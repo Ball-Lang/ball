@@ -1076,6 +1076,30 @@ function __ball_cascade(target: any, ops: any[]): any {
   });
 })();
 
+// std.map_keys/std.map_values (the base-function-call form, as opposed to
+// the .keys/.values DART-GETTER-STYLE property access the defDartGetter
+// block above already guards) must ALSO fail loud on a non-Map receiver
+// instead of silently returning [] — same "genuine Map" check, exposed as
+// top-level helpers so compileStdCall's emitted code can call them (#218).
+function __ball_map_keys(m: any): any {
+  if (m instanceof Map) return [...m.keys()];
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .keys getter (not a Map)');
+  }
+  return Object.keys(m);
+}
+function __ball_map_values(m: any): any {
+  if (m instanceof Map) return [...m.values()];
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .values getter (not a Map)');
+  }
+  return Object.values(m);
+}
+
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //
 // Dart's protobuf runtime wraps google.protobuf.Struct as a class

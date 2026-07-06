@@ -342,12 +342,14 @@ const cases: Case[] = [
   {
     name: "mapKeys",
     body: std("map_keys", { map: ref("m") }),
-    expect: [/Object\.keys\(m\)/],
+    // Routes through __ball_map_keys (not a bare Object.keys) so a non-Map
+    // receiver fails loud instead of silently returning [] (#218).
+    expect: [/__ball_map_keys\(m\)/],
   },
   {
     name: "mapValues",
     body: std("map_values", { map: ref("m") }),
-    expect: [/Object\.values\(m\)/],
+    expect: [/__ball_map_values\(m\)/],
   },
   {
     name: "mapEntries",
@@ -876,5 +878,55 @@ describe("compiler — try/catch special cases", () => {
     assert.match(ts, /typeof MyCustomError !== 'undefined' && __ball_active_error instanceof MyCustomError/);
     // The stack_trace binding must also be emitted.
     assert.match(ts, /const st = \(__ball_active_error instanceof Error/);
+  });
+});
+
+describe("compiler — std.map_keys/std.map_values fail loud on a non-Map receiver (#218)", () => {
+  test("map_keys/map_values on a real Map succeed; on a non-Map they throw (caught by std.try)", () => {
+    // This exercises the DIRECT base-function-call form (module: "std",
+    // function: "map_keys"/"map_values") — a different compileStdCall case
+    // than the `.keys`/`.values` DART-GETTER-STYLE property access, which
+    // preamble.ts's defDartGetter block already guards. Before #218, this
+    // case emitted a bare `Object.keys(...)`/`Object.values(...)` with no
+    // Map check, silently returning garbage for a non-Map instead of
+    // throwing — the class of silent-degradation bug that hid issue #55.
+    const tryMapKeys = (mapExpr: Expression) => std("try", {
+      body: block([{ expression: std("print", { message: std("map_keys", { map: mapExpr }) }) }]),
+      catch: mc({
+        variable: lit("e"),
+        body: block([{ expression: std("print", { message: lit("threw") }) }]),
+      }),
+    });
+    const program: Program = {
+      name: "map_keys_values_fail_loud_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main",
+              body: block([
+                { let: { name: "m", value: std("map_create", { entry: mc({ key: lit("a"), value: lit(1) }) }) } },
+                { expression: std("print", { message: std("map_keys", { map: ref("m") }) }) },
+                { expression: std("print", { message: std("map_values", { map: ref("m") }) }) },
+                { expression: tryMapKeys(lit(42)) },
+                { expression: tryMapKeys(lit("hi")) },
+              ]),
+            },
+          ],
+        },
+      ],
+    };
+    const tmpPath = join(tmpdir(), `ball_map_fail_loud_${process.pid}.ts`);
+    writeFileSync(tmpPath, compile(program));
+    try {
+      const out = execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
+      assert.equal(out, "[a]\n[1]\nthrew\nthrew");
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
   });
 });

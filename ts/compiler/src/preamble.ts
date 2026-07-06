@@ -378,31 +378,77 @@ function __ball_push_all(target: any, items: any): void {
 // demotes back to Number when the result fits in MAX_SAFE_INTEGER.
 const __I64_MAX = 9223372036854775807n;
 const __I64_MIN = -9223372036854775808n;
-const __I64_MOD = 18446744073709551616n;
 function __i64_wrap(v: bigint): any {
-  v = ((v % __I64_MOD) + __I64_MOD) % __I64_MOD;
-  if (v > __I64_MAX) v = v - __I64_MOD;
+  // Two's-complement wrap to the signed 64-bit range — BigInt.asIntN(64, v)
+  // is the idiomatic builtin for exactly this (equivalent to the old manual
+  // modulo-then-resign, verified against it across boundary/overflow cases).
+  v = BigInt.asIntN(64, v);
   if (v >= -9007199254740991n && v <= 9007199254740991n) return Number(v);
   return v;
 }
 function __to_bigint(v: any): bigint {
   if (typeof v === 'bigint') return v;
+  // Matches the reference Dart engine's _toInt (engine_std.dart), which
+  // falls through to 0 for anything that isn't an int/BallInt/double/
+  // BallDouble/String/bool -- including null. NaN is deliberately NOT
+  // special-cased here: Dart's double.toInt() throws on NaN (via
+  // _ballDoubleToInt64), and BigInt(NaN) already throws for the same
+  // reason (RangeError: not an integer), so that path already fails loud
+  // consistently with the reference engine without any extra handling.
+  if (v === null || v === undefined) return 0n;
   if (v instanceof BallDouble) return BigInt(Math.trunc(v.value));
   return BigInt(v);
 }
-function __ball_bitand(a: any, b: any): any { return __i64_wrap(__to_bigint(a) & __to_bigint(b)); }
-function __ball_bitor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) | __to_bigint(b)); }
-function __ball_bitxor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) ^ __to_bigint(b)); }
-function __ball_bitnot(a: any): any { return __i64_wrap(~__to_bigint(a)); }
+// Fast-path guard: true when v is a plain (non-bigint, non-BallDouble)
+// integer within the signed 32-bit range. AND/OR/XOR/NOT never grow a
+// result past its operands' bit width, so when both operands fit in 32
+// bits, JS's native 32-bit bitwise operators give a result numerically
+// IDENTICAL to the full 64-bit BigInt path (sign-extending a 32-bit value
+// to 64 bits before AND/OR/XOR/NOT never changes the low 32 result bits,
+// and — verified across the full boundary range — never changes whether
+// the high bits are the correct sign-extension of them either). Left/right
+// shift are NOT given this fast path: shifting can grow a result past 32
+// bits even when the input operand fits (e.g. large_int << 40), so their
+// overflow behavior isn't safely 32-bit-local the way AND/OR/XOR/NOT is.
+function __fits32(v: any): boolean {
+  return typeof v === 'number' && Number.isInteger(v) && v >= -2147483648 && v <= 2147483647;
+}
+function __ball_bitand(a: any, b: any): any {
+  if (__fits32(a) && __fits32(b)) return a & b;
+  return __i64_wrap(__to_bigint(a) & __to_bigint(b));
+}
+function __ball_bitor(a: any, b: any): any {
+  if (__fits32(a) && __fits32(b)) return a | b;
+  return __i64_wrap(__to_bigint(a) | __to_bigint(b));
+}
+function __ball_bitxor(a: any, b: any): any {
+  if (__fits32(a) && __fits32(b)) return a ^ b;
+  return __i64_wrap(__to_bigint(a) ^ __to_bigint(b));
+}
+function __ball_bitnot(a: any): any {
+  if (__fits32(a)) return ~a;
+  return __i64_wrap(~__to_bigint(a));
+}
 function __ball_shl(a: any, b: any): any { return __i64_wrap(__to_bigint(a) << __to_bigint(b)); }
 function __ball_shr(a: any, b: any): any { return __i64_wrap(__to_bigint(a) >> __to_bigint(b)); }
 // Unsigned/logical shift: reinterpret a as an unsigned 64-bit value (add
 // 2^64 if negative) before shifting, so zeros fill from the left instead of
 // the sign bit — unlike >>> on raw JS numbers, which is only 32-bit.
 function __ball_ushr(a: any, b: any): any {
-  const unsigned = ((__to_bigint(a) % __I64_MOD) + __I64_MOD) % __I64_MOD;
+  const unsigned = BigInt.asUintN(64, __to_bigint(a));
   return __i64_wrap(unsigned >> __to_bigint(b));
 }
+// json_encode (dart:convert's jsonEncode) on a bigint-range int64 must not
+// crash -- JSON.stringify throws "Do not know how to serialize a BigInt"
+// without a toJSON. This is NOT proto3-JSON (which quotes int64 as a
+// string) -- Ball's dart:convert-style jsonEncode matches Dart's own
+// dart:convert (a bare, unquoted JSON number) and the C++ self-host's
+// _ball_json_encode (std::to_string(int64_t), also unquoted). JSON.rawJSON
+// embeds the exact decimal digits as a raw number token, avoiding the
+// precision loss Number(this) would introduce for values past 2^53.
+(BigInt.prototype as any).toJSON = function (this: bigint) {
+  return (JSON as any).rawJSON(this.toString());
+};
 function __ball_negate(a: any): any {
   if (typeof a === 'bigint') return __i64_wrap(-a);
   if (a instanceof BallDouble) return new BallDouble(-a.value);

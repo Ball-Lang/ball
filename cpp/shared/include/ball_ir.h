@@ -804,4 +804,120 @@ inline std::string programToJsonString(const Program& p, int indent = -1) {
   return j.dump(indent);
 }
 
+// ── P4: descriptor-WRITE builder (protobuf-free) ────────────────────────────
+//
+// Hand-rolls `google.protobuf.DescriptorProto` / `EnumDescriptorProto` as
+// proto3-JSON so the C++ encoder can CONSTRUCT type descriptors WITHOUT
+// libprotobuf's FieldDescriptorProto builders (#18). The target shape MIRRORS
+// what the current encoder emits via `MessageToJsonString(program,
+// preserve_proto_field_names=true)` for the descriptor built in
+// `CppEncoder::encode_class_decl` (encoder.cpp:171-218) and the enum built in
+// `encode_enum_decl` (encoder.cpp:344-360). NON-NEGOTIABLE invariants (see
+// issue #18 P4 spec):
+//   1. snake_case keys — `type_name`, NOT `typeName` (the encoder prints with
+//      preserve_proto_field_names=true). The repeated field is `field`
+//      (singular, the proto field name).
+//   2. Enum values (`type`, `label`) serialize as their NAME-STRING
+//      ("TYPE_INT32", "LABEL_OPTIONAL"), never integers.
+//   3. `type_name` is set on EVERY field including scalars, to the RAW C++ type
+//      string — a quirk of the encoder (`set_type_name(field_type)`
+//      unconditionally, encoder.cpp:217). Replicated for byte-parity; do NOT
+//      "fix" it to standard proto usage (message/enum only).
+//   4. `number` is a BARE JSON number (int32), not a string-encoded int (unlike
+//      `Literal.intValue` elsewhere in the IR). Field numbers start at 1; enum
+//      values are emitted verbatim including the default `0` (FieldDescriptor/
+//      EnumValueDescriptorProto are proto2 with explicit presence, so the
+//      encoder's `set_number(...)` is always serialized — verified against
+//      tests/conformance/109_enum_values.ball.json).
+namespace descriptor_build {
+
+// Mirrors `CppEncoder::map_cpp_type_to_proto` (encoder.cpp:1376-1401) but
+// returns the proto3-JSON NAME-STRING directly. Strips a leading `const ` and
+// trailing spaces exactly as the encoder does before matching.
+inline std::string mapCppTypeToProtoTypeName(const std::string& cppType) {
+  std::string n = cppType;
+  if (n.rfind("const ", 0) == 0) n = n.substr(6);
+  while (!n.empty() && n.back() == ' ') n.pop_back();
+  if (n == "int" || n == "int32_t" || n == "int32") return "TYPE_INT32";
+  if (n == "long" || n == "int64_t" || n == "long long") return "TYPE_INT64";
+  if (n == "unsigned int" || n == "uint32_t") return "TYPE_UINT32";
+  if (n == "unsigned long" || n == "uint64_t") return "TYPE_UINT64";
+  if (n == "float") return "TYPE_FLOAT";
+  if (n == "double") return "TYPE_DOUBLE";
+  if (n == "bool") return "TYPE_BOOL";
+  if (n == "char" || n == "char *" || n == "std::string" || n == "string")
+    return "TYPE_STRING";
+  if (n == "void" || n == "void *") return "TYPE_BYTES";
+  return "TYPE_MESSAGE";
+}
+
+// One field of a DescriptorProto. `cppType` is the RAW C++ type string: it
+// drives both `type` (via mapCppTypeToProtoTypeName) and the verbatim
+// `type_name`. `label` defaults to the only value the encoder ever sets.
+struct FieldSpec {
+  std::string name;
+  int number = 0;
+  std::string cppType;
+  std::string label = "LABEL_OPTIONAL";
+};
+
+// Builds one `FieldDescriptorProto` as proto3-JSON (snake_case keys, enum
+// name-strings, bare-number `number`, `type_name` always present).
+inline json buildFieldDescriptorProto(const FieldSpec& f) {
+  json j = json::object();
+  j["name"] = f.name;
+  j["number"] = f.number;  // bare JSON number, not string-encoded
+  j["label"] = f.label;    // enum NAME-STRING
+  j["type"] = mapCppTypeToProtoTypeName(f.cppType);  // enum NAME-STRING
+  j["type_name"] = f.cppType;  // raw C++ type on EVERY field (encoder quirk)
+  return j;
+}
+
+// Builds a `DescriptorProto` (message/type descriptor) as proto3-JSON. The
+// repeated field key is `field` (singular). An empty field list omits the key
+// (proto3-JSON default-omission of empty repeated fields).
+inline json buildDescriptorProto(const std::string& name,
+                                 const std::vector<FieldSpec>& fields) {
+  json j = json::object();
+  j["name"] = name;
+  if (!fields.empty()) {
+    json arr = json::array();
+    for (const auto& f : fields) arr.push_back(buildFieldDescriptorProto(f));
+    j["field"] = std::move(arr);
+  }
+  return j;
+}
+
+// One value of an EnumDescriptorProto.
+struct EnumValueSpec {
+  std::string name;
+  int number = 0;
+};
+
+// Builds one `EnumValueDescriptorProto` as proto3-JSON. `number` is always
+// emitted (proto2 explicit presence — the encoder's set_number is serialized
+// even at 0).
+inline json buildEnumValueDescriptorProto(const EnumValueSpec& v) {
+  json j = json::object();
+  j["name"] = v.name;
+  j["number"] = v.number;  // bare JSON number, always present (incl. 0)
+  return j;
+}
+
+// Builds an `EnumDescriptorProto` as proto3-JSON. The repeated field key is
+// `value` (singular).
+inline json buildEnumDescriptorProto(const std::string& name,
+                                     const std::vector<EnumValueSpec>& values) {
+  json j = json::object();
+  j["name"] = name;
+  if (!values.empty()) {
+    json arr = json::array();
+    for (const auto& v : values) arr.push_back(buildEnumValueDescriptorProto(v));
+    j["value"] = std::move(arr);
+  }
+  return j;
+}
+
+}  // namespace descriptor_build
+
 }  // namespace ball::ir

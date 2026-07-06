@@ -136,6 +136,26 @@ set_target_properties(test_ball_ir PROPERTIES
     CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
 )
 
+# P4 descriptor-WRITE builder test (#18) — exercises ball_ir.h's hand-rolled
+# DescriptorProto/EnumDescriptorProto JSON construction. UNLIKE test_ball_ir
+# (deliberately protobuf-free), this test DOES link libprotobuf: it is the
+# ORACLE. It builds descriptors via P4, parses them back with
+# JsonStringToMessage, and asserts proto equality against the protobuf-builder
+# path (google::protobuf::util::MessageDifferencer). ball_shared brings in
+# protobuf::libprotobuf (PUBLIC) — descriptor.pb.h, json_util, and
+# message_differencer all live there.
+add_executable(test_ball_ir_descriptor test_ball_ir_descriptor.cpp)
+target_include_directories(test_ball_ir_descriptor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(test_ball_ir_descriptor PRIVATE
+    ball_shared
+    nlohmann_json::nlohmann_json
+)
+set_target_properties(test_ball_ir_descriptor PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+)
+
 # Self-hosted engine compilation test — multi-TU engine_rt/ (preferred) or
 # legacy monolithic engine_rt.cpp. Both are gitignored and regenerated
 # locally; skip self-host targets when absent (CI builds native engine only).
@@ -224,6 +244,7 @@ add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)
 add_test(NAME ball_ir_loader COMMAND test_ball_ir)
+add_test(NAME ball_ir_descriptor COMMAND test_ball_ir_descriptor)
 add_test(NAME ball_dyn_tests COMMAND test_ball_dyn)
 # scope_probe was previously a build-only debug tool (never run under ctest,
 # so its own bind/child/has/lookup exercise of ball_dyn.h's scope machinery

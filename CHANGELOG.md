@@ -1,3 +1,10 @@
+## [1.7.6](https://github.com/Ball-Lang/ball/compare/v1.7.5...v1.7.6) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** fail loud on the remaining compileStdCall silent-degradation sites ([#257](https://github.com/Ball-Lang/ball/issues/257)) ([#258](https://github.com/Ball-Lang/ball/issues/258)) ([76df458](https://github.com/Ball-Lang/ball/commit/76df4583a4e969fe36aab33c1f9f0f2d1722049e))
+
 ## [1.7.5](https://github.com/Ball-Lang/ball/compare/v1.7.4...v1.7.5) (2026-07-06)
 
 

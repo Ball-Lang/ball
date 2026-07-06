@@ -354,7 +354,9 @@ const cases: Case[] = [
   {
     name: "mapEntries",
     body: std("map_entries", { map: ref("m") }),
-    expect: [/Object\.entries\(m\)\.map/],
+    // Routes through __ball_map_entries (not a bare Object.entries) so a
+    // non-Map receiver fails loud instead of silently returning [] (#218).
+    expect: [/__ball_map_entries\(m\)/],
   },
   {
     name: "mapIsEmpty",
@@ -881,24 +883,26 @@ describe("compiler — try/catch special cases", () => {
   });
 });
 
-describe("compiler — std.map_keys/std.map_values fail loud on a non-Map receiver (#218)", () => {
-  test("map_keys/map_values on a real Map succeed; on a non-Map they throw (caught by std.try)", () => {
+describe("compiler — std.map_keys/std.map_values/std.map_entries fail loud on a non-Map receiver (#218)", () => {
+  test("map_keys/map_values/map_entries on a real Map succeed; on a non-Map they throw (caught by std.try)", () => {
     // This exercises the DIRECT base-function-call form (module: "std",
-    // function: "map_keys"/"map_values") — a different compileStdCall case
-    // than the `.keys`/`.values` DART-GETTER-STYLE property access, which
-    // preamble.ts's defDartGetter block already guards. Before #218, this
-    // case emitted a bare `Object.keys(...)`/`Object.values(...)` with no
+    // function: "map_keys"/"map_values"/"map_entries") — a different
+    // compileStdCall case than the `.keys`/`.values`/`.entries`
+    // DART-GETTER-STYLE property access, which preamble.ts's defDartGetter
+    // block already guards. Before #218, all three cases emitted a bare
+    // `Object.keys(...)`/`Object.values(...)`/`Object.entries(...)` with no
     // Map check, silently returning garbage for a non-Map instead of
     // throwing — the class of silent-degradation bug that hid issue #55.
-    const tryMapKeys = (mapExpr: Expression) => std("try", {
-      body: block([{ expression: std("print", { message: std("map_keys", { map: mapExpr }) }) }]),
+    // (.entries's OWN getter had the same gap too — fixed alongside.)
+    const tryMapFn = (fn: string, mapExpr: Expression) => std("try", {
+      body: block([{ expression: std("print", { message: std(fn, { map: mapExpr }) }) }]),
       catch: mc({
         variable: lit("e"),
         body: block([{ expression: std("print", { message: lit("threw") }) }]),
       }),
     });
     const program: Program = {
-      name: "map_keys_values_fail_loud_test",
+      name: "map_keys_values_entries_fail_loud_test",
       entryModule: "main",
       entryFunction: "main",
       modules: [
@@ -912,8 +916,10 @@ describe("compiler — std.map_keys/std.map_values fail loud on a non-Map receiv
                 { let: { name: "m", value: std("map_create", { entry: mc({ key: lit("a"), value: lit(1) }) }) } },
                 { expression: std("print", { message: std("map_keys", { map: ref("m") }) }) },
                 { expression: std("print", { message: std("map_values", { map: ref("m") }) }) },
-                { expression: tryMapKeys(lit(42)) },
-                { expression: tryMapKeys(lit("hi")) },
+                { expression: std("print", { message: std("map_entries", { map: ref("m") }) }) },
+                { expression: tryMapFn("map_keys", lit(42)) },
+                { expression: tryMapFn("map_values", lit("hi")) },
+                { expression: tryMapFn("map_entries", lit(7)) },
               ]),
             },
           ],
@@ -924,7 +930,7 @@ describe("compiler — std.map_keys/std.map_values fail loud on a non-Map receiv
     writeFileSync(tmpPath, compile(program));
     try {
       const out = execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
-      assert.equal(out, "[a]\n[1]\nthrew\nthrew");
+      assert.equal(out, "[a]\n[1]\n[{key: a, value: 1}]\nthrew\nthrew\nthrew");
     } finally {
       try { unlinkSync(tmpPath); } catch { /* ignore */ }
     }

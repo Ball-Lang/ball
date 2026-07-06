@@ -4974,7 +4974,10 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "map_entries": {
         const map = f.get("map") ?? f.get("value");
-        return map ? `Object.entries(${this.expr(map)}).map(([k, v]) => ({key: k, value: v}))` : "[]";
+        // Same silent-degradation class as map_keys/map_values (#218): a
+        // bare Object.entries(...) on a non-Map silently returns garbage
+        // instead of failing loud.
+        return map ? `__ball_map_entries(${this.expr(map)})` : "[]";
       }
       case "map_length": {
         const map = f.get("map") ?? f.get("value");

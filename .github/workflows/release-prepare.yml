@@ -18,8 +18,22 @@ jobs:
     name: Prepare release PR
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    # Skip when the commit is itself a release commit (prevents loops)
-    if: "!contains(github.event.head_commit.message, 'chore(release)')"
+    # Skip ONLY Melos's own release commit shape — the squash-merge of the
+    # rolling `chore/release` PR lands `chore(release): publish packages` on main
+    # (verified from git history; `version packages` is the pre-squash branch
+    # message, matched here defensively in case squash settings change). Skipping
+    # it prevents this workflow from re-running Melos on a just-cut release and
+    # lets release-tag.yml own that commit.
+    #
+    # We deliberately do NOT skip the broad `chore(release)` substring anymore:
+    # that also swallowed semantic-release's `chore(release): x.y.z` commits, so
+    # a future non-`[skip ci]` release commit could not re-sync the rolling PR.
+    # (Today semantic-release tags those commits `[skip ci]`, so GitHub suppresses
+    # this workflow on them regardless — this narrowing is freshness hygiene, not
+    # the conflict fix; the changelog-ownership split in pubspec.yaml is.)
+    if: >-
+      !contains(github.event.head_commit.message, 'chore(release): publish packages')
+      && !contains(github.event.head_commit.message, 'chore(release): version packages')
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

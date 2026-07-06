@@ -4570,7 +4570,14 @@ function __isUnknownFnError(e: any): boolean {
       case "null_aware_call": {
         const target = f.get("target");
         const method = f.get("method");
-        if (!target || !method) return "/* null_aware_call missing */";
+        // A bare `/* ... */` comment used to stand in for the missing
+        // field — context-dependent behavior (silently becomes `undefined`
+        // in return position, a hard-to-diagnose SyntaxError mid-expression)
+        // instead of a clear compile-time error naming the malformed call
+        // (#257).
+        if (!target || !method) {
+          throw new Error("TS compiler: null_aware_call requires a \"target\" and a \"method\" field");
+        }
         const methodName = method.literal?.stringValue ?? "";
         const inputFields = call.input?.messageCreation?.fields ?? [];
         const otherArgs = inputFields
@@ -4582,13 +4589,17 @@ function __isUnknownFnError(e: any): boolean {
       case "null_aware_index": {
         const self_ = f.get("self") ?? f.get("target");
         const idx = f.get("index") ?? f.get("key");
-        if (!self_ || !idx) return "/* null_aware_index missing */";
+        if (!self_ || !idx) {
+          throw new Error("TS compiler: null_aware_index requires a \"self\"/\"target\" and an \"index\"/\"key\" field");
+        }
         return `${this.expr(self_)}[${this.expr(idx)}]`;
       }
       case "null_aware_access": {
         const target = f.get("target");
         const fieldE = f.get("field");
-        if (!target || !fieldE) return "/* null_aware_access missing */";
+        if (!target || !fieldE) {
+          throw new Error("TS compiler: null_aware_access requires a \"target\" and a \"field\" field");
+        }
         return `${this.expr(target)}?.${fieldE.literal?.stringValue ?? ""}`;
       }
       case "typed_list": {
@@ -4607,13 +4618,19 @@ function __isUnknownFnError(e: any): boolean {
         if (entryExprs.length === 0) return "new Map()";
         const pairs: string[] = [];
         for (const e of entryExprs) {
-          if (e.messageCreation) {
-            const mc = e.messageCreation;
-            const mFields = mc.fields ?? [];
-            const k = mFields.find((fd) => fd.name === "key")?.value;
-            const v = mFields.find((fd) => fd.name === "value")?.value;
-            if (k && v) pairs.push(`[${this.expr(k)}, ${this.expr(v)}]`);
+          // A malformed entry (not a messageCreation, or missing key/value)
+          // used to be silently dropped from the resulting Map instead of
+          // surfaced — fail loud on the malformed IR instead (#257).
+          if (!e.messageCreation) {
+            throw new Error("TS compiler: typed_map entry is not a key/value messageCreation");
           }
+          const mFields = e.messageCreation.fields ?? [];
+          const k = mFields.find((fd) => fd.name === "key")?.value;
+          const v = mFields.find((fd) => fd.name === "value")?.value;
+          if (!k || !v) {
+            throw new Error("TS compiler: typed_map entry is missing \"key\" or \"value\"");
+          }
+          pairs.push(`[${this.expr(k)}, ${this.expr(v)}]`);
         }
         return `new Map([${pairs.join(", ")}])`;
       }
@@ -4943,20 +4960,26 @@ function __isUnknownFnError(e: any): boolean {
       case "map_get": {
         const map = f.get("map");
         const key = f.get("key");
-        if (map && key) return `${this.expr(map)}[${this.expr(key)}]`;
+        // __ball_require_map fails loud on a non-Map instead of silently
+        // returning undefined via bare bracket access (#257, same family
+        // as #218's map_keys/map_values/map_entries).
+        if (map && key) return `__ball_require_map(${this.expr(map)}, 'map_get')[${this.expr(key)}]`;
         return "undefined";
       }
       case "map_set": {
         const map = f.get("map");
         const key = f.get("key");
         const value = f.get("value");
-        if (map && key && value) return `(${this.expr(map)}[${this.expr(key)}] = ${this.expr(value)})`;
+        if (map && key && value) return `(__ball_require_map(${this.expr(map)}, 'map_set')[${this.expr(key)}] = ${this.expr(value)})`;
         return "undefined";
       }
       case "map_contains_key": {
         const map = f.get("map");
         const key = f.get("key");
-        if (map && key) return `(${this.expr(key)} in ${this.expr(map)})`;
+        // `in` throws for a primitive receiver already, but not for a List
+        // (checks index membership instead of throwing "not a map") — the
+        // require-map guard closes that gap (#257).
+        if (map && key) return `(${this.expr(key)} in __ball_require_map(${this.expr(map)}, 'map_contains_key'))`;
         return "false";
       }
       case "map_keys": {
@@ -4981,22 +5004,24 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "map_length": {
         const map = f.get("map") ?? f.get("value");
-        return map ? `Object.keys(${this.expr(map)}).length` : "0";
+        return map ? `Object.keys(__ball_require_map(${this.expr(map)}, 'map_length')).length` : "0";
       }
       case "map_is_empty": {
         const map = f.get("map") ?? f.get("value");
-        return map ? `(Object.keys(${this.expr(map)}).length === 0)` : "true";
+        return map ? `(Object.keys(__ball_require_map(${this.expr(map)}, 'map_is_empty')).length === 0)` : "true";
       }
       case "map_delete": case "map_remove": {
         const map = f.get("map");
         const key = f.get("key");
-        if (map && key) return `(() => { const __m = ${this.expr(map)}; const __k = ${this.expr(key)}; const __v = __m[__k]; delete __m[__k]; return __v; })()`;
+        if (map && key) return `(() => { const __m = __ball_require_map(${this.expr(map)}, 'map_delete'); const __k = ${this.expr(key)}; const __v = __m[__k]; delete __m[__k]; return __v; })()`;
         return "undefined";
       }
       case "map_merge": {
         const l = f.get("left") ?? f.get("map");
         const r = f.get("right") ?? f.get("other");
-        if (l && r) return `{...${this.expr(l)}, ...${this.expr(r)}}`;
+        // Spreading a non-object silently produces {} (or a partial merge)
+        // instead of throwing — same class as the other map_* guards (#257).
+        if (l && r) return `{...__ball_require_map(${this.expr(l)}, 'map_merge'), ...__ball_require_map(${this.expr(r)}, 'map_merge')}`;
         return "{}";
       }
       case "map_from_entries": {
@@ -5011,13 +5036,20 @@ function __isUnknownFnError(e: any): boolean {
         if (list) return `${this.expr(list)}.join('')`;
         return "''";
       }
+      // Neither encoder ever emits these as a direct `std.<fn>` base-
+      // function call — a Set method call (mySet.union(other), etc.)
+      // routes through compileCall's generic "self"-field method dispatch
+      // onto native JS Set.prototype methods instead, so this case is
+      // never actually reached. The old fallback compiled it to a call on
+      // a nonexistent bare identifier (a confusing runtime ReferenceError
+      // if it WERE ever hit); fail loud at compile time instead, matching
+      // the policy above (#257).
       case "set_add": case "set_remove": case "set_contains":
       case "set_union": case "set_intersection": case "set_difference":
-      case "set_length": case "set_is_empty": case "set_to_list": {
-        const allFields = call.input?.messageCreation?.fields ?? [];
-        const args = allFields.map((fd) => this.expr(fd.value)).join(", ");
-        return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
-      }
+      case "set_length": case "set_is_empty": case "set_to_list":
+        throw new Error(
+          `TS compiler: std.${fn} is not implemented (compileStdCall) — Set method calls should route through native JS Set methods, not this base function`,
+        );
       // I/O
       case "print_error": {
         const msg = f.get("message") ?? f.get("value");
@@ -5126,7 +5158,10 @@ function __isUnknownFnError(e: any): boolean {
           // match first and any duplicate entry here would be genuinely
           // unreachable dead code. Removed (#62 Phase-2c); only cases with
           // no outer-switch equivalent belong in this fallback.
-          case "map_contains_value": return `Object.values(${this.expr(f.get("map")!)}).includes(${this.expr(f.get("value")!)})`;
+          // Same silent-degradation class as map_keys/map_values/map_entries
+          // (#218) — the sibling case that fix missed, since it lives in
+          // this SECOND nested switch under a different function name (#257).
+          case "map_contains_value": return `Object.values(__ball_require_map(${this.expr(f.get("map")!)}, 'map_contains_value')).includes(${this.expr(f.get("value")!)})`;
           case "list_insert": return `(${this.expr(f.get("list")!)}.splice(${this.expr(f.get("index")!)}, 0, ${this.expr(f.get("value")!)}), ${this.expr(f.get("list")!)})`;
           case "list_remove_at": return `${this.expr(f.get("list")!)}.splice(${this.expr(f.get("index")!)}, 1)[0]`;
           case "list_clear": return `(${this.expr(f.get("list")!)}.length = 0, ${this.expr(f.get("list")!)})`;
@@ -5154,7 +5189,7 @@ function __isUnknownFnError(e: any): boolean {
           case "map_foreach": {
             const map = this.expr(f.get("map") ?? f.get("value")!);
             const cb = this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!);
-            return `Object.entries(${map}).forEach(([k, v]) => ${cb}(k, v))`;
+            return `Object.entries(__ball_require_map(${map}, 'map_foreach')).forEach(([k, v]) => ${cb}(k, v))`;
           }
           case "list_reversed": return `[...${this.expr(f.get("list")!)}].reverse()`;
           case "compare_to": {
@@ -5225,10 +5260,18 @@ function __isUnknownFnError(e: any): boolean {
             );
             return `(() => { const __r: any[] = []; ${body} return __r; })()`;
           }
-          default: {
-            const args = Array.from(f.values()).map((e) => this.expr(e)).join(", ");
-            return `/* std.${fn} */ ${sanitize(fn)}(${args})`;
-          }
+          default:
+            // Fail loud (repo CLAUDE.md): never emit a bare/undefined
+            // identifier for an unimplemented std function — mirrors
+            // compileMemoryCall's rule above. The old
+            // `/* std.${fn} */ ${sanitize(fn)}(${args})` fallback compiled
+            // to a call on a nonexistent identifier, deferring the failure
+            // to a confusing runtime ReferenceError instead of a clear
+            // compile-time error naming the actual unimplemented function
+            // (#257).
+            throw new Error(
+              `TS compiler: std.${fn} is not implemented (compileStdCall)`,
+            );
         }
       }
     }

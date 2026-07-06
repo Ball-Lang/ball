@@ -1114,6 +1114,26 @@ function __ball_map_entries(m: any): any {
   return Object.entries(m).map(([k, v]) => ({ key: k, value: v }));
 }
 
+// Shared guard for the REMAINING map_* base-function-call cases
+// (map_get/map_set/map_delete/map_merge/map_length/map_is_empty/
+// map_contains_key/map_contains_value/map_foreach) that used to route a
+// bare map[key], Object.keys/values(map), or key in map straight to the
+// receiver with no type check at all -- silently returning undefined,
+// no-opping, or checking array-index membership instead of throwing on a
+// non-Map (issue #55's silent-degradation class, same family as #218's
+// map_keys/map_values/map_entries). Returns the validated Map/plain-object
+// itself (not a boolean) so a call site can keep using it directly, e.g.
+// __ball_require_map(x, 'map_get')[key].
+function __ball_require_map(v: any, opName: string): any {
+  if (v instanceof Map) return v;
+  if (typeof v !== 'object' || v === null || Array.isArray(v) ||
+      v instanceof BallDouble || v instanceof Set ||
+      v instanceof Number || v instanceof String || v instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(v) + '\' is not a Map (' + opName + ')');
+  }
+  return v;
+}
+
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //
 // Dart's protobuf runtime wraps google.protobuf.Struct as a class

@@ -224,6 +224,64 @@ describe("compiler — filterCtorBody (self-recursive boilerplate removal)", () 
   });
 });
 
+describe("compiler — emitClass: static_field member (module-level const)", () => {
+  test("a static field member becomes a module-level const emitted before the class", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Counters", metadata: { kind: "class", fields: [] } },
+      ],
+      functions: [
+        { name: "main:Counters.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+        {
+          name: "main:Counters.total",
+          metadata: { kind: "static_field" },
+          body: { literal: { intValue: 0 } },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    // Emitted above the class (bare name, no `static` keyword, no `this.`)
+    // so instance methods can reference it unqualified, per Dart semantics.
+    assert.match(ts, /const total = 0;/);
+    assert.ok(ts.indexOf("const total = 0;") < ts.indexOf("class Counters"));
+  });
+
+  test("overrides an empty-Set initializer to `{}` when outputType says Map (encoder quirk)", () => {
+    // An empty `{}` map literal encodes as std.set_create with no elements;
+    // when the static field's declared outputType is a Map, the compiler
+    // must correct the compiled `new Set()` to an empty object.
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Registry", metadata: { kind: "class", fields: [] } },
+      ],
+      functions: [
+        { name: "main:Registry.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+        {
+          name: "main:Registry.cache",
+          metadata: { kind: "static_field" },
+          outputType: "Map<String, int>",
+          body: {
+            call: {
+              module: "std",
+              function: "set_create",
+              input: {
+                messageCreation: {
+                  fields: [
+                    { name: "elements", value: { literal: { listValue: { elements: [] } } } },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /const cache = \{\};/);
+    assert.doesNotMatch(ts, /const cache = new Set\(\);/);
+  });
+});
+
 describe("compiler — buildSetter", () => {
   test("emits a `set` accessor that writes an instance field", () => {
     const program = programWithClasses({

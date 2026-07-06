@@ -343,4 +343,44 @@ describe("compiler — bodyReferencesAny (main() async auto-detection)", () => {
     assert.match(ts, /async function main\s*\(/, "main() is emitted as async");
     assert.match(ts, /await main\(\);/, "the top-level invocation awaits main()");
   });
+
+  test("main() stays sync when a nested messageCreation's fields hold no reference to any async function", () => {
+    // Exercises the OTHER side of the messageCreation-field walk: the loop
+    // over fields runs to completion without a match, so bodyReferencesAny
+    // falls through past the messageCreation check to its final `false`
+    // (an async function exists in the program — bodyReferencesAny still
+    // gets called — but nothing in main's body reaches it).
+    const program: Program = {
+      name: "async_no_match_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          functions: [
+            {
+              name: "doWork",
+              metadata: { is_async: true },
+              body: { literal: { intValue: 1 } },
+            },
+            {
+              name: "main",
+              body: {
+                messageCreation: {
+                  fields: [
+                    { name: "x", value: { literal: { intValue: 1 } } },
+                    { name: "y", value: { literal: { intValue: 2 } } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /function main\s*\(/, "main() is emitted");
+    assert.doesNotMatch(ts, /async function main/, "main() stays sync — doWork is never referenced");
+    assert.match(ts, /(?<!await )main\(\);/, "the top-level invocation calls main() without await");
+  });
 });

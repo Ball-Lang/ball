@@ -734,9 +734,17 @@ export class TsEncoder {
       };
     }
 
+    // Calling a computed/non-identifier expression (e.g. bracket-invoking a
+    // string-literal-named operator method, `a['+'](b)`) routes through the
+    // universal std "invoke" function — mirrors dart/encoder's ThisExpression-
+    // adjacent `_buildStdCall('invoke', ...)` exactly, including the "std"
+    // module (compileStdCall's dispatch only sees module: "std" calls; the
+    // OLD "__invoke" name/missing module meant this fell through to a
+    // nonexistent bare `__invoke(...)` free-function call at runtime, #252).
     return {
       call: {
-        function: "__invoke",
+        module: "std",
+        function: "invoke",
         input: {
           messageCreation: {
             typeName: "",

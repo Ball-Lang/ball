@@ -401,3 +401,78 @@ describe("compiler — self->this substitution for a class with NO declared fiel
     assert.equal(runCompiled(program), "1,2");
   });
 });
+
+describe("compiler — bracket-invoking a string-literal operator method (#252)", () => {
+  test("index(target, '+') then invoke resolves the canonical __op_add__ method and executes it", () => {
+    // Mirrors what ts/encoder now produces for `a['+'](b)`: an "index" call
+    // (target, the raw '+' lexeme) wrapped in an "invoke" call (the index
+    // result as callee, plus args). Before #252, "index" indexed the raw
+    // lexeme literally (a nonexistent '+' property) and the encoder's old
+    // "__invoke" name/missing module meant this never even reached
+    // compileStdCall's "invoke" dispatch.
+    const program: Program = {
+      name: "operator_invoke_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          typeDefs: [{ name: "main:Vec2", metadata: { kind: "class", fields: [{ name: "x", type: "int" }] } }],
+          functions: [
+            {
+              name: "main",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "a", value: { messageCreation: { typeName: "main:Vec2", fields: [{ name: "arg0", value: { literal: { intValue: 1 } } }] } } } },
+                    { let: { name: "b", value: { messageCreation: { typeName: "main:Vec2", fields: [{ name: "arg0", value: { literal: { intValue: 2 } } }] } } } },
+                    {
+                      let: {
+                        name: "c",
+                        value: {
+                          call: {
+                            module: "std",
+                            function: "invoke",
+                            input: {
+                              messageCreation: {
+                                fields: [
+                                  { name: "callee", value: { call: { module: "std", function: "index", input: { messageCreation: { fields: [
+                                    { name: "target", value: { reference: { name: "a" } } },
+                                    { name: "index", value: { literal: { stringValue: "+" } } },
+                                  ] } } } } },
+                                  { name: "arg0", value: { reference: { name: "b" } } },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    { expression: { call: { module: "std", function: "print", input: { messageCreation: { fields: [{ name: "message", value: { fieldAccess: { object: { reference: { name: "c" } }, field: "x" } } }] } } } } },
+                  ],
+                },
+              },
+            },
+            {
+              name: "main:Vec2.new",
+              metadata: { kind: "constructor", params: [{ name: "x" }] },
+            },
+            {
+              name: "main:Vec2.__op_add__",
+              metadata: { kind: "method", is_operator: true, operator: "+", params: [{ name: "other" }] },
+              body: { messageCreation: { typeName: "main:Vec2", fields: [
+                { name: "arg0", value: { call: { module: "std", function: "add", input: { messageCreation: { fields: [
+                  { name: "left", value: { fieldAccess: { object: { reference: { name: "self" } }, field: "x" } } },
+                  { name: "right", value: { fieldAccess: { object: { reference: { name: "other" } }, field: "x" } } },
+                ] } } } } },
+              ] } },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /a\.__op_add__/, "bracket-index on a string operator lexeme resolves to the canonical method");
+    assert.equal(runCompiled(program), "3");
+  });
+});

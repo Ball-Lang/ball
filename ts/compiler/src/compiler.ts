@@ -3100,7 +3100,16 @@ function __isUnknownFnError(e: any): boolean {
       const name = this.resolveVarName(rawName);
       // Track this declaration in the current scope.
       this.scopeDeclaredVars.add(name);
-      if (stmt.let.value !== undefined) {
+      // The encoder marks "no initializer" with a reference to the sentinel
+      // name __no_init__ (rather than omitting `value`) — e.g. `int? maybe;`.
+      // Left uncaught, this compiles to `let maybe = __no_init__;`, which
+      // resolves to the runtime preamble's OWN __no_init__ Symbol (used
+      // internally by the compiled self-hosted engine) instead of leaving
+      // `maybe` genuinely undefined, so a later `??=` never fires (#225).
+      // Mirrors the same check already applied to for-loop init bindings
+      // in renderForInit.
+      const isNoInit = stmt.let.value?.reference?.name === "__no_init__";
+      if (stmt.let.value !== undefined && !isNoInit) {
         this.writeln(`${kw} ${name} = ${this.expr(stmt.let.value)};`);
       } else {
         this.writeln(`${kw} ${name};`);
@@ -4592,7 +4601,17 @@ function __isUnknownFnError(e: any): boolean {
             } else if (fd.value) {
               elems.push(fd.value);
             }
-          } else if (fd.name !== "__type_args__" && fd.name !== "__const__") {
+          } else if (
+            // A `<T>{}` empty-typed-set-literal (e.g. `<int>{}`) carries its
+            // type argument as a field literally named "type_args" (the
+            // encoder's current single-word convention, NOT the older
+            // MessageCreation-level "__type_args__" cosmetic marker checked
+            // elsewhere in this file). Excluding only "__type_args__" left
+            // it falling through to this generic branch and being pushed in
+            // as a bogus set ELEMENT (`<int>{}` -> `new Set(['int'])`
+            // instead of an empty Set, #219).
+            fd.name !== "__type_args__" && fd.name !== "__const__" && fd.name !== "type_args"
+          ) {
             elems.push(fd.value);
           }
         }
@@ -5029,7 +5048,11 @@ function __isUnknownFnError(e: any): boolean {
       }
       // Type ops
       case "type_literal": {
-        const v = f.get("value") ?? f.get("name");
+        // The encoder's canonical field is "type" (matches the Dart compiler's
+        // _stringFieldValue(f, 'type')) — a type literal's stored value is
+        // Type.toString() (e.g. 'int', 'List<dynamic>'), so this just needs to
+        // evaluate to that string; == and interpolation follow for free.
+        const v = f.get("type") ?? f.get("value") ?? f.get("name");
         return v ? this.expr(v) : "null";
       }
       default: {
@@ -5099,7 +5122,7 @@ function __isUnknownFnError(e: any): boolean {
           case "to_string_as_fixed": {
             const v = this.expr(fg("value", "arg0")!);
             const d = this.expr(fg("digits", "arg1", "right")!);
-            return `(+(${v})).toFixed(${d})`;
+            return `__ball_to_fixed(${v}, ${d})`;
           }
           // num.{round,floor,ceil,truncate}ToDouble() → double (issue #100).
           // Wrap in BallDouble so a whole result renders `4.0`, not `4`.
@@ -6376,8 +6399,14 @@ function dartInitializerToTs(
     return defaultInitializer(tsType, rawDartType);
   }
   const s = dartInit.trim();
-  // Already a JS-compatible literal: string, number, bool, null, []
-  if (/^(?:null|true|false|'.*'|".*"|-?\d+(?:\.\d+)?|\[\])$/.test(s)) {
+  // Already a JS-compatible literal: string, number, bool, null, list.
+  // A non-empty Dart list literal (e.g. `[10, 20, 30]`) is valid JS array
+  // syntax as-is — this used to only match the EMPTY `[]` case, so a field
+  // like `var widgets = [10, 20, 30];` fell through to defaultInitializer
+  // (which has no type info to fall back on when the field's declared type
+  // was inferred rather than explicit) and silently dropped to no
+  // initializer at all, i.e. undefined/null (#220).
+  if (/^(?:null|true|false|'.*'|".*"|-?\d+(?:\.\d+)?|\[[\s\S]*\])$/.test(s)) {
     return s;
   }
   // Dart `{}` can mean either an empty Map or an empty Set depending

@@ -110,7 +110,15 @@ class BallObject extends BallMap {
 // (e.g. 42.0 not 42). Used by the compiled Dart engine's _toDouble.
 class BallDouble {
   readonly value: number;
-  constructor(v: number) { this.value = v; }
+  // Collapse nested wrapping (new BallDouble(new BallDouble(x))) down to the
+  // innermost raw number instead of storing a BallDouble-holding-a-BallDouble.
+  // This can legitimately arise now that string_to_double's OWN compiled
+  // form already wraps its result (#222): the self-hosted engine's Dart
+  // source explicitly does BallDouble(double.parse(s)) to make the parse
+  // result double-preserving, which — once double.parse (string_to_double)
+  // started wrapping on its own — would otherwise double-wrap. Unwrapping
+  // here is idempotent for every other caller, since v is a plain number.
+  constructor(v: number) { this.value = v instanceof BallDouble ? v.value : v; }
   valueOf(): number { return this.value; }
   get isNaN(): boolean { return Number.isNaN(this.value); }
   get isFinite(): boolean { return Number.isFinite(this.value); }
@@ -244,6 +252,13 @@ function __ball_to_string(v: any): string {
     }
     return '{' + parts.join(', ') + '}';
   }
+  if (v instanceof Set) {
+    // A Set is a plain object from typeof's perspective (falls through to
+    // the generic branch below, which reads Object.keys — always [] for a
+    // Set's internal slots), so every Set printed as the empty "{}" no
+    // matter its contents until this dedicated case was added (#219).
+    return '{' + [...v].map(__ball_to_string).join(', ') + '}';
+  }
   if (typeof v === 'object' && !Array.isArray(v)) {
     // StringBuffer-like objects
     if (v['__buffer__'] && Array.isArray(v['__buffer__'])) {
@@ -296,15 +311,28 @@ function __ball_to_int(v: any): any {
   return t;
 }
 
-function __ball_parse_double(s: string): number {
+// Returns a BallDouble (not a bare number) so a whole-valued result (e.g.
+// double.parse('7.0')) still prints "7.0", not "7" — JS numbers erase the
+// int/double distinction that the wrapper exists to preserve (#67/#222).
+function __ball_parse_double(s: string): BallDouble {
   const n = parseFloat(s);
   if (Number.isNaN(n)) throw new Error('FormatException: ' + s);
-  return n;
+  return new BallDouble(n);
 }
 
 function __ball_double_to_string(n: number): string {
   if (Number.isInteger(n)) return n.toFixed(1);
   return n.toString();
+}
+
+// num.toStringAsFixed(digits). JS Number.prototype.toFixed drops the sign of
+// -0 (returns "0.00" not "-0.00"); Dart's toStringAsFixed keeps it, matching
+// the -0 handling __ball_to_string/BallDouble.toString already do.
+function __ball_to_fixed(v: any, digits: any): string {
+  const n = Number(v);
+  const s = n.toFixed(digits);
+  if (n === 0 && 1 / n === -Infinity && !s.startsWith('-')) return '-' + s;
+  return s;
 }
 
 // Polymorphic concat / merge used for std.list_concat. The encoder emits
@@ -805,7 +833,7 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!_ballNp.toDouble) _ballNp.toDouble = function () { return Number(this); };
   if (!_ballNp.clamp) _ballNp.clamp = function (lo: any, hi: any) { const n = Number(this); return n < lo ? lo : n > hi ? hi : n; };
   if (!_ballNp.compareTo) _ballNp.compareTo = function (other: any) { const a = Number(this), b = Number(other); return a < b ? -1 : a > b ? 1 : 0; };
-  if (!_ballNp.toStringAsFixed) _ballNp.toStringAsFixed = function (digits: any) { return Number(this).toFixed(digits); };
+  if (!_ballNp.toStringAsFixed) _ballNp.toStringAsFixed = function (digits: any) { return __ball_to_fixed(this, digits); };
   if (!_ballNp.remainder) _ballNp.remainder = function (other: any) { return Number(this) % Number(other); };
 
   // Object.prototype polyfills — used by the compiled engine when

@@ -1,3 +1,9 @@
+## 0.3.0+6
+
+ - **FIX**(engine): typeDef-less constructor must preserve explicit non-this fields ([#198](https://github.com/ball-lang/ball/issues/198)) ([#216](https://github.com/ball-lang/ball/issues/216)). ([4cf4747e](https://github.com/ball-lang/ball/commit/4cf4747e5792771362071e4880a4fff8f124efc1))
+ - **FIX**(engine): map_keys/map_values must fail loud on non-Map input ([#197](https://github.com/ball-lang/ball/issues/197)) ([#203](https://github.com/ball-lang/ball/issues/203)). ([9e1ac96e](https://github.com/ball-lang/ball/commit/9e1ac96ed7cbf0262d965b21fbea5c0a1b1a7b6a))
+ - **FIX**: MapPattern must exclude portable Set value across compiler + engines ([#178](https://github.com/ball-lang/ball/issues/178)) ([#200](https://github.com/ball-lang/ball/issues/200)). ([369f9dab](https://github.com/ball-lang/ball/commit/369f9dabbae93491a0d3240d238da4a28f613dbc))
+
 ## 0.3.0+5
 
  - **FIX**(encoder): route bare .reversed getter to std_collections.list_reverse. ([49941dbe](https://github.com/ball-lang/ball/commit/49941dbe8c731f6f7c3f4dded6c5c2e28f604cd2))

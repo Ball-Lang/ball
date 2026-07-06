@@ -28,5 +28,5 @@ dependencies:
   archive: ^4.0.0
 
 dev_dependencies:
-  ball_engine: ^0.3.0+5
+  ball_engine: ^0.3.0+6
   test: ^1.25.0

@@ -2,7 +2,7 @@ name: ball_compiler
 description: >-
   Ball-to-Dart compiler that translates Ball protobuf programs into formatted
   Dart source code, with support for multi-module package compilation.
-version: 0.3.0+5
+version: 0.3.0+6
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues
@@ -24,7 +24,7 @@ dependencies:
   # package:ball_engine in its public API, so it must be a runtime dependency
   # (pub publish rejects lib/ use of a dev-only dep). No cycle: ball_engine
   # does not depend on ball_compiler.
-  ball_engine: ^0.3.0+5
+  ball_engine: ^0.3.0+6
   ball_resolver: ^0.3.0+3
   code_builder: ^4.10.0
   dart_style: ^3.0.0

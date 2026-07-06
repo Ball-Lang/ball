@@ -1,3 +1,7 @@
+## 0.3.0+6
+
+ - Update a dependency to the latest release.
+
 ## 0.3.0+5
 
  - **FIX**(cpp): finish [#18](https://github.com/ball-lang/ball/issues/18) protobuf-RT smoke canary verification; regenerate real functions. ([5b5917f2](https://github.com/ball-lang/ball/commit/5b5917f29ae1a19c4e36a626caa13dde953616ab))

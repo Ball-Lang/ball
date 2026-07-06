@@ -337,7 +337,10 @@ const cases: Case[] = [
   {
     name: "mapContainsKey",
     body: std("map_contains_key", { map: ref("m"), key: lit("k") }),
-    expect: [/\('k' in m\)/],
+    // Wrapped in __ball_require_map so a List/primitive fails loud instead
+    // of `in` silently checking array-index membership or throwing an
+    // unhelpful native error (#257).
+    expect: [/\('k' in __ball_require_map\(m, 'map_contains_key'\)\)/],
   },
   {
     name: "mapKeys",
@@ -361,7 +364,7 @@ const cases: Case[] = [
   {
     name: "mapIsEmpty",
     body: std("map_is_empty", { map: ref("m") }),
-    expect: [/Object\.keys\(m\)\.length === 0/],
+    expect: [/Object\.keys\(__ball_require_map\(m, 'map_is_empty'\)\)\.length === 0/],
   },
   {
     name: "mapDelete",
@@ -371,7 +374,7 @@ const cases: Case[] = [
   {
     name: "mapMerge",
     body: std("map_merge", { left: ref("m1"), right: ref("m2") }),
-    expect: [/\{\s*\.\.\.m1,\s*\.\.\.m2\s*\}/],
+    expect: [/\{\s*\.\.\.__ball_require_map\(m1, 'map_merge'\),\s*\.\.\.__ball_require_map\(m2, 'map_merge'\)\s*\}/],
   },
   {
     name: "mapFromEntries",
@@ -384,11 +387,11 @@ const cases: Case[] = [
     expect: [/l\.join\(''\)/],
   },
   { name: "stringJoinMissing", body: std("string_join", {}), expect: [/return '';/] },
-  {
-    name: "setStub",
-    body: std("set_union", { left: ref("a"), right: ref("b") }),
-    expect: [/set_union\(a, b\)/],
-  },
+  // set_union (and its set_* siblings) used to compile to a stub bare-
+  // identifier call here; now a compile-time throw (#257, see the dedicated
+  // "set_* is confirmed-dead codegen" describe block below) — removed from
+  // this shared-compile table since a throwing case would fail the ONE
+  // combined compile() this table's before() hook does for every case.
   // I/O and misc runtime.
   {
     name: "printError",
@@ -493,10 +496,10 @@ const cases: Case[] = [
   { name: "listSliceMissing", body: std("list_sublist", { start: lit(0) }), expect: [/return \[\];/] },
   { name: "mapGet", body: std("map_get", { map: ref("m"), key: lit("k") }), expect: [/m\['k'\]/] },
   { name: "mapGetMissing", body: std("map_get", { map: ref("m") }), expect: [/return undefined;/] },
-  { name: "mapSet", body: block([{ expression: std("map_set", { map: ref("m"), key: lit("k"), value: lit(1) }) }]), expect: [/m\['k'\] = 1/] },
+  { name: "mapSet", body: block([{ expression: std("map_set", { map: ref("m"), key: lit("k"), value: lit(1) }) }]), expect: [/__ball_require_map\(m, 'map_set'\)\['k'\] = 1/] },
   { name: "mapSetMissing", body: block([{ expression: std("map_set", { map: ref("m") }) }]), expect: [/return undefined;/] },
   { name: "mapContainsKeyMissing", body: std("map_contains_key", { map: ref("m") }), expect: [/return false;|return "false";/] },
-  { name: "mapLength", body: std("map_length", { map: ref("m") }), expect: [/Object\.keys\(m\)\.length/] },
+  { name: "mapLength", body: std("map_length", { map: ref("m") }), expect: [/Object\.keys\(__ball_require_map\(m, 'map_length'\)\)\.length/] },
   { name: "mapLengthMissing", body: std("map_length", {}), expect: [/return 0;|return "0";/] },
   { name: "mapDeleteMissing", body: std("map_delete", { map: ref("m") }), expect: [/return undefined;/] },
   { name: "mapMergeMissing", body: std("map_merge", { left: ref("a") }), expect: [/return \{\};/] },
@@ -612,7 +615,7 @@ const cases: Case[] = [
   {
     name: "mapForeach",
     body: std("map_foreach", { map: ref("m"), callback: ref("cb") }),
-    expect: [/Object\.entries\(m\)\.forEach\(\(\[k, v\]\) => cb\(k, v\)\)/],
+    expect: [/Object\.entries\(__ball_require_map\(m, 'map_foreach'\)\)\.forEach\(\(\[k, v\]\) => cb\(k, v\)\)/],
   },
   {
     name: "compareTo",
@@ -645,14 +648,12 @@ const cases: Case[] = [
     }),
     expect: [/const __r: any\[\] = \[\];/],
   },
-  {
-    name: "unknownStdFnDefaultFallback",
-    // A name matching NEITHER the main switch NOR the nested default
-    // switch must fall to the final bare-call default (silent-failure
-    // guard tested elsewhere for std_memory; here for plain `std`).
-    body: std("__totally_made_up_std_fn__", { value: ref("x") }),
-    expect: [/\/\* std\.__totally_made_up_std_fn__ \*\/ __totally_made_up_std_fn__\(x\)/],
-  },
+  // "unknownStdFnDefaultFallback" (a name matching neither the main switch
+  // nor the nested default switch) used to fall to a bare-call fallback
+  // here; compileStdCall's default now throws a compile-time Error naming
+  // the unimplemented function instead (#257, see the dedicated describe
+  // block below) — removed from this shared-compile table for the same
+  // reason as set_union above.
 ];
 
 // ── try/catch + assign special cases (separate program each, since they
@@ -934,5 +935,167 @@ describe("compiler — std.map_keys/std.map_values/std.map_entries fail loud on 
     } finally {
       try { unlinkSync(tmpPath); } catch { /* ignore */ }
     }
+  });
+});
+
+describe("compiler — remaining map_* base functions fail loud on a non-Map receiver (#257)", () => {
+  test("map_get/map_set/map_contains_key/map_length/map_is_empty/map_delete/map_merge/map_contains_value/map_foreach: real Map succeeds, non-Map throws", () => {
+    // The #218 fix (PR #256) only covered map_keys/map_values/map_entries.
+    // These nine siblings had the identical unguarded gap: bare bracket
+    // access (map_get/map_set), `key in map` (map_contains_key — throws
+    // for primitives already via JS's own `in`, but NOT for a List, which
+    // silently checks array-index membership instead), Object.keys/values/
+    // entries with no guard (map_length/map_is_empty/map_contains_value/
+    // map_foreach), delete map[key] (map_delete, silent no-op on a
+    // primitive), and {...l, ...r} (map_merge, silently produces {} for a
+    // non-object). All now route through the shared __ball_require_map
+    // guard added in preamble.ts.
+    const tryMapFn = (fn: string, fields: Record<string, Expression>) => std("try", {
+      body: block([{ expression: std("print", { message: std(fn, fields) }) }]),
+      catch: mc({
+        variable: lit("e"),
+        body: block([{ expression: std("print", { message: lit("threw") }) }]),
+      }),
+    });
+    const program: Program = {
+      name: "map_ops_fail_loud_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main",
+              body: block([
+                { let: { name: "m", value: std("map_create", { entry: mc({ key: lit("a"), value: lit(1) }) }) } },
+                // Real-Map success, one representative case per function.
+                { expression: std("print", { message: std("map_get", { map: ref("m"), key: lit("a") }) }) },
+                { expression: std("map_set", { map: ref("m"), key: lit("b"), value: lit(2) }) },
+                { expression: std("print", { message: std("map_contains_key", { map: ref("m"), key: lit("a") }) }) },
+                { expression: std("print", { message: std("map_length", { map: ref("m") }) }) },
+                { expression: std("print", { message: std("map_is_empty", { map: ref("m") }) }) },
+                { expression: std("print", { message: std("map_delete", { map: ref("m"), key: lit("b") }) }) },
+                { expression: std("print", { message: std("map_merge", { left: ref("m"), right: std("map_create", { entry: mc({ key: lit("c"), value: lit(3) }) }) }) }) },
+                { expression: std("print", { message: std("map_contains_value", { map: ref("m"), value: lit(1) }) }) },
+                { expression: std("print", { message: std("map_foreach", { map: ref("m"), function: { lambda: { body: std("print", { message: ref("k") }), metadata: { params: ["k", "v"] } } } }) }) },
+                // Non-Map: every op throws, caught by std.try.
+                { expression: tryMapFn("map_get", { map: lit(42), key: lit("a") }) },
+                { expression: tryMapFn("map_set", { map: lit("hi"), key: lit("a"), value: lit(1) }) },
+                { expression: tryMapFn("map_contains_key", { map: { literal: { listValue: { elements: [lit(1)] } } }, key: lit(0) }) },
+                { expression: tryMapFn("map_length", { map: lit(7) }) },
+                { expression: tryMapFn("map_is_empty", { map: lit(true) }) },
+                { expression: tryMapFn("map_delete", { map: lit(42), key: lit("a") }) },
+                { expression: tryMapFn("map_merge", { left: lit(42), right: ref("m") }) },
+                { expression: tryMapFn("map_contains_value", { map: lit(42), value: lit(1) }) },
+                { expression: tryMapFn("map_foreach", { map: lit(42), function: { lambda: { body: lit(0), metadata: { params: ["k", "v"] } } } }) },
+              ]),
+            },
+          ],
+        },
+      ],
+    };
+    const tmpPath = join(tmpdir(), `ball_map_ops_fail_loud_${process.pid}.ts`);
+    writeFileSync(tmpPath, compile(program));
+    try {
+      const out = execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
+      const lines = out.split("\n");
+      // Real-Map successes (9 lines) then 9 "threw" lines for the non-Map cases.
+      assert.equal(lines.length, 18, `expected 18 output lines, got:\n${out}`);
+      assert.deepEqual(lines.slice(9), Array(9).fill("threw"));
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  });
+});
+
+describe("compiler — compileStdCall default fallback throws at compile time (#257)", () => {
+  test("an unknown std function name throws a compile-time Error naming it, instead of a bare-identifier call", () => {
+    // Used to silently emit `/* std.foo */ foo(args)` -- a call on a
+    // nonexistent identifier, deferring the failure to a confusing runtime
+    // ReferenceError. Now matches compileMemoryCall's own documented policy:
+    // fail loud at compile time, naming the actual unimplemented function.
+    const program: Program = {
+      name: "unknown_std_fn_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [
+        { name: "main", body: std("__totally_made_up_std_fn__", { value: ref("x") }) },
+      ] }],
+    };
+    assert.throws(
+      () => compile(program, { includePreamble: false }),
+      /std\.__totally_made_up_std_fn__ is not implemented/,
+    );
+  });
+});
+
+describe("compiler — set_* base functions are confirmed-dead codegen, now a compile-time throw (#257)", () => {
+  test("std.set_union (and its set_* siblings) throws instead of compiling to a nonexistent bare identifier", () => {
+    // Neither dart/encoder nor ts/encoder ever emits a direct
+    // `std.set_union`/etc. base-function call -- a Set method call
+    // (mySet.union(other)) routes through compileCall's generic
+    // "self"-field method dispatch onto native JS Set.prototype methods
+    // instead, so this case is never actually reached by any real encoder
+    // output. It used to compile to a call on a nonexistent bare
+    // identifier (`set_union(a, b)`, a ReferenceError if it WERE ever
+    // hit); now a clean compile-time throw instead.
+    const program: Program = {
+      name: "set_union_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [
+        { name: "main", body: std("set_union", { left: ref("a"), right: ref("b") }) },
+      ] }],
+    };
+    assert.throws(
+      () => compile(program, { includePreamble: false }),
+      /std\.set_union is not implemented/,
+    );
+  });
+});
+
+describe("compiler — null_aware_call/index/access throw at compile time on a missing field (#257)", () => {
+  test("null_aware_call/null_aware_index/null_aware_access each throw a descriptive Error when their required fields are absent", () => {
+    // A bare `/* ... */` comment used to stand in for the missing field --
+    // context-dependent behavior (silently `undefined` in return position,
+    // a hard-to-diagnose SyntaxError mid-expression) instead of a clear
+    // compile-time error naming the malformed call.
+    const mkProgram = (body: Expression): Program => ({
+      name: "null_aware_missing_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [{ name: "main", body }] }],
+    });
+    assert.throws(
+      () => compile(mkProgram(std("null_aware_call", { target: ref("obj") })), { includePreamble: false }),
+      /null_aware_call requires/,
+    );
+    assert.throws(
+      () => compile(mkProgram(std("null_aware_index", { self: ref("obj") })), { includePreamble: false }),
+      /null_aware_index requires/,
+    );
+    assert.throws(
+      () => compile(mkProgram(std("null_aware_access", { target: ref("obj") })), { includePreamble: false }),
+      /null_aware_access requires/,
+    );
+  });
+});
+
+describe("compiler — typed_map throws on a malformed entry instead of silently dropping it (#257)", () => {
+  test("an entry missing key or value throws instead of vanishing from the resulting Map", () => {
+    const program: Program = {
+      name: "typed_map_malformed_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [{ name: "main", functions: [
+        { name: "main", body: std("typed_map", { entries: listLit([mc({ key: lit("a") })]) }) },
+      ] }],
+    };
+    assert.throws(
+      () => compile(program, { includePreamble: false }),
+      /typed_map entry is missing "key" or "value"/,
+    );
   });
 });

@@ -79,7 +79,12 @@ jobs:
       # Floor set below it to absorb local↔CI variance (CI counts ≥ local);
       # RAISE toward 100% as tests land.
       - name: Dart line coverage ratchet (all packages)
-        run: dart run tools/coverage_dart.dart --floor 96
+        # Ratcheted 96 -> 97 after #61 Phase-2 (encoder feature-branch tests,
+        # conformance.dart I/O-harness targeted-ignores, engine Set-arm body
+        # exclusions) took the workspace to ~98%. Kept below the actual to
+        # preserve the local<->CI variance margin (local undercounts when the
+        # Windows-only cli-suite gotcha trips). Remaining per-arm triage: #261.
+        run: dart run tools/coverage_dart.dart --floor 97
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

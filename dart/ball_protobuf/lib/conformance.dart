@@ -87,6 +87,14 @@ const int wireFormatTextFormat = 4;
 ///
 /// Returns `null` on EOF (when the first read of the size prefix returns
 /// fewer than 4 bytes, indicating the test runner has closed the pipe).
+//
+// The two size-prefixed stdin/stdout byte-framing helpers below are the raw
+// I/O layer of the conformance plugin, driven only by the external protobuf
+// conformance_test_runner (POSIX-only; see conformance/README.md). The
+// request-processing logic they wrap IS unit-tested in conformance_test.dart;
+// the synchronous stdin/stdout byte I/O itself is not reachable from a unit
+// test, so it is excluded from coverage rather than faked.
+// coverage:ignore-start
 List<int>? readSizePrefixed(Stdin input) {
   // Read 4-byte little-endian size prefix.
   final sizeBytes = <int>[];
@@ -144,6 +152,7 @@ Future<void> writeSizePrefixed(Stdout output, List<int> data) async {
   output.add(data);
   await output.flush();
 }
+// coverage:ignore-end
 
 // ---------------------------------------------------------------------------
 // ConformanceRequest decoding (hand-coded protobuf decoder)
@@ -512,6 +521,12 @@ Map<String, Object?> processConformanceRequest(
 /// This function never returns normally — it runs until the input stream
 /// is exhausted, then exits cleanly. It is async only so it can `await` each
 /// stdout flush (see [writeSizePrefixed]); reads stay synchronous.
+//
+// The stdin/stdout conformance driver loop — run only by the external protobuf
+// conformance_test_runner (POSIX-only), never from a unit test. The functions
+// it calls (parseConformanceRequest / processConformanceRequest /
+// encodeConformanceResponse) are unit-tested in conformance_test.dart.
+// coverage:ignore-start
 Future<void> runConformanceLoop(
   Map<String, List<Map<String, Object?>>> registry,
 ) async {
@@ -543,3 +558,5 @@ Future<void> runConformanceLoop(
 
   stderr.writeln('Ball conformance plugin: completed $testCount tests.');
 }
+
+// coverage:ignore-end

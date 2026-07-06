@@ -224,9 +224,15 @@ extension BallEngineStd on BallEngine {
           _trackMemoryAllocation(sourceList.length * _ballPointerBytes);
           return sourceList.toList();
         }
+        // The `is Set` CHECK is reachable (evaluated false for a native non-Set
+        // Iterable, which then falls to the `is Iterable` arm below), but its
+        // BODY is not: _stdAsList(source) above already returns for a native Set
+        // via _isBallSet (`v is Set || ...`), so a Set never reaches here (#61).
         if (source is Set) {
+          // coverage:ignore-start
           _trackMemoryAllocation(source.length * _ballPointerBytes);
           return source.toList();
+          // coverage:ignore-end
         }
         if (source is Iterable) {
           final result = source.toList();
@@ -553,7 +559,12 @@ extension BallEngineStd on BallEngine {
           return collection.contains(m['value'].toString());
         final collectionList = _stdAsList(collection);
         if (collectionList != null) return collectionList.contains(m['value']);
+        // Unreachable: _stdAsList(collection) above already returns for a native
+        // Set via _isBallSet (`v is Set || ...`), so a Set is handled one line
+        // up; this arm never runs (empirically verified hits=0, #61).
+        // coverage:ignore-start
         if (collection is Set) return collection.contains(m['value']);
+        // coverage:ignore-end
         return false;
       },
       'list_index_of': (i) {
@@ -848,9 +859,15 @@ extension BallEngineStd on BallEngine {
           _trackMemoryAllocation(list.length * _ballPointerBytes);
           return list.toList();
         }
+        // The `is Set` CHECK is reachable (evaluated false for a native non-Set
+        // Iterable), but its BODY is not: _stdAsList(raw) above already returns
+        // for a native Set via _isBallSet (`v is Set || ...`), so a Set is
+        // handled by the `list != null` branch and never reaches here (#61).
         if (raw is Set) {
+          // coverage:ignore-start
           _trackMemoryAllocation(raw.length * _ballPointerBytes);
           return raw.toList();
+          // coverage:ignore-end
         }
         return <Object?>[];
       },

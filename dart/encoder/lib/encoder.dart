@@ -337,7 +337,12 @@ class DartEncoder {
       if (directive is ast.ImportDirective) {
         final uriValue = directive.uri.stringValue;
         if (uriValue == null) {
+          // Defensive: import URIs are constant string literals per the Dart
+          // grammar, so stringValue is never null for valid parsed source
+          // (tripwire kept in case the analyzer grammar shifts).
+          // coverage:ignore-start
           _warn('Import directive has null URI', source: directive.toSource());
+          // coverage:ignore-end
         }
         final uri = uriValue ?? '';
         // Prefer an explicit override (e.g. resolved relative import).
@@ -393,7 +398,11 @@ class DartEncoder {
       } else if (directive is ast.ExportDirective) {
         final uriValue = directive.uri.stringValue;
         if (uriValue == null) {
+          // Defensive: export URIs are constant string literals per the Dart
+          // grammar, so stringValue is never null here for valid parsed source.
+          // coverage:ignore-start
           _warn('Export directive has null URI', source: directive.toSource());
+          // coverage:ignore-end
         }
         final uri = uriValue ?? '';
         final detail = <String, Object>{'uri': uri};
@@ -433,7 +442,11 @@ class DartEncoder {
         if (uriValue != null) {
           _partDetails.add(<String, Object>{'uri': uriValue});
         } else {
+          // Defensive: part URIs are constant string literals per the Dart
+          // grammar; unreachable for valid parsed source.
+          // coverage:ignore-start
           _warn('Part directive has null URI');
+          // coverage:ignore-end
         }
       } else if (directive is ast.PartOfDirective) {
         if (directive.uri != null) {
@@ -446,7 +459,9 @@ class DartEncoder {
           // never reach this branch. We keep the warn as a tripwire in
           // case analyzer grammar evolves — strict-mode users will see
           // it immediately rather than getting silent data loss.
+          // coverage:ignore-start
           _warn('Part-of directive has neither URI nor library name');
+          // coverage:ignore-end
         }
       }
     }

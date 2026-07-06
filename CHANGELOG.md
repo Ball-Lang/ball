@@ -1,3 +1,10 @@
+## [1.6.3](https://github.com/Ball-Lang/ball/compare/v1.6.2...v1.6.3) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** Set codegen, inherited-field ctor-init, neg-zero, whole-double, type_literal, __no_init__ ([#219](https://github.com/Ball-Lang/ball/issues/219) [#220](https://github.com/Ball-Lang/ball/issues/220) [#221](https://github.com/Ball-Lang/ball/issues/221) [#222](https://github.com/Ball-Lang/ball/issues/222) [#224](https://github.com/Ball-Lang/ball/issues/224) [#225](https://github.com/Ball-Lang/ball/issues/225)) ([#235](https://github.com/Ball-Lang/ball/issues/235)) ([79f7595](https://github.com/Ball-Lang/ball/commit/79f7595f6eb0370875f3e09c72a9a78587ae2de8)), closes [#230](https://github.com/Ball-Lang/ball/issues/230) [#67](https://github.com/Ball-Lang/ball/issues/67) [#66](https://github.com/Ball-Lang/ball/issues/66)
+
 ## [1.6.2](https://github.com/Ball-Lang/ball/compare/v1.6.1...v1.6.2) (2026-07-06)
 
 

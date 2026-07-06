@@ -43,10 +43,6 @@ import { unwrapBallFile } from "./ball_file.ts";
  * here fails the leg (see the "stale carve-out" check below).
  */
 const CARVE_OUTS: Record<string, number> = {
-  // #218 -- map_keys/map_values/.values silently return empty instead of
-  // failing loud on non-Map (TS analog of #197/#202).
-  "395_map_keys_values_fail_loud": 218,
-  "397_map_values": 218,
   // #219 -- Set literal/operation codegen produces empty {} and wrong
   // equality results.
   "350_set_value": 219,
@@ -59,22 +55,10 @@ const CARVE_OUTS: Record<string, number> = {
   "316_to_string_as_fixed": 221,
   // #222 -- whole doubles print without trailing .0 in some contexts.
   "321_whole_double_parse_print": 222,
-  // #223 -- unsigned right shift (>>>) uses raw 32-bit JS semantics.
-  "381_unsigned_right_shift": 223,
   // #224 -- type-literal-as-value compiles to null.
   "340_type_literal": 224,
   // #225 -- uninitialized-variable sentinel (__no_init__) leaks into output.
   "315_compound_assign_all_ops": 225,
-  // #226 -- list_reduce and label (goto) have no codegen (bare unresolved
-  // calls -- ReferenceError, not just wrong output).
-  "318_list_reduce": 226,
-  "390_goto_label": 226,
-  // #227 -- numeric-literal property/getter access emits invalid TS
-  // (e.g. `0.isNegative`).
-  "317_primitive_number_getters": 227,
-  // #228 -- BallDouble is missing .remainder() (Number.prototype has it,
-  // the wrapper class doesn't).
-  "320_num_methods_on_double_local": 228,
 };
 
 function findRepoRoot(): string {

@@ -99,6 +99,19 @@ export class BallCompiler {
    */
   private renameStack: Map<string, string>[] = [];
 
+  /**
+   * Stack of `std.label` names currently enclosing the statement being
+   * compiled (see `emitLabelStmt`/`emitGotoStmt`). A `std.label` lowers to a
+   * labelled `while (true) { ... break name; }`, and a nested `std.goto`
+   * targeting one of these names lowers to `continue name;` — TS (unlike
+   * Dart's `continue` targeting a switch case, or C++'s real `goto`) only
+   * allows `continue`/`break` to target an *enclosing* labelled loop, so this
+   * only supports backward jumps to a label the goto is lexically inside of.
+   * A `goto` to any other name fails loud at compile time (see `emitGotoStmt`)
+   * rather than silently emitting invalid or wrong-behaving TS.
+   */
+  private activeGotoLabels: string[] = [];
+
   constructor(program: Program) {
     this.program = program;
   }
@@ -3138,7 +3151,7 @@ function __isUnknownFnError(e: any): boolean {
     const kinds = new Set([
       "if", "for", "for_in", "for_each", "while", "do_while", "try",
       "return", "break", "continue", "labeled", "throw", "rethrow",
-      "assign", "switch", "switch_expr",
+      "assign", "switch", "switch_expr", "label", "goto",
     ]);
     if (!kinds.has(call.function)) return false;
     // Accept both explicit std module AND empty module (the encoder
@@ -3177,6 +3190,8 @@ function __isUnknownFnError(e: any): boolean {
         if (body) this.emitStatementOrExpression(body, false);
         break;
       }
+      case "label":     this.emitLabelStmt(call); break;
+      case "goto":      this.emitGotoStmt(call); break;
       case "throw": {
         const v = field(call, "value");
         if (v) {
@@ -3415,6 +3430,47 @@ function __isUnknownFnError(e: any): boolean {
     if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
     this.depth--;
     this.writeln(`}`);
+  }
+
+  /**
+   * `std.label(name, body)` — a named jump target that `std.goto(label)`
+   * re-enters. TS has no real `goto`, so this lowers to a labelled
+   * `while (true)` loop: running the body once and falling off the end
+   * (the common case, and the only shape a `goto` targeting it can
+   * restart) matches Ball's "run once, or re-run from the top on goto"
+   * semantics, with `break name;` after the body covering the fall-off
+   * case exactly as the Dart compiler's switch-based simulation does.
+   * See `activeGotoLabels` for why only backward jumps are supported.
+   */
+  private emitLabelStmt(call: FunctionCall): void {
+    const name = stringField(call, "name");
+    const body = field(call, "body");
+    if (!name || !body) {
+      throw new Error("std.label requires a string \"name\" and a \"body\"");
+    }
+    this.activeGotoLabels.push(name);
+    this.writeln(`${name}: while (true) {`);
+    this.depth++;
+    this.emitStatementOrExpression(body, false);
+    this.writeln(`break ${name};`);
+    this.depth--;
+    this.writeln(`}`);
+    this.activeGotoLabels.pop();
+  }
+
+  /** `std.goto(label)` — see `emitLabelStmt` and `activeGotoLabels`. */
+  private emitGotoStmt(call: FunctionCall): void {
+    const label = stringField(call, "label");
+    if (!label) throw new Error('std.goto requires a string "label"');
+    if (!this.activeGotoLabels.includes(label)) {
+      throw new Error(
+        `std.goto("${label}") is not inside its own std.label("${label}", ...) body — ` +
+        "the TS compiler only supports goto as a backward jump that restarts an " +
+        "enclosing label (mirrors a labelled loop); forward jumps and jumps to a " +
+        "sibling label are not supported (#226).",
+      );
+    }
+    this.writeln(`continue ${label};`);
   }
 
   private emitDoWhileStmt(call: FunctionCall): void {
@@ -3917,7 +3973,15 @@ function __isUnknownFnError(e: any): boolean {
       this.currentClassName !== undefined &&
       this.currentClassFields.has(fa.field) &&
       !this.currentClassMethodNames.has(fa.field);
-    const obj = isSelfRef || isSuperFieldRef ? "this" : this.expr(fa.object);
+    const rawObj = isSelfRef || isSuperFieldRef ? "this" : this.expr(fa.object);
+    // A bare numeric-literal receiver (e.g. `0`, `-4`, `123n`) parses as the
+    // start of a float literal when immediately followed by `.field` —
+    // `0.isNegative` is `SyntaxError: Identifier cannot follow number`.
+    // Parenthesize whenever the compiled object text IS (not merely
+    // contains) such a token; a double literal already compiles through
+    // `new BallDouble(...)` and a negated int through `__ball_negate(...)`,
+    // so both are already safe — only the bare-token case needs this.
+    const obj = /^-?\d+n?$/.test(rawObj) ? `(${rawObj})` : rawObj;
     const f = fa.field;
     if (f === "length") return `${obj}.length`;
     // Positional record field: `.$1` / `.$2` → [0] / [1].
@@ -4289,7 +4353,7 @@ function __isUnknownFnError(e: any): boolean {
       case "bitwise_not":  return `__ball_bitnot(${this.expr(fg("value", "arg0")!)})`;
       case "left_shift":   return `__ball_shl(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
       case "right_shift":  return `__ball_shr(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
-      case "unsigned_right_shift": return bin(">>>");
+      case "unsigned_right_shift": return `__ball_ushr(${this.expr(fg("left", "value", "arg0")!)}, ${this.expr(fg("right", "other", "arg1")!)})`;
       case "integer_divide":
         return `__ball_divide(${this.expr(f.get("left")!)}, ${this.expr(f.get("right")!)})`;
       case "concat":       return bin("+");
@@ -4998,6 +5062,10 @@ function __isUnknownFnError(e: any): boolean {
           case "list_length": return `${this.expr(f.get("list")!)}.length`;
           case "list_filter": return `${this.expr(f.get("list")!)}.filter(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_map": return `${this.expr(f.get("list")!)}.map(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          // No-seed combine (Dart's Iterable.reduce): starts at the first
+          // element, folds from the second; empty list throws (matches JS
+          // Array.prototype.reduce with no initialValue).
+          case "list_reduce": return `${this.expr(f.get("list")!)}.reduce(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_sort": {
             const l = this.expr(f.get("list")!);
             const cmp = f.get("comparator") ?? f.get("function") ?? f.get("value");

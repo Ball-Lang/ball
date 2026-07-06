@@ -118,6 +118,9 @@ export function decodeBallFileJson(json: unknown): BallFile {
   if (isModuleUrl(type)) {
     return { kind: "module", module: fromJson(ModuleSchema, body) };
   }
+  // Unreachable: unwrapBallFileJson above already runs this same check and
+  // throws first if neither matches. Kept for exhaustiveness (TS can't see
+  // that guarantee across the function call).
   throw new BallFileFormatError(`unknown ball file @type: "${type}"`);
 }
 
@@ -143,6 +146,9 @@ export function decodeModuleJson(json: unknown): Module {
 export function decodeBallFileBinary(bytes: Uint8Array): BallFile {
   const any: Any = fromBinary(AnySchema, bytes);
   if (isProgramUrl(any.typeUrl)) {
+    // Unreachable: anyUnpack only returns undefined on a typeUrl mismatch
+    // (already excluded by isProgramUrl), and fromBinary throws (verified
+    // empirically) rather than returning undefined on corrupt bytes.
     const program = anyUnpack(any, ProgramSchema);
     if (program === undefined) {
       throw new BallFileFormatError(
@@ -152,6 +158,7 @@ export function decodeBallFileBinary(bytes: Uint8Array): BallFile {
     return { kind: "program", program };
   }
   if (isModuleUrl(any.typeUrl)) {
+    // See the identical reasoning on the Program branch above.
     const module = anyUnpack(any, ModuleSchema);
     if (module === undefined) {
       throw new BallFileFormatError(

@@ -110,7 +110,12 @@ function readVersion(): string {
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
     if (typeof pkg.version === 'string') return pkg.version;
   } catch {
-    // Fallthrough.
+    // Pure packaging defense (a missing/malformed package.json next to a
+    // real install or build) — not exercised by any test. Honestly
+    // triggering it needs an isolated copy of this whole directory minus
+    // its sibling package.json, with @ball-lang/engine's module
+    // resolution still working from there; not worth the fragility for
+    // a fallback this deep. Documented exclusion, not a coverage gap.
   }
   return '0.0.0';
 }

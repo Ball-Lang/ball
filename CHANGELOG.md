@@ -1,3 +1,10 @@
+## [1.7.2](https://github.com/Ball-Lang/ball/compare/v1.7.1...v1.7.2) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-encoder:** encode 'this' as a real self-reference instead of a placeholder ([#249](https://github.com/Ball-Lang/ball/issues/249)) ([#251](https://github.com/Ball-Lang/ball/issues/251)) ([195c593](https://github.com/Ball-Lang/ball/commit/195c593904a536d9fa642b09edb95da7437361fe))
+
 ## [1.7.1](https://github.com/Ball-Lang/ball/compare/v1.7.0...v1.7.1) (2026-07-06)
 
 

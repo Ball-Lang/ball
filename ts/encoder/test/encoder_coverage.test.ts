@@ -60,11 +60,19 @@ describe("encoder class heritage + members", () => {
     assert.ok(tickFn, "instance method emitted");
   });
 
-  test("constructor is emitted as <Class>.constructor", () => {
+  test("constructor is emitted as <Class>.new with metadata.kind == constructor (matches dart/encoder, #249)", () => {
+    // ts/compiler's emitClass routes a member to real constructor emission
+    // only when BOTH the short name is "new" AND metadata.kind ==
+    // "constructor" — a bare "<Class>.constructor" name (this test's
+    // previous assertion) is silently treated as an ordinary method
+    // literally named "constructor", which gets an illegal return-type
+    // annotation added like any other method.
     const program = encode(`class Point { constructor(x: number) { } }`);
     const mod = userModule(program);
-    const ctor = mod.functions.find((f) => f.name === "Point.constructor");
-    assert.ok(ctor, "constructor function emitted");
+    const ctor = mod.functions.find((f) => f.name === "Point.new");
+    assert.ok(ctor, "constructor function emitted as Point.new");
+    assert.equal((ctor as FunctionDef).metadata?.["kind"], "constructor");
+    assert.equal((ctor as FunctionDef).outputType, "Point");
   });
 });
 

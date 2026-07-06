@@ -99,6 +99,12 @@ describe("TsEncoder", () => {
     assert.ok(fn, "operator method must be encoded, not dropped");
     assert.equal(fn!.metadata?.is_operator, true);
     assert.equal(fn!.metadata?.operator, "+");
+    // #249: the operator body's `return this;` must be a real self-reference
+    // (reference: {name: "self"}, matching dart/encoder), not the
+    // "/* unhandled: ThisKeyword */" placeholder literal it used to be.
+    const returned = fn!.body?.block?.statements[0].expression?.call?.input
+      ?.messageCreation?.fields?.[0].value;
+    assert.deepEqual(returned, { reference: { name: "self" } });
   });
 
   test("encodes index operator methods ('[]' / '[]=')", () => {
@@ -125,6 +131,62 @@ describe("TsEncoder", () => {
     const fn = userMod.functions.find(f => f.name === "Vec2.__op_neg__");
     assert.ok(fn, "zero-arg '-' must encode as __op_neg__");
     assert.equal(fn!.metadata?.operator, "-");
+  });
+
+  // #249: `this` (ts.SyntaxKind.ThisKeyword) had no case in encodeExpr at
+  // all, so every `this.field` / bare `this` encoded to the placeholder
+  // literal "/* unhandled: ThisKeyword */" instead of a real self-reference
+  // — corrupting virtually every non-trivial class method. Mirrors
+  // dart/encoder's ThisExpression handling exactly: a bare
+  // reference named "self", uniformly across constructors, regular
+  // methods, and operator methods (ts/compiler already turns a `self`
+  // reference back into `this` inside a class method).
+  test("this.field inside a constructor encodes as a real self field-access, not a placeholder", () => {
+    const program = encode(`
+      class Point {
+        x: number;
+        constructor(x: number) { this.x = x; }
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    const ctor = userMod.functions.find(f => f.name === "Point.new")!;
+    assert.ok(ctor, "constructor emitted as Point.new (#249's constructor-naming fix)");
+    const target = ctor.body?.block?.statements[0].expression?.call?.input
+      ?.messageCreation?.fields?.find(f => f.name === "target")?.value;
+    assert.deepEqual(target, { fieldAccess: { object: { reference: { name: "self" } }, field: "x" } });
+  });
+
+  test("this.field reads in a regular method encode as a real self field-access", () => {
+    const program = encode(`
+      class Point {
+        x: number;
+        getX(): number { return this.x; }
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    const fn = userMod.functions.find(f => f.name === "Point.getX")!;
+    const returned = fn.body?.block?.statements[0].expression?.call?.input
+      ?.messageCreation?.fields?.[0].value;
+    assert.deepEqual(returned, { fieldAccess: { object: { reference: { name: "self" } }, field: "x" } });
+  });
+
+  test("this.field reads inside an operator method encode as a real self field-access", () => {
+    const program = encode(`
+      class Vec2 {
+        x: number;
+        '+'(other: Vec2): number { return this.x + other.x; }
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    const fn = userMod.functions.find(f => f.name === "Vec2.__op_add__")!;
+    assert.ok(!JSON.stringify(fn.body).includes("unhandled"), "no placeholder anywhere in the operator body");
+    const addInput = fn.body?.block?.statements[0].expression?.call?.input
+      ?.messageCreation?.fields?.[0].value?.call?.input?.messageCreation?.fields;
+    const left = addInput?.find(f => f.name === "left")?.value;
+    assert.deepEqual(left, { fieldAccess: { object: { reference: { name: "self" } }, field: "x" } });
   });
 
   test("a non-identifier, non-operator member name warns instead of silently vanishing", () => {

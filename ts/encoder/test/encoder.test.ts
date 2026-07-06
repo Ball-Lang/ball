@@ -554,13 +554,20 @@ describe("TsEncoder", () => {
     assert.equal(params[0].default, "5");
   });
 
-  test("encodes call of a non-identifier callee as __invoke", () => {
+  test("encodes call of a non-identifier callee as std.invoke (#252)", () => {
     // The callee is a call expression result, so neither identifier nor
-    // property-access — must route through __invoke with a `callee` field.
+    // property-access — must route through the universal std "invoke"
+    // function (module: "std") with a `callee` field. The old
+    // module-less "__invoke" name matched no case in compileStdCall's
+    // dispatch and wasn't even routed there (compileCall only sends a
+    // module-less call to compileStdCall for a small allow-listed set of
+    // functions) — it compiled to a call through a nonexistent bare
+    // `__invoke(...)` free function, a ReferenceError at runtime.
     const program = encode(`function main() { getFn()(1, 2); }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const call = mainFn.body!.block!.statements[0].expression!.call!;
-    assert.equal(call.function, "__invoke");
+    assert.equal(call.module, "std");
+    assert.equal(call.function, "invoke");
     const fields = call.input!.messageCreation!.fields;
     const callee = fields.find(f => f.name === "callee");
     assert.ok(callee, "should carry callee field");

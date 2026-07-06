@@ -4451,7 +4451,27 @@ function __isUnknownFnError(e: any): boolean {
       case "math_infinity": return "Infinity";
       case "math_nan":      return "NaN";
       case "print":      return `console.log(__ball_to_string(${this.expr(f.get("message")!)}))`;
-      case "index":      return `__ball_index(${this.expr(f.get("target")!)}, ${this.expr(f.get("index")!)})`;
+      case "index": {
+        const target = f.get("target")!;
+        const idx = f.get("index")!;
+        // Bracket-invoking a string-literal-named operator method (e.g.
+        // `a['+'](b)` — the only way to call one, since TS has no `operator`
+        // keyword) indexes with the RAW lexeme, but the compiled class
+        // exposes the operator under its canonical __op_*__ name (#248) —
+        // translate the lexeme so the access finds the real method instead
+        // of a nonexistent literal '+' property (#252). "-" is ambiguous
+        // (unary __op_neg__ vs binary __op_sub__ — a class can only define
+        // ONE '-'-named method, so exactly one of the two properties ever
+        // actually exists; ?? picks whichever it is without needing type
+        // info to disambiguate at the call site).
+        const lexeme = idx.literal?.stringValue;
+        if (lexeme !== undefined && Object.prototype.hasOwnProperty.call(operatorIndexNames, lexeme)) {
+          const targetStr = this.expr(target);
+          if (lexeme === "-") return `(${targetStr}.__op_sub__ ?? ${targetStr}.__op_neg__)`;
+          return `${targetStr}.${operatorIndexNames[lexeme]}`;
+        }
+        return `__ball_index(${this.expr(target)}, ${this.expr(idx)})`;
+      }
       case "null_coalesce": return `(${this.expr(f.get("left")!)} ?? ${this.expr(f.get("right")!)})`;
       case "null_check": return this.expr(f.get("value")!);
       case "is": {
@@ -6492,6 +6512,36 @@ function unwrapLambda(e: Expression): Expression {
   if (e.lambda && e.lambda.body) return e.lambda.body;
   return e;
 }
+
+/** Maps an operator lexeme to the canonical __op_*__ name a compiled class
+ *  exposes it under (mirrors ts/encoder's OPERATOR_CANONICAL_NAMES exactly
+ *  — double-trailing-underscore; NOT sanitize()'s single-underscore
+ *  operatorMap below, which is a separate, legacy short-name convention).
+ *  Used by std."index" to translate `a['+']` (the only way to bracket-
+ *  invoke a string-literal-named operator method) to the real property. */
+const operatorIndexNames: Record<string, string> = {
+  "[]=": "__op_set_index__",
+  "[]": "__op_get_index__",
+  "==": "__op_eq__",
+  "<": "__op_lt__",
+  "<=": "__op_le__",
+  ">": "__op_gt__",
+  ">=": "__op_ge__",
+  "<<": "__op_shl__",
+  ">>": "__op_shr__",
+  ">>>": "__op_ushr__",
+  "+": "__op_add__",
+  "*": "__op_mul__",
+  "/": "__op_div__",
+  "~/": "__op_idiv__",
+  "%": "__op_mod__",
+  "&": "__op_band__",
+  "|": "__op_bor__",
+  "^": "__op_bxor__",
+  "~": "__op_bnot__",
+  // "-" handled specially at the call site (unary vs binary ambiguity).
+  "-": "__op_sub__",
+};
 
 function sanitize(name: string): string {
   let out = name;

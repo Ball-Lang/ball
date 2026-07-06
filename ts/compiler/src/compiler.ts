@@ -3788,7 +3788,16 @@ function __isUnknownFnError(e: any): boolean {
     if (lit.listValue) {
       return this.compileListElements(lit.listValue.elements ?? []);
     }
-    if (lit.bytesValue !== undefined) return "/* bytes */ new Uint8Array()";
+    if (lit.bytesValue !== undefined) {
+      // lit.bytesValue is the raw proto3-JSON value: base64, un-decoded (this
+      // compiler's Literal type is a plain JSON DTO, not a protobuf-es
+      // message — unlike Dart's compiler, which reads a real protobuf
+      // `Literal` whose bytes field is already raw). Emit a runtime decode
+      // (Node has a global `atob` since v16) so the ACTUAL bytes land, rather
+      // than discarding them. (issue #244: this previously always emitted an
+      // empty Uint8Array regardless of the source bytes.)
+      return `Uint8Array.from(atob(${jsStringLiteral(lit.bytesValue)}), c => c.charCodeAt(0))`;
+    }
     return "null";
   }
 

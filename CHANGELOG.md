@@ -1,3 +1,10 @@
+## [1.7.4](https://github.com/Ball-Lang/ball/compare/v1.7.3...v1.7.4) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler+ts-encoder:** bracket-invoking a string-literal operator method ([#252](https://github.com/Ball-Lang/ball/issues/252)) ([#255](https://github.com/Ball-Lang/ball/issues/255)) ([fab4640](https://github.com/Ball-Lang/ball/commit/fab4640d6f190195af19fce0ba2ced69a9f19c5d)), closes [#248](https://github.com/Ball-Lang/ball/issues/248)
+
 ## [1.7.3](https://github.com/Ball-Lang/ball/compare/v1.7.2...v1.7.3) (2026-07-06)
 
 

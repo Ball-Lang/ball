@@ -16,28 +16,6 @@ silently re-hidden (the failure mode that produced issue #55 for std functions).
 
 ## Genuinely-absent shapes (tracked to #64 Phase 2b — add a fixture, then REMOVE the entry)
 
-- `literal.bytes_value` — the `bytes` Literal kind (`Literal.bytes_value`). The
-  Dart encoder never emits it: no Dart source construct maps to a bytes literal
-  (`Uint8List.fromList([...])` encodes as a constructor call, and the
-  base64/UTF-8 fixtures operate on `String`s via `std_convert`), so it cannot
-  be produced from a `tests/conformance/src/*.dart`; closing this needs a
-  HAND-AUTHORED fixture instead. **Phase 2b investigation (this pass) found a
-  real blocker before that can happen**: 2 of the 3 compilers DISCARD a bytes
-  literal's actual content rather than reproducing it —
-  `ts/compiler/src/compiler.ts` (`compileLiteral`) emits a hardcoded
-  `new Uint8Array()` regardless of the source bytes, and
-  `cpp/compiler/src/compiler.cpp` (`compile_literal`,
-  `case ball::v1::Literal::kBytesValue`) emits a hardcoded
-  `std::vector<uint8_t>{}` — both always empty, never the real value. Only the
-  Dart compiler (`_raw('${lit.bytesValue}')`, `dart/compiler/lib/compiler.dart`)
-  and the Dart engine (`_trackByteListAllocation(lit.bytesValue.toList())`,
-  `dart/engine/lib/engine_eval.dart`) actually use the real bytes. A
-  hand-authored fixture with a non-trivial bytes literal would therefore FAIL
-  on the TS and C++ compiled legs today — not because the fixture is wrong,
-  but because those two compilers have a genuine codegen bug — filed as
-  issue #244. This carve-out stays until that's fixed, since adding the
-  fixture now would just be a third carve-out (an expected-failing engine leg)
-  rather than closing anything.
 - `lambda.typed_param` — a lambda (a `FunctionDefinition` with `name == ""`)
   that declares a non-empty `input_type`. Every lambda the encoder emits today
   has an empty `input_type` (the parameter is reached via the special `input`

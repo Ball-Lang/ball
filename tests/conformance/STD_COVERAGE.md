@@ -49,7 +49,7 @@ Universal standard library base module. Every function here represents a languag
 | `greater_than` | ✅ | ✅ 40 fixture(s): `100_complex_control_flow`, `105_static_methods`, `131_insertion_sort` +37 more | ✅ |
 | `gte` | ✅ | ✅ 10 fixture(s): `131_insertion_sort`, `140_caesar_cipher`, `151_recursive_descent_parser` +7 more | ✅ |
 | `if` | ✅ | ✅ 82 fixture(s): `100_complex_control_flow`, `105_static_methods`, `106_factory_constructor` +79 more | ✅ |
-| `index` | ✅ | ✅ 56 fixture(s): `106_factory_constructor`, `119_nested_maps`, `120_list_of_maps` +53 more | ✅ |
+| `index` | ✅ | ✅ 57 fixture(s): `106_factory_constructor`, `119_nested_maps`, `120_list_of_maps` +54 more | ✅ |
 | `int_to_string` | ✅ | ✅ 1 fixture(s): `389_typed_to_string` | ✅ |
 | `is` | ✅ | ✅ 12 fixture(s): `113_operator_overloading`, `167_generics_reified`, `180_generic_list_ops` +9 more | ✅ |
 | `is_not` | ✅ | ✅ 1 fixture(s): `380_is_not_type_check` | ✅ |
@@ -101,7 +101,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 66 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +63 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 319 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +316 more | ✅ |
+| `print` | ✅ | ✅ 320 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +317 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -139,7 +139,7 @@ Universal standard library base module. Every function here represents a languag
 | `subtract` | ✅ | ✅ 36 fixture(s): `104_getter_setter`, `113_operator_overloading`, `131_insertion_sort` +33 more | ✅ |
 | `switch` | ✅ | ✅ 21 fixture(s): `109_enum_values`, `147_complex_switch`, `150_state_machine` +18 more | ✅ |
 | `throw` | ✅ | ✅ 20 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +17 more | ✅ |
-| `to_string` | ✅ | ✅ 182 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +179 more | ✅ |
+| `to_string` | ✅ | ✅ 183 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +180 more | ✅ |
 | `try` | ✅ | ✅ 23 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `199_malicious_input_patterns` +20 more | ✅ |
 | `unsigned_right_shift` | ✅ | ✅ 1 fixture(s): `381_unsigned_right_shift` | ✅ |
 | `while` | ✅ | ✅ 24 fixture(s): `100_complex_control_flow`, `108_class_tostring`, `123_queue_simulation` +21 more | ✅ |

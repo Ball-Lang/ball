@@ -1,3 +1,10 @@
+# [1.7.0](https://github.com/Ball-Lang/ball/compare/v1.6.4...v1.7.0) (2026-07-06)
+
+
+### Features
+
+* **cpp:** ball::ir [@type-envelope](https://github.com/type-envelope) fix + IR->JSON serializer w/ corpus round-trip ([#18](https://github.com/Ball-Lang/ball/issues/18)) ([#243](https://github.com/Ball-Lang/ball/issues/243)) ([9f2386c](https://github.com/Ball-Lang/ball/commit/9f2386c7d6467d3e96c810669cf9820457f00b96))
+
 ## [1.6.4](https://github.com/Ball-Lang/ball/compare/v1.6.3...v1.6.4) (2026-07-06)
 
 

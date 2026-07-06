@@ -42,24 +42,7 @@ import { unwrapBallFile } from "./ball_file.ts";
  * compiler supports it -- a fixture that starts passing while still listed
  * here fails the leg (see the "stale carve-out" check below).
  */
-const CARVE_OUTS: Record<string, number> = {
-  // #219 -- Set literal/operation codegen produces empty {} and wrong
-  // equality results.
-  "350_set_value": 219,
-  "392_empty_set_literal": 219,
-  // #220 -- inherited field / implicit-ctor initializers drop to null
-  // (TS analog of #183/#187/#198).
-  "345_inherited_field_type_name_collision": 220,
-  "355_inherited_field_initializer": 220,
-  // #221 -- double.toStringAsFixed loses negative zero.
-  "316_to_string_as_fixed": 221,
-  // #222 -- whole doubles print without trailing .0 in some contexts.
-  "321_whole_double_parse_print": 222,
-  // #224 -- type-literal-as-value compiles to null.
-  "340_type_literal": 224,
-  // #225 -- uninitialized-variable sentinel (__no_init__) leaks into output.
-  "315_compound_assign_all_ops": 225,
-};
+const CARVE_OUTS: Record<string, number> = {};
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));

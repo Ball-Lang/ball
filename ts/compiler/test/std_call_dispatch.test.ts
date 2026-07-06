@@ -500,7 +500,7 @@ const cases: Case[] = [
   {
     name: "toStringAsFixed",
     body: std("to_string_as_fixed", { value: ref("n"), digits: lit(2) }),
-    expect: [/\(\+\(n\)\)\.toFixed\(2\)/],
+    expect: [/__ball_to_fixed\(n, 2\)/],
   },
   {
     name: "roundToDouble",

@@ -196,6 +196,9 @@ class Analyzer {
     visited.add(key);
 
     const parts = key.split('.');
+    // Unreachable: both call sites (the entry key above and the callee key
+    // built in walkCall) construct `key` via a template literal with a
+    // literal "." join, so it always has at least one dot.
     if (parts.length < 2) return;
     const moduleName = parts[0]!;
     const fnName = parts.slice(1).join('.');

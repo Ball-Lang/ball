@@ -11,6 +11,46 @@
  *
  * Assertions go through the public `encode` API and inspect the resulting
  * Ball IR, mirroring the style of encoder.test.ts / encoder_coverage.test.ts.
+ *
+ * #62 Phase-2b adds a second wave: braceless loop/if bodies (for/for-of/
+ * for-in/while/do-while/else without `{}`), a labeled non-block statement,
+ * destructuring edge cases (nested patterns, non-identifier property names,
+ * a for-loop init with no initializer or a destructured init variable), a
+ * destructured function parameter, an abstract method signature (no body),
+ * a parameterless `new Foo`, a non-identifier object-literal key, class
+ * fields/interface properties with no explicit type annotation, a
+ * string-literal enum member name, an arrow function with an expression
+ * (non-block) body, a labeled block statement (needing no synthetic wrap),
+ * a numeric object-destructuring/object-literal key, a nested array-pattern
+ * element, and a multi-arg array method call (`.splice(index, count)`).
+ *
+ * Five branches audited and found genuinely unreachable (not tested — see
+ * the comments at their use sites instead):
+ *  - `mapMethodToStd`'s `selfName ?? "value"` fallback (every current
+ *    mapping entry sets `selfName` explicitly);
+ *  - `encodeStatement`'s `decl.name.getText()` fallback for a plain
+ *    `let`/`const` (TS's own syntax requires an initializer for a
+ *    destructuring declaration, so by the time that branch runs
+ *    `decl.name` is exhaustively known to be an Identifier);
+ *  - `encodeFunction`'s name-computation fallback for a non-identifier
+ *    name (a class method with a non-identifier name, e.g. `'foo-bar'() {}`,
+ *    is filtered out by its caller's `ts.isIdentifier(member.name)` guard
+ *    BEFORE `encodeFunction` ever runs — it's silently dropped from the
+ *    encoded class entirely, a separate real gap worth its own issue, not
+ *    something this coverage pass should paper over with a test that can't
+ *    actually reach the line it's meant to cover);
+ *  - both object-destructuring elements' `element.name.getText()` fallback
+ *    for the SHORTHAND case (no `propertyName`) — shorthand syntax
+ *    (`{a}`) grammatically requires `name` to be a plain Identifier, so
+ *    a shorthand binding can never itself be a non-identifier (top-level
+ *    at line ~97, local at line ~215 — the nested-pattern case that IS
+ *    reachable always has an explicit `propertyName`, e.g. `{a: {b}}`,
+ *    exercised elsewhere in this file);
+ *  - `encodeLambda`'s outer `node.body ? ... : undefined` alternate —
+ *    `ts.ArrowFunction`/`ts.FunctionExpression`'s `.body` is non-optional
+ *    in TS's own AST types, so this node can never lack a body (unlike
+ *    `MethodDeclaration`, which genuinely can — see the abstract-method
+ *    test above, which covers the analogous case in `encodeFunction`).
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -264,5 +304,284 @@ describe("encoder console mappings", () => {
     const call = main.body!.block!.statements[0].expression!.call!;
     assert.equal(call.function, "print_error");
     assert.equal(call.input!.messageCreation!.fields[0].value.literal!.stringValue, "");
+  });
+});
+
+// ── #62 Phase-2b: braceless bodies, destructuring edge cases, misc ─────
+
+describe("encoder top-level declarations (wave 2)", () => {
+  test("top-level let with no initializer encodes to a null literal", () => {
+    const program = encode(`let x;`);
+    const mod = userModule(program);
+    const fn = mod.functions.find((f) => f.name === "x")!;
+    assert.ok(fn, "top-level uninitialized var emitted as a function");
+    assert.equal(Object.keys(fn.body!.literal!).length, 0, "empty Literal = null");
+  });
+
+  test("top-level object destructuring with a numeric property key falls back to getText()", () => {
+    const program = encode(`const { 0: first } = obj;`);
+    const mod = userModule(program);
+    const fn = mod.functions.find((f) => f.name === "first")!;
+    assert.equal(fn.body!.fieldAccess!.field, "0");
+  });
+
+  test("top-level object destructuring with a nested binding pattern falls back to getText() for the local name", () => {
+    const program = encode(`const { a: {b} } = obj;`);
+    const mod = userModule(program);
+    // The nested pattern's own local name ("b") is what's ultimately bound;
+    // the OUTER destructured function here is named after the whole nested
+    // pattern's source text (getText() fallback, since it isn't a plain
+    // Identifier) — assert it's non-empty and references field "a".
+    const fn = mod.functions.find((f) => f.metadata?.["destructured"] === true)!;
+    assert.ok(fn, "nested-pattern binding still emits a top-level function");
+    assert.equal(fn.body!.fieldAccess!.field, "a");
+    assert.ok(fn.name.length > 0);
+  });
+
+  test("top-level array destructuring with a nested pattern element falls back to getText()", () => {
+    const program = encode(`const [[a, b]] = arr;`);
+    const mod = userModule(program);
+    const fn = mod.functions.find((f) => f.metadata?.["destructured"] === true)!;
+    assert.ok(fn, "nested array-pattern element still emits a top-level function");
+    assert.equal(fn.body!.call!.function, "index");
+  });
+});
+
+describe("encoder function/method declarations (wave 2)", () => {
+  test("a destructured function parameter falls back to getText() for its param name", () => {
+    const program = encode(`function f({a, b}) { return a; }`);
+    const mod = userModule(program);
+    const fn = mod.functions.find((f) => f.name === "f")!;
+    const params = fn.metadata!["params"] as Array<{ name: string }>;
+    assert.equal(params.length, 1);
+    assert.ok(params[0].name.includes("a") && params[0].name.includes("b"));
+  });
+
+  test("an abstract method signature (no body) encodes with no `body` field", () => {
+    const program = encode(`abstract class A { abstract foo(): void; }`);
+    const mod = userModule(program);
+    const typeDef = mod.typeDefs!.find((t) => t.name === "A")!;
+    assert.ok(typeDef, "abstract class A encoded");
+    const fn = mod.functions.find((f) => f.name === "A.foo")!;
+    assert.ok(fn, "abstract method still produces a FunctionDef");
+    assert.equal(fn.body, undefined, "no implementation -> no body");
+  });
+});
+
+describe("encoder braceless statement bodies (wave 2)", () => {
+  test("a labeled non-block statement (a braceless for loop) wraps both the label body and the for body in a synthetic block", () => {
+    const program = encode(`function main() { outer: for (let i = 0; i < 3; i++) console.log(i); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const labeled = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(labeled.function, "labeled");
+    const bodyField = labeled.input!.messageCreation!.fields.find((f) => f.name === "body")!;
+    const forBlock = bodyField.value.block!;
+    const forCall = forBlock.statements[0].expression!.call!;
+    assert.equal(forCall.function, "for");
+    const forBodyField = forCall.input!.messageCreation!.fields.find((f) => f.name === "body")!;
+    assert.equal(forBodyField.value.block!.statements[0].expression!.call!.function, "print");
+  });
+
+  test("a braceless for-of body wraps the single statement in a synthetic block", () => {
+    const program = encode(`function main() { for (const x of xs) console.log(x); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "for_each");
+    const bodyField = call.input!.messageCreation!.fields.find((f) => f.name === "body")!;
+    assert.equal(bodyField.value.block!.statements[0].expression!.call!.function, "print");
+  });
+
+  test("a braceless while body wraps the single statement in a synthetic block", () => {
+    const program = encode(`function main() { while (cond) console.log(1); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "while");
+    const bodyField = call.input!.messageCreation!.fields.find((f) => f.name === "body")!;
+    assert.equal(bodyField.value.block!.statements[0].expression!.call!.function, "print");
+  });
+
+  test("a braceless do-while body wraps the single statement in a synthetic block", () => {
+    const program = encode(`function main() { do console.log(1); while (cond); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "do_while");
+    const bodyField = call.input!.messageCreation!.fields.find((f) => f.name === "body")!;
+    assert.equal(bodyField.value.block!.statements[0].expression!.call!.function, "print");
+  });
+
+  test("a braceless else branch wraps the single statement in a synthetic block", () => {
+    const program = encode(`function main() { if (x) { } else console.log(1); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "if");
+    const elseField = call.input!.messageCreation!.fields.find((f) => f.name === "else")!;
+    assert.equal(elseField.value.block!.statements[0].expression!.call!.function, "print");
+  });
+
+  // Companion to the braceless-for label test above: a label wrapping an
+  // ALREADY-block statement needs no synthetic wrap (the isBlock TRUE side).
+  test("a labeled block statement is used as-is, with no synthetic wrap", () => {
+    const program = encode(`function main() { outer: { console.log(1); } }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const labeled = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(labeled.function, "labeled");
+    const bodyField = labeled.input!.messageCreation!.fields.find((f) => f.name === "body")!;
+    assert.equal(bodyField.value.block!.statements[0].expression!.call!.function, "print");
+  });
+});
+
+describe("encoder for-loop init edge cases (wave 2)", () => {
+  test("a for-loop init declaration with no initializer omits `value`", () => {
+    const program = encode(`function main() { for (let i; i < 3; i++) { } }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    const initField = call.input!.messageCreation!.fields.find((f) => f.name === "init")!;
+    const letStmt = initField.value.block!.statements[0];
+    assert.equal(letStmt.let!.name, "i");
+    assert.equal(letStmt.let!.value, undefined);
+  });
+
+  test("a for-loop init using a destructuring pattern falls back to getText() for its name", () => {
+    const program = encode(`function main() { for (let [a, b] = pair; a < 3; a++) { } }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    const initField = call.input!.messageCreation!.fields.find((f) => f.name === "init")!;
+    const letStmt = initField.value.block!.statements[0];
+    assert.ok(letStmt.let!.name.includes("a") && letStmt.let!.name.includes("b"));
+  });
+
+  test("a for-of loop with a destructured variable falls back to getText() for the variable label", () => {
+    const program = encode(`function main() { for (const [a, b] of pairs) { } }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    const varField = call.input!.messageCreation!.fields.find((f) => f.name === "variable")!;
+    assert.ok(varField.value.literal!.stringValue!.includes("a") && varField.value.literal!.stringValue!.includes("b"));
+  });
+});
+
+describe("encoder local destructuring edge cases (wave 2)", () => {
+  test("a local object destructuring with a nested binding pattern falls back to getText()", () => {
+    const program = encode(`function main() { const { a: { b } } = obj; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const letStmt = main.body!.block!.statements.find((s) => s.let)!;
+    assert.equal(letStmt.let!.value!.fieldAccess!.field, "a");
+  });
+
+  test("a local object destructuring with a numeric property key falls back to getText()", () => {
+    const program = encode(`function main() { const { 0: first } = obj; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const letStmt = main.body!.block!.statements.find((s) => s.let)!;
+    assert.equal(letStmt.let!.value!.fieldAccess!.field, "0");
+  });
+
+  test("a local array destructuring with a hole skips the omitted element", () => {
+    const program = encode(`function main() { const [x, , z] = arr; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const lets = main.body!.block!.statements.filter((s) => s.let);
+    assert.equal(lets.length, 2, "the hole must not produce its own local binding");
+    assert.equal(lets[0].let!.name, "x");
+    assert.equal(lets[1].let!.name, "z");
+  });
+
+  test("a local array destructuring with a nested pattern element falls back to getText()", () => {
+    const program = encode(`function main() { const [[a, b]] = arr; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const letStmt = main.body!.block!.statements.find((s) => s.let)!;
+    assert.equal(letStmt.let!.value!.call!.function, "index");
+  });
+});
+
+describe("encoder misc expression/declaration kinds (wave 2)", () => {
+  test("`new Foo` with no parentheses/arguments encodes with zero fields", () => {
+    const program = encode(`function main() { const x = new Foo; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const mc = main.body!.block!.statements[0].let!.value!.messageCreation!;
+    assert.equal(mc.typeName, "Foo");
+    assert.equal(mc.fields.length, 0);
+  });
+
+  test("an object literal with a string-literal key falls back to getText()/text for the field name", () => {
+    const program = encode(`function main() { const o = { 'a-b': 1 }; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const mc = main.body!.block!.statements[0].let!.value!.messageCreation!;
+    assert.equal(mc.fields[0].name, "a-b");
+  });
+
+  test("an object literal with a numeric key falls back to getText() for the field name", () => {
+    const program = encode(`function main() { const o = { 0: 1 }; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const mc = main.body!.block!.statements[0].let!.value!.messageCreation!;
+    assert.equal(mc.fields[0].name, "0");
+  });
+
+  test("a class field with no explicit type annotation defaults to 'any'", () => {
+    const program = encode(`class C { x = 5; }`);
+    const mod = userModule(program);
+    const typeDef = mod.typeDefs!.find((t) => t.name === "C")!;
+    const field = typeDef.descriptor!.field!.find((f) => f.name === "x")!;
+    assert.equal(field.type, "any");
+  });
+
+  test("an interface property with no explicit type annotation defaults to 'any'", () => {
+    const program = encode(`interface Foo { x; }`);
+    const mod = userModule(program);
+    const typeDef = mod.typeDefs!.find((t) => t.name === "Foo")!;
+    const field = typeDef.descriptor!.field!.find((f) => f.name === "x")!;
+    assert.equal(field.type, "any");
+  });
+
+  test("a string-literal enum member name falls back to getText()", () => {
+    const program = encode(`enum Foo { 'a-b' = 1 }`);
+    const mod = userModule(program);
+    const enumDef = mod.enums!.find((e) => e.name === "Foo")!;
+    assert.ok(enumDef.value[0].name.includes("a-b"));
+  });
+
+  test("an arrow function with an expression (non-block) body encodes the expression directly", () => {
+    const program = encode(`function main() { const f = (x: number) => x + 1; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const lambda = main.body!.block!.statements[0].let!.value!.lambda!;
+    assert.equal(lambda.body!.call!.function, "add");
+  });
+
+  test("an arrow function with a block body encodes the block directly", () => {
+    const program = encode(`function main() { const f = (x: number) => { return x + 1; }; }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const lambda = main.body!.block!.statements[0].let!.value!.lambda!;
+    assert.equal(lambda.body!.block!.statements[0].expression!.call!.function, "return");
+  });
+
+  // `splice` (unlike `slice`) has no STR_METHODS entry, so it can only
+  // resolve through ARR_METHODS — a reliable way to reach the multi-arg
+  // naming branch without the encoder's string/array method maps colliding
+  // (both maps happen to have a `slice` entry, and STR_METHODS is checked
+  // first, so `arr.slice(...)` alone would silently test the STRING path).
+  test("a multi-argument array method call (splice(index, count)) names args arg1, arg2, ...", () => {
+    const program = encode(`function main() { const s = arr.splice(1, 2); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "list_remove_at");
+    const fields = call.input!.messageCreation!.fields;
+    assert.equal(fields.find((f) => f.name === "value")!.value.literal!.intValue, "1");
+    assert.equal(fields.find((f) => f.name === "arg1")!.value.literal!.intValue, "2");
   });
 });

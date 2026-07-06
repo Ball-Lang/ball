@@ -82,6 +82,70 @@ describe("TsEncoder", () => {
     assert.ok(distFn);
   });
 
+  // #242: a class method whose name is a string literal matching a known
+  // operator lexeme (TS's syntax for a Dart-style operator override, since
+  // TS has no `operator` keyword) used to fail the caller-side identifier
+  // filter silently — the method vanished from the encoded class entirely.
+  test("encodes a binary operator method under its canonical __op_*__ name", () => {
+    const program = encode(`
+      class Vec2 {
+        x: number;
+        '+'(other: Vec2): Vec2 { return this; }
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    const fn = userMod.functions.find(f => f.name === "Vec2.__op_add__");
+    assert.ok(fn, "operator method must be encoded, not dropped");
+    assert.equal(fn!.metadata?.is_operator, true);
+    assert.equal(fn!.metadata?.operator, "+");
+  });
+
+  test("encodes index operator methods ('[]' / '[]=')", () => {
+    const program = encode(`
+      class Vec2 {
+        '[]'(i: number): number { return i; }
+        '[]='(i: number, v: number): void {}
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    assert.ok(userMod.functions.find(f => f.name === "Vec2.__op_get_index__"));
+    assert.ok(userMod.functions.find(f => f.name === "Vec2.__op_set_index__"));
+  });
+
+  test("a zero-arg '-' method encodes as unary negation, not subtraction", () => {
+    const program = encode(`
+      class Vec2 {
+        '-'(): Vec2 { return this; }
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    const fn = userMod.functions.find(f => f.name === "Vec2.__op_neg__");
+    assert.ok(fn, "zero-arg '-' must encode as __op_neg__");
+    assert.equal(fn!.metadata?.operator, "-");
+  });
+
+  test("a non-identifier, non-operator member name warns instead of silently vanishing", () => {
+    const { program, warnings } = encodeWithWarnings(`
+      class Weird {
+        'notAnOperator'(): number { return 1; }
+      }
+      function main() {}
+    `);
+    const userMod = program.modules.find(m => m.name === "main")!;
+    assert.equal(userMod.functions.find(f => f.name.endsWith("notAnOperator")), undefined);
+    assert.ok(warnings.some(w => w.includes("notAnOperator")), "must warn about the dropped member");
+  });
+
+  test("strict mode throws on a non-identifier, non-operator member name", () => {
+    assert.throws(
+      () => encode(`class Weird { 'notAnOperator'(): number { return 1; } } function main() {}`, { strict: true }),
+      (err: unknown) => err instanceof EncodeError,
+    );
+  });
+
   test("encodes interfaces", () => {
     const program = encode(`
       interface Shape { area(): number; width: number; }

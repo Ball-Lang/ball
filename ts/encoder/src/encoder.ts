@@ -57,6 +57,35 @@ export class TsEncoder {
   private warnings: string[] = [];
   private strict = false;
 
+  // Maps an operator lexeme to the canonical, language-agnostic Ball method
+  // name every compiler already understands for operator overloads — mirrors
+  // dart/encoder's `_canonicalOperatorName` exactly (same lexemes, same
+  // double-trailing-underscore convention), so a class defining an operator
+  // method round-trips identically whether it started as Dart or TS source.
+  // `-` is handled separately below (unary vs binary).
+  private static readonly OPERATOR_CANONICAL_NAMES: Record<string, string> = {
+    "[]=": "__op_set_index__",
+    "[]": "__op_get_index__",
+    "==": "__op_eq__",
+    "<": "__op_lt__",
+    "<=": "__op_le__",
+    ">": "__op_gt__",
+    ">=": "__op_ge__",
+    "<<": "__op_shl__",
+    ">>": "__op_shr__",
+    ">>>": "__op_ushr__",
+    "+": "__op_add__",
+    "-": "__op_sub__",
+    "*": "__op_mul__",
+    "/": "__op_div__",
+    "~/": "__op_idiv__",
+    "%": "__op_mod__",
+    "&": "__op_band__",
+    "|": "__op_bor__",
+    "^": "__op_bxor__",
+    "~": "__op_bnot__",
+  };
+
   encode(source: string, options: EncodeOptions = {}): Program {
     const modName = options.moduleName ?? "main";
     const entryFn = options.entryFunction ?? "main";
@@ -974,15 +1003,45 @@ export class TsEncoder {
           ...(Object.keys(fieldMeta).length > 0 ? { label: JSON.stringify(fieldMeta) } : {}),
         });
       }
-      if (ts.isMethodDeclaration(member) && ts.isIdentifier(member.name)) {
-        const fn = this.encodeFunction(member);
-        fn.name = `${className}.${fn.name}`;
-        const isStatic = member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword);
-        if (isStatic) {
+      if (ts.isMethodDeclaration(member)) {
+        let fn: FunctionDef | undefined;
+        if (ts.isIdentifier(member.name)) {
+          fn = this.encodeFunction(member);
+        } else if (
+          ts.isStringLiteral(member.name) &&
+          Object.prototype.hasOwnProperty.call(TsEncoder.OPERATOR_CANONICAL_NAMES, member.name.text)
+        ) {
+          // A string-literal method name matching a known operator lexeme
+          // (e.g. `'+'(other) {}`) is TS's syntax for a Dart-style operator
+          // override — encode it under the canonical `__op_*__` name instead
+          // of dropping it (it isn't an Identifier, so it used to fail the
+          // filter above silently, #242). The raw lexeme is preserved in
+          // metadata so a Dart-targeting compiler can round-trip back to
+          // native `operator +` syntax.
+          const lexeme = member.name.text;
+          const isUnaryMinus = lexeme === "-" && member.parameters.length === 0;
+          fn = this.encodeFunction(member);
+          fn.name = isUnaryMinus ? "__op_neg__" : TsEncoder.OPERATOR_CANONICAL_NAMES[lexeme];
           if (!fn.metadata) fn.metadata = {};
-          fn.metadata["is_static"] = true;
+          fn.metadata["is_operator"] = true;
+          fn.metadata["operator"] = lexeme;
+        } else {
+          // A non-identifier, non-operator member name (private #field,
+          // computed property, or a string literal that isn't a recognized
+          // operator) has no Ball representation yet — warn (and throw in
+          // strict mode) rather than silently dropping it from the encoded
+          // class (#242).
+          this.warn(`Unhandled class member name: ${member.name.getText()}`);
         }
-        functions.push(fn);
+        if (fn) {
+          fn.name = `${className}.${fn.name}`;
+          const isStatic = member.modifiers?.some(m => m.kind === ts.SyntaxKind.StaticKeyword);
+          if (isStatic) {
+            if (!fn.metadata) fn.metadata = {};
+            fn.metadata["is_static"] = true;
+          }
+          functions.push(fn);
+        }
       }
       if (ts.isConstructorDeclaration(member)) {
         const fn = this.encodeFunction(member as any);

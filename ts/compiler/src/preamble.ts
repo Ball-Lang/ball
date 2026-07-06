@@ -512,14 +512,6 @@ function __dart_mod(a: any, b: any): any {
 // Active exception for rethrow. Catch bodies shadow with a local.
 let __ball_active_error: any = undefined;
 
-// Safe own-property lookup. Returns undefined if key is not an own property.
-// Avoids triggering Object.prototype getters (entries, keys, values) on
-// plain objects that aren't meant to be Dart Maps.
-function __ball_own(obj: any, key: any): any {
-  if (obj == null || typeof obj !== 'object') return undefined;
-  return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
-}
-
 // Dart-style index access. Dart's List '[]' operator throws RangeError on
 // out-of-bounds access, whereas JS array indexing silently returns undefined.
 // To make 'on RangeError' catch clauses behave like Dart we bounds-check list

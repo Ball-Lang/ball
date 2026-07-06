@@ -369,6 +369,7 @@ const cases: Case[] = [
     body: std("string_join", { list: ref("l") }),
     expect: [/l\.join\(''\)/],
   },
+  { name: "stringJoinMissing", body: std("string_join", {}), expect: [/return '';/] },
   {
     name: "setStub",
     body: std("set_union", { left: ref("a"), right: ref("b") }),
@@ -445,6 +446,113 @@ const cases: Case[] = [
     name: "typeLiteral",
     body: std("type_literal", { value: lit("int") }),
     expect: [/return 'int';/],
+  },
+  // ── Missing-field fallbacks (the encoder always provides the primary
+  // field name in practice, so these "graceful degradation" branches are
+  // otherwise unreachable by any conformance fixture). ──
+  { name: "identicalMissing", body: std("identical", { left: ref("a") }), expect: [/return "false";|return false;|\bfalse\b/] },
+  { name: "stringCharCodeAtMissing", body: std("string_char_code_at", { value: ref("s") }), expect: [/return "0";|return 0;/] },
+  { name: "stringCharAtMissing", body: std("string_char_at", { value: ref("s") }), expect: [/return "";|return '';/] },
+  { name: "stringReplaceMissing", body: std("string_replace", { value: ref("s") }), expect: [/return "";|return '';/] },
+  { name: "stringReplaceAllMissing", body: std("string_replace_all", { value: ref("s") }), expect: [/return "";|return '';/] },
+  { name: "stringRepeatMissing", body: std("string_repeat", { value: ref("s") }), expect: [/return "";|return '';/] },
+  { name: "stringPadLeftMissing", body: std("string_pad_left", { value: ref("s") }), expect: [/return "";|return '';/] },
+  { name: "stringPadRightMissing", body: std("string_pad_right", { value: ref("s") }), expect: [/return "";|return '';/] },
+  { name: "stringIndexOfNoStart", body: std("string_index_of", { value: ref("s"), pattern: lit("a") }), expect: [/s\.indexOf\('a'\)(?!, )/] },
+  { name: "stringIndexOfMissing", body: std("string_index_of", { value: ref("s") }), expect: [/return -1;|return "-1";/] },
+  { name: "stringLastIndexOfMissing", body: std("string_last_index_of", { value: ref("s") }), expect: [/return -1;|return "-1";/] },
+  { name: "listPushMissing", body: std("list_push", { list: ref("l") }), expect: [/return \[\];/] },
+  { name: "listLengthOfList", body: std("list_length", { list: ref("l") }), expect: [/l\.length/] },
+  { name: "listLengthMissing", body: std("list_length", {}), expect: [/return 0;|return "0";/] },
+  { name: "listContainsMissing", body: std("list_contains", { list: ref("l") }), expect: [/return false;|return "false";/] },
+  { name: "listGet", body: std("list_get", { list: ref("l"), index: lit(0) }), expect: [/l\[0\]/] },
+  { name: "listGetMissing", body: std("list_get", { list: ref("l") }), expect: [/return undefined;/] },
+  { name: "listSetMissing", body: block([{ expression: std("list_set", { list: ref("l"), index: lit(0) }) }]), expect: [/return undefined;/] },
+  { name: "listIndexOfMissing", body: std("list_index_of", { list: ref("l") }), expect: [/return -1;|return "-1";/] },
+  // list_concat's OWN dispatch case (as opposed to the "assign" in-place-
+  // mutation shortcut, which intercepts the common `x = list_concat(x, y)`
+  // shape before it ever reaches this switch).
+  { name: "listConcatDirect", body: std("list_concat", { left: ref("a"), right: ref("b") }), expect: [/__ball_concat\(a, b\)/] },
+  // "list" (unlike "left") isn't touched by any of the right-side aliases
+  // (right/other/value → arg0/left), so this genuinely leaves `r` unresolved.
+  { name: "listConcatMissing", body: std("list_concat", { list: ref("a") }), expect: [/return \[\];/] },
+  { name: "listSliceMissing", body: std("list_sublist", { start: lit(0) }), expect: [/return \[\];/] },
+  { name: "mapGet", body: std("map_get", { map: ref("m"), key: lit("k") }), expect: [/m\['k'\]/] },
+  { name: "mapGetMissing", body: std("map_get", { map: ref("m") }), expect: [/return undefined;/] },
+  { name: "mapSet", body: block([{ expression: std("map_set", { map: ref("m"), key: lit("k"), value: lit(1) }) }]), expect: [/m\['k'\] = 1/] },
+  { name: "mapSetMissing", body: block([{ expression: std("map_set", { map: ref("m") }) }]), expect: [/return undefined;/] },
+  { name: "mapContainsKeyMissing", body: std("map_contains_key", { map: ref("m") }), expect: [/return false;|return "false";/] },
+  { name: "mapLength", body: std("map_length", { map: ref("m") }), expect: [/Object\.keys\(m\)\.length/] },
+  { name: "mapLengthMissing", body: std("map_length", {}), expect: [/return 0;|return "0";/] },
+  { name: "mapDeleteMissing", body: std("map_delete", { map: ref("m") }), expect: [/return undefined;/] },
+  { name: "mapMergeMissing", body: std("map_merge", { left: ref("a") }), expect: [/return \{\};/] },
+  { name: "mapFromEntriesMissing", body: std("map_from_entries", {}), expect: [/return \{\};/] },
+  { name: "listGenerateMissing", body: std("list_generate", { count: lit(3) }), expect: [/return \[\];/] },
+  { name: "listFilledMissing", body: std("list_filled", { count: lit(3) }), expect: [/return \[\];/] },
+  { name: "sleepMsMissing", body: std("sleep_ms", {}), expect: [/return undefined;/] },
+  { name: "parseTimestampMissing", body: std("parse_timestamp", {}), expect: [/return 0;|return "0";/] },
+  { name: "intToDoubleMissing", body: std("int_to_double", {}), expect: [/new BallDouble\(0\)/] },
+  { name: "typedListNonListElements", body: std("typed_list", { elements: ref("xs") }), expect: [/\bxs\b/] },
+  { name: "typedListMissing", body: std("typed_list", {}), expect: [/return \[\];/] },
+  // set_create: a field name that's neither "elements"/"element" nor one of
+  // the type-args cosmetic markers falls through to the generic
+  // push-as-element branch (#219's regression guard).
+  {
+    name: "setCreateExtraFieldAsElement",
+    body: std("set_create", { extra: lit(5) }),
+    expect: [/Set\(\[5\]\)/],
+  },
+  // null_spread with a value present (the existing table only covers the
+  // no-value fallback via cascade-style tests elsewhere).
+  { name: "nullSpreadWithValue", body: std("null_spread", { value: ref("xs") }), expect: [/\(xs \?\? \[\]\)/] },
+  { name: "invokeNoCallee", body: std("invoke", {}), expect: [/return null;/] },
+  // cascade / null_aware_cascade with a target AND sections, both as a
+  // list-literal (multiple sections) and as a single non-list expression.
+  {
+    name: "cascadeTargetWithSectionsList",
+    body: std("cascade", { target: ref("obj"), sections: listLit([ref("a"), ref("b")]) }),
+    expect: [/__cascade_self__\) => \{ a; b; return __cascade_self__; \}\)\(obj\)/],
+  },
+  {
+    name: "cascadeTargetWithSectionsExpr",
+    body: std("cascade", { target: ref("obj"), sections: ref("single") }),
+    expect: [/__cascade_self__\) => \{ single; return __cascade_self__; \}\)\(obj\)/],
+  },
+  {
+    name: "cascadeTargetNoSections",
+    body: std("cascade", { target: ref("obj") }),
+    expect: [/\bobj\b/],
+  },
+  {
+    name: "nullAwareCascadeTargetWithSectionsList",
+    body: std("null_aware_cascade", { target: ref("obj"), sections: listLit([ref("a")]) }),
+    expect: [/if \(__cascade_self__ == null\) return null; a; return __cascade_self__;/],
+  },
+  {
+    name: "nullAwareCascadeTargetWithSectionsExpr",
+    body: std("null_aware_cascade", { target: ref("obj"), sections: ref("single") }),
+    expect: [/if \(__cascade_self__ == null\) return null; single; return __cascade_self__;/],
+  },
+  // `for`/`do_while`/`assign` used in EXPRESSION position (e.g. as a `let`
+  // binding's value) route through compileStdCall's own IIFE-wrapping
+  // cases — a DIFFERENT path than the same functions appearing as a bare
+  // statement, which emitControlFlowStatement/emitAssignStmt handle directly.
+  {
+    name: "forExprPosition",
+    body: block([{ let: { name: "r", value: std("for", {
+      variable: lit("i"), start: lit(0), condition: ref("cond"), update: ref("upd"), body: ref("noop"),
+    }) } }]),
+    expect: [/for \(let i = 0; cond; upd\)/],
+  },
+  {
+    name: "doWhileExprPosition",
+    body: block([{ let: { name: "r", value: std("do_while", { condition: ref("cond"), body: ref("noop") }) } }]),
+    expect: [/do \{[\s\S]*\} while \(cond\);/],
+  },
+  {
+    name: "assignIntDivEqExprPosition",
+    body: block([{ let: { name: "r", value: std("assign", { target: ref("x"), value: ref("y"), op: lit("~/=") }) } }]),
+    expect: [/x = Math\.trunc\(x \/ y\)/],
   },
   // ── Second-level dispatch (the `default:` arm's nested switch, ~4942-5083). ──
   {
@@ -604,6 +712,60 @@ describe("compiler — compileStdCall dispatch table", () => {
     } finally {
       try { unlinkSync(tmpPath); } catch { /* ignore */ }
     }
+  });
+});
+
+describe("compiler — compileStdCall: fg() helper's own missing-field fallback", () => {
+  test("an arithmetic op with none of its expected fields throws (fg() returns undefined, then the non-null-asserted expr(undefined) fails loud)", () => {
+    // Every fg() call site immediately non-null-asserts its result, so a
+    // genuinely-missing field is never silently tolerated — matching
+    // CLAUDE.md's "fail loud" invariant instead of emitting `undefined`.
+    const program: Program = {
+      name: "fg_missing_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "main", functions: [
+          { name: "main", body: lit(0) },
+          { name: "addMissingFields", body: std("add", {}) },
+        ] },
+      ],
+    };
+    assert.throws(() => compile(program, { includePreamble: false }));
+  });
+});
+
+describe("compiler — compileStdCall: math_clamp static-method-call shift", () => {
+  test("MathUtils.clamp(v, lo, hi) encodes 'value' as a class reference and shifts args", () => {
+    // The encoder maps a static call like MathUtils.clamp(5, 0, 10) to
+    // math_clamp(value: MathUtils, min: 5, max: 0, arg2: 10) — 'value'
+    // being a reference to the class itself (not the actual clamped value)
+    // is the signal to shift min/max/arg2 into the real (value, lo, hi).
+    const program: Program = {
+      name: "math_clamp_shift_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          typeDefs: [{ name: "main:MathUtils", metadata: { kind: "class" } }],
+          functions: [
+            { name: "main", body: lit(0) },
+            {
+              name: "clampViaStaticCall",
+              body: std("math_clamp", {
+                value: ref("MathUtils"),
+                min: lit(5),
+                max: lit(0),
+                arg2: lit(10),
+              }),
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /Math\.min\(Math\.max\(5, 0\), 10\)/);
   });
 });
 

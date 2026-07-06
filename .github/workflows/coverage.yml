@@ -129,11 +129,21 @@ jobs:
           cd ts/engine && npm ci && npm run build
           npx --yes c8@11.0.0 --reporter=lcovonly --src src --all npm test
 
+      # Two invocations merged into one lcov.info (the second's --clean=false
+      # keeps the first's V8 coverage instead of overwriting it): the fast
+      # unit-test loop, THEN full_e2e.ts's 317-fixture conformance harness.
+      # full_e2e.ts is deliberately excluded from `npm test`'s test/*.test.ts
+      # glob (see its own docstring) so the fast dev loop stays fast, but
+      # skipping it here as well understated coverage for any code path only
+      # a conformance fixture exercises (#62 Phase-2c; e.g. emitLabelStmt/
+      # emitGotoStmt, exercised only by the goto/label conformance fixture).
       - name: Coverage — @ball-lang/compiler
         run: |
           cd ts/compiler && npm ci && npm run build
           npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
             node --experimental-strip-types --test test/*.test.ts
+          npx --yes c8@11.0.0 --clean=false --reporter=lcovonly --src src --all \
+            node --experimental-strip-types test/full_e2e.ts
 
       - name: Coverage — @ball-lang/encoder
         run: |

@@ -1,3 +1,10 @@
+## [1.7.1](https://github.com/Ball-Lang/ball/compare/v1.7.0...v1.7.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-encoder:** encode class operator methods instead of silently dropping them ([#242](https://github.com/Ball-Lang/ball/issues/242)) ([#248](https://github.com/Ball-Lang/ball/issues/248)) ([b12f61a](https://github.com/Ball-Lang/ball/commit/b12f61ad1951033bda1d2470751c81c1b1e266ee)), closes [#205](https://github.com/Ball-Lang/ball/issues/205)
+
 # [1.7.0](https://github.com/Ball-Lang/ball/compare/v1.6.4...v1.7.0) (2026-07-06)
 
 

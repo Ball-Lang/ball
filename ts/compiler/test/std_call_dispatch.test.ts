@@ -159,6 +159,16 @@ const cases: Case[] = [
     body: std("record", { arg0: lit(1), label: lit("x") }),
     expect: [/"0": 1, label: 'x'/],
   },
+  // A "type_args" field (the encoder's current TypeRef-migration marker for
+  // cosmetic type arguments) must be excluded like the older
+  // "__type_args__" — otherwise it gets pushed in as a bogus named field,
+  // identical in kind to the `<int>{}` -> `new Set(['int'])` bug #219 fixed
+  // for set_create (#236).
+  {
+    name: "recordTypeArgsExcluded",
+    body: std("record", { label: lit("x"), value: lit(1), type_args: lit("int") }),
+    expect: [/\{ label: 'x', value: 1 \}/],
+  },
   // set_create with a single non-list-wrapped element field.
   {
     name: "setCreateSingleField",

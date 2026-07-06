@@ -3725,9 +3725,14 @@ function __isUnknownFnError(e: any): boolean {
       const name = e.reference.name;
       if (name === "this") return "this";
       // Ball's `self` → JS `this` in class methods, when `self` is not
-      // an explicit parameter or a locally declared variable.
+      // an explicit parameter or a locally declared variable. Gated on
+      // "are we compiling a class member" (currentClassName), not on the
+      // class having any DECLARED fields — a class that only ever does
+      // `this.x = x` in its constructor (no prior `x;` declaration) has an
+      // empty currentClassFields but `self` still unambiguously means
+      // `this` there (#253).
       if (name === "self" &&
-          this.currentClassFields.size > 0 &&
+          this.currentClassName !== undefined &&
           !this.currentMethodParams.has("self") &&
           !this.scopeDeclaredVars.has("self")) {
         return "this";
@@ -3977,9 +3982,12 @@ function __isUnknownFnError(e: any): boolean {
   private compileFieldAccess(fa: NonNullable<Expression["fieldAccess"]>): string {
     // Ball's `self.field` in class methods → `this.field` in JS.
     // Only when `self` is not an explicit method parameter (the engine
-    // passes `self` as a parameter in its own OOP dispatch).
+    // passes `self` as a parameter in its own OOP dispatch). Gated on
+    // "are we compiling a class member" (currentClassName), not on the
+    // class having any DECLARED fields — see the analogous `self` check
+    // in expr() above (#253).
     const isSelfRef = fa.object.reference?.name === "self" &&
-      this.currentClassFields.size > 0 &&
+      this.currentClassName !== undefined &&
       !this.currentMethodParams.has("self");
     // Ball's `super.field` for instance fields → `this.field` in JS.
     // In Dart, `super.name` accesses the instance field through the
@@ -4645,7 +4653,14 @@ function __isUnknownFnError(e: any): boolean {
         const named: Array<[string, string]> = [];
         const posRe = /^(?:\$|arg)(\d+)$/;
         for (const fd of call.input?.messageCreation?.fields ?? []) {
-          if (fd.name === "__type_args__") continue;
+          // "__type_args__" is the older MessageCreation-level cosmetic
+          // marker; "type_args" (single underscore) is the encoder's
+          // current TypeRef-migration convention for the SAME thing.
+          // Excluding only the old name let a record's actual type
+          // argument fall through and get pushed in as a bogus named
+          // field — identical in kind to the `<int>{}` -> `new
+          // Set(['int'])` bug #219 fixed for set_create (#236).
+          if (fd.name === "__type_args__" || fd.name === "type_args") continue;
           if (posRe.test(fd.name)) {
             positional.push(this.expr(fd.value));
           } else {

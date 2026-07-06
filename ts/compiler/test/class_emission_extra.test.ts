@@ -12,8 +12,24 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { execSync } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { compile } from "../src/index.ts";
 import type { Program } from "../src/index.ts";
+
+/** Compile WITH the preamble, execute via node, return trimmed stdout. */
+function runCompiled(program: Program): string {
+  const ts = compile(program);
+  const tmpPath = join(tmpdir(), `ball_class_extra_${process.pid}_${Date.now()}.ts`);
+  writeFileSync(tmpPath, ts);
+  try {
+    return execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
+  } finally {
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+  }
+}
 
 function programWithClasses(mod: Partial<Program["modules"][number]>): Program {
   return {
@@ -312,5 +328,76 @@ describe("compiler — buildSetter", () => {
     });
     const ts = compile(program, { includePreamble: false });
     assert.match(ts, /set value\(v: any\)/);
+  });
+});
+
+describe("compiler — self->this substitution for a class with NO declared fields (#253)", () => {
+  test("a constructor that only does self.x = x (no prior field declaration) compiles to this.x, not a leaked `self`", () => {
+    // typeDefs carries NO `fields` metadata at all — currentClassFields is
+    // empty for this class, but `self` inside its constructor/methods must
+    // still mean `this` (gated on "are we compiling a class member", not
+    // on the class having any declared fields).
+    const program: Program = {
+      name: "undeclared_field_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          typeDefs: [{ name: "main:Point", metadata: { kind: "class" } }],
+          functions: [
+            {
+              name: "main",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "p", value: { messageCreation: { typeName: "main:Point", fields: [{ name: "arg0", value: { literal: { intValue: 1 } } }, { name: "arg1", value: { literal: { intValue: 2 } } }] } } } },
+                    { expression: { call: { module: "std", function: "print", input: { messageCreation: { fields: [{ name: "message", value: { call: { function: "toStr", input: { messageCreation: { fields: [{ name: "self", value: { reference: { name: "p" } } }] } } } } }] } } } } },
+                  ],
+                },
+              },
+            },
+            {
+              name: "main:Point.new",
+              metadata: { kind: "constructor", params: [{ name: "x" }, { name: "y" }] },
+              body: {
+                block: {
+                  statements: [
+                    { expression: { call: { module: "std", function: "assign", input: { messageCreation: { fields: [{ name: "target", value: { fieldAccess: { object: { reference: { name: "self" } }, field: "x" } } }, { name: "value", value: { reference: { name: "x" } } }] } } } } },
+                    { expression: { call: { module: "std", function: "assign", input: { messageCreation: { fields: [{ name: "target", value: { fieldAccess: { object: { reference: { name: "self" } }, field: "y" } } }, { name: "value", value: { reference: { name: "y" } } }] } } } } },
+                  ],
+                },
+              },
+            },
+            {
+              name: "main:Point.toStr",
+              metadata: { kind: "method" },
+              body: {
+                call: {
+                  module: "std",
+                  function: "add",
+                  input: {
+                    messageCreation: {
+                      fields: [
+                        { name: "left", value: { call: { module: "std", function: "add", input: { messageCreation: { fields: [
+                          { name: "left", value: { fieldAccess: { object: { reference: { name: "self" } }, field: "x" } } },
+                          { name: "right", value: { literal: { stringValue: "," } } },
+                        ] } } } } },
+                        { name: "right", value: { fieldAccess: { object: { reference: { name: "self" } }, field: "y" } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /this\.x = x;/);
+    assert.match(ts, /this\.y = y;/);
+    assert.doesNotMatch(ts, /\bself\.[xy]\b/, "no leaked bare `self.` field access");
+    assert.equal(runCompiled(program), "1,2");
   });
 });

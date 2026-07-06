@@ -272,6 +272,15 @@ jobs:
       - name: Assert fixture names match their content
         run: cd dart/encoder && dart run bin/check_fixture_names.dart
 
+      # STRUCTURAL completeness: every Expression NODE SHAPE (the 7
+      # Expression.expr types + meaningful sub-variants) must be exercised by at
+      # least one executed fixture, or be a documented carve-out
+      # (tests/conformance/NODE_SHAPE_COVERAGE_CARVEOUTS.md). Sibling to the
+      # encoder-completeness gate above, which only gates std FUNCTIONS — this
+      # closes the ungated node-shape surface (issue #64).
+      - name: Assert node-shape coverage (no untested Expression shapes)
+        run: cd dart/encoder && dart run bin/check_node_shape_coverage.dart
+
       # Every conformance .ball.json must be a fresh generator output, never
       # hand-edited. Regenerate from src and fail on drift.
       - name: Regenerate conformance corpus

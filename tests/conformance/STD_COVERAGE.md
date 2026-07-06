@@ -14,7 +14,7 @@ Every base function across the 8 universal std modules, generated directly from 
 | Metric | Count |
 |---|---|
 | Total base functions | 257 |
-| Encoder-emittable | 108 |
+| Encoder-emittable | 107 |
 | Covered by a conformance fixture | 113 |
 | Dart engine-implemented | 219 |
 | Documented carve-outs | 0 |
@@ -55,7 +55,7 @@ Universal standard library base module. Every function here represents a languag
 | `is_not` | ✅ | ✅ 1 fixture(s): `380_is_not_type_check` | ✅ |
 | `label` | ✅ | ✅ 1 fixture(s): `390_goto_label` | ✅ |
 | `left_shift` | ✅ | ✅ 4 fixture(s): `206_integer_arithmetic_edge`, `251_bitwise_signed_edges`, `284_enc_bitwise` +1 more | ✅ |
-| `length` | ✅ | ❌ | ✅ |
+| `length` | ❌ | ❌ | ✅ |
 | `less_than` | ✅ | ✅ 72 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +69 more | ✅ |
 | `lte` | ✅ | ✅ 42 fixture(s): `105_static_methods`, `125_group_by`, `132_merge_sort` +39 more | ✅ |
 | `math_abs` | ✅ | ✅ 5 fixture(s): `108_class_tostring`, `230_signed_int_boundaries`, `259_math_functions` +2 more | ✅ |
@@ -334,7 +334,7 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 
 ## Gaps
 
-### Not encoder-emittable (149) — no Dart-source construct routes to this function
+### Not encoder-emittable (150) — no Dart-source construct routes to this function
 
 - `std_memory.address_of`
 - `std_io.args_get`
@@ -360,6 +360,7 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_time.format_timestamp`
 - `std.goto`
 - `std_time.hour`
+- `std.length`
 - `std_collections.list_drop`
 - `std_collections.list_find`
 - `std_collections.list_first`
@@ -486,9 +487,9 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_io.timestamp_ms`
 - `std_time.year`
 
-### Emittable but uncovered by any fixture (1) — genuine conformance gaps, not carved out
+### Emittable but uncovered by any fixture (0) — genuine conformance gaps, not carved out
 
-- `std.length`
+_None._
 
 ### Not Dart engine-implemented (38)
 

@@ -22,7 +22,7 @@
     "std_time": 12
   },
   "summary": {
-    "encoderEmittable": 108,
+    "encoderEmittable": 107,
     "coveredByFixture": 113,
     "engineImplementedDart": 219,
     "carvedOut": 0
@@ -1139,7 +1139,7 @@
       "module": "std",
       "name": "length",
       "inputType": "UnaryInput",
-      "encoderEmittable": true,
+      "encoderEmittable": false,
       "coveredByFixtures": [],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4532,6 +4532,7 @@
       "format_timestamp",
       "goto",
       "hour",
+      "length",
       "list_drop",
       "list_find",
       "list_first",
@@ -4658,9 +4659,7 @@
       "timestamp_ms",
       "year"
     ],
-    "emittableButUncoveredByFixture": [
-      "length"
-    ],
+    "emittableButUncoveredByFixture": [],
     "notEngineImplementedDart": [
       "address_of",
       "deref",

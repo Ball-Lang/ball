@@ -286,6 +286,28 @@ await test('custom stdout captures output', async () => {
   assertEqual(captured[0], 'custom');
 });
 
+await test('with no stderr option, print_error uses the default no-op stderr sink', async () => {
+  // options.stderr defaults to a no-op (() => {}) when the caller doesn't
+  // provide one; std.print_error is the only base function that invokes it.
+  // Every other test in this file supplies neither stdout nor stderr, but
+  // none of them actually CALL print_error, so the default sink itself was
+  // constructed but never invoked. Assert only that run() completes without
+  // throwing -- the point is exercising the no-op, not its (nonexistent) effect.
+  const prog = {
+    modules: [{
+      name: 'std', functions: [{ name: 'print_error', isBase: true }],
+    }, {
+      name: 'main', functions: [{
+        name: 'main',
+        body: { call: { module: 'std', function: 'print_error', input: { literal: { stringValue: 'oops' } } } },
+      }],
+    }],
+    entryModule: 'main', entryFunction: 'main',
+  };
+  const engine = new BallEngine(prog);
+  await engine.run();
+});
+
 console.log('\nExecution timeout:');
 
 await test('short timeout throws on infinite loop', async () => {

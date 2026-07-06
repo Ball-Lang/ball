@@ -527,3 +527,56 @@ describe("compiler — inline construction as a call argument (#213)", () => {
     assert.equal(compileAndRun(program, "inline_named_arg"), "5");
   });
 });
+
+describe("compiler — a nested block's result in a non-function-body position", () => {
+  test("an if-branch that's a block-with-result emits the result as a discarded expression statement, not a return", () => {
+    // emitBlock's `block.result` handling has two branches: a function BODY
+    // block emits `return <result>;`, but a block used elsewhere (here, an
+    // if-statement's `then` branch) is not a function body, so its result
+    // is just evaluated as a bare expression statement and discarded.
+    const body: Expression = {
+      block: {
+        statements: [
+          {
+            expression: std("if", {
+              condition: lit(true),
+              then: {
+                block: {
+                  statements: [{ expression: std("print", { message: lit("in-branch") }) }],
+                  result: lit(5),
+                },
+              },
+            }),
+          },
+        ],
+      },
+    };
+    const ts = compile(mainProgram(body), { includePreamble: false });
+    // The result (5) is emitted as a bare statement, not wrapped in `return`.
+    assert.match(ts, /5;\s*\n\s*\}/);
+    assert.doesNotMatch(ts, /return 5;/);
+    assert.equal(compileAndRun(mainProgram(body), "block_result_nonfn"), "in-branch");
+  });
+});
+
+describe("compiler — compileMessageCreation's transparent BallValue wrapper types", () => {
+  test("a BallValue wrapper messageCreation with more than one field uses the first field, ignoring the rest", () => {
+    // BallMap/BallList/etc. are transparent wrappers in TS (no runtime
+    // representation of their own): a single-field wrapper just unwraps to
+    // that field's expression. A malformed (unexpected) multi-field wrapper
+    // falls back to the SAME single-field behavior rather than erroring.
+    const wrapper: Expression = {
+      messageCreation: {
+        typeName: "BallMap",
+        fields: [
+          { name: "arg0", value: lit(1) },
+          { name: "arg1", value: lit(2) },
+        ],
+      },
+    };
+    const body: Expression = { block: { statements: [{ expression: std("print", { message: wrapper }) }] } };
+    const ts = compile(mainProgram(body), { includePreamble: false });
+    assert.match(ts, /__ball_to_string\(1\)/, "only the first field's expression is used");
+    assert.equal(compileAndRun(mainProgram(body), "ballvalue_multi_field"), "1");
+  });
+});

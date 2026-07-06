@@ -116,6 +116,10 @@ class BallDouble {
   get isFinite(): boolean { return Number.isFinite(this.value); }
   get isInfinite(): boolean { return !Number.isFinite(this.value) && !Number.isNaN(this.value); }
   get isNegative(): boolean { return this.value < 0 || (this.value === 0 && 1/this.value === -Infinity); }
+  // Mirrors the Number.prototype.remainder polyfill below (truncating
+  // remainder, matching JS % and Dart's num.remainder) — BallDouble wraps
+  // a JS number so it never inherits Number.prototype and needs its own.
+  remainder(other: any): number { return this.value % Number(other); }
   toString(): string {
     const v = this.value;
     if (!isFinite(v)) return v.toString();
@@ -364,6 +368,13 @@ function __ball_bitxor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) ^
 function __ball_bitnot(a: any): any { return __i64_wrap(~__to_bigint(a)); }
 function __ball_shl(a: any, b: any): any { return __i64_wrap(__to_bigint(a) << __to_bigint(b)); }
 function __ball_shr(a: any, b: any): any { return __i64_wrap(__to_bigint(a) >> __to_bigint(b)); }
+// Unsigned/logical shift: reinterpret a as an unsigned 64-bit value (add
+// 2^64 if negative) before shifting, so zeros fill from the left instead of
+// the sign bit — unlike >>> on raw JS numbers, which is only 32-bit.
+function __ball_ushr(a: any, b: any): any {
+  const unsigned = ((__to_bigint(a) % __I64_MOD) + __I64_MOD) % __I64_MOD;
+  return __i64_wrap(unsigned >> __to_bigint(b));
+}
 function __ball_negate(a: any): any {
   if (typeof a === 'bigint') return __i64_wrap(-a);
   if (a instanceof BallDouble) return new BallDouble(-a.value);
@@ -782,6 +793,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   Object.defineProperty(_ballNp, 'isInfinite', {
     configurable: true, get() { const n = Number(this); return n === Infinity || n === -Infinity; },
   });
+  Object.defineProperty(_ballNp, 'isNegative', {
+    configurable: true, get() { const n = Number(this); return n < 0 || (n === 0 && 1 / n === -Infinity); },
+  });
   if (!_ballNp.abs) _ballNp.abs = function () { return Math.abs(Number(this)); };
   if (!_ballNp.ceil) _ballNp.ceil = function () { return Math.ceil(Number(this)); };
   if (!_ballNp.floor) _ballNp.floor = function () { return Math.floor(Number(this)); };
@@ -919,14 +933,33 @@ function __ball_cascade(target: any, ops: any[]): any {
     if (this == null || typeof this !== 'object') return [];
     return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
   });
+  // .keys/.values on a non-Map must FAIL LOUD (throw a catchable error), not
+  // silently return [] — the silent-degradation class of bug that hid issue
+  // #55 (mirrors the fix already applied to the Dart/C++ compilers).
+  //
+  // A getter installed on Object.prototype is invoked in "sloppy" (non-strict)
+  // script contexts with this auto-boxed to a Number/String/Boolean WRAPPER
+  // object for a primitive receiver (e.g. (42).keys boxes this to a Number
+  // instance) — typeof this is then 'object', not 'number', so a bare
+  // __ball_is_type(this, 'Map') (which only excludes Array/BallDouble/Set)
+  // would wrongly treat a boxed int/string as Map-like. Exclude the wrapper
+  // types explicitly instead of widening the shared type-check.
+  const __isGenuineMap = (v: any) =>
+    typeof v === 'object' && v !== null && !Array.isArray(v) &&
+    !(v instanceof BallDouble) && !(v instanceof Set) &&
+    !(v instanceof Number) && !(v instanceof String) && !(v instanceof Boolean);
   defDartGetter('keys', function (this: any) {
     if (this instanceof Map) return [..._nativeMapKeys.call(this)];
-    if (this == null || typeof this !== 'object') return [];
+    if (!__isGenuineMap(this)) {
+      throw new Error('type \'' + __ball_to_string(this) + '\' has no .keys getter (not a Map)');
+    }
     return Object.keys(this);
   });
   defDartGetter('values', function (this: any) {
     if (this instanceof Map) return [..._nativeMapValues.call(this)];
-    if (this == null || typeof this !== 'object') return [];
+    if (!__isGenuineMap(this)) {
+      throw new Error('type \'' + __ball_to_string(this) + '\' has no .values getter (not a Map)');
+    }
     return Object.values(this);
   });
   defDartGetter('length', function (this: any) {

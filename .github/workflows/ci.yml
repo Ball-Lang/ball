@@ -285,6 +285,25 @@ jobs:
           fi
           echo "Conformance corpus is up to date."
 
+      # The std base-function coverage inventory (std_coverage.json +
+      # STD_COVERAGE.md) is generated FROM the buildStd*Module() builders and
+      # the committed conformance fixtures, so it silently rots as std*.dart and
+      # the corpus evolve (issue #172). Regenerate and fail on drift — same
+      # generate-and-diff contract as the artifacts above. Runs last so it reads
+      # the fixtures the corpus step just confirmed fresh.
+      - name: Regenerate std coverage inventory
+        run: cd dart/encoder && dart run bin/gen_std_coverage.dart
+
+      - name: Assert std coverage inventory is up to date
+        run: |
+          if ! git diff --exit-code -- \
+              tests/conformance/std_coverage.json \
+              tests/conformance/STD_COVERAGE.md; then
+            echo "::error::The std coverage inventory is stale. Regenerate with 'cd dart/encoder && dart run bin/gen_std_coverage.dart' and commit — these files are generated (issue #172), never hand-edited."
+            exit 1
+          fi
+          echo "Std coverage inventory is up to date."
+
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
   # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).

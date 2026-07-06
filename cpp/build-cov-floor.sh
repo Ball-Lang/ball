@@ -13,8 +13,48 @@
 # Usage: ./build-cov-floor.sh
 #   Exits 1 and prints every target under its floor; exits 0 otherwise.
 #
-# Floors reflect the measured baseline after issue #63's coverage sweep
-# (2026-07-03): compiler 39.0%, encoder 86.1%, shared 79.4% line coverage.
+# IMPORTANT — the wave3 baseline recorded here (2026-07-03: compiler 39.0%,
+# encoder 86.1%, shared 79.4%) was measured WITHOUT test_e2e (build-cov-run.sh
+# never ran it) and was ALSO read off `lcov --list`'s per-file table, whose
+# Rate% column is unreliable (see build-cov-report.sh's comment — the Num
+# column there is actually hit-lines, not found-lines). Neither issue was
+# known when that baseline was written. Re-measured 2026-07-06 (issue #63
+# phase 2, via `lcov --summary` on the correctly-extracted per-target
+# tracefiles) after adding cpp/test/test_ball_dyn.cpp (direct BallDyn/
+# BallOrderedMap/ball_emit_runtime.h unit coverage) and registering
+# scope_probe as a ctest target:
+#             lines            functions
+#   compiler   39.0% -> 39.9%   —        (unaffected: not this task's target;
+#                                          CI's real number is 67.58%, confirmed
+#                                          via Codecov — see below)
+#   encoder    86.1% -> 86.1%   98.3%     (unaffected: not this task's target)
+#   shared     79.4% -> 73.7%   95.4%     (now correctly includes ball_dyn.h +
+#                                          ball_emit_runtime.h, which grew the
+#                                          bucket's denominator far more than
+#                                          its own new coverage raised the
+#                                          numerator — see per-file numbers)
+#   ball_dyn.h            0% -> 72.5% (691/953 lines), 99.4% (155/156 fns)
+#   ball_emit_runtime.h   0% -> 59.8% (189/316 lines), 87.2% (34/39 fns)
+# (ball_dyn.h's numbers are AFTER also fixing issue #233 — BallMap/BallUMap's
+# operator[](const std::string&) auto-vivifying a missing key via
+# std::map::operator[] instead of find(), caught by test_ball_dyn.cpp and
+# fixed in the same PR; verified with a full C++ e2e conformance re-run,
+# 264/264 passed, no regression, since ball_dyn.h is embedded into every
+# emitted program via ball_dyn_embed.h.)
+# (ball_dyn.h/ball_emit_runtime.h aren't broken out as their own FLOORS entry
+# below — lcov's `--extract '*/cpp/shared/*'` pattern can't cheaply separate
+# them from the rest of cpp/shared/include/ — but are the ones worth watching
+# if the "shared" floor ever needs raising again.)
+#
+# compiler's floor here is deliberately calibrated to the DEFAULT (fast, no
+# test_e2e) build-cov-run.sh — a real conformance-corpus-driven number needs
+# BALL_COV_FULL=1 (see build-cov-build.sh/build-cov-run.sh), which is far
+# slower (a nested cmake+g++ build per fixture) and not run by default. CI's
+# actual `ctest` invocation has no such filter, so Codecov's flag `cpp`
+# reports compiler.cpp at 67.58% — this floor is NOT comparable to that
+# number and must not be raised toward it without BALL_COV_FULL=1 becoming
+# the default measurement mode.
+#
 # Set a few points below the measured value to absorb local/CI variance;
 # RAISE as more tests land (mirrors the Dart ratchet's philosophy in
 # tools/coverage_dart.dart, without needing a Dart toolchain here).
@@ -23,7 +63,7 @@ cd "$(dirname "$0")"
 
 declare -A FLOORS=(
   [compiler]=35
-  [encoder]=80
+  [encoder]=83
   [shared]=70
 )
 
@@ -34,7 +74,9 @@ for target in "${!FLOORS[@]}"; do
     echo "SKIP $target: $lcov_file not found (run build-cov-report.sh first)"
     continue
   fi
-  # lcov --summary prints a "lines......: NN.N% (a of b lines)" line.
+  # lcov --summary prints a "lines......: NN.N% (a of b lines)" line. This
+  # (NOT `--list`'s per-file table) is the reliable aggregate — see the
+  # comment above and in build-cov-report.sh.
   pct=$(lcov --summary "$lcov_file" --ignore-errors empty 2>/dev/null \
     | grep -oP 'lines\.*:\s*\K[0-9]+(\.[0-9]+)?' | head -1)
   if [ -z "$pct" ]; then

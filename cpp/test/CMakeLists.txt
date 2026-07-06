@@ -26,6 +26,30 @@ target_include_directories(test_shared PRIVATE
 )
 target_link_libraries(test_shared ball_shared)
 
+# BallDyn / BallOrderedMap / ball_emit_runtime.h runtime tests — the
+# compiled-program runtime (issue #63). Neither header is reachable from
+# test_compiler/test_encoder/test_shared (those drive the compiler/encoder,
+# not the emitted-program runtime it emits): their heaviest real exercise is
+# the SEPARATE stringified ball_dyn_embed.h/ball_emit_runtime_embed.h copies
+# spliced into generated programs, compiled in a non-instrumented subprocess
+# by test_e2e/self-host and invisible to gcov. Mirrors scope_probe.cpp's
+# include order (standard headers, then ball_emit_runtime.h, then
+# ball_dyn.h — NOT ball_shared.h, whose `ball::BallMap` collides with the
+# global `::BallMap` these headers define).
+add_executable(test_ball_dyn test_ball_dyn.cpp)
+target_include_directories(test_ball_dyn PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+set_target_properties(test_ball_dyn PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+# Same MSVC options as scope_probe (both directly instantiate the wide
+# BallDyn/BallOrderedMap template surface): /bigobj for the object file's
+# section count, /W0 to match the rest of the suite's warning posture for
+# this header.
+target_compile_options(test_ball_dyn PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>
+)
+
 # End-to-end compiler tests — compile selected conformance programs to C++
 # source, invoke the system C++ compiler to build a binary, run it, and
 # diff the stdout against the expected output.
@@ -200,6 +224,12 @@ add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)
 add_test(NAME ball_ir_loader COMMAND test_ball_ir)
+add_test(NAME ball_dyn_tests COMMAND test_ball_dyn)
+# scope_probe was previously a build-only debug tool (never run under ctest,
+# so its own bind/child/has/lookup exercise of ball_dyn.h's scope machinery
+# never counted toward coverage). It's a real pass/fail harness (returns
+# nonzero on any FAIL) — registering it costs nothing and closes that gap.
+add_test(NAME scope_probe_tests COMMAND scope_probe)
 if(BALL_SELFHOST_AVAILABLE)
     # One CTest test per conformance fixture: each runs in its OWN PROCESS
     # (CTest's native, cross-platform isolation) on the binary's main thread, so

@@ -560,8 +560,16 @@ public:
             return BallDyn();
         }
         if (_val.type() == typeid(BallMap)) {
-            auto& m = const_cast<BallMap&>(std::any_cast<const BallMap&>(_val));
-            return BallDyn(m[key]);
+            // find(), NOT operator[] — this is a READ (per this method's own
+            // doc comment above: "for mutation use set()"). std::map::
+            // operator[] auto-vivifies a missing key (inserts a default
+            // std::any{}), silently growing the map on a mere read — issue
+            // #233, caught by .values()'s internal "values"-key probe
+            // corrupting a plain BallMap that lacked one.
+            auto& m = std::any_cast<const BallMap&>(_val);
+            auto it = m.find(key);
+            if (it == m.end()) return BallDyn();
+            return BallDyn(it->second);
         }
         if (const BallOrderedMap* omp = _orderedMapPtr()) {
             auto it = omp->index_.find(key);
@@ -569,8 +577,11 @@ public:
             return BallDyn(omp->entries_[it->second].second);
         }
         if (_val.type() == typeid(BallUMap)) {
-            auto& m = const_cast<BallUMap&>(std::any_cast<const BallUMap&>(_val));
-            return BallDyn(m[key]);
+            // Same find()-not-operator[] fix as the BallMap branch above.
+            auto& m = std::any_cast<const BallUMap&>(_val);
+            auto it = m.find(key);
+            if (it == m.end()) return BallDyn();
+            return BallDyn(it->second);
         }
         return BallDyn();
     }

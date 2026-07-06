@@ -377,6 +377,14 @@ export class TsEncoder {
     if (node.kind === ts.SyntaxKind.NullKeyword || node.kind === ts.SyntaxKind.UndefinedKeyword) {
       return this.nullLiteral();
     }
+    if (node.kind === ts.SyntaxKind.ThisKeyword) {
+      // Mirrors dart/encoder's ThisExpression handling exactly: a bare
+      // reference named "self" (not a field-access base, not a special
+      // node kind) — the same in constructors, methods, and operator
+      // overloads. ts/compiler already turns a `self` reference back into
+      // `this` inside a class method (#249).
+      return { reference: { name: "self" } };
+    }
     if (ts.isIdentifier(node)) {
       // `undefined` is parsed as an identifier in expression position, not as
       // a keyword. Encode it as the canonical null literal so it round-trips
@@ -1045,7 +1053,20 @@ export class TsEncoder {
       }
       if (ts.isConstructorDeclaration(member)) {
         const fn = this.encodeFunction(member as any);
-        fn.name = `${className}.constructor`;
+        // Mirrors dart/encoder's _encodeConstructorDeclaration exactly: the
+        // unnamed constructor is `ClassName.new` with metadata.kind ==
+        // "constructor" and outputType == className — every consuming
+        // compiler (ts/compiler's emitClass, the Dart compiler) keys off
+        // BOTH the ".new" suffix and metadata.kind to route to real
+        // constructor emission instead of a plain method (a bare
+        // `${className}.constructor` name with no kind, as this used to
+        // emit, was silently treated as a regular method literally named
+        // "constructor" — same token sequence in JS, but with an illegal
+        // return-type annotation added, since ordinary methods get one).
+        fn.name = `${className}.new`;
+        fn.outputType = className;
+        if (!fn.metadata) fn.metadata = {};
+        fn.metadata["kind"] = "constructor";
         functions.push(fn);
       }
     }

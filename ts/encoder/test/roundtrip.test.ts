@@ -223,4 +223,49 @@ function main() {
 main();
 `);
   });
+
+  // #249: `this` (field access, bare, in the constructor, in a regular
+  // method, and inside an operator method) used to encode to a placeholder
+  // literal instead of a real self-reference. Also exercises the
+  // constructor-naming fix that #249's own verification uncovered: without
+  // it, `constructor(x, y) {}` gets emitted as an ordinary method literally
+  // named "constructor" (an illegal return-type annotation, since ordinary
+  // methods get one), which fails to even parse — so this test doubles as
+  // the proof that a class's real JS constructor round-trips correctly too.
+  // Class fields must be declared explicitly (not merely assigned in the
+  // constructor) — ts/compiler's self->this heuristic keys off the class's
+  // DECLARED field set (currentClassFields), which is empty for a class
+  // that only ever assigns `this.x` without a prior `x;` declaration. That
+  // is a separate, pre-existing ts/compiler limitation (flagged, not fixed
+  // here); ordinary idiomatic TS classes declare their fields, as below.
+  test("this.field in a constructor, this.field reads in a method, and bare this", () => {
+    assertRoundTrip(`
+class Point {
+  x;
+  y;
+  constructor(x, y) {
+    this.x = x;
+    this.y = y;
+  }
+  addOther(other) {
+    return new Point(this.x + other.x, this.y + other.y);
+  }
+  toStr() {
+    return this.x + "," + this.y;
+  }
+  self() {
+    return this;
+  }
+}
+function main() {
+  const a = new Point(1, 2);
+  const b = new Point(3, 4);
+  const c = a.addOther(b);
+  console.log(c.toStr());
+  console.log(a.self() === a);
+}
+main();
+`);
+  });
+
 });

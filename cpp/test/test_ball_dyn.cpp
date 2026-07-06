@@ -509,26 +509,29 @@ TEST(values_on_map_returns_insertion_ordered_values) {
     ASSERT_EQ(static_cast<int64_t>(vs[(int64_t)1]), (int64_t)2);
 }
 
-// NOT a "plain BallMap.values() also works" test — it started as one and
-// caught a real bug instead (issue #63 report flags it; not fixed here to
-// keep this PR scoped to coverage). BallDyn::operator[](const std::string&)
-// on a BallMap/BallUMap dispatches to std::map::operator[] (see ball_dyn.h),
-// which AUTO-VIVIFIES a missing key — even though the method's own doc
-// comment says "Returns a copy... for mutation use set()" (read-only
-// contract). BallScope/BallOrderedMap's operator[] correctly use find()
-// instead and don't have this problem. values()'s internal probe for an
-// explicit "values" key (the protobuf ListValue JSON shape) hits this path
-// on every plain-BallMap receiver that lacks that key, silently inserting a
-// phantom {"values": null} entry — so the map grows by one and the returned
-// values list picks up an extra null element. Documented here as a locked-in
-// regression guard on the CURRENT (buggy) behavior, not a statement that
-// it's correct.
-TEST(KNOWN_BUG_ballmap_index_read_auto_vivifies_missing_key) {
+// Regression test for issue #233: BallDyn::operator[](const std::string&)
+// on a BallMap/BallUMap used to dispatch to std::map::operator[], which
+// AUTO-VIVIFIES a missing key — even though the method's own doc comment
+// says "Returns a copy... for mutation use set()" (read-only contract).
+// Caught via .values()'s internal probe for an explicit "values" key (the
+// protobuf ListValue JSON shape), which silently inserted a phantom
+// {"values": null} entry into any plain-BallMap receiver that lacked one.
+// Fixed to use find() instead, mirroring the BallScope/BallOrderedMap
+// branches beside it, which never had this problem.
+TEST(index_read_on_ballmap_and_umap_does_not_auto_vivify_missing_key) {
     BallDyn d(BallMap{{"a"s, std::any((int64_t)9)}});
     ASSERT_EQ(d.size(), (int64_t)1);
     BallDyn vs = d.values();  // probes "values" via operator[] internally
-    ASSERT_EQ(d.size(), (int64_t)2);   // BUG: read-only .values() mutated d
-    ASSERT_EQ(vs.size(), (int64_t)2);  // BUG: picks up the phantom null entry
+    ASSERT_EQ(d.size(), (int64_t)1);   // read (.values()) must not mutate d
+    ASSERT_TRUE(!d.containsKey("values"s));  // no phantom key was inserted
+    ASSERT_EQ(vs.size(), (int64_t)1);  // only the real value, no phantom null
+
+    // Same fix for BallUMap.
+    BallDyn u(BallUMap{{"a"s, std::any((int64_t)9)}});
+    ASSERT_EQ(u.size(), (int64_t)1);
+    ASSERT_TRUE(!u["missing"s].has_value());  // reads as null...
+    ASSERT_EQ(u.size(), (int64_t)1);          // ...without inserting "missing"
+    ASSERT_TRUE(!u.containsKey("missing"s));
 }
 
 TEST(values_on_list_returns_self) {

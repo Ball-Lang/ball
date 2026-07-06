@@ -28,13 +28,19 @@
 #                                          CI's real number is 67.58%, confirmed
 #                                          via Codecov — see below)
 #   encoder    86.1% -> 86.1%   98.3%     (unaffected: not this task's target)
-#   shared     79.4% -> 73.4%   95.3%     (now correctly includes ball_dyn.h +
+#   shared     79.4% -> 73.7%   95.4%     (now correctly includes ball_dyn.h +
 #                                          ball_emit_runtime.h, which grew the
 #                                          bucket's denominator far more than
 #                                          its own new coverage raised the
 #                                          numerator — see per-file numbers)
-#   ball_dyn.h            0% -> 71.9% (682/949 lines), 99.4% (155/156 fns)
+#   ball_dyn.h            0% -> 72.5% (691/953 lines), 99.4% (155/156 fns)
 #   ball_emit_runtime.h   0% -> 59.8% (189/316 lines), 87.2% (34/39 fns)
+# (ball_dyn.h's numbers are AFTER also fixing issue #233 — BallMap/BallUMap's
+# operator[](const std::string&) auto-vivifying a missing key via
+# std::map::operator[] instead of find(), caught by test_ball_dyn.cpp and
+# fixed in the same PR; verified with a full C++ e2e conformance re-run,
+# 264/264 passed, no regression, since ball_dyn.h is embedded into every
+# emitted program via ball_dyn_embed.h.)
 # (ball_dyn.h/ball_emit_runtime.h aren't broken out as their own FLOORS entry
 # below — lcov's `--extract '*/cpp/shared/*'` pattern can't cheaply separate
 # them from the rest of cpp/shared/include/ — but are the ones worth watching

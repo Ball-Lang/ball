@@ -1,3 +1,10 @@
+## [1.6.4](https://github.com/Ball-Lang/ball/compare/v1.6.3...v1.6.4) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** BigInt hardening — asIntN/asUintN wrapping, __to_bigint null-safety, BigInt.toJSON, 32-bit bitwise fast-path ([#132](https://github.com/Ball-Lang/ball/issues/132)) ([#239](https://github.com/Ball-Lang/ball/issues/239)) ([03554b9](https://github.com/Ball-Lang/ball/commit/03554b98f34692b669453951c32868af8c475e80))
+
 ## [1.6.3](https://github.com/Ball-Lang/ball/compare/v1.6.2...v1.6.3) (2026-07-06)
 
 

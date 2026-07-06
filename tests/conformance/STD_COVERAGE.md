@@ -25,7 +25,7 @@ Universal standard library base module. Every function here represents a languag
 
 | Function | Encoder-emittable | Covered by fixture | Dart engine |
 |---|---|---|---|
-| `add` | ✅ | ✅ 97 fixture(s): `101_simple_class`, `104_getter_setter`, `107_method_override_super` +94 more | ✅ |
+| `add` | ✅ | ✅ 98 fixture(s): `101_simple_class`, `104_getter_setter`, `107_method_override_super` +95 more | ✅ |
 | `and` | ✅ | ✅ 14 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `131_insertion_sort` +11 more | ✅ |
 | `as` | ✅ | ✅ 2 fixture(s): `195_deep_nesting`, `256_editions_resolver` | ✅ |
 | `assert` | ✅ | ✅ 1 fixture(s): `313_assert_statement` | ✅ |
@@ -101,7 +101,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 66 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +63 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 318 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +315 more | ✅ |
+| `print` | ✅ | ✅ 319 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +316 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |

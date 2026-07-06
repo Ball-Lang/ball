@@ -116,11 +116,18 @@ jobs:
       - name: Bootstrap Dart workspace
         run: cd dart && dart pub get
 
+      # Runs the SAME `npm test` ts/engine's own package.json defines
+      # (engine_test.ts's 355-fixture conformance run through the compiled
+      # engine, THEN the dedicated unit suites), under ONE c8 invocation so
+      # both halves land in a single merged lcov.info — a prior version of
+      # this step ran engine_test.ts only (as its own `node` invocation,
+      # bypassing npm test), silently omitting ball_file.test.ts/
+      # engine_setup.test.ts/index_wrapper.test.ts and understating coverage
+      # by ~18 points (81.65% measured vs 99.85% real; #62 Phase-1 gap-map).
       - name: Coverage — @ball-lang/engine
         run: |
           cd ts/engine && npm ci && npm run build
-          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all \
-            node --experimental-strip-types test/engine_test.ts
+          npx --yes c8@11.0.0 --reporter=lcovonly --src src --all npm test
 
       - name: Coverage — @ball-lang/compiler
         run: |

@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/Ball-Lang/ball/compare/v1.6.0...v1.6.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** map fail-loud, >>>, list_reduce/label, numeric-literal getters, BallDouble.remainder ([#218](https://github.com/Ball-Lang/ball/issues/218) [#223](https://github.com/Ball-Lang/ball/issues/223) [#226](https://github.com/Ball-Lang/ball/issues/226) [#227](https://github.com/Ball-Lang/ball/issues/227) [#228](https://github.com/Ball-Lang/ball/issues/228)) ([#230](https://github.com/Ball-Lang/ball/issues/230)) ([5f898ce](https://github.com/Ball-Lang/ball/commit/5f898ceb62a8560af20410fc354a60e4536b2bb9)), closes [#210](https://github.com/Ball-Lang/ball/issues/210)
+
 # [1.6.0](https://github.com/Ball-Lang/ball/compare/v1.5.9...v1.6.0) (2026-07-04)
 
 

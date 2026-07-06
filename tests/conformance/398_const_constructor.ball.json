@@ -1,0 +1,315 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:Point.new",
+          "outputType": "main:Point",
+          "metadata": {
+            "kind": "constructor",
+            "is_const": true,
+            "params": [
+              {
+                "name": "x",
+                "is_this": true
+              },
+              {
+                "name": "y",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point.sum",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "x"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "reference": {
+                          "name": "y"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "p1",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Point",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "4"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "const",
+                      "type": "Point"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "sum",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "p1"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "p2",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Point",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "10"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "20"
+                              }
+                            }
+                          }
+                        ],
+                        "metadata": {
+                          "is_const": true
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "var",
+                      "type": "Point"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "sum",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "p2"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Point",
+          "descriptor": {
+            "name": "main:Point",
+            "field": [
+              {
+                "name": "x",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "y",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Point",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "x",
+                "type": "int",
+                "is_final": true
+              },
+              {
+                "name": "y",
+                "type": "int",
+                "is_final": true
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

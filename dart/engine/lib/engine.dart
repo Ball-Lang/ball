@@ -401,7 +401,12 @@ class BallEngine {
         }
         if (func.hasMetadata()) {
           final params = _extractParams(func.metadata);
-          if (params.isNotEmpty) _paramCache[key] = params;
+          // Only cache NAMED functions: a nameless function (lambda) keys to
+          // "$module." and would collide with every other nameless function in
+          // the module (#246). The lookup extracts a nameless func's params inline.
+          if (func.name.isNotEmpty && params.isNotEmpty) {
+            _paramCache[key] = params;
+          }
 
           final kindField = func.metadata.fields['kind'];
           if (kindField?.stringValue == 'constructor') {

@@ -1,3 +1,10 @@
+## [1.7.5](https://github.com/Ball-Lang/ball/compare/v1.7.4...v1.7.5) (2026-07-06)
+
+
+### Bug Fixes
+
+* **ts-compiler:** std.map_keys/map_values/map_entries fail loud on non-Map ([#218](https://github.com/Ball-Lang/ball/issues/218)) ([#256](https://github.com/Ball-Lang/ball/issues/256)) ([1bd0e08](https://github.com/Ball-Lang/ball/commit/1bd0e0817c5e05eb98375b62c278c471e134ef7f)), closes [#223](https://github.com/Ball-Lang/ball/issues/223) [#226](https://github.com/Ball-Lang/ball/issues/226) [#227](https://github.com/Ball-Lang/ball/issues/227)
+
 ## [1.7.4](https://github.com/Ball-Lang/ball/compare/v1.7.3...v1.7.4) (2026-07-06)
 
 

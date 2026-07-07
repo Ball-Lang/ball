@@ -1,3 +1,10 @@
+## [1.11.1](https://github.com/Ball-Lang/ball/compare/v1.11.0...v1.11.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* **rust:** compiler mut param alias + receiver-less associated fn self-prologue ([#289](https://github.com/Ball-Lang/ball/issues/289)) ([b42eaf4](https://github.com/Ball-Lang/ball/commit/b42eaf4ced1bc05eafe98591e273f1443c5313f8)), closes [287/#288](https://github.com/Ball-Lang/ball/issues/288) [#287](https://github.com/Ball-Lang/ball/issues/287) [#288](https://github.com/Ball-Lang/ball/issues/288)
+
 # [1.11.0](https://github.com/Ball-Lang/ball/compare/v1.10.0...v1.11.0) (2026-07-07)
 
 

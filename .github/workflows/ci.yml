@@ -44,6 +44,7 @@ jobs:
       dart: ${{ steps.f.outputs.dart }}
       ts: ${{ steps.f.outputs.ts }}
       cpp: ${{ steps.f.outputs.cpp }}
+      rust: ${{ steps.f.outputs.rust }}
       infra: ${{ steps.f.outputs.infra }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -63,7 +64,7 @@ jobs:
           zero="0000000000000000000000000000000000000000"
           if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
             echo "No usable diff base ('$base') — failing OPEN: run every stack."
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "infra=true"; } >> "$GITHUB_OUTPUT"
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "infra=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot (merge-base) diff: ONLY this branch's own changes, never
@@ -78,16 +79,17 @@ jobs:
           # SIGPIPE when grep -q early-exits on a large file list.
           m() { grep -qE "$1" <<< "$files"; }
           out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
-          # infra = ANY changed file OUTSIDE the three single-stack dirs — proto/,
+          # infra = ANY changed file OUTSIDE the four single-stack dirs — proto/,
           # tests/, tools/, examples/, root configs, this workflow, etc. Anything
           # cross-cutting forces every stack to run, so a path we forgot to map
           # can never silently skip a check (fail-safe by construction).
           infra=false
-          if grep -qvE '^(dart/|ts/|cpp/)' <<< "$files"; then infra=true; fi
+          if grep -qvE '^(dart/|ts/|cpp/|rust/)' <<< "$files"; then infra=true; fi
           {
             out dart '^dart/'
             out ts   '^ts/'
             out cpp  '^cpp/'
+            out rust '^rust/'
             echo "infra=$infra"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
@@ -579,6 +581,65 @@ jobs:
       # Coverage-gated (issue #62).
       - name: Test @ball-lang/encoder (coverage-gated)
         run: cd ts/encoder && npm run coverage
+
+  # ──────────────────────────────────────────────────
+  # Rust — build + test + fmt + clippy
+  # ──────────────────────────────────────────────────
+  rust:
+    name: Rust
+    needs: changes
+    if: ${{ needs.changes.outputs.rust == 'true' || needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # rustup ships preinstalled on GitHub-hosted runners. `rustup show`
+      # reads rust/rust-toolchain.toml (channel = stable, components =
+      # rustfmt + clippy) and installs exactly that pinned toolchain; the
+      # explicit component-add below is a fast, idempotent belt-and-braces
+      # step in case a runner image ships a stable toolchain without them.
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: |
+          rustup show
+          rustup component add rustfmt clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      # NOTE: the ball-engine `self_host` feature is intentionally left OFF
+      # here — compiled_engine.rs (generated from dart/self_host/engine.ball.json)
+      # does not yet compile through ball-compiler (issue #39). The default
+      # `--workspace` build/test below never enables it, so this job only
+      # gates the wrapper foundation that IS finished, not the in-progress
+      # self-host.
+      - name: Build
+        run: cd rust && cargo build --workspace
+
+      - name: Test
+        run: cd rust && cargo test --workspace
+
+      # rustfmt walks every `mod` declaration unconditionally — unlike
+      # rustc/clippy it does NOT respect the `#[cfg(feature = "self_host")]`
+      # gate on `pub mod compiled_engine;` (rust/engine/src/lib.rs), so
+      # `cargo fmt --check` errors out on a fresh checkout where that
+      # gitignored, generated file (rust/.gitignore) has never been
+      # regenerated. A single-newline placeholder satisfies rustfmt's module
+      # walk; it is already-formatted (no diff) and never affects the real
+      # default-features build/test/clippy above, which skip the module
+      # entirely via the cfg gate and never touch the file.
+      - name: Placeholder for gitignored self-hosted engine module (rustfmt needs the file to exist)
+        run: |
+          [ -f rust/engine/src/compiled_engine.rs ] || printf '\n' > rust/engine/src/compiled_engine.rs
+
+      - name: Format check
+        run: cd rust && cargo fmt --check
+
+      - name: Clippy
+        run: cd rust && cargo clippy --workspace --all-targets -- -D warnings
 
   # ──────────────────────────────────────────────────
   # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language

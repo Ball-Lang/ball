@@ -82,11 +82,14 @@ static std::string quote(const std::string& s) {
 #endif
 }
 
+// Windows: cmake's $<TARGET_FILE:> emits a forward-slash path, which cmd.exe
+// (invoked by _popen) mis-locates as a quoted command. Convert to backslashes.
+static std::string to_native(std::string s) {
 #ifdef _WIN32
-static std::string cmd_wrap(const std::string& s) { return "\"" + s + "\""; }
-#else
-static std::string cmd_wrap(const std::string& s) { return s; }
+    for (auto& c : s) { if (c == '/') c = '\\'; }
 #endif
+    return s;
+}
 
 // Runs `cmd`, capturing merged stdout+stderr into `out`. Returns the raw
 // pclose()/_pclose() status (only ever compared against/to zero below, never
@@ -94,10 +97,13 @@ static std::string cmd_wrap(const std::string& s) { return s; }
 // caveat).
 static int run_capture(const std::string& cmd, std::string& out) {
     out.clear();
-    std::string full = cmd + " 2>&1";
 #ifdef _WIN32
+    // _popen runs `cmd /c <str>`; cmd strips the outer quote pair, so wrap the
+    // whole command (quoted exe + args + redirection) in a single outer pair.
+    std::string full = "\"" + cmd + " 2>&1\"";
     FILE* pipe = _popen(full.c_str(), "r");
 #else
+    std::string full = cmd + " 2>&1";
     FILE* pipe = popen(full.c_str(), "r");
 #endif
     if (!pipe) return -1;
@@ -112,8 +118,8 @@ static int run_capture(const std::string& cmd, std::string& out) {
 #endif
 }
 
-static std::string compile_exe() { return cmd_wrap(quote(BALL_CPP_COMPILE_EXE)); }
-static std::string encode_exe() { return cmd_wrap(quote(BALL_CPP_ENCODE_EXE)); }
+static std::string compile_exe() { return quote(to_native(BALL_CPP_COMPILE_EXE)); }
+static std::string encode_exe() { return quote(to_native(BALL_CPP_ENCODE_EXE)); }
 
 // ================================================================
 // ball_cpp_compile — usage / error / success / library / split modes.

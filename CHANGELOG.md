@@ -1,3 +1,11 @@
+# [1.8.0](https://github.com/Ball-Lang/ball/compare/v1.7.11...v1.8.0) (2026-07-07)
+
+
+### Features
+
+* **cpp:** [#18](https://github.com/Ball-Lang/ball/issues/18) encoder — drop Google protobuf for ball_ir plain structs ([#277](https://github.com/Ball-Lang/ball/issues/277)) ([d01ebe4](https://github.com/Ball-Lang/ball/commit/d01ebe4151c01e3601e2c00f60e3c503db8164b4))
+* **rust:** scaffold Cargo workspace with five member crates ([#276](https://github.com/Ball-Lang/ball/issues/276)) ([8b7101a](https://github.com/Ball-Lang/ball/commit/8b7101a09be0e80247c07bf13f2b279c3c18cdfd))
+
 ## [1.7.11](https://github.com/Ball-Lang/ball/compare/v1.7.10...v1.7.11) (2026-07-07)
 
 

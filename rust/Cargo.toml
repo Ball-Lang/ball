@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+members = ["shared", "compiler", "encoder", "engine", "cli"]
+
+# Phase 1a scaffold (issue #33): no Ball logic yet — just a compiling workspace
+# with the five member crates wired together via path dependencies so later
+# phases (proto bindings #34, compiler #36-38, encoder #42-43, engine #39,
+# CLI #41) have a real dependency graph to build on.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/Ball-Lang/ball"
+rust-version = "1.85"
+
+# Internal crate references, centralized here so every member Cargo.toml can
+# depend on a sibling crate via `<crate> = { workspace = true }` instead of
+# repeating a relative `path = "../..."`.
+[workspace.dependencies]
+ball-shared = { path = "shared" }
+ball-compiler = { path = "compiler" }
+ball-encoder = { path = "encoder" }
+ball-engine = { path = "engine" }

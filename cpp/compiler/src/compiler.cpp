@@ -7469,6 +7469,7 @@ inline std::string whichValue(const BallDyn& o) {
   if (_bd_has(o,"doubleValue")) return "doubleValue";
   if (_bd_has(o,"stringValue")) return "stringValue";
   if (_bd_has(o,"boolValue")) return "boolValue";
+  if (_bd_has(o,"bytesValue")) return "bytesValue";
   if (_bd_has(o,"listValue")) return "listValue";
   return "notSet";
 }

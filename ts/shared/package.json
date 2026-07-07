@@ -39,7 +39,7 @@
   },
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --check-coverage --lines 93 --branches 91 --functions 98 --statements 93 npm test"
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --check-coverage --lines 100 --branches 100 --functions 100 --statements 100 npm test"
   },
   "publishConfig": {
     "access": "public"

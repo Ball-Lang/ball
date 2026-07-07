@@ -30,3 +30,9 @@ ball-engine = { path = "engine" }
 # reflection API.
 prost = "0.14.4"
 prost-reflect = "0.16.4"
+
+# Insertion-ordered map backing `ball_shared::BallMap` (issue #35): the Dart
+# reference engine uses a `LinkedHashMap`/insertion-ordered `Map`, and the
+# C++ self-host mirrors it with `BallOrderedMap` — `indexmap::IndexMap`
+# gives Rust the same guarantee (build -> iterate preserves insertion order).
+indexmap = "2"

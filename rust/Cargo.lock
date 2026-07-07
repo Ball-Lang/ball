@@ -39,7 +39,11 @@ dependencies = [
 name = "ball-encoder"
 version = "0.1.0"
 dependencies = [
+ "ball-compiler",
  "ball-shared",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

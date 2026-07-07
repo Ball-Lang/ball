@@ -71,9 +71,13 @@ writeFileSync('../engine/src/compiled_engine.ts', '// @ts-nocheck — auto-gener
 "
 
 # Proto — lint, breaking-change check, regenerate all bindings
-buf lint
-buf breaking --against ".git#subdir=proto"
-buf generate
+# NOTE: buf.yaml lives at proto/buf.yaml (not repo root), so `proto` MUST be
+# passed as the explicit input — a bare `buf generate`/`buf lint` run from
+# the repo root does not discover that module and silently mis-resolves
+# paths (e.g. emits gen/proto/ball/v1/... instead of gen/ball/v1/...).
+buf lint proto/
+buf breaking proto/ --against ".git#subdir=proto"
+buf generate proto
 
 # After editing dart/shared/lib/std.dart, regenerate std.json/std.bin
 cd dart/shared && dart run bin/gen_std.dart
@@ -94,7 +98,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `cpp/shared/gen/**`, `ts/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `dart/shared/std.json`, `dart/shared/std.bin`. Regenerate via `buf generate`, `gen_std.dart`, or the TS engine regeneration command above.
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `cpp/shared/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `dart/shared/std.json`, `dart/shared/std.bin`. Regenerate via `buf generate proto`, `gen_std.dart`, or the TS engine regeneration command above.
 
 ## Architecture Big Picture
 

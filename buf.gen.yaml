@@ -32,3 +32,11 @@ plugins:
 
   - remote: buf.build/protocolbuffers/csharp
     out: csharp/shared/gen
+
+  - remote: buf.build/community/neoeinstein-prost:v0.4.0
+    out: rust/shared/gen
+    include_imports: true
+    include_wkt: true
+    opt:
+      - compile_well_known_types=true
+      - file_descriptor_set=true

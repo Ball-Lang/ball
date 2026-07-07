@@ -8,3 +8,11 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+prost = { workspace = true }
+# "serde" enables prost-reflect's proto3-JSON (de)serialization for
+# DynamicMessage, used by the descriptor pool round-trip test below and by
+# later descriptor-driven MessageCreation/Struct-metadata work (issue #34).
+prost-reflect = { workspace = true, features = ["serde"] }
+
+[dev-dependencies]
+serde_json = "1"

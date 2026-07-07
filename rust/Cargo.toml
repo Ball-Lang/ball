@@ -22,3 +22,11 @@ ball-shared = { path = "shared" }
 ball-compiler = { path = "compiler" }
 ball-encoder = { path = "encoder" }
 ball-engine = { path = "engine" }
+
+# Protobuf runtime (issue #34): pinned to these exact versions because
+# prost-reflect's DescriptorPool/DynamicMessage are required for later
+# descriptor-driven work (MessageCreation, google.protobuf.Struct metadata).
+# Google's upb-based `protobuf` v4 crate is rejected — it exposes no
+# reflection API.
+prost = "0.14.4"
+prost-reflect = "0.16.4"

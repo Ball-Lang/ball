@@ -409,7 +409,72 @@ preserve that semantics:
 `BigInt` is a **JS-only implementation detail** — it must never leak into the
 Ball IR or any other target. The demotion path keeps the common small-integer
 case on `Number` (BigInt arithmetic is several times slower than `Number` in V8).
-This contract aligns with protobuf-es v2, wasm-bindgen, and Emscripten.
+This contract aligns with protobuf-es v2, wasm-bindgen, and Emscripten. Fully
+implemented in the TS compiler's preamble (`asIntN`/`asUintN` wrapping,
+null/NaN-hardened promotion, a `BigInt.prototype.toJSON`, and a 32-bit fast
+path that skips `BigInt` entirely when both bitwise operands already fit in
+`Int32` — see `ts/compiler/src/preamble.ts`).
+
+### Map Key Constraint
+
+**Ball map keys are strings.** `std_collections.map_get`/`map_set`/
+`map_delete`/`map_contains_key`/etc. and map-literal `MessageCreation` nodes
+all key on `string`, matching protobuf's own `map<string, V>` restriction
+(Ball programs *are* protobuf messages, so this isn't an arbitrary choice —
+it's inherited from the wire format every target must round-trip through).
+A target whose
+native map type allows arbitrary key types (Python `dict`, C++
+`std::map<K,V>`) must still constrain the *Ball-visible* map surface to
+string keys; do not widen `std_collections` to accept non-string keys.
+
+Programs that need non-string keys today encode them as strings at the call
+site (e.g. `int_key.toString()`) — there is no `typed_map_*` family yet. If a
+future target's idiomatic style makes that awkward enough to matter, propose
+a `std_collections.typed_map_*` extension in a new issue; don't special-case
+it in a single compiler.
+
+### String Indexing Convention
+
+**`string_char_at(s, i)` indexes by UTF-16 code unit**, matching Dart's
+`String` (Dart strings are UTF-16 internally) and JavaScript's `String`
+(native UTF-16). This is a zero-cost mapping for Dart and TS/JS — both
+target languages already index this way natively.
+
+UTF-8-native targets (Rust `&str`, Go `string`, C++ `std::string`) do **not**
+index by UTF-16 code unit for free: Rust/Go strings are byte sequences of
+UTF-8, and naive byte-indexing at a UTF-16 code-unit offset produces wrong
+(or invalid, mid-codepoint) results for any string containing non-ASCII
+characters. Two options, in order of preference when bootstrapping one of
+these targets:
+
+1. **Emulate UTF-16 code-unit indexing** (e.g. by decoding to UTF-16 code
+   units internally, or precomputing a code-unit-to-byte-offset table) so
+   `string_char_at` stays behaviorally identical across every target. This
+   preserves conformance-corpus compatibility but costs something on the
+   UTF-8 target.
+2. **Add `std.string_char_at_codepoint(s, i)`** — a *codepoint*-indexed
+   sibling that every target (including Dart/TS) can implement natively and
+   cheaply, and steer UTF-8-target-authored programs toward it. This is the
+   still-open action item from #132: it needs a `std.json` entry, Dart/TS/C++
+   engine + compiler implementations, and a conformance fixture before any
+   UTF-8 target can rely on it (not yet implemented anywhere as of this
+   writing — do not assume it exists).
+
+Either way: **do not silently truncate or reinterpret** a code-unit index as
+a byte or codepoint index. An out-of-range or mid-codepoint index must fail
+loud (matching invariant #4 in `CLAUDE.md` / the engine's fail-loud
+convention), never return a mangled character.
+
+### Nullable Type Representation
+
+**Already solved — not the fragile `"int?"` metadata string.** Structured
+nullability lives in `MessageCreation.metadata.type_args[].nullable` (a
+proper `bool` field alongside `name`/`type_args`), documented in
+`METADATA_SPEC.md` (`MessageCreation.metadata`) and `BALL_JSON_SPEC.md`
+(nullable-parameter round-trip example). The `FunctionCall.type_args` /
+`MessageCreation.metadata.type_args` migration replaced the old
+`__type_args__` string-encoding convention outright — new compilers should
+read the structured field and never need to parse a `"Type?"` string suffix.
 
 ### Multi-Target Compiler Patterns
 
@@ -444,6 +509,105 @@ This contract aligns with protobuf-es v2, wasm-bindgen, and Emscripten.
    schema-evolved, and natively serializable in every language protobuf supports.
    Adding a target starts with `buf generate` — the new compiler immediately has
    type-safe bindings, something no other multi-target system gets for free.
+
+### Per-Target Strategies (Design When Bootstrapping, Not Before)
+
+These are intentionally **not** designed in the abstract — a strategy picked
+before a target's actual encoder/engine exists tends to be wrong in a detail
+that only shows up once real fixtures are compiling. Decide these during
+Phase 2–4 of the `new-ball-language` skill for the specific target, using the
+patterns above as the constraint set:
+
+- **Error handling.** Result-based languages (Rust) should propagate
+  `std.try`/`std.throw` as `Result<T, BallError>`; error-return languages
+  (Go) as `(value, error)`. Exception-based languages (Java, C#, Python) map
+  `std.try`/`std.throw` onto native try/catch directly, same as Dart/TS/C++
+  today. `std.try`'s `catches[].type` still needs a per-target mapping from
+  Ball's typed-exception names (`FormatException`, `StateError`, …) to the
+  target's native exception hierarchy or error-code space.
+- **Ownership (Rust only).** A `std_ownership` module, analogous to
+  `std_memory`'s role for C/C++ linear memory (pattern #4 above) — only
+  needed if/when a Rust program requires explicit borrow/move semantics the
+  encoder can't infer. Do not add it speculatively; most Ball programs
+  (garbage-collected-language-shaped IR) will compile to safe, `Rc`/`Clone`-
+  heavy Rust without one.
+- **Multi-file output.** Dart/C++/TS compilers already emit a single file per
+  program; TS's `compileModule()` and C++'s `compile_library()` already
+  support multi-module output for library-shaped programs. A new target
+  picks the idiomatic granularity when it needs multi-file output: Rust
+  (module = file), Go (package = directory), Java (public class = file).
+  This is purely an output-layout decision — it does not change the IR or
+  any base-function contract.
+- **Capability declaration matrix.** Pattern #1 above (Legal/Expand/LibCall/
+  Custom) is the target *model*; the actual per-function table doesn't exist
+  yet for any compiler (Dart/C++/TS included) — building it for the existing
+  three compilers first would validate the model before a new target is
+  expected to fill it in, and would let a conformance job flag "no author
+  declared how this compiler handles `std.spawn`" instead of only surfacing
+  a runtime crash.
+
+## Cross-Target Gap Analysis (Rust/Go/Python/Java/C#)
+
+Tracked in [#132](https://github.com/Ball-Lang/ball/issues/132). This section
+is the durable analysis; **for current pass/fail state, read
+`.github/workflows/ci.yml` and `<lang>/AGENTS.md`, not the prose below** — CI
+is the only thing that can't silently drift out of date.
+
+### Current State (verified against `buf.gen.yaml`, `<lang>/AGENTS.md`, and `ci.yml`)
+
+| Target | Proto bindings | Compiler | Encoder | Engine | CI job |
+|--------|:---:|:---:|:---:|:---:|:---:|
+| Go     | Yes (`go/shared/gen`, `protocolbuffers/go`) | No | No | No | None |
+| Python | Yes (`python/shared/gen`, `protocolbuffers/python`) | No | No | No | None |
+| Java   | Yes (`java/shared/gen`, `protocolbuffers/java`) | No | No | No | None |
+| C#     | Yes (`csharp/shared/gen`, `protocolbuffers/csharp`) | No | No | No | None |
+| Rust   | No — not in `buf.gen.yaml` | No | No | No | None |
+
+Go/Python/Java/C# are all at the identical starting line: `buf generate`
+produces bindings into `<lang>/shared/gen/`, and each `<lang>/AGENTS.md`
+explicitly says so ("proto bindings only; no compiler, encoder, or engine
+exists yet"). None has a `<lang>/` job in `ci.yml` or
+`conformance-matrix.yml`. Rust (epic #32) has no directory, no
+`buf.gen.yaml` entry, and no bindings at all — it is one phase further back
+than the other four.
+
+None of the five is closer to "done" than another in any dimension that
+matters for the project's definition of done (compile **and** encode **and**
+run the conformance corpus) — this is a five-way tie at the bottom of the
+maturity ladder, not a ranked list.
+
+### Prioritized Action Items
+
+Ordered by "unblocks the most future work per unit of effort," not by
+target:
+
+1. **Add `buf.gen.yaml` entry + `rust/` scaffold for Rust** (Phase 1 of
+   `new-ball-language`) — the one action item that is strictly a
+   prerequisite for Rust ever leaving last place; the other four targets
+   already have this.
+2. **Build the capability-declaration matrix (Legal/Expand/LibCall/Custom)
+   for the three existing compilers (Dart/C++/TS)** before starting a fourth
+   — validates the model from pattern #1 against real, working compilers
+   first, and gives every subsequent target a checklist instead of a
+   from-scratch design exercise. Cheapest to do now, most valuable the
+   moment a fifth compiler starts.
+3. **Add `std.string_char_at_codepoint`** (see "String Indexing Convention"
+   above) — small, self-contained, and specifically unblocks Rust/Go/C++
+   from inheriting UTF-16 code-unit indexing they'd otherwise have to
+   emulate. Needs `std.json` + Dart/TS/C++ engine and compiler + a
+   conformance fixture (all three existing engines, per the standard
+   feature workflow) — do this on a host that can build/test the C++ leg.
+4. **Pick the first non-Rust target to bootstrap using the
+   `ball-lang-bootstrapper` agent / `new-ball-language` skill.** Go and C#
+   are the strongest early candidates: Go's error-return model and
+   package-per-file output are already scoped above, and C#'s reified
+   generics + exception model are nearly Dart-identical (least novel
+   design surface, per the Reified Generics table above) — either is lower
+   design-risk than Python (duck typing / no static reified-generics
+   equivalent) or Java (erasure + checked-exceptions modeling).
+5. **Design Rust's error-model and `std_ownership` scope during Rust's own
+   Phase 2–4**, not before — per "Per-Target Strategies" above, this is
+   deliberately deferred until real fixtures are compiling.
 
 ---
 

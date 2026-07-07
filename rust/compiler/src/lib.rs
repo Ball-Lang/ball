@@ -30,6 +30,28 @@
 //! function call that would eagerly evaluate every branch — invariant #4)
 //! and assignment/mutation (`crate::lvalue`).
 //!
+//! Phase 2c (issue #38) adds **type emission** and **multi-module output**
+//! (`type_emit.rs`): `typeDefs[]` → Rust `struct`/`trait`/`enum` shapes
+//! (`metadata.kind`/`is_abstract` decide which — see that module's doc
+//! comment), functions flagged as a class member (`main:Point.describe`,
+//! `main:Point.new`, ...) compile into the owner type's `impl` block instead
+//! of as free functions, and each *other* Ball module compiles to its own
+//! nested `pub mod <name> { ... }` (`compile_module_body`), with
+//! cross-module calls resolved to `<mod>::<function>(...)`. Runtime values
+//! stay the same dynamic `BallValue::Message`/`BallValue::Map` this crate
+//! has used since #36 — Ball has no static type checker for a Rust compiler
+//! to lean on, so a `struct`'s fields are a faithful (if largely
+//! documentation-only) mapping of the `DescriptorProto`, while actual
+//! instances and field reads still flow through
+//! `ball_field_get`/`BallMessage` exactly as before. Polymorphic method
+//! calls (two classes sharing a short method name, e.g. `Circle.area` /
+//! `Rectangle.area`) can't be resolved to one concrete function at Rust
+//! compile time — `compile_method_dispatchers` emits one free function per
+//! shared short name that switches on the receiver's actual
+//! `BallValue::Message::type_name` at run time and routes to the matching
+//! `impl <Type>::<method>`, the same shape a dynamically-typed reference
+//! engine gets for free from its own dispatch.
+//!
 //! ## Scope boundary (read before extending)
 //!
 //! This crate deliberately does **not** implement:
@@ -38,27 +60,40 @@
 //!   `base_call.rs`'s own module doc comment for the full list. Every one of
 //!   these compiles to a clean runtime-helper fallback
 //!   (`ball_unsupported_base_call`), not a compile-time panic.
-//! - Type emission (classes/enums/mixins from `typeDefs[]`) and
-//!   multi-module output (`compileAllModules`) — that is issue #38.
-//!   `compile_message_creation` therefore always builds a dynamic
-//!   `BallValue::Map`/`BallValue::Message` rather than a real typed Rust
-//!   struct; `compile()` only emits the entry module's functions. Multi-
-//!   parameter lambdas (needed for `list_reduce`/`list_sort`/...) are the
-//!   same #38-shaped gap — Ball's lambda calling convention is still
-//!   single-`input`-only.
-use std::collections::HashSet;
+//! - Constructors/methods with a real *body* that mutates `self` field-by-
+//!   field (Java/TS-style `this.x = x;` constructors) — every #38 fixture's
+//!   constructors are the Dart `Point(this.x, this.y)` init-formal-parameter
+//!   shape (no body at all), so `type_emit.rs` only synthesizes that shape;
+//!   a constructor that *does* carry a body compiles its body directly
+//!   (defensive fallback — never panics — but doesn't get the `self`/field
+//!   alias prologue a body would need to read/write instance state).
+//! - A real class-hierarchy model (`superclass`/`interfaces` walked for
+//!   inherited fields, Rust `impl Trait for Struct`, `is`/`as` subtype
+//!   checks against a supertype chain) — `ball_is_type`
+//!   (`rust/shared/src/runtime.rs`) still only matches an exact
+//!   `Message.type_name` tag. `main:Circle extends Shape` compiles `Circle`
+//!   as a fully independent struct; `Shape`'s own `is_abstract` methods
+//!   become a `pub trait` purely for documentation (nothing `impl`s it —
+//!   dispatch is by `type_name`, not Rust's trait system).
+//! - Multi-parameter lambdas (needed for `list_reduce`/`list_sort`/...) —
+//!   Ball's lambda calling convention is still single-`input`-only.
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 
 use ball_shared::proto::ball::v1::expression::Expr;
 use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_shared::proto::ball::v1::statement::Stmt;
 use ball_shared::proto::ball::v1::{
-    Block, Expression, FieldAccess, FunctionDefinition, Literal, MessageCreation, Program,
+    Block, Expression, FieldAccess, FunctionDefinition, Literal, MessageCreation, Module, Program,
     Reference,
 };
 use ball_shared::proto::google::protobuf::value::Kind;
 
 mod base_call;
 mod lvalue;
+mod type_emit;
+
+use type_emit::{is_class_member, split_member_name};
 
 /// Compiles a Ball [`Program`] into Rust source.
 ///
@@ -74,6 +109,27 @@ pub struct Compiler<'a> {
     /// least one function) — e.g. `std`. Mirrors `DartCompiler._baseModules`
     /// (`dart/compiler/lib/compiler.dart`) and `CppCompiler::base_modules_`.
     base_modules: HashSet<String>,
+    /// Names of every non-base module in the program (issue #38) — used by
+    /// `type_emit::resolve_user_call_name` to decide whether a `call.module`
+    /// names a *different* user module that needs `<mod>::` qualification,
+    /// versus the module currently being compiled (no qualification needed).
+    user_module_names: HashSet<String>,
+    /// Every class-member `FunctionDefinition` (constructor/method —
+    /// `main:Point.new`, `main:Point.describe`, ...), grouped by its owner
+    /// `TypeDefinition.name` (issue #38). Populated once up front (mirrors
+    /// `DartCompiler._buildLibrary`'s `classMethods` map) so
+    /// `type_emit::compile_type_def` can place each member inside the right
+    /// `impl`/`trait` block and `compile_message_creation` can map a
+    /// constructor's positional `argN` fields to real field names.
+    class_members_by_owner: HashMap<String, Vec<&'a FunctionDefinition>>,
+    /// The Ball module currently being compiled (module name, not sanitized
+    /// Rust identifier) — read by `type_emit::resolve_user_call_name` to
+    /// decide whether a same-module call needs no qualification. Interior
+    /// mutability keeps every `compile_*` method's signature untouched
+    /// (`&self`, no extra "current module" parameter to thread through the
+    /// whole expression-compilation tree); safe because modules are compiled
+    /// one at a time, never interleaved — see `compile_module_body`.
+    current_module: RefCell<String>,
 }
 
 impl<'a> Compiler<'a> {
@@ -92,9 +148,40 @@ impl<'a> Compiler<'a> {
                 base_modules.insert(module.name.clone());
             }
         }
+
+        let user_module_names: HashSet<String> = program
+            .modules
+            .iter()
+            .map(|m| m.name.clone())
+            .filter(|name| !base_modules.contains(name))
+            .collect();
+
+        // Group every class-member function (constructor/method) by its
+        // owner TypeDefinition name, scanning every non-base module — see
+        // `type_emit::is_class_member`'s doc comment for the exact
+        // classification rule (mirrors `DartCompiler._buildLibrary`).
+        let mut class_members_by_owner: HashMap<String, Vec<&'a FunctionDefinition>> =
+            HashMap::new();
+        for module in &program.modules {
+            if base_modules.contains(&module.name) {
+                continue;
+            }
+            for func in &module.functions {
+                if func.is_base || !is_class_member(func) {
+                    continue;
+                }
+                if let Some((owner, _)) = split_member_name(&func.name) {
+                    class_members_by_owner.entry(owner).or_default().push(func);
+                }
+            }
+        }
+
         Compiler {
             program,
             base_modules,
+            user_module_names,
+            class_members_by_owner,
+            current_module: RefCell::new(program.entry_module.clone()),
         }
     }
 
@@ -106,22 +193,21 @@ impl<'a> Compiler<'a> {
     // Public API
     // ════════════════════════════════════════════════════════════
 
-    /// Compile [`Self::program`]'s entry module into a complete, runnable
-    /// Rust source file: a `use ball_shared::runtime::*;` import (the base-
-    /// function runtime helpers — see that module's doc comment), one
-    /// `pub fn` per non-base, non-entry function declared in the entry
-    /// module, and a `fn main()` wrapping the entry function's body
-    /// (mirrors the Dart/C++ compilers inlining the entry function's body
-    /// directly into the target language's real entry point, rather than
-    /// emitting it as a separate function that `main` calls).
+    /// Compile [`Self::program`] into a complete, runnable Rust source file:
+    /// a `use ball_shared::runtime::*;` import (the base-function runtime
+    /// helpers — see that module's doc comment), the entry module's own
+    /// types/functions inlined at the top level, every *other* user module
+    /// nested as its own `pub mod <name> { ... }` (issue #38 — see
+    /// `compile_module_body`), and a `fn main()` wrapping the entry
+    /// function's body (mirrors the Dart/C++ compilers inlining the entry
+    /// function's body directly into the target language's real entry
+    /// point, rather than emitting it as a separate function that `main`
+    /// calls).
     ///
-    /// Only the entry module's functions are emitted — multi-module output
-    /// (`compileAllModules`, one file per user module) is issue #38's
-    /// `TypeDefinition`/multi-module scope, not #36's expression-tree scope.
-    /// `call.module` is still resolved against *every* module in the
-    /// program when classifying base-vs-user calls, so cross-module base
-    /// calls (`std`, etc.) compile correctly even though only the entry
-    /// module's own functions are emitted as Rust items.
+    /// `call.module` is resolved against *every* module in the program when
+    /// classifying base-vs-user calls, so cross-module base calls (`std`,
+    /// etc.) always compile correctly regardless of which module a call
+    /// site lives in.
     pub fn compile(&self) -> String {
         let entry_module = self
             .program
@@ -149,15 +235,56 @@ impl<'a> Compiler<'a> {
         out.push_str("use ball_shared::{BallMap, BallMessage, BallValue};\n");
         out.push_str("use ball_shared::runtime::*;\n\n");
 
-        for func in &entry_module.functions {
-            if func.is_base || func.name == self.program.entry_function {
+        // Every other user (non-base) module → its own nested `mod` block,
+        // one per Ball module (issue #38's multi-module output). `use
+        // super::*;` brings the preamble's `BallValue`/`BallMap`/
+        // `BallMessage`/`runtime::*` imports into scope — Rust privacy lets
+        // a child module see its ancestors' private `use` items, so this
+        // needs no re-import.
+        for module in &self.program.modules {
+            if module.name == entry_module.name || self.is_base_module(&module.name) {
+                continue;
+            }
+            out.push_str(&format!(
+                "pub mod {} {{\n    use super::*;\n",
+                sanitize_ident(&module.name)
+            ));
+            out.push_str(&self.compile_module_body(module));
+            out.push_str("}\n\n");
+        }
+
+        out.push_str(&self.compile_module_body(entry_module));
+        out.push_str(&self.compile_entry_main(entry_func));
+        out
+    }
+
+    /// Compile one module's own types, class `impl`/`trait` blocks, method
+    /// dispatchers, and standalone (non-base, non-class-member, non-entry)
+    /// functions — everything *except* the program's `main()`. Shared by
+    /// [`Self::compile`]'s entry-module inlining and its nested-`mod`-per-
+    /// other-module loop (issue #38), so both paths get identical type/
+    /// method/cross-module-call handling. Sets [`Self::current_module`] for
+    /// the duration of `module`'s own compilation so
+    /// `type_emit::resolve_user_call_name` can tell a same-module call
+    /// (`call.module` empty or equal to `module.name`) from a genuine
+    /// cross-module call needing `<mod>::` qualification.
+    fn compile_module_body(&self, module: &Module) -> String {
+        *self.current_module.borrow_mut() = module.name.clone();
+
+        let mut out = String::new();
+        out.push_str(&self.compile_module_types(module));
+        for func in &module.functions {
+            if func.is_base || is_class_member(func) {
+                continue;
+            }
+            if module.name == self.program.entry_module && func.name == self.program.entry_function
+            {
                 continue;
             }
             out.push_str(&self.compile_function(func));
             out.push('\n');
         }
-
-        out.push_str(&self.compile_entry_main(entry_func));
+        out.push_str(&self.compile_method_dispatchers(module));
         out
     }
 
@@ -332,20 +459,41 @@ impl<'a> Compiler<'a> {
     /// field expressions. Always builds a dynamic `BallValue::Map` (for an
     /// anonymous/argument-list message, `type_name` empty — the shape
     /// base-function inputs like `BinaryInput`'s `{left, right}` use) or a
-    /// `BallValue::Message` (for a named `TypeDefinition` instance).
-    /// Descriptor-driven construction of a *typed* Rust struct via
-    /// prost-reflect is #38's scope once `TypeDefinition` emission lands —
-    /// see the module doc comment's scope boundary.
+    /// `BallValue::Message` (for a named `TypeDefinition` instance) — see
+    /// the module doc comment for why this crate keeps that dynamic
+    /// representation even after #38's type emission lands, rather than
+    /// building a real typed Rust struct literal.
+    ///
+    /// **Constructor field-name mapping (issue #38):** when `type_name`
+    /// names a class with a registered constructor (`main:Point.new`), the
+    /// encoder emits the constructor *call* as positional fields literally
+    /// named `arg0`, `arg1`, ... (see `dart/compiler/lib/compiler.dart`'s
+    /// own `_compileArgs` positional convention) — those must be renamed to
+    /// the constructor's *real* parameter names (`x`, `y`, ...) in
+    /// declaration order so a later `field_access`/method reads the field
+    /// under the name it actually expects
+    /// (`type_emit::constructor_field_names`). A field whose name doesn't
+    /// match the `argN` shape (or a type with no registered constructor —
+    /// e.g. a plain literal-field `MessageCreation` in a hand-built fixture)
+    /// is inserted under its given name unchanged, exactly as before #38.
     fn compile_message_creation(&self, message_creation: &MessageCreation) -> String {
+        let ctor_params = self.constructor_field_names(&message_creation.type_name);
         let mut inserts = String::new();
-        for field in &message_creation.fields {
+        for (index, field) in message_creation.fields.iter().enumerate() {
             let value = match &field.value {
                 Some(value) => self.compile_expression(value),
                 None => "BallValue::Null".to_string(),
             };
+            let field_name = if type_emit::is_positional_arg_name(&field.name) {
+                ctor_params
+                    .get(index)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_else(|| field.name.clone())
+            } else {
+                field.name.clone()
+            };
             inserts.push_str(&format!(
-                "__ball_map.insert({:?}.to_string(), {value});\n",
-                field.name
+                "__ball_map.insert({field_name:?}.to_string(), {value});\n"
             ));
         }
         if message_creation.type_name.is_empty() {

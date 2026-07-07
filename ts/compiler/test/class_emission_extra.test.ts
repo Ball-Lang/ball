@@ -50,6 +50,41 @@ function programWithClasses(mod: Partial<Program["modules"][number]>): Program {
 }
 
 describe("compiler — emitClass field fallback + inheritance", () => {
+  test("inherits field names through the superclass chain via descriptor.field (no metadata.fields on the super)", () => {
+    // Animal carries ITS fields only via descriptor.field (no metadata.fields
+    // at all) — exercises the inherited-field-lookup fallback distinct from
+    // the "own class" descriptor.field fallback covered by the next test.
+    const program = programWithClasses({
+      typeDefs: [
+        {
+          name: "main:Animal",
+          descriptor: {
+            name: "main:Animal",
+            field: [{ name: "name", type: "TYPE_STRING" }],
+          },
+          metadata: { kind: "class" },
+        },
+        {
+          name: "main:Cat",
+          metadata: { kind: "class", superclass: "Animal" },
+        },
+      ],
+      functions: [
+        { name: "main:Animal.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+        { name: "main:Cat.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+        {
+          name: "main:Cat.speak",
+          metadata: { kind: "method" },
+          body: { reference: { name: "name" } },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const speakMatch = /speak\s*\([^)]*\)\s*:\s*any\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(speakMatch, "speak() method found");
+    assert.match(speakMatch![1], /this\.name/);
+  });
+
   test("falls back to descriptor.field when metadata.fields is absent", () => {
     const program = programWithClasses({
       typeDefs: [
@@ -141,6 +176,54 @@ describe("compiler — buildCtor: superclass constructor args + named-param dest
     assert.match(ctorMatch![2], /super\(make\);/);
   });
 
+  test("parses a super(...) initializer arg that's a string literal", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Vehicle", metadata: { kind: "class", fields: [{ name: "make", type: "String" }] } },
+        { name: "main:Car", metadata: { kind: "class", superclass: "Vehicle" } },
+      ],
+      functions: [
+        { name: "main:Vehicle.new", metadata: { kind: "constructor", params: [{ name: "make" }] } },
+        {
+          name: "main:Car.new",
+          metadata: {
+            kind: "constructor",
+            params: [],
+            initializers: [{ kind: "super", args: "('Toyota')" }],
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const ctorMatch = /class Car[\s\S]*?constructor\(([^)]*)\)\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(ctorMatch, "Car constructor found");
+    assert.match(ctorMatch![2], /super\('Toyota'\);/);
+  });
+
+  test("falls back to a bare super() when the super(...) initializer has no args", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Vehicle", metadata: { kind: "class" } },
+        { name: "main:Car", metadata: { kind: "class", superclass: "Vehicle" } },
+      ],
+      functions: [
+        { name: "main:Vehicle.new", metadata: { kind: "constructor", params: [] } },
+        {
+          name: "main:Car.new",
+          metadata: {
+            kind: "constructor",
+            params: [],
+            initializers: [{ kind: "super", args: "()" }],
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const ctorMatch = /class Car[\s\S]*?constructor\(([^)]*)\)\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(ctorMatch, "Car constructor found");
+    assert.match(ctorMatch![2], /^\s*super\(\);/m);
+  });
+
   test("destructures a trailing named-args object when the ctor mixes positional and named params", () => {
     const program = programWithClasses({
       typeDefs: [
@@ -194,6 +277,119 @@ describe("compiler — buildNamedCtor (named constructors as static factories)",
     assert.match(ts, /__inst\.x = 0/);
     assert.match(ts, /__inst\.y = 0/);
   });
+
+  test("a named constructor's field initializer can reference a param, a string literal, or an indexed param", () => {
+    // `factory Point.fromArgs(int x, List<int> coords) : this.x = x, this.label
+    // = 'origin', this.z = coords[0];` — exercises all three non-numeric
+    // initializer-value resolution branches in the same ctorArgs-building pass.
+    const program = programWithClasses({
+      typeDefs: [
+        {
+          name: "main:Point3",
+          metadata: {
+            kind: "class",
+            fields: [
+              { name: "x", type: "int" },
+              { name: "label", type: "String" },
+              { name: "z", type: "int" },
+            ],
+          },
+        },
+      ],
+      functions: [
+        { name: "main:Point3.new", metadata: { kind: "constructor", params: [{ name: "x" }, { name: "label" }, { name: "z" }] } },
+        {
+          name: "main:Point3.fromArgs",
+          metadata: {
+            kind: "constructor",
+            params: [{ name: "x" }, { name: "coords" }],
+            initializers: [
+              { kind: "field", name: "x", value: "x" },
+              { kind: "field", name: "label", value: "'origin'" },
+              { kind: "field", name: "z", value: "coords[0]" },
+            ],
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /static fromArgs\s*\(/);
+    assert.match(ts, /__inst\.x = x;/);
+    assert.match(ts, /__inst\.label = 'origin';/);
+    assert.match(ts, /__inst\.z = coords\[0\];/);
+  });
+
+  test("a named constructor with is_this params (and no field initializers) assigns them directly", () => {
+    // `factory Box.of(this.value) => Box._(value);`-style: no explicit field
+    // initializers, but ctor params are marked is_this — they become the
+    // Object.create field assignments directly.
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Box", metadata: { kind: "class", fields: [{ name: "value", type: "int" }] } },
+      ],
+      functions: [
+        { name: "main:Box.new", metadata: { kind: "constructor", params: [{ name: "value", is_this: true }] } },
+        {
+          name: "main:Box.of",
+          metadata: {
+            kind: "constructor",
+            params: [{ name: "value", is_this: true }],
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /static of\s*\(/);
+    assert.match(ts, /Object\.create\(Box\.prototype\)/);
+    assert.match(ts, /__inst\.value = value;/);
+  });
+
+  test("a named constructor with no initializers, no is_this params, but a real body compiles the body", () => {
+    // `factory Registry.empty() { return Registry._internal(); }`-style —
+    // the fallback path that runs the constructor's OWN statements rather
+    // than synthesizing an Object.create.
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Registry", metadata: { kind: "class", fields: [] } },
+      ],
+      functions: [
+        { name: "main:Registry.new", metadata: { kind: "constructor", params: [] } },
+        {
+          name: "main:Registry.empty",
+          metadata: { kind: "constructor", params: [] },
+          body: {
+            call: {
+              module: "std",
+              function: "print",
+              input: { messageCreation: { fields: [{ name: "message", value: { literal: { stringValue: "made" } } }] } },
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /static empty\s*\(/);
+    const emptyMatch = /static empty\s*\([^)]*\)\s*:\s*any\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(emptyMatch, "empty() factory found");
+    assert.match(emptyMatch![1], /console\.log/, "the real ctor body was emitted, not an Object.create");
+  });
+
+  test("a named constructor with no initializers, no is_this params, and no body falls back to `return new Class()`", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Marker", metadata: { kind: "class", fields: [] } },
+      ],
+      functions: [
+        { name: "main:Marker.new", metadata: { kind: "constructor", params: [] } },
+        {
+          name: "main:Marker.instance",
+          metadata: { kind: "constructor", params: [] },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /static instance\s*\([^)]*\)\s*:\s*any\s*\{\s*return new Marker\(\);\s*\}/);
+  });
 });
 
 describe("compiler — filterCtorBody (self-recursive boilerplate removal)", () => {
@@ -237,6 +433,50 @@ describe("compiler — filterCtorBody (self-recursive boilerplate removal)", () 
     // `return self;` (invalid in a JS constructor) should survive.
     assert.doesNotMatch(ctorMatch![2], /new Counter\(\)/);
     assert.doesNotMatch(ctorMatch![2], /return self/);
+  });
+
+  test("filters a bare no-op reference statement (e.g. a lone `input;`) out of a ctor body", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Holder", metadata: { kind: "class", fields: [{ name: "value", type: "int" }] } },
+      ],
+      functions: [
+        {
+          name: "main:Holder.new",
+          metadata: { kind: "constructor", params: [{ name: "input" }] },
+          body: {
+            block: {
+              statements: [
+                // A bare no-op reference statement (encoder boilerplate) —
+                // must be filtered rather than emitted as `input;`.
+                { expression: { reference: { name: "input" } } },
+                {
+                  expression: {
+                    call: {
+                      module: "std",
+                      function: "assign",
+                      input: {
+                        messageCreation: {
+                          fields: [
+                            { name: "target", value: { fieldAccess: { object: { reference: { name: "self" } }, field: "value" } } },
+                            { name: "value", value: { literal: { intValue: 7 } } },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const ctorMatch = /class Holder[\s\S]*?constructor\(([^)]*)\)\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(ctorMatch, "Holder constructor found");
+    assert.doesNotMatch(ctorMatch![2], /^\s*input;\s*$/m, "bare `input;` statement was filtered out");
+    assert.match(ctorMatch![2], /this\.value = 7;/);
   });
 });
 

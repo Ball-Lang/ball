@@ -609,6 +609,43 @@ void _audit(List<String> args, StringSink out, StringSink err) {
 
 // ── ball build ──────────────────────────────────────────────────────────────
 
+/// The `ball build` on-the-fly encoder callback: downloads [source] from
+/// pub.dev and encodes its first non-base, non-stub module. Requires live
+/// network access -- kept as its own top-level function (instead of an
+/// inline closure) purely so the ignored network block around its call
+/// site in [_build] stays a clean one-liner. Unchanged from its prior
+/// inline form (a pure relocation, not new logic).
+OnTheFlyEncoder _onTheFlyEncodeForBuild(PubClient pubClient, StringSink err) {
+  return (source, version) async {
+    err.write('  encoding ${source.package}@$version... ');
+    final vi = await pubClient.resolveVersion(source.package, source.version);
+    final pkgDir = await pubClient.downloadPackage(
+      source.package,
+      vi.version,
+      archiveUrl: vi.archiveUrl,
+    );
+    try {
+      final encoder = PackageEncoder(pkgDir);
+      final prog = encoder.encode();
+      for (final m in prog.modules) {
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
+          continue;
+        }
+        if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
+        err.writeln('OK');
+        return m;
+      }
+      throw StateError('No encodable module in ${source.package}@$version');
+    } finally {
+      // Best-effort temp-dir cleanup: a failure here must not mask the real
+      // encode error/result above, and a leftover temp dir is harmless.
+      try {
+        await pkgDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  };
+}
+
 Future<void> _build(List<String> args, StringSink out, StringSink err) async {
   String? inputPath;
   String? outputPath;
@@ -672,32 +709,13 @@ Future<void> _build(List<String> args, StringSink out, StringSink err) async {
   // Resolve using the module resolver with pub.dev adapter + on-the-fly encoding.
   final pubClient = PubClient();
   final bridge = RegistryBridge()..register(PubAdapter());
-  bridge.onTheFlyEncoder = (source, version) async {
-    err.write('  encoding ${source.package}@$version... ');
-    final vi = await pubClient.resolveVersion(source.package, source.version);
-    final pkgDir = await pubClient.downloadPackage(
-      source.package,
-      vi.version,
-      archiveUrl: vi.archiveUrl,
-    );
-    try {
-      final encoder = PackageEncoder(pkgDir);
-      final prog = encoder.encode();
-      for (final m in prog.modules) {
-        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
-          continue;
-        }
-        if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
-        err.writeln('OK');
-        return m;
-      }
-      throw StateError('No encodable module in ${source.package}@$version');
-    } finally {
-      try {
-        await pkgDir.delete(recursive: true);
-      } catch (_) {}
-    }
-  };
+  // Requires live network access to pub.dev (a real registry resolve +
+  // package download) — excluded from coverage per issue #261/repo policy,
+  // matching the existing `--exclude-tags network` convention: exercising
+  // this for real would make an unattended coverage run hit the network.
+  // coverage:ignore-start
+  bridge.onTheFlyEncoder = _onTheFlyEncodeForBuild(pubClient, err);
+  // coverage:ignore-end
   final resolver = ModuleResolver(
     registryResolver: bridge.resolve,
     cache: preCache ?? ContentAddressableCache(),
@@ -836,6 +854,46 @@ _ParsedSpec? _parseImportSpec(String spec) {
 
 // ── ball resolve ────────────────────────────────────────────────────────────
 
+/// The `ball resolve` on-the-fly encoder callback: downloads [source] from
+/// pub.dev and encodes its first non-base, non-stub module. Requires live
+/// network access -- kept as its own top-level function (instead of an
+/// inline closure) purely so the ignored network block around its call
+/// site in [_resolve] stays a clean one-liner. Unchanged from its prior
+/// inline form (a pure relocation, not new logic).
+OnTheFlyEncoder _onTheFlyEncodeForResolve(PubClient pubClient, StringSink err) {
+  return (source, version) async {
+    err.write('(encoding on-the-fly) ');
+    // Use PubClient's API-based resolution to get the correct archive URL.
+    final vi = await pubClient.resolveVersion(source.package, source.version);
+    final pkgDir = await pubClient.downloadPackage(
+      source.package,
+      vi.version,
+      archiveUrl: vi.archiveUrl,
+    );
+    try {
+      final encoder = PackageEncoder(pkgDir);
+      final program = encoder.encode();
+      // Return the main module (the first non-base, non-stub module).
+      for (final m in program.modules) {
+        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
+          continue;
+        }
+        if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
+        return m;
+      }
+      throw StateError(
+        'No encodable module found in ${source.package}@$version',
+      );
+    } finally {
+      // Best-effort temp-dir cleanup: a failure here must not mask the real
+      // encode error/result above, and a leftover temp dir is harmless.
+      try {
+        await pkgDir.delete(recursive: true);
+      } catch (_) {}
+    }
+  };
+}
+
 Future<void> _resolve(List<String> args, StringSink out, StringSink err) async {
   final file = File('ball.yaml');
   if (!file.existsSync()) {
@@ -905,35 +963,12 @@ Future<void> _resolve(List<String> args, StringSink out, StringSink err) async {
   // to on-the-fly encoding via the Dart encoder.
   final pubClient = PubClient();
   final bridge = RegistryBridge()..register(PubAdapter());
-  bridge.onTheFlyEncoder = (source, version) async {
-    err.write('(encoding on-the-fly) ');
-    // Use PubClient's API-based resolution to get the correct archive URL.
-    final vi = await pubClient.resolveVersion(source.package, source.version);
-    final pkgDir = await pubClient.downloadPackage(
-      source.package,
-      vi.version,
-      archiveUrl: vi.archiveUrl,
-    );
-    try {
-      final encoder = PackageEncoder(pkgDir);
-      final program = encoder.encode();
-      // Return the main module (the first non-base, non-stub module).
-      for (final m in program.modules) {
-        if (m.functions.every((f) => f.isBase) && m.functions.isNotEmpty) {
-          continue;
-        }
-        if (m.functions.isEmpty && m.typeDefs.isEmpty) continue;
-        return m;
-      }
-      throw StateError(
-        'No encodable module found in ${source.package}@$version',
-      );
-    } finally {
-      try {
-        await pkgDir.delete(recursive: true);
-      } catch (_) {}
-    }
-  };
+  // Requires live network access to pub.dev (a real registry resolve +
+  // package download) -- excluded from coverage per issue #261/repo policy,
+  // matching the existing `--exclude-tags network` convention.
+  // coverage:ignore-start
+  bridge.onTheFlyEncoder = _onTheFlyEncodeForResolve(pubClient, err);
+  // coverage:ignore-end
   final resolver = ModuleResolver(registryResolver: bridge.resolve);
   final lockEntries = <Map<String, Object?>>[];
 

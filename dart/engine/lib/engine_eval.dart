@@ -196,7 +196,14 @@ extension BallEngineEval on BallEngine {
       if (bound is Function) {
         final result = bound(input);
         if (result is Future) return _unwrapFuture(await result);
+        // Per-arm verified unreachable (issue #261): every Function value
+        // this engine ever binds into scope is produced by `_evalLambda`,
+        // which always returns an `async` closure — calling an `async`
+        // Dart function ALWAYS yields a Future, so `result` is never
+        // anything else by the time we get here.
+        // coverage:ignore-start
         return _unwrapFuture(result);
+        // coverage:ignore-end
       }
     }
 
@@ -225,9 +232,13 @@ extension BallEngineEval on BallEngine {
               ? className
               : '$_currentModule:$className';
           final colonIdx2 = qualifiedName.indexOf(':');
+          // Per-arm verified unreachable (issue #261): `qualifiedName` above
+          // is either `className` (already checked to contain ':') or
+          // `'$_currentModule:$className'` (which always contains one by
+          // construction) — `colonIdx2` can never be -1.
           final modPart2 = colonIdx2 >= 0
               ? qualifiedName.substring(0, colonIdx2)
-              : _currentModule;
+              : _currentModule; // coverage:ignore-line
           final staticKey = '$modPart2.$qualifiedName.${call.function}';
           final staticFunc = _functions[staticKey];
           if (staticFunc != null) {
@@ -775,10 +786,20 @@ extension BallEngineEval on BallEngine {
     final topLevel = _topLevelRefs[name];
     if (topLevel != null) {
       if (topLevel.kind == 'top_level_variable') {
+        // Per-arm verified unreachable (issue #261): a `top_level_variable`
+        // is unconditionally pre-bound into `_globalScope` by the engine's
+        // startup init loop (before `run()`), and `_globalScope` is an
+        // ancestor of every `_Scope` — so a BARE reference to it is already
+        // caught by `scope.has(name)` far above, before `_topLevelRefs` is
+        // even consulted. This branch's OWN condition still gets evaluated
+        // (false) for a `kind == 'function'` tear-off reaching this point,
+        // which is why it isn't itself flagged — only its body never runs.
+        // coverage:ignore-start
         if (_globalScope.has(name)) {
           return _globalScope.lookup(name);
         }
         return _callFunction(topLevel.module, topLevel.func, null);
+        // coverage:ignore-end
       }
       final modName = topLevel.module;
       return (Object? input) async {
@@ -791,6 +812,13 @@ extension BallEngineEval on BallEngine {
       if (_globalScope.has(staticField.fullName)) {
         return _globalScope.lookup(staticField.fullName);
       }
+      // Per-arm verified unreachable (issue #261): `staticField.fullName` is
+      // exactly the `func.name` the engine's startup init loop pre-binds
+      // into `_globalScope` for EVERY `static_field`-kind function (whether
+      // or not it `hasBody()`), unconditionally, before `run()` — so
+      // `_globalScope.has(staticField.fullName)` above is always true and
+      // this "compute + cache it now" fallback can never run.
+      // coverage:ignore-start
       final func = staticField.func;
       var value = await _callFunction(staticField.module, func, null);
       if (func.outputType.startsWith('Map')) {
@@ -803,6 +831,7 @@ extension BallEngineEval on BallEngine {
       }
       _globalScope.bind(staticField.fullName, value);
       return value;
+      // coverage:ignore-end
     }
 
     // Handle built-in type references (List, Map, Set) as class-like objects
@@ -891,9 +920,12 @@ extension BallEngineEval on BallEngine {
 
       // Static method: look up "module.qualifiedName.methodName"
       final colonIdx = qualifiedName.indexOf(':');
+      // Per-arm verified unreachable (issue #261): `qualifiedName` is built
+      // just above from `className`/`'$_currentModule:$className'` and
+      // always contains ':' — same reasoning as the sibling class-ref site.
       final modPart = colonIdx >= 0
           ? qualifiedName.substring(0, colonIdx)
-          : _currentModule;
+          : _currentModule; // coverage:ignore-line
       final staticKey = '$modPart.$qualifiedName.$fieldName';
       final staticFunc = _functions[staticKey];
       if (staticFunc != null) {
@@ -1000,31 +1032,53 @@ extension BallEngineEval on BallEngine {
     // Mirrors V8's LoadIC prototype-chain lookup for common properties.
     // Unwrap BallList so property access works on wrapped lists too.
     final rawList = _asList(object);
+    // Per-arm verified unreachable, ALL `object is Map` / `object is Set`
+    // guards in this switch (issue #261): `_asMap(object)` (checked earlier,
+    // ~L913 above) already returns non-null for ANY Map (raw or BallMap), and
+    // `_isBallSet(object)` (checked earlier, ~L834) already matches ANY Set
+    // (native or the portable tagged-map form) — so field access on a
+    // genuine Map/Set is always resolved by one of those two earlier blocks,
+    // never reaching here. Confirmed via direct instrumentation: none of the
+    // `is Map`/`is Set` arms below fire for a Map/Set receiver in this suite.
+    // This switch's `rawList`/`String` arms remain the real, reachable path
+    // for wrapped/plain Lists.
     switch (fieldName) {
       case 'length':
         if (object is String) return object.length;
         if (rawList != null) return rawList.length;
+        // coverage:ignore-start
         if (object is Map) return object.length;
         if (object is Set) return object.length;
+      // coverage:ignore-end
       case 'isEmpty':
         if (object is String) return object.isEmpty;
         if (rawList != null) return rawList.isEmpty;
+        // coverage:ignore-start
         if (object is Map) return object.isEmpty;
         if (object is Set) return object.isEmpty;
+      // coverage:ignore-end
       case 'isNotEmpty':
         if (object is String) return object.isNotEmpty;
         if (rawList != null) return rawList.isNotEmpty;
+        // coverage:ignore-start
         if (object is Map) return object.isNotEmpty;
         if (object is Set) return object.isNotEmpty;
+      // coverage:ignore-end
       case 'first':
         if (rawList != null && rawList.isNotEmpty) return rawList.first;
+        // coverage:ignore-start
         if (object is Set && object.isNotEmpty) return object.first;
+      // coverage:ignore-end
       case 'last':
         if (rawList != null && rawList.isNotEmpty) return rawList.last;
+        // coverage:ignore-start
         if (object is Set && object.isNotEmpty) return object.last;
+      // coverage:ignore-end
       case 'single':
         if (rawList != null && rawList.length == 1) return rawList.single;
+        // coverage:ignore-start
         if (object is Set && object.length == 1) return object.single;
+      // coverage:ignore-end
       case 'reversed':
         // Manual reverse, not `.reversed` — see _manualReverse's doc comment
         // in engine_std.dart (self-host encoder blast radius, issue #64).
@@ -1040,6 +1094,13 @@ extension BallEngineEval on BallEngine {
           'Cannot access field "keys" on ${object?.runtimeType ?? "null"}',
         );
       case 'values':
+        // Per-arm verified unreachable (issue #261): a genuine Map is always
+        // resolved by the `objectMap != null` block's OWN 'values' case
+        // far above (~L965), which runs the identical enum-sort logic —
+        // `_asMap(object)` there already returns non-null for ANY Map, so
+        // `object is Map` here can never be true. Confirmed via direct
+        // instrumentation with a real enum-valued map.
+        // coverage:ignore-start
         if (object is Map) {
           final vals = object.entries.map((e) => e.value).toList();
           if (vals.isNotEmpty &&
@@ -1057,6 +1118,7 @@ extension BallEngineEval on BallEngine {
           }
           return vals;
         }
+        // coverage:ignore-end
         // Explicit throw — see the 'keys' case above (self-host fall-through).
         throw BallRuntimeError(
           'Cannot access field "values" on ${object?.runtimeType ?? "null"}',

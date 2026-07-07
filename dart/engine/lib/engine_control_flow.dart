@@ -825,9 +825,20 @@ extension BallEngineControlFlow on BallEngine {
         final computed = _applyCompoundOp(op, current, val);
         scope.set(name, computed);
         _syncFieldToSelf(scope, name, computed);
-        // Also sync to global scope for top-level mutable variables.
+        // Per-arm verified unreachable (issue #261): `scope.set()` just above
+        // already recurses to `_globalScope` for a top-level var — `_Scope`
+        // is created as `_Scope(_globalScope)` for every function invocation
+        // (engine_invocation.dart), so `_globalScope` is an ancestor of every
+        // scope, and `_Scope.set()` walks up to whichever ancestor already
+        // `has()` the binding. So `_globalScope.has(name)` being true implies
+        // `scope.has(name)` is ALSO already true (same lookup chain),
+        // making `!scope.has(name)` impossible whenever the first half holds.
+        // Confirmed via direct instrumentation: a dedicated compound-assign-
+        // on-a-top-level-var test never reaches the body below.
         if (_globalScope.has(name) && !scope.has(name)) {
+          // coverage:ignore-start
           _globalScope.set(name, computed);
+          // coverage:ignore-end
         }
         return computed;
       }
@@ -1115,7 +1126,12 @@ extension BallEngineControlFlow on BallEngine {
       '<<=' => _intOp(current, val, (a, b) => a << b),
       '>>=' => _intOp(current, val, (a, b) => a >> b),
       '>>>=' => _intOp(current, val, (a, b) => a >>> b),
-      '??=' => current ?? val,
+      // Per-arm verified unreachable (issue #261): `_evalAssign` intercepts
+      // `op == '??='` earlier and returns via `_evalNullAwareAssign` (needed
+      // so the RHS is short-circuited, unevaluated, when the LHS is
+      // non-null) — `_applyCompoundOp` is only ever reached for a *different*
+      // non-`=` operator, so this arm can never be selected.
+      '??=' => current ?? val, // coverage:ignore-line
       _ => val,
     };
   }
@@ -1196,7 +1212,14 @@ extension BallEngineControlFlow on BallEngine {
       'for_in' => _evalLabeledForIn(loopCall, label, scope),
       'while' => _evalLabeledWhile(loopCall, label, scope),
       'do_while' => _evalLabeledDoWhile(loopCall, label, scope),
+      // Per-arm verified unreachable (issue #261): `_evalLabeledLoop`'s only
+      // caller passes a `loopCall` obtained from `_extractLoopFromBody`,
+      // which only ever returns a call whose `.function` is one of the four
+      // cases above (or `null`, filtered out by the caller before this
+      // function is even invoked) — so this fallback can never be selected.
+      // coverage:ignore-start
       _ => _evalExpression(Expression()..call = loopCall, scope),
+      // coverage:ignore-end
     };
   }
 

@@ -118,10 +118,11 @@ export function decodeBallFileJson(json: unknown): BallFile {
   if (isModuleUrl(type)) {
     return { kind: "module", module: fromJson(ModuleSchema, body) };
   }
-  // Unreachable: unwrapBallFileJson above already runs this same check and
-  // throws first if neither matches. Kept for exhaustiveness (TS can't see
-  // that guarantee across the function call).
+  /* c8 ignore start -- unreachable: unwrapBallFileJson above already runs
+   * this same check and throws first if neither matches. Kept for
+   * exhaustiveness (TS can't see that guarantee across the function call). */
   throw new BallFileFormatError(`unknown ball file @type: "${type}"`);
+  /* c8 ignore stop */
 }
 
 /** Decodes a {@link Program} from a ball file JSON, or throws if it wraps a Module. */
@@ -150,21 +151,25 @@ export function decodeBallFileBinary(bytes: Uint8Array): BallFile {
     // (already excluded by isProgramUrl), and fromBinary throws (verified
     // empirically) rather than returning undefined on corrupt bytes.
     const program = anyUnpack(any, ProgramSchema);
+    /* c8 ignore start -- defensive fallback, see the comment above */
     if (program === undefined) {
       throw new BallFileFormatError(
         `could not unpack Program from Any (typeUrl "${any.typeUrl}")`,
       );
     }
+    /* c8 ignore stop */
     return { kind: "program", program };
   }
   if (isModuleUrl(any.typeUrl)) {
     // See the identical reasoning on the Program branch above.
     const module = anyUnpack(any, ModuleSchema);
+    /* c8 ignore start -- defensive fallback, see the comment above */
     if (module === undefined) {
       throw new BallFileFormatError(
         `could not unpack Module from Any (typeUrl "${any.typeUrl}")`,
       );
     }
+    /* c8 ignore stop */
     return { kind: "module", module };
   }
   throw new BallFileFormatError(

@@ -51,6 +51,20 @@ name = "ball-engine"
 version = "0.1.0"
 dependencies = [
  "ball-shared",
+ "prost",
+ "prost-reflect",
+ "serde_json",
+]
+
+[[package]]
+name = "ball-engine-regen"
+version = "0.1.0"
+dependencies = [
+ "ball-compiler",
+ "ball-shared",
+ "prost",
+ "prost-reflect",
+ "serde_json",
 ]
 
 [[package]]

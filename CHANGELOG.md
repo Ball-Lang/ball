@@ -1,3 +1,10 @@
+# [1.10.0](https://github.com/Ball-Lang/ball/compare/v1.9.0...v1.10.0) (2026-07-07)
+
+
+### Features
+
+* **rust:** [#35](https://github.com/Ball-Lang/ball/issues/35) runtime value types + std module builders ([#281](https://github.com/Ball-Lang/ball/issues/281)) ([8f2cbc5](https://github.com/Ball-Lang/ball/commit/8f2cbc58542ae1a12530afd0b775ceb94f061e89))
+
 # [1.9.0](https://github.com/Ball-Lang/ball/compare/v1.8.0...v1.9.0) (2026-07-07)
 
 

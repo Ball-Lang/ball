@@ -23,6 +23,10 @@ echo "=== running test_shared ==="
 ./build-cov/test/test_shared
 echo "test_shared exit=$?"
 
+echo "=== running test_ball_file ==="
+./build-cov/test/test_ball_file
+echo "test_ball_file exit=$?"
+
 echo "=== running test_encoder ==="
 ./build-cov/test/test_encoder
 echo "test_encoder exit=$?"
@@ -42,6 +46,10 @@ echo "test_ball_dyn exit=$?"
 echo "=== running scope_probe ==="
 ./build-cov/test/scope_probe
 echo "scope_probe exit=$?"
+
+echo "=== running test_cli ==="
+./build-cov/test/test_cli
+echo "test_cli exit=$?"
 
 if [ "${BALL_COV_FULL:-0}" = "1" ]; then
   echo "=== running test_e2e (BALL_COV_FULL=1) ==="

@@ -1,3 +1,10 @@
+## [1.7.10](https://github.com/Ball-Lang/ball/compare/v1.7.9...v1.7.10) (2026-07-07)
+
+
+### Bug Fixes
+
+* **engine:** remove redundant BallDouble double-wrap ([#237](https://github.com/Ball-Lang/ball/issues/237)) + unique lambda paramCache key ([#246](https://github.com/Ball-Lang/ball/issues/246)) ([#274](https://github.com/Ball-Lang/ball/issues/274)) ([430f37c](https://github.com/Ball-Lang/ball/commit/430f37c11c91f4501fe163a9080faf8c1860d282)), closes [#222](https://github.com/Ball-Lang/ball/issues/222) [#222](https://github.com/Ball-Lang/ball/issues/222)
+
 ## [1.7.9](https://github.com/Ball-Lang/ball/compare/v1.7.8...v1.7.9) (2026-07-07)
 
 

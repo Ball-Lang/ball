@@ -387,7 +387,16 @@ extension BallEngineStd on BallEngine {
         // drops the sign of negative zero. Re-add it portably: `1.0 / -0.0` is
         // negative infinity (< 0) whereas `1.0 / 0.0` is positive infinity.
         if (n == 0 && (1.0 / n) < 0 && !s.startsWith('-')) {
+          // Per-arm verified unreachable on the Dart reference engine (issue
+          // #261): the Dart VM's own `(-0.0).toStringAsFixed(n)` already keeps
+          // the leading '-', so `!s.startsWith('-')` is never true here — this
+          // compensates only for the compiled TS/C++ self-hosts' native
+          // fixed-notation routines, which drop the sign (see the comment
+          // above). Confirmed via direct instrumentation: a dedicated test
+          // feeding -0.0 through this exact call never reaches this line.
+          // coverage:ignore-start
           return '-$s';
+          // coverage:ignore-end
         }
         return s;
       },
@@ -905,10 +914,17 @@ extension BallEngineStd on BallEngine {
               if (r is Future) await r;
             }
           } else if (collection is Set) {
+            // Per-arm verified unreachable (issue #261): `_stdAsList` already
+            // matches ANY Set (`_isBallSet` checks `v is Set` first, before
+            // the portable-map tag), so `listVal` above is non-null and this
+            // `for` loop returns before this `else if` is ever tested for a
+            // real Set. Mirrors the sibling `list_to_list` exclusion (#61).
+            // coverage:ignore-start
             for (final item in collection) {
               var r = fn(item);
               if (r is Future) await r;
             }
+            // coverage:ignore-end
           }
         }
         return null;
@@ -1031,9 +1047,16 @@ extension BallEngineStd on BallEngine {
             final v = eMap['value'] ?? eMap['arg1'];
             if (k != null) result[k.toString()] = v;
           } else if (e is Map) {
+            // Per-arm verified unreachable (issue #261): `_stdAsMap` already
+            // handles ANY Map (`v is Map && v is! BallMap` returns it
+            // directly, `v is BallMap` returns `.entries`) — it only returns
+            // null for a genuinely non-Map value, so `eMap == null && e is
+            // Map` can never both hold.
+            // coverage:ignore-start
             final k = e['key'] ?? e['arg0'];
             final v = e['value'] ?? e['arg1'];
             if (k != null) result[k.toString()] = v;
+            // coverage:ignore-end
           }
         }
         return result;
@@ -1246,7 +1269,14 @@ extension BallEngineStd on BallEngine {
         if (m != null) return m.isEmpty;
         if (v is Set) return v.isEmpty;
         if (v is Iterable) return v.isEmpty;
+        // Per-arm verified unreachable (issue #261): real Dart's `.isEmpty`
+        // is only defined on String/Map/Iterable (List/Set/Queue/...)
+        // receivers, all of which are already handled above — the encoder
+        // can never emit `string_is_empty` for anything else, so this
+        // "must-be-String" fallback cast can never actually execute.
+        // coverage:ignore-start
         return (v as String).isEmpty;
+        // coverage:ignore-end
       }),
       'string_concat': _stdConcat,
       'string_contains': (i) =>
@@ -1668,6 +1698,14 @@ extension BallEngineStd on BallEngine {
       return '[${parts.join(', ')}]';
     }
     if (v is Set) {
+      // Per-arm verified unreachable (issue #261): `_isBallSet` above already
+      // matches `v is Set` (it's `v is Set || <portable-tag>`), so ANY native
+      // Set — not just the portable map form — is caught by the `_isBallSet`
+      // branch first. Confirmed via direct instrumentation: injecting a
+      // genuine `<int>{...}` through a custom module handler and printing it
+      // never reaches this block. Stringifies identically to the branch
+      // above regardless (both render `{a, b, c}`), so no behavior is lost.
+      // coverage:ignore-start
       // Stringify sets explicitly as `{a, b, c}`. Do NOT rely on the platform
       // Set.toString(): on the Dart engine it happens to print `{...}`, but the
       // compiled TS engine's JS `Set` would fall into the object branch and
@@ -1678,9 +1716,17 @@ extension BallEngineStd on BallEngine {
         parts.add(await _ballToStringAsync(item));
       }
       return '{${parts.join(', ')}}';
+      // coverage:ignore-end
     }
     // BallException: return message/value directly without invoking toString
     // to prevent infinite recursion when exceptions are caught and stringified.
+    //
+    // Per-arm verified unreachable via the catch machinery on the Dart
+    // reference engine (issue #261): `_evalLazyTry`'s catch-variable binding
+    // always unwraps to `e.value` (`e is BallException ? e.value :
+    // e.toString()`), so Ball-level code can never hold a raw BallException
+    // to pass to `to_string`/print. Confirmed via direct instrumentation.
+    // coverage:ignore-start
     if (v is BallException) {
       final ev = v.value;
       final em = _stdAsMap(ev);
@@ -1691,6 +1737,7 @@ extension BallEngineStd on BallEngine {
       if (ev is String) return ev;
       return v.typeName;
     }
+    // coverage:ignore-end
     final map = _stdAsMap(v);
     if (map != null) {
       final typeName = map['__type__'] as String?;
@@ -2886,11 +2933,17 @@ extension BallEngineStd on BallEngine {
       };
     }
     if (v is Map) {
+      // Per-arm verified unreachable (issue #261): `_stdAsMap` above already
+      // handles ANY Map (raw or BallMap) and only returns null for a
+      // genuinely non-Map value — so `mapVal == null && v is Map` can never
+      // both hold. Mirrors the identical `map_from_entries` finding.
+      // coverage:ignore-start
       return {
         for (final e in v.entries)
           if (e.key is String && !(e.key as String).startsWith('__'))
             e.key: _toJsonSafe(e.value),
       };
+      // coverage:ignore-end
     }
     final listVal = _stdAsList(v);
     if (listVal != null) return listVal.map(_toJsonSafe).toList();

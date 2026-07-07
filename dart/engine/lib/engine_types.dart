@@ -149,14 +149,26 @@ Object? _ballMapHandleEntries(Object? map) {
 List<Object?> _ballMapKeysDyn(Object? map) {
   final handle = _ballMapHandleEntries(map);
   if (handle is Map) return handle.keys.toList();
+  // Per-arm verified unreachable (issue #261): this function's only caller
+  // (`map_keys` in engine_std.dart) already throws `BallRuntimeError` for a
+  // non-Map/non-BallMap receiver BEFORE calling here (issue #197's fail-loud
+  // guard) — so `map` is always Map-shaped by the time `_ballMapHandleEntries`
+  // runs, and `handle is Map` is always true.
+  // coverage:ignore-start
   return [];
+  // coverage:ignore-end
 }
 
 /// Map values for a runtime map handle (BallOrderedMap / BallDyn) — C++ intrinsic.
 List<Object?> _ballMapValuesDyn(Object? map) {
   final handle = _ballMapHandleEntries(map);
   if (handle is Map) return _ballMapValues(handle);
+  // Per-arm verified unreachable (issue #261): same fail-loud guard as
+  // `_ballMapKeysDyn` above, enforced by this function's only caller
+  // (`map_values` in engine_std.dart).
+  // coverage:ignore-start
   return [];
+  // coverage:ignore-end
 }
 
 /// Key check for runtime map handles — C++ intrinsic.
@@ -200,10 +212,19 @@ bool _metadataBool(Object? field) {
   if (field is structpb.Value) {
     return field.hasBoolValue() && field.boolValue;
   }
+  // Per-arm verified unreachable on the Dart reference engine (issue #261):
+  // every caller reads `field` from a real `google.protobuf.Struct.fields`
+  // map (`FunctionDefinition.metadata.fields['...']`), which always yields a
+  // native `structpb.Value` (handled above), never a raw JSON-shaped Map —
+  // that shape is produced only by the C++ self-host's proto3-JSON loader
+  // (per this function's own doc comment), which this native engine never
+  // runs.
+  // coverage:ignore-start
   if (field is Map) {
     final bv = field['boolValue'];
     if (bv is bool) return bv;
   }
+  // coverage:ignore-end
   return false;
 }
 

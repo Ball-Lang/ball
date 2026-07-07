@@ -26,6 +26,17 @@ target_include_directories(test_shared PRIVATE
 )
 target_link_libraries(test_shared ball_shared)
 
+# ball_file.h tests — the self-describing google.protobuf.Any envelope
+# reader (DecodeBallFile/DecodeBallFileJson/DecodeBallFileBinary/LoadProgram/
+# LoadModule/DecodeProgram). Not exercised by test_compiler/test_encoder/
+# test_shared (they never feed a malformed or wrong-kind ball file through
+# the loader), so its error branches sat largely uncovered (issue #63).
+add_executable(test_ball_file test_ball_file.cpp)
+target_include_directories(test_ball_file PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(test_ball_file ball_shared)
+
 # BallDyn / BallOrderedMap / ball_emit_runtime.h runtime tests — the
 # compiled-program runtime (issue #63). Neither header is reachable from
 # test_compiler/test_encoder/test_shared (those drive the compiler/encoder,
@@ -239,9 +250,26 @@ else()
 endif()
 endif()
 
+# CLI entry-point tests — subprocess-invokes the REAL ball_cpp_compile /
+# ball_cpp_encode executables (issue #63: cpp/{compiler,encoder}/src/main.cpp
+# were 0% in every prior coverage sweep — no other test binary invokes them,
+# they only drive the compiler/encoder LIBRARIES in-process). $<TARGET_FILE:>
+# resolves the built binary path portably across single- and multi-config
+# generators; add_dependencies ensures they're built before test_cli runs.
+add_executable(test_cli test_cli.cpp)
+target_compile_definitions(test_cli PRIVATE
+    BALL_CPP_COMPILE_EXE="$<TARGET_FILE:ball_cpp_compile>"
+    BALL_CPP_ENCODE_EXE="$<TARGET_FILE:ball_cpp_encode>"
+    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+    BALL_CLANG_AST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures/cpp_ast/ast"
+)
+add_dependencies(test_cli ball_cpp_compile ball_cpp_encode)
+
 enable_testing()
 add_test(NAME compiler_tests COMMAND test_compiler)
+add_test(NAME cli_tests COMMAND test_cli)
 add_test(NAME shared_tests COMMAND test_shared)
+add_test(NAME ball_file_tests COMMAND test_ball_file)
 add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)

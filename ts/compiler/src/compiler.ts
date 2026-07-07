@@ -2986,10 +2986,6 @@ function __isUnknownFnError(e: any): boolean {
     this.out += "  ".repeat(this.depth) + s + "\n";
   }
 
-  private get ind(): string {
-    return "  ".repeat(this.depth);
-  }
-
   private withMethodContext<T>(
     params: Set<string>,
     fields: Set<string>,
@@ -6443,8 +6439,15 @@ function compileStructuredPattern(
       if (subpattern) return compileStructuredPattern(subpattern, subject, exprFn) ?? { condition: "true", bindings: [] };
       return { condition: "true", bindings: [] };
     }
+    /* c8 ignore start -- genuinely unreachable: KNOWN_PATTERN_KINDS (checked
+     * at this function's entry, above) is kept in exact 1:1 sync with the
+     * case labels of this switch, so every kind that passes the guard
+     * matches one of the cases above. Kept as a defensive fallback in case
+     * the two lists ever drift out of sync (rather than a non-null
+     * assertion that would silently miscompile a new pattern kind). */
     default:
       return undefined;
+    /* c8 ignore stop */
   }
 }
 

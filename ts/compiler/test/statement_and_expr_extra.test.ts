@@ -14,6 +14,44 @@
  *   - Control-flow text fallbacks: a malformed switch (missing subject/
  *     cases) and a labeled statement (~3163-3206).
  *
+ * ── Issue #264 additions (deferred coverage cluster from #62/#263) ──
+ *   - A bare `throw;` with no value (~3218-3219).
+ *   - For-loop init edge cases: a block-style init with a no-value `let`
+ *     (a declaration-only C-style init) and a bare non-block/non-string
+ *     init expression (~3412-3421).
+ *   - Real `std.label`/`std.goto` execution — a labelled loop that
+ *     actually restarts via a backward jump (~3462-3491), previously only
+ *     proven by the interpreted-engine conformance corpus, not native
+ *     TS-codegen.
+ *   - `collectHoistedLetNames`'s recursion into a doubly-nested
+ *     block-expression-as-statement, and the rename-conflict counter
+ *     advancing past `$1` when BOTH `x` and `x$1` are already taken
+ *     (~3086-3148).
+ *   - A bare `super` reference (not `super.field`) used as a tear-off/call
+ *     target inside a class method (~3743-3744).
+ *   - The `expr()` "notSet" fallback for a totally-empty `Expression{}`
+ *     node with no oneof member populated (~3773).
+ *   - `StringBuffer.writeCharCode(code)`'s `self`-field shim (~4290-4292).
+ *   - `compileMessageCreation`'s NON-colon-qualified typeName fallbacks: a
+ *     bare (unqualified) free-function name, a bare same-class method
+ *     name, and a bare user-defined-class name that don't go through the
+ *     `"module:ident"` colon branch (~4086-4103).
+ *   - The legacy `"module:ClassName.new"` FunctionCall constructor
+ *     convention in `compileCall` (~4249-4261) — distinct from
+ *     `compileMessageCreation`'s typeName-based constructor detection,
+ *     which is the convention both encoders actually emit today.
+ *   - Collection-element edge cases: a malformed map entry (missing key or
+ *     value) via both `compileMapElements`'s plain fast path and
+ *     `emitCollectionElement`'s imperative map branch, and
+ *     `renderForInit`'s fallback branches for a non-block / declaration-
+ *     only C-style `collection_for` init (~3871-3990).
+ *   - `translateInitString`'s fallback for a for-init cosmetic string with
+ *     no recognized `var`/`final`/type keyword prefix (~5890-5896).
+ *   - `sameRef`'s field-access-chain comparison (used by the in-place
+ *     list-mutation optimizer for `this.x = list_concat(list: this.x,
+ *     value: y)` inside a class method) and its no-match fallback
+ *     (~5810-5816).
+ *
  * Run: node --experimental-strip-types --test test/*.test.ts
  */
 import { test, describe } from "node:test";
@@ -578,5 +616,960 @@ describe("compiler — compileMessageCreation's transparent BallValue wrapper ty
     const ts = compile(mainProgram(body), { includePreamble: false });
     assert.match(ts, /__ball_to_string\(1\)/, "only the first field's expression is used");
     assert.equal(compileAndRun(mainProgram(body), "ballvalue_multi_field"), "1");
+  });
+});
+
+// ═══════════════════════ Issue #264 additions ═══════════════════════
+
+describe("compiler — a bare `throw;` with no value", () => {
+  test("emits `throw null;`", () => {
+    const throwStmt: Expression = { call: { module: "std", function: "throw" } };
+    const ts = compile(mainProgram({ block: { statements: [{ expression: throwStmt }] } }), { includePreamble: false });
+    assert.match(ts, /throw null;/);
+  });
+});
+
+describe("compiler — for-loop init edge cases", () => {
+  test("a block-style init with a declaration-only (no-value) `let` emits a bare `let i`", () => {
+    const forStmt: Expression = {
+      call: {
+        module: "std",
+        function: "for",
+        input: mc({
+          init: { block: { statements: [{ let: { name: "i" } }] } },
+          condition: { lambda: { body: std("less_than", { left: ref("i"), right: lit(3) }) } },
+          update: { lambda: { body: ref("i") } },
+          body: { lambda: { body: std("print", { message: lit("x") }) } },
+        }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ expression: forStmt }] } }), { includePreamble: false });
+    assert.match(ts, /for \(let i; /, "a declaration-only let init has no `= value` part");
+  });
+
+  test("a bare non-block/non-string init expression is compiled directly", () => {
+    const forStmt: Expression = {
+      call: {
+        module: "std",
+        function: "for",
+        input: mc({
+          init: ref("i"),
+          condition: { lambda: { body: std("less_than", { left: ref("i"), right: lit(3) }) } },
+          update: { lambda: { body: ref("i") } },
+          body: { lambda: { body: std("print", { message: lit("x") }) } },
+        }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ let: { name: "i", value: lit(0) } }, { expression: forStmt }] } }), { includePreamble: false });
+    assert.match(ts, /for \(i; /, "the bare reference init is compiled as-is (no `let`)");
+  });
+
+  test("a for-loop with no init clause at all compiles to an empty init slot", () => {
+    const forStmt: Expression = {
+      call: {
+        module: "std",
+        function: "for",
+        input: mc({
+          condition: { lambda: { body: std("less_than", { left: ref("i"), right: lit(3) }) } },
+          update: { lambda: { body: ref("i") } },
+          body: { lambda: { body: std("print", { message: lit("x") }) } },
+        }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ let: { name: "i", value: lit(0) } }, { expression: forStmt }] } }), { includePreamble: false });
+    assert.match(ts, /for \(; /, "the empty init slot has nothing before the first `;`");
+  });
+});
+
+describe("compiler — std.label / std.goto (real labelled-loop execution)", () => {
+  test("a backward goto re-enters its enclosing label, actually looping at runtime", () => {
+    // `label("loop", { i += 1; if (i < 3) goto("loop"); }); print(i);` compiles
+    // to a labelled `while(true)` that `continue`s back to the top on goto and
+    // `break`s on natural fall-off — proving the real runtime semantics
+    // (previously only exercised by the interpreted-engine conformance
+    // corpus, never native TS-codegen).
+    const labelBody: Expression = {
+      block: {
+        statements: [
+          {
+            expression: std("assign", {
+              target: ref("i"),
+              value: std("add", { left: ref("i"), right: lit(1) }),
+            }),
+          },
+          {
+            expression: std("if", {
+              condition: std("less_than", { left: ref("i"), right: lit(3) }),
+              then: {
+                block: {
+                  statements: [{ expression: call("std", "goto", { label: lit("loop") }) }],
+                },
+              },
+            }),
+          },
+        ],
+      },
+    };
+    const body: Expression = {
+      block: {
+        statements: [
+          { let: { name: "i", value: lit(0) } },
+          { expression: call("std", "label", { name: lit("loop"), body: labelBody }) },
+          {
+            expression: std("print", {
+              message: { call: { module: "std", function: "to_string", input: mc({ value: ref("i") }) } },
+            }),
+          },
+        ],
+      },
+    };
+    const program = mainProgram(body);
+    (program.modules[0].functions as FunctionDef[]).push(
+      { name: "assign", isBase: true },
+      { name: "add", isBase: true },
+      { name: "less_than", isBase: true },
+      { name: "if", isBase: true },
+      { name: "to_string", isBase: true },
+    );
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /loop: while \(true\)/);
+    assert.match(ts, /continue loop;/);
+    assert.match(ts, /break loop;/);
+    assert.equal(compileAndRun(program, "goto_label"), "3");
+  });
+});
+
+describe("compiler — collectHoistedLetNames recursion + rename-conflict counter past $1", () => {
+  test("a doubly-nested block-statement's `let` is found by recursing into the inner block, and a THIRD same-name declaration skips the already-taken $1 rename", () => {
+    // outer `let x = 0` takes "x". A nested block-statement whose OWN single
+    // statement is ANOTHER nested block-statement declaring `let x = 1`
+    // exercises collectHoistedLetNames' recursive branch and renames to
+    // "x$1". A third, sibling block declaring `let x = 2` then conflicts
+    // with BOTH "x" and "x$1" (now also in scopeDeclaredVars), so the
+    // rename-conflict counter must advance past 1 to produce "x$2".
+    const doublyNested: Expression = {
+      block: {
+        statements: [
+          { expression: { block: { statements: [{ let: { name: "x", value: lit(1) } }] } } },
+        ],
+      },
+    };
+    const thirdBlock: Expression = { block: { statements: [{ let: { name: "x", value: lit(2) } }] } };
+    const body: Expression = {
+      block: {
+        statements: [
+          { let: { name: "x", value: lit(0) } },
+          { expression: doublyNested },
+          { expression: thirdBlock },
+        ],
+      },
+    };
+    const ts = compile(mainProgram(body), { includePreamble: false });
+    assert.match(ts, /let x = 0;/);
+    assert.match(ts, /let x\$1 = 1;/, "the doubly-nested declaration is renamed via the recursive hoisted-names scan");
+    assert.match(ts, /let x\$2 = 2;/, "the third declaration skips the already-taken x$1 and lands on x$2");
+  });
+});
+
+describe("compiler — a bare `super` reference (tear-off/call target, not `super.field`)", () => {
+  test("a `super.method()` call (encoded via the `self` field convention) compiles to real `super.method(...)`", () => {
+    const program: Program = {
+      name: "bare_super_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Animal.new", metadata: { kind: "constructor", params: [] } },
+            {
+              name: "main:Animal.speak",
+              metadata: { kind: "method" },
+              body: { literal: { stringValue: "animal" } },
+            },
+            { name: "main:Dog.new", metadata: { kind: "constructor", params: [] } },
+            {
+              name: "main:Dog.speak",
+              metadata: { kind: "method" },
+              // Dart encoding of `super.speak()`: a call whose input carries
+              // a `self` field set to a bare `super` reference.
+              body: {
+                call: {
+                  module: "",
+                  function: "speak",
+                  input: { messageCreation: { fields: [{ name: "self", value: { reference: { name: "super" } } }] } },
+                },
+              },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "d", value: { messageCreation: { typeName: "main:Dog", fields: [] } } } },
+                    {
+                      expression: std("print", {
+                        message: {
+                          call: {
+                            function: "speak",
+                            input: { messageCreation: { fields: [{ name: "self", value: ref("d") }] } },
+                          },
+                        },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [
+            { name: "main:Animal", metadata: { kind: "class" } },
+            { name: "main:Dog", metadata: { kind: "class", superclass: "Animal" } },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /super\.speak\(\)/, "the bare `super` reference compiles to the real JS `super` keyword");
+    assert.equal(compileAndRun(program, "bare_super"), "animal");
+  });
+});
+
+describe("compiler — expr()'s notSet fallback for a totally-empty Expression node", () => {
+  test("a field value with no oneof member populated compiles to the notSet placeholder", () => {
+    const emptyObjectLiteral: Expression = {
+      messageCreation: { typeName: "", fields: [{ name: "a", value: {} }] },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ expression: std("print", { message: emptyObjectLiteral }) }] } }), { includePreamble: false });
+    assert.match(ts, /null \/\* notSet \*\//);
+  });
+});
+
+describe("compiler — StringBuffer.writeCharCode(code) self-field shim", () => {
+  test("compiles to `self += String.fromCharCode(code)`", () => {
+    const writeCharCodeCall: Expression = {
+      call: {
+        module: "",
+        function: "writeCharCode",
+        input: mc({ self: ref("buf"), arg0: lit(65) }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ expression: writeCharCodeCall }] } }), { includePreamble: false });
+    assert.match(ts, /buf \+= String\.fromCharCode\(65\)/);
+  });
+});
+
+describe("compiler — compileMessageCreation's bare (non-colon-qualified) typeName fallbacks", () => {
+  test("a bare typeName matching a free top-level function's own (unqualified) name compiles to a bare call", () => {
+    const program = mainProgram(
+      { messageCreation: { typeName: "bareFn", fields: [{ name: "arg0", value: lit(5) }] } },
+      [{ name: "bareFn", body: ref("input") }],
+    );
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /return bareFn\(5\);/);
+  });
+
+  test("a bare typeName matching a sibling method's short name (no colon) resolves via `this.`", () => {
+    const program: Program = {
+      name: "bare_method_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Calc.new", metadata: { kind: "constructor", params: [] } },
+            {
+              name: "main:Calc.compute",
+              metadata: { kind: "method" },
+              body: { literal: { intValue: 42 } },
+            },
+            {
+              name: "main:Calc.run",
+              metadata: { kind: "method" },
+              // A bare (no-colon) typeName referencing the SIBLING method
+              // "compute" directly, distinct from the colon-qualified
+              // "module:ident" resolution path.
+              body: { messageCreation: { typeName: "compute", fields: [] } },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "c", value: { messageCreation: { typeName: "main:Calc", fields: [] } } } },
+                    {
+                      expression: std("print", {
+                        message: {
+                          call: {
+                            function: "to_string",
+                            module: "std",
+                            input: mc({ value: { call: { function: "run", input: { messageCreation: { fields: [{ name: "self", value: ref("c") }] } } } } }),
+                          },
+                        },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Calc", metadata: { kind: "class" } }],
+        },
+      ],
+    } as any;
+    (program.modules[0].functions as FunctionDef[]).push({ name: "to_string", isBase: true });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /this\.compute\(\)/, "the bare typeName resolves to the sibling method via `this.`");
+    assert.equal(compileAndRun(program, "bare_method"), "42");
+  });
+
+  test("a bare (no module-colon) typeDef name resolves via typeIsUserDefinedClass to `new X(...)`", () => {
+    const program: Program = {
+      name: "bare_class_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "Foo.new", metadata: { kind: "constructor", params: [{ name: "x", is_this: true }] } },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    { expression: std("print", { message: { fieldAccess: { object: { messageCreation: { typeName: "Foo", fields: [{ name: "arg0", value: lit(9) }] } }, field: "x" } } }) },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "Foo", metadata: { kind: "class", fields: [{ name: "x", type: "int" }] } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /new Foo\(9\)/, "the bare (unqualified) typeDef name is recognized as a user-defined class");
+    assert.equal(compileAndRun(program, "bare_class"), "9");
+  });
+});
+
+describe("compiler — the legacy `\"module:ClassName.new\"` FunctionCall constructor shape", () => {
+  test("compileCall recognizes a FunctionCall whose function ends in a colon-qualified `.new` suffix", () => {
+    // Distinct from compileMessageCreation's typeName-based constructor
+    // detection (the convention both encoders actually emit today) --
+    // this is compileCall's OWN, older constructor-call recognition for a
+    // FunctionCall (not a MessageCreation) shaped as "module:ClassName.new".
+    const program: Program = {
+      name: "legacy_ctor_call_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }, { name: "to_string", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Foo.new", metadata: { kind: "constructor", params: [{ name: "x", is_this: true }] } },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      let: {
+                        name: "f",
+                        value: {
+                          call: {
+                            function: "main:Foo.new",
+                            input: { messageCreation: { fields: [{ name: "arg0", value: lit(9) }] } },
+                          },
+                        },
+                      },
+                    },
+                    {
+                      expression: std("print", {
+                        message: { call: { function: "to_string", module: "std", input: mc({ value: { fieldAccess: { object: ref("f"), field: "x" } } }) } },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Foo", metadata: { kind: "class", fields: [{ name: "x", type: "int" }] } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /new Foo\(9\)/);
+    assert.equal(compileAndRun(program, "legacy_ctor_call"), "9");
+  });
+});
+
+describe("compiler — collection-element edge cases (malformed map entries, renderForInit fallbacks)", () => {
+  test("compileMapElements' plain fast path silently drops a malformed entry (missing `value`)", () => {
+    const malformedEntry: Expression = { messageCreation: { fields: [{ name: "key", value: lit("k") }] } };
+    const mapCreateCall: Expression = {
+      call: {
+        module: "std",
+        function: "map_create",
+        input: mc({ entry: malformedEntry }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ let: { name: "m", value: mapCreateCall } }] } }), { includePreamble: false });
+    assert.match(ts, /let m = \{\};/, "the malformed entry (no `value`) is silently dropped, leaving an empty object");
+  });
+
+  test("emitCollectionElement's map branch silently no-ops a malformed plain element alongside a real control element", () => {
+    const spreadEl = call("std", "spread", { value: ref("base") });
+    const malformedPlain: Expression = lit(5); // not a key/value messageCreation at all
+    const mapCreateCall: Expression = {
+      call: {
+        module: "std",
+        function: "map_create",
+        input: { messageCreation: { fields: [{ name: "element", value: spreadEl }, { name: "element", value: malformedPlain }] } },
+      },
+    };
+    const program = mainProgram({ block: { statements: [{ let: { name: "base", value: { messageCreation: { fields: [{ name: "x", value: lit(1) } ] } } } }, { let: { name: "m", value: mapCreateCall } }, { expression: std("print", { message: { call: { module: "std", function: "to_string", input: mc({ value: { fieldAccess: { object: ref("m"), field: "x" } } }) } } }) }] } });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /for \(const __k in __m\)/, "the spread control element still copies base's entries");
+    assert.equal(compileAndRun(program, "map_malformed_plain"), "1", "the malformed plain element is a silent no-op, not a crash");
+  });
+
+  test("renderForInit falls back to a bare expression when the collection_for init isn't a single-let block", () => {
+    const cStyleFor = call("std", "collection_for", {
+      init: ref("i"), // not a block at all -> renderForInit's `!block` fallback
+      condition: ref("i"),
+      update: ref("i"),
+      body: ref("i"),
+    });
+    const listWithFor: Expression = { literal: { listValue: { elements: [cStyleFor] } } };
+    const program = mainProgram({
+      block: {
+        statements: [
+          { let: { name: "i", value: lit(0) } },
+          { let: { name: "xs", value: listWithFor } },
+        ],
+      },
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /for \(i; i; i\) \{ __r\.push\(i\); \}/, "the bare reference init compiles via the expr() fallback, not a `let` declaration");
+  });
+
+  test("renderForInit emits a bare declaration (no `= value`) for a __no_init__-sentinel let in a collection_for init", () => {
+    const cStyleFor = call("std", "collection_for", {
+      init: { block: { statements: [{ let: { name: "i", value: ref("__no_init__") } }] } },
+      condition: ref("i"),
+      update: ref("i"),
+      body: ref("i"),
+    });
+    const listWithFor: Expression = { literal: { listValue: { elements: [cStyleFor] } } };
+    const program = mainProgram({ block: { statements: [{ let: { name: "xs", value: listWithFor } }] } });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /for \(let i; i; i\) \{ __r\.push\(i\); \}/, "the __no_init__ sentinel produces a declaration-only `let i`, no `= value`");
+  });
+});
+
+describe("compiler — compileLiteral's bytes-literal decode (#244)", () => {
+  test("a bytesValue literal decodes the actual base64-encoded bytes at compile time", () => {
+    // "hi" base64-encoded, matching the raw proto3-JSON convention this
+    // compiler's plain-JSON `Literal` DTO carries bytesValue in.
+    const bytesLit: Expression = { literal: { bytesValue: Buffer.from("hi").toString("base64") } as any };
+    // Asserting on the compiled TS text is sufficient here (no execution
+    // needed) -- the runtime behavior of atob/Uint8Array is already proven
+    // by std_memory's own executed tests; this isolates compileLiteral's
+    // OWN emission for this shape (issue #244: it used to always emit an
+    // empty Uint8Array regardless of the source bytes).
+    const bytesProgram = mainProgram({ block: { statements: [{ let: { name: "b", value: bytesLit } }] } });
+    const ts = compile(bytesProgram, { includePreamble: false });
+    assert.match(ts, /Uint8Array\.from\(atob\('aGk='\), c => c\.charCodeAt\(0\)\)/, "the real base64 payload is embedded and decoded, not discarded");
+  });
+});
+
+describe("compiler — compileMessageCreation's colon-qualified same-class-method + double-match branches", () => {
+  test("a colon-qualified typeName (`module:ident`) resolving to a SIBLING method of the class being compiled", () => {
+    const program: Program = {
+      name: "colon_sibling_method_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }, { name: "to_string", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Calc.new", metadata: { kind: "constructor", params: [] } },
+            { name: "main:Calc.helper2", metadata: { kind: "method" }, body: { literal: { intValue: 7 } } },
+            {
+              name: "main:Calc.run2",
+              metadata: { kind: "method" },
+              // Colon-qualified reference to the SIBLING method, distinct
+              // from the bare (no-colon) resolution path.
+              body: { messageCreation: { typeName: "main:helper2", fields: [] } },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "c", value: { messageCreation: { typeName: "main:Calc", fields: [] } } } },
+                    {
+                      expression: std("print", {
+                        message: {
+                          call: {
+                            function: "to_string",
+                            module: "std",
+                            input: mc({ value: { call: { function: "run2", input: { messageCreation: { fields: [{ name: "self", value: ref("c") }] } } } } }),
+                          },
+                        },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Calc", metadata: { kind: "class" } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /this\.helper2\(\)/);
+    assert.equal(compileAndRun(program, "colon_sibling_method"), "7");
+  });
+
+  test("a bare typeName that matches BOTH a free top-level function AND a sibling method resolves via `this.`", () => {
+    const program: Program = {
+      name: "double_match_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }, { name: "to_string", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "helper", body: { literal: { intValue: 100 } } },
+            { name: "main:Calc.new", metadata: { kind: "constructor", params: [] } },
+            { name: "main:Calc.helper", metadata: { kind: "method" }, body: { literal: { intValue: 1 } } },
+            {
+              name: "main:Calc.run",
+              metadata: { kind: "method" },
+              // Bare "helper" matches BOTH the top-level free function AND
+              // this class's own "helper" method -- the class method wins.
+              body: { messageCreation: { typeName: "helper", fields: [] } },
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "c", value: { messageCreation: { typeName: "main:Calc", fields: [] } } } },
+                    {
+                      expression: std("print", {
+                        message: {
+                          call: {
+                            function: "to_string",
+                            module: "std",
+                            input: mc({ value: { call: { function: "run", input: { messageCreation: { fields: [{ name: "self", value: ref("c") }] } } } } }),
+                          },
+                        },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Calc", metadata: { kind: "class" } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /this\.helper\(\)/);
+    assert.equal(compileAndRun(program, "double_match"), "1", "the class method (this.helper()) wins over the bare top-level function");
+  });
+});
+
+describe("compiler — typeRefMetaToString's nested generic type_args + dartTypeToTs's user-defined generic default", () => {
+  test("a nested generic TypeRef (type_args carrying its OWN type_args) stringifies recursively", () => {
+    const program: Program = {
+      name: "nested_type_args_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Box.new", outputType: "main:Box", metadata: { kind: "constructor", params: [{ name: "value", is_this: true }] } },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      let: {
+                        name: "b",
+                        value: {
+                          messageCreation: {
+                            typeName: "main:Box",
+                            fields: [{ name: "arg0", value: { literal: { listValue: { elements: [] } } } }],
+                            metadata: { type_args: [{ name: "List", type_args: [{ name: "int" }] }] },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Box", metadata: { kind: "class", fields: [{ name: "value", type: "Object" }] } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /__ball_with_type_args\(new Box\(\[\]\), \["List<int>"\]\)/);
+  });
+
+  test("a user-defined generic field type (not List/Map/Set/Future) maps recursively via the default branch", () => {
+    const program: Program = {
+      name: "user_generic_type_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Box.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+            { name: "main", body: { literal: { intValue: 0 } } },
+          ],
+          typeDefs: [
+            {
+              name: "main:Box",
+              metadata: { kind: "class", fields: [{ name: "value", type: "Result<int, String>" }] },
+            },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /value: Result<number, string>/);
+  });
+});
+
+describe("compiler — translateInitString's fallback for an unrecognized keyword prefix", () => {
+  test("a cosmetic for-init string with no var/final/type keyword prefix is wrapped in `let` as-is", () => {
+    const forStmt: Expression = {
+      call: {
+        module: "std",
+        function: "for",
+        input: mc({
+          init: lit("i = 0"), // no recognized keyword prefix
+          condition: { lambda: { body: std("less_than", { left: ref("i"), right: lit(3) }) } },
+          update: { lambda: { body: ref("i") } },
+          body: { lambda: { body: std("print", { message: lit("x") }) } },
+        }),
+      },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ expression: forStmt }] } }), { includePreamble: false });
+    assert.match(ts, /for \(let i = 0; /, "the unrecognized-prefix string is wrapped in `let` verbatim");
+  });
+});
+
+describe("compiler — std.label/std.goto misuse (defensive error paths)", () => {
+  test("std.label with no name or body throws a compile-time error", () => {
+    const badLabel: Expression = { call: { module: "std", function: "label", input: mc({}) } };
+    assert.throws(() => compile(mainProgram({ block: { statements: [{ expression: badLabel }] } })));
+  });
+
+  test("std.goto outside its own label's body throws a compile-time error naming the label", () => {
+    const orphanGoto: Expression = { call: { module: "std", function: "goto", input: mc({ label: lit("nope") }) } };
+    assert.throws(
+      () => compile(mainProgram({ block: { statements: [{ expression: orphanGoto }] } })),
+      /is not inside its own std\.label/,
+    );
+  });
+});
+
+describe("compiler — dartTypeToTs's FutureOr<T> mapping", () => {
+  test("a class field typed FutureOr<String> maps to `string | Promise<string>`", () => {
+    const program: Program = {
+      name: "future_or_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Box.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+            { name: "main", body: { literal: { intValue: 0 } } },
+          ],
+          typeDefs: [
+            {
+              name: "main:Box",
+              metadata: { kind: "class", fields: [{ name: "value", type: "FutureOr<String>" }] },
+            },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /value: string \| Promise<string>/);
+  });
+});
+
+describe("compiler — emitIsCheck's nullable-type branch", () => {
+  test("`std.is(value, 'int?')` matches null OR the base type", () => {
+    const isCall: Expression = { call: { module: "std", function: "is", input: mc({ value: ref("x"), type: lit("int?") }) } };
+    const ts = compile(mainProgram({ block: { statements: [{ let: { name: "ok", value: isCall } }] } }), { includePreamble: false });
+    assert.match(ts, /x == null \|\| \(typeof x === 'number' && Number\.isInteger\(x\)\)/);
+  });
+});
+
+describe("compiler — typeRefMetaToString's nullable-suffix branch", () => {
+  test("a nullable TypeRef in metadata.type_args appends `?` to the stringified type", () => {
+    const program: Program = {
+      name: "nullable_type_args_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Box.new", outputType: "main:Box", metadata: { kind: "constructor", params: [{ name: "value", is_this: true }] } },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      let: {
+                        name: "b",
+                        value: {
+                          messageCreation: {
+                            typeName: "main:Box",
+                            fields: [{ name: "arg0", value: lit(5) }],
+                            metadata: { type_args: [{ name: "String", nullable: true }] },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Box", metadata: { kind: "class", fields: [{ name: "value", type: "int" }] } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /__ball_with_type_args\(new Box\(5\), \["String\?"\]\)/);
+  });
+});
+
+describe("compiler — wrapIfNeeded parenthesizes a leading unary-operator expression", () => {
+  test("a negated inner expression is wrapped in parens before a chained method call", () => {
+    // A negative-int LITERAL compiles to a bare `-5` (compileLiteral emits
+    // the sign verbatim) -- unlike `std.negate`, which always wraps in the
+    // `__ball_negate(...)` function-call form and so never starts with a
+    // bare unary-operator character. This is the shape wrapIfNeeded exists
+    // to parenthesize before a chained method call.
+    const upperCall: Expression = {
+      call: { module: "std", function: "string_to_upper", input: mc({ value: { literal: { intValue: -5 } } }) },
+    };
+    const ts = compile(mainProgram({ block: { statements: [{ let: { name: "s", value: upperCall } }] } }), { includePreamble: false });
+    assert.match(ts, /\(-5\)\.toUpperCase\(\)/);
+  });
+});
+
+describe("compiler — sameRef's field-access-chain comparison + no-match fallback", () => {
+  test("a class method's `this.items = list_concat(list: this.items, value: y)` uses the in-place push optimization", () => {
+    const program: Program = {
+      name: "in_place_fieldaccess_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }, { name: "list_concat", isBase: true }, { name: "assign", isBase: true }, { name: "to_string", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Basket.new", metadata: { kind: "constructor", params: [{ name: "items", is_this: true }] } },
+            {
+              name: "main:Basket.addAll",
+              metadata: { kind: "method", params: [{ name: "y" }] },
+              body: std("assign", {
+                target: { fieldAccess: { object: { reference: { name: "self" } }, field: "items" } },
+                value: {
+                  call: {
+                    module: "std",
+                    function: "list_concat",
+                    input: mc({
+                      list: { fieldAccess: { object: { reference: { name: "self" } }, field: "items" } },
+                      value: ref("y"),
+                    }),
+                  },
+                },
+              }),
+            },
+            {
+              name: "main",
+              outputType: "void",
+              body: {
+                block: {
+                  statements: [
+                    { let: { name: "b", value: { messageCreation: { typeName: "main:Basket", fields: [{ name: "arg0", value: { literal: { listValue: { elements: [lit(1)] } } } }] } } } },
+                    { expression: { call: { function: "addAll", input: { messageCreation: { fields: [{ name: "self", value: ref("b") }, { name: "arg0", value: { literal: { listValue: { elements: [lit(2)] } } } }] } } } } },
+                    {
+                      expression: std("print", {
+                        message: { call: { module: "std", function: "to_string", input: mc({ value: { fieldAccess: { object: ref("b"), field: "items" } } }) } },
+                      }),
+                    },
+                  ],
+                },
+              },
+              metadata: { kind: "function" },
+            },
+          ],
+          typeDefs: [{ name: "main:Basket", metadata: { kind: "class", fields: [{ name: "items", type: "List<int>" }] } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /__ball_push_all\(this\.items, y\)/);
+    assert.equal(compileAndRun(program, "sameref_fieldaccess"), "[1, 2]");
+  });
+
+  test("mismatched target/list shapes (reference vs field-access) do NOT trigger the in-place optimization", () => {
+    const assignCall: Expression = std("assign", {
+      target: ref("y"),
+      value: {
+        call: {
+          module: "std",
+          function: "list_concat",
+          input: mc({
+            list: { fieldAccess: { object: ref("obj"), field: "items" } },
+            value: ref("z"),
+          }),
+        },
+      },
+    });
+    const program = mainProgram({ block: { statements: [{ expression: assignCall }] } });
+    (program.modules[0].functions as FunctionDef[]).push({ name: "assign", isBase: true }, { name: "list_concat", isBase: true });
+    const ts = compile(program, { includePreamble: false });
+    assert.doesNotMatch(ts, /__ball_push_all/, "sameRef falls through to `return false` for mismatched shapes, so the optimization is skipped");
+  });
+});
+
+describe("compiler — dartInitializerToTs's qualified-constructor + final-fallback branches", () => {
+  test("a qualified constructor initializer (`pkg.ClassName()`) compiles to `new pkg.ClassName()`", () => {
+    const program: Program = {
+      name: "qual_ctor_init_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [{ name: "main:Holder.new", metadata: { kind: "constructor", params: [{ name: "input" }] } }, { name: "main", body: { literal: { intValue: 0 } } }],
+          typeDefs: [
+            {
+              name: "main:Holder",
+              metadata: {
+                kind: "class",
+                fields: [{ name: "rng", type: "Object", initializer: "pkg.SpecialRandom()" }],
+              },
+            },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /rng: any = new pkg\.SpecialRandom\(\)/);
+  });
+
+  test("an unrecognized initializer string with no constructor shape falls back to the type-based default", () => {
+    const program: Program = {
+      name: "fallback_init_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [{ name: "main:Holder.new", metadata: { kind: "constructor", params: [{ name: "input" }] } }, { name: "main", body: { literal: { intValue: 0 } } }],
+          typeDefs: [
+            {
+              name: "main:Holder",
+              metadata: {
+                kind: "class",
+                fields: [{ name: "count", type: "int", initializer: "somefunc()" }],
+              },
+            },
+          ],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    // "somefunc()" matches neither ctorMatch (must start uppercase/_) nor
+    // qualCtorMatch (must contain an uppercase letter) -> defaultInitializer(number) -> "0".
+    assert.match(ts, /count: number = 0/);
+  });
+});
+
+describe("compiler — sanitize()'s legacy single-underscore operator-name convention", () => {
+  test("a method name that's a raw operator lexeme (not the canonical __op_x__ form) sanitizes to the legacy __op_x form", () => {
+    // Both real encoders (Dart's and TS's) now emit canonical DOUBLE-underscore
+    // method names (`__op_add__`) directly as the function name -- this
+    // legacy SINGLE-underscore mapping in sanitize() is a defensive fallback
+    // for a raw operator lexeme appearing as a bare (unqualified) member
+    // name, kept for backward compatibility with older/hand-authored IR.
+    const program: Program = {
+      name: "legacy_operator_name_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] as FunctionDef[] },
+        {
+          name: "main",
+          functions: [
+            { name: "main:Vec2.new", metadata: { kind: "constructor", params: [{ name: "x", is_this: true }] } },
+            {
+              name: "main:Vec2.+",
+              metadata: { kind: "method", params: [{ name: "other" }] },
+              body: { literal: { intValue: 0 } },
+            },
+            { name: "main", body: { literal: { intValue: 0 } } },
+          ],
+          typeDefs: [{ name: "main:Vec2", metadata: { kind: "class", fields: [{ name: "x", type: "int" }] } }],
+        },
+      ],
+    } as any;
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /__op_add\s*\(/, "the raw '+' member name sanitizes to the legacy single-underscore __op_add");
+    assert.doesNotMatch(ts, /__op_add__/, "must not be confused with the canonical double-underscore convention");
   });
 });

@@ -24,9 +24,15 @@
 //     name=$(basename "$f" .cpp)
 //     clang -Xclang -ast-dump=json -fsyntax-only "$f" > "ast/$name.ast.json"
 //   done
+//
+// #18: the encoder now returns the protobuf-free `ball::ir` plain-struct IR
+// (cpp/shared/include/ball_ir.h). Assertions read the plain structs and the
+// opaque `nlohmann::json` metadata/descriptor payloads; body-shape checks use
+// `ball::ir::toJson(expr).dump()` (compact proto3-JSON) in place of the old
+// protobuf `DebugString()` text-format.
 
 #include "encoder.h"
-#include "ball_shared.h"
+#include "ball_ir.h"
 
 #include <cassert>
 #include <filesystem>
@@ -36,11 +42,14 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #ifndef BALL_CLANG_AST_DIR
 #define BALL_CLANG_AST_DIR ""
 #endif
 
 using namespace ball;
+namespace bir = ball::ir;
 
 static int tests_run = 0;
 static int tests_passed = 0;
@@ -81,56 +90,70 @@ static int tests_failed = 0;
         }                                                                 \
     } while (0)
 
-static ball::v1::Program run_encoder(const std::string& json) {
+static bir::Program run_encoder(const std::string& json) {
     CppEncoder encoder;
     return encoder.encode_from_clang_ast(json);
 }
 
 // Find the "main" user module in the encoded program.
-static const ball::v1::Module* find_main(const ball::v1::Program& p) {
-    for (int i = 0; i < p.modules_size(); i++) {
-        if (p.modules(i).name() == "main") return &p.modules(i);
+static const bir::Module* find_main(const bir::Program& p) {
+    for (const auto& m : p.modules) {
+        if (m.name == "main") return &m;
     }
     return nullptr;
 }
 
 // Find a function by name in the main module.
-static const ball::v1::FunctionDefinition* find_fn(
-    const ball::v1::Program& p, const std::string& name) {
+static const bir::FunctionDefinition* find_fn(
+    const bir::Program& p, const std::string& name) {
     auto* m = find_main(p);
     if (!m) return nullptr;
-    for (int i = 0; i < m->functions_size(); i++) {
-        if (m->functions(i).name() == name) return &m->functions(i);
+    for (const auto& f : m->functions) {
+        if (f.name == name) return &f;
     }
     return nullptr;
 }
 
 // Find a type_def by name in the main module (classes/structs/scoped enums).
-static const ball::v1::TypeDefinition* find_type_def(
-    const ball::v1::Program& p, const std::string& name) {
+static const bir::TypeDefinition* find_type_def(
+    const bir::Program& p, const std::string& name) {
     auto* m = find_main(p);
     if (!m) return nullptr;
-    for (int i = 0; i < m->type_defs_size(); i++) {
-        if (m->type_defs(i).name() == name) return &m->type_defs(i);
+    for (const auto& t : m->typeDefs) {
+        if (t.name == name) return &t;
     }
     return nullptr;
 }
 
-// Find an enum def (google.protobuf.EnumDescriptorProto) by name in the
-// main module.
-static const google::protobuf::EnumDescriptorProto* find_enum(
-    const ball::v1::Program& p, const std::string& name) {
+// Find an enum (opaque EnumDescriptorProto JSON) by name in the main module.
+static const nlohmann::json* find_enum(
+    const bir::Program& p, const std::string& name) {
     auto* m = find_main(p);
-    if (!m) return nullptr;
-    for (int i = 0; i < m->enums_size(); i++) {
-        if (m->enums(i).name() == name) return &m->enums(i);
+    if (!m || !m->enums.is_array()) return nullptr;
+    for (const auto& e : m->enums) {
+        if (e.is_object() && e.value("name", std::string{}) == name) return &e;
     }
     return nullptr;
+}
+
+// Number of fields on a type_def's DescriptorProto (proto3-JSON `field`).
+static size_t descriptor_field_count(const bir::TypeDefinition* td) {
+    if (!td || !td->descriptor.is_object()) return 0;
+    auto it = td->descriptor.find("field");
+    return (it != td->descriptor.end() && it->is_array()) ? it->size() : 0;
+}
+
+// Serialize a function body to compact proto3-JSON for substring checks —
+// the ball::ir equivalent of the old protobuf `DebugString()`. Field/function
+// names appear as `"function":"add"`, `"module":"std"`, etc.
+static std::string body_json(const bir::FunctionDefinition* fn) {
+    if (!fn || !fn->body) return "";
+    return bir::toJson(*fn->body).dump();
 }
 
 // Wrap a single expression node (as raw JSON text) in `int f() { return
 // <expr>; }` and encode it. Reduces boilerplate for expression-level tests.
-static ball::v1::Program encode_return_expr(const std::string& expr_json) {
+static bir::Program encode_return_expr(const std::string& expr_json) {
     std::string json = std::string(R"JSON({
         "kind": "TranslationUnitDecl",
         "inner": [{
@@ -148,7 +171,7 @@ static ball::v1::Program encode_return_expr(const std::string& expr_json) {
 
 // Wrap a single statement node (as raw JSON text) as the sole body statement
 // of `void f() { <stmt> }` and encode it.
-static ball::v1::Program encode_stmt(const std::string& stmt_json) {
+static bir::Program encode_stmt(const std::string& stmt_json) {
     std::string json = std::string(R"JSON({
         "kind": "TranslationUnitDecl",
         "inner": [{
@@ -168,25 +191,24 @@ static ball::v1::Program encode_stmt(const std::string& stmt_json) {
 
 TEST(empty_translation_unit) {
     auto prog = run_encoder(R"JSON({"kind": "TranslationUnitDecl", "inner": []})JSON");
-    ASSERT_EQ(prog.entry_module(), "main");
-    ASSERT_EQ(prog.entry_function(), "main");
+    ASSERT_EQ(prog.entryModule, std::string("main"));
+    ASSERT_EQ(prog.entryFunction, std::string("main"));
     // std, std_memory, main = 3 modules minimum.
-    ASSERT_TRUE(prog.modules_size() >= 3);
+    ASSERT_TRUE(prog.modules.size() >= 3);
     bool has_main = false, has_std = false, has_cpp_std = false;
-    for (int i = 0; i < prog.modules_size(); i++) {
-        auto& n = prog.modules(i).name();
-        if (n == "main") has_main = true;
-        if (n == "std") has_std = true;
-        if (n == "cpp_std") has_cpp_std = true;
+    for (const auto& m : prog.modules) {
+        if (m.name == "main") has_main = true;
+        if (m.name == "std") has_std = true;
+        if (m.name == "cpp_std") has_cpp_std = true;
     }
     ASSERT_TRUE(has_main);
     ASSERT_TRUE(has_std);
     ASSERT_TRUE(!has_cpp_std);  // cpp_std module eliminated
     // source_language metadata must be "cpp".
-    ASSERT_TRUE(prog.has_metadata());
-    auto it = prog.metadata().fields().find("source_language");
-    ASSERT_TRUE(it != prog.metadata().fields().end());
-    ASSERT_EQ(it->second.string_value(), "cpp");
+    ASSERT_TRUE(prog.metadata.is_object());
+    ASSERT_TRUE(prog.metadata.contains("source_language"));
+    ASSERT_EQ(prog.metadata.at("source_language").get<std::string>(),
+              std::string("cpp"));
 }
 
 // ================================================================
@@ -217,7 +239,7 @@ TEST(encode_function_with_return_literal) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "answer");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->has_body());
+    ASSERT_TRUE(fn->body != nullptr);
 }
 
 // ================================================================
@@ -240,12 +262,10 @@ TEST(encode_integer_literal) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    // Walk: body (block) → result expression is IntegerLiteral(7).
-    const auto& body = fn->body();
-    ASSERT_TRUE(body.expr_case() == ball::v1::Expression::kBlock);
-    // Either via result or last statement — encoder puts returns as
-    // statements; confirm the first statement's expression is a literal.
-    ASSERT_TRUE(body.block().statements_size() >= 1);
+    // Walk: body (block) → first statement is a return call.
+    ASSERT_TRUE(fn->body != nullptr);
+    ASSERT_TRUE(fn->body->kind == bir::ExprKind::Block);
+    ASSERT_TRUE(fn->body->block->statements.size() >= 1);
 }
 
 TEST(encode_bool_literal) {
@@ -312,10 +332,10 @@ TEST(encode_binary_add_is_std_add) {
     auto* fn = find_fn(prog, "sum");
     ASSERT_TRUE(fn != nullptr);
     // The body's first statement is a ReturnStmt call whose value is a
-    // binary op expression. Serialize-to-string and just look for "add".
-    auto body_str = fn->body().DebugString();
+    // binary op expression. Serialize to JSON and look for the std.add call.
+    auto body_str = body_json(fn);
     ASSERT_TRUE(body_str.find("add") != std::string::npos);
-    ASSERT_TRUE(body_str.find("module: \"std\"") != std::string::npos);
+    ASSERT_TRUE(body_str.find("\"module\":\"std\"") != std::string::npos);
 }
 
 // ================================================================
@@ -345,7 +365,7 @@ TEST(encode_binary_equals_is_std_equals) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "cmp");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
+    auto body_str = body_json(fn);
     ASSERT_TRUE(body_str.find("equals") != std::string::npos);
 }
 
@@ -373,7 +393,7 @@ TEST(encode_unary_negate) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "neg");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
+    auto body_str = body_json(fn);
     ASSERT_TRUE(body_str.find("negate") != std::string::npos);
 }
 
@@ -395,7 +415,7 @@ TEST(encode_unary_logical_not) {
         }]
     })JSON";
     auto prog = run_encoder(json);
-    auto body_str = find_fn(prog, "flip")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "flip"));
     ASSERT_TRUE(body_str.find("\"not\"") != std::string::npos);
 }
 
@@ -426,7 +446,7 @@ TEST(encode_if_statement) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
+    auto body_str = body_json(fn);
     ASSERT_TRUE(body_str.find("\"if\"") != std::string::npos);
 }
 
@@ -451,7 +471,7 @@ TEST(encode_while_statement) {
         }]
     })JSON";
     auto prog = run_encoder(json);
-    auto body_str = find_fn(prog, "f")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "f"));
     ASSERT_TRUE(body_str.find("\"while\"") != std::string::npos);
 }
 
@@ -493,10 +513,9 @@ TEST(overloaded_functions_get_mangled_names) {
     // suffix (the encoder mangles the second overload).
     bool has_mangled = false;
     int add_count = 0;
-    for (int i = 0; i < m->functions_size(); i++) {
-        const auto& n = m->functions(i).name();
-        if (n == "add") add_count++;
-        if (n.find("add$") == 0) has_mangled = true;
+    for (const auto& f : m->functions) {
+        if (f.name == "add") add_count++;
+        if (f.name.find("add$") == 0) has_mangled = true;
     }
     ASSERT_TRUE(has_mangled);
 }
@@ -625,7 +644,7 @@ TEST(clang_shape_nested_implicit_casts_around_binary_op) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "g");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
+    auto body_str = body_json(fn);
     // The encoder should strip the casts and produce a std.add call.
     ASSERT_TRUE(body_str.find("add") != std::string::npos);
 }
@@ -741,7 +760,7 @@ TEST(clang_shape_if_stmt_with_condition_casts) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "j");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
+    auto body_str = body_json(fn);
     ASSERT_TRUE(body_str.find("\"if\"") != std::string::npos);
 }
 
@@ -793,7 +812,7 @@ TEST(clang_shape_while_stmt_with_bool_cast) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "k");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
+    auto body_str = body_json(fn);
     ASSERT_TRUE(body_str.find("\"while\"") != std::string::npos);
 }
 
@@ -940,8 +959,9 @@ TEST(encode_class_decl_with_field_and_method) {
     auto prog = run_encoder(json);
     auto* td = find_type_def(prog, "Point");
     ASSERT_TRUE(td != nullptr);
-    ASSERT_TRUE(td->descriptor_().field_size() == 1);
-    ASSERT_EQ(td->descriptor_().field(0).name(), std::string("x"));
+    ASSERT_TRUE(descriptor_field_count(td) == 1);
+    ASSERT_EQ(td->descriptor.at("field").at(0).at("name").get<std::string>(),
+              std::string("x"));
     ASSERT_TRUE(find_fn(prog, "Point.getX") != nullptr);
 }
 
@@ -958,7 +978,7 @@ TEST(encode_struct_decl_sets_struct_kind) {
     auto prog = run_encoder(json);
     auto* td = find_type_def(prog, "Pair");
     ASSERT_TRUE(td != nullptr);
-    ASSERT_EQ(td->metadata().fields().at("kind").string_value(), std::string("struct"));
+    ASSERT_EQ(td->metadata.at("kind").get<std::string>(), std::string("struct"));
 }
 
 TEST(encode_class_decl_with_base_classes) {
@@ -977,8 +997,8 @@ TEST(encode_class_decl_with_base_classes) {
     auto prog = run_encoder(json);
     auto* td = find_type_def(prog, "Derived");
     ASSERT_TRUE(td != nullptr);
-    ASSERT_EQ(td->metadata().fields().at("superclass").string_value(), std::string("Base"));
-    ASSERT_TRUE(td->metadata().fields().at("interfaces").list_value().values_size() == 1);
+    ASSERT_EQ(td->metadata.at("superclass").get<std::string>(), std::string("Base"));
+    ASSERT_TRUE(td->metadata.at("interfaces").size() == 1);
 }
 
 TEST(encode_constructor_and_destructor) {
@@ -1019,7 +1039,7 @@ TEST(encode_conversion_operator_decl) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "NumBox.operator int");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->metadata().fields().at("is_conversion_operator").bool_value());
+    ASSERT_TRUE(fn->metadata.at("is_conversion_operator").get<bool>());
 }
 
 TEST(encode_enum_unscoped_adds_values_no_type_def) {
@@ -1037,8 +1057,8 @@ TEST(encode_enum_unscoped_adds_values_no_type_def) {
     auto prog = run_encoder(json);
     auto* e = find_enum(prog, "Color");
     ASSERT_TRUE(e != nullptr);
-    ASSERT_TRUE(e->value_size() == 2);
-    ASSERT_EQ(e->value(0).name(), std::string("Red"));
+    ASSERT_TRUE(e->at("value").size() == 2);
+    ASSERT_EQ(e->at("value").at(0).at("name").get<std::string>(), std::string("Red"));
     // Unscoped enums do NOT also get a type_def.
     ASSERT_TRUE(find_type_def(prog, "Color") == nullptr);
 }
@@ -1059,7 +1079,7 @@ TEST(encode_enum_scoped_also_adds_type_def) {
     ASSERT_TRUE(find_enum(prog, "Direction") != nullptr);
     auto* td = find_type_def(prog, "Direction");
     ASSERT_TRUE(td != nullptr);
-    ASSERT_EQ(td->metadata().fields().at("kind").string_value(), std::string("enum"));
+    ASSERT_EQ(td->metadata.at("kind").get<std::string>(), std::string("enum"));
 }
 
 TEST(encode_type_alias_typedef) {
@@ -1074,9 +1094,9 @@ TEST(encode_type_alias_typedef) {
     auto prog = run_encoder(json);
     auto* m = find_main(prog);
     ASSERT_TRUE(m != nullptr);
-    ASSERT_TRUE(m->type_aliases_size() == 1);
-    ASSERT_EQ(m->type_aliases(0).name(), std::string("MyInt"));
-    ASSERT_EQ(m->type_aliases(0).target_type(), std::string("int"));
+    ASSERT_TRUE(m->typeAliases.size() == 1);
+    ASSERT_EQ(m->typeAliases[0].name, std::string("MyInt"));
+    ASSERT_EQ(m->typeAliases[0].targetType, std::string("int"));
 }
 
 TEST(encode_namespace_decl_qualifies_names) {
@@ -1114,7 +1134,7 @@ TEST(encode_using_decl_is_noop) {
     auto* m = find_main(prog);
     ASSERT_TRUE(m != nullptr);
     // Only `f` was encoded — the using-directive contributed nothing.
-    ASSERT_TRUE(m->functions_size() == 1);
+    ASSERT_TRUE(m->functions.size() == 1);
     ASSERT_TRUE(find_fn(prog, "f") != nullptr);
 }
 
@@ -1132,8 +1152,8 @@ TEST(encode_class_template_decl_attaches_type_params) {
     auto prog = run_encoder(json);
     auto* td = find_type_def(prog, "Box");
     ASSERT_TRUE(td != nullptr);
-    ASSERT_TRUE(td->type_params_size() == 1);
-    ASSERT_EQ(td->type_params(0).name(), std::string("T"));
+    ASSERT_TRUE(td->typeParams.size() == 1);
+    ASSERT_EQ(td->typeParams[0].name, std::string("T"));
 }
 
 TEST(encode_function_template_decl_attaches_type_params) {
@@ -1155,7 +1175,7 @@ TEST(encode_function_template_decl_attaches_type_params) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "identity");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->metadata().fields().at("type_params").list_value().values_size() == 1);
+    ASSERT_TRUE(fn->metadata.at("type_params").size() == 1);
 }
 
 TEST(encode_global_var_decl_top_level_variable) {
@@ -1171,7 +1191,8 @@ TEST(encode_global_var_decl_top_level_variable) {
     auto prog = run_encoder(json);
     auto* fn = find_fn(prog, "counter");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_EQ(fn->metadata().fields().at("kind").string_value(), std::string("top_level_variable"));
+    ASSERT_EQ(fn->metadata.at("kind").get<std::string>(),
+              std::string("top_level_variable"));
 }
 
 // ================================================================
@@ -1186,7 +1207,7 @@ TEST(encode_for_statement_is_std_for) {
     })JSON");
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->body().DebugString().find("\"for\"") != std::string::npos);
+    ASSERT_TRUE(body_json(fn).find("\"for\"") != std::string::npos);
 }
 
 TEST(encode_range_for_statement_is_std_for_in) {
@@ -1200,7 +1221,7 @@ TEST(encode_range_for_statement_is_std_for_in) {
     })JSON");
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->body().DebugString().find("\"for_in\"") != std::string::npos);
+    ASSERT_TRUE(body_json(fn).find("\"for_in\"") != std::string::npos);
 }
 
 TEST(encode_do_while_statement_is_std_do_while) {
@@ -1213,7 +1234,7 @@ TEST(encode_do_while_statement_is_std_do_while) {
     })JSON");
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->body().DebugString().find("\"do_while\"") != std::string::npos);
+    ASSERT_TRUE(body_json(fn).find("\"do_while\"") != std::string::npos);
 }
 
 TEST(encode_switch_statement_is_std_switch) {
@@ -1223,7 +1244,7 @@ TEST(encode_switch_statement_is_std_switch) {
     })JSON");
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    ASSERT_TRUE(fn->body().DebugString().find("\"switch\"") != std::string::npos);
+    ASSERT_TRUE(body_json(fn).find("\"switch\"") != std::string::npos);
 }
 
 // ================================================================
@@ -1237,7 +1258,7 @@ TEST(encode_member_expr_dot_and_arrow) {
     })JSON");
     auto* f1 = find_fn(dot, "f");
     ASSERT_TRUE(f1 != nullptr);
-    ASSERT_TRUE(f1->body().DebugString().find("field: \"field\"") != std::string::npos);
+    ASSERT_TRUE(body_json(f1).find("\"field\":\"field\"") != std::string::npos);
 
     auto arrow = encode_return_expr(R"JSON({
         "kind": "MemberExpr", "name": "field", "isArrow": true,
@@ -1245,7 +1266,7 @@ TEST(encode_member_expr_dot_and_arrow) {
     })JSON");
     auto* f2 = find_fn(arrow, "f");
     ASSERT_TRUE(f2 != nullptr);
-    ASSERT_TRUE(f2->body().DebugString().find("field: \"field\"") != std::string::npos);
+    ASSERT_TRUE(body_json(f2).find("\"field\":\"field\"") != std::string::npos);
 }
 
 TEST(encode_call_expr_with_args) {
@@ -1260,8 +1281,8 @@ TEST(encode_call_expr_with_args) {
     })JSON");
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
-    ASSERT_TRUE(body_str.find("function: \"add\"") != std::string::npos);
+    auto body_str = body_json(fn);
+    ASSERT_TRUE(body_str.find("\"function\":\"add\"") != std::string::npos);
     ASSERT_TRUE(body_str.find("arg0") != std::string::npos);
     ASSERT_TRUE(body_str.find("arg1") != std::string::npos);
 }
@@ -1276,9 +1297,9 @@ TEST(encode_member_call_expr_binds_self) {
     })JSON");
     auto* fn = find_fn(prog, "f");
     ASSERT_TRUE(fn != nullptr);
-    auto body_str = fn->body().DebugString();
-    ASSERT_TRUE(body_str.find("function: \"getX\"") != std::string::npos);
-    ASSERT_TRUE(body_str.find("name: \"self\"") != std::string::npos);
+    auto body_str = body_json(fn);
+    ASSERT_TRUE(body_str.find("\"function\":\"getX\"") != std::string::npos);
+    ASSERT_TRUE(body_str.find("\"name\":\"self\"") != std::string::npos);
 }
 
 TEST(encode_operator_call_expr_dispatches_binary_vs_unary) {
@@ -1291,7 +1312,7 @@ TEST(encode_operator_call_expr_dispatches_binary_vs_unary) {
             {"kind": "IntegerLiteral", "value": "2"}
         ]
     })JSON");
-    ASSERT_TRUE(find_fn(bin, "f")->body().DebugString().find("add") != std::string::npos);
+    ASSERT_TRUE(body_json(find_fn(bin, "f")).find("add") != std::string::npos);
 }
 
 TEST(encode_compound_assign_op_carries_op) {
@@ -1302,7 +1323,7 @@ TEST(encode_compound_assign_op_carries_op) {
             {"kind": "IntegerLiteral", "value": "1"}
         ]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "f"));
     ASSERT_TRUE(body_str.find("\"assign\"") != std::string::npos);
     ASSERT_TRUE(body_str.find("+=") != std::string::npos);
 }
@@ -1316,15 +1337,15 @@ TEST(encode_conditional_op_is_std_if) {
             {"kind": "IntegerLiteral", "value": "2"}
         ]
     })JSON");
-    ASSERT_TRUE(find_fn(prog, "f")->body().DebugString().find("\"if\"") != std::string::npos);
+    ASSERT_TRUE(body_json(find_fn(prog, "f")).find("\"if\"") != std::string::npos);
 }
 
 TEST(encode_new_expr_is_message_creation) {
     auto prog = encode_return_expr(R"JSON({
         "kind": "CXXNewExpr", "type": {"qualType": "Foo *"}, "inner": []
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
-    ASSERT_TRUE(body_str.find("type_name: \"Foo *\"") != std::string::npos);
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("\"typeName\":\"Foo *\"") != std::string::npos);
 }
 
 TEST(encode_delete_expr_is_noop_comment) {
@@ -1332,7 +1353,7 @@ TEST(encode_delete_expr_is_noop_comment) {
         "kind": "CXXDeleteExpr",
         "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "p"}}]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "f"));
     ASSERT_TRUE(body_str.find("GC managed") != std::string::npos);
 }
 
@@ -1341,13 +1362,13 @@ TEST(encode_cpp_static_and_dynamic_cast_are_std_as) {
         "kind": "CXXStaticCastExpr", "type": {"qualType": "Derived *"},
         "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "p"}}]
     })JSON");
-    ASSERT_TRUE(find_fn(stat, "f")->body().DebugString().find("\"as\"") != std::string::npos);
+    ASSERT_TRUE(body_json(find_fn(stat, "f")).find("\"as\"") != std::string::npos);
 
     auto dyn = encode_return_expr(R"JSON({
         "kind": "CXXDynamicCastExpr", "type": {"qualType": "Derived *"},
         "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "p"}}]
     })JSON");
-    ASSERT_TRUE(find_fn(dyn, "f")->body().DebugString().find("\"as\"") != std::string::npos);
+    ASSERT_TRUE(body_json(find_fn(dyn, "f")).find("\"as\"") != std::string::npos);
 }
 
 TEST(encode_cpp_reinterpret_cast_is_memory_read) {
@@ -1355,7 +1376,7 @@ TEST(encode_cpp_reinterpret_cast_is_memory_read) {
         "kind": "CXXReinterpretCastExpr", "type": {"qualType": "int *"},
         "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "p"}}]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "f"));
     ASSERT_TRUE(body_str.find("std_memory") != std::string::npos);
     ASSERT_TRUE(body_str.find("memory_read_i64") != std::string::npos);
 }
@@ -1365,8 +1386,8 @@ TEST(encode_cpp_const_cast_passes_through) {
         "kind": "CXXConstCastExpr", "type": {"qualType": "int *"},
         "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "p"}}]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
-    ASSERT_TRUE(body_str.find("name: \"p\"") != std::string::npos);
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("\"name\":\"p\"") != std::string::npos);
 }
 
 TEST(encode_c_style_cast_is_std_as) {
@@ -1374,7 +1395,7 @@ TEST(encode_c_style_cast_is_std_as) {
         "kind": "CStyleCastExpr", "type": {"qualType": "double"},
         "inner": [{"kind": "IntegerLiteral", "value": "1"}]
     })JSON");
-    ASSERT_TRUE(find_fn(prog, "f")->body().DebugString().find("\"as\"") != std::string::npos);
+    ASSERT_TRUE(body_json(find_fn(prog, "f")).find("\"as\"") != std::string::npos);
 }
 
 TEST(encode_array_subscript_is_std_index) {
@@ -1385,14 +1406,14 @@ TEST(encode_array_subscript_is_std_index) {
             {"kind": "IntegerLiteral", "value": "0"}
         ]
     })JSON");
-    ASSERT_TRUE(find_fn(prog, "f")->body().DebugString().find("\"index\"") != std::string::npos);
+    ASSERT_TRUE(body_json(find_fn(prog, "f")).find("\"index\"") != std::string::npos);
 }
 
 TEST(encode_sizeof_is_memory_sizeof) {
     auto prog = encode_return_expr(R"JSON({
         "kind": "UnaryExprOrTypeTraitExpr", "argType": {"qualType": "int"}
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "f"));
     ASSERT_TRUE(body_str.find("memory_sizeof") != std::string::npos);
 }
 
@@ -1401,8 +1422,8 @@ TEST(encode_construct_expr_is_message_creation) {
         "kind": "CXXConstructExpr", "type": {"qualType": "Foo"},
         "inner": [{"kind": "IntegerLiteral", "value": "1"}]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
-    ASSERT_TRUE(body_str.find("type_name: \"Foo\"") != std::string::npos);
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("\"typeName\":\"Foo\"") != std::string::npos);
 }
 
 TEST(encode_init_list_expr_is_list_literal) {
@@ -1413,8 +1434,8 @@ TEST(encode_init_list_expr_is_list_literal) {
             {"kind": "IntegerLiteral", "value": "2"}
         ]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
-    ASSERT_TRUE(body_str.find("list_value") != std::string::npos);
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("listValue") != std::string::npos);
 }
 
 TEST(encode_lambda_expr_has_body) {
@@ -1422,7 +1443,7 @@ TEST(encode_lambda_expr_has_body) {
         "kind": "LambdaExpr",
         "inner": [{"kind": "CompoundStmt", "inner": []}]
     })JSON");
-    auto body_str = find_fn(prog, "f")->body().DebugString();
+    auto body_str = body_json(find_fn(prog, "f"));
     ASSERT_TRUE(body_str.find("lambda") != std::string::npos);
 }
 

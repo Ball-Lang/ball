@@ -3,7 +3,7 @@
 # cpp/encoder
 
 ## Purpose
-Clang JSON AST → Ball program encoder. Consumes the output of `clang -Xclang -ast-dump=json` and emits a `ball.v1.Program` that routes all C++ constructs through the universal `std`/`std_memory` modules (no `cpp_std`).
+Clang JSON AST → Ball program encoder. Consumes the output of `clang -Xclang -ast-dump=json` and emits the protobuf-free plain-struct `ball::ir::Program` (from `cpp/shared/include/ball_ir.h`), routing all C++ constructs through the universal `std`/`std_memory` modules (no `cpp_std`). Serialized to proto3-JSON `.ball.json` via `ball::ir::programToJsonString`. **#18: the encoder links NO libprotobuf/abseil** — cosmetic Struct metadata and DescriptorProto/EnumDescriptorProto payloads are plain `nlohmann::json` (the latter via ball_ir's `descriptor_build` helpers).
 
 ## Key Files
 | File | Description |
@@ -22,5 +22,5 @@ Clang JSON AST → Ball program encoder. Consumes the output of `clang -Xclang -
 - Tests live in `cpp/test/test_encoder.cpp`. Reference `.claude/rules/cpp.md` for build and test commands.
 
 ## Dependencies
-- Internal: `ball_shared` (shared types + protos).
-- External: nlohmann/json (AST parsing), protobuf (`google/protobuf`), Clang toolchain (runtime only — not required to run existing tests).
+- Internal: `ball_ir.h` (header-only plain-struct IR, in `cpp/shared/include/`). **No `ball_shared`/protobuf dependency since #18.**
+- External: nlohmann/json (AST parsing + IR construction/serialization), Clang toolchain (runtime only — not required to run existing tests).

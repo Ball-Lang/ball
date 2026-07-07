@@ -8,7 +8,6 @@
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <google/protobuf/util/json_util.h>
 
 #include "encoder.h"
 
@@ -22,7 +21,6 @@ int main(int argc, char** argv) {
 
     std::string input_path = argv[1];
     std::string output_path;
-    bool output_binary = false;
 
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
@@ -31,7 +29,12 @@ int main(int argc, char** argv) {
             std::cerr << "Warning: --normalize is deprecated (inlined in encoder)."
                       << std::endl;
         } else if (arg == "--binary") {
-            output_binary = true;
+            // Binary protobuf output required libprotobuf; the encoder is now
+            // protobuf-free (#18). Only proto3-JSON `.ball.json` is emitted.
+            std::cerr << "Error: --binary output is no longer supported "
+                         "(encoder is protobuf-free); emit .ball.json instead."
+                      << std::endl;
+            return 1;
         } else if (output_path.empty()) {
             output_path = arg;
         }
@@ -49,31 +52,14 @@ int main(int argc, char** argv) {
 
     // Encode.
     ball::CppEncoder encoder;
-    ball::v1::Program program = encoder.encode_from_clang_ast(json_str);
+    ball::ir::Program program = encoder.encode_from_clang_ast(json_str);
 
-    // Serialize output.
-    std::string output_data;
-
-    if (output_binary) {
-        if (!program.SerializeToString(&output_data)) {
-            std::cerr << "Failed to serialize to binary protobuf" << std::endl;
-            return 1;
-        }
-    } else {
-        google::protobuf::util::JsonPrintOptions print_options;
-        print_options.add_whitespace = true;
-        print_options.preserve_proto_field_names = true;
-
-        auto status = google::protobuf::util::MessageToJsonString(
-            program, &output_data, print_options);
-        if (!status.ok()) {
-            std::cerr << "Failed to serialize: " << status.message() << std::endl;
-            return 1;
-        }
-    }
+    // Serialize output as proto3-JSON (self-describing google.protobuf.Any
+    // envelope), pretty-printed with a 2-space indent.
+    std::string output_data = ball::ir::programToJsonString(program, 2);
 
     if (!output_path.empty()) {
-        std::ofstream out(output_path, output_binary ? std::ios::binary : std::ios::out);
+        std::ofstream out(output_path, std::ios::out);
         if (!out) {
             std::cerr << "Could not open output file " << output_path << std::endl;
             return 1;

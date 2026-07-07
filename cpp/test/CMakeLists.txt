@@ -85,7 +85,10 @@ target_compile_definitions(test_snapshot PRIVATE
 )
 
 # Encoder tests — exercises CppEncoder::encode_from_clang_ast using
-# hand-crafted minimal Clang AST JSON fixtures.
+# hand-crafted minimal Clang AST JSON fixtures. #18: the encoder returns the
+# protobuf-free ball::ir IR, so the test links only the (protobuf-free)
+# encoder lib — NOT ball_shared. nlohmann/json comes transitively from the
+# encoder lib's PUBLIC link.
 add_executable(test_encoder test_encoder.cpp)
 target_include_directories(test_encoder PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../encoder/include
@@ -93,7 +96,6 @@ target_include_directories(test_encoder PRIVATE
 )
 target_link_libraries(test_encoder
     ball_cpp_encoder_lib
-    ball_shared
 )
 # Path to real clang AST fixtures. Checked in under
 # tests/fixtures/cpp_ast/ast/ so tests run without needing clang
@@ -133,6 +135,26 @@ target_compile_definitions(test_ball_ir PRIVATE
     BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
 )
 set_target_properties(test_ball_ir PROPERTIES
+    CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+)
+
+# P4 descriptor-WRITE builder test (#18) — exercises ball_ir.h's hand-rolled
+# DescriptorProto/EnumDescriptorProto JSON construction. UNLIKE test_ball_ir
+# (deliberately protobuf-free), this test DOES link libprotobuf: it is the
+# ORACLE. It builds descriptors via P4, parses them back with
+# JsonStringToMessage, and asserts proto equality against the protobuf-builder
+# path (google::protobuf::util::MessageDifferencer). ball_shared brings in
+# protobuf::libprotobuf (PUBLIC) — descriptor.pb.h, json_util, and
+# message_differencer all live there.
+add_executable(test_ball_ir_descriptor test_ball_ir_descriptor.cpp)
+target_include_directories(test_ball_ir_descriptor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(test_ball_ir_descriptor PRIVATE
+    ball_shared
+    nlohmann_json::nlohmann_json
+)
+set_target_properties(test_ball_ir_descriptor PROPERTIES
     CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
 )
 
@@ -224,6 +246,7 @@ add_test(NAME encoder_tests COMMAND test_encoder)
 add_test(NAME e2e_tests COMMAND test_e2e)
 add_test(NAME snapshot_tests COMMAND test_snapshot)
 add_test(NAME ball_ir_loader COMMAND test_ball_ir)
+add_test(NAME ball_ir_descriptor COMMAND test_ball_ir_descriptor)
 add_test(NAME ball_dyn_tests COMMAND test_ball_dyn)
 # scope_probe was previously a build-only debug tool (never run under ctest,
 # so its own bind/child/has/lookup exercise of ball_dyn.h's scope machinery

@@ -108,10 +108,66 @@ impl Encoder {
                 self.collections_binary("list_push", "list", "value", &e.receiver, &e.args[0])
             }
 
+            // A user-defined instance method (issue #43 — see `types.rs`'s
+            // module doc comment): `receiver.method(args)` packs the
+            // receiver as a `"self"` field alongside `args` (keyed by the
+            // method's *real* declared parameter names, from the
+            // `collect_impl_method_params` pre-pass — falling back to
+            // positional `arg0`/`arg1` the same way a same-file free-function
+            // call already does when its signature isn't known) — the exact
+            // shape `ball-compiler`'s `compile_method_dispatchers` /
+            // `method_prologue` expect (`rust/compiler/src/type_emit.rs`).
+            // Only recognized when `method` was actually seen as an `impl`
+            // block's own method name in the pre-pass; anything else still
+            // falls through to the loud panic below (a syntactic encoder has
+            // no static type info to otherwise disambiguate a genuine typo
+            // from an unsupported built-in — mirrors the `_looksLikeTypeName`
+            // caveat documented in `.claude/rules/dart.md`).
+            other if self.method_params.contains_key(other) => {
+                self.encode_user_method_call(other, &e.receiver, &e.args)
+            }
+
             other => panic!(
-                "ball-encoder: unsupported method call `.{other}()` (issue #42's scope — see \
-                 the module doc comment)"
+                "ball-encoder: unsupported method call `.{other}()` (see the module doc \
+                 comment — a user-defined instance method must be declared in an `impl` block \
+                 this file also encodes)"
             ),
+        }
+    }
+
+    /// Packs `receiver` under a `"self"` field, then `args` under the
+    /// callee's own real parameter names (or a positional `argN` fallback
+    /// when the count doesn't match what the pre-pass recorded — the exact
+    /// same fallback [`Encoder::encode_user_call`] uses for a free-function
+    /// call whose signature isn't known).
+    fn encode_user_method_call(
+        &mut self,
+        method: &str,
+        receiver: &syn::Expr,
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        let self_value = self.encode_expr(receiver);
+        let mut fields: Vec<(String, Expression)> = vec![("self".to_string(), self_value)];
+        let param_names: Vec<String> = self
+            .method_params
+            .get(method)
+            .filter(|params| params.len() == args.len())
+            .cloned()
+            .unwrap_or_else(|| (0..args.len()).map(|i| format!("arg{i}")).collect());
+        for (name, arg) in param_names.into_iter().zip(args.iter()) {
+            fields.push((name, self.encode_expr(arg)));
+        }
+        let field_pairs: Vec<(&str, Expression)> = fields
+            .iter()
+            .map(|(n, v)| (n.as_str(), v.clone()))
+            .collect();
+        Expression {
+            expr: Some(Expr::Call(Box::new(FunctionCall {
+                module: String::new(),
+                function: method.to_string(),
+                input: Some(Box::new(args_message(field_pairs))),
+                type_args: vec![],
+            }))),
         }
     }
 
@@ -121,7 +177,6 @@ impl Encoder {
         list: &syn::Expr,
         callback: &syn::Expr,
     ) -> Expression {
-        self.uses_collections = true;
         let list_expr = self.encode_expr(list);
         let callback_expr = self.encode_expr(callback);
         collections_call(
@@ -141,7 +196,6 @@ impl Encoder {
         left: &syn::Expr,
         right: &syn::Expr,
     ) -> Expression {
-        self.uses_collections = true;
         let left_expr = self.encode_expr(left);
         let right_expr = self.encode_expr(right);
         collections_call(

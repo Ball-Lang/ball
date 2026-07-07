@@ -1564,7 +1564,14 @@ export function createEngineSetup(mod: EngineModule) {
       // bare arg0 dropped `self`, so methods saw `Undefined variable: <field>`.
       let fixedInput = input;
       if (func.inputType && func.inputType.isNotEmpty && typeof input === 'object' && input !== null && !Array.isArray(input)) {
-        const params = (e._paramCache[((__bts(moduleName) + '.') + __bts(func.name))]) ?? (func.metadata ? e._extractParams(func.metadata) : []);
+        // Lambdas have an empty `func.name`, so the cache key `'<module>.'` is
+        // shared by every lambda in the module — two lambdas would collide and
+        // the second's params would overwrite the first's (#246). Only consult
+        // the shared cache for named functions; extract a nameless function's
+        // params directly from its own metadata.
+        const params = (__bts(func.name).length > 0
+          ? (e._paramCache[((__bts(moduleName) + '.') + __bts(func.name))]) ?? (func.metadata ? e._extractParams(func.metadata) : [])
+          : (func.metadata ? e._extractParams(func.metadata) : []));
         if (params.length === 1) {
           const inputMap = e._asMap(input);
           if (inputMap && 'arg0' in inputMap && !(params[0] in inputMap) && !('self' in inputMap)) {

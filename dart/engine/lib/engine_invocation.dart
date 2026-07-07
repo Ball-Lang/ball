@@ -72,9 +72,15 @@ extension BallEngineInvocation on BallEngine {
 
       // Bind parameters: use pre-built param cache for O(1) lookup.
       // This overrides the raw 'input' binding when the param name is 'input'.
-      final params =
-          _paramCache['$moduleName.${func.name}'] ??
-          (func.hasMetadata() ? _extractParams(func.metadata) : const []);
+      // Lambdas have an empty `func.name`, so the cache key `'$moduleName.'`
+      // would be shared by every lambda in the module — two lambdas would
+      // collide and the second's params would overwrite the first's (#246).
+      // Never consult (or trust) the shared cache for a nameless function;
+      // extract its own params directly from metadata instead.
+      final params = func.name.isNotEmpty
+          ? (_paramCache['$moduleName.${func.name}'] ??
+                (func.hasMetadata() ? _extractParams(func.metadata) : const []))
+          : (func.hasMetadata() ? _extractParams(func.metadata) : const []);
       final inputMap = _asMap(input);
       if (params.isNotEmpty) {
         if (params.length == 1 &&
@@ -756,7 +762,12 @@ extension BallEngineInvocation on BallEngine {
       _functions[key] = func;
       if (func.hasMetadata()) {
         final params = _extractParams(func.metadata);
-        if (params.isNotEmpty) _paramCache[key] = params;
+        // Skip nameless functions (lambdas): they all share the key
+        // `'$module.'` and would clobber one another (#246). Their params
+        // are extracted on demand in `_callFunction` instead.
+        if (params.isNotEmpty && func.name.isNotEmpty) {
+          _paramCache[key] = params;
+        }
 
         // Mirror constructor registration from _buildLookupTables.
         final kindField = func.metadata.fields['kind'];

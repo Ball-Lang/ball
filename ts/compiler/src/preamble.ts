@@ -110,14 +110,16 @@ class BallObject extends BallMap {
 // (e.g. 42.0 not 42). Used by the compiled Dart engine's _toDouble.
 class BallDouble {
   readonly value: number;
-  // Collapse nested wrapping (new BallDouble(new BallDouble(x))) down to the
-  // innermost raw number instead of storing a BallDouble-holding-a-BallDouble.
-  // This can legitimately arise now that string_to_double's OWN compiled
-  // form already wraps its result (#222): the self-hosted engine's Dart
-  // source explicitly does BallDouble(double.parse(s)) to make the parse
-  // result double-preserving, which — once double.parse (string_to_double)
-  // started wrapping on its own — would otherwise double-wrap. Unwrapping
-  // here is idempotent for every other caller, since v is a plain number.
+  // Collapse nested wrapping down to the innermost raw number instead of
+  // storing a BallDouble that holds another BallDouble. The concrete source of
+  // nested wrapping was string_to_double's engine handler wrapping the result
+  // of the already-wrapping compiled parse path from issue 222; that redundant
+  // wrap was removed at its root in issue 237, so this guard is now purely
+  // defensive (verified: the full TS engine suite stays green without it). It is
+  // kept as a cheap, idempotent belt-and-suspenders against any other caller
+  // that might wrap an already-wrapped value: a doubly-wrapped BallDouble makes
+  // Number/valueOf coercion throw "Cannot convert object to primitive value".
+  // For a plain-number caller the instanceof check is a no-op.
   constructor(v: number) { this.value = v instanceof BallDouble ? v.value : v; }
   valueOf(): number { return this.value; }
   get isNaN(): boolean { return Number.isNaN(this.value); }

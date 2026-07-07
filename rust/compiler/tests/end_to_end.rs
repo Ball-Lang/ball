@@ -35,7 +35,7 @@ use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_shared::proto::ball::v1::statement::Stmt;
 use ball_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FieldValuePair, FunctionCall, FunctionDefinition, LetBinding,
-    Literal, MessageCreation, Module, ModuleImport, Program, Reference, Statement,
+    ListLiteral, Literal, MessageCreation, Module, ModuleImport, Program, Reference, Statement,
 };
 use ball_shared::proto::google::protobuf::value::Kind;
 use ball_shared::proto::google::protobuf::{ListValue, Struct, Value};
@@ -210,6 +210,13 @@ fn program_with_main(functions: Vec<FunctionDefinition>) -> Program {
         version: "1.0.0".to_string(),
         modules: vec![
             ball_shared::build_std_module(),
+            // Every #37 fixture below is free to reach for `std_collections`/
+            // `std_io` base calls (e.g. `list_push`) without each test having
+            // to opt in individually — registering the module is what makes
+            // `Compiler::is_base_module` recognize it; it's a no-op for
+            // fixtures that never call into it.
+            ball_shared::build_std_collections_module(),
+            ball_shared::build_std_io_module(),
             Module {
                 name: "main".to_string(),
                 functions,
@@ -224,6 +231,241 @@ fn program_with_main(functions: Vec<FunctionDefinition>) -> Program {
         entry_function: "main".to_string(),
         metadata: None,
     }
+}
+
+// ════════════════════════════════════════════════════════════
+// #37 helpers: literals, operators, control flow, assignment
+// ════════════════════════════════════════════════════════════
+
+fn string_lit(value: &str) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::StringValue(value.to_string())),
+        })),
+    }
+}
+
+fn bool_lit(value: bool) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::BoolValue(value)),
+        })),
+    }
+}
+
+fn list_lit(elements: Vec<Expression>) -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal {
+            value: Some(LiteralValue::ListValue(ListLiteral { elements })),
+        })),
+    }
+}
+
+/// A binary `std` base call: `bin_call("add", left, right)` == Ball's
+/// `add(left: left, right: right)`.
+fn bin_call(function: &str, left: Expression, right: Expression) -> Expression {
+    call(
+        "std",
+        function,
+        Some(args(vec![("left", left), ("right", right)])),
+    )
+}
+
+/// A unary `std` base call (`UnaryInput { value }`).
+fn un_call(function: &str, value: Expression) -> Expression {
+    call("std", function, Some(args(vec![("value", value)])))
+}
+
+fn print_msg(message: Expression) -> Expression {
+    call(
+        "std",
+        "print",
+        Some(message_input("PrintInput", vec![("message", message)])),
+    )
+}
+
+/// Named-type `message_creation` helper — same shape as `message()`, kept
+/// as a distinct name here only for readability at call sites that want to
+/// emphasize "this is a base function's typed input", not a user type.
+fn message_input(type_name: &str, fields: Vec<(&str, Expression)>) -> Expression {
+    message(type_name, fields)
+}
+
+/// Prints `tag` (a side effect) and then evaluates to `value` — used to make
+/// laziness observable: if a supposedly-unevaluated branch runs, `tag`
+/// appears in the captured stdout.
+fn tap_print(tag: &str, value: Expression) -> Expression {
+    block(vec![expr_stmt(print_msg(string_lit(tag)))], value)
+}
+
+fn assign_expr(target: Expression, value: Expression, op: &str) -> Expression {
+    call(
+        "std",
+        "assign",
+        Some(args(vec![
+            ("target", target),
+            ("value", value),
+            ("op", string_lit(op)),
+        ])),
+    )
+}
+
+fn break_expr() -> Expression {
+    call("std", "break", None)
+}
+
+fn continue_expr() -> Expression {
+    call("std", "continue", None)
+}
+
+fn return_expr(value: Expression) -> Expression {
+    call("std", "return", Some(args(vec![("value", value)])))
+}
+
+fn if_expr(condition: Expression, then: Expression, else_branch: Expression) -> Expression {
+    call(
+        "std",
+        "if",
+        Some(args(vec![
+            ("condition", condition),
+            ("then", then),
+            ("else", else_branch),
+        ])),
+    )
+}
+
+/// A `for` init clause: a block of fresh `let`-bindings with no result
+/// (`for (var i = 0, ...; ...)`) — the shape `Compiler::compile_for_init`
+/// recognizes and declares `let mut`.
+fn for_init_lets(bindings: Vec<(&str, Expression)>) -> Expression {
+    Expression {
+        expr: Some(Expr::Block(Box::new(Block {
+            statements: bindings
+                .into_iter()
+                .map(|(name, value)| let_stmt(name, value))
+                .collect(),
+            result: None,
+        }))),
+    }
+}
+
+fn for_loop(
+    init: Expression,
+    condition: Expression,
+    update: Expression,
+    body: Expression,
+) -> Expression {
+    call(
+        "std",
+        "for",
+        Some(args(vec![
+            ("init", init),
+            ("condition", condition),
+            ("update", update),
+            ("body", body),
+        ])),
+    )
+}
+
+fn for_in_loop(variable: &str, iterable: Expression, body: Expression) -> Expression {
+    call(
+        "std",
+        "for_in",
+        Some(args(vec![
+            ("variable", string_lit(variable)),
+            ("iterable", iterable),
+            ("body", body),
+        ])),
+    )
+}
+
+fn while_loop(condition: Expression, body: Expression) -> Expression {
+    call(
+        "std",
+        "while",
+        Some(args(vec![("condition", condition), ("body", body)])),
+    )
+}
+
+fn do_while_loop(body: Expression, condition: Expression) -> Expression {
+    call(
+        "std",
+        "do_while",
+        Some(args(vec![("body", body), ("condition", condition)])),
+    )
+}
+
+fn switch_case(value: Expression, body: Expression) -> Expression {
+    message(
+        "SwitchCase",
+        vec![
+            ("value", value),
+            ("is_default", bool_lit(false)),
+            ("body", body),
+        ],
+    )
+}
+
+fn switch_default(body: Expression) -> Expression {
+    message(
+        "SwitchCase",
+        vec![("is_default", bool_lit(true)), ("body", body)],
+    )
+}
+
+fn switch_expr(subject: Expression, cases: Vec<Expression>) -> Expression {
+    call(
+        "std",
+        "switch",
+        Some(args(vec![("subject", subject), ("cases", list_lit(cases))])),
+    )
+}
+
+fn throw_expr(value: Expression) -> Expression {
+    call("std", "throw", Some(args(vec![("value", value)])))
+}
+
+fn catch_clause(variable: &str, body: Expression) -> Expression {
+    message(
+        "CatchClause",
+        vec![("variable", string_lit(variable)), ("body", body)],
+    )
+}
+
+fn try_expr(body: Expression, catches: Vec<Expression>) -> Expression {
+    call(
+        "std",
+        "try",
+        Some(args(vec![("body", body), ("catches", list_lit(catches))])),
+    )
+}
+
+fn list_push_call(list: Expression, value: Expression) -> Expression {
+    call(
+        "std_collections",
+        "list_push",
+        Some(args(vec![("list", list), ("value", value)])),
+    )
+}
+
+fn list_set_call(list: Expression, index: Expression, value: Expression) -> Expression {
+    call(
+        "std_collections",
+        "list_set",
+        Some(args(vec![
+            ("list", list),
+            ("index", index),
+            ("value", value),
+        ])),
+    )
+}
+
+fn list_pop_call(list: Expression) -> Expression {
+    call(
+        "std_collections",
+        "list_pop",
+        Some(args(vec![("list", list)])),
+    )
 }
 
 /// `print(to_string(<value>))` — the shape both `hello_world` and
@@ -495,4 +737,336 @@ fn message_creation_and_field_access_compile_and_run() {
     let main_body = print_to_string(field_access(point, "x"));
     let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
     assert_program_prints("field_access", &program, "42");
+}
+
+// ════════════════════════════════════════════════════════════
+// #37 — base-function dispatch + lazy control flow
+// ════════════════════════════════════════════════════════════
+
+/// **The key laziness fixture.** `std.if`/`std.and`/`std.or` must compile so
+/// the untaken/short-circuited branch is never *reached* at run time, not
+/// merely "its value discarded". Proven two ways per operator:
+/// - A `tap_print` branch that would print a tell-tale tag if it ran —
+///   asserted absent from stdout via the exact-match comparison below (if
+///   it *were* eagerly evaluated, its tag would appear in the output and
+///   the `assert_eq!` inside `assert_program_prints` would fail with a
+///   legible diff).
+/// - An `and(false, divide(1, 0))` — a naive eager implementation would
+///   panic (integer division by zero) and crash the whole compiled binary,
+///   which `compile_and_run` treats as a hard test failure (non-zero exit
+///   status) with the generated source attached to the panic message.
+#[test]
+fn laziness_and_or_if_never_evaluate_the_untaken_branch() {
+    let main_body = block(
+        vec![
+            expr_stmt(print_msg(un_call(
+                "to_string",
+                bin_call(
+                    "and",
+                    bool_lit(false),
+                    tap_print("AND_RHS_EVALUATED", bool_lit(true)),
+                ),
+            ))),
+            expr_stmt(print_msg(un_call(
+                "to_string",
+                bin_call(
+                    "or",
+                    bool_lit(true),
+                    tap_print("OR_RHS_EVALUATED", bool_lit(false)),
+                ),
+            ))),
+            expr_stmt(print_msg(un_call(
+                "to_string",
+                if_expr(
+                    bool_lit(false),
+                    tap_print("IF_THEN_EVALUATED", int_lit(1)),
+                    tap_print("IF_ELSE_EVALUATED", int_lit(2)),
+                ),
+            ))),
+        ],
+        // Statement, not tail: proves the untaken branch of `and` isn't
+        // evaluated even when it would otherwise panic (divide by zero),
+        // not just when it would merely print.
+        print_msg(un_call(
+            "to_string",
+            bin_call(
+                "and",
+                bool_lit(false),
+                bin_call("divide", int_lit(1), int_lit(0)),
+            ),
+        )),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints(
+        "laziness",
+        &program,
+        "false\ntrue\nIF_ELSE_EVALUATED\n2\nfalse",
+    );
+}
+
+/// Nested `for` loops + `if` conditionals + `continue`/`break`/`return`,
+/// hand-traced to the same result any conformant Ball engine (Dart's
+/// reference included) must produce for this exact expression tree —
+/// there's nothing Rust-specific in the arithmetic/control-flow, so an
+/// independently-computed expected value **is** "matches the reference
+/// engine".
+///
+/// `compute_nested_sum`: for i in 1..4, for j in 1..4: skip when i==j
+/// (`continue`), stop the *inner* loop early when i==3 && j==1 (`break` —
+/// must not also stop the outer loop), else accumulate `sum += i*j`.
+/// i=1: j=2,3 → +2,+3 (j=1 skipped) = 5
+/// i=2: j=1,3 → +2,+6 (j=2 skipped) = 13
+/// i=3: j=1 → break immediately (sum unchanged) = 13
+///
+/// `first_multiple_of_seven(20)`: `for` loop with an early `return` from
+/// inside the loop body — the first i in 1..=20 with `i % 7 == 0` is 7.
+#[test]
+fn nested_loops_conditionals_break_continue_return() {
+    let inner_body = if_expr(
+        bin_call("equals", reference("i"), reference("j")),
+        continue_expr(),
+        if_expr(
+            bin_call(
+                "and",
+                bin_call("equals", reference("i"), int_lit(3)),
+                bin_call("equals", reference("j"), int_lit(1)),
+            ),
+            break_expr(),
+            assign_expr(
+                reference("sum"),
+                bin_call("multiply", reference("i"), reference("j")),
+                "+=",
+            ),
+        ),
+    );
+    let outer_body = for_loop(
+        for_init_lets(vec![("j", int_lit(1))]),
+        bin_call("less_than", reference("j"), int_lit(4)),
+        assign_expr(reference("j"), int_lit(1), "+="),
+        inner_body,
+    );
+    let compute_nested_sum_body = block(
+        vec![
+            let_stmt("sum", int_lit(0)),
+            expr_stmt(for_loop(
+                for_init_lets(vec![("i", int_lit(1))]),
+                bin_call("less_than", reference("i"), int_lit(4)),
+                assign_expr(reference("i"), int_lit(1), "+="),
+                outer_body,
+            )),
+        ],
+        reference("sum"),
+    );
+
+    let first_multiple_body = block(
+        vec![expr_stmt(for_loop(
+            for_init_lets(vec![("i", int_lit(1))]),
+            bin_call("lte", reference("i"), reference("limit")),
+            assign_expr(reference("i"), int_lit(1), "+="),
+            if_expr(
+                bin_call(
+                    "equals",
+                    bin_call("modulo", reference("i"), int_lit(7)),
+                    int_lit(0),
+                ),
+                return_expr(reference("i")),
+                int_lit(0),
+            ),
+        ))],
+        int_lit(-1),
+    );
+
+    let main_body = block(
+        vec![
+            let_stmt("nested_sum", call("", "compute_nested_sum", None)),
+            let_stmt(
+                "first_mult",
+                call("", "first_multiple_of_seven", Some(int_lit(20))),
+            ),
+            expr_stmt(print_to_string(reference("nested_sum"))),
+        ],
+        print_to_string(reference("first_mult")),
+    );
+
+    let program = program_with_main(vec![
+        user_fn(
+            "compute_nested_sum",
+            "",
+            "int",
+            compute_nested_sum_body,
+            None,
+        ),
+        user_fn(
+            "first_multiple_of_seven",
+            "int",
+            "int",
+            first_multiple_body,
+            Some("limit"),
+        ),
+        user_fn("main", "", "void", main_body, None),
+    ]);
+    assert_program_prints("nested_control_flow", &program, "13\n7");
+}
+
+/// Arithmetic / comparison / logic / bitwise operators, including the two
+/// semantics that DON'T match a naive "just use Rust's operator" port:
+/// Euclidean `modulo` (`-7 % 3 == 2`, not Rust's native `-1`) and a logical
+/// (zero-filling) `unsigned_right_shift`.
+#[test]
+fn arithmetic_comparison_logic_bitwise_operators_match_reference_semantics() {
+    let checks: Vec<Expression> = vec![
+        bin_call("add", int_lit(2), int_lit(3)),            // 5
+        bin_call("subtract", int_lit(10), int_lit(4)),      // 6
+        bin_call("multiply", int_lit(6), int_lit(7)),       // 42
+        bin_call("divide", int_lit(17), int_lit(5)),        // 3 (truncating)
+        bin_call("divide_double", int_lit(17), int_lit(5)), // 3.4
+        bin_call("modulo", int_lit(-7), int_lit(3)),        // 2 (Euclidean)
+        un_call("negate", int_lit(9)),                      // -9
+        bin_call("equals", int_lit(5), int_lit(5)),         // true
+        bin_call("not_equals", int_lit(5), int_lit(6)),     // true
+        bin_call("less_than", int_lit(3), int_lit(5)),      // true
+        bin_call("greater_than", int_lit(5), int_lit(3)),   // true
+        bin_call("lte", int_lit(5), int_lit(5)),            // true
+        bin_call("gte", int_lit(5), int_lit(5)),            // true
+        bin_call("and", bool_lit(true), bool_lit(false)),   // false
+        bin_call("or", bool_lit(false), bool_lit(true)),    // true
+        un_call("not", bool_lit(true)),                     // false
+        bin_call("bitwise_and", int_lit(12), int_lit(10)),  // 8
+        bin_call("bitwise_or", int_lit(12), int_lit(10)),   // 14
+        bin_call("bitwise_xor", int_lit(12), int_lit(10)),  // 6
+        un_call("bitwise_not", int_lit(0)),                 // -1
+        bin_call("left_shift", int_lit(1), int_lit(4)),     // 16
+        bin_call("right_shift", int_lit(-16), int_lit(2)),  // -4 (arithmetic)
+        bin_call("unsigned_right_shift", int_lit(-1), int_lit(60)), // 15 (logical)
+    ];
+    let expected = [
+        "5", "6", "42", "3", "3.4", "2", "-9", "true", "true", "true", "true", "true", "true",
+        "false", "true", "false", "8", "14", "6", "-1", "16", "-4", "15",
+    ]
+    .join("\n");
+
+    let mut statements: Vec<Statement> = checks
+        .into_iter()
+        .map(|check| expr_stmt(print_msg(un_call("to_string", check))))
+        .collect();
+    let tail = match statements.pop().expect("checks is non-empty") {
+        Statement {
+            stmt: Some(ball_shared::proto::ball::v1::statement::Stmt::Expression(last)),
+        } => last,
+        _ => unreachable!("every statement built above is Stmt::Expression"),
+    };
+    let main_body = block(statements, tail);
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("operators", &program, &expected);
+}
+
+/// `while` — condition compiled inline and re-evaluated every iteration.
+#[test]
+fn while_loop_sums_one_through_five() {
+    let main_body = block(
+        vec![
+            let_stmt("sum", int_lit(0)),
+            let_stmt("i", int_lit(1)),
+            expr_stmt(while_loop(
+                bin_call("lte", reference("i"), int_lit(5)),
+                block(
+                    vec![expr_stmt(assign_expr(
+                        reference("sum"),
+                        reference("i"),
+                        "+=",
+                    ))],
+                    assign_expr(reference("i"), int_lit(1), "+="),
+                ),
+            )),
+        ],
+        print_to_string(reference("sum")),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("while_loop", &program, "15");
+}
+
+/// `do_while` — body runs once even though the condition is false from the
+/// very first check.
+#[test]
+fn do_while_runs_body_at_least_once() {
+    let main_body = block(
+        vec![let_stmt("count", int_lit(0))],
+        block(
+            vec![expr_stmt(do_while_loop(
+                assign_expr(reference("count"), int_lit(1), "+="),
+                bool_lit(false),
+            ))],
+            reference("count"),
+        ),
+    );
+    let main_body = print_to_string(main_body);
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("do_while", &program, "1");
+}
+
+/// `for_in` — iterates a `List` literal, summing its elements.
+#[test]
+fn for_in_sums_a_list() {
+    let main_body = block(
+        vec![
+            let_stmt("sum", int_lit(0)),
+            expr_stmt(for_in_loop(
+                "x",
+                list_lit(vec![int_lit(10), int_lit(20), int_lit(30)]),
+                assign_expr(reference("sum"), reference("x"), "+="),
+            )),
+        ],
+        print_to_string(reference("sum")),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("for_in", &program, "60");
+}
+
+/// `switch` — dispatches to the matching case's body (compiled as an
+/// if-chain internally — see `base_call.rs::compile_switch`).
+#[test]
+fn switch_dispatches_to_the_matching_case() {
+    let main_body = print_to_string(switch_expr(
+        int_lit(2),
+        vec![
+            switch_case(int_lit(1), string_lit("one")),
+            switch_case(int_lit(2), string_lit("two")),
+            switch_default(string_lit("other")),
+        ],
+    ));
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("switch", &program, "two");
+}
+
+/// `try`/`throw` — `throw` panics with the `BallValue` payload
+/// (`std::panic::panic_any`); `try` catches it via `catch_unwind` and binds
+/// the recovered value to the `catch` clause's variable.
+#[test]
+fn try_catch_recovers_a_thrown_value() {
+    let main_body = print_to_string(try_expr(
+        block(vec![expr_stmt(throw_expr(string_lit("boom")))], int_lit(0)),
+        vec![catch_clause("e", reference("e"))],
+    ));
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("try_catch", &program, "boom");
+}
+
+/// Mutating `std_collections` calls (`list_push`/`list_set`/`list_pop`) —
+/// and `assign` on a plain `let` variable — must mutate the *actual* bound
+/// list, not a throwaway `.clone()`; see `crate::lvalue`'s module doc
+/// comment for why that isn't automatic in Rust the way it is in Dart.
+#[test]
+fn list_mutations_affect_the_same_underlying_list() {
+    let main_body = block(
+        vec![
+            let_stmt("items", list_lit(vec![int_lit(1), int_lit(2), int_lit(3)])),
+            expr_stmt(list_push_call(reference("items"), int_lit(4))),
+            expr_stmt(list_set_call(reference("items"), int_lit(0), int_lit(99))),
+            expr_stmt(print_to_string(reference("items"))),
+            let_stmt("popped", list_pop_call(reference("items"))),
+        ],
+        print_to_string(reference("popped")),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("list_mutation", &program, "[99, 2, 3, 4]\n4");
 }

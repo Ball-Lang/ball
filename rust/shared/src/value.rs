@@ -110,7 +110,7 @@ impl fmt::Display for BallFunction {
 
 /// The root runtime value type. Every expression in a Ball program evaluates
 /// to one of these variants.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum BallValue {
     /// Ball's `null`.
     Null,
@@ -135,6 +135,36 @@ pub enum BallValue {
     Function(Box<BallFunction>),
     /// A descriptor-backed message instance.
     Message(BallMessage),
+}
+
+/// Hand-written (not `#[derive]`d) so `Int`/`Double` compare by numeric value
+/// across variants — Dart's `num.==` treats `0 == 0.0` as `true` (both `int`
+/// and `double` are `num`), and the reference engines/compilers all honor
+/// this: see `cpp/shared/include/ball_dyn.h`'s `BallDyn::operator==` ("Numeric
+/// cross-type equality: Dart `0 == 0.0` is true.") and
+/// `dart/engine/lib/engine_std.dart`'s `equals` dispatch, which is Dart's own
+/// native `==` and therefore gets this for free. Every other pairing falls
+/// back to ordinary per-variant structural equality (derived-`PartialEq`
+/// shaped, just written out explicitly since the numeric arm can't be
+/// expressed by `#[derive]`).
+impl PartialEq for BallValue {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (BallValue::Int(a), BallValue::Double(b))
+            | (BallValue::Double(b), BallValue::Int(a)) => (*a as f64) == *b,
+            (BallValue::Null, BallValue::Null) => true,
+            (BallValue::Bool(a), BallValue::Bool(b)) => a == b,
+            (BallValue::Int(a), BallValue::Int(b)) => a == b,
+            (BallValue::Double(a), BallValue::Double(b)) => a == b,
+            (BallValue::String(a), BallValue::String(b)) => a == b,
+            (BallValue::Bytes(a), BallValue::Bytes(b)) => a == b,
+            (BallValue::List(a), BallValue::List(b)) => a == b,
+            (BallValue::Map(a), BallValue::Map(b)) => a == b,
+            (BallValue::Function(a), BallValue::Function(b)) => a == b,
+            (BallValue::Message(a), BallValue::Message(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for BallValue {
@@ -388,6 +418,19 @@ mod tests {
         let fields = extract_fields(&call);
         assert_eq!(fields.len(), 1);
         assert_eq!(fields["value"], int_literal(5));
+    }
+
+    #[test]
+    fn numeric_cross_type_equality_matches_dart_num_semantics() {
+        assert_eq!(BallValue::Int(0), BallValue::Double(0.0));
+        assert_eq!(BallValue::Double(2.0), BallValue::Int(2));
+        assert_ne!(BallValue::Int(2), BallValue::Double(2.5));
+        assert_ne!(BallValue::Int(1), BallValue::Bool(true));
+        // Nested (list/map) equality recurses through the same numeric rule.
+        assert_eq!(
+            BallValue::List(vec![BallValue::Int(1)]),
+            BallValue::List(vec![BallValue::Double(1.0)])
+        );
     }
 
     #[test]

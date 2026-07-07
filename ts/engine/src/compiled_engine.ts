@@ -7743,7 +7743,7 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let map1 = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
         let map2 = (this._stdAsMap(__ball_index(m, 'value')) ?? __ball_index(m, 'value'));
-        let result = (() => { const __r: Record<string, any> = {}; { const __m = map1.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } { const __m = map2.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } return __r; })();
+        let result = (() => { const __r: any = {}; { const __m = map1.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } { const __m = map2.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } return __r; })();
         this._trackMemoryAllocation(__ball_mul(result.length, _ballMapEntryBytes));
         return result;
       }), ['map_map']: (async (i) => {
@@ -9885,10 +9885,10 @@ export class BallEngine {
     }
     let mapVal = this._stdAsMap(v);
     if (!__ball_eq(mapVal, null)) {
-      return (() => { const __r: Record<string, any> = {}; for (const e of mapVal.entries) { if (!e.key.startsWith('__')) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
+      return (() => { const __r: any = {}; for (const e of mapVal.entries) { if (!e.key.startsWith('__')) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
     }
     if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
-      return (() => { const __r: Record<string, any> = {}; for (const e of v.entries) { if (((typeof e.key === 'string') && !e.key.startsWith('__'))) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
+      return (() => { const __r: any = {}; for (const e of v.entries) { if (((typeof e.key === 'string') && !e.key.startsWith('__'))) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
     }
     let listVal = this._stdAsList(v);
     if (!__ball_eq(listVal, null)) {

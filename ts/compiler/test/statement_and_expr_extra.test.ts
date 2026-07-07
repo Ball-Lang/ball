@@ -186,6 +186,45 @@ describe("compiler — collection literal control elements", () => {
     assert.match(ts, /for \(const __k in __m\) \{ __r\[__k\] = __m\[__k\]; \}/);
   });
 
+  test("the map-literal IIFE annotates __r as `any`, never the strip-fragile `Record<string, any>`", () => {
+    // Regression guard for the TS-Regression-Gate failure on PR #274: the
+    // map-literal/comprehension lowering (compiler.ts compileMapElements) used
+    // to emit `const __r: Record<string, any> = {}` on a single long line.
+    // Node's `--experimental-strip-types` (Amaro) intermittently mis-strips the
+    // two-argument generic `<string, any>` in that position, corrupting the rest
+    // of the line and throwing `ERR_INVALID_TYPESCRIPT_SYNTAX: Expression
+    // expected` when the ~9800-line compiled engine is loaded under Node 22.23.1.
+    // A single-token `any` annotation strips cleanly (like the sibling list
+    // emit `__r: any[]`). Assert the fragile form is never re-introduced.
+    const mapSpread = call("std", "spread", { value: ref("base") });
+    const body: Expression = {
+      block: {
+        statements: [
+          {
+            let: {
+              name: "merged",
+              value: {
+                call: {
+                  module: "std",
+                  function: "map_create",
+                  input: { messageCreation: { fields: [{ name: "element", value: mapSpread }] } },
+                },
+              },
+            },
+          },
+        ],
+      },
+    };
+    const ts = compile(mainProgram(body), { includePreamble: false });
+    // The map IIFE must be present with the strip-safe single-token annotation …
+    assert.match(ts, /\(\(\) => \{ const __r: any = \{\};/);
+    // … and must NOT carry the two-argument generic that trips the type-stripper.
+    assert.ok(
+      !ts.includes("Record<string, any>"),
+      "map-literal emit must not contain the strip-fragile `Record<string, any>` annotation",
+    );
+  });
+
   test("a C-style collection_for inside a list literal renders init/condition/update", () => {
     const cStyleFor = call("std", "collection_for", {
       init: { block: { statements: [{ let: { name: "i", value: lit(0) } }] } },

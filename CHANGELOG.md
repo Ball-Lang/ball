@@ -1,3 +1,10 @@
+# [1.11.0](https://github.com/Ball-Lang/ball/compare/v1.10.0...v1.11.0) (2026-07-07)
+
+
+### Features
+
+* **rust:** [#37](https://github.com/Ball-Lang/ball/issues/37) base-function dispatch + lazy control flow ([#283](https://github.com/Ball-Lang/ball/issues/283)) ([e69ab62](https://github.com/Ball-Lang/ball/commit/e69ab621cff4c7d0fcc408f9f8cf4ce89d423e37))
+
 # [1.10.0](https://github.com/Ball-Lang/ball/compare/v1.9.0...v1.10.0) (2026-07-07)
 
 

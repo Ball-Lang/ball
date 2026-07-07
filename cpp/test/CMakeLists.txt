@@ -85,7 +85,10 @@ target_compile_definitions(test_snapshot PRIVATE
 )
 
 # Encoder tests — exercises CppEncoder::encode_from_clang_ast using
-# hand-crafted minimal Clang AST JSON fixtures.
+# hand-crafted minimal Clang AST JSON fixtures. #18: the encoder returns the
+# protobuf-free ball::ir IR, so the test links only the (protobuf-free)
+# encoder lib — NOT ball_shared. nlohmann/json comes transitively from the
+# encoder lib's PUBLIC link.
 add_executable(test_encoder test_encoder.cpp)
 target_include_directories(test_encoder PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../encoder/include
@@ -93,7 +96,6 @@ target_include_directories(test_encoder PRIVATE
 )
 target_link_libraries(test_encoder
     ball_cpp_encoder_lib
-    ball_shared
 )
 # Path to real clang AST fixtures. Checked in under
 # tests/fixtures/cpp_ast/ast/ so tests run without needing clang

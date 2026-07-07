@@ -4,9 +4,11 @@ project(ball_cpp_encoder)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Protobuf provided transitively via ball_shared
-find_package(Protobuf QUIET)
-
+# #18: the encoder is now protobuf-free. It builds the plain-struct
+# ball::ir IR (cpp/shared/include/ball_ir.h) straight from the Clang JSON
+# AST, so it links NO libprotobuf/abseil — only nlohmann/json. The shared
+# include dir is on the path for ball_ir.h (a header-only IR), NOT for the
+# protobuf-carrying ball_shared target.
 add_library(ball_cpp_encoder_lib
     src/encoder.cpp
 )
@@ -15,8 +17,6 @@ target_include_directories(ball_cpp_encoder_lib PUBLIC
     include
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
 )
-
-target_link_libraries(ball_cpp_encoder_lib PUBLIC ball_shared)
 
 # nlohmann/json — try find_package, fall back to FetchContent
 find_package(nlohmann_json QUIET)

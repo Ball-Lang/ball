@@ -331,6 +331,15 @@ impl<'a> Compiler<'a> {
     /// work deferred to #38 — functions with zero or more-than-one declared
     /// parameters simply get no alias, and their bodies must reference
     /// `"input"` directly.
+    ///
+    /// The binding is `let mut` (rather than a plain `let`) whenever
+    /// [`Compiler::expr_mutates_var`] finds the body reassigning its own
+    /// parameter (a counter/accumulator-style function that treats its
+    /// parameter as a local variable, e.g. `assign(target: n, ...)` or
+    /// `n += 1` inside `func`'s body) — the same detection
+    /// [`Compiler::compile_block`] already uses for `let`-bindings, applied
+    /// here so a self-reassigning parameter alias doesn't hit Rust's "cannot
+    /// assign twice to immutable variable" (issue #287).
     fn param_alias_prologue(&self, func: &FunctionDefinition) -> String {
         let Some(metadata) = &func.metadata else {
             return String::new();
@@ -356,7 +365,12 @@ impl<'a> Compiler<'a> {
         if name.is_empty() || name == "input" {
             return String::new();
         }
-        format!("let {} = input.clone();\n", sanitize_ident(name))
+        let mutates = func
+            .body
+            .as_deref()
+            .is_some_and(|body| self.expr_mutates_var(body, name));
+        let keyword = if mutates { "let mut" } else { "let" };
+        format!("{keyword} {} = input.clone();\n", sanitize_ident(name))
     }
 
     // ════════════════════════════════════════════════════════════

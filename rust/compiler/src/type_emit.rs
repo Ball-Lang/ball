@@ -450,18 +450,32 @@ impl Compiler<'_> {
     /// parameter beyond the receiver (rare — no required #38 fixture has a
     /// method with real extra parameters, but avoids silently dropping one
     /// if `metadata.params` ever carries more than just `self`).
+    ///
+    /// Both the `self_` binding and the descriptor-field aliases are skipped
+    /// entirely when `func.metadata.is_static` is set — the reference
+    /// encoders' shared convention for "this class member has no receiver"
+    /// (`dart/encoder/lib/encoder.dart`'s `_encodeMethodDeclaration`,
+    /// mirrored by the C++/TS compilers' own `is_static` checks). A
+    /// receiver-less associated function's `input` never carries a `"self"`
+    /// field at all, so unconditionally extracting one panics inside
+    /// `ball_field_get` (`rust/shared/src/runtime.rs`) the instant such a
+    /// function runs (issue #288) — compiling it without that prologue
+    /// makes it behave exactly like an ordinary free function, which is all
+    /// a static associated function ever is at the Rust level.
     fn method_prologue(&self, owner_td: &TypeDefinition, func: &FunctionDefinition) -> String {
-        let mut out =
-            String::from("        let self_ = ball_field_get(input.clone(), \"self\");\n");
-        if let Some(descriptor) = &owner_td.descriptor {
-            for field in &descriptor.field {
-                let Some(field_name) = field.name.as_deref() else {
-                    continue;
-                };
-                out.push_str(&format!(
-                    "        let {} = ball_field_get(self_.clone(), {field_name:?});\n",
-                    crate::sanitize_ident(field_name)
-                ));
+        let mut out = String::new();
+        if !func_meta_bool(func, "is_static") {
+            out.push_str("        let self_ = ball_field_get(input.clone(), \"self\");\n");
+            if let Some(descriptor) = &owner_td.descriptor {
+                for field in &descriptor.field {
+                    let Some(field_name) = field.name.as_deref() else {
+                        continue;
+                    };
+                    out.push_str(&format!(
+                        "        let {} = ball_field_get(self_.clone(), {field_name:?});\n",
+                        crate::sanitize_ident(field_name)
+                    ));
+                }
             }
         }
         if let Some(meta) = &func.metadata {
@@ -579,8 +593,23 @@ impl Compiler<'_> {
     /// required #38 fixture (construction is a direct, compile-time-
     /// resolved `MessageCreation`), so a `new` dispatcher would just be
     /// dead code.
+    ///
+    /// A short name with exactly one owner whose member is itself
+    /// receiver-less (`is_static` — see [`Compiler::method_prologue`]'s doc
+    /// comment) skips the self-typed `match` entirely and forwards straight
+    /// into that one `impl` block instead: a receiver-less call's `input`
+    /// never carries a `"self"` field (there is no receiver value to read
+    /// one off of), so the ordinary self-typed dispatch below — which reads
+    /// exactly that field to decide which `impl` to route to — would panic
+    /// before ever reaching the static member itself (issue #288). A short
+    /// name shared by more than one *static* owner has no receiver value to
+    /// disambiguate by at all — call sites for that shape aren't produced by
+    /// any reference encoder yet, so it falls back to the same self-typed
+    /// dispatch as an ordinary instance method (unchanged from before this
+    /// fix, and no worse: it already panicked on every static call).
     pub(crate) fn compile_method_dispatchers(&self, module: &Module) -> String {
-        let mut owners_by_short: HashMap<String, Vec<&TypeDefinition>> = HashMap::new();
+        let mut owners_by_short: HashMap<String, Vec<(&TypeDefinition, &FunctionDefinition)>> =
+            HashMap::new();
         let mut short_name_order: Vec<String> = Vec::new();
 
         for td in &module.type_defs {
@@ -600,19 +629,28 @@ impl Compiler<'_> {
                 if !owners_by_short.contains_key(&short) {
                     short_name_order.push(short.clone());
                 }
-                owners_by_short.entry(short).or_default().push(td);
+                owners_by_short.entry(short).or_default().push((td, member));
             }
         }
 
         let mut out = String::new();
         for short in short_name_order {
             let owners = &owners_by_short[&short];
+            if let [(td, member)] = owners.as_slice() {
+                if func_meta_bool(member, "is_static") {
+                    let rust_name = crate::sanitize_ident(&td.name);
+                    out.push_str(&format!(
+                        "pub fn {short}(input: BallValue) -> BallValue {{\n    {rust_name}::{short}(input)\n}}\n\n"
+                    ));
+                    continue;
+                }
+            }
             out.push_str(&format!(
                 "pub fn {short}(input: BallValue) -> BallValue {{\n"
             ));
             out.push_str("    let __self = ball_field_get(input.clone(), \"self\");\n");
             out.push_str("    match ball_message_type_name(&__self).as_str() {\n");
-            for td in owners {
+            for (td, _) in owners {
                 let rust_name = crate::sanitize_ident(&td.name);
                 out.push_str(&format!(
                     "        {:?} => {rust_name}::{short}(input),\n",

@@ -36,9 +36,13 @@ use ball_shared::proto::ball::v1::statement::Stmt;
 use ball_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FieldValuePair, FunctionCall, FunctionDefinition, LetBinding,
     ListLiteral, Literal, MessageCreation, Module, ModuleImport, Program, Reference, Statement,
+    TypeDefinition,
 };
+use ball_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
 use ball_shared::proto::google::protobuf::value::Kind;
-use ball_shared::proto::google::protobuf::{ListValue, Struct, Value};
+use ball_shared::proto::google::protobuf::{
+    DescriptorProto, FieldDescriptorProto, ListValue, Struct, Value,
+};
 use prost::Message;
 use prost_reflect::DynamicMessage;
 
@@ -549,7 +553,10 @@ fn load_conformance_fixture(name: &str) -> (Program, String) {
     // files out with CRLF line endings, but `println!` (and every reference
     // engine) always emits bare `\n` — this is a checkout-line-ending detail,
     // not a real cross-platform behavior difference to assert on.
-    (program, expected.replace("\r\n", "\n").trim_end().to_string())
+    (
+        program,
+        expected.replace("\r\n", "\n").trim_end().to_string(),
+    )
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1234,5 +1241,223 @@ fn simple_class_fixture_does_not_emit_a_nested_mod_for_the_entry_module() {
     assert!(
         compiled.contains("impl main_Point"),
         "expected an `impl main_Point` block holding its constructor/methods:\n{compiled}"
+    );
+}
+
+// ════════════════════════════════════════════════════════════
+// #287 / #288 — param_alias_prologue mutability + receiver-less
+// associated functions
+// ════════════════════════════════════════════════════════════
+
+/// Issue #287 — a function that reassigns its own single named parameter
+/// (`Compiler::param_alias_prologue`'s `let <name> = input.clone();` alias)
+/// must compile the alias as `let mut <name>`, not a plain immutable `let`,
+/// which rustc rejects ("cannot assign twice to immutable variable").
+/// `count_to_ten` treats its own parameter `n` like an ordinary mutable loop
+/// counter — exactly the counter/accumulator shape #43's own encoder
+/// invariant-#2 test hit and had to route around (see
+/// `param_alias_prologue`'s doc comment in `rust/compiler/src/lib.rs`).
+#[test]
+fn function_reassigning_its_own_parameter_compiles_and_runs() {
+    let count_to_ten_body = block(
+        vec![expr_stmt(while_loop(
+            bin_call("less_than", reference("n"), int_lit(10)),
+            assign_expr(reference("n"), int_lit(1), "+="),
+        ))],
+        reference("n"),
+    );
+    let main_body = block(
+        vec![let_stmt(
+            "result",
+            call("", "count_to_ten", Some(int_lit(3))),
+        )],
+        print_to_string(reference("result")),
+    );
+    let program = program_with_main(vec![
+        user_fn("count_to_ten", "int", "int", count_to_ten_body, Some("n")),
+        user_fn("main", "", "void", main_body, None),
+    ]);
+
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        compiled.contains("let mut n = input.clone();"),
+        "a parameter reassigned in its own function body must alias as \
+         `let mut`, not a plain immutable `let` (issue #287):\n{compiled}"
+    );
+
+    let stdout = compile_and_run("param_reassignment", &compiled);
+    assert_eq!(
+        stdout.trim(),
+        "10",
+        "fixture 'param_reassignment' produced unexpected stdout.\n--- generated main.rs ---\n{compiled}"
+    );
+}
+
+/// A single-valued `int64` field for the hand-built `Point` `TypeDefinition`
+/// below (mirrors `tests/conformance/101_simple_class.ball.json`'s own
+/// `main:Point` descriptor).
+fn int_field_descriptor(name: &str, number: i32) -> FieldDescriptorProto {
+    FieldDescriptorProto {
+        name: Some(name.to_string()),
+        number: Some(number),
+        r#type: Some(Type::Int64 as i32),
+        label: Some(Label::Optional as i32),
+        ..Default::default()
+    }
+}
+
+/// `metadata.params = [{name: p0}, {name: p1}, ...]` — like
+/// `single_param_metadata`, but for a multi-parameter class member (issue
+/// #288's fixture needs two non-`self` parameters: `x`, `y`).
+fn params_meta_value(names: &[&str]) -> Value {
+    Value {
+        kind: Some(Kind::ListValue(ListValue {
+            values: names
+                .iter()
+                .map(|name| {
+                    let mut fields = HashMap::new();
+                    fields.insert(
+                        "name".to_string(),
+                        Value {
+                            kind: Some(Kind::StringValue(name.to_string())),
+                        },
+                    );
+                    Value {
+                        kind: Some(Kind::StructValue(Struct { fields })),
+                    }
+                })
+                .collect(),
+        })),
+    }
+}
+
+/// `metadata.kind = "method"`, `metadata.is_static = true` (when
+/// `is_static`), `metadata.params = [...]` — the shape Dart's reference
+/// encoder emits for any static class member
+/// (`dart/encoder/lib/encoder.dart`'s `_encodeMethodDeclaration`: `meta['kind']
+/// = 'method'; if (member.isStatic) meta['is_static'] = true;`), which is
+/// what marks a class member as having no `self` receiver at the Ball IR
+/// level (`ball-compiler`'s own Rust encoder doesn't emit this shape yet —
+/// see `rust/encoder/src/types.rs`'s module doc comment — so this is
+/// hand-built exactly like `factorial`/`closures` above).
+fn static_method_meta(params: &[&str]) -> Struct {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "kind".to_string(),
+        Value {
+            kind: Some(Kind::StringValue("method".to_string())),
+        },
+    );
+    fields.insert(
+        "is_static".to_string(),
+        Value {
+            kind: Some(Kind::BoolValue(true)),
+        },
+    );
+    if !params.is_empty() {
+        fields.insert("params".to_string(), params_meta_value(params));
+    }
+    Struct { fields }
+}
+
+/// Issue #288 — `Point::new(x, y)`-style receiver-less associated function:
+/// Rust's own idiom for a "constructor" is an ordinary associated `fn` with
+/// no `self` receiver at all, unlike Dart's `Point(this.x, this.y)`
+/// init-formal-parameter shape (which is `metadata.kind: "constructor"` and
+/// already routes through `Compiler::compile_constructor`, never touching
+/// `method_prologue`). `main:Point.new` here is a `kind: "method"`,
+/// `is_static: true` class member instead — the shape that actually
+/// triggered the #288 panic — with a real body that builds and returns a
+/// `main:Point` message directly from its own two parameters.
+///
+/// Exercises both halves of the fix:
+/// - `Compiler::method_prologue` must skip extracting a `"self"` field that
+///   a receiver-less call never packs into `input`.
+/// - `Compiler::compile_method_dispatchers` must route a single-owner
+///   static short name straight into its `impl` block instead of matching
+///   on a receiver's (nonexistent) runtime type.
+#[test]
+fn receiver_less_associated_function_compiles_and_runs() {
+    let point_type = TypeDefinition {
+        name: "main:Point".to_string(),
+        descriptor: Some(DescriptorProto {
+            name: Some("main:Point".to_string()),
+            field: vec![int_field_descriptor("x", 1), int_field_descriptor("y", 2)],
+            ..Default::default()
+        }),
+        type_params: vec![],
+        description: "Class metadata for main:Point".to_string(),
+        metadata: None,
+    };
+
+    // `Point::new(x, y)`: builds and returns a `main:Point` message directly
+    // from its own two parameters — no `self` receiver at all.
+    let point_new = FunctionDefinition {
+        name: "main:Point.new".to_string(),
+        input_type: String::new(),
+        output_type: "main:Point".to_string(),
+        body: Some(Box::new(message(
+            "main:Point",
+            vec![("x", reference("x")), ("y", reference("y"))],
+        ))),
+        description: String::new(),
+        is_base: false,
+        metadata: Some(static_method_meta(&["x", "y"])),
+    };
+
+    let main_body = block(
+        vec![let_stmt(
+            "p",
+            call(
+                "",
+                "new",
+                Some(args(vec![("x", int_lit(3)), ("y", int_lit(4))])),
+            ),
+        )],
+        print_to_string(bin_call(
+            "add",
+            field_access(reference("p"), "x"),
+            field_access(reference("p"), "y"),
+        )),
+    );
+
+    let program = Program {
+        name: "test".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![point_new, user_fn("main", "", "void", main_body, None)],
+                type_defs: vec![point_type],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: "main".to_string(),
+        metadata: None,
+    };
+
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        !compiled.contains("let self_ = ball_field_get"),
+        "a receiver-less associated function must not extract a `self` \
+         field it was never packed (issue #288):\n{compiled}"
+    );
+    assert!(
+        !compiled.contains("ball_message_type_name(&__self)"),
+        "a single-owner static short name must not compile a self-typed \
+         dispatch match arm (issue #288):\n{compiled}"
+    );
+
+    let stdout = compile_and_run("receiver_less_assoc_fn", &compiled);
+    assert_eq!(
+        stdout.trim(),
+        "7",
+        "fixture 'receiver_less_assoc_fn' produced unexpected stdout.\n--- generated main.rs ---\n{compiled}"
     );
 }

@@ -29,6 +29,10 @@ name = "ball-compiler"
 version = "0.1.0"
 dependencies = [
  "ball-shared",
+ "indexmap",
+ "prost",
+ "prost-reflect",
+ "serde_json",
 ]
 
 [[package]]

@@ -9,3 +9,16 @@ rust-version.workspace = true
 
 [dependencies]
 ball-shared = { workspace = true }
+# `ball_shared::extract_fields` returns `IndexMap<String, Expression>` — same
+# version as `ball-shared` (workspace-pinned) so the type is identical, not
+# just structurally compatible.
+indexmap = { workspace = true }
+
+[dev-dependencies]
+# Used only by tests: load examples/*.ball.json fixtures through the same
+# proto3-JSON -> DynamicMessage -> binary -> typed Program round trip that
+# `ball-shared`'s own tests use (see `rust/shared/src/lib.rs`), and shell out
+# to `cargo run` to prove the emitted Rust actually compiles and runs.
+prost = { workspace = true }
+prost-reflect = { workspace = true, features = ["serde"] }
+serde_json = "1"

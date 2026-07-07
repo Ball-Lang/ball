@@ -149,6 +149,18 @@ static std::any proto_msg_to_any(const google::protobuf::Message& msg) {
                     case google::protobuf::FieldDescriptor::TYPE_ENUM:
                         list.push_back(std::any(static_cast<int64_t>(ref->GetRepeatedEnumValue(msg, field, j))));
                         break;
+                    case google::protobuf::FieldDescriptor::TYPE_BYTES: {
+                        // Repeated `bytes` — each element is itself a byte list
+                        // (mirrors the singular TYPE_BYTES handling / issue #266).
+                        auto v = ref->GetRepeatedString(msg, field, j);
+                        BallList bytes;
+                        bytes.reserve(v.size());
+                        for (unsigned char c : v) {
+                            bytes.push_back(std::any(static_cast<int64_t>(c)));
+                        }
+                        list.push_back(std::any(bytes));
+                        break;
+                    }
                     default:
                         list.push_back(std::any{});
                         break;
@@ -208,8 +220,26 @@ static std::any proto_msg_to_any(const google::protobuf::Message& msg) {
                     break;
                 }
                 case google::protobuf::FieldDescriptor::TYPE_BYTES: {
+                    // A `bytes` field (e.g. Literal.bytesValue) must materialize
+                    // as a Ball list of ints [0, 1, 127, 255, 65] — the same
+                    // shape the Dart reference engine sees (protobuf decodes
+                    // `bytes` to a `List<int>`, and engine_eval.dart does
+                    // `lit.bytesValue.toList()`). protoc has already base64-
+                    // decoded the proto3-JSON value into raw bytes here, so
+                    // expand those bytes into a BallList<int64>. Storing the raw
+                    // std::string instead left `.toList()` yielding null, so a
+                    // bytes literal evaluated to null and `.length` on it threw
+                    // "Cannot access field length on null" (issue #266 — the C++
+                    // analog of the TS protoWrap fix in #244).
                     auto v = ref->GetString(msg, field);
-                    if (!v.empty() || force_store) result[key] = std::any(v);
+                    if (!v.empty() || force_store) {
+                        BallList bytes;
+                        bytes.reserve(v.size());
+                        for (unsigned char c : v) {
+                            bytes.push_back(std::any(static_cast<int64_t>(c)));
+                        }
+                        result[key] = std::any(bytes);
+                    }
                     break;
                 }
                 default:

@@ -8,11 +8,12 @@ Ball is a programming language where code is structured protobuf messages. The p
 - **Dart** — the reference implementation: compiler, encoder, engine, CLI (most mature, broadest std coverage).
 - **TypeScript** — a full pipeline, all CI-gated: compiler, self-hosted engine (passes the conformance corpus), encoder (TS→Ball; 100+ round-trip tests; routes through universal `std`, no `ts_std`), CLI.
 - **C++** — compiler, encoder (Clang JSON AST → Ball), self-hosted engine; the self-host conformance passes **every** fixture (no skip-list). Still FetchContents upstream protobuf v34.1 (#18/#25).
-- **Proto bindings only** for Go, Python, Java, C#; **Rust** is not started (epic #32).
+- **Rust** (epic #32) — compiler (`rust/compiler/`, #36-38) and encoder (`rust/encoder/`, #42-43) are complete with real `cargo`-executed tests; proto bindings + runtime value model (`rust/shared/`, #34-35) are in place. The self-hosted engine is **blocked** — the wrapper foundation builds, but the compiled engine doesn't yet compile (~414 `rustc` errors) and is feature-gated off by default (#39). No CLI (#41), conformance harness (#40), or CI job (#44) yet. See `rust/AGENTS.md`.
+- **Proto bindings only** for Go, Python, Java, C#.
 
 Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS and C++ both have full compiler+encoder+engine pipelines gated in CI.
 
-Both C++ and TypeScript run the **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS engines.
+Both C++ and TypeScript run the **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS engines. Rust follows the same self-hosted route (there is no plan for a hand-written Rust engine), but its compiled engine does not build yet (#39).
 
 ## Build & Test
 
@@ -28,7 +29,7 @@ C++/self-host gaps are tracked in `docs/SELF_HOST_STATUS.md` (kept current); the
 
 ## File Organization
 
-Each implementation documents its own generated/editable files. See the per-language "Generated Files" sections in `dart/AGENTS.md`, `ts/AGENTS.md`, and `cpp/AGENTS.md`. Cross-cutting entry points:
+Each implementation documents its own generated/editable files. See the per-language "Generated Files" sections in `dart/AGENTS.md`, `ts/AGENTS.md`, `cpp/AGENTS.md`, and `rust/AGENTS.md`. Cross-cutting entry points:
 
 | Path | What it is | Editable? |
 |------|-----------|-----------|
@@ -39,12 +40,14 @@ Each implementation documents its own generated/editable files. See the per-lang
 | `dart/shared/std.json` | Compiled std module | NO — generated |
 | `dart/shared/lib/gen/` | Protobuf Dart types | NO — generated |
 | `cpp/shared/gen/` | Protobuf C++ types | NO — generated |
+| `rust/shared/gen/` | Protobuf Rust types (`buf.build/community/neoeinstein-prost`) | NO — generated |
 | `dart/compiler/lib/compiler.dart` | Reference compiler | Yes |
 | `dart/encoder/lib/encoder.dart` | Reference encoder | Yes |
 | `dart/engine/lib/engine.dart` | Reference interpreter | Yes |
 | `dart/engine/test/engine_test.dart` | Engine tests | Yes — add tests here |
 | `dart/self_host/lib/engine_rt.cpp` | Self-hosted C++ engine | NO — generated from the Dart engine |
 | `ts/engine/src/compiled_engine.ts` | Self-hosted TS engine | NO — generated |
+| `rust/engine/src/compiled_engine.rs` | Self-hosted Rust engine (does not build yet — #39) | NO — generated, gitignored |
 | `ts/engine/src/index.ts` | TS engine wrapper / dispatch | Yes |
 | `ts/compiler/src/compiler.ts` | TypeScript compiler | Yes |
 | `cpp/shared/include/ball_dyn.h` + `ball_emit_runtime.h` | C++ runtime/type system (spliced into every emitted program) | Yes |

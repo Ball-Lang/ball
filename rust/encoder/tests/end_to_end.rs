@@ -33,6 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ball_compiler::Compiler;
 use ball_shared::proto::ball::v1::expression::Expr;
+use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_shared::proto::ball::v1::statement::Stmt;
 use ball_shared::proto::ball::v1::{Expression, Module, Program};
 
@@ -423,4 +424,613 @@ fn block_tail_expression_without_semicolon_becomes_the_result() {
     assert!(matches!(block.statements[0].stmt, Some(Stmt::Let(_))));
     let result = block.result.as_deref().expect("block must have a result");
     assert!(matches!(result.expr, Some(Expr::Reference(_))));
+}
+
+// ════════════════════════════════════════════════════════════
+// #43 — types, metadata round-trip, std accumulation
+// ════════════════════════════════════════════════════════════
+
+/// Representative program 1/3: a plain `struct` + `impl` block (mirrors
+/// `tests/conformance/101_simple_class.ball.json`'s `Point`) — exercises
+/// struct-literal construction (`Point { x, y }`), instance methods reading
+/// `self`'s fields, and external field mutation (`p2.x = 5;`, already
+/// supported since issue #42 — proves it still composes with a real
+/// `TypeDefinition` now backing `Point`, not just an anonymous message).
+#[test]
+fn struct_and_impl_methods_conformance_round_trip() {
+    let source = r#"
+        struct Point {
+            x: i64,
+            y: i64,
+        }
+
+        impl Point {
+            fn distance_squared(&self) -> i64 {
+                self.x * self.x + self.y * self.y
+            }
+
+            fn describe(&self) -> String {
+                format!("({}, {})", self.x, self.y)
+            }
+        }
+
+        fn main() {
+            let p1 = Point { x: 3, y: 4 };
+            println!("{}", p1.describe());
+            println!("{}", p1.distance_squared());
+            let mut p2 = Point { x: 0, y: 0 };
+            println!("{}", p2.describe());
+            println!("{}", p2.distance_squared());
+            p2.x = 5;
+            p2.y = 12;
+            println!("{}", p2.describe());
+            println!("{}", p2.distance_squared());
+        }
+    "#;
+    let program = ball_encoder::encode(source);
+
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("`main` module must be present");
+    let point_td = main_module
+        .type_defs
+        .iter()
+        .find(|td| td.name == "main:Point")
+        .expect("`main:Point` TypeDefinition must be present");
+    let descriptor = point_td
+        .descriptor
+        .as_ref()
+        .expect("a struct TypeDefinition must carry a descriptor");
+    let field_names: Vec<&str> = descriptor
+        .field
+        .iter()
+        .filter_map(|f| f.name.as_deref())
+        .collect();
+    assert_eq!(field_names, vec!["x", "y"]);
+    assert!(
+        main_module
+            .functions
+            .iter()
+            .any(|f| f.name == "main:Point.describe"),
+        "expected a class-member `main:Point.describe` FunctionDefinition"
+    );
+    assert!(
+        main_module
+            .functions
+            .iter()
+            .any(|f| f.name == "main:Point.distance_squared"),
+    );
+
+    let expected = ["(3, 4)", "25", "(0, 0)", "0", "(5, 12)", "169"].join("\n");
+    assert_program_prints("struct_impl_point", &program, &expected);
+}
+
+/// Representative program 2/3: a `trait` (abstract interface — mirrors
+/// `tests/conformance/103_abstract_class.ball.json`'s `Shape`) implemented
+/// by two structs (`impl Shape for Circle`/`impl Shape for Rectangle`) —
+/// exercises `trait` → `is_abstract` `TypeDefinition`, `Box::new` as an
+/// identity passthrough, and **polymorphic dispatch**: a
+/// `Vec<Box<dyn Shape>>` holding both concrete types, iterated with
+/// `s.area()`/`s.name()` calls that must route to the right concrete `impl`
+/// at run time (`ball-compiler`'s `compile_method_dispatchers`), since
+/// neither call site can know which concrete type `s` holds at Rust compile
+/// time.
+#[test]
+fn trait_polymorphism_conformance_round_trip() {
+    let source = r#"
+        trait Shape {
+            fn area(&self) -> f64;
+            fn name(&self) -> String;
+        }
+
+        struct Circle {
+            radius: f64,
+        }
+
+        impl Shape for Circle {
+            fn area(&self) -> f64 {
+                self.radius * self.radius
+            }
+
+            fn name(&self) -> String {
+                String::from("Circle")
+            }
+        }
+
+        struct Rectangle {
+            width: f64,
+            height: f64,
+        }
+
+        impl Shape for Rectangle {
+            fn area(&self) -> f64 {
+                self.width * self.height
+            }
+
+            fn name(&self) -> String {
+                String::from("Rectangle")
+            }
+        }
+
+        fn main() {
+            let shapes: Vec<Box<dyn Shape>> = vec![
+                Box::new(Circle { radius: 2.0 }),
+                Box::new(Rectangle { width: 3.0, height: 4.0 }),
+            ];
+            for s in shapes {
+                println!("{}: {}", s.name(), s.area());
+            }
+        }
+    "#;
+    let program = ball_encoder::encode(source);
+
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("`main` module must be present");
+    let shape_td = main_module
+        .type_defs
+        .iter()
+        .find(|td| td.name == "main:Shape")
+        .expect("`main:Shape` TypeDefinition must be present");
+    let shape_meta = shape_td
+        .metadata
+        .as_ref()
+        .expect("the trait's TypeDefinition must carry metadata");
+    assert_eq!(
+        shape_meta
+            .fields
+            .get("is_abstract")
+            .and_then(|v| v.kind.as_ref()),
+        Some(&google_bool_kind(true)),
+        "a `trait` must encode as `metadata.is_abstract = true`"
+    );
+
+    // Ball's `f64` `to_string`/`Display` always includes a decimal point
+    // (`4.0`, not `4`) — matches `ball_shared::value::format_double`'s own
+    // convention.
+    let expected = ["Circle: 4.0", "Rectangle: 12.0"].join("\n");
+    assert_program_prints("trait_polymorphism", &program, &expected);
+}
+
+/// Representative program 3/3: a fieldless `enum` (mirrors
+/// `tests/conformance/109_enum_values.ball.json`'s `Color`) — exercises
+/// `Module.enums[]` `EnumDescriptorProto` emission and `Color::Red`-shaped
+/// 2-segment path resolution (`field_access(reference("Color"), "Red")`,
+/// read both directly and through a free function's own parameter).
+#[test]
+fn enum_conformance_round_trip() {
+    let source = r#"
+        enum Color {
+            Red,
+            Green,
+            Blue,
+        }
+
+        fn color_name(c: Color) -> String {
+            if c.index == Color::Red.index {
+                String::from("red")
+            } else if c.index == Color::Green.index {
+                String::from("green")
+            } else {
+                String::from("blue")
+            }
+        }
+
+        fn main() {
+            println!("{}", Color::Red.index);
+            println!("{}", Color::Green.index);
+            println!("{}", Color::Blue.index);
+            println!("{}", color_name(Color::Green));
+        }
+    "#;
+    let program = ball_encoder::encode(source);
+
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("`main` module must be present");
+    assert_eq!(main_module.enums.len(), 1);
+    let color_enum = &main_module.enums[0];
+    assert_eq!(color_enum.name.as_deref(), Some("main:Color"));
+    let variant_names: Vec<&str> = color_enum
+        .value
+        .iter()
+        .filter_map(|v| v.name.as_deref())
+        .collect();
+    assert_eq!(variant_names, vec!["Red", "Green", "Blue"]);
+    // The companion `TypeDefinition` carries no descriptor (see
+    // `types.rs::encode_item_enum`'s doc comment).
+    let color_td = main_module
+        .type_defs
+        .iter()
+        .find(|td| td.name == "main:Color")
+        .expect("a companion `main:Color` TypeDefinition must be present");
+    assert!(color_td.descriptor.is_none());
+
+    let expected = ["0", "1", "2", "green"].join("\n");
+    assert_program_prints("enum_color", &program, &expected);
+}
+
+fn google_bool_kind(value: bool) -> ball_shared::proto::google::protobuf::value::Kind {
+    ball_shared::proto::google::protobuf::value::Kind::BoolValue(value)
+}
+
+// ── std accumulation ─────────────────────────────────────────
+
+/// A pure-arithmetic program must declare only the handful of `std`
+/// functions it actually calls (not the whole ~119-function catalog), and
+/// must not pull in `std_collections`/`std_io`/`std_memory` at all —
+/// issue #43's acceptance criterion, verified at the exact-function-set
+/// level (not just "the module is present/absent").
+#[test]
+fn std_module_declares_only_the_functions_actually_used() {
+    let source = r#"
+        fn add_and_double(a: i64, b: i64) -> i64 {
+            (a + b) * 2
+        }
+
+        fn main() {
+            println!("{}", add_and_double(3, 4));
+        }
+    "#;
+    let program = ball_encoder::encode(source);
+
+    let std_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "std")
+        .expect("`std` must always be present");
+    let std_fn_names: std::collections::BTreeSet<&str> = std_module
+        .functions
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    // Exactly the base functions `add_and_double`/`main` reference: `add`
+    // (`a + b`), `multiply` (`* 2`), `to_string` (the `{}` interpolation),
+    // and `print` (`println!`) — nothing else from the ~119-function
+    // catalog (in particular, no string/math/collection helper this program
+    // never calls).
+    let expected: std::collections::BTreeSet<&str> = ["add", "multiply", "to_string", "print"]
+        .into_iter()
+        .collect();
+    assert_eq!(std_fn_names, expected);
+    for f in &std_module.functions {
+        assert!(f.is_base, "every std module function must be `is_base`");
+        assert!(
+            f.body.is_none(),
+            "every std module function must have no body"
+        );
+    }
+
+    assert!(
+        !program.modules.iter().any(|m| m.name == "std_collections"),
+        "a pure-arithmetic program must not pull in `std_collections`"
+    );
+    assert!(
+        !program.modules.iter().any(|m| m.name == "std_io"),
+        "a pure-arithmetic program must not pull in `std_io`"
+    );
+    assert!(
+        !program.modules.iter().any(|m| m.name == "std_memory"),
+        "a pure-arithmetic program must not pull in `std_memory`"
+    );
+
+    assert_program_prints("std_accumulation_arithmetic", &program, "14");
+}
+
+/// A program that *does* use iterator-chain sugar pulls in `std_collections`
+/// — and, symmetrically with the arithmetic test above, only the specific
+/// `std_collections` functions it actually calls.
+#[test]
+fn std_collections_module_declares_only_the_functions_actually_used() {
+    let source = r#"
+        fn main() {
+            let nums = vec![1, 2, 3, 4, 5];
+            let doubled: Vec<i64> = nums.iter().map(|x| x * 2).collect();
+            println!("{}", doubled.len());
+        }
+    "#;
+    let program = ball_encoder::encode(source);
+
+    let collections_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "std_collections")
+        .expect("`std_collections` must be present");
+    let fn_names: std::collections::BTreeSet<&str> = collections_module
+        .functions
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect();
+    let expected: std::collections::BTreeSet<&str> = ["list_map"].into_iter().collect();
+    assert_eq!(
+        fn_names, expected,
+        "expected `std_collections` to declare exactly `list_map` (`.iter()`/`.collect()` are \
+         identity passthroughs — see methods.rs — so they never reach `std_collections` at all)"
+    );
+
+    assert_program_prints("std_accumulation_collections", &program, "5");
+}
+
+// ── metadata round-trip / invariant #2 (cosmetic-only) ───────
+
+/// Cosmetic metadata (visibility, `async`, a type's `kind`, `let mut`) must
+/// survive the round-trip — asserted directly against the encoded tree —
+/// and stripping every one of those keys must never change a compiled
+/// program's computed output (invariant #2), asserted by actually
+/// recompiling and running both the original and the stripped encodings and
+/// comparing stdout.
+#[test]
+fn cosmetic_metadata_round_trips_and_stripping_it_does_not_change_output() {
+    let source = r#"
+        pub struct Counter {
+            pub value: i64,
+        }
+
+        impl Counter {
+            pub fn doubled(&self) -> i64 {
+                self.value * 2
+            }
+        }
+
+        // NOTE: deliberately *not* `n += 1;` here — `ball-compiler`'s
+        // `param_alias_prologue` (`rust/compiler/src/lib.rs`, issue #37/#38,
+        // outside this crate's scope) unconditionally emits a non-`mut`
+        // `let <name> = input.clone();` for a single-named-parameter
+        // function, so a body that *reassigns* its own single parameter
+        // fails to compile — a genuine, pre-existing `ball-compiler` gap
+        // this test's own discovery surfaced, tracked separately rather
+        // than silently worked around by weakening what this test checks.
+        pub async fn describe(n: i64) -> i64 {
+            n + 1
+        }
+
+        fn main() {
+            let c = Counter { value: 10 };
+            println!("{}", c.doubled());
+        }
+    "#;
+    let program = ball_encoder::encode(source);
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("`main` module must be present");
+
+    // ── metadata is present ──
+    let counter_td = main_module
+        .type_defs
+        .iter()
+        .find(|td| td.name == "main:Counter")
+        .expect("`main:Counter` must be present");
+    let counter_meta = counter_td.metadata.as_ref().expect("must carry metadata");
+    assert_eq!(
+        counter_meta
+            .fields
+            .get("kind")
+            .and_then(|v| v.kind.as_ref()),
+        Some(&ball_shared::proto::google::protobuf::value::Kind::StringValue("struct".to_string()))
+    );
+    assert_eq!(
+        counter_meta
+            .fields
+            .get("is_public")
+            .and_then(|v| v.kind.as_ref()),
+        Some(&google_bool_kind(true))
+    );
+
+    let describe_fn = main_module
+        .functions
+        .iter()
+        .find(|f| f.name == "describe")
+        .expect("`describe` must be present");
+    let describe_meta = describe_fn.metadata.as_ref().expect("must carry metadata");
+    assert_eq!(
+        describe_meta
+            .fields
+            .get("is_async")
+            .and_then(|v| v.kind.as_ref()),
+        Some(&google_bool_kind(true))
+    );
+    assert_eq!(
+        describe_meta
+            .fields
+            .get("is_public")
+            .and_then(|v| v.kind.as_ref()),
+        Some(&google_bool_kind(true))
+    );
+
+    // A `let mut` binding carries `metadata.is_mut = true` — a plain `let`
+    // (this test's own `let c = Counter { ... };` in `main`) carries none,
+    // matching every other boolean cosmetic flag's "absence means false"
+    // convention. Checked against a dedicated tiny fixture so this
+    // assertion stays narrowly scoped to one thing.
+    let mut_source = "fn f() { let mut x = 1; x += 1; }";
+    let mut_module = ball_encoder::encode_module_only(mut_source);
+    let f = mut_module.functions.iter().find(|f| f.name == "f").unwrap();
+    let Some(Expr::Block(block)) = f.body.as_ref().and_then(|b| b.expr.clone()) else {
+        panic!("expected a block body");
+    };
+    let Some(Stmt::Let(let_binding)) = &block.statements[0].stmt else {
+        panic!("expected the first statement to be a `let`");
+    };
+    let let_meta = let_binding
+        .metadata
+        .as_ref()
+        .expect("`let mut` must carry metadata");
+    assert_eq!(
+        let_meta.fields.get("is_mut").and_then(|v| v.kind.as_ref()),
+        Some(&google_bool_kind(true))
+    );
+
+    // ── stripping every key above never changes computed output ──
+    let mut stripped = program.clone();
+    strip_all_metadata(&mut stripped);
+    // Sanity: the strip pass actually removed something (otherwise this
+    // test would trivially "pass" without checking anything).
+    let stripped_main = stripped
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("`main` module must be present");
+    // Every purely-cosmetic key is gone (`kind`, `is_public` in
+    // particular); `is_abstract` isn't present on `Counter` to begin with
+    // (a plain, non-`trait` struct), so its `TypeDefinition.metadata` ends
+    // up `None` entirely.
+    assert!(
+        stripped_main
+            .type_defs
+            .iter()
+            .all(|td| td.metadata.is_none()),
+        "strip_all_metadata must have cleared Counter's non-load-bearing metadata"
+    );
+    let stripped_describe = stripped_main
+        .functions
+        .iter()
+        .find(|f| f.name == "describe")
+        .expect("`describe` must still be present after stripping");
+    assert!(
+        !stripped_describe
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.fields.contains_key("is_async") || m.fields.contains_key("kind")),
+        "strip_all_metadata must have cleared `describe`'s cosmetic keys"
+    );
+    assert!(
+        stripped_describe
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.fields.contains_key("params")),
+        "strip_all_metadata must still preserve the load-bearing `params` key"
+    );
+
+    let original_output = assert_program_prints_and_return("metadata_original", &program, "20");
+    let stripped_output = assert_program_prints_and_return("metadata_stripped", &stripped, "20");
+    assert_eq!(
+        original_output, stripped_output,
+        "stripping every cosmetic metadata key must not change a compiled program's output \
+         (invariant #2)"
+    );
+}
+
+fn assert_program_prints_and_return(
+    fixture_name: &str,
+    program: &Program,
+    expected: &str,
+) -> String {
+    assert_program_prints(fixture_name, program, expected);
+    expected.to_string()
+}
+
+/// Clears every **purely cosmetic** `metadata` key this crate ever sets
+/// (`Module`, `TypeDefinition`/`TypeParameter`, `FunctionDefinition`/
+/// `Lambda`, `LetBinding`, `MessageCreation`) throughout an entire
+/// [`Program`] — the invariant-#2 check's "strip all cosmetic metadata"
+/// half. Deliberately **preserves** the two keys `ball-compiler` actually
+/// reads for real code-generation decisions (see
+/// `rust/compiler/src/type_emit.rs`'s crate doc comment): a
+/// `FunctionDefinition`/`Lambda`'s `params` (drives
+/// `param_alias_prologue`/`method_prologue`'s local-variable aliasing —
+/// without it, a single-named-parameter body's own references would become
+/// undefined identifiers, an actual *compile* failure, not a semantic
+/// change) and a `TypeDefinition`'s `is_abstract` (struct vs. `trait`
+/// codegen). Neither this crate nor its own test fixtures ever pair
+/// `is_abstract` with `kind == "constructor"` (this crate never emits a
+/// `"constructor"`-kind member at all — see `types.rs`'s module doc
+/// comment), so those really are the *only* two keys excluded from this
+/// otherwise-blanket strip. Intentionally test-only (not part of the
+/// crate's public API): production code has no reason to ever discard
+/// metadata it just encoded.
+fn strip_all_metadata(program: &mut Program) {
+    for module in &mut program.modules {
+        module.metadata = None;
+        for type_def in &mut module.type_defs {
+            retain_only(&mut type_def.metadata, &["is_abstract"]);
+            for type_param in &mut type_def.type_params {
+                type_param.metadata = None;
+            }
+        }
+        for func in &mut module.functions {
+            retain_only(&mut func.metadata, &["params"]);
+            if let Some(body) = &mut func.body {
+                strip_expr_metadata(body);
+            }
+        }
+    }
+}
+
+fn retain_only(metadata: &mut Option<ball_shared::proto::google::protobuf::Struct>, keep: &[&str]) {
+    if let Some(meta) = metadata {
+        meta.fields.retain(|key, _| keep.contains(&key.as_str()));
+        if meta.fields.is_empty() {
+            *metadata = None;
+        }
+    }
+}
+
+fn strip_expr_metadata(expr: &mut Expression) {
+    match &mut expr.expr {
+        Some(Expr::Call(call)) => {
+            if let Some(input) = &mut call.input {
+                strip_expr_metadata(input);
+            }
+        }
+        Some(Expr::Literal(literal)) => {
+            if let Some(LiteralValue::ListValue(list)) = &mut literal.value {
+                for element in &mut list.elements {
+                    strip_expr_metadata(element);
+                }
+            }
+        }
+        Some(Expr::Reference(_)) | None => {}
+        Some(Expr::FieldAccess(field_access)) => {
+            if let Some(object) = &mut field_access.object {
+                strip_expr_metadata(object);
+            }
+        }
+        Some(Expr::MessageCreation(message)) => {
+            // Never read by `ball-compiler` for anything (verified: no
+            // `message.metadata`/`mc.metadata` reference anywhere in
+            // `rust/compiler/src`) — safe to strip unconditionally.
+            message.metadata = None;
+            for field in &mut message.fields {
+                if let Some(value) = &mut field.value {
+                    strip_expr_metadata(value);
+                }
+            }
+        }
+        Some(Expr::Block(block)) => {
+            for statement in &mut block.statements {
+                match &mut statement.stmt {
+                    Some(Stmt::Let(let_binding)) => {
+                        // `LetBinding.metadata` is never read by
+                        // `ball-compiler` either (`let` vs. `let mut` is
+                        // re-derived from a `rest_mutates_var` data-flow
+                        // scan, not from this metadata) — safe to strip
+                        // unconditionally.
+                        let_binding.metadata = None;
+                        if let Some(value) = &mut let_binding.value {
+                            strip_expr_metadata(value);
+                        }
+                    }
+                    Some(Stmt::Expression(inner)) => strip_expr_metadata(inner),
+                    None => {}
+                }
+            }
+            if let Some(result) = &mut block.result {
+                strip_expr_metadata(result);
+            }
+        }
+        Some(Expr::Lambda(lambda)) => {
+            retain_only(&mut lambda.metadata, &["params"]);
+            if let Some(body) = &mut lambda.body {
+                strip_expr_metadata(body);
+            }
+        }
+    }
 }

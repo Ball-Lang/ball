@@ -14,21 +14,53 @@
 //! the Dart encoder expands cascade/null-aware-access/spread. A conformant
 //! Ball engine that has never heard of Rust can still run the result.
 //!
-//! ## Scope (Phase 3a — see issue #43 for what's deliberately deferred)
+//! ## Scope (Phase 3a covered expressions/operators/control flow; Phase 3b
+//! — issue #43 — adds types, cosmetic metadata, and fine-grained std
+//! accumulation)
 //!
-//! This crate covers **expressions, operators, and control flow** only:
-//! - Top-level `fn` items only (no `struct`/`enum`/`impl`/`trait` — those
-//!   need `TypeDefinition` emission, #43's job). Encountering one of these
-//!   top-level items is a loud panic, not a silent skip (`use`/`mod` items
-//!   ARE silently skipped — they carry no runtime semantics of their own).
-//! - No metadata/round-trip fidelity beyond the one exception every
-//!   reference encoder already relies on for correctness: a function/
-//!   closure with **exactly one** parameter gets `metadata.params =
-//!   [{name}]` (see [`single_param_metadata`]), which is what makes
-//!   `ball-compiler`'s existing `param_alias_prologue` emit `let <name> =
-//!   input.clone();` — without it, a body that references its own
-//!   parameter by name wouldn't compile. This is a narrow, load-bearing
-//!   exception, not general metadata/round-trip work.
+//! - **Types** (`types.rs`): `struct` (named fields only — tuple/unit
+//!   structs are a documented gap) → a `TypeDefinition` in `type_defs[]`
+//!   plus a `DescriptorProto`; `enum` (fieldless variants only —
+//!   data-carrying variants are a documented gap) → `Module.enums[]` (an
+//!   `EnumDescriptorProto`) plus a companion, descriptor-less
+//!   `TypeDefinition`; `trait` → an `is_abstract` `TypeDefinition` with
+//!   signature-only abstract members; `impl`/`impl Trait for Type` blocks →
+//!   instance methods (`self`/`&self`/`&mut self` receiver required — see
+//!   `types.rs`'s module doc comment for why an associated function with no
+//!   receiver, e.g. `Point::new(...)`, is a documented gap instead: it would
+//!   silently panic at run time in `ball-compiler`'s existing
+//!   `method_prologue`, not just fail to compile). Construction uses Rust's
+//!   own struct-literal syntax (`Point { x, y }`), which needs no
+//!   constructor at all — it's a plain `message_creation`.
+//! - **Cosmetic metadata** (invariant #2): visibility (`pub` →
+//!   `metadata.is_public`), `async`, a type's `kind`, generics/type params,
+//!   and a `let` binding's `mut`-ness all round-trip into `metadata` Structs
+//!   that `ball-compiler` never reads for anything but `is_abstract` and
+//!   `kind == "constructor"` (the only two keys with real code-generation
+//!   effect — see `rust/compiler/src/type_emit.rs`) — stripping every other
+//!   key this crate sets can never change a compiled program's output.
+//! - **Std accumulation**: the encoded `Program`'s `std`/`std_collections`/…
+//!   modules now declare **only the base functions the program actually
+//!   calls** (see [`collect_used_functions`]), not the whole 119-function
+//!   `std` catalog — mirroring `dart/encoder/lib/encoder.dart`'s
+//!   `_buildStdModule`/`@ball-lang/encoder`'s `buildBaseModules` exactly.
+//!   `std` itself is still always present (even with an empty function list
+//!   for a program that somehow calls no base function at all), matching
+//!   the Dart encoder's own unconditional `stdModule` inclusion; every other
+//!   base module is included only when non-empty.
+//!
+//! Top-level `use`/`mod` items are still silently skipped (no runtime
+//! semantics of their own); anything else unhandled is a loud panic, never a
+//! silent skip.
+//!
+//! No metadata/round-trip fidelity beyond the above and the one exception
+//! every reference encoder already relies on for correctness: a function/
+//! closure with **exactly one** parameter gets `metadata.params =
+//! [{name}]` (see [`single_param_metadata`]), which is what makes
+//! `ball-compiler`'s existing `param_alias_prologue` emit `let <name> =
+//! input.clone();` — without it, a body that references its own
+//! parameter by name wouldn't compile. This is a narrow, load-bearing
+//! exception, not general metadata/round-trip work.
 //!
 //! ## The "one input" convention, precisely
 //!
@@ -61,8 +93,9 @@
 mod block;
 mod control_flow;
 mod methods;
+mod types;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use ball_shared::proto::ball::v1::expression::Expr;
 use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
@@ -80,15 +113,30 @@ use ball_shared::proto::google::protobuf::{ListValue, Struct, Value};
 /// outside this crate's documented Phase 3a scope, rather than silently
 /// dropping semantic content (see the module doc comment).
 pub fn encode(source: &str) -> Program {
-    let (main_module, has_main, uses_collections) = encode_main_module(source);
+    let (main_module, has_main) = encode_main_module(source);
     assert!(
         has_main,
         "ball-encoder: a Ball Program requires a `fn main()` entry point"
     );
 
-    let mut modules = vec![ball_shared::build_std_module()];
-    if uses_collections {
-        modules.push(ball_shared::build_std_collections_module());
+    let mut used: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for func in &main_module.functions {
+        if let Some(body) = &func.body {
+            collect_used_functions(body, &mut used);
+        }
+    }
+
+    // `std` is always present (mirrors `dart/encoder/lib/encoder.dart`'s
+    // unconditional `stdModule` inclusion) — every other base module
+    // (`std_collections`, ...) is included only when actually referenced.
+    let mut modules = vec![build_used_module(
+        "std",
+        used.remove("std").unwrap_or_default(),
+    )];
+    let mut other_module_names: Vec<&String> = used.keys().collect();
+    other_module_names.sort();
+    for name in other_module_names {
+        modules.push(build_used_module(name, used[name].clone()));
     }
     modules.push(main_module);
 
@@ -99,6 +147,108 @@ pub fn encode(source: &str) -> Program {
         entry_module: "main".to_string(),
         entry_function: "main".to_string(),
         metadata: None,
+    }
+}
+
+/// Walk an encoded `Expression` tree, recording every `(module, function)`
+/// pair a `call` node references — issue #43's "std accumulation": the
+/// caller ([`encode`]) uses this to declare only the base functions the
+/// program actually calls, rather than unconditionally including the whole
+/// ~119-function `std` catalog (mirrors `@ball-lang/encoder`'s
+/// `buildBaseModules`, which walks its own IR the same way via a flat
+/// `Set<"module:fn">` — see `ts/encoder/src/encoder.ts`). A `call.module`
+/// of `""` (an unqualified same-file user-function/closure call) is
+/// deliberately not recorded — only genuine base-module calls
+/// (`std`/`std_collections`/...) are base-function declarations.
+fn collect_used_functions(expr: &Expression, used: &mut HashMap<String, BTreeSet<String>>) {
+    match &expr.expr {
+        Some(Expr::Call(call)) => {
+            if !call.module.is_empty() {
+                used.entry(call.module.clone())
+                    .or_default()
+                    .insert(call.function.clone());
+            }
+            if let Some(input) = &call.input {
+                collect_used_functions(input, used);
+            }
+        }
+        Some(Expr::Literal(literal)) => {
+            if let Some(LiteralValue::ListValue(list)) = &literal.value {
+                for element in &list.elements {
+                    collect_used_functions(element, used);
+                }
+            }
+        }
+        Some(Expr::Reference(_)) | None => {}
+        Some(Expr::FieldAccess(field_access)) => {
+            if let Some(object) = &field_access.object {
+                collect_used_functions(object, used);
+            }
+        }
+        Some(Expr::MessageCreation(message)) => {
+            for field in &message.fields {
+                if let Some(value) = &field.value {
+                    collect_used_functions(value, used);
+                }
+            }
+        }
+        Some(Expr::Block(block)) => {
+            for statement in &block.statements {
+                match &statement.stmt {
+                    Some(BallStmt::Let(let_binding)) => {
+                        if let Some(value) = &let_binding.value {
+                            collect_used_functions(value, used);
+                        }
+                    }
+                    Some(BallStmt::Expression(inner)) => collect_used_functions(inner, used),
+                    None => {}
+                }
+            }
+            if let Some(result) = &block.result {
+                collect_used_functions(result, used);
+            }
+        }
+        Some(Expr::Lambda(lambda)) => {
+            if let Some(body) = &lambda.body {
+                collect_used_functions(body, used);
+            }
+        }
+    }
+}
+
+/// Does `functions` (the `main` module's own encoded functions, including
+/// class members) reach any `std_collections` call? Used at encode time to
+/// decide whether `main`'s `module_imports` should list `std_collections`
+/// (see [`encode_main_module`]) — separate from [`encode`]'s own
+/// accumulation pass (which additionally decides `std_collections`'s own
+/// *contents*), since `encode_module_only` needs this decision without ever
+/// building a full [`Program`].
+fn module_uses_collections(functions: &[FunctionDefinition]) -> bool {
+    let mut used: HashMap<String, BTreeSet<String>> = HashMap::new();
+    for func in functions {
+        if let Some(body) = &func.body {
+            collect_used_functions(body, &mut used);
+        }
+    }
+    used.contains_key("std_collections")
+}
+
+/// Build a base module declaring exactly `fn_names` (each `is_base = true`,
+/// no body — invariant #3) — the fine-grained shape [`collect_used_functions`]
+/// drives, in place of the old "always the full `ball_shared::build_std_*`
+/// catalog" approach.
+fn build_used_module(name: &str, fn_names: BTreeSet<String>) -> Module {
+    Module {
+        name: name.to_string(),
+        functions: fn_names
+            .into_iter()
+            .map(|function_name| FunctionDefinition {
+                name: function_name,
+                is_base: true,
+                ..Default::default()
+            })
+            .collect(),
+        ..Default::default()
     }
 }
 
@@ -115,8 +265,8 @@ pub fn encode_module_only(source: &str) -> Module {
 }
 
 /// Shared implementation behind [`encode`] and [`encode_module_only`].
-/// Returns `(module, has_main, uses_collections)`.
-fn encode_main_module(source: &str) -> (Module, bool, bool) {
+/// Returns `(module, has_main)`.
+fn encode_main_module(source: &str) -> (Module, bool) {
     let file: syn::File = syn::parse_file(source)
         .unwrap_or_else(|err| panic!("ball-encoder: failed to parse Rust source: {err}"));
 
@@ -124,19 +274,35 @@ fn encode_main_module(source: &str) -> (Module, bool, bool) {
 
     // Pass 1: collect every top-level fn's (name, parameter-name list) up
     // front so call sites (which may textually precede their callee) can
-    // pack a 2+-argument call using the callee's *real* parameter names.
+    // pack a 2+-argument call using the callee's *real* parameter names;
+    // every top-level `enum`'s short name (so a `Color::Red`-shaped 2-segment
+    // path can be recognized as enum-variant access — see
+    // `encode_path_expr`); and every `impl` block method's (short name,
+    // non-`self` parameter names) (issue #43 — see `types.rs`'s module doc
+    // comment for why only a `self`-receiver method is supported here).
     for item in &file.items {
-        if let syn::Item::Fn(item_fn) = item {
-            let params = param_names_and_types(&item_fn.sig);
-            encoder.fn_params.insert(
-                item_fn.sig.ident.to_string(),
-                params.iter().map(|(name, _)| name.clone()).collect(),
-            );
+        match item {
+            syn::Item::Fn(item_fn) => {
+                let params = param_names_and_types(&item_fn.sig);
+                encoder.fn_params.insert(
+                    item_fn.sig.ident.to_string(),
+                    params.iter().map(|(name, _)| name.clone()).collect(),
+                );
+            }
+            syn::Item::Enum(item_enum) => {
+                encoder.enum_names.insert(item_enum.ident.to_string());
+            }
+            syn::Item::Impl(item_impl) => {
+                encoder.collect_impl_method_params(item_impl);
+            }
+            _ => {}
         }
     }
 
-    // Pass 2: encode every top-level fn's body.
+    // Pass 2: encode every top-level item's body/declaration.
     let mut functions = Vec::new();
+    let mut type_defs = Vec::new();
+    let mut enums = Vec::new();
     let mut has_main = false;
     for item in &file.items {
         match item {
@@ -146,13 +312,29 @@ fn encode_main_module(source: &str) -> (Module, bool, bool) {
                 }
                 functions.push(encoder.encode_item_fn(item_fn));
             }
+            syn::Item::Struct(item_struct) => {
+                type_defs.push(encoder.encode_item_struct(item_struct));
+            }
+            syn::Item::Enum(item_enum) => {
+                let (type_def, enum_def) = encoder.encode_item_enum(item_enum);
+                type_defs.push(type_def);
+                enums.push(enum_def);
+            }
+            syn::Item::Trait(item_trait) => {
+                let (type_def, members) = encoder.encode_item_trait(item_trait);
+                type_defs.push(type_def);
+                functions.extend(members);
+            }
+            syn::Item::Impl(item_impl) => {
+                functions.extend(encoder.encode_item_impl(item_impl));
+            }
             // Imports and (sub)modules carry no runtime semantics of their
             // own to encode — silently skipped, not a scope violation.
             syn::Item::Use(_) | syn::Item::Mod(_) => {}
             other => panic!(
-                "ball-encoder: unsupported top-level item `{}` — types/impls/traits/consts \
-                 need TypeDefinition emission, which is issue #43's scope (Phase 3a covers \
-                 expressions/operators/control flow only)",
+                "ball-encoder: unsupported top-level item `{}` — issue #43's scope covers \
+                 struct/enum/trait/impl declarations; consts/statics/type-aliases/macro \
+                 invocations at item level remain deferred",
                 item_kind_name(other)
             ),
         }
@@ -162,7 +344,7 @@ fn encode_main_module(source: &str) -> (Module, bool, bool) {
         name: "std".to_string(),
         ..Default::default()
     }];
-    if encoder.uses_collections {
+    if module_uses_collections(&functions) {
         module_imports.push(ModuleImport {
             name: "std_collections".to_string(),
             ..Default::default()
@@ -172,17 +354,15 @@ fn encode_main_module(source: &str) -> (Module, bool, bool) {
         name: "main".to_string(),
         functions,
         module_imports,
+        type_defs,
+        enums,
         ..Default::default()
     };
-    (module, has_main, encoder.uses_collections)
+    (module, has_main)
 }
 
 fn item_kind_name(item: &syn::Item) -> &'static str {
     match item {
-        syn::Item::Struct(_) => "struct",
-        syn::Item::Enum(_) => "enum",
-        syn::Item::Impl(_) => "impl",
-        syn::Item::Trait(_) => "trait",
         syn::Item::Const(_) => "const",
         syn::Item::Static(_) => "static",
         syn::Item::Type(_) => "type alias",
@@ -205,11 +385,24 @@ pub(crate) struct Encoder {
     /// looks at the *innermost* (last) frame; see that method's doc
     /// comment for why consulting outer frames would silently miscompile.
     scopes: Vec<HashSet<String>>,
-    /// Did this file's encoding reach any `std_collections` construct
-    /// (iterator-chain sugar, `Vec::push`, ...)? Drives conditional module
-    /// inclusion (Phase 3.5's "std module accumulation") — `std` itself is
-    /// always included (virtually every program uses it).
-    pub(crate) uses_collections: bool,
+    /// Every top-level `enum`'s short (unqualified) name, populated in the
+    /// same pre-pass as [`Self::fn_params`] — consulted by
+    /// [`Self::encode_path_expr`] to recognize a 2-segment path
+    /// (`Color::Red`) as enum-variant access (`field_access(reference(enum),
+    /// variant)`) rather than an unsupported module-qualified path.
+    pub(crate) enum_names: HashSet<String>,
+    /// Every `impl` block method's short name → its own non-`self`
+    /// parameter names, in declaration order — populated in the same
+    /// pre-pass, mirroring [`Self::fn_params`] but for class members (see
+    /// `types.rs`'s module doc comment for why only a `self`-receiver method
+    /// is supported). Consulted by a method **call** site
+    /// (`receiver.method(args)`, in `methods.rs`) to pack `args` under their
+    /// real parameter names instead of a positional `arg0`/`arg1` fallback.
+    /// Keyed by short name only (not `(owner, method)`) because
+    /// `ball-compiler`'s own dispatcher (`compile_method_dispatchers`)
+    /// resolves purely by short name too — see
+    /// `rust/compiler/src/type_emit.rs`.
+    pub(crate) method_params: HashMap<String, Vec<String>>,
 }
 
 impl Encoder {
@@ -217,7 +410,8 @@ impl Encoder {
         Encoder {
             fn_params: HashMap::new(),
             scopes: Vec::new(),
-            uses_collections: false,
+            enum_names: HashSet::new(),
+            method_params: HashMap::new(),
         }
     }
 
@@ -279,7 +473,7 @@ impl Encoder {
     fn encode_item_fn(&mut self, item_fn: &syn::ItemFn) -> FunctionDefinition {
         let name = item_fn.sig.ident.to_string();
         let params = param_names_and_types(&item_fn.sig);
-        let metadata = self.push_fn_scope(&params);
+        let params_metadata = self.push_fn_scope(&params);
         let body = self.encode_block(&item_fn.block);
         self.pop_fn_scope();
 
@@ -292,6 +486,13 @@ impl Encoder {
             syn::ReturnType::Default => String::new(),
             syn::ReturnType::Type(_, ty) => type_to_string(ty),
         };
+
+        let mut meta = MetaBuilder::new();
+        meta.set_string("kind", "function");
+        meta.set_bool_if_true("is_public", is_pub(&item_fn.vis));
+        meta.set_bool_if_true("is_async", item_fn.sig.asyncness.is_some());
+        meta.set_type_params(&item_fn.sig.generics);
+        let metadata = merge_struct(params_metadata, meta.build());
 
         FunctionDefinition {
             name,
@@ -339,6 +540,7 @@ impl Encoder {
             syn::Expr::Try(e) => self.encode_try_operator(e),
             syn::Expr::Closure(e) => self.encode_closure(e),
             syn::Expr::Macro(e) => self.encode_macro(&e.mac),
+            syn::Expr::Struct(e) => self.encode_struct_literal(e),
             other => panic!(
                 "ball-encoder: unsupported Rust expression kind `{}` (deferred — see the \
                  module doc comment for Phase 3a's scope)",
@@ -387,9 +589,25 @@ impl Encoder {
                 return option_result_message(true, null_literal());
             }
         }
+        // `Color::Red` — a 2-segment path whose first segment names a
+        // top-level `enum` this file declared (see the pre-pass in
+        // `encode_main_module` that populates `self.enum_names`) — resolves
+        // to `field_access(reference(<enum>), <variant>)`, matching
+        // `dart/encoder/lib/encoder.dart`'s own `Color.red` encoding and the
+        // `pub static <Enum>: LazyLock<BallValue>` namespace
+        // `rust/compiler/src/type_emit.rs::compile_enum_descriptor` emits
+        // for it.
+        if path.segments.len() == 2 {
+            let enum_name = path.segments[0].ident.to_string();
+            if self.enum_names.contains(&enum_name) {
+                let variant = path.segments[1].ident.to_string();
+                return field_access(reference(enum_name), variant);
+            }
+        }
         panic!(
             "ball-encoder: unsupported path expression `{}` — module/type/enum-variant paths \
-             beyond `None` need TypeDefinition-aware resolution (issue #43's scope)",
+             beyond `None` and a known enum's own variants need TypeDefinition-aware \
+             resolution",
             path_to_string(path)
         );
     }
@@ -521,11 +739,15 @@ impl Encoder {
             let path = &path_expr.path;
             if let Some(last) = path.segments.last() {
                 let last_name = last.ident.to_string();
-                // `String::from(x)` — identity passthrough (a Ball string
-                // needs no separate "owned" representation).
-                if path.segments.len() == 2 && last_name == "from" {
+                // `String::from(x)` / `Box::new(x)` — identity passthroughs
+                // (a Ball value needs no separate "owned"/"boxed"
+                // representation — `BallValue` is already heap-backed for
+                // every non-scalar variant).
+                if path.segments.len() == 2 && (last_name == "from" || last_name == "new") {
                     if let Some(first) = path.segments.first() {
-                        if first.ident == "String" && e.args.len() == 1 {
+                        let is_passthrough = (first.ident == "String" && last_name == "from")
+                            || (first.ident == "Box" && last_name == "new");
+                        if is_passthrough && e.args.len() == 1 {
                             return self.encode_expr(&e.args[0]);
                         }
                     }
@@ -554,7 +776,9 @@ impl Encoder {
         }
         panic!(
             "ball-encoder: unsupported call target `{}` — only same-file functions, \
-             `Ok`/`Err`/`Some`, and `String::from` are supported (issue #42's scope)",
+             `Ok`/`Err`/`Some`, `String::from`, and `Box::new` are supported (an associated \
+             function with no `self` receiver, e.g. `Point::new(...)`, is a documented gap — \
+             see `types.rs`'s module doc comment — use a struct-literal expression instead)",
             quote::quote!(#e)
         );
     }
@@ -898,12 +1122,168 @@ pub(crate) fn single_param_metadata(name: &str) -> Struct {
 }
 
 // ════════════════════════════════════════════════════════════
+// Cosmetic metadata (issue #43 — invariant #2: never read for semantics)
+// ════════════════════════════════════════════════════════════
+
+pub(crate) fn str_value(value: impl Into<String>) -> Value {
+    Value {
+        kind: Some(Kind::StringValue(value.into())),
+    }
+}
+
+pub(crate) fn bool_value(value: bool) -> Value {
+    Value {
+        kind: Some(Kind::BoolValue(value)),
+    }
+}
+
+pub(crate) fn struct_value(fields: Vec<(&str, Value)>) -> Value {
+    Value {
+        kind: Some(Kind::StructValue(Struct {
+            fields: fields
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), value))
+                .collect(),
+        })),
+    }
+}
+
+pub(crate) fn list_value(items: Vec<Value>) -> Value {
+    Value {
+        kind: Some(Kind::ListValue(ListValue { values: items })),
+    }
+}
+
+/// Is `vis` a `pub` (or `pub(...)`-restricted) visibility? Both forms set
+/// `metadata.is_public` — the restriction target (`pub(crate)`, `pub(super)`,
+/// ...) has no Ball-level equivalent to preserve beyond "not private",
+/// mirroring how the Dart encoder's own privacy signal (a leading `_`) is
+/// binary too.
+pub(crate) fn is_pub(vis: &syn::Visibility) -> bool {
+    !matches!(vis, syn::Visibility::Inherited)
+}
+
+/// Merge two optional `metadata` Structs (disjoint key sets in every caller —
+/// [`Encoder::push_fn_scope`]'s sole key, `"params"`, never overlaps with
+/// anything a [`MetaBuilder`] sets), used by [`Encoder::encode_item_fn`] to
+/// combine [`single_param_metadata`]'s narrow, load-bearing `params` key
+/// with this issue's new purely-cosmetic keys (`kind`, `is_public`,
+/// `is_async`, `type_params`, ...) without disturbing #42's proven-working
+/// single-parameter aliasing path at all.
+pub(crate) fn merge_struct(a: Option<Struct>, b: Option<Struct>) -> Option<Struct> {
+    match (a, b) {
+        (None, None) => None,
+        (Some(only), None) | (None, Some(only)) => Some(only),
+        (Some(mut a), Some(b)) => {
+            a.fields.extend(b.fields);
+            Some(a)
+        }
+    }
+}
+
+/// Accumulates cosmetic `metadata` Struct entries: visibility, `async`,
+/// a type/function's `kind`, generics, and per-field documentation (issue
+/// #43). Every key this builder ever sets is purely cosmetic — the module
+/// doc comment explains why stripping any of them can never change a
+/// compiled program's output: `ball-compiler` (`rust/compiler/src/
+/// type_emit.rs`) only ever inspects `metadata.is_abstract` and
+/// `metadata.kind == "constructor"` for real code-generation decisions, and
+/// this crate never emits `kind == "constructor"` (construction goes
+/// through a plain struct-literal `message_creation` instead — see
+/// `types.rs`), so not even `is_abstract` is ever paired with a semantic
+/// difference this crate itself produces.
+#[derive(Default)]
+pub(crate) struct MetaBuilder {
+    fields: HashMap<String, Value>,
+}
+
+impl MetaBuilder {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn set_string(&mut self, key: &str, value: impl Into<String>) -> &mut Self {
+        self.fields.insert(key.to_string(), str_value(value));
+        self
+    }
+
+    /// Only sets `key` when `value` is `true` — matches every reference
+    /// encoder's own convention for a boolean cosmetic flag (`is_static`,
+    /// `is_abstract`, `is_async`, ... in `dart/encoder/lib/encoder.dart`):
+    /// absence means `false`, so a program that never uses the feature at
+    /// all doesn't carry a forest of `false`-valued metadata keys.
+    pub(crate) fn set_bool_if_true(&mut self, key: &str, value: bool) -> &mut Self {
+        if value {
+            self.fields.insert(key.to_string(), bool_value(true));
+        }
+        self
+    }
+
+    pub(crate) fn set_list_if_nonempty(&mut self, key: &str, values: Vec<Value>) -> &mut Self {
+        if !values.is_empty() {
+            self.fields.insert(key.to_string(), list_value(values));
+        }
+        self
+    }
+
+    /// `metadata.params = [{name}, ...]` — every non-`self` parameter, in
+    /// declaration order. Used by **methods**, which — unlike a free
+    /// function's [`Encoder::push_fn_scope`] 0/1/2+-param split — alias
+    /// *every* declared parameter to a bare local name regardless of count
+    /// (see `rust/compiler/src/type_emit.rs::method_prologue`, which loops
+    /// over the whole list with no `len() == 1` restriction).
+    pub(crate) fn set_params(&mut self, params: &[(String, String)]) -> &mut Self {
+        let values = params
+            .iter()
+            .map(|(name, _)| struct_value(vec![("name", str_value(name))]))
+            .collect();
+        self.set_list_if_nonempty("params", values)
+    }
+
+    /// `metadata.type_params = ["T", "K: Comparable", ...]` — the full
+    /// source text of every declared generic type parameter (including any
+    /// bound), for round-trip fidelity beyond the bare identifier names a
+    /// [`ball_shared::proto::ball::v1::TypeParameter`] entry carries (mirrors
+    /// `dart/encoder/lib/encoder.dart`'s own `classMeta['type_params']`,
+    /// which likewise duplicates the raw source text alongside the
+    /// `TypeParameter` list). Lifetime and const generic parameters are
+    /// skipped — they have no Ball-level runtime meaning to preserve
+    /// (`BallValue` is already fully dynamic), so omitting them from this
+    /// purely-documentation list is not a semantic gap.
+    pub(crate) fn set_type_params(&mut self, generics: &syn::Generics) -> &mut Self {
+        let values: Vec<Value> = generics
+            .params
+            .iter()
+            .filter_map(|param| match param {
+                syn::GenericParam::Type(type_param) => {
+                    Some(str_value(quote::quote!(#type_param).to_string()))
+                }
+                _ => None,
+            })
+            .collect();
+        self.set_list_if_nonempty("type_params", values)
+    }
+
+    pub(crate) fn build(self) -> Option<Struct> {
+        if self.fields.is_empty() {
+            None
+        } else {
+            Some(Struct {
+                fields: self.fields,
+            })
+        }
+    }
+}
+
+// ════════════════════════════════════════════════════════════
 // syn helpers
 // ════════════════════════════════════════════════════════════
 
 /// Extract `(name, type-as-string)` for every declared parameter of a
-/// function signature. Fails loud on `self` receivers (method emission is
-/// #43's scope) and on destructuring parameter patterns (`fn f((a, b):
+/// **free** function signature (a top-level `fn`, never an `impl`-block
+/// method — see `types.rs` for method parameter extraction, which skips the
+/// leading `self` receiver instead of panicking on it). Fails loud on `self`
+/// receivers and on destructuring parameter patterns (`fn f((a, b):
 /// (i64, i64))`, deferred).
 fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
     sig.inputs
@@ -935,7 +1315,7 @@ fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
 /// Best-effort, purely cosmetic stringification of a `syn::Type` for
 /// `FunctionDefinition.input_type`/`output_type` (informational only —
 /// `ball-compiler` never parses these strings back).
-fn type_to_string(ty: &syn::Type) -> String {
+pub(crate) fn type_to_string(ty: &syn::Type) -> String {
     quote::quote!(#ty).to_string().replace(' ', "")
 }
 
@@ -958,7 +1338,6 @@ fn looks_like_float(expr: &syn::Expr) -> bool {
 
 fn expr_kind_name(expr: &syn::Expr) -> &'static str {
     match expr {
-        syn::Expr::Struct(_) => "struct literal",
         syn::Expr::Repeat(_) => "array-repeat literal",
         syn::Expr::Range(_) => "standalone range",
         syn::Expr::Let(_) => "let-guard outside if/while",
@@ -1220,7 +1599,16 @@ mod tests {
     fn zero_parameter_function_has_no_params_metadata() {
         let module = encode_module_only("fn f() -> i64 { 1 }");
         let f = module.functions.iter().find(|f| f.name == "f").unwrap();
-        assert!(f.metadata.is_none());
+        // No `params` key at all (the load-bearing #42 exception this test
+        // guards) — `f.metadata` itself is no longer `None` since issue #43:
+        // every function now additionally carries purely-cosmetic
+        // `kind`/`is_public`/... metadata (see `MetaBuilder`), which has no
+        // bearing on what this test checks.
+        let metadata = f
+            .metadata
+            .as_ref()
+            .expect("kind metadata is always present");
+        assert!(!metadata.fields.contains_key("params"));
     }
 
     // ── field access / index ──────────────────────────────────

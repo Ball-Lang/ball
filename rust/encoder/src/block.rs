@@ -69,24 +69,26 @@ impl Encoder {
                 );
             }
         }
-        let name = match &local.pat {
+        let (name, is_mut) = match &local.pat {
             syn::Pat::Ident(syn::PatIdent {
                 ident,
                 subpat: None,
+                mutability,
                 ..
-            }) => ident.to_string(),
+            }) => (ident.to_string(), mutability.is_some()),
             // `let _ = expr;` — the common "evaluate for a side effect,
             // discard the value" idiom. `"_"` is itself a valid Ball/Rust
             // binding name (the compiled Rust becomes `let _ = ...;`,
             // which discards without even reserving a real local).
-            syn::Pat::Wild(_) => "_".to_string(),
+            syn::Pat::Wild(_) => ("_".to_string(), false),
             syn::Pat::Type(pat_type) => match pat_type.pat.as_ref() {
                 syn::Pat::Ident(syn::PatIdent {
                     ident,
                     subpat: None,
+                    mutability,
                     ..
-                }) => ident.to_string(),
-                syn::Pat::Wild(_) => "_".to_string(),
+                }) => (ident.to_string(), mutability.is_some()),
+                syn::Pat::Wild(_) => ("_".to_string(), false),
                 _ => panic!(
                     "ball-encoder: only simple identifier `let` bindings are supported \
                      (destructuring `let` patterns are deferred)"
@@ -102,11 +104,24 @@ impl Encoder {
             Some(init) => self.encode_expr(&init.expr),
             None => null_literal(),
         };
+        // Cosmetic mutability round-trip (issue #43): `let mut x = ...;` ->
+        // `metadata.is_mut = true`; a plain `let x = ...;` (Rust's default,
+        // conceptually Dart's `final`) carries no metadata at all — matches
+        // every other boolean cosmetic flag's "absence means false"
+        // convention in this crate (see `MetaBuilder::set_bool_if_true`).
+        // `ball-compiler` never reads a `LetBinding`'s metadata for anything
+        // (see `rust/compiler/src/lib.rs::compile_expression`'s `Block`
+        // arm), so this can never change a compiled program's output.
+        let metadata = is_mut.then(|| {
+            let mut fields = std::collections::HashMap::new();
+            fields.insert("is_mut".to_string(), crate::bool_value(true));
+            ball_shared::proto::google::protobuf::Struct { fields }
+        });
         Statement {
             stmt: Some(BallStmt::Let(LetBinding {
                 name,
                 value: Some(value),
-                metadata: None,
+                metadata,
             })),
         }
     }

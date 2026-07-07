@@ -16,6 +16,7 @@ use prost_reflect::DescriptorPool;
 use std::sync::LazyLock;
 
 mod descriptor_builders;
+pub mod runtime;
 mod std_collections_module;
 mod std_io_module;
 mod std_memory_module;

@@ -1,39 +1,84 @@
-//! `call` (base-function) compilation — the minimal Phase 2a bootstrap.
+//! `call` (base-function) compilation — the dispatch table that turns
+//! `std`/`std_collections`/`std_io` base-function calls into native Rust
+//! (issue #37). Base functions have no body (invariant #3) — this module
+//! *is* their Rust implementation, mirroring `dart/compiler/lib/compiler.dart`'s
+//! `_compileBaseCall` (the authoritative reference — read it first when in
+//! doubt) and the C++/TS equivalents (`cpp/compiler/src/compiler.cpp`,
+//! `ts/compiler/src/compiler.ts`).
 //!
-//! See the crate-level scope-boundary note in `lib.rs`: this is
-//! deliberately **not** the full `std`/`std_collections`/`std_io`/
-//! `std_memory` dispatch table (118+ functions) — that is issue #37.
-//! [`compile_base_call`] is the extension point #37 will grow; today it
-//! wires up only the arithmetic/comparison/logical operators and the
-//! `if`/`return` control-flow + `print`/`to_string` calls needed to compile
-//! and run `hello_world`, `fibonacci`, `factorial`, and a closures fixture
-//! (see `tests/end_to_end.rs`) end to end. Every other base function name
-//! compiles to a `panic!(...)` that names the missing function and points
-//! at #37, so a program that reaches an unimplemented base function fails
-//! loudly at *run time* of the compiled binary — never silently drops a
-//! computation (see CLAUDE.md's engine guidance: "Fail loud... never return
-//! a placeholder").
+//! Arithmetic/comparison/logic/bitwise/string/math/collection operators
+//! delegate to plain functions in `ball_shared::runtime` (see that module's
+//! doc comment for why — short version: it's the Rust analog of
+//! `cpp/shared/include/ball_dyn.h`'s operator overloads, and it's
+//! unit-testable on its own). **This module's own job is exclusively the
+//! handful of constructs a runtime function call fundamentally can't
+//! express: lazy control flow.**
+//!
+//! ## Lazy control flow (invariant #4 — the crux of this issue)
+//!
+//! `if`/`and`/`or`/`for`/`for_in`/`while`/`do_while` compile to **native
+//! Rust control flow**, never to a call that would evaluate every branch/
+//! operand up front:
+//! - `if(cond, then, else)` → a real Rust `if cond { then } else { else }` —
+//!   only the taken arm's compiled code ever runs.
+//! - `and`/`or` → native `&&`/`||` (`compile_and`/`compile_or`) — Rust's own
+//!   short-circuit evaluation means the right operand's source text is never
+//!   *reached*, not just "not used", when the left operand decides the
+//!   result. This is what makes the laziness fixture's "untaken branch
+//!   would panic/print if evaluated" assertion hold.
+//! - `for`/`for_in`/`while`/`do_while` → native Rust `while`/`for`/`loop`
+//!   with the loop body compiled directly inline as the loop's own block —
+//!   never pre-evaluated or evaluated more/fewer times than the native
+//!   construct naturally would.
+//!
+//! A runtime **function call**, by contrast, cannot be lazy — Rust always
+//! evaluates every argument expression before making the call — which is
+//! exactly why `and`/`or`/`null_coalesce` are hand-written here instead of
+//! going through `ball_shared::runtime` like every other binary operator.
+//!
+//! ## Assignment / mutation
+//!
+//! `assign`, `pre_increment`/`post_increment`/`pre_decrement`/
+//! `post_decrement`, and the mutating `std_collections` calls (`list_push`,
+//! `map_set`, ...) all route through `crate::lvalue` — see that module's
+//! doc comment for why a `.clone()`d read isn't good enough for a mutation
+//! target.
+//!
+//! ## Scope boundary (read before extending)
+//!
+//! Deliberately deferred to a clean runtime-helper fallback
+//! ([`ball_unsupported_base_call`], never a compile-time panic — a program
+//! that doesn't reach the unimplemented path still compiles and runs):
+//! `regex_*` (needs a new `regex` crate dependency), `list_reduce`/
+//! `list_sort`/`list_sort_by`/`map_map`/`map_filter` (need a genuinely
+//! multi-parameter callback — Ball's lambda convention is single-`input`
+//! only until #38's typed parameter destructuring), `rethrow` (needs
+//! "current exception in scope" context threading through `try`/`catch`),
+//! `yield`/`await` (generators/async are a different control-flow model —
+//! not attempted here), `goto` (no Rust equivalent without a state-machine
+//! transform), and all of `std_memory` (linear-memory/pointer model, not
+//! yet designed for this target). `try`/`switch` are implemented at a
+//! deliberately minimal level (single untaken-catch-type dispatch / no
+//! fall-through) — see [`Compiler::compile_try`]/[`Compiler::compile_switch`]'s
+//! own doc comments for the exact limitation.
 use indexmap::IndexMap;
 
 use ball_shared::extract_fields;
-use ball_shared::proto::ball::v1::{Expression, FunctionCall};
+use ball_shared::proto::ball::v1::expression::Expr;
+use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_shared::proto::ball::v1::{Expression, FunctionCall, MessageCreation};
 
 use crate::Compiler;
 
 impl Compiler<'_> {
     /// `call` — the shared entry point for both node types folded under
     /// `Expression::Call`: a base-module call (dispatches to
-    /// [`compile_base_call`]) or a user-module call. A user call always
-    /// compiles to plain Rust call syntax `<function>(<input>)`; per Ball's
-    /// "one input, one output" convention (invariant #1) there is exactly
-    /// one argument, so no argument-list flattening is needed. Because Rust
-    /// calls a closure-typed local with the exact same syntax as a function
-    /// item, this same path transparently supports calling a `lambda`
-    /// that's been `let`-bound in the enclosing scope (Rust's own name
-    /// resolution prefers the local shadow, matching Ball's dynamic
-    /// lexical scoping) — see `tests/end_to_end.rs`'s closures fixture.
-    /// `call.module` empty means "current module" (resolves the same way:
-    /// a bare Rust identifier call).
+    /// [`Compiler::compile_base_call`]) or a user-module call. A user call
+    /// always compiles to plain Rust call syntax `<function>(<input>)`; per
+    /// Ball's "one input, one output" convention (invariant #1) there is
+    /// exactly one argument, so no argument-list flattening is needed.
+    /// `call.module` empty means "current module" (resolves the same way: a
+    /// bare Rust identifier call).
     pub(crate) fn compile_call(&self, call: &FunctionCall) -> String {
         if self.is_base_module(&call.module) {
             return self.compile_base_call(call);
@@ -46,38 +91,163 @@ impl Compiler<'_> {
         format!("{name}({input})")
     }
 
-    /// `call` (base fn) — dispatch table. See the module doc comment for
-    /// the scope boundary: only a minimal bootstrap subset is implemented
-    /// here; everything else panics with a message naming both the missing
-    /// function and issue #37.
+    /// Base-function dispatch table, routed first by `call.module`
+    /// (`std_collections`/`std_io` get their own sub-tables, mirroring
+    /// `_compileCollectionsCall`/`_compileIoCall` in the Dart reference) and
+    /// then by `call.function` within `std` itself.
     fn compile_base_call(&self, call: &FunctionCall) -> String {
-        let fields = extract_fields(call);
+        match call.module.as_str() {
+            "std_collections" => return self.compile_collections_call(call),
+            "std_io" => return self.compile_io_call(call),
+            "std_memory" => {
+                return format!(
+                    "ball_unsupported_base_call({:?}, {:?})",
+                    call.module, call.function
+                );
+            }
+            _ => {}
+        }
+
+        // Constructs needing the raw `FunctionCall` (lazy control flow that
+        // dispatches on nested calls, or a repeated-`Expression` field) skip
+        // `extract_fields` up front.
         match call.function.as_str() {
-            "print" => self.compile_print(&fields),
-            "to_string" => self.compile_to_string(&fields),
-            "add" => self.bin_op(&fields, "ball_add"),
-            "subtract" => self.bin_op(&fields, "ball_subtract"),
-            "multiply" => self.bin_op(&fields, "ball_multiply"),
-            "divide" => self.bin_op(&fields, "ball_divide"),
-            "modulo" => self.bin_op(&fields, "ball_modulo"),
-            "equals" => self.bin_op(&fields, "ball_equals"),
-            "not_equals" => self.bin_op(&fields, "ball_not_equals"),
-            "less_than" => self.bin_op(&fields, "ball_less_than"),
-            "greater_than" => self.bin_op(&fields, "ball_greater_than"),
-            "lte" => self.bin_op(&fields, "ball_lte"),
-            "gte" => self.bin_op(&fields, "ball_gte"),
-            "and" => self.bin_op(&fields, "ball_and"),
-            "or" => self.bin_op(&fields, "ball_or"),
-            "not" => self.un_op(&fields, "ball_not"),
-            "negate" => self.un_op(&fields, "ball_negate"),
-            "if" => self.compile_if(&fields),
-            "return" => self.compile_return(&fields),
-            other => format!(
-                "panic!(\"ball-compiler: base function 'std.{other}' is not implemented yet \
-                 — full base-function dispatch lands in issue #37\")"
-            ),
+            "and" => return self.compile_and(call),
+            "or" => return self.compile_or(call),
+            "null_coalesce" => return self.compile_null_coalesce(call),
+            "for" => return self.compile_for(call, None),
+            "for_in" => return self.compile_for_in(call, None),
+            "while" => return self.compile_while(call, None),
+            "do_while" => return self.compile_do_while(call, None),
+            "label" => return self.compile_label(call),
+            "switch" => return self.compile_switch(call),
+            "try" => return self.compile_try(call),
+            "assign" => return self.compile_assign(call),
+            "pre_increment" => return self.compile_mutate_by_one(call, "+=", false),
+            "post_increment" => return self.compile_mutate_by_one(call, "+=", true),
+            "pre_decrement" => return self.compile_mutate_by_one(call, "-=", false),
+            "post_decrement" => return self.compile_mutate_by_one(call, "-=", true),
+            _ => {}
+        }
+
+        let f = extract_fields(call);
+        match call.function.as_str() {
+            "print" => self.compile_print(&f),
+            // ── Arithmetic ──
+            "add" => self.bin("ball_add", &f),
+            "subtract" => self.bin("ball_subtract", &f),
+            "multiply" => self.bin("ball_multiply", &f),
+            "divide" => self.bin("ball_divide", &f),
+            "divide_double" => self.bin("ball_divide_double", &f),
+            "modulo" => self.bin("ball_modulo", &f),
+            "negate" => self.un("ball_negate", &f),
+            // ── Comparison ──
+            "equals" => self.bin("ball_equals", &f),
+            "not_equals" => self.bin("ball_not_equals", &f),
+            "less_than" => self.bin("ball_less_than", &f),
+            "greater_than" => self.bin("ball_greater_than", &f),
+            "lte" => self.bin("ball_lte", &f),
+            "gte" => self.bin("ball_gte", &f),
+            "compare_to" => self.bin("ball_compare_to", &f),
+            // ── Logic / bitwise ──
+            "not" => self.un("ball_not", &f),
+            "bitwise_and" => self.bin("ball_bitwise_and", &f),
+            "bitwise_or" => self.bin("ball_bitwise_or", &f),
+            "bitwise_xor" => self.bin("ball_bitwise_xor", &f),
+            "bitwise_not" => self.un("ball_bitwise_not", &f),
+            "left_shift" => self.bin("ball_left_shift", &f),
+            "right_shift" => self.bin("ball_right_shift", &f),
+            "unsigned_right_shift" => self.bin("ball_unsigned_right_shift", &f),
+            // ── String & conversion ──
+            "concat" | "string_concat" => self.bin("ball_add", &f),
+            "to_string" | "int_to_string" | "double_to_string" => self.un("ball_to_string", &f),
+            "length" | "string_length" => self.un("ball_length", &f),
+            "string_to_int" => self.un("ball_string_to_int", &f),
+            "string_to_double" => self.un("ball_string_to_double", &f),
+            // ── Null safety ──
+            "null_check" => self.un("ball_null_check", &f),
+            // ── Control flow (non-lazy leaves: `if` already handled inline) ──
+            "if" => self.compile_if(&f),
+            // ── Error handling / flow signals ──
+            "throw" => self.un("ball_throw", &f),
+            "rethrow" => self.unsupported(call),
+            "assert" => self.compile_assert(&f),
+            "return" => self.compile_return(&f),
+            "break" => self.compile_break(&f),
+            "continue" => self.compile_continue(&f),
+            "goto" | "yield" | "await" => self.unsupported(call),
+            // ── Type operations ──
+            "is" => self.compile_type_op("ball_is", &f),
+            "is_not" => self.compile_type_op("ball_is_not", &f),
+            "as" => self.compile_type_op("ball_as", &f),
+            // ── Indexing ──
+            "index" | "string_char_at" => self.compile_index(&f),
+            // ── Strings (pure manipulation) ──
+            "string_is_empty" => self.un("ball_string_is_empty", &f),
+            "string_contains" => self.bin("ball_string_contains", &f),
+            "string_starts_with" => self.bin("ball_string_starts_with", &f),
+            "string_ends_with" => self.bin("ball_string_ends_with", &f),
+            "string_index_of" => self.bin("ball_string_index_of", &f),
+            "string_last_index_of" => self.bin("ball_string_last_index_of", &f),
+            "string_substring" => self.tri("ball_string_substring", &f, "value", "start", "end"),
+            "string_char_code_at" => self.compile_index_named("ball_string_char_code_at", &f),
+            "string_from_char_code" => self.un("ball_string_from_char_code", &f),
+            "string_to_upper" => self.un("ball_string_to_upper", &f),
+            "string_to_lower" => self.un("ball_string_to_lower", &f),
+            "string_trim" => self.un("ball_string_trim", &f),
+            "string_trim_start" => self.un("ball_string_trim_start", &f),
+            "string_trim_end" => self.un("ball_string_trim_end", &f),
+            "string_replace" => self.tri("ball_string_replace", &f, "value", "from", "to"),
+            "string_replace_all" => self.tri("ball_string_replace_all", &f, "value", "from", "to"),
+            "string_split" => self.bin("ball_string_split", &f),
+            "string_runes" => self.un("ball_string_runes", &f),
+            "string_repeat" => self.compile_2("ball_string_repeat", &f, "value", "count"),
+            "string_pad_left" => self.tri("ball_string_pad_left", &f, "value", "width", "padding"),
+            "string_pad_right" => {
+                self.tri("ball_string_pad_right", &f, "value", "width", "padding")
+            }
+            // ── Regex (deferred — needs a `regex` crate dependency) ──
+            "regex_match" | "regex_find" | "regex_find_all" | "regex_replace"
+            | "regex_replace_all" => self.unsupported(call),
+            // ── Math ──
+            "math_abs" => self.un("ball_math_abs", &f),
+            "math_floor" => self.un("ball_math_floor", &f),
+            "math_ceil" => self.un("ball_math_ceil", &f),
+            "math_round" => self.un("ball_math_round", &f),
+            "math_trunc" => self.un("ball_math_trunc", &f),
+            "math_sqrt" => self.un("ball_math_sqrt", &f),
+            "math_pow" => self.bin("ball_math_pow", &f),
+            "math_log" => self.un("ball_math_log", &f),
+            "math_log2" => self.un("ball_math_log2", &f),
+            "math_log10" => self.un("ball_math_log10", &f),
+            "math_exp" => self.un("ball_math_exp", &f),
+            "math_sin" => self.un("ball_math_sin", &f),
+            "math_cos" => self.un("ball_math_cos", &f),
+            "math_tan" => self.un("ball_math_tan", &f),
+            "math_asin" => self.un("ball_math_asin", &f),
+            "math_acos" => self.un("ball_math_acos", &f),
+            "math_atan" => self.un("ball_math_atan", &f),
+            "math_atan2" => self.bin("ball_math_atan2", &f),
+            "math_min" => self.bin("ball_math_min", &f),
+            "math_max" => self.bin("ball_math_max", &f),
+            "math_clamp" => self.tri("ball_math_clamp", &f, "value", "min", "max"),
+            "math_pi" => "BallValue::Double(std::f64::consts::PI)".to_string(),
+            "math_e" => "BallValue::Double(std::f64::consts::E)".to_string(),
+            "math_infinity" => "BallValue::Double(f64::INFINITY)".to_string(),
+            "math_nan" => "BallValue::Double(f64::NAN)".to_string(),
+            "math_is_nan" => self.un("ball_math_is_nan", &f),
+            "math_is_finite" => self.un("ball_math_is_finite", &f),
+            "math_is_infinite" => self.un("ball_math_is_infinite", &f),
+            "math_sign" => self.un("ball_math_sign", &f),
+            "math_gcd" => self.bin("ball_math_gcd", &f),
+            "math_lcm" => self.bin("ball_math_lcm", &f),
+            _ => self.unsupported(call),
         }
     }
+
+    // ════════════════════════════════════════════════════════════
+    // Field-extraction helpers
+    // ════════════════════════════════════════════════════════════
 
     fn field_or_null(&self, fields: &IndexMap<String, Expression>, key: &str) -> String {
         match fields.get(key) {
@@ -86,46 +256,101 @@ impl Compiler<'_> {
         }
     }
 
-    fn bin_op(&self, fields: &IndexMap<String, Expression>, helper: &str) -> String {
-        let left = self.field_or_null(fields, "left");
-        let right = self.field_or_null(fields, "right");
-        format!("{helper}({left}, {right})")
+    /// Read a plain `string` descriptor field's value — stored as a literal
+    /// string [`Expression`] inside the calling `MessageCreation` (see
+    /// `dart/compiler/lib/compiler.dart`'s `_stringFieldValue`, which this
+    /// mirrors exactly).
+    fn string_field(&self, fields: &IndexMap<String, Expression>, key: &str) -> Option<String> {
+        match fields.get(key).map(|e| &e.expr) {
+            Some(Some(Expr::Literal(literal))) => match &literal.value {
+                Some(LiteralValue::StringValue(value)) => Some(value.clone()),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
-    fn un_op(&self, fields: &IndexMap<String, Expression>, helper: &str) -> String {
-        let value = self.field_or_null(fields, "value");
-        format!("{helper}({value})")
+    fn bool_field(&self, fields: &IndexMap<String, Expression>, key: &str) -> bool {
+        matches!(
+            fields.get(key).map(|e| &e.expr),
+            Some(Some(Expr::Literal(literal)))
+                if matches!(&literal.value, Some(LiteralValue::BoolValue(true)))
+        )
     }
 
-    /// `print(message)` — always compiles to a `BallValue`-typed block
-    /// (this crate's uniform invariant, see the `lib.rs` module doc
-    /// comment): the `println!` runs for its side effect and the block's
-    /// value is `BallValue::Null`, matching every reference engine's
-    /// `print` returning `null`.
+    fn un(&self, helper: &str, fields: &IndexMap<String, Expression>) -> String {
+        format!("{helper}({})", self.field_or_null(fields, "value"))
+    }
+
+    fn bin(&self, helper: &str, fields: &IndexMap<String, Expression>) -> String {
+        format!(
+            "{helper}({}, {})",
+            self.field_or_null(fields, "left"),
+            self.field_or_null(fields, "right")
+        )
+    }
+
+    fn tri(
+        &self,
+        helper: &str,
+        fields: &IndexMap<String, Expression>,
+        a: &str,
+        b: &str,
+        c: &str,
+    ) -> String {
+        format!(
+            "{helper}({}, {}, {})",
+            self.field_or_null(fields, a),
+            self.field_or_null(fields, b),
+            self.field_or_null(fields, c)
+        )
+    }
+
+    fn compile_2(
+        &self,
+        helper: &str,
+        fields: &IndexMap<String, Expression>,
+        a: &str,
+        b: &str,
+    ) -> String {
+        format!(
+            "{helper}({}, {})",
+            self.field_or_null(fields, a),
+            self.field_or_null(fields, b)
+        )
+    }
+
+    /// Clean fallback for a base function this dispatch table doesn't
+    /// special-case — see the module doc comment's scope boundary. Compiles
+    /// to a *call*, not a compile-time panic, so a program that never
+    /// reaches this path still compiles and runs.
+    fn unsupported(&self, call: &FunctionCall) -> String {
+        format!(
+            "ball_unsupported_base_call({:?}, {:?})",
+            call.module, call.function
+        )
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // print / to_string
+    // ════════════════════════════════════════════════════════════
+
+    /// `print(message)` — always compiles to a `BallValue`-typed block (this
+    /// crate's uniform invariant): the `println!` runs for its side effect
+    /// and the block's value is `BallValue::Null`, matching every reference
+    /// engine's `print` returning `null`.
     fn compile_print(&self, fields: &IndexMap<String, Expression>) -> String {
         let message = self.field_or_null(fields, "message");
         format!("{{ println!(\"{{}}\", {message}); BallValue::Null }}")
     }
 
-    /// `to_string(value)` — delegates to `BallValue`'s own `Display` impl
-    /// (`rust/shared/src/value.rs`), which already matches every reference
-    /// engine's stdout formatting (including the `-0.0`/whole-double/NaN
-    /// special cases), so this is a single, always-correct helper rather
-    /// than a per-type dispatch.
-    fn compile_to_string(&self, fields: &IndexMap<String, Expression>) -> String {
-        let value = self.field_or_null(fields, "value");
-        format!("BallValue::String(format!(\"{{}}\", {value}))")
-    }
+    // ════════════════════════════════════════════════════════════
+    // Lazy control flow
+    // ════════════════════════════════════════════════════════════
 
     /// `if(condition, then, else?)` — lazy by construction: both branches
     /// are Rust `if`/`else` arms, so only the taken branch's compiled code
-    /// ever executes (invariant #4 — never eagerly evaluate both branches).
-    /// `condition` is unwrapped from `BallValue::Bool` via the
-    /// [`BASE_OPS_PREAMBLE`] `ball_truthy` helper. `then`'s compiled value
-    /// commonly diverges via `return` (see [`compile_return`]) — a
-    /// diverging (`!`-typed) branch unifies with whatever type the other
-    /// branch produces, so `then`/`else` don't need to independently agree
-    /// on a concrete type in that case.
+    /// ever executes (invariant #4).
     fn compile_if(&self, fields: &IndexMap<String, Expression>) -> String {
         let condition = self.field_or_null(fields, "condition");
         let then = self.field_or_null(fields, "then");
@@ -133,133 +358,667 @@ impl Compiler<'_> {
         format!("if ball_truthy({condition}) {{ {then} }} else {{ {else_branch} }}")
     }
 
-    /// `return(value)` — a real Rust `return`, giving genuine early-return
-    /// control flow rather than a simulated flow-signal value (unlike the
-    /// tree-walking engines, a compiled Rust function can use the host
-    /// language's own control flow directly).
+    /// `and(left, right)` — native `&&`. `right`'s compiled source is the
+    /// second operand of Rust's own short-circuiting `&&`, so it is never
+    /// *reached* (not merely "discarded") when `left` is `false` — this is
+    /// the laziness fixture's key assertion (a divide-by-zero or `print` in
+    /// the untaken `right` must not execute).
+    fn compile_and(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let left = self.field_or_null(&f, "left");
+        let right = self.field_or_null(&f, "right");
+        format!("BallValue::Bool(ball_truthy({left}) && ball_truthy({right}))")
+    }
+
+    /// `or(left, right)` — native `||`, lazy for the same reason as `and`.
+    fn compile_or(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let left = self.field_or_null(&f, "left");
+        let right = self.field_or_null(&f, "right");
+        format!("BallValue::Bool(ball_truthy({left}) || ball_truthy({right}))")
+    }
+
+    /// `null_coalesce(left, right)` (`??`) — Dart's `??` doesn't evaluate
+    /// `right` when `left` is non-null, so (like `and`/`or`) this is an
+    /// inline `if` rather than a `ball_shared::runtime` call.
+    fn compile_null_coalesce(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let left = self.field_or_null(&f, "left");
+        let right = self.field_or_null(&f, "right");
+        format!("{{ let __l = {left}; if __l != BallValue::Null {{ __l }} else {{ {right} }} }}")
+    }
+
+    /// `for(init, condition, update, body)` — a C-style for loop. Rust has
+    /// no native C-style `for`, so this needs a hand-rolled desugaring —
+    /// and the *naive* one (`while cond { body; update; }`) is a real bug,
+    /// not just an inelegance: Rust's `continue` jumps straight to the
+    /// loop's condition re-check, so a `continue` inside `body` would skip
+    /// `update` entirely — an unconditional-`continue`'d loop counter never
+    /// advances, hanging forever (caught by this issue's own nested-loop
+    /// fixture during development).
+    ///
+    /// The fix is the standard "run update-or-skip at the top of the loop,
+    /// gated by a first-iteration flag" idiom, which needs **no** special
+    /// handling of `break`/`continue` at all — both already do the right
+    /// thing by Rust's ordinary nearest-enclosing-loop rules:
+    /// ```text
+    /// init;
+    /// let mut first = true;
+    /// loop {
+    ///     if first { first = false; } else { update; }
+    ///     if !cond { break; }
+    ///     body;
+    /// }
+    /// ```
+    /// A `continue` in `body` jumps to the top of this `loop` — which now
+    /// *is* the update step — then falls through to the condition check,
+    /// exactly matching a native C-style `for`.
+    fn compile_for(&self, call: &FunctionCall, label: Option<&str>) -> String {
+        let f = extract_fields(call);
+        let init_code = f
+            .get("init")
+            .map(|e| self.compile_for_init(e))
+            .unwrap_or_default();
+        let condition_code = match f.get("condition") {
+            Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
+            None => "true".to_string(),
+        };
+        let body_code = self.field_or_null(&f, "body");
+        let update_code = f
+            .get("update")
+            .map(|e| self.compile_expression(e))
+            .unwrap_or_default();
+        let label_prefix = label.map(|l| format!("'{l}: ")).unwrap_or_default();
+        format!(
+            "{{\n{init_code}let mut __ball_for_first = true;\n{label_prefix}loop {{\n\
+             if __ball_for_first {{ __ball_for_first = false; }} else {{ {update_code}; }}\n\
+             if !{condition_code} {{ break; }}\n{body_code};\n}}\nBallValue::Null\n}}"
+        )
+    }
+
+    /// Compile a `for` loop's `init` field. The canonical shape (see
+    /// `dart/shared/lib/std.dart`'s `ForInput` and the encoder convention
+    /// documented in `dart/compiler/lib/compiler.dart`'s `_generateFor`) is
+    /// a `block` of `let`-bindings with no result (`for (var i = 0, j = 1;
+    /// ...)`); each becomes `let mut <name> = <value>;` — unconditionally
+    /// `mut` (safe: `compile()`'s preamble allows `unused_mut`, and a
+    /// for-loop counter is overwhelmingly likely to be mutated by
+    /// `update`/`body` anyway). Any other shape (e.g. `for (i = 0; ...)`,
+    /// reusing an existing variable) is compiled as a plain statement.
+    fn compile_for_init(&self, init: &Expression) -> String {
+        if let Some(Expr::Block(block)) = &init.expr {
+            if block.result.is_none()
+                && !block.statements.is_empty()
+                && block.statements.iter().all(|s| {
+                    matches!(
+                        &s.stmt,
+                        Some(ball_shared::proto::ball::v1::statement::Stmt::Let(_))
+                    )
+                })
+            {
+                let mut out = String::new();
+                for statement in &block.statements {
+                    if let Some(ball_shared::proto::ball::v1::statement::Stmt::Let(let_binding)) =
+                        &statement.stmt
+                    {
+                        let name = crate::sanitize_ident(&let_binding.name);
+                        let value = match &let_binding.value {
+                            Some(value) => self.compile_expression(value),
+                            None => "BallValue::Null".to_string(),
+                        };
+                        out.push_str(&format!("let mut {name} = {value};\n"));
+                    }
+                }
+                return out;
+            }
+        }
+        format!("{};\n", self.compile_expression(init))
+    }
+
+    /// `for_in(variable, iterable, body)` — iterates a `List` (or a `Map`'s
+    /// entries, each surfaced as `[key, value]` — see
+    /// `ball_shared::runtime::ball_iterate`) via a native Rust `for` loop.
+    fn compile_for_in(&self, call: &FunctionCall, label: Option<&str>) -> String {
+        let f = extract_fields(call);
+        let variable = self
+            .string_field(&f, "variable")
+            .unwrap_or_else(|| "item".to_string());
+        let var_ident = crate::sanitize_ident(&variable);
+        let iterable_code = self.field_or_null(&f, "iterable");
+        let body_code = self.field_or_null(&f, "body");
+        let mutated = f
+            .get("body")
+            .is_some_and(|body| self.expr_mutates_var(body, &variable));
+        let binding = if mutated { "let mut" } else { "let" };
+        let label_prefix = label.map(|l| format!("'{l}: ")).unwrap_or_default();
+        format!(
+            "{{\n{label_prefix}for __item in ball_iterate({iterable_code}) {{\n{binding} {var_ident} = __item;\n{body_code};\n}}\nBallValue::Null\n}}"
+        )
+    }
+
+    /// `while(condition, body)`.
+    fn compile_while(&self, call: &FunctionCall, label: Option<&str>) -> String {
+        let f = extract_fields(call);
+        let condition_code = match f.get("condition") {
+            Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
+            None => "true".to_string(),
+        };
+        let body_code = self.field_or_null(&f, "body");
+        let label_prefix = label.map(|l| format!("'{l}: ")).unwrap_or_default();
+        format!(
+            "{{\n{label_prefix}while {condition_code} {{\n{body_code};\n}}\nBallValue::Null\n}}"
+        )
+    }
+
+    /// `do_while(body, condition)` — runs `body` once unconditionally, then
+    /// repeats while `condition` holds, matching Dart's `do { ... } while
+    /// (...)`.
+    ///
+    /// The naive `loop { body; if !cond { break; } }` has the same
+    /// `continue`-skips-a-step bug as the naive `for` desugaring (see
+    /// [`Compiler::compile_for`]'s doc comment): a `continue` inside `body`
+    /// jumps to the top of that `loop`, which is `body` itself — so it
+    /// would *re-run `body` immediately*, skipping the condition check
+    /// entirely, rather than "proceed to the next real iteration". The
+    /// fix is the same first-iteration-flag idiom, just with the roles
+    /// reversed (body runs unconditionally on the first pass; the
+    /// condition gates every pass after):
+    /// ```text
+    /// let mut first = true;
+    /// loop {
+    ///     if first { first = false; } else if !cond { break; }
+    ///     body;
+    /// }
+    /// ```
+    /// A `continue` in `body` now jumps to the top — which checks `cond`
+    /// (since `first` is `false` after the first pass) before deciding
+    /// whether to run `body` again, exactly matching a native do-while.
+    fn compile_do_while(&self, call: &FunctionCall, label: Option<&str>) -> String {
+        let f = extract_fields(call);
+        let body_code = self.field_or_null(&f, "body");
+        let condition_code = match f.get("condition") {
+            Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
+            None => "true".to_string(),
+        };
+        let label_prefix = label.map(|l| format!("'{l}: ")).unwrap_or_default();
+        format!(
+            "{{\nlet mut __ball_do_while_first = true;\n{label_prefix}loop {{\n\
+             if __ball_do_while_first {{ __ball_do_while_first = false; }} else if !{condition_code} {{ break; }}\n\
+             {body_code};\n}}\nBallValue::Null\n}}"
+        )
+    }
+
+    /// `label(name, body)` — attaches a Rust loop label directly to `body`
+    /// when `body` is itself one of the four loop calls (the common,
+    /// directly-nested case: `label('outer', for(...))`), so
+    /// `break('outer')`/`continue('outer')` compile to real
+    /// `break 'outer`/`continue 'outer`. Any other `body` shape falls back
+    /// to a bare labeled block (`'name: { body }`), which supports labeled
+    /// `break` (Rust block labels can be `break`-targeted) but not labeled
+    /// `continue` (blocks aren't loops) — a `continue` targeting a
+    /// non-loop-wrapping label is a malformed program in every reference
+    /// engine too.
+    fn compile_label(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let label = sanitize_label(&self.string_field(&f, "name").unwrap_or_default());
+        match f.get("body").map(|e| &e.expr) {
+            Some(Some(Expr::Call(inner))) if self.is_base_module(&inner.module) => {
+                match inner.function.as_str() {
+                    "for" => return self.compile_for(inner, Some(&label)),
+                    "for_in" => return self.compile_for_in(inner, Some(&label)),
+                    "while" => return self.compile_while(inner, Some(&label)),
+                    "do_while" => return self.compile_do_while(inner, Some(&label)),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        let body_code = self.field_or_null(&f, "body");
+        format!("'{label}: {{\n{body_code}\n}}")
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Flow signals
+    // ════════════════════════════════════════════════════════════
+
+    /// `return(value)` — a real Rust `return`. `return`'s type is `!`
+    /// (diverging), which unifies with whatever type the surrounding
+    /// expression position expects, so it's always valid here regardless of
+    /// context (block statement, `if` arm, ...).
     fn compile_return(&self, fields: &IndexMap<String, Expression>) -> String {
+        format!("return {}", self.field_or_null(fields, "value"))
+    }
+
+    /// `break([label])` — unlabeled breaks the innermost enclosing Rust
+    /// loop (matches "break the innermost loop" for ordinary nested
+    /// for/while loops); a non-empty label targets the matching loop label
+    /// (see [`Compiler::compile_label`]).
+    fn compile_break(&self, fields: &IndexMap<String, Expression>) -> String {
+        match self.string_field(fields, "label").filter(|l| !l.is_empty()) {
+            Some(label) => format!("break '{}", sanitize_label(&label)),
+            None => "break".to_string(),
+        }
+    }
+
+    fn compile_continue(&self, fields: &IndexMap<String, Expression>) -> String {
+        match self.string_field(fields, "label").filter(|l| !l.is_empty()) {
+            Some(label) => format!("continue '{}", sanitize_label(&label)),
+            None => "continue".to_string(),
+        }
+    }
+
+    /// `assert(condition, message?)` — a debug assertion; panics
+    /// (unconditionally, matching every reference engine's `assert` running
+    /// in "checked mode" — Ball has no separate release-mode assert-elision
+    /// story yet) when `condition` is falsy.
+    fn compile_assert(&self, fields: &IndexMap<String, Expression>) -> String {
+        let condition = self.field_or_null(fields, "condition");
+        let panic_stmt = match fields.get("message") {
+            Some(message) => format!("panic!(\"{{}}\", {});", self.compile_expression(message)),
+            None => "panic!(\"Assertion failed\");".to_string(),
+        };
+        format!("{{ if !ball_truthy({condition}) {{ {panic_stmt} }} BallValue::Null }}")
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // try / switch
+    // ════════════════════════════════════════════════════════════
+
+    /// `try(body, catches, finally?)` — wraps `body` in
+    /// `std::panic::catch_unwind`; `throw` (see
+    /// `ball_shared::runtime::ball_throw`) panics with the thrown
+    /// `BallValue` as the panic payload via `std::panic::panic_any`, which
+    /// `ball_catch_payload` recovers on the catching side.
+    ///
+    /// **Known limitation:** only the *first* `catches` clause is compiled
+    /// (bound as a catch-all, ignoring `CatchClause.type` — real
+    /// exception-type dispatch needs the class hierarchy #38 adds); multiple
+    /// typed catch clauses are a documented gap, not a silent one. An
+    /// uncaught exception (no `catches` at all) re-panics with the
+    /// recovered value's `Debug` text.
+    fn compile_try(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let body_code = self.field_or_null(&f, "body");
+        let finally_code = f.get("finally").map(|e| self.compile_expression(e));
+        let catches = f
+            .get("catches")
+            .map(literal_list_elements)
+            .unwrap_or_default();
+
+        let mut out = String::from(
+            "{\nlet __try_result: Result<BallValue, Box<dyn std::any::Any + Send>> = \
+             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\n",
+        );
+        out.push_str(&body_code);
+        out.push_str(
+            "\n}));\nlet __try_value = match __try_result {\nOk(v) => v,\nErr(__payload) => {\n",
+        );
+        out.push_str("let __err = ball_catch_payload(__payload);\n");
+
+        if let Some(first_catch) = catches.first() {
+            let cf = match &first_catch.expr {
+                Some(Expr::MessageCreation(mc)) => self.message_creation_fields(mc),
+                _ => IndexMap::new(),
+            };
+            let var_name = self
+                .string_field(&cf, "variable")
+                .unwrap_or_else(|| "_ball_err".to_string());
+            let catch_body = cf
+                .get("body")
+                .map(|b| self.compile_expression(b))
+                .unwrap_or_else(|| "BallValue::Null".to_string());
+            out.push_str(&format!(
+                "let {} = __err;\n{}\n",
+                crate::sanitize_ident(&var_name),
+                catch_body
+            ));
+        } else {
+            out.push_str("panic!(\"ball-compiler runtime: uncaught exception: {:?}\", __err)\n");
+        }
+        out.push_str("}\n};\n");
+        if let Some(finally) = finally_code {
+            out.push_str(&format!("{finally};\n"));
+        }
+        out.push_str("__try_value\n}");
+        out
+    }
+
+    /// `switch(subject, cases[])` — compiles to an **if-chain** (each case
+    /// value compared to `subject` via `ball_equals`), not a native Rust
+    /// `match`: case values are arbitrary compiled expressions (not
+    /// necessarily `match`-pattern-legal literals), matching the issue's own
+    /// "`match`/`if`-chain" phrasing.
+    ///
+    /// **Known limitation:** no C-style fall-through (each case's `body` is
+    /// independent — a case with an empty body does *not* fall through to
+    /// the next, unlike Dart's `_generateSwitch`), and `break` inside a case
+    /// body is *not* specially scoped to "exit the switch" — Rust's
+    /// `break`/`continue` only make sense inside a real loop, and this
+    /// if-chain isn't one. Neither limitation is exercised by any #37
+    /// fixture; both are real gaps for a future issue to close (most
+    /// naturally alongside `switch_expr`/pattern-matching support).
+    fn compile_switch(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let subject_code = self.field_or_null(&f, "subject");
+        let cases = f
+            .get("cases")
+            .map(literal_list_elements)
+            .unwrap_or_default();
+
+        let mut arms: Vec<(String, String)> = Vec::new();
+        let mut default_body: Option<String> = None;
+        for case in &cases {
+            let Some(Expr::MessageCreation(mc)) = &case.expr else {
+                continue;
+            };
+            let cf = self.message_creation_fields(mc);
+            let body_code = cf
+                .get("body")
+                .map(|b| self.compile_expression(b))
+                .unwrap_or_else(|| "BallValue::Null".to_string());
+            if self.bool_field(&cf, "is_default") {
+                default_body = Some(body_code);
+                continue;
+            }
+            if let Some(value) = cf.get("value") {
+                arms.push((self.compile_expression(value), body_code));
+            }
+        }
+
+        let mut out = String::from("{\nlet __switch_subject = ");
+        out.push_str(&subject_code);
+        out.push_str(";\n");
+        if arms.is_empty() {
+            out.push_str(default_body.as_deref().unwrap_or("BallValue::Null"));
+        } else {
+            for (index, (value_code, body_code)) in arms.iter().enumerate() {
+                if index > 0 {
+                    out.push_str(" else ");
+                }
+                out.push_str(&format!(
+                    "if ball_equals(__switch_subject.clone(), {value_code}) == BallValue::Bool(true) {{\n{body_code}\n}}"
+                ));
+            }
+            out.push_str(&format!(
+                " else {{\n{}\n}}",
+                default_body.as_deref().unwrap_or("BallValue::Null")
+            ));
+        }
+        out.push_str("\n}");
+        out
+    }
+
+    /// Extract a `MessageCreation`'s fields directly (used by
+    /// `switch`/`try` to read each case/catch-clause struct — these appear
+    /// as list *elements*, not a `FunctionCall`'s own input, so
+    /// `ball_shared::extract_fields` — which takes a `&FunctionCall` — can't
+    /// be reused directly).
+    fn message_creation_fields(&self, mc: &MessageCreation) -> IndexMap<String, Expression> {
+        mc.fields
+            .iter()
+            .map(|field| (field.name.clone(), field.value.clone().unwrap_or_default()))
+            .collect()
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Type operations
+    // ════════════════════════════════════════════════════════════
+
+    fn compile_type_op(&self, helper: &str, fields: &IndexMap<String, Expression>) -> String {
         let value = self.field_or_null(fields, "value");
-        format!("return {value}")
+        let type_name = self.string_field(fields, "type").unwrap_or_default();
+        format!("{helper}({value}, {type_name:?})")
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Indexing
+    // ════════════════════════════════════════════════════════════
+
+    fn compile_index(&self, fields: &IndexMap<String, Expression>) -> String {
+        format!(
+            "ball_index_get({}, {})",
+            self.field_or_null(fields, "target"),
+            self.field_or_null(fields, "index")
+        )
+    }
+
+    fn compile_index_named(&self, helper: &str, fields: &IndexMap<String, Expression>) -> String {
+        format!(
+            "{helper}({}, {})",
+            self.field_or_null(fields, "target"),
+            self.field_or_null(fields, "index")
+        )
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Assignment / mutation — see `crate::lvalue`
+    // ════════════════════════════════════════════════════════════
+
+    /// `assign(target, value, op?)`. `op` defaults to `"="` (simple
+    /// assignment) when absent.
+    fn compile_assign(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let Some(target) = f.get("target") else {
+            return "ball_unsupported_base_call(\"std\", \"assign\")".to_string();
+        };
+        let value_code = self.field_or_null(&f, "value");
+        let op = self
+            .string_field(&f, "op")
+            .unwrap_or_else(|| "=".to_string());
+        let lvalue = self.resolve_lvalue(target);
+        self.emit_mutation(&lvalue, &op, &value_code, false)
+    }
+
+    /// `pre_increment`/`post_increment`/`pre_decrement`/`post_decrement` —
+    /// all four are "mutate the target by 1" with a compound op (`+=`/`-=`)
+    /// and a choice of which value the expression evaluates to (`want_old`
+    /// distinguishes post- from pre-).
+    fn compile_mutate_by_one(&self, call: &FunctionCall, op: &str, want_old: bool) -> String {
+        let f = extract_fields(call);
+        let Some(target) = f.get("value") else {
+            return "ball_unsupported_base_call(\"std\", \"increment\")".to_string();
+        };
+        let lvalue = self.resolve_lvalue(target);
+        self.emit_mutation(&lvalue, op, "BallValue::Int(1)", want_old)
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // std_collections
+    // ════════════════════════════════════════════════════════════
+
+    fn compile_collections_call(&self, call: &FunctionCall) -> String {
+        // Mutating calls need the collection field's *lvalue* (a `&mut`
+        // slot onto the caller's own binding), not a `.clone()`d read — see
+        // `crate::lvalue`'s module doc comment.
+        let mutating_field = match call.function.as_str() {
+            "list_push" | "list_pop" | "list_insert" | "list_remove_at" | "list_set" => {
+                Some("list")
+            }
+            "map_set" | "map_delete" => Some("map"),
+            "set_add" | "set_remove" => Some("set"),
+            _ => None,
+        };
+        if let Some(field_name) = mutating_field {
+            return self.compile_mutating_collection_call(call, field_name);
+        }
+
+        let f = extract_fields(call);
+        match call.function.as_str() {
+            "list_get" => self.compile_2("ball_list_get", &f, "list", "index"),
+            "list_length" => self.un("ball_list_length", &f),
+            "list_is_empty" => self.un("ball_list_is_empty", &f),
+            "list_first" => self.un("ball_list_first", &f),
+            "list_last" => self.un("ball_list_last", &f),
+            "list_single" => self.un("ball_list_single", &f),
+            "list_contains" => self.compile_2("ball_list_contains", &f, "list", "value"),
+            "list_index_of" => self.compile_2("ball_list_index_of", &f, "list", "value"),
+            "list_map" => self.callback_call("ball_list_map", &f, "list"),
+            "list_filter" => self.callback_call("ball_list_filter", &f, "list"),
+            "list_find" => self.callback_call("ball_list_find", &f, "list"),
+            "list_any" => self.callback_call("ball_list_any", &f, "list"),
+            "list_all" => self.callback_call("ball_list_all", &f, "list"),
+            "list_none" => self.callback_call("ball_list_none", &f, "list"),
+            "list_reverse" => self.un("ball_list_reverse", &f),
+            "list_slice" => self.tri("ball_list_slice", &f, "list", "start", "end"),
+            "list_flat_map" => self.callback_call("ball_list_flat_map", &f, "list"),
+            "list_take" => self.compile_2("ball_list_take", &f, "list", "value"),
+            "list_drop" => self.compile_2("ball_list_drop", &f, "list", "value"),
+            "list_concat" => self.bin("ball_list_concat", &f),
+            "map_get" => self.compile_2("ball_map_get", &f, "map", "key"),
+            "map_contains_key" => self.compile_2("ball_map_contains_key", &f, "map", "key"),
+            "map_keys" => self.un_named("ball_map_keys", &f, "map"),
+            "map_values" => self.un_named("ball_map_values", &f, "map"),
+            "map_entries" => self.un_named("ball_map_entries", &f, "map"),
+            "map_from_entries" => self.un_named("ball_map_from_entries", &f, "list"),
+            "map_merge" => self.bin("ball_map_merge", &f),
+            "map_is_empty" => self.un_named("ball_map_is_empty", &f, "map"),
+            "map_length" => self.un_named("ball_map_length", &f, "map"),
+            "string_join" => self.compile_2("ball_string_join", &f, "list", "separator"),
+            "set_create" => self.un_named("ball_set_create", &f, "list"),
+            "set_contains" => self.compile_2("ball_set_contains", &f, "set", "value"),
+            "set_union" => self.bin("ball_set_union", &f),
+            "set_intersection" => self.bin("ball_set_intersection", &f),
+            "set_difference" => self.bin("ball_set_difference", &f),
+            "set_length" => self.un_named("ball_set_length", &f, "set"),
+            "set_is_empty" => self.un_named("ball_set_is_empty", &f, "set"),
+            "set_to_list" => self.un_named("ball_set_to_list", &f, "set"),
+            // Deferred — genuinely multi-parameter callbacks
+            // (accumulator+element / key-extractor+element), which Ball's
+            // single-`input` lambda convention can't express until #38.
+            "list_reduce" | "list_sort" | "list_sort_by" | "list_zip" | "map_map"
+            | "map_filter" => self.unsupported(call),
+            _ => self.unsupported(call),
+        }
+    }
+
+    fn un_named(&self, helper: &str, fields: &IndexMap<String, Expression>, key: &str) -> String {
+        format!("{helper}({})", self.field_or_null(fields, key))
+    }
+
+    /// A collection call whose single non-collection argument is a
+    /// (single-`input`) callback — `list_map(list, callback)`, etc. The
+    /// callback's compiled source (a Rust closure literal or a
+    /// `.clone()`d closure/fn-item reference) satisfies
+    /// `ball_shared::runtime`'s generic `F: Fn(BallValue) -> BallValue`
+    /// bound directly, no boxing needed.
+    fn callback_call(
+        &self,
+        helper: &str,
+        fields: &IndexMap<String, Expression>,
+        collection_key: &str,
+    ) -> String {
+        let collection = self.field_or_null(fields, collection_key);
+        let callback = self.field_or_null(fields, "callback");
+        format!("{helper}({collection}, {callback})")
+    }
+
+    /// Mutating `std_collections` calls (`list_push`, `map_set`, ...):
+    /// resolve `field_name`'s value to an [`crate::lvalue::LValue`] and pass
+    /// a `&mut BallValue` slot onto it as the first argument, so the helper
+    /// mutates the caller's actual binding rather than a throwaway clone.
+    fn compile_mutating_collection_call(&self, call: &FunctionCall, field_name: &str) -> String {
+        let f = extract_fields(call);
+        let Some(target) = f.get(field_name) else {
+            return self.unsupported(call);
+        };
+        let lvalue = self.resolve_lvalue(target);
+        let slot = self.lvalue_mut_expr(&lvalue);
+        let extra_args: Vec<String> = match call.function.as_str() {
+            "list_push" => vec![self.field_or_null(&f, "value")],
+            "list_pop" => vec![],
+            "list_insert" => vec![
+                self.field_or_null(&f, "index"),
+                self.field_or_null(&f, "value"),
+            ],
+            "list_remove_at" => vec![self.field_or_null(&f, "index")],
+            "list_set" => vec![
+                self.field_or_null(&f, "index"),
+                self.field_or_null(&f, "value"),
+            ],
+            "map_set" => vec![
+                self.field_or_null(&f, "key"),
+                self.field_or_null(&f, "value"),
+            ],
+            "map_delete" => vec![self.field_or_null(&f, "key")],
+            "set_add" => vec![self.field_or_null(&f, "value")],
+            "set_remove" => vec![self.field_or_null(&f, "value")],
+            _ => return self.unsupported(call),
+        };
+        let helper = match call.function.as_str() {
+            "list_push" => "ball_list_push",
+            "list_pop" => "ball_list_pop",
+            "list_insert" => "ball_list_insert",
+            "list_remove_at" => "ball_list_remove_at",
+            "list_set" => {
+                // `list[index] = value` isn't its own runtime helper — it's
+                // the same "slot then write" shape `assign` uses, just with
+                // the list *itself* (not one element) resolved as the
+                // lvalue and the index handled via `ball_index_get_mut`.
+                let index_code = &extra_args[0];
+                let value_code = &extra_args[1];
+                return format!(
+                    "{{ let __v = {value_code}; *ball_index_get_mut({slot}, {index_code}) = __v.clone(); __v }}"
+                );
+            }
+            "map_set" => "ball_map_set",
+            "map_delete" => "ball_map_delete",
+            "set_add" => "ball_set_add",
+            "set_remove" => "ball_set_remove",
+            _ => return self.unsupported(call),
+        };
+        let args = extra_args.join(", ");
+        if args.is_empty() {
+            format!("{helper}({slot})")
+        } else {
+            format!("{helper}({slot}, {args})")
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // std_io
+    // ════════════════════════════════════════════════════════════
+
+    fn compile_io_call(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        match call.function.as_str() {
+            "print_error" => self.un_named("ball_print_error", &f, "message"),
+            "read_line" => "ball_read_line()".to_string(),
+            "exit" => format!("ball_exit({})", self.field_or_null(&f, "code")),
+            "panic" => format!("ball_panic({})", self.field_or_null(&f, "message")),
+            "sleep_ms" => self.un_named("ball_sleep_ms", &f, "milliseconds"),
+            "timestamp_ms" => "ball_timestamp_ms()".to_string(),
+            "random_int" => self.compile_2("ball_random_int", &f, "min", "max"),
+            "random_double" => "ball_random_double()".to_string(),
+            "env_get" => self.un_named("ball_env_get", &f, "name"),
+            "args_get" => "ball_args_get()".to_string(),
+            _ => self.unsupported(call),
+        }
     }
 }
 
-/// The Phase 2a bootstrap runtime: free functions the compiled output calls
-/// into for [`Compiler::compile_base_call`]'s minimal dispatch subset, plus
-/// [`compile_field_access`](Compiler::compile_field_access)'s
-/// `ball_field_get`. Emitted once, verbatim, at the top of every
-/// `Compiler::compile()` output. **Not** the full base-function runtime —
-/// see the module doc comment.
-pub const BASE_OPS_PREAMBLE: &str = r#"// ── Minimal base-function runtime (Phase 2a bootstrap, issue #36) ──────
-// NOT the full `std` dispatch table — see ball-compiler's crate docs and
-// `base_call.rs`. Issue #37 supersedes this with the full 118-function
-// dispatch (string/math/collection ops, bitwise, type ops, loops, try,
-// switch, ...).
-fn ball_truthy(value: BallValue) -> bool {
-    match value {
-        BallValue::Bool(b) => b,
-        other => panic!("ball-compiler runtime: expected a bool condition, got {:?}", other),
+/// Turn a Ball label/loop-label name into a valid Rust lifetime-style loop
+/// label (`'name`). Reuses [`crate::sanitize_ident`] for the identifier part.
+fn sanitize_label(name: &str) -> String {
+    if name.is_empty() {
+        "ball_label".to_string()
+    } else {
+        crate::sanitize_ident(name)
     }
 }
-fn ball_field_get(value: BallValue, field: &str) -> BallValue {
-    match value {
-        BallValue::Map(map) => map.get(field).cloned().unwrap_or(BallValue::Null),
-        BallValue::Message(message) => message.fields.get(field).cloned().unwrap_or(BallValue::Null),
-        other => panic!("ball-compiler runtime: field access on a non-message value: {:?}", other),
+
+/// `SwitchInput.cases` / `TryInput.catches` are `repeated Expression`
+/// descriptor fields, but the actual value carried in a `MessageCreation`
+/// argument is a single `Expression` whose `literal.list_value.elements` is
+/// the real list (mirrors `dart/compiler/lib/compiler.dart`'s
+/// `_generateSwitch`, which reads `cases.literal.listValue.elements` the
+/// same way). Any other shape (field absent, or present but not a list
+/// literal) yields no elements.
+fn literal_list_elements(expr: &Expression) -> Vec<Expression> {
+    match &expr.expr {
+        Some(Expr::Literal(literal)) => match &literal.value {
+            Some(LiteralValue::ListValue(list)) => list.elements.clone(),
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
     }
 }
-fn ball_add(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Int(a + b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Double(a + b),
-        (BallValue::String(a), BallValue::String(b)) => BallValue::String(a + &b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for add: {:?}, {:?}", a, b),
-    }
-}
-fn ball_subtract(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Int(a - b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Double(a - b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for subtract: {:?}, {:?}", a, b),
-    }
-}
-fn ball_multiply(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Int(a * b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Double(a * b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for multiply: {:?}, {:?}", a, b),
-    }
-}
-fn ball_divide(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Int(a / b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Double(a / b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for divide: {:?}, {:?}", a, b),
-    }
-}
-fn ball_modulo(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Int(a % b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Double(a % b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for modulo: {:?}, {:?}", a, b),
-    }
-}
-fn ball_negate(value: BallValue) -> BallValue {
-    match value {
-        BallValue::Int(a) => BallValue::Int(-a),
-        BallValue::Double(a) => BallValue::Double(-a),
-        other => panic!("ball-compiler runtime: unsupported operand for negate: {:?}", other),
-    }
-}
-fn ball_equals(left: BallValue, right: BallValue) -> BallValue {
-    BallValue::Bool(left == right)
-}
-fn ball_not_equals(left: BallValue, right: BallValue) -> BallValue {
-    BallValue::Bool(left != right)
-}
-fn ball_less_than(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Bool(a < b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Bool(a < b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for less_than: {:?}, {:?}", a, b),
-    }
-}
-fn ball_greater_than(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Bool(a > b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Bool(a > b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for greater_than: {:?}, {:?}", a, b),
-    }
-}
-fn ball_lte(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Bool(a <= b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Bool(a <= b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for lte: {:?}, {:?}", a, b),
-    }
-}
-fn ball_gte(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Int(a), BallValue::Int(b)) => BallValue::Bool(a >= b),
-        (BallValue::Double(a), BallValue::Double(b)) => BallValue::Bool(a >= b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for gte: {:?}, {:?}", a, b),
-    }
-}
-fn ball_and(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Bool(a), BallValue::Bool(b)) => BallValue::Bool(a && b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for and: {:?}, {:?}", a, b),
-    }
-}
-fn ball_or(left: BallValue, right: BallValue) -> BallValue {
-    match (left, right) {
-        (BallValue::Bool(a), BallValue::Bool(b)) => BallValue::Bool(a || b),
-        (a, b) => panic!("ball-compiler runtime: unsupported operands for or: {:?}, {:?}", a, b),
-    }
-}
-fn ball_not(value: BallValue) -> BallValue {
-    match value {
-        BallValue::Bool(a) => BallValue::Bool(!a),
-        other => panic!("ball-compiler runtime: unsupported operand for not: {:?}", other),
-    }
-}
-"#;

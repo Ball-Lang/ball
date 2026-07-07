@@ -23,23 +23,29 @@
 //! branches, function bodies) type-correct without needing a
 //! statement-vs-expression compilation context.
 //!
+//! Phase 2b (issue #37) adds the real base-function dispatch table
+//! (`base_call.rs`, delegating to `ball_shared::runtime` — see that
+//! module's doc comment) plus **lazy** control flow (`if`/`and`/`or`/`for`/
+//! `for_in`/`while`/`do_while` compile to native Rust control flow, never a
+//! function call that would eagerly evaluate every branch — invariant #4)
+//! and assignment/mutation (`crate::lvalue`).
+//!
 //! ## Scope boundary (read before extending)
 //!
 //! This crate deliberately does **not** implement:
-//! - The full base-function dispatch table (118 `std` functions +
-//!   `std_collections`/`std_io`/`std_memory`/...) — that is issue #37.
-//!   [`base_call::compile_base_call`] wires up only the minimal subset
-//!   (arithmetic, comparison, logic, `if`/`return`, `print`/`to_string`)
-//!   needed to compile and run `hello_world`/`fibonacci`/`factorial` and a
-//!   closures fixture end-to-end; every other base function compiles to a
-//!   `panic!(...)` placeholder that names the missing function and points
-//!   at #37. Treat [`base_call::compile_base_call`] as the **extension
-//!   point** #37 will replace.
+//! - A handful of individual base functions with a documented reason each
+//!   (multi-parameter callbacks, `regex_*`, `std_memory`, ...) — see
+//!   `base_call.rs`'s own module doc comment for the full list. Every one of
+//!   these compiles to a clean runtime-helper fallback
+//!   (`ball_unsupported_base_call`), not a compile-time panic.
 //! - Type emission (classes/enums/mixins from `typeDefs[]`) and
 //!   multi-module output (`compileAllModules`) — that is issue #38.
 //!   `compile_message_creation` therefore always builds a dynamic
 //!   `BallValue::Map`/`BallValue::Message` rather than a real typed Rust
-//!   struct; `compile()` only emits the entry module's functions.
+//!   struct; `compile()` only emits the entry module's functions. Multi-
+//!   parameter lambdas (needed for `list_reduce`/`list_sort`/...) are the
+//!   same #38-shaped gap — Ball's lambda calling convention is still
+//!   single-`input`-only.
 use std::collections::HashSet;
 
 use ball_shared::proto::ball::v1::expression::Expr;
@@ -52,8 +58,7 @@ use ball_shared::proto::ball::v1::{
 use ball_shared::proto::google::protobuf::value::Kind;
 
 mod base_call;
-
-pub use base_call::BASE_OPS_PREAMBLE;
+mod lvalue;
 
 /// Compiles a Ball [`Program`] into Rust source.
 ///
@@ -102,10 +107,10 @@ impl<'a> Compiler<'a> {
     // ════════════════════════════════════════════════════════════
 
     /// Compile [`Self::program`]'s entry module into a complete, runnable
-    /// Rust source file: a small runtime preamble
-    /// ([`base_call::BASE_OPS_PREAMBLE`] — see the module-level scope-boundary
-    /// note), one `pub fn` per non-base, non-entry function declared in the
-    /// entry module, and a `fn main()` wrapping the entry function's body
+    /// Rust source file: a `use ball_shared::runtime::*;` import (the base-
+    /// function runtime helpers — see that module's doc comment), one
+    /// `pub fn` per non-base, non-entry function declared in the entry
+    /// module, and a `fn main()` wrapping the entry function's body
     /// (mirrors the Dart/C++ compilers inlining the entry function's body
     /// directly into the target language's real entry point, rather than
     /// emitting it as a separate function that `main` calls).
@@ -141,9 +146,8 @@ impl<'a> Compiler<'a> {
             self.program.name, self.program.version
         ));
         out.push_str("#![allow(unused_mut, dead_code)]\n\n");
-        out.push_str("use ball_shared::{BallMap, BallMessage, BallValue};\n\n");
-        out.push_str(BASE_OPS_PREAMBLE);
-        out.push('\n');
+        out.push_str("use ball_shared::{BallMap, BallMessage, BallValue};\n");
+        out.push_str("use ball_shared::runtime::*;\n\n");
 
         for func in &entry_module.functions {
             if func.is_base || func.name == self.program.entry_function {
@@ -367,9 +371,18 @@ impl<'a> Compiler<'a> {
     /// used both standalone and, for a function's top-level body, nested
     /// one level inside the enclosing `fn`'s own braces (harmless — a
     /// block-as-a-block-tail is ordinary, valid Rust).
+    ///
+    /// Each `let` binding is declared `let mut` when [`Compiler::rest_mutates_var`]
+    /// finds an `assign`/increment/mutating-collection call targeting it
+    /// anywhere later in the same block (including inside a loop body, `if`
+    /// branch, or nested block reached from a later statement) — needed for
+    /// the ordinary "declare a loop counter, then mutate it in a `while`"
+    /// shape, which #37's control-flow codegen (`base_call.rs`) otherwise
+    /// has no way to make compile (Rust rejects reassigning an immutable
+    /// `let`). See `crate::lvalue`'s module doc comment for the full design.
     fn compile_block(&self, block: &Block) -> String {
         let mut out = String::from("{\n");
-        for statement in &block.statements {
+        for (index, statement) in block.statements.iter().enumerate() {
             match &statement.stmt {
                 Some(Stmt::Let(let_binding)) => {
                     let name = sanitize_ident(&let_binding.name);
@@ -377,7 +390,13 @@ impl<'a> Compiler<'a> {
                         Some(value) => self.compile_expression(value),
                         None => "BallValue::Null".to_string(),
                     };
-                    out.push_str(&format!("let {name} = {value};\n"));
+                    let mutated = self.rest_mutates_var(
+                        &block.statements[index + 1..],
+                        block.result.as_deref(),
+                        &let_binding.name,
+                    );
+                    let keyword = if mutated { "let mut" } else { "let" };
+                    out.push_str(&format!("{keyword} {name} = {value};\n"));
                 }
                 Some(Stmt::Expression(expression)) => {
                     out.push_str(&self.compile_expression(expression));
@@ -768,20 +787,28 @@ mod tests {
     }
 
     #[test]
-    fn unimplemented_base_call_compiles_to_labeled_panic() {
+    fn unimplemented_base_call_compiles_to_clean_runtime_fallback() {
+        // `regex_match` is one of #37's explicitly-deferred functions (see
+        // base_call.rs's module doc comment) — it must compile to a *call*
+        // (so the surrounding program still builds), not a compile-time
+        // panic, and the call must name both the module and function so a
+        // program that actually reaches it fails loudly and legibly at run
+        // time.
         let program = program_with_std();
         let compiler = Compiler::new(&program);
         let expr = Expression {
             expr: Some(Expr::Call(Box::new(FunctionCall {
                 module: "std".to_string(),
-                function: "string_split".to_string(),
+                function: "regex_match".to_string(),
                 input: None,
                 type_args: vec![],
             }))),
         };
         let compiled = compiler.compile_expression(&expr);
-        assert!(compiled.contains("string_split"));
-        assert!(compiled.contains("#37"));
+        assert_eq!(
+            compiled,
+            "ball_unsupported_base_call(\"std\", \"regex_match\")"
+        );
     }
 
     // ── param_alias_prologue ─────────────────────────────────
@@ -880,7 +907,7 @@ mod tests {
         let compiler = Compiler::new(&program);
         let compiled = compiler.compile();
         assert!(compiled.contains("use ball_shared::{BallMap, BallMessage, BallValue};"));
-        assert!(compiled.contains("fn ball_add"));
+        assert!(compiled.contains("use ball_shared::runtime::*;"));
         assert!(compiled.contains("fn main() {"));
         assert!(!compiled.contains("pub fn main(")); // entry fn is inlined, not emitted as a wrapper
     }

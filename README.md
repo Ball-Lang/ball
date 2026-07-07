@@ -19,7 +19,8 @@
   <a href="https://ball-lang.dev">Website</a> &middot;
   <a href="https://ball-lang.dev/playground">Playground</a> &middot;
   <a href="docs/">Documentation</a> &middot;
-  <a href="examples/">Examples</a>
+  <a href="examples/">Examples</a> &middot;
+  <a href="docs/articles/introducing-ball.md">Introducing Ball</a>
 </p>
 
 ---

@@ -1,6 +1,6 @@
 {
   "name": "@ball-lang/engine",
-  "version": "1.7.10",
+  "version": "1.7.11",
   "description": "Ball language engine — interprets Ball programs in TypeScript/JavaScript. Runs in Node.js and browsers.",
   "type": "module",
   "main": "dist/index.js",

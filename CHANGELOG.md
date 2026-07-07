@@ -1,3 +1,10 @@
+## [1.7.11](https://github.com/Ball-Lang/ball/compare/v1.7.10...v1.7.11) (2026-07-07)
+
+
+### Bug Fixes
+
+* **cpp:** self-host bytes literal — add bytesValue to emitted whichValue + materialize as byte list ([#266](https://github.com/Ball-Lang/ball/issues/266)) ([#275](https://github.com/Ball-Lang/ball/issues/275)) ([6631290](https://github.com/Ball-Lang/ball/commit/663129041ac20fa5dad8792dd53e00277e28f36a)), closes [#267](https://github.com/Ball-Lang/ball/issues/267)
+
 ## [1.7.10](https://github.com/Ball-Lang/ball/compare/v1.7.9...v1.7.10) (2026-07-07)
 
 

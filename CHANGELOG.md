@@ -1,3 +1,10 @@
+# [1.9.0](https://github.com/Ball-Lang/ball/compare/v1.8.0...v1.9.0) (2026-07-07)
+
+
+### Features
+
+* **rust:** [#34](https://github.com/Ball-Lang/ball/issues/34) proto bindings via prost + prost-reflect ([#278](https://github.com/Ball-Lang/ball/issues/278)) ([c8fff9b](https://github.com/Ball-Lang/ball/commit/c8fff9beff8df9ba4f954d96cc5e3a1e8f665135))
+
 # [1.8.0](https://github.com/Ball-Lang/ball/compare/v1.7.11...v1.8.0) (2026-07-07)
 
 

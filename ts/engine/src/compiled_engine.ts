@@ -97,12 +97,26 @@ class BallObject extends BallMap {
 // (e.g. 42.0 not 42). Used by the compiled Dart engine's _toDouble.
 class BallDouble {
   readonly value: number;
-  constructor(v: number) { this.value = v; }
+  // Collapse nested wrapping down to the innermost raw number instead of
+  // storing a BallDouble that holds another BallDouble. The concrete source of
+  // nested wrapping was string_to_double's engine handler wrapping the result
+  // of the already-wrapping compiled parse path from issue 222; that redundant
+  // wrap was removed at its root in issue 237, so this guard is now purely
+  // defensive (verified: the full TS engine suite stays green without it). It is
+  // kept as a cheap, idempotent belt-and-suspenders against any other caller
+  // that might wrap an already-wrapped value: a doubly-wrapped BallDouble makes
+  // Number/valueOf coercion throw "Cannot convert object to primitive value".
+  // For a plain-number caller the instanceof check is a no-op.
+  constructor(v: number) { this.value = v instanceof BallDouble ? v.value : v; }
   valueOf(): number { return this.value; }
   get isNaN(): boolean { return Number.isNaN(this.value); }
   get isFinite(): boolean { return Number.isFinite(this.value); }
   get isInfinite(): boolean { return !Number.isFinite(this.value) && !Number.isNaN(this.value); }
   get isNegative(): boolean { return this.value < 0 || (this.value === 0 && 1/this.value === -Infinity); }
+  // Mirrors the Number.prototype.remainder polyfill below (truncating
+  // remainder, matching JS % and Dart's num.remainder) — BallDouble wraps
+  // a JS number so it never inherits Number.prototype and needs its own.
+  remainder(other: any): number { return this.value % Number(other); }
   toString(): string {
     const v = this.value;
     if (!isFinite(v)) return v.toString();
@@ -222,10 +236,21 @@ function __ball_to_string(v: any): string {
   }
   if (v instanceof Map) {
     const parts: string[] = [];
-    for (const [k, val] of v.entries()) {
+    // v.entries() as a method call would hit the Dart-property-style
+    // getter of the same name (installed further down in this file) and
+    // try to invoke its return value -- an array -- as a function.
+    // _nativeMapEntries is the real, un-shadowed method (issue #259).
+    for (const [k, val] of _nativeMapEntries.call(v)) {
       parts.push(__ball_to_string(k) + ': ' + __ball_to_string(val));
     }
     return '{' + parts.join(', ') + '}';
+  }
+  if (v instanceof Set) {
+    // A Set is a plain object from typeof's perspective (falls through to
+    // the generic branch below, which reads Object.keys — always [] for a
+    // Set's internal slots), so every Set printed as the empty "{}" no
+    // matter its contents until this dedicated case was added (#219).
+    return '{' + [...v].map(__ball_to_string).join(', ') + '}';
   }
   if (typeof v === 'object' && !Array.isArray(v)) {
     // StringBuffer-like objects
@@ -279,15 +304,28 @@ function __ball_to_int(v: any): any {
   return t;
 }
 
-function __ball_parse_double(s: string): number {
+// Returns a BallDouble (not a bare number) so a whole-valued result (e.g.
+// double.parse('7.0')) still prints "7.0", not "7" — JS numbers erase the
+// int/double distinction that the wrapper exists to preserve (#67/#222).
+function __ball_parse_double(s: string): BallDouble {
   const n = parseFloat(s);
   if (Number.isNaN(n)) throw new Error('FormatException: ' + s);
-  return n;
+  return new BallDouble(n);
 }
 
 function __ball_double_to_string(n: number): string {
   if (Number.isInteger(n)) return n.toFixed(1);
   return n.toString();
+}
+
+// num.toStringAsFixed(digits). JS Number.prototype.toFixed drops the sign of
+// -0 (returns "0.00" not "-0.00"); Dart's toStringAsFixed keeps it, matching
+// the -0 handling __ball_to_string/BallDouble.toString already do.
+function __ball_to_fixed(v: any, digits: any): string {
+  const n = Number(v);
+  const s = n.toFixed(digits);
+  if (n === 0 && 1 / n === -Infinity && !s.startsWith('-')) return '-' + s;
+  return s;
 }
 
 // Polymorphic concat / merge used for std.list_concat. The encoder emits
@@ -333,24 +371,77 @@ function __ball_push_all(target: any, items: any): void {
 // demotes back to Number when the result fits in MAX_SAFE_INTEGER.
 const __I64_MAX = 9223372036854775807n;
 const __I64_MIN = -9223372036854775808n;
-const __I64_MOD = 18446744073709551616n;
 function __i64_wrap(v: bigint): any {
-  v = ((v % __I64_MOD) + __I64_MOD) % __I64_MOD;
-  if (v > __I64_MAX) v = v - __I64_MOD;
+  // Two's-complement wrap to the signed 64-bit range — BigInt.asIntN(64, v)
+  // is the idiomatic builtin for exactly this (equivalent to the old manual
+  // modulo-then-resign, verified against it across boundary/overflow cases).
+  v = BigInt.asIntN(64, v);
   if (v >= -9007199254740991n && v <= 9007199254740991n) return Number(v);
   return v;
 }
 function __to_bigint(v: any): bigint {
   if (typeof v === 'bigint') return v;
+  // Matches the reference Dart engine's _toInt (engine_std.dart), which
+  // falls through to 0 for anything that isn't an int/BallInt/double/
+  // BallDouble/String/bool -- including null. NaN is deliberately NOT
+  // special-cased here: Dart's double.toInt() throws on NaN (via
+  // _ballDoubleToInt64), and BigInt(NaN) already throws for the same
+  // reason (RangeError: not an integer), so that path already fails loud
+  // consistently with the reference engine without any extra handling.
+  if (v === null || v === undefined) return 0n;
   if (v instanceof BallDouble) return BigInt(Math.trunc(v.value));
   return BigInt(v);
 }
-function __ball_bitand(a: any, b: any): any { return __i64_wrap(__to_bigint(a) & __to_bigint(b)); }
-function __ball_bitor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) | __to_bigint(b)); }
-function __ball_bitxor(a: any, b: any): any { return __i64_wrap(__to_bigint(a) ^ __to_bigint(b)); }
-function __ball_bitnot(a: any): any { return __i64_wrap(~__to_bigint(a)); }
+// Fast-path guard: true when v is a plain (non-bigint, non-BallDouble)
+// integer within the signed 32-bit range. AND/OR/XOR/NOT never grow a
+// result past its operands' bit width, so when both operands fit in 32
+// bits, JS's native 32-bit bitwise operators give a result numerically
+// IDENTICAL to the full 64-bit BigInt path (sign-extending a 32-bit value
+// to 64 bits before AND/OR/XOR/NOT never changes the low 32 result bits,
+// and — verified across the full boundary range — never changes whether
+// the high bits are the correct sign-extension of them either). Left/right
+// shift are NOT given this fast path: shifting can grow a result past 32
+// bits even when the input operand fits (e.g. large_int << 40), so their
+// overflow behavior isn't safely 32-bit-local the way AND/OR/XOR/NOT is.
+function __fits32(v: any): boolean {
+  return typeof v === 'number' && Number.isInteger(v) && v >= -2147483648 && v <= 2147483647;
+}
+function __ball_bitand(a: any, b: any): any {
+  if (__fits32(a) && __fits32(b)) return a & b;
+  return __i64_wrap(__to_bigint(a) & __to_bigint(b));
+}
+function __ball_bitor(a: any, b: any): any {
+  if (__fits32(a) && __fits32(b)) return a | b;
+  return __i64_wrap(__to_bigint(a) | __to_bigint(b));
+}
+function __ball_bitxor(a: any, b: any): any {
+  if (__fits32(a) && __fits32(b)) return a ^ b;
+  return __i64_wrap(__to_bigint(a) ^ __to_bigint(b));
+}
+function __ball_bitnot(a: any): any {
+  if (__fits32(a)) return ~a;
+  return __i64_wrap(~__to_bigint(a));
+}
 function __ball_shl(a: any, b: any): any { return __i64_wrap(__to_bigint(a) << __to_bigint(b)); }
 function __ball_shr(a: any, b: any): any { return __i64_wrap(__to_bigint(a) >> __to_bigint(b)); }
+// Unsigned/logical shift: reinterpret a as an unsigned 64-bit value (add
+// 2^64 if negative) before shifting, so zeros fill from the left instead of
+// the sign bit — unlike >>> on raw JS numbers, which is only 32-bit.
+function __ball_ushr(a: any, b: any): any {
+  const unsigned = BigInt.asUintN(64, __to_bigint(a));
+  return __i64_wrap(unsigned >> __to_bigint(b));
+}
+// json_encode (dart:convert's jsonEncode) on a bigint-range int64 must not
+// crash -- JSON.stringify throws "Do not know how to serialize a BigInt"
+// without a toJSON. This is NOT proto3-JSON (which quotes int64 as a
+// string) -- Ball's dart:convert-style jsonEncode matches Dart's own
+// dart:convert (a bare, unquoted JSON number) and the C++ self-host's
+// _ball_json_encode (std::to_string(int64_t), also unquoted). JSON.rawJSON
+// embeds the exact decimal digits as a raw number token, avoiding the
+// precision loss Number(this) would introduce for values past 2^53.
+(BigInt.prototype as any).toJSON = function (this: bigint) {
+  return (JSON as any).rawJSON(this.toString());
+};
 function __ball_negate(a: any): any {
   if (typeof a === 'bigint') return __i64_wrap(-a);
   if (a instanceof BallDouble) return new BallDouble(-a.value);
@@ -413,14 +504,6 @@ function __dart_mod(a: any, b: any): any {
 
 // Active exception for rethrow. Catch bodies shadow with a local.
 let __ball_active_error: any = undefined;
-
-// Safe own-property lookup. Returns undefined if key is not an own property.
-// Avoids triggering Object.prototype getters (entries, keys, values) on
-// plain objects that aren't meant to be Dart Maps.
-function __ball_own(obj: any, key: any): any {
-  if (obj == null || typeof obj !== 'object') return undefined;
-  return Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined;
-}
 
 // Dart-style index access. Dart's List '[]' operator throws RangeError on
 // out-of-bounds access, whereas JS array indexing silently returns undefined.
@@ -629,6 +712,21 @@ function __ball_cascade(target: any, ops: any[]): any {
 // ── Dart \u2192 JS method-name polyfills ────────────────────────────────
 //
 // Idempotent: guarded so multiple preamble inclusions don't double-install.
+
+// Native Map.prototype.entries/keys/values, captured BEFORE the
+// installBallPolyfills IIFE below shadows them with Dart-property-style
+// getters of the same name. Top-level (not IIFE-scoped) so every internal
+// call site that needs the REAL iterator method -- not the property-style
+// getter -- can reach it: the getters themselves (which must call the
+// original to avoid recursing into themselves), __ball_to_string's Map
+// printer, the Map-like constructor copy sites, and the map_keys/values/
+// entries base-function helpers (issue #259 -- calling .entries()/etc.
+// as a METHOD on a real Map after the shadow is installed throws, since
+// the getter's return value -- an array -- isn't itself callable).
+const _nativeMapEntries = Map.prototype.entries;
+const _nativeMapKeys = Map.prototype.keys;
+const _nativeMapValues = Map.prototype.values;
+
 (function installBallPolyfills() {
   const mp: any = Map.prototype;
   if (!mp.containsKey) mp.containsKey = function (k: any) { return this.has(k); };
@@ -641,7 +739,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!mp.addAll) {
     mp.addAll = function (other: any) {
       if (other instanceof Map) {
-        for (const [k, v] of other.entries()) this.set(k, v);
+        // _nativeMapEntries, not other.entries() -- see __ball_to_string's
+        // Map printer above for why (issue #259).
+        for (const [k, v] of _nativeMapEntries.call(other)) this.set(k, v);
       } else if (other && typeof other === 'object') {
         for (const k of Object.keys(other)) this.set(k, other[k]);
       }
@@ -769,6 +869,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   Object.defineProperty(_ballNp, 'isInfinite', {
     configurable: true, get() { const n = Number(this); return n === Infinity || n === -Infinity; },
   });
+  Object.defineProperty(_ballNp, 'isNegative', {
+    configurable: true, get() { const n = Number(this); return n < 0 || (n === 0 && 1 / n === -Infinity); },
+  });
   if (!_ballNp.abs) _ballNp.abs = function () { return Math.abs(Number(this)); };
   if (!_ballNp.ceil) _ballNp.ceil = function () { return Math.ceil(Number(this)); };
   if (!_ballNp.floor) _ballNp.floor = function () { return Math.floor(Number(this)); };
@@ -778,7 +881,7 @@ function __ball_cascade(target: any, ops: any[]): any {
   if (!_ballNp.toDouble) _ballNp.toDouble = function () { return Number(this); };
   if (!_ballNp.clamp) _ballNp.clamp = function (lo: any, hi: any) { const n = Number(this); return n < lo ? lo : n > hi ? hi : n; };
   if (!_ballNp.compareTo) _ballNp.compareTo = function (other: any) { const a = Number(this), b = Number(other); return a < b ? -1 : a > b ? 1 : 0; };
-  if (!_ballNp.toStringAsFixed) _ballNp.toStringAsFixed = function (digits: any) { return Number(this).toFixed(digits); };
+  if (!_ballNp.toStringAsFixed) _ballNp.toStringAsFixed = function (digits: any) { return __ball_to_fixed(this, digits); };
   if (!_ballNp.remainder) _ballNp.remainder = function (other: any) { return Number(this) % Number(other); };
 
   // Object.prototype polyfills — used by the compiled engine when
@@ -815,7 +918,8 @@ function __ball_cascade(target: any, ops: any[]): any {
       value: function (other: any) {
         if (this instanceof Map) {
           if (other instanceof Map) {
-            for (const [k, v] of other.entries()) this.set(k, v);
+            // _nativeMapEntries, not other.entries() (issue #259).
+            for (const [k, v] of _nativeMapEntries.call(other)) this.set(k, v);
           } else if (other && typeof other === 'object') {
             for (const k of Object.keys(other)) this.set(k, other[k]);
           }
@@ -868,9 +972,9 @@ function __ball_cascade(target: any, ops: any[]): any {
   // JS Map has them as METHODS (need parens). The compiled engine
   // accesses map.entries as a getter. Shadow BOTH Map.prototype AND
   // Object.prototype so Map and plain-object dispatch tables work.
-  const _nativeMapEntries = Map.prototype.entries;
-  const _nativeMapKeys = Map.prototype.keys;
-  const _nativeMapValues = Map.prototype.values;
+  // (_nativeMapEntries/_nativeMapKeys/_nativeMapValues are captured at
+  // top level above, not here, so other call sites outside this IIFE
+  // can reach them too -- issue #259.)
   // Shadow Map.prototype.entries with a getter (Dart uses it as a getter).
   Object.defineProperty(Map.prototype, 'entries', {
     configurable: true, enumerable: false,
@@ -901,19 +1005,42 @@ function __ball_cascade(target: any, ops: any[]): any {
       },
     });
   }
+  // .entries/.keys/.values on a non-Map must FAIL LOUD (throw a catchable
+  // error), not silently return [] — the silent-degradation class of bug
+  // that hid issue #55 (mirrors the fix already applied to the Dart/C++
+  // compilers). .entries used to be the odd one out here, silently
+  // returning [] instead of throwing — same bug family as #218.
+  //
+  // A getter installed on Object.prototype is invoked in "sloppy" (non-strict)
+  // script contexts with this auto-boxed to a Number/String/Boolean WRAPPER
+  // object for a primitive receiver (e.g. (42).keys boxes this to a Number
+  // instance) — typeof this is then 'object', not 'number', so a bare
+  // __ball_is_type(this, 'Map') (which only excludes Array/BallDouble/Set)
+  // would wrongly treat a boxed int/string as Map-like. Exclude the wrapper
+  // types explicitly instead of widening the shared type-check.
+  const __isGenuineMap = (v: any) =>
+    typeof v === 'object' && v !== null && !Array.isArray(v) &&
+    !(v instanceof BallDouble) && !(v instanceof Set) &&
+    !(v instanceof Number) && !(v instanceof String) && !(v instanceof Boolean);
   defDartGetter('entries', function (this: any) {
     if (this instanceof Map) return [..._nativeMapEntries.call(this)].map(([k, v]: any) => ({ key: k, value: v }));
-    if (this == null || typeof this !== 'object') return [];
+    if (!__isGenuineMap(this)) {
+      throw new Error('type \'' + __ball_to_string(this) + '\' has no .entries getter (not a Map)');
+    }
     return Object.entries(this).map(([k, v]: any) => ({ key: k, value: v }));
   });
   defDartGetter('keys', function (this: any) {
     if (this instanceof Map) return [..._nativeMapKeys.call(this)];
-    if (this == null || typeof this !== 'object') return [];
+    if (!__isGenuineMap(this)) {
+      throw new Error('type \'' + __ball_to_string(this) + '\' has no .keys getter (not a Map)');
+    }
     return Object.keys(this);
   });
   defDartGetter('values', function (this: any) {
     if (this instanceof Map) return [..._nativeMapValues.call(this)];
-    if (this == null || typeof this !== 'object') return [];
+    if (!__isGenuineMap(this)) {
+      throw new Error('type \'' + __ball_to_string(this) + '\' has no .values getter (not a Map)');
+    }
     return Object.values(this);
   });
   defDartGetter('length', function (this: any) {
@@ -963,6 +1090,65 @@ function __ball_cascade(target: any, ops: any[]): any {
     get() { return 'bool'; },
   });
 })();
+
+// std.map_keys/std.map_values/std.map_entries (the base-function-call form,
+// as opposed to the .keys/.values/.entries DART-GETTER-STYLE property
+// access the defDartGetter block above already guards) must ALSO fail loud
+// on a non-Map receiver instead of silently returning [] — same "genuine
+// Map" check, exposed as top-level helpers so compileStdCall's emitted code
+// can call them (#218).
+function __ball_map_keys(m: any): any {
+  // _nativeMapKeys, not m.keys() -- m.keys() would hit the Dart-property-
+  // style getter shadowing Map.prototype.keys and try to invoke its
+  // return value (an array) as a function (issue #259).
+  if (m instanceof Map) return [..._nativeMapKeys.call(m)];
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .keys getter (not a Map)');
+  }
+  return Object.keys(m);
+}
+function __ball_map_values(m: any): any {
+  // _nativeMapValues, not m.values() (issue #259 -- see __ball_map_keys).
+  if (m instanceof Map) return [..._nativeMapValues.call(m)];
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .values getter (not a Map)');
+  }
+  return Object.values(m);
+}
+function __ball_map_entries(m: any): any {
+  // _nativeMapEntries, not m.entries() (issue #259 -- see __ball_map_keys).
+  if (m instanceof Map) return [..._nativeMapEntries.call(m)].map(([k, v]) => ({ key: k, value: v }));
+  if (typeof m !== 'object' || m === null || Array.isArray(m) ||
+      m instanceof BallDouble || m instanceof Set ||
+      m instanceof Number || m instanceof String || m instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(m) + '\' has no .entries getter (not a Map)');
+  }
+  return Object.entries(m).map(([k, v]) => ({ key: k, value: v }));
+}
+
+// Shared guard for the REMAINING map_* base-function-call cases
+// (map_get/map_set/map_delete/map_merge/map_length/map_is_empty/
+// map_contains_key/map_contains_value/map_foreach) that used to route a
+// bare map[key], Object.keys/values(map), or key in map straight to the
+// receiver with no type check at all -- silently returning undefined,
+// no-opping, or checking array-index membership instead of throwing on a
+// non-Map (issue #55's silent-degradation class, same family as #218's
+// map_keys/map_values/map_entries). Returns the validated Map/plain-object
+// itself (not a boolean) so a call site can keep using it directly, e.g.
+// __ball_require_map(x, 'map_get')[key].
+function __ball_require_map(v: any, opName: string): any {
+  if (v instanceof Map) return v;
+  if (typeof v !== 'object' || v === null || Array.isArray(v) ||
+      v instanceof BallDouble || v instanceof Set ||
+      v instanceof Number || v instanceof String || v instanceof Boolean) {
+    throw new Error('type \'' + __ball_to_string(v) + '\' is not a Map (' + opName + ')');
+  }
+  return v;
+}
 
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //
@@ -1635,7 +1821,7 @@ export class BallEngine {
         }
         if (hasMetadata(func)) {
           let params = this._extractParams(func.metadata);
-          if (!(params.length === 0)) {
+          if ((!(params.length === 0) && !(func.name.length === 0))) {
             this._paramCache[key] = params;
           }
           let kindField = __ball_index(func.metadata.fields, 'kind');
@@ -1715,7 +1901,7 @@ export class BallEngine {
 
   _resolveInstanceMethodDispatch(typeName: any, methodName: any): any {
     let cacheKey = BallEngine._typeMethodKey(typeName, methodName);
-    if ((cacheKey in this._instanceMethodCache)) {
+    if ((cacheKey in __ball_require_map(this._instanceMethodCache, 'map_contains_key'))) {
       return __ball_index(this._instanceMethodCache, cacheKey);
     }
     let resolved = (this._resolveMethod(typeName, methodName) ?? this._lookupTypeMethodWithInheritance(typeName, methodName));
@@ -1892,7 +2078,7 @@ export class BallEngine {
         let dotIdx = func.name.indexOf('.');
         let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
         let isFactory = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_factory')));
-        if (((!isFactory && (__ball_eq(constructorInput, null) || !('self' in constructorInput))) && !__ball_eq(this._findTypeDef(typeName), null))) {
+        if (((!isFactory && (__ball_eq(constructorInput, null) || !('self' in __ball_require_map(constructorInput, 'map_contains_key')))) && !__ball_eq(this._findTypeDef(typeName), null))) {
           return this._callObjectConstructor(moduleName, func, input);
         }
       }
@@ -1902,14 +2088,14 @@ export class BallEngine {
       if ((!(func.inputType.length === 0) && !__ball_eq(input, null))) {
         scope.bind('input', input);
       }
-      let params = (__ball_index(this._paramCache, ((__ball_to_string(moduleName) + '.') + __ball_to_string(func.name))) ?? ((hasMetadata(func) ? this._extractParams(func.metadata) : [])));
+      let params = (!(func.name.length === 0) ? (__ball_index(this._paramCache, ((__ball_to_string(moduleName) + '.') + __ball_to_string(func.name))) ?? ((hasMetadata(func) ? this._extractParams(func.metadata) : []))) : ((hasMetadata(func) ? this._extractParams(func.metadata) : [])));
       let inputMap = this._asMap(input);
       if (!(params.length === 0)) {
-        if ((__ball_eq(params.length, 1) && !(!__ball_eq(inputMap, null) && ('self' in inputMap)))) {
-          if ((!__ball_eq(inputMap, null) && (__ball_index(params, 0) in inputMap))) {
+        if ((__ball_eq(params.length, 1) && !(!__ball_eq(inputMap, null) && ('self' in __ball_require_map(inputMap, 'map_contains_key'))))) {
+          if ((!__ball_eq(inputMap, null) && (__ball_index(params, 0) in __ball_require_map(inputMap, 'map_contains_key')))) {
             scope.bind(__ball_index(params, 0), __ball_index(inputMap, __ball_index(params, 0)));
           } else {
-            if (((!__ball_eq(inputMap, null) && ('arg0' in inputMap)) && !(__ball_index(params, 0) in inputMap))) {
+            if (((!__ball_eq(inputMap, null) && ('arg0' in __ball_require_map(inputMap, 'map_contains_key'))) && !(__ball_index(params, 0) in __ball_require_map(inputMap, 'map_contains_key')))) {
               scope.bind(__ball_index(params, 0), __ball_index(inputMap, 'arg0'));
             } else {
               scope.bind(__ball_index(params, 0), input);
@@ -1919,13 +2105,13 @@ export class BallEngine {
           if (!__ball_eq(inputMap, null)) {
             for (let i = 0; __ball_lt(i, params.length); (i++)) {
               let p = __ball_index(params, i);
-              if ((p in inputMap)) {
+              if ((p in __ball_require_map(inputMap, 'map_contains_key'))) {
                 scope.bind(p, __ball_index(inputMap, p));
               } else {
-                if ((('arg' + __ball_to_string(i)) in inputMap)) {
+                if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
                   scope.bind(p, __ball_index(inputMap, ('arg' + __ball_to_string(i))));
                 } else {
-                  if ((((__ball_eq(i, 0) && __ball_eq(params.length, 1)) && ('value' in inputMap)) && this._isSetter(func))) {
+                  if ((((__ball_eq(i, 0) && __ball_eq(params.length, 1)) && ('value' in __ball_require_map(inputMap, 'map_contains_key'))) && this._isSetter(func))) {
                     scope.bind(p, __ball_index(inputMap, 'value'));
                   }
                 }
@@ -1940,7 +2126,7 @@ export class BallEngine {
           }
         }
       }
-      if ((!__ball_eq(inputMap, null) && ('self' in inputMap))) {
+      if ((!__ball_eq(inputMap, null) && ('self' in __ball_require_map(inputMap, 'map_contains_key')))) {
         let self = __ball_index(inputMap, 'self');
         scope.bind('self', self);
         let selfMap = this._asMap(self);
@@ -1975,7 +2161,7 @@ export class BallEngine {
       let isAsyncStar = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_async_star')));
       let isGenerator = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_generator')));
       let isGenFunc = ((isSyncStar || isAsyncStar) || isGenerator);
-      let generator = __no_init__;
+      let generator;
       if (isGenFunc) {
         generator = _ballNewGenerator();
         scope.bind('__generator__', generator);
@@ -1984,7 +2170,7 @@ export class BallEngine {
         this._activeGeneratorScope = scope;
       }
       let isAsync = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_async')));
-      let finalResult = __no_init__;
+      let finalResult;
       if ((isAsync && !isGenFunc)) {
         try {
           let result = await this._evalExpression(func.body, scope);
@@ -2002,7 +2188,7 @@ export class BallEngine {
       } else {
         let result = await this._evalExpression(func.body, scope);
         this._currentModule = prevModule;
-        if (((__ball_eq(kind, 'constructor') && !__ball_eq(inputMap, null)) && ('self' in inputMap))) {
+        if (((__ball_eq(kind, 'constructor') && !__ball_eq(inputMap, null)) && ('self' in __ball_require_map(inputMap, 'map_contains_key')))) {
           let isFactory = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_factory')));
           if (((result instanceof _FlowSignal) && __ball_eq(result.kind, 'return'))) {
             finalResult = result.value;
@@ -2069,15 +2255,15 @@ export class BallEngine {
     let resolvedParams = {};
     for (let i = 0; __ball_lt(i, params.length); (i++)) {
       let param = __ball_index(params, i);
-      let value = __no_init__;
-      if ((param in inputMap)) {
+      let value;
+      if ((param in __ball_require_map(inputMap, 'map_contains_key'))) {
         value = __ball_index(inputMap, param);
       } else {
-        if ((('arg' + __ball_to_string(i)) in inputMap)) {
+        if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
           value = __ball_index(inputMap, ('arg' + __ball_to_string(i)));
         }
       }
-      if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_index(paramsMeta, i)))) {
+      if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_require_map(__ball_index(paramsMeta, i), 'map_contains_key')))) {
         value = __ball_index(__ball_index(paramsMeta, i), 'default');
       }
       resolvedParams[param] = value;
@@ -2092,7 +2278,7 @@ export class BallEngine {
     }
     this._initFieldDefaults(typeName, instanceFields);
     let superclass = this._getMetaString(typeDef, 'superclass');
-    let superObject = __no_init__;
+    let superObject;
     if ((!__ball_eq(superclass, null) && !(superclass.length === 0))) {
       superObject = await this._invokeSuperConstructor(func, superclass, resolvedParams);
       superObject ??= this._buildSuperObject(superclass, instanceFields);
@@ -2108,7 +2294,7 @@ export class BallEngine {
     })();
     let constructed = await this._callFunction(moduleName, func, ctorInput);
     let constructedMap = this._asMap(constructed);
-    if ((!__ball_eq(constructedMap, null) && ('__type__' in constructedMap))) {
+    if ((!__ball_eq(constructedMap, null) && ('__type__' in __ball_require_map(constructedMap, 'map_contains_key')))) {
       return constructed;
     }
     return instance;
@@ -2198,11 +2384,11 @@ export class BallEngine {
       for (let i = 0; __ball_lt(i, params.length); (i++)) {
         let p = __ball_index(params, i);
         let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
-        let val = __no_init__;
-        if ((p in inputMap)) {
+        let val;
+        if ((p in __ball_require_map(inputMap, 'map_contains_key'))) {
           val = __ball_index(inputMap, p);
         } else {
-          if ((('arg' + __ball_to_string(i)) in inputMap)) {
+          if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
             val = __ball_index(inputMap, ('arg' + __ball_to_string(i)));
           } else {
             val = (__ball_lt(i, paramsMeta.length) ? __ball_index(__ball_index(paramsMeta, i), 'default') : null);
@@ -2238,7 +2424,7 @@ export class BallEngine {
         if (!__ball_eq(superMap, null)) {
           instance['__super__'] = superInstance;
           for (const e of superMap.entries) {
-            if ((!e.key.startsWith('__') && !(e.key in instance))) {
+            if ((!e.key.startsWith('__') && !(e.key in __ball_require_map(instance, 'map_contains_key')))) {
               instance[e.key] = e.value;
             }
           }
@@ -2281,7 +2467,7 @@ export class BallEngine {
             let superInput = {};
             for (let i = 0; __ball_lt(i, argNames.length); (i++)) {
               let token = __ball_index(argNames, i);
-              if ((token in resolvedParams)) {
+              if ((token in __ball_require_map(resolvedParams, 'map_contains_key'))) {
                 superInput[('arg' + __ball_to_string(i))] = __ball_index(resolvedParams, token);
               } else {
                 if (((token.startsWith('\'') && token.endsWith('\'')) || (token.startsWith('"') && token.endsWith('"')))) {
@@ -2850,7 +3036,7 @@ export class BallEngine {
         }
       if (hasMetadata(func)) {
         let params = this._extractParams(func.metadata);
-        if (!(params.length === 0)) {
+        if ((!(params.length === 0) && !(func.name.length === 0))) {
           this._paramCache[key] = params;
         }
         let kindField = __ball_index(func.metadata.fields, 'kind');
@@ -2884,7 +3070,7 @@ export class BallEngine {
 
   static _extractMetadataTypeArgs(msg: any): any {
     const input = msg;
-    if ((!hasMetadata(msg) || !('type_args' in msg.metadata.fields))) {
+    if ((!hasMetadata(msg) || !('type_args' in __ball_require_map(msg.metadata.fields, 'map_contains_key')))) {
       return null;
     }
     return [...__ball_index(msg.metadata.fields, 'type_args').listValue.values.map(BallEngine._typeRefValueToString)];
@@ -3067,7 +3253,7 @@ export class BallEngine {
       }
     }
     let inputMap = this._asMap(input);
-    if ((!__ball_eq(inputMap, null) && ('self' in inputMap))) {
+    if ((!__ball_eq(inputMap, null) && ('self' in __ball_require_map(inputMap, 'map_contains_key')))) {
       let self = __ball_index(inputMap, 'self');
       let selfMap = this._asMap(self);
       if (!__ball_eq(selfMap, null)) {
@@ -3104,7 +3290,7 @@ export class BallEngine {
           let methodOwner = selfMap;
           while (!__ball_eq(methodOwner, null)) {
             let methods = __ball_index(methodOwner, '__methods__');
-            if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && (call.function in methods))) {
+            if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && (call.function in __ball_require_map(methods, 'map_contains_key')))) {
               let method = __ball_index(methods, call.function);
               if ((typeof method === 'function')) {
                 let result = method(input);
@@ -3128,7 +3314,7 @@ export class BallEngine {
       }
     }
     let fallbackMap = this._asMap(input);
-    if ((!__ball_eq(fallbackMap, null) && ('self' in fallbackMap))) {
+    if ((!__ball_eq(fallbackMap, null) && ('self' in __ball_require_map(fallbackMap, 'map_contains_key')))) {
       let selfFallback = __ball_index(fallbackMap, 'self');
       let selfFallbackMap = this._asMap(selfFallback);
       if (!__ball_eq(selfFallbackMap, null)) {
@@ -3416,7 +3602,7 @@ export class BallEngine {
   async _evalReference(ref: any, scope: any): Promise<any> {
     let name = ref.name;
     if (__ball_eq(name, 'super')) {
-      let selfRef = __no_init__;
+      let selfRef;
       try {
         selfRef = scope.lookup('self');
       } catch (__ball_active_error) {
@@ -3458,12 +3644,12 @@ export class BallEngine {
     }
     if (!_builtinTypeNames.includes(name)) {
       let qualifiedName = ((__ball_to_string(this._currentModule) + ':') + __ball_to_string(name));
-      let hasCtor = ((name in this._constructors) || (qualifiedName in this._constructors));
+      let hasCtor = ((name in __ball_require_map(this._constructors, 'map_contains_key')) || (qualifiedName in __ball_require_map(this._constructors, 'map_contains_key')));
       let hasStaticMethods = this._functions.keys.some(((k) => {
         const input = k;
         return (k.startsWith((((__ball_to_string(this._currentModule) + '.') + __ball_to_string(qualifiedName)) + '.')) || k.startsWith((((__ball_to_string(this._currentModule) + '.') + __ball_to_string(name)) + '.')));
       }));
-      let typeExists = ((name in this._types) || (qualifiedName in this._types));
+      let typeExists = ((name in __ball_require_map(this._types, 'map_contains_key')) || (qualifiedName in __ball_require_map(this._types, 'map_contains_key')));
       if ((typeExists && (hasCtor || hasStaticMethods))) {
         return { ['__class_ref__']: name, ['__type__']: '__class__' };
       }
@@ -3473,7 +3659,7 @@ export class BallEngine {
     if ((!__ball_eq(getterFunc, null) && this._isGetter(getterFunc))) {
       return this._callFunction(this._currentModule, getterFunc, null);
     }
-    let selfForGetter = __no_init__;
+    let selfForGetter;
     try {
       selfForGetter = scope.lookup('self');
     } catch (__ball_active_error) {
@@ -3483,7 +3669,7 @@ export class BallEngine {
     if (!__ball_eq(selfForGetter, null)) {
       let selfMap = this._asMap(selfForGetter);
       if (!__ball_eq(selfMap, null)) {
-        if ((name in selfMap)) {
+        if ((name in __ball_require_map(selfMap, 'map_contains_key'))) {
           let direct = __ball_index(selfMap, name);
           if (!__ball_eq(direct, null)) {
             return direct;
@@ -3492,7 +3678,7 @@ export class BallEngine {
         let superObj = __ball_index(selfMap, '__super__');
         let superMap = this._asMap(superObj);
         while (!__ball_eq(superMap, null)) {
-          if ((name in superMap)) {
+          if ((name in __ball_require_map(superMap, 'map_contains_key'))) {
             let inherited = __ball_index(superMap, name);
             if (!__ball_eq(inherited, null)) {
               return inherited;
@@ -3618,25 +3804,25 @@ export class BallEngine {
         });
       }
       let enumVals = (__ball_index(this._enumValues, className) ?? __ball_index(this._enumValues, qualifiedName));
-      if ((!__ball_eq(enumVals, null) && (fieldName in enumVals))) {
+      if ((!__ball_eq(enumVals, null) && (fieldName in __ball_require_map(enumVals, 'map_contains_key')))) {
         return __ball_index(enumVals, fieldName);
       }
     }
     if (!__ball_eq(objectMap, null)) {
-      if ((fieldName in objectMap)) {
+      if ((fieldName in __ball_require_map(objectMap, 'map_contains_key'))) {
         return __ball_index(objectMap, fieldName);
       }
       let superObj = __ball_index(objectMap, '__super__');
       let superMap = this._asMap(superObj);
       while (!__ball_eq(superMap, null)) {
-        if ((fieldName in superMap)) {
+        if ((fieldName in __ball_require_map(superMap, 'map_contains_key'))) {
           return __ball_index(superMap, fieldName);
         }
         superObj = __ball_index(superMap, '__super__');
         superMap = this._asMap(superObj);
       }
       let methods = __ball_index(objectMap, '__methods__');
-      if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && (fieldName in methods))) {
+      if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && (fieldName in __ball_require_map(methods, 'map_contains_key')))) {
         let method = __ball_index(methods, fieldName);
         if ((typeof method === 'function')) {
           return method;
@@ -3646,7 +3832,7 @@ export class BallEngine {
       superMap = this._asMap(superObj);
       while (!__ball_eq(superMap, null)) {
         let superMethods = __ball_index(superMap, '__methods__');
-        if (((typeof superMethods === 'object' && superMethods !== null && !Array.isArray(superMethods) && !(superMethods instanceof BallDouble) && !(superMethods instanceof Set)) && (fieldName in superMethods))) {
+        if (((typeof superMethods === 'object' && superMethods !== null && !Array.isArray(superMethods) && !(superMethods instanceof BallDouble) && !(superMethods instanceof Set)) && (fieldName in __ball_require_map(superMethods, 'map_contains_key')))) {
           let method = __ball_index(superMethods, fieldName);
           if ((typeof method === 'function')) {
             return method;
@@ -3674,7 +3860,7 @@ export class BallEngine {
           }))];
           if ((!(vals.length === 0) && vals.every(((v) => {
             const input = v;
-            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && ('index' in v)) && ('__type__' in v));
+            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && ('index' in __ball_require_map(v, 'map_contains_key'))) && ('__type__' in __ball_require_map(v, 'map_contains_key')));
           })))) {
             vals = [...vals].sort(((a, b) => {
               return (__ball_index(a, 'index') < __ball_index(b, 'index') ? -1 : __ball_index(a, 'index') > __ball_index(b, 'index') ? 1 : 0);
@@ -3791,7 +3977,7 @@ export class BallEngine {
           }))];
           if ((!(vals.length === 0) && vals.every(((v) => {
             const input = v;
-            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && ('index' in v)) && ('__type__' in v));
+            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && ('index' in __ball_require_map(v, 'map_contains_key'))) && ('__type__' in __ball_require_map(v, 'map_contains_key')));
           })))) {
             vals = [...vals].sort(((a, b) => {
               return (__ball_index(a, 'index') < __ball_index(b, 'index') ? -1 : __ball_index(a, 'index') > __ball_index(b, 'index') ? 1 : 0);
@@ -3978,11 +4164,11 @@ export class BallEngine {
       return;
     }
     let backing = ('_' + __ball_to_string(fieldName));
-    if ((backing in object)) {
+    if ((backing in __ball_require_map(object, 'map_contains_key'))) {
       ballObjectSetField(object, backing, assignedValue);
       return;
     }
-    if (('_celsius' in object)) {
+    if (('_celsius' in __ball_require_map(object, 'map_contains_key'))) {
       ballObjectSetField(object, '_celsius', assignedValue);
     }
   }
@@ -3998,7 +4184,7 @@ export class BallEngine {
       let superObj = __ball_index(selfMap, '__super__');
       let superMap = this._asMap(superObj);
       while (!__ball_eq(superMap, null)) {
-        if ((fieldName in superMap)) {
+        if ((fieldName in __ball_require_map(superMap, 'map_contains_key'))) {
           ballObjectSetField(superObj, fieldName, val);
         }
         superObj = __ball_index(superMap, '__super__');
@@ -4013,7 +4199,7 @@ export class BallEngine {
     let fields = {};
     for (const pair of msg.fields) {
       let val = await this._evalExpression(pair.value, scope);
-      if ((pair.name in fields)) {
+      if ((pair.name in __ball_require_map(fields, 'map_contains_key'))) {
         let existing = __ball_index(fields, pair.name);
         if (Array.isArray(existing)) {
           let merged = ([...existing]);
@@ -4046,7 +4232,7 @@ export class BallEngine {
         }
         this._initFieldDefaults(msg.typeName, instanceFields);
         for (const fieldName of typeDef.fieldNames) {
-          if (!(fieldName in instanceFields)) {
+          if (!(fieldName in __ball_require_map(instanceFields, 'map_contains_key'))) {
             instanceFields[fieldName] = null;
           }
         }
@@ -4057,15 +4243,15 @@ export class BallEngine {
           let paramsMeta = this._extractParamsMeta(ctorEntry.func.metadata);
           for (let i = 0; __ball_lt(i, params.length); (i++)) {
             let param = __ball_index(params, i);
-            let value = __no_init__;
-            if ((param in fields)) {
+            let value;
+            if ((param in __ball_require_map(fields, 'map_contains_key'))) {
               value = __ball_index(fields, param);
             } else {
-              if ((('arg' + __ball_to_string(i)) in fields)) {
+              if ((('arg' + __ball_to_string(i)) in __ball_require_map(fields, 'map_contains_key'))) {
                 value = __ball_index(fields, ('arg' + __ball_to_string(i)));
               }
             }
-            if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_index(paramsMeta, i)))) {
+            if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_require_map(__ball_index(paramsMeta, i), 'map_contains_key')))) {
               value = __ball_index(__ball_index(paramsMeta, i), 'default');
             }
             resolvedParams[param] = value;
@@ -4083,12 +4269,12 @@ export class BallEngine {
           this._applyConstructorInitializers(ctorEntry.func, instanceFields, resolvedParams, true);
         }
         let superclass = this._getMetaString(typeDef, 'superclass');
-        let superObject = __no_init__;
+        let superObject;
         if ((!__ball_eq(superclass, null) && !(superclass.length === 0))) {
           superObject = (__ball_eq(ctorEntry, null) ? null : await this._invokeSuperConstructor(ctorEntry.func, superclass, resolvedParams));
           superObject ??= this._buildSuperObject(superclass, instanceFields);
         }
-        if (!('__type_args__' in instanceFields)) {
+        if (!('__type_args__' in __ball_require_map(instanceFields, 'map_contains_key'))) {
           let metaTypeArgs = BallEngine._extractMetadataTypeArgs(msg);
           if (!__ball_eq(metaTypeArgs, null)) {
             instanceFields['__type_args__'] = metaTypeArgs;
@@ -4126,7 +4312,7 @@ export class BallEngine {
           })();
           let constructed = await this._callFunction(ctorEntry.module, ctorEntry.func, ctorInput);
           let constructedMap = this._asMap(constructed);
-          if ((!__ball_eq(constructedMap, null) && ('__type__' in constructedMap))) {
+          if ((!__ball_eq(constructedMap, null) && ('__type__' in __ball_require_map(constructedMap, 'map_contains_key')))) {
             return constructed;
           }
           return instance;
@@ -4147,7 +4333,7 @@ export class BallEngine {
               instanceFields[entry.key] = entry.value;
             }
           }
-          if (!('__type_args__' in instanceFields)) {
+          if (!('__type_args__' in __ball_require_map(instanceFields, 'map_contains_key'))) {
             let metaTA = BallEngine._extractMetadataTypeArgs(msg);
             if (!__ball_eq(metaTA, null)) {
               instanceFields['__type_args__'] = metaTA;
@@ -4163,13 +4349,13 @@ export class BallEngine {
           })();
           let constructed = await this._callFunction(ctorEntry.module, ctorEntry.func, ctorInput);
           let constructedMap = this._asMap(constructed);
-          if ((!__ball_eq(constructedMap, null) && ('__type__' in constructedMap))) {
+          if ((!__ball_eq(constructedMap, null) && ('__type__' in __ball_require_map(constructedMap, 'map_contains_key')))) {
             return constructed;
           }
           return instance;
         }
         fields['__type__'] = msg.typeName;
-        if (!('__type_args__' in fields)) {
+        if (!('__type_args__' in __ball_require_map(fields, 'map_contains_key'))) {
           let metaTA2 = BallEngine._extractMetadataTypeArgs(msg);
           if (!__ball_eq(metaTA2, null)) {
             fields['__type_args__'] = metaTA2;
@@ -4241,7 +4427,7 @@ export class BallEngine {
     for (const module of this.program.modules) {
       for (const td of module.typeDefs) {
         if ((__ball_eq(td.name, typeName) || td.name.endsWith((':' + __ball_to_string(typeName))))) {
-          let superclass = __no_init__;
+          let superclass;
           if (hasMetadata(td)) {
             let sc = __ball_index(td.metadata.fields, 'superclass');
             if ((!__ball_eq(sc, null) && hasStringValue(sc))) {
@@ -4291,7 +4477,7 @@ export class BallEngine {
                   let __naa_10 = __ball_index(fv.structValue.fields, 'name');
                   return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
                 })();
-                if ((__ball_eq(fname, null) || (fname in fields))) {
+                if ((__ball_eq(fname, null) || (fname in __ball_require_map(fields, 'map_contains_key')))) {
                   continue;
                 }
                 let init = (() => {
@@ -4397,20 +4583,20 @@ export class BallEngine {
     let parentTypeDef = this._findTypeDef(superclass);
     if (!__ball_eq(parentTypeDef, null)) {
       for (const fname of parentTypeDef.fieldNames) {
-        if ((fname in childFields)) {
+        if ((fname in __ball_require_map(childFields, 'map_contains_key'))) {
           superFields[fname] = __ball_index(childFields, fname);
         }
       }
       this._initFieldDefaults(superclass, superFields);
       for (const fname of parentTypeDef.fieldNames) {
-        if (!(fname in superFields)) {
+        if (!(fname in __ball_require_map(superFields, 'map_contains_key'))) {
           superFields[fname] = null;
         }
       }
       let parentMethods = this._resolveTypeMethods(qualifiedSuperclass);
       let parentMethodsMap = parentMethods.cast();
       let grandparent = parentTypeDef.superclass;
-      let grandparentObject = __no_init__;
+      let grandparentObject;
       if ((!__ball_eq(grandparent, null) && !(grandparent.length === 0))) {
         grandparentObject = this._buildSuperObject(grandparent, childFields);
       }
@@ -4488,7 +4674,7 @@ export class BallEngine {
 
   async _evalBlock(block: any, scope: any): Promise<any> {
     let blockScope = scope.child();
-    let flowResult = __no_init__;
+    let flowResult;
     for (const stmt of block.statements) {
       let result = await this._evalStatement(stmt, blockScope);
       if ((result instanceof _FlowSignal)) {
@@ -4508,7 +4694,7 @@ export class BallEngine {
       const __sw = whichStmt(stmt);
       if ((__sw === Statement_Stmt.let)) {
         let letValue = stmt.let.value;
-        let value = __no_init__;
+        let value;
         if ((__ball_eq(whichExpr(letValue), Expression_Expr.reference) && __ball_eq(letValue.reference.name, '__no_init__'))) {
           value = null;
         } else {
@@ -4562,10 +4748,10 @@ export class BallEngine {
           for (let i = 0; __ball_lt(i, paramNames.length); (i++)) {
             let p = __ball_index(paramNames, i);
             if (!lambdaScope.has(p)) {
-              if ((p in inputMap)) {
+              if ((p in __ball_require_map(inputMap, 'map_contains_key'))) {
                 lambdaScope.bind(p, __ball_index(inputMap, p));
               } else {
-                if ((('arg' + __ball_to_string(i)) in inputMap)) {
+                if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
                   lambdaScope.bind(p, __ball_index(inputMap, ('arg' + __ball_to_string(i))));
                 }
               }
@@ -4690,7 +4876,7 @@ export class BallEngine {
           let rawVal = match.group(2).trim();
           let intParsed = int.tryParse(rawVal);
           let doubleParsed = (__ball_eq(intParsed, null) ? double.tryParse(rawVal) : null);
-          let parsed = __no_init__;
+          let parsed;
           if (!__ball_eq(intParsed, null)) {
             parsed = intParsed;
           } else {
@@ -4726,7 +4912,7 @@ export class BallEngine {
       let operand = __ball_parse_int(propOpNum.group(4));
       if (scope.has(ref)) {
         let obj = scope.lookup(ref);
-        let propVal = __no_init__;
+        let propVal;
         if (((typeof obj === 'string') && __ball_eq(prop, 'length'))) {
           propVal = obj.value.length;
         } else {
@@ -4746,7 +4932,7 @@ export class BallEngine {
                     propVal = obj.length;
                   } else {
                     let map = this._cfAsMap(obj);
-                    if ((!__ball_eq(map, null) && (prop in map))) {
+                    if ((!__ball_eq(map, null) && (prop in __ball_require_map(map, 'map_contains_key')))) {
                       let v = __ball_index(map, prop);
                       if ((typeof v === 'number' || v instanceof BallDouble)) {
                         propVal = v;
@@ -4768,8 +4954,8 @@ export class BallEngine {
       let left = varOpVar.group(1);
       let op = varOpVar.group(2);
       let right = varOpVar.group(3);
-      let leftVal = __no_init__;
-      let rightVal = __no_init__;
+      let leftVal;
+      let rightVal;
       if (scope.has(left)) {
         let v = scope.lookup(left);
         if ((typeof v === 'number' || v instanceof BallDouble)) {
@@ -4816,7 +5002,7 @@ export class BallEngine {
           return obj.length;
         }
         let map = this._cfAsMap(obj);
-        if ((!__ball_eq(map, null) && (prop in map))) {
+        if ((!__ball_eq(map, null) && (prop in __ball_require_map(map, 'map_contains_key')))) {
           return __ball_index(map, prop);
         }
       }
@@ -4924,7 +5110,7 @@ export class BallEngine {
     if ((!__ball_eq(whichExpr(cases), Expression_Expr.literal) || !__ball_eq(whichValue(cases.literal), Literal_Value.listValue))) {
       return null;
     }
-    let defaultBody = __no_init__;
+    let defaultBody;
     let matched = false;
     for (const caseExpr of cases.literal.listValue.elements) {
       if (!__ball_eq(whichExpr(caseExpr), Expression_Expr.messageCreation)) {
@@ -4985,7 +5171,7 @@ export class BallEngine {
     if ((!__ball_eq(whichExpr(cases), Expression_Expr.literal) || !__ball_eq(whichValue(cases.literal), Literal_Value.listValue))) {
       return null;
     }
-    let defaultBody = __no_init__;
+    let defaultBody;
     for (const caseExpr of cases.literal.listValue.elements) {
       if (!__ball_eq(whichExpr(caseExpr), Expression_Expr.messageCreation)) {
         continue;
@@ -5107,7 +5293,7 @@ export class BallEngine {
         }
       }
       let enumVals = __ball_index(this._enumValues, enumType);
-      if ((!__ball_eq(enumVals, null) && (enumValue in enumVals))) {
+      if ((!__ball_eq(enumVals, null) && (enumValue in __ball_require_map(enumVals, 'map_contains_key')))) {
         let resolved = __ball_index(enumVals, enumValue);
         let resolvedMap = this._cfAsMap(resolved);
         if ((!__ball_eq(subjectMap, null) && !__ball_eq(resolvedMap, null))) {
@@ -5116,7 +5302,7 @@ export class BallEngine {
       }
       let qualifiedEnumType = ((__ball_to_string(this._currentModule) + ':') + __ball_to_string(enumType));
       let qualEnumVals = __ball_index(this._enumValues, qualifiedEnumType);
-      if ((!__ball_eq(qualEnumVals, null) && (enumValue in qualEnumVals))) {
+      if ((!__ball_eq(qualEnumVals, null) && (enumValue in __ball_require_map(qualEnumVals, 'map_contains_key')))) {
         let resolved = __ball_index(qualEnumVals, enumValue);
         let resolvedMap = this._cfAsMap(resolved);
         if ((!__ball_eq(subjectMap, null) && !__ball_eq(resolvedMap, null))) {
@@ -5148,7 +5334,7 @@ export class BallEngine {
     let body = __ball_index(fields, 'body');
     let catches = __ball_index(fields, 'catches');
     let finallyBlock = __ball_index(fields, 'finally');
-    let result = __no_init__;
+    let result;
     try {
       result = (!__ball_eq(body, null) ? await this._evalExpression(body, scope) : null);
     } catch (__ball_active_error) {
@@ -5167,7 +5353,7 @@ export class BallEngine {
           }
           let catchType = this._stringFieldVal(cf, 'type');
           if ((!__ball_eq(catchType, null) && !(catchType.length === 0))) {
-            let matches = __no_init__;
+            let matches;
             if ((e instanceof BallException)) {
               let eType = e['typeName'];
               let eColonIdx = eType.indexOf(':');
@@ -5385,7 +5571,7 @@ export class BallEngine {
           this._cfWritebackIndexed(indexTarget, list, scope);
         }
         if (((!__ball_eq(op, null) && !(op.length === 0)) && !__ball_eq(op, '='))) {
-          let computed = __no_init__;
+          let computed;
           let didSet = false;
           if ((false /* BallList is List in TS */ && (typeof idx === 'number' && Number.isInteger(idx)))) {
             computed = this._applyCompoundOp(op, __ball_index(list.items, idx), val);
@@ -5611,7 +5797,7 @@ export class BallEngine {
     }))) : ((op === '>>=') ? (this._intOp(current, val, ((a, b) => {
       return __ball_shr(a, b);
     }))) : ((op === '>>>=') ? (this._intOp(current, val, ((a, b) => {
-      return (a >>> b);
+      return __ball_ushr(a, b);
     }))) : ((op === '??=') ? ((current ?? val)) : val)))))))))))));
   }
 
@@ -5890,7 +6076,7 @@ export class BallEngine {
     if (__ball_eq(body, null)) {
       return null;
     }
-    let result = __no_init__;
+    let result;
     let repeat = true;
     while (repeat) {
       repeat = false;
@@ -5979,7 +6165,7 @@ export class BallEngine {
     let args = (inputMap ?? {});
     let arg0 = (__ball_index(args, 'arg0') ?? __ball_index(args, 'value'));
     let wasBallList = false /* BallList is List in TS */;
-    let unwrappedSelf = __no_init__;
+    let unwrappedSelf;
     if (false /* BallList is List in TS */) {
       unwrappedSelf = self.items;
     } else {
@@ -6231,7 +6417,7 @@ export class BallEngine {
         else if ((__sw === 'reduce')) {
           if ((typeof arg0 === 'function')) {
             let seeded = false;
-            let acc = __no_init__;
+            let acc;
             for (const item of self) {
               if (!seeded) {
                 acc = item;
@@ -6287,13 +6473,13 @@ export class BallEngine {
           let seen = {};
           let result = [];
           for (const item of self) {
-            if (!(item in seen)) {
+            if (!(item in __ball_require_map(seen, 'map_contains_key'))) {
               seen[item] = item;
               result = (result.push(item), result);
             }
           }
           for (const item of other) {
-            if (!(item in seen)) {
+            if (!(item in __ball_require_map(seen, 'map_contains_key'))) {
               seen[item] = item;
               result = (result.push(item), result);
             }
@@ -6363,15 +6549,15 @@ export class BallEngine {
       do {
         const __sw = method;
         if ((__sw === 'union')) {
-          let otherU = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set(['Object?']))));
+          let otherU = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
           return self.union(otherU);
         }
         else if ((__sw === 'intersection')) {
-          let otherI = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set(['Object?']))));
+          let otherI = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
           return self.intersection(otherI);
         }
         else if ((__sw === 'difference')) {
-          let otherD = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set(['Object?']))));
+          let otherD = ((arg0 instanceof Set) ? arg0 : ((Array.isArray(arg0) ? arg0.toSet() : new Set())));
           return self.difference(otherD);
         }
         else if ((__sw === 'add')) {
@@ -6433,7 +6619,7 @@ export class BallEngine {
         }
         else if ((__sw === 'where') || (__sw === 'filter')) {
           if ((typeof arg0 === 'function')) {
-            let result = new Set(['Object?']);
+            let result = new Set();
             for (const item of self) {
               let r = arg0(item);
               if ((r != null)) {
@@ -6521,7 +6707,7 @@ export class BallEngine {
           return await this._ballToStringAsync(self);
         }
         else if ((__sw === 'toStringAsFixed')) {
-          return (+(self)).toFixed(this._toInt(arg0));
+          return __ball_to_fixed(self, this._toInt(arg0));
         }
         else if ((__sw === 'abs')) {
           return __ball_math_abs(self);
@@ -6550,7 +6736,7 @@ export class BallEngine {
       } while (false);
     }
     let selfMap = this._cfAsMap(self);
-    if ((!__ball_eq(selfMap, null) && ('__type__' in selfMap))) {
+    if ((!__ball_eq(selfMap, null) && ('__type__' in __ball_require_map(selfMap, 'map_contains_key')))) {
       let typeName = __ball_index(selfMap, '__type__');
       if ((!__ball_eq(typeName, null) && (typeName.endsWith(':StringBuffer') || __ball_eq(typeName, 'StringBuffer')))) {
         do {
@@ -6656,8 +6842,8 @@ export class BallEngine {
     if (__ball_eq(m, null)) {
       return null;
     }
-    let left = __no_init__;
-    let right = __no_init__;
+    let left;
+    let right;
     if (__ball_eq(function_, 'index')) {
       left = __ball_index(m, 'target');
       right = __ball_index(m, 'index');
@@ -6666,7 +6852,7 @@ export class BallEngine {
       right = __ball_index(m, 'right');
     }
     let leftMap = this._stdAsMap(left);
-    if ((__ball_eq(leftMap, null) || !('__type__' in leftMap))) {
+    if ((__ball_eq(leftMap, null) || !('__type__' in __ball_require_map(leftMap, 'map_contains_key')))) {
       return null;
     }
     let typeName = __ball_index(leftMap, '__type__');
@@ -6733,7 +6919,7 @@ export class BallEngine {
   }
 
   async _callBaseFunction(module: any, function_: any, input: any): Promise<any> {
-    if ((function_ in _stdFunctionToOperator)) {
+    if ((function_ in __ball_require_map(_stdFunctionToOperator, 'map_contains_key'))) {
       let override = await this._tryOperatorOverride(function_, input);
       if (!__ball_eq(override, null)) {
         return this._consumeGeneratorFlow(override);
@@ -6866,7 +7052,7 @@ export class BallEngine {
       }), ['unsigned_right_shift']: ((i) => {
         const input = i;
         return this._stdBinaryInt(i, ((a, b) => {
-          return (a >>> b);
+          return __ball_ushr(a, b);
         }));
       }), ['pre_increment']: ((i) => {
         const input = i;
@@ -6908,7 +7094,7 @@ export class BallEngine {
         const input = i;
         return this._stdConvert(i, ((v) => {
           const input = v;
-          return new BallDouble(__ball_parse_double(v));
+          return __ball_parse_double(v);
         }));
       }), ['to_double']: ((i) => {
         const input = i;
@@ -6939,7 +7125,7 @@ export class BallEngine {
         let v = (__ball_index(m, 'value') ?? __ball_index(m, 'left'));
         let digits = (__ball_index(m, 'digits') ?? __ball_index(m, 'fractionDigits'));
         let n = this._toNum(v);
-        let s = (+(n)).toFixed(this._toInt(digits));
+        let s = __ball_to_fixed(n, this._toInt(digits));
         if (((__ball_eq(n, 0) && __ball_lt(new BallDouble(Number(new BallDouble(1)) / Number(n)), 0)) && !s.startsWith('-'))) {
           return ('-' + __ball_to_string(s));
         }
@@ -7137,7 +7323,7 @@ export class BallEngine {
         let list = this._stdAsList(__ball_index(m, 'list'));
         let cb = ((__ball_index(m, 'callback') ?? __ball_index(m, 'function')) ?? __ball_index(m, 'value'));
         let seeded = false;
-        let acc = __no_init__;
+        let acc;
         for (const e of list) {
           if (!seeded) {
             acc = e;
@@ -7275,17 +7461,17 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
-        let s = __no_init__;
-        let e = __no_init__;
-        if (('start' in m)) {
+        let s;
+        let e;
+        if (('start' in __ball_require_map(m, 'map_contains_key'))) {
           s = this._toInt(__ball_index(m, 'start'));
           e = (!__ball_eq(__ball_index(m, 'end'), null) ? this._toInt(__ball_index(m, 'end')) : null);
         } else {
-          if ((('arg0' in m) && ('arg1' in m))) {
+          if ((('arg0' in __ball_require_map(m, 'map_contains_key')) && ('arg1' in __ball_require_map(m, 'map_contains_key')))) {
             s = this._toInt(__ball_index(m, 'arg0'));
             e = this._toInt(__ball_index(m, 'arg1'));
           } else {
-            if (('value' in m)) {
+            if (('value' in __ball_require_map(m, 'map_contains_key'))) {
               let v = __ball_index(m, 'value');
               if ((Array.isArray(v) && __ball_ge(v.length, 2))) {
                 s = this._toInt(__ball_index(v, 0));
@@ -7482,13 +7668,13 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let raw = __ball_index(m, 'map');
         let map = (false /* BallMap is Map in TS */ ? raw.entries : (((typeof raw === 'object' && raw !== null && !Array.isArray(raw) && !(raw instanceof BallDouble) && !(raw instanceof Set)) ? raw : {})));
-        return Object.values(map).includes(__ball_index(m, 'value'));
+        return Object.values(__ball_require_map(map, 'map_contains_value')).includes(__ball_index(m, 'value'));
       }), ['map_put_if_absent']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let map = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
         let key = __ball_index(m, 'key');
-        if (!(key in map)) {
+        if (!(key in __ball_require_map(map, 'map_contains_key'))) {
           this._trackMemoryAllocation(_ballMapEntryBytes);
           let val = __ball_index(m, 'value');
           map[key] = ((typeof val === 'function') ? val() : val);
@@ -7557,7 +7743,7 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let map1 = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
         let map2 = (this._stdAsMap(__ball_index(m, 'value')) ?? __ball_index(m, 'value'));
-        let result = (() => { const __r: Record<string, any> = {}; { const __m = map1.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } { const __m = map2.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } return __r; })();
+        let result = (() => { const __r: any = {}; { const __m = map1.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } { const __m = map2.cast(); for (const __k in __m) { __r[__k] = __m[__k]; } } return __r; })();
         this._trackMemoryAllocation(__ball_mul(result.length, _ballMapEntryBytes));
         return result;
       }), ['map_map']: (async (i) => {
@@ -7682,7 +7868,7 @@ export class BallEngine {
         let valMap = this._stdAsMap(val);
         if (!__ball_eq(valMap, null)) {
           typeName = ((__ball_index(valMap, '__type__') ?? __ball_index(valMap, '__type')) ?? 'Exception');
-          if ((!('message' in valMap) && ('arg0' in valMap))) {
+          if ((!('message' in __ball_require_map(valMap, 'map_contains_key')) && ('arg0' in __ball_require_map(valMap, 'map_contains_key')))) {
             valMap['message'] = __ball_index(valMap, 'arg0');
           }
         }
@@ -8286,7 +8472,7 @@ export class BallEngine {
 
   async _stdPrint(input: any): Promise<any> {
     let m = this._stdAsMap(input);
-    if ((!__ball_eq(m, null) && ((('message' in m) || ('arg0' in m)) || ('value' in m)))) {
+    if ((!__ball_eq(m, null) && ((('message' in __ball_require_map(m, 'map_contains_key')) || ('arg0' in __ball_require_map(m, 'map_contains_key'))) || ('value' in __ball_require_map(m, 'map_contains_key'))))) {
       let message = ((__ball_index(m, 'message') ?? __ball_index(m, 'arg0')) ?? __ball_index(m, 'value'));
       this.stdout(await this._ballToStringAsync(message));
       return null;
@@ -8379,7 +8565,7 @@ export class BallEngine {
           }
           return (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
         }
-        if (('__tostring_guard__' in map)) {
+        if (('__tostring_guard__' in __ball_require_map(map, 'map_contains_key'))) {
           let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
           return (__ball_to_string(shortType) + '{...}');
         }
@@ -8519,7 +8705,7 @@ export class BallEngine {
       __cascade_self__.remove('__type__');
       return __cascade_self__;
     })();
-    let result = __no_init__;
+    let result;
     if (__ball_eq(args.length, 1)) {
       result = Function.apply(callee, [args.values.first]);
     } else {
@@ -8814,7 +9000,7 @@ export class BallEngine {
     if (__ball_eq(cases, null)) {
       return null;
     }
-    let defaultBody = __no_init__;
+    let defaultBody;
     for (const c of cases) {
       let cMap = this._stdAsMap(c);
       if (__ball_eq(cMap, null)) {
@@ -9003,7 +9189,7 @@ export class BallEngine {
             return false;
           }
           let key = __ball_index(entryMap, 'key');
-          if (!(key in rawMap)) {
+          if (!(key in __ball_require_map(rawMap, 'map_contains_key'))) {
             return false;
           }
           if (!this._matchPattern(__ball_index(rawMap, key), __ball_index(entryMap, 'value'), bindings)) {
@@ -9043,7 +9229,7 @@ export class BallEngine {
           return false;
         }
         for (const entry of recFields.entries) {
-          if (!(entry.key in recMap)) {
+          if (!(entry.key in __ball_require_map(recMap, 'map_contains_key'))) {
             return false;
           }
           let fieldVal = __ball_index(recMap, entry.key);
@@ -9208,7 +9394,7 @@ export class BallEngine {
     let map = this._stdAsMap(v);
     if (!__ball_eq(map, null)) {
       let typeName = __ball_index(map, '__type__');
-      if ((!__ball_eq(typeName, null) && (typeName in this._enumValues))) {
+      if ((!__ball_eq(typeName, null) && (typeName in __ball_require_map(this._enumValues, 'map_contains_key')))) {
         let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
         let valName = __ball_index(map, 'name');
         if (!__ball_eq(valName, null)) {
@@ -9649,9 +9835,9 @@ export class BallEngine {
       throw new BallRuntimeError('Expected message');
     }
     let rawValue = __ball_index(m, 'value');
-    let value = __no_init__;
-    let min = __no_init__;
-    let max = __no_init__;
+    let value;
+    let min;
+    let max;
     if ((__ball_is_type(rawValue, "Map<String, Object?>") || false /* BallMap is Map in TS */)) {
       value = this._toNum(__ball_index(m, 'min'));
       min = this._toNum(__ball_index(m, 'max'));
@@ -9699,10 +9885,10 @@ export class BallEngine {
     }
     let mapVal = this._stdAsMap(v);
     if (!__ball_eq(mapVal, null)) {
-      return (() => { const __r: Record<string, any> = {}; for (const e of mapVal.entries) { if (!e.key.startsWith('__')) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
+      return (() => { const __r: any = {}; for (const e of mapVal.entries) { if (!e.key.startsWith('__')) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
     }
     if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
-      return (() => { const __r: Record<string, any> = {}; for (const e of v.entries) { if (((typeof e.key === 'string') && !e.key.startsWith('__'))) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
+      return (() => { const __r: any = {}; for (const e of v.entries) { if (((typeof e.key === 'string') && !e.key.startsWith('__'))) { __r[e.key] = this._toJsonSafe(e.value); } } return __r; })();
     }
     let listVal = this._stdAsList(v);
     if (!__ball_eq(listVal, null)) {
@@ -9834,7 +10020,7 @@ export class _Scope {
 
   lookup(name: any): any {
     const input = name;
-    if ((name in this._bindings)) {
+    if ((name in __ball_require_map(this._bindings, 'map_contains_key'))) {
       return __ball_index(this._bindings, name);
     }
     if (!__ball_eq(this._parent, null)) {
@@ -9849,14 +10035,14 @@ export class _Scope {
 
   has(name: any): any {
     const input = name;
-    if ((name in this._bindings)) {
+    if ((name in __ball_require_map(this._bindings, 'map_contains_key'))) {
       return true;
     }
     return ((__ball_eq(this._parent, null) ? null : this._parent.has(name)) ?? false);
   }
 
   set(name: any, value: any): any {
-    if ((name in this._bindings)) {
+    if ((name in __ball_require_map(this._bindings, 'map_contains_key'))) {
       this._bindings[name] = value;
       return;
     }
@@ -9974,7 +10160,7 @@ export class StdModuleHandler extends BallModuleHandler {
       if (this._tombstones.includes(entry.key)) {
         continue;
       }
-      if ((entry.key in this._composedDispatch)) {
+      if ((entry.key in __ball_require_map(this._composedDispatch, 'map_contains_key'))) {
         continue;
       }
       if ((!__ball_eq(allowlist, null) && !allowlist.includes(entry.key))) {
@@ -10087,7 +10273,7 @@ function _ballToDouble(value: any): any {
 
 function _ballValueIsSet(v: any): any {
   const input = v;
-  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && (_kBallSetTag in v));
+  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && (_kBallSetTag in __ball_require_map(v, 'map_contains_key')));
 }
 
 function _ballIsInt(v: any): any {
@@ -10164,7 +10350,7 @@ function _ballMapValuesDyn(map: any): any {
 function _ballMapContainsKeyDyn(map: any, key: any): any {
   let handle = _ballMapHandleEntries(map);
   if ((typeof handle === 'object' && handle !== null && !Array.isArray(handle) && !(handle instanceof BallDouble) && !(handle instanceof Set))) {
-    return (key in handle);
+    return (key in __ball_require_map(handle, 'map_contains_key'));
   }
   return false;
 }
@@ -10182,12 +10368,12 @@ function ballObjectSetField(target: any, fieldName: any, val: any): any {
     return;
   }
   if (false /* BallMap is Map in TS */) {
-    if (('__type__' in target.entries)) {
+    if (('__type__' in __ball_require_map(target.entries, 'map_contains_key'))) {
       target[fieldName] = val;
     }
     return;
   }
-  if ((__ball_is_type(target, "Map<String, Object?>") && ('__type__' in target))) {
+  if ((__ball_is_type(target, "Map<String, Object?>") && ('__type__' in __ball_require_map(target, 'map_contains_key')))) {
     target[fieldName] = val;
   }
 }
@@ -10288,7 +10474,7 @@ function _unwrapBallFuture(value: any): any {
   const input = value;
   if (_isBallFuture(value)) {
     let map = value;
-    if (('error' in map)) {
+    if (('error' in __ball_require_map(map, 'map_contains_key'))) {
       let error = __ball_index(map, 'error');
       if ((error instanceof BallException)) {
         throw error;

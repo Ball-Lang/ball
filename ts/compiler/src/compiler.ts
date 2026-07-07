@@ -3853,7 +3853,15 @@ function __isUnknownFnError(e: any): boolean {
     const body = elements
       .map((e) => this.emitCollectionElement(e, "map", "__r"))
       .join(" ");
-    return `(() => { const __r: Record<string, any> = {}; ${body} return __r; })()`;
+    // NOTE: annotate `__r` as `any`, NOT `Record<string, any>`. Node's
+    // `--experimental-strip-types` (Amaro) intermittently mis-strips a
+    // two-argument generic type annotation (`<string, any>`) when it sits on a
+    // long single-line arrow-IIFE like this one, corrupting the rest of the
+    // line and throwing `ERR_INVALID_TYPESCRIPT_SYNTAX: Expression expected`
+    // downstream (observed on the ~9800-line compiled engine under Node
+    // 22.23.1). A single-token `any` annotation strips cleanly — matching the
+    // sibling list emit (`__r: any[]`), which never trips the stripper.
+    return `(() => { const __r: any = {}; ${body} return __r; })()`;
   }
 
   /** Render a single non-control map entry as `key: value`, or undefined. */

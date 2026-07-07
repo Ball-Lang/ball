@@ -353,11 +353,15 @@ extension BallEngineStd on BallEngine {
         return BallDouble(v as double).toString();
       }),
       'string_to_int': (i) => _stdConvert(i, (v) => int.parse(v as String)),
-      // Wrap in BallDouble so double-ness survives on the compiled TS
-      // self-host: JS numbers erase the int/double distinction, so a bare
-      // parse result made whole doubles print as ints (-7.0 → "-7") (#67).
+      // Return the bare double: the compiled `__ball_parse_double` parse path
+      // already re-wraps the result in a BallDouble on the self-hosted targets
+      // (#222). Wrapping here as well nested a BallDouble inside a BallDouble on
+      // the compiled TS self-host, and `Number()` on the doubly-wrapped object
+      // threw "Cannot convert object to primitive value" (#237). The Dart
+      // reference engine treats a bare double the same as a BallDouble for
+      // double-ness, so JS whole doubles still keep their `.0` (#67).
       'string_to_double': (i) =>
-          _stdConvert(i, (v) => BallDouble(double.parse(v as String))),
+          _stdConvert(i, (v) => double.parse(v as String)),
       'to_double': (i) => _ballToDouble(_extractUnaryArg(i)),
       'to_int': (i) => _ballDoubleToInt64(_toNum(_extractUnaryArg(i))),
       'int_to_double': (i) => _ballToDouble(_extractUnaryArg(i)),

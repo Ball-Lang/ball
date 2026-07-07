@@ -401,7 +401,12 @@ class BallEngine {
         }
         if (func.hasMetadata()) {
           final params = _extractParams(func.metadata);
-          if (params.isNotEmpty) _paramCache[key] = params;
+          // Skip nameless functions (lambdas): they all share the key
+          // `'$module.'` and would clobber one another (#246). Their params
+          // are extracted on demand in `_callFunction` instead.
+          if (params.isNotEmpty && func.name.isNotEmpty) {
+            _paramCache[key] = params;
+          }
 
           final kindField = func.metadata.fields['kind'];
           if (kindField?.stringValue == 'constructor') {

@@ -501,15 +501,14 @@ fn repo_root() -> PathBuf {
     }
 }
 
-fn load_example(name: &str) -> Program {
-    let path = repo_root()
-        .join("examples")
-        .join(name)
-        .join(format!("{name}.ball.json"));
-    let json = fs::read_to_string(&path)
+/// Load a `.ball.json` file (a self-describing `google.protobuf.Any`-style
+/// envelope carrying a cosmetic `"@type"` key — see `rust/shared/src/lib.rs`'s
+/// own round-trip test) at `path` into a typed `Program`.
+fn load_program_file(path: &std::path::Path) -> Program {
+    let json = fs::read_to_string(path)
         .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
     let mut json_value: serde_json::Value =
-        serde_json::from_str(&json).expect("example .ball.json must be valid JSON");
+        serde_json::from_str(&json).expect(".ball.json must be valid JSON");
     if let serde_json::Value::Object(map) = &mut json_value {
         map.remove("@type");
     }
@@ -518,10 +517,39 @@ fn load_example(name: &str) -> Program {
         .expect("ball.v1.Program must be resolvable from the embedded descriptor pool");
     let dynamic =
         DynamicMessage::deserialize(program_descriptor, json_value).unwrap_or_else(|err| {
-            panic!("{name}.ball.json must deserialize as a ball.v1.Program: {err}")
+            panic!(
+                "{} must deserialize as a ball.v1.Program: {err}",
+                path.display()
+            )
         });
     Program::decode(dynamic.encode_to_vec().as_slice())
         .expect("binary re-encoded from the DynamicMessage must decode as a typed ball.v1.Program")
+}
+
+fn load_example(name: &str) -> Program {
+    let path = repo_root()
+        .join("examples")
+        .join(name)
+        .join(format!("{name}.ball.json"));
+    load_program_file(&path)
+}
+
+/// Load a `tests/conformance/<name>.ball.json` fixture plus its sibling
+/// `<name>.expected_output.txt` (issue #38's `simple_class`/`abstract_class`/
+/// `enum_values` acceptance fixtures — see `docs/TESTING_STRATEGY.md` for
+/// why conformance fixtures are preferred over hand-built `Program`s
+/// whenever a real one already exists in the corpus).
+fn load_conformance_fixture(name: &str) -> (Program, String) {
+    let dir = repo_root().join("tests/conformance");
+    let program = load_program_file(&dir.join(format!("{name}.ball.json")));
+    let expected_path = dir.join(format!("{name}.expected_output.txt"));
+    let expected = fs::read_to_string(&expected_path)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", expected_path.display()));
+    // Normalize CRLF -> LF: on a Windows checkout, git may check these fixture
+    // files out with CRLF line endings, but `println!` (and every reference
+    // engine) always emits bare `\n` — this is a checkout-line-ending detail,
+    // not a real cross-platform behavior difference to assert on.
+    (program, expected.replace("\r\n", "\n").trim_end().to_string())
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1069,4 +1097,142 @@ fn list_mutations_affect_the_same_underlying_list() {
     );
     let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
     assert_program_prints("list_mutation", &program, "[99, 2, 3, 4]\n4");
+}
+
+// ════════════════════════════════════════════════════════════
+// #38 — type emission + multi-module output
+// ════════════════════════════════════════════════════════════
+
+/// `tests/conformance/101_simple_class.ball.json` — a plain class
+/// (`Point`, constructed via `Point(this.x, this.y)`) with two methods
+/// (`describe`, `distanceSquared`) and a mutated field (`p2.x = 5;`).
+/// Exercises: struct + `impl` emission, the constructor's positional
+/// `arg0`/`arg1` → real field-name (`x`/`y`) remapping, and a method body
+/// reading `self`'s fields as bare local aliases.
+#[test]
+fn simple_class_conformance_fixture_compiles_and_runs() {
+    let (program, expected) = load_conformance_fixture("101_simple_class");
+    assert_program_prints("simple_class", &program, &expected);
+}
+
+/// `tests/conformance/103_abstract_class.ball.json` — an abstract class
+/// (`Shape`, `is_abstract: true`, two abstract methods) with two concrete
+/// subclasses (`Circle`, `Rectangle`) that both declare `area`/`name`.
+/// Exercises: abstract-class → `trait` emission, and — the crux of this
+/// fixture — **polymorphic dispatch**: a `List<Shape>` holding both
+/// concrete types, iterated with `s.area()`/`s.name()` calls that must
+/// route to the right concrete `impl` at run time
+/// (`compile_method_dispatchers`), since neither call site can know which
+/// concrete type `s` holds at Rust compile time.
+#[test]
+fn abstract_class_conformance_fixture_compiles_and_runs() {
+    let (program, expected) = load_conformance_fixture("103_abstract_class");
+    assert_program_prints("abstract_class", &program, &expected);
+}
+
+/// `tests/conformance/109_enum_values.ball.json` — a Dart enum (`Color`)
+/// with four members, iterated via `Color.values`, read via `c.index`, and
+/// matched in a Dart-3-pattern `switch` (`case Color.red:` encodes as
+/// `pattern_expr: ConstPattern { value: <fieldAccess Color.red> }`, not the
+/// simpler `value` field most other switch fixtures use). Exercises: enum →
+/// `pub static ...: LazyLock<BallValue>` namespace emission, the
+/// `ball_field_get` virtual `"length"` property on `Color.values` (a
+/// `List`), and `compile_switch`'s `ConstPattern` fallback.
+#[test]
+fn enum_values_conformance_fixture_compiles_and_runs() {
+    let (program, expected) = load_conformance_fixture("109_enum_values");
+    assert_program_prints("enum_values", &program, &expected);
+}
+
+/// A hand-built multi-module program: a `mathutils` module (holding
+/// `double_it`) alongside the entry `main` module, which calls
+/// `mathutils.double_it(21)`. Proves `Compiler::compile` emits `mathutils`
+/// as its own nested `pub mod mathutils { ... }` (not inlined into `main`'s
+/// own scope) *and* that the cross-module call resolves to
+/// `mathutils::double_it(...)` and actually links/runs correctly — the
+/// "multiple mods that link" half of #38's acceptance criteria (the
+/// same-module case is already covered by every other fixture in this
+/// file, which never emits a nested `mod` at all).
+#[test]
+fn multi_module_program_compiles_into_nested_mods_and_resolves_cross_module_calls() {
+    let math_module = Module {
+        name: "mathutils".to_string(),
+        functions: vec![user_fn(
+            "double_it",
+            "int",
+            "int",
+            bin_call("multiply", reference("input"), int_lit(2)),
+            None,
+        )],
+        ..Default::default()
+    };
+    let main_body = print_to_string(call("mathutils", "double_it", Some(int_lit(21))));
+    let program = Program {
+        name: "test".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_shared::build_std_module(),
+            math_module,
+            Module {
+                name: "main".to_string(),
+                functions: vec![user_fn("main", "", "void", main_body, None)],
+                module_imports: vec![
+                    ModuleImport {
+                        name: "std".to_string(),
+                        ..Default::default()
+                    },
+                    ModuleImport {
+                        name: "mathutils".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: "main".to_string(),
+        metadata: None,
+    };
+
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        compiled.contains("pub mod mathutils"),
+        "expected a nested `pub mod mathutils` block:\n{compiled}"
+    );
+    assert!(
+        compiled.contains("mathutils::double_it("),
+        "expected the cross-module call site to be qualified with `mathutils::`:\n{compiled}"
+    );
+
+    let stdout = compile_and_run("multi_module", &compiled);
+    assert_eq!(
+        stdout.trim(),
+        "42",
+        "fixture 'multi_module' produced unexpected stdout.\n--- generated main.rs ---\n{compiled}"
+    );
+}
+
+/// A same-module method call (`describe`/`distanceSquared` on a single
+/// `Point` class, no polymorphism) must resolve as a plain, unqualified
+/// dispatcher call — `Compiler::compile_module_body` sets `current_module`
+/// to `"main"` while compiling the entry module, so
+/// `type_emit::resolve_user_call_name` must emit no `mod` qualification at
+/// all for it (there's no `pub mod main { ... }` — the entry module's own
+/// items are inlined at the top level).
+#[test]
+fn simple_class_fixture_does_not_emit_a_nested_mod_for_the_entry_module() {
+    let (program, _expected) = load_conformance_fixture("101_simple_class");
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        !compiled.contains("pub mod main"),
+        "the entry module's own items must be inlined, not nested in a `mod`:\n{compiled}"
+    );
+    assert!(
+        compiled.contains("pub struct main_Point"),
+        "expected a `main_Point` struct emitted from `main:Point`'s TypeDefinition:\n{compiled}"
+    );
+    assert!(
+        compiled.contains("impl main_Point"),
+        "expected an `impl main_Point` block holding its constructor/methods:\n{compiled}"
+    );
 }

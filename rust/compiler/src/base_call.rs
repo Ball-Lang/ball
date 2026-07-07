@@ -74,8 +74,11 @@ impl Compiler<'_> {
     /// `call` — the shared entry point for both node types folded under
     /// `Expression::Call`: a base-module call (dispatches to
     /// [`Compiler::compile_base_call`]) or a user-module call. A user call
-    /// always compiles to plain Rust call syntax `<function>(<input>)`; per
-    /// Ball's "one input, one output" convention (invariant #1) there is
+    /// compiles to plain Rust call syntax `<function>(<input>)`, or
+    /// `<mod>::<function>(<input>)` when `call.module` names a *different*
+    /// user module than the one currently being compiled (issue #38's
+    /// multi-module output — see `crate::type_emit::resolve_user_call_name`).
+    /// Per Ball's "one input, one output" convention (invariant #1) there is
     /// exactly one argument, so no argument-list flattening is needed.
     /// `call.module` empty means "current module" (resolves the same way: a
     /// bare Rust identifier call).
@@ -83,12 +86,13 @@ impl Compiler<'_> {
         if self.is_base_module(&call.module) {
             return self.compile_base_call(call);
         }
+        let prefix = self.resolve_user_call_name(&call.module);
         let name = crate::sanitize_ident(&call.function);
         let input = match &call.input {
             Some(input) => self.compile_expression(input),
             None => "BallValue::Null".to_string(),
         };
-        format!("{name}({input})")
+        format!("{prefix}{name}({input})")
     }
 
     /// Base-function dispatch table, routed first by `call.module`
@@ -720,8 +724,8 @@ impl Compiler<'_> {
                 default_body = Some(body_code);
                 continue;
             }
-            if let Some(value) = cf.get("value") {
-                arms.push((self.compile_expression(value), body_code));
+            if let Some(value_code) = self.switch_case_value_code(&cf) {
+                arms.push((value_code, body_code));
             }
         }
 
@@ -746,6 +750,32 @@ impl Compiler<'_> {
         }
         out.push_str("\n}");
         out
+    }
+
+    /// A `SwitchCase`'s comparison expression: prefer the plain `value`
+    /// field (the simple equality-switch shape most #37 fixtures use);
+    /// fall back to the *semantic* `pattern_expr` (Dart 3 pattern-matching
+    /// switches — e.g. `case Color.red:` on an enum encodes as
+    /// `pattern_expr: ConstPattern { value: <fieldAccess Color.red> }`, with
+    /// the case's own `pattern` field carrying only a cosmetic source-text
+    /// string). Mirrors `dart/compiler/lib/compiler.dart`'s
+    /// `_generateSwitchCase`, which prefers `pattern_expr` over the cosmetic
+    /// `pattern` the same way. Only the `ConstPattern` kind is recognized —
+    /// other structured-pattern kinds (destructuring/type patterns) fall
+    /// through to `None` (the case is skipped), the same documented-gap
+    /// shape as this function's own doc comment.
+    fn switch_case_value_code(&self, cf: &IndexMap<String, Expression>) -> Option<String> {
+        if let Some(value) = cf.get("value") {
+            return Some(self.compile_expression(value));
+        }
+        let pattern_expr = cf.get("pattern_expr")?;
+        match &pattern_expr.expr {
+            Some(Expr::MessageCreation(mc)) if mc.type_name == "ConstPattern" => {
+                let pf = self.message_creation_fields(mc);
+                pf.get("value").map(|v| self.compile_expression(v))
+            }
+            _ => None,
+        }
     }
 
     /// Extract a `MessageCreation`'s fields directly (used by

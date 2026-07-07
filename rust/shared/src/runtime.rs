@@ -401,7 +401,24 @@ pub fn ball_string_to_double(value: BallValue) -> BallValue {
 // field_access / index / iteration — read paths
 // ════════════════════════════════════════════════════════════
 
+/// **Virtual properties** — issue #38's enum emission needs `<Enum>.values`
+/// (a `List`) and `.length` on it (`Color.values.length`), which is a
+/// `field_access` on a `List`, not a `std_collections.list_length` *call*.
+/// Only `"length"` is implemented (the one virtual property #38's required
+/// fixtures exercise); `Map`/`Message` are deliberately excluded from this
+/// fast path so a real map/message key literally named `"length"` is never
+/// shadowed — it still resolves through the ordinary field-map lookup below.
+/// A fuller virtual-property surface (`.isEmpty`, `.first`, ...) is future
+/// work, same shape as every other documented scope boundary in this module.
 pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
+    if field == "length" {
+        match &value {
+            BallValue::List(list) => return BallValue::Int(list.len() as i64),
+            BallValue::String(s) => return BallValue::Int(s.chars().count() as i64),
+            BallValue::Bytes(b) => return BallValue::Int(b.len() as i64),
+            _ => {}
+        }
+    }
     match value {
         BallValue::Map(map) => map.get(field).cloned().unwrap_or(BallValue::Null),
         BallValue::Message(message) => message
@@ -410,6 +427,26 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             .cloned()
             .unwrap_or(BallValue::Null),
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
+    }
+}
+
+/// The `type_name` tag of a `BallValue::Message` — the receiver's *actual*
+/// runtime class, read by the compiler's per-method-name dispatcher (issue
+/// #38: `main:Circle.area`/`main:Rectangle.area` share the short name
+/// `area`, so a call site that only knows it has *some* `Shape` can't be
+/// resolved to one concrete Rust function at compile time the way a real
+/// vtable would — `compile_method_dispatchers`, in `rust/compiler/src/lib.rs`,
+/// emits one free `area(input)` function per short name that matches on this
+/// tag and routes to the right `impl <Type>::area`). A non-`Message`
+/// receiver has no `type_name` to dispatch on at all — that's always a
+/// malformed program (a method call on a value that was never constructed
+/// as a typed instance), so this fails loud rather than guessing.
+pub fn ball_message_type_name(value: &BallValue) -> String {
+    match value {
+        BallValue::Message(message) => message.type_name.clone(),
+        other => panic!(
+            "ball-compiler runtime: method call on a non-message value (no type to dispatch on): {other:?}"
+        ),
     }
 }
 
@@ -1516,6 +1553,49 @@ mod tests {
             set,
             BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)])
         );
+    }
+
+    // ── virtual properties / method dispatch tag (issue #38) ──
+    #[test]
+    fn field_get_length_is_a_virtual_property_on_list_string_and_bytes() {
+        let list = BallValue::List(vec![
+            BallValue::Int(1),
+            BallValue::Int(2),
+            BallValue::Int(3),
+        ]);
+        assert_eq!(ball_field_get(list, "length"), BallValue::Int(3));
+        assert_eq!(
+            ball_field_get(BallValue::String("héllo".into()), "length"),
+            BallValue::Int(5)
+        );
+        assert_eq!(
+            ball_field_get(BallValue::Bytes(vec![1, 2]), "length"),
+            BallValue::Int(2)
+        );
+    }
+
+    #[test]
+    fn field_get_length_does_not_shadow_a_real_map_or_message_key() {
+        let mut map = BallMap::new();
+        map.insert(
+            "length".to_string(),
+            BallValue::String("not a count".into()),
+        );
+        assert_eq!(
+            ball_field_get(BallValue::Map(map), "length"),
+            BallValue::String("not a count".into())
+        );
+    }
+
+    #[test]
+    fn message_type_name_reads_the_tag_used_for_method_dispatch() {
+        let mut fields = BallMap::new();
+        fields.insert("radius".to_string(), BallValue::Double(5.0));
+        let circle = BallValue::Message(crate::value::BallMessage {
+            type_name: "main:Circle".to_string(),
+            fields,
+        });
+        assert_eq!(ball_message_type_name(&circle), "main:Circle");
     }
 
     // ── throw / catch payload ──

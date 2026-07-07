@@ -1,0 +1,11 @@
+[package]
+name = "ball-encoder"
+description = "Rust -> Ball encoder."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ball-shared = { workspace = true }

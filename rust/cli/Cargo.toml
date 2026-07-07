@@ -1,0 +1,18 @@
+[package]
+name = "ball-cli"
+description = "Ball CLI (run/compile/encode/check) for the Rust implementation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ball"
+path = "src/main.rs"
+
+[dependencies]
+ball-shared = { workspace = true }
+ball-compiler = { workspace = true }
+ball-encoder = { workspace = true }
+ball-engine = { workspace = true }

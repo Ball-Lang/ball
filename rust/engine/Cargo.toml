@@ -1,0 +1,11 @@
+[package]
+name = "ball-engine"
+description = "Ball engine (self-hosted, compiled from dart/self_host/engine.ball.json)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ball-shared = { workspace = true }

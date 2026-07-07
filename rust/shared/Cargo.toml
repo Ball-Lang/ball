@@ -1,0 +1,10 @@
+[package]
+name = "ball-shared"
+description = "Ball protobuf bindings and shared runtime types (BallValue/BallList/BallMap/BallFunction) for the Rust implementation."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]

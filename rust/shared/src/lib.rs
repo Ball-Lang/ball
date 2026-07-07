@@ -4,14 +4,29 @@
 //! Phase 1b (issue #34) wires up the generated protobuf bindings for
 //! `proto/ball/v1/ball.proto` plus a lazily-initialized
 //! [`prost_reflect::DescriptorPool`] singleton built from the embedded
-//! `FILE_DESCRIPTOR_SET`. Phase 1a's runtime value types (`BallValue`,
-//! `BallList`, `BallMap`, `BallFunction`, issue #35) still live ahead.
+//! `FILE_DESCRIPTOR_SET`. Phase 1c (issue #35) adds the runtime value model
+//! (`BallValue`/`BallList`/`BallMap`/`BallFunction`, see [`value`]) and the
+//! universal std module builders (`std`, `std_collections`, `std_io`,
+//! `std_memory`) that the compiler, encoder, and engine all consume.
 //!
 //! See `.claude/skills/new-ball-language/SKILL.md` for the full bootstrap
 //! playbook this crate is part of.
 
 use prost_reflect::DescriptorPool;
 use std::sync::LazyLock;
+
+mod descriptor_builders;
+mod std_collections_module;
+mod std_io_module;
+mod std_memory_module;
+mod std_module;
+pub mod value;
+
+pub use std_collections_module::build_std_collections_module;
+pub use std_io_module::build_std_io_module;
+pub use std_memory_module::build_std_memory_module;
+pub use std_module::build_std_module;
+pub use value::{BallFunction, BallList, BallMap, BallMessage, BallValue, extract_fields};
 
 /// Generated protobuf bindings for `proto/ball/v1/ball.proto`.
 ///

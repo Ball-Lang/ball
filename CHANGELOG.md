@@ -1,3 +1,10 @@
+## [1.7.9](https://github.com/Ball-Lang/ball/compare/v1.7.8...v1.7.9) (2026-07-07)
+
+
+### Bug Fixes
+
+* **engine:** Phase-2c coverage residual triage (issue [#261](https://github.com/Ball-Lang/ball/issues/261)) ([#271](https://github.com/Ball-Lang/ball/issues/271)) ([265c3c5](https://github.com/Ball-Lang/ball/commit/265c3c5e27c098abe360cf4de6a24b07107d03ab)), closes [#61](https://github.com/Ball-Lang/ball/issues/61)
+
 ## [1.7.8](https://github.com/Ball-Lang/ball/compare/v1.7.7...v1.7.8) (2026-07-06)
 
 

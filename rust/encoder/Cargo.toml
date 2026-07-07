@@ -9,3 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 ball-shared = { workspace = true }
+syn = { workspace = true }
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+
+[dev-dependencies]
+ball-compiler = { workspace = true }

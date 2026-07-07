@@ -36,3 +36,13 @@ prost-reflect = "0.16.4"
 # C++ self-host mirrors it with `BallOrderedMap` — `indexmap::IndexMap`
 # gives Rust the same guarantee (build -> iterate preserves insertion order).
 indexmap = "2"
+
+# Rust source parser for `ball-encoder` (issue #42) — the Rust analog of the
+# TS encoder's TS-Compiler-API / the Dart encoder's `analyzer`. `features =
+# ["full"]` is required for statement/expression parsing (the default
+# feature set only covers items); `proc-macro2` supplies the `Span`-bearing
+# token types `syn`'s AST nodes are built from (needed to read literal
+# values off `syn::Lit` tokens).
+syn = { version = "2", features = ["full", "extra-traits"] }
+proc-macro2 = "1"
+quote = "1"

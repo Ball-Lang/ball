@@ -430,6 +430,36 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
     }
 }
 
+/// Read a call argument out of a function/method's single `input` message
+/// (invariant #1), preferring the parameter's declared **name** and falling
+/// back to its **positional slot** (`arg0`/`arg1`/…). The reference encoders
+/// name a *positional* argument `arg{i}` (`dart/encoder/lib/encoder.dart`'s
+/// `_encodeArgList`), so that is the common path; but a hand-authored program
+/// (or a future encoder) may instead pass it under the parameter's own name,
+/// and the self-hosted engine's own `_evalLambda` positional binding resolves
+/// exactly this either-or (`input[paramName] ?? input['arg'+i]`), so the
+/// compiled parameter prologue mirrors it. When neither key is present the
+/// argument was omitted (an optional parameter with no supplied value) → Null.
+/// A non-message `input` never carries multiple arguments (a lone positional
+/// argument is passed *directly*, bound without this helper), so it likewise
+/// yields Null rather than panicking.
+pub fn ball_arg_get(input: BallValue, named_key: &str, positional_key: &str) -> BallValue {
+    match &input {
+        BallValue::Map(map) => map
+            .get(named_key)
+            .or_else(|| map.get(positional_key))
+            .cloned()
+            .unwrap_or(BallValue::Null),
+        BallValue::Message(message) => message
+            .fields
+            .get(named_key)
+            .or_else(|| message.fields.get(positional_key))
+            .cloned()
+            .unwrap_or(BallValue::Null),
+        _ => BallValue::Null,
+    }
+}
+
 /// The `type_name` tag of a `BallValue::Message` — the receiver's *actual*
 /// runtime class, read by the compiler's per-method-name dispatcher (issue
 /// #38: `main:Circle.area`/`main:Rectangle.area` share the short name

@@ -1463,6 +1463,235 @@ fn receiver_less_associated_function_compiles_and_runs() {
 }
 
 // ════════════════════════════════════════════════════════════
+// #39 — named/optional-parameter + multi-parameter binding
+// (`params_binding_prologue`, self-host gap)
+// ════════════════════════════════════════════════════════════
+
+/// `metadata.params = [{name, is_named}]` — like [`params_meta_value`], but
+/// each entry can be flagged a **named** parameter (Dart's `{x}` form), which
+/// [`Compiler::params_binding_prologue`] binds by name rather than by
+/// positional `arg{i}` slot.
+fn params_meta_flagged(params: &[(&str, bool)]) -> Value {
+    Value {
+        kind: Some(Kind::ListValue(ListValue {
+            values: params
+                .iter()
+                .map(|(name, is_named)| {
+                    let mut fields = HashMap::new();
+                    fields.insert(
+                        "name".to_string(),
+                        Value {
+                            kind: Some(Kind::StringValue(name.to_string())),
+                        },
+                    );
+                    if *is_named {
+                        fields.insert(
+                            "is_named".to_string(),
+                            Value {
+                                kind: Some(Kind::BoolValue(true)),
+                            },
+                        );
+                    }
+                    Value {
+                        kind: Some(Kind::StructValue(Struct { fields })),
+                    }
+                })
+                .collect(),
+        })),
+    }
+}
+
+/// `metadata.params = [...]` for a free function (no `kind`/`is_static`).
+fn free_fn_meta(params: &[(&str, bool)]) -> Struct {
+    let mut fields = HashMap::new();
+    fields.insert("params".to_string(), params_meta_flagged(params));
+    Struct { fields }
+}
+
+/// `metadata.kind = "method"`, `metadata.params = [...]`, **no** `is_static`
+/// — an instance member whose `input` is the `{self, arg0, …}` message an
+/// instance-method call packs.
+fn instance_method_meta(params: &[(&str, bool)]) -> Struct {
+    let mut fields = HashMap::new();
+    fields.insert(
+        "kind".to_string(),
+        Value {
+            kind: Some(Kind::StringValue("method".to_string())),
+        },
+    );
+    fields.insert("params".to_string(), params_meta_flagged(params));
+    Struct { fields }
+}
+
+/// Issue #39 — named/optional + multi-parameter binding
+/// ([`Compiler::params_binding_prologue`]). Invariant #1 gives every function
+/// a single `input`, so the reference encoders pack any *multi-argument* call
+/// into a `{arg0, arg1, …}` (positional) / `{name: …}` (named) message
+/// (`dart/encoder/lib/encoder.dart`'s `_encodeArgList` + `_setCallInput`).
+/// Before this fix the compiler only aliased a lone positional parameter
+/// (`let n = input.clone();`) and bound every *other* parameter by its literal
+/// name — so positional arguments arriving as `arg0`/`arg1` never resolved,
+/// and the self-hosted engine's `ballObjectSetField(target, fieldName, val)`,
+/// `_mathAtan2(a, b)`, and `setField(name, value)` all referenced unbound
+/// names (`error[E0425]: cannot find value`).
+///
+/// This fixture exercises every arm of the binding, then runs the result:
+/// - a **three-positional-parameter** free function (`sum3(a, b, c)`), called
+///   with the encoder's `arg0`/`arg1`/`arg2` convention;
+/// - a **named parameter** (`scale(value, {factor})`), called by name;
+/// - an **instance method with two positional parameters**
+///   (`Box.combineWith(a, b)`, reading its own `base` field), whose `input` is
+///   the `{self, arg0, arg1}` message an instance-method call packs — the same
+///   shape a setter like `BallObject.setField(name, value)` relies on.
+#[test]
+fn named_and_positional_parameters_bind_and_run() {
+    // sum3(a, b, c) => (a + b) + c
+    let sum3 = FunctionDefinition {
+        name: "sum3".to_string(),
+        input_type: String::new(),
+        output_type: "int".to_string(),
+        body: Some(Box::new(bin_call(
+            "add",
+            bin_call("add", reference("a"), reference("b")),
+            reference("c"),
+        ))),
+        description: String::new(),
+        is_base: false,
+        metadata: Some(free_fn_meta(&[("a", false), ("b", false), ("c", false)])),
+    };
+
+    // scale(value, {factor}) => value * factor
+    let scale = FunctionDefinition {
+        name: "scale".to_string(),
+        input_type: String::new(),
+        output_type: "int".to_string(),
+        body: Some(Box::new(bin_call(
+            "multiply",
+            reference("value"),
+            reference("factor"),
+        ))),
+        description: String::new(),
+        is_base: false,
+        metadata: Some(free_fn_meta(&[("value", false), ("factor", true)])),
+    };
+
+    // Box.combineWith(a, b) => (base + a) + b  (base is an instance field)
+    let combine = FunctionDefinition {
+        name: "main:Box.combineWith".to_string(),
+        input_type: String::new(),
+        output_type: "int".to_string(),
+        body: Some(Box::new(bin_call(
+            "add",
+            bin_call("add", reference("base"), reference("a")),
+            reference("b"),
+        ))),
+        description: String::new(),
+        is_base: false,
+        metadata: Some(instance_method_meta(&[("a", false), ("b", false)])),
+    };
+
+    let box_type = TypeDefinition {
+        name: "main:Box".to_string(),
+        descriptor: Some(DescriptorProto {
+            name: Some("main:Box".to_string()),
+            field: vec![int_field_descriptor("base", 1)],
+            ..Default::default()
+        }),
+        type_params: vec![],
+        description: "Class metadata for main:Box".to_string(),
+        metadata: None,
+    };
+
+    let main_body = block(
+        vec![
+            let_stmt(
+                "s",
+                call(
+                    "",
+                    "sum3",
+                    Some(args(vec![
+                        ("arg0", int_lit(1)),
+                        ("arg1", int_lit(2)),
+                        ("arg2", int_lit(3)),
+                    ])),
+                ),
+            ),
+            let_stmt(
+                "t",
+                call(
+                    "",
+                    "scale",
+                    Some(args(vec![("arg0", int_lit(5)), ("factor", int_lit(3))])),
+                ),
+            ),
+            let_stmt("b", message("main:Box", vec![("base", int_lit(100))])),
+            let_stmt(
+                "u",
+                call(
+                    "",
+                    "combineWith",
+                    Some(args(vec![
+                        ("self", reference("b")),
+                        ("arg0", int_lit(10)),
+                        ("arg1", int_lit(20)),
+                    ])),
+                ),
+            ),
+        ],
+        // 6 + 15 + 130 = 151
+        print_to_string(bin_call(
+            "add",
+            bin_call("add", reference("s"), reference("t")),
+            reference("u"),
+        )),
+    );
+
+    let program = Program {
+        name: "test".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![
+                    sum3,
+                    scale,
+                    combine,
+                    user_fn("main", "", "void", main_body, None),
+                ],
+                type_defs: vec![box_type],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: "main".to_string(),
+        metadata: None,
+    };
+
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        compiled.contains("ball_arg_get(input.clone(), \"a\", \"arg0\")"),
+        "a positional parameter must bind from its `arg{{i}}` slot (preferring \
+         its name), not by its literal name alone:\n{compiled}"
+    );
+    assert!(
+        compiled.contains("ball_field_get(input.clone(), \"factor\")"),
+        "a named parameter must bind by its own name:\n{compiled}"
+    );
+
+    let stdout = compile_and_run("named_positional_params", &compiled);
+    assert_eq!(
+        stdout.trim(),
+        "151",
+        "fixture 'named_positional_params' produced unexpected stdout.\n--- generated main.rs ---\n{compiled}"
+    );
+}
+
+// ════════════════════════════════════════════════════════════
 // #39 — oneof-discriminator enum constants (self-host gap)
 // ════════════════════════════════════════════════════════════
 

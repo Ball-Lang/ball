@@ -70,9 +70,20 @@ fn finish(dynamic: DynamicMessage) -> Result<(Program, BallValue), EngineError> 
     let program = Program::decode(dynamic.encode_to_vec().as_slice())
         .map_err(|e| EngineError::Parse(format!("typed decode failed: {e}")))?;
 
+    // `skip_default_fields(false)` populates every proto3 default in the view —
+    // an absent repeated field serializes as `[]`, an absent string as `""`,
+    // etc. — matching how the Dart reference engine reads the program (its
+    // protobuf getters always return a field's default, never null). A oneof
+    // member and a singular message field keep proto3 presence semantics (only
+    // the set oneof arm / a set message is serialized), so `whichExpr`/`hasBody`
+    // discriminators are unaffected. Without this, an empty list literal `[]`
+    // (whose `ListLiteral.elements` is an omitted empty repeated) read back as
+    // `null`, and `listVal.elements.length` panicked — the TS engine's
+    // `protoWrap` `REPEATED_DEFAULTS`/`STRING_DEFAULTS` normalization is the same
+    // fix, done selectively; prost-reflect does it schema-completely.
     let options = SerializeOptions::new()
         .use_proto_field_name(false)
-        .skip_default_fields(true);
+        .skip_default_fields(false);
     let mut serializer = serde_json::Serializer::new(Vec::new());
     dynamic
         .serialize_with_options(&mut serializer, &options)

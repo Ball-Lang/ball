@@ -52,8 +52,8 @@ feature and `BallEngine::run` returns `EngineError::SelfHostPending` in the
 default build. `cargo build -p ball-engine` / `cargo test -p ball-engine` are
 green on the foundation.
 
-Compiling the whole 289-function engine currently produces ~348 `rustc` errors
-(down from ~414), because the self-hosted engine is authored against the full
+Compiling the whole 289-function engine currently produces ~326 `rustc` errors
+(down from ~348), because the self-hosted engine is authored against the full
 Dart SDK surface. The blocking compiler gaps (each a separate follow-up issue):
 
 1. **Protobuf oneof-discriminator enum constants** — RESOLVED (71 errors, was
@@ -79,10 +79,26 @@ Dart SDK surface. The blocking compiler gaps (each a separate follow-up issue):
    `ball_unsupported_base_call("ball_proto", "whichExpr")`; it must route these
    16 `ball_proto` + 4 `std_convert` functions to runtime helpers (the wrapper
    already implements the `ball_proto` semantics in `src/ball_proto.rs`).
-4. **Named/optional-parameter + getter/setter dispatch** (~40 errors) — method
-   bodies reference named params and instance getters (`self_`,
-   `enableProfiling`, `entries`, `target`) the current `method_prologue`
-   doesn't bind.
+4. **Named/optional-parameter binding** — RESOLVED (22 errors). A multi-argument
+   call packs its arguments into one `input` message (invariant #1) as `arg0`,
+   `arg1`, … (positional) / `<name>` (named — `dart/encoder/lib/encoder.dart`'s
+   `_encodeArgList` + `_setCallInput`); before this fix only a lone positional
+   parameter was aliased (`let n = input.clone();`) and every other parameter was
+   bound by its literal name, so positional arguments arriving as `argN` never
+   resolved (`ballObjectSetField(target, fieldName, val)`, `_mathAtan2(a, b)`,
+   `setField(name, value)` all `error[E0425]: cannot find value`). Fixed by
+   `type_emit::params_binding_prologue` (shared by `method_prologue` and
+   `param_alias_prologue`): a positional parameter binds via the new
+   `ball_shared::runtime::ball_arg_get(input, name, "arg{i}")` runtime helper
+   (prefers the parameter's name, falls back to its `arg{i}` slot — matching the
+   TS self-host `_evalLambda` binding), a named parameter binds by name, and a
+   receiver-less function's lone positional argument still binds directly. The
+   remaining "getter" cases the old note lumped here are **not** parameter
+   binding: `entries` is a field *inherited* from `BallObject`'s superclass
+   `BallMap` (gap #5, super-inheritance), and `self_`/`enableProfiling`/
+   `_callCounts`/`_initialized` are references in the `BallEngine.new` **constructor
+   body** (also gap #5). `stackTrace` is a `try`/`catch (e, st)` secondary
+   binding (a distinct try-handling gap).
 5. **Constructor initializers + super-constructor inheritance** — `BallEngine.new`
    carries `metadata.initializers`; `StdModuleHandler extends BallModuleHandler`
    needs super-constructor invocation and inherited-field handling the current

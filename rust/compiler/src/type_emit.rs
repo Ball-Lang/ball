@@ -586,24 +586,122 @@ impl Compiler<'_> {
                 }
             }
         }
-        if let Some(meta) = &func.metadata {
-            if let Some(params) = meta_list_value(meta, "params") {
-                for param in params {
-                    let Some(Kind::StructValue(param_struct)) = &param.kind else {
-                        continue;
-                    };
-                    let Some(name) = meta_string_value(param_struct, "name") else {
-                        continue;
-                    };
-                    if name.is_empty() || name == "self" {
-                        continue;
-                    }
-                    out.push_str(&format!(
-                        "        let {} = ball_field_get(input.clone(), {name:?});\n",
-                        crate::sanitize_ident(&name)
-                    ));
-                }
+        // Bind every declared parameter beyond the receiver. A static member
+        // has no receiver, so its lone positional argument (if any) is passed
+        // *directly* — exactly like a free function (`single_positional_is_direct`);
+        // an instance member's `input` is always the `{self, arg0, …}` message
+        // the reference encoders emit, so each parameter is a field of it.
+        out.push_str(&self.params_binding_prologue(func, func_meta_bool(func, "is_static")));
+        out
+    }
+
+    /// Emit the `let`-bindings that destructure a function/method's single
+    /// `input` (invariant #1) into each declared parameter, per the reference
+    /// encoders' call-site convention (`dart/encoder/lib/encoder.dart`'s
+    /// `_encodeArgList` + `_setCallInput`):
+    ///
+    /// - A **positional** parameter arrives as an `arg0`/`arg1`/… field of the
+    ///   `input` message (positional index, the `self` receiver excluded), so
+    ///   it binds via `ball_field_get(input, "arg{i}")`.
+    /// - A **named** parameter (`is_named`/`is_required_named`/
+    ///   `is_optional_named` — Dart's `{x}` / `{required x}` / optional-named
+    ///   forms) arrives under its own name, so it binds via
+    ///   `ball_field_get(input, "<name>")`.
+    /// - The `self` receiver (bound separately as `self_` by
+    ///   [`Compiler::method_prologue`]) is skipped and never counts toward the
+    ///   positional index.
+    ///
+    /// When `single_positional_is_direct` is set — a free function, a lambda,
+    /// or a *static* (receiver-less) member — and the function declares exactly
+    /// one positional, non-`self` parameter, the encoder passes that lone
+    /// argument *directly* rather than wrapped in a message (`_setCallInput`'s
+    /// `args.length == 1 && arg0` branch), so it binds `let <name> =
+    /// input.clone();`. An instance method always receives the `{self, arg0, …}`
+    /// message, so it passes `false` and extracts every parameter from a field.
+    ///
+    /// Each binding is `let mut` when [`Compiler::expr_mutates_var`] finds the
+    /// body reassigning that parameter (a counter/accumulator/out-parameter
+    /// shape — issue #287), so a self-reassigning parameter doesn't hit Rust's
+    /// "cannot assign twice to immutable variable"/"cannot borrow as mutable".
+    pub(crate) fn params_binding_prologue(
+        &self,
+        func: &FunctionDefinition,
+        single_positional_is_direct: bool,
+    ) -> String {
+        let Some(meta) = &func.metadata else {
+            return String::new();
+        };
+        let Some(params) = meta_list_value(meta, "params") else {
+            return String::new();
+        };
+        // (name, is_named) for each parameter beyond the implicit receiver, in
+        // declaration order.
+        let mut decls: Vec<(String, bool)> = Vec::new();
+        for param in params {
+            let Some(Kind::StructValue(param_struct)) = &param.kind else {
+                continue;
+            };
+            let Some(name) = meta_string_value(param_struct, "name") else {
+                continue;
+            };
+            if name.is_empty() || name == "self" {
+                continue;
             }
+            let is_named = meta_bool_value(param_struct, "is_named")
+                || meta_bool_value(param_struct, "is_required_named")
+                || meta_bool_value(param_struct, "is_optional_named");
+            decls.push((name, is_named));
+        }
+        if decls.is_empty() {
+            return String::new();
+        }
+
+        let keyword = |name: &str| {
+            let mutates = func
+                .body
+                .as_deref()
+                .is_some_and(|body| self.expr_mutates_var(body, name));
+            if mutates { "let mut" } else { "let" }
+        };
+
+        // The lone positional argument of a receiver-less function is passed
+        // directly, so `input` *is* that value — mirrors
+        // [`Compiler::param_alias_prologue`]'s original single-parameter path
+        // and the `name == "input"` short-circuit (the body already reads the
+        // Rust `input` parameter).
+        if single_positional_is_direct && decls.len() == 1 && !decls[0].1 {
+            let name = &decls[0].0;
+            if name == "input" {
+                return String::new();
+            }
+            return format!(
+                "{} {} = input.clone();\n",
+                keyword(name),
+                crate::sanitize_ident(name)
+            );
+        }
+
+        let mut out = String::new();
+        let mut positional_index = 0;
+        for (name, is_named) in &decls {
+            // A named argument always arrives under its own name; a positional
+            // one arrives as `arg{i}` but may be passed by name instead (see
+            // [`ball_shared::runtime::ball_arg_get`]).
+            let getter = if *is_named {
+                format!("ball_field_get(input.clone(), {name:?})")
+            } else {
+                let positional_key = format!("arg{positional_index}");
+                positional_index += 1;
+                format!("ball_arg_get(input.clone(), {name:?}, {positional_key:?})")
+            };
+            if name == "input" {
+                continue;
+            }
+            out.push_str(&format!(
+                "{} {} = {getter};\n",
+                keyword(name),
+                crate::sanitize_ident(name)
+            ));
         }
         out
     }

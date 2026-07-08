@@ -87,7 +87,6 @@ use ball_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FunctionDefinition, Literal, MessageCreation, Module, Program,
     Reference,
 };
-use ball_shared::proto::google::protobuf::value::Kind;
 
 mod base_call;
 mod lvalue;
@@ -376,56 +375,23 @@ impl<'a> Compiler<'a> {
         format!("fn main() {{\n{prologue}let _ballvalue_result: BallValue = {body};\n}}\n")
     }
 
-    /// If `func.metadata.params` names exactly one positional parameter
-    /// (the shape every reference compiler's encoder emits for a normal
-    /// single-argument function — see `dart/compiler/lib/compiler.dart`'s
-    /// `_addParameters`), emit `let <name> = input.clone();` so the body's
-    /// references to that original name resolve. Richer parameter shapes
-    /// (multiple/named/optional parameters, which need real typed
-    /// destructuring of the input message) are `TypeDefinition`/descriptor
-    /// work deferred to #38 — functions with zero or more-than-one declared
-    /// parameters simply get no alias, and their bodies must reference
-    /// `"input"` directly.
-    ///
-    /// The binding is `let mut` (rather than a plain `let`) whenever
-    /// [`Compiler::expr_mutates_var`] finds the body reassigning its own
-    /// parameter (a counter/accumulator-style function that treats its
-    /// parameter as a local variable, e.g. `assign(target: n, ...)` or
-    /// `n += 1` inside `func`'s body) — the same detection
-    /// [`Compiler::compile_block`] already uses for `let`-bindings, applied
-    /// here so a self-reassigning parameter alias doesn't hit Rust's "cannot
-    /// assign twice to immutable variable" (issue #287).
+    /// Emit the `let`-bindings a free function's (or lambda's) body needs to
+    /// resolve its declared parameter names — a thin wrapper over the shared
+    /// [`Compiler::params_binding_prologue`], which handles the full
+    /// convention: a lone positional argument passed directly
+    /// (`let <name> = input.clone();`, the common single-argument shape like
+    /// `fibonacci`'s `n`), multiple positional arguments destructured from the
+    /// input message's `arg0`/`arg1`/… fields, and named/optional-named
+    /// arguments destructured by their own name — each `let mut` when the body
+    /// reassigns it (issue #287). A receiver-less function is always the
+    /// "single positional argument passed directly" case for one argument,
+    /// hence `single_positional_is_direct = true`.
     fn param_alias_prologue(&self, func: &FunctionDefinition) -> String {
-        let Some(metadata) = &func.metadata else {
-            return String::new();
-        };
-        let Some(params_value) = metadata.fields.get("params") else {
-            return String::new();
-        };
-        let Some(Kind::ListValue(list)) = &params_value.kind else {
-            return String::new();
-        };
-        if list.values.len() != 1 {
-            return String::new();
-        }
-        let Some(Kind::StructValue(param_struct)) = &list.values[0].kind else {
-            return String::new();
-        };
-        let Some(name_value) = param_struct.fields.get("name") else {
-            return String::new();
-        };
-        let Some(Kind::StringValue(name)) = &name_value.kind else {
-            return String::new();
-        };
-        if name.is_empty() || name == "input" {
-            return String::new();
-        }
-        let mutates = func
-            .body
-            .as_deref()
-            .is_some_and(|body| self.expr_mutates_var(body, name));
-        let keyword = if mutates { "let mut" } else { "let" };
-        format!("{keyword} {} = input.clone();\n", sanitize_ident(name))
+        // A free function/lambda has no receiver, so its lone positional
+        // argument is passed directly (see [`Compiler::params_binding_prologue`]
+        // for the full multi/named-parameter convention this shares with
+        // [`Compiler::method_prologue`]).
+        self.params_binding_prologue(func, true)
     }
 
     // ════════════════════════════════════════════════════════════
@@ -738,6 +704,7 @@ mod tests {
     use ball_shared::proto::ball::v1::{
         FieldValuePair, FunctionCall, ListLiteral, Literal as LiteralMsg, Module,
     };
+    use ball_shared::proto::google::protobuf::value::Kind;
     use ball_shared::proto::google::protobuf::{ListValue, Struct, Value};
 
     fn program_with_std() -> Program {

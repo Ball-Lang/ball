@@ -131,6 +131,13 @@ fn ball_type_name(value: &BallValue) -> &'static str {
 pub fn ball_truthy(value: BallValue) -> bool {
     match value {
         BallValue::Bool(b) => b,
+        // An **absent proto3 bool field** reads as `Null` in the JSON view
+        // (`ball_field_get` on a missing key), but its value is `false` — the
+        // self-hosted engine tests `func.isBase`/`func.metadata.…` proto bools
+        // that a minimal program omits. `Null` is falsy (matching proto3
+        // defaults and the reference engines' JS/Dart truthiness, where an
+        // absent/`null` condition is falsy), rather than a hard error.
+        BallValue::Null => false,
         other => panic!("ball-compiler runtime: expected a bool condition, got {other:?}"),
     }
 }
@@ -201,6 +208,23 @@ pub fn ball_with_self(input: BallValue, self_value: BallValue) -> BallValue {
         }
         other => other,
     }
+}
+
+/// Implicit-`this` injection for a **single positional argument** (issue #300):
+/// `this.method(arg)` where the encoder passes `arg` *directly* (the
+/// single-positional-direct convention) rather than in an `{arg0: …}` message.
+/// The instance-method dispatcher reads its receiver from `self` and its lone
+/// parameter from `arg0`, so the argument must be wrapped as `{self, arg0:
+/// arg}` — **not** merged into `arg` by [`ball_with_self`] (which, for a
+/// message/map argument like `func.body`, would bury `arg0` and leave the
+/// method's parameter `Null`). Used only when the call's input is a single
+/// direct positional (not a multi-argument `{arg0, arg1}` message, which
+/// [`ball_with_self`] handles, nor a zero-argument call).
+pub fn ball_arg0_with_self(arg: BallValue, self_value: BallValue) -> BallValue {
+    let mut map = BallMap::with_capacity(2);
+    map.insert("self".to_string(), self_value);
+    map.insert("arg0".to_string(), arg);
+    BallValue::Map(map)
 }
 
 // ════════════════════════════════════════════════════════════
@@ -473,16 +497,82 @@ pub fn ball_string_to_double(value: BallValue) -> BallValue {
 /// A fuller virtual-property surface (`.isEmpty`, `.first`, ...) is future
 /// work, same shape as every other documented scope boundary in this module.
 pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
+    if field == "runtimeType" {
+        // Dart's `.runtimeType` — a `Type`; the value model surfaces it as the
+        // type-name string (used for `x.runtimeType == y.runtimeType` and
+        // `'$x.runtimeType'`). A message reports its own `TypeDefinition` name.
+        let name = match &value {
+            BallValue::Null => "Null".to_string(),
+            BallValue::Bool(_) => "bool".to_string(),
+            BallValue::Int(_) => "int".to_string(),
+            BallValue::Double(_) => "double".to_string(),
+            BallValue::String(_) => "String".to_string(),
+            BallValue::Bytes(_) => "List<int>".to_string(),
+            BallValue::List(_) => "List".to_string(),
+            BallValue::Map(_) => "Map".to_string(),
+            BallValue::Function(_) => "Function".to_string(),
+            BallValue::Message(message) => message
+                .type_name
+                .rsplit(':')
+                .next()
+                .unwrap_or("")
+                .to_string(),
+        };
+        return BallValue::String(name);
+    }
     if field == "length" {
         match &value {
             BallValue::List(list) => return BallValue::Int(list.len() as i64),
             BallValue::String(s) => return BallValue::Int(s.chars().count() as i64),
             BallValue::Bytes(b) => return BallValue::Int(b.len() as i64),
+            // `Map`/`Message` are deliberately *not* in this fast path — a real
+            // key literally named `"length"` must not be shadowed; a map/message
+            // `.length` resolves as a virtual property below, after the real-key
+            // lookup.
             _ => {}
         }
     }
     match value {
-        BallValue::Map(map) => map.get(field).cloned().unwrap_or(BallValue::Null),
+        BallValue::Map(map) => {
+            // A real key wins; otherwise resolve a **virtual collection
+            // property** (`.entries`/`.keys`/`.values`/`.isEmpty`/`.length`),
+            // the way a Dart `Map` exposes them. The self-hosted engine iterates
+            // `dispatch.entries`, `metadata.keys`, … as bare field accesses
+            // rather than `std_collections` calls (issue #300).
+            if let Some(existing) = map.get(field) {
+                return existing.clone();
+            }
+            match field {
+                "length" => BallValue::Int(map.len() as i64),
+                "entries" => BallValue::List(
+                    map.into_iter()
+                        .map(|(k, v)| {
+                            let mut entry = BallMap::with_capacity(2);
+                            entry.insert("key".to_string(), BallValue::String(k));
+                            entry.insert("value".to_string(), v);
+                            BallValue::Map(entry)
+                        })
+                        .collect(),
+                ),
+                "keys" => BallValue::List(map.into_keys().map(BallValue::String).collect()),
+                "values" => BallValue::List(map.into_values().collect()),
+                "isEmpty" => BallValue::Bool(map.is_empty()),
+                "isNotEmpty" => BallValue::Bool(!map.is_empty()),
+                _ => BallValue::Null,
+            }
+        }
+        BallValue::List(list) => match field {
+            "isEmpty" => BallValue::Bool(list.is_empty()),
+            "isNotEmpty" => BallValue::Bool(!list.is_empty()),
+            "first" => list.first().cloned().unwrap_or(BallValue::Null),
+            "last" => list.last().cloned().unwrap_or(BallValue::Null),
+            _ => panic!("ball-compiler runtime: field access '{field}' on a list"),
+        },
+        BallValue::String(s) => match field {
+            "isEmpty" => BallValue::Bool(s.is_empty()),
+            "isNotEmpty" => BallValue::Bool(!s.is_empty()),
+            _ => panic!("ball-compiler runtime: field access '{field}' on a string"),
+        },
         BallValue::Message(message) => message.get(field).unwrap_or(BallValue::Null),
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
     }
@@ -636,6 +726,13 @@ pub fn ball_iterate(value: BallValue) -> BallList {
             .into_iter()
             .map(|(k, v)| BallValue::List(vec![BallValue::String(k), v]))
             .collect(),
+        // An **absent proto3 repeated field** reads as `Null` in the JSON view
+        // (`ball_field_get` on a missing key), but its value is the empty list
+        // — the self-hosted engine iterates `module.enums`/`func.metadata`/…
+        // proto repeated fields that a minimal program omits. Iterating `Null`
+        // as empty matches proto3 semantics (and the reference engines, which
+        // see a real `[]`), rather than throwing.
+        BallValue::Null => Vec::new(),
         other => panic!("ball-compiler runtime: '{other:?}' is not iterable"),
     }
 }
@@ -649,18 +746,88 @@ pub fn ball_iterate(value: BallValue) -> BallList {
 // against a `TypeDefinition`'s `superclass`/`interfaces`) needs the type
 // emission #38 adds — until then, an unrecognized (user) type name matches
 // only an exact `Message.type_name` tag.
+/// Class-hierarchy registry (issue #300): child short name → parent short name.
+/// Populated once by the compiled program's `__ball_register_types()` (emitted
+/// from each `TypeDefinition.metadata.superclass`), so a runtime `is`/`as`
+/// against a *supertype* (`BallObject extends BallMap` ⇒ `instance is BallMap`)
+/// resolves — the class hierarchy is compile-time metadata the value model
+/// alone cannot see.
+static SUPERCLASSES: std::sync::LazyLock<
+    std::sync::RwLock<std::collections::HashMap<String, String>>,
+> = std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
+/// Register that `child` (short class name) extends `parent` (short name).
+pub fn ball_register_superclass(child: &str, parent: &str) {
+    SUPERCLASSES
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(child.to_string(), parent.to_string());
+}
+
+/// The short (unqualified) part of a possibly-qualified type name
+/// (`main:BallObject` → `BallObject`).
+fn short_type_name(name: &str) -> &str {
+    name.rsplit(':').next().unwrap_or(name)
+}
+
+/// Whether a message of type `type_name` is (or transitively extends) `target`.
+fn message_is_type(type_name: &str, target: &str) -> bool {
+    let target = short_type_name(target);
+    let mut current = short_type_name(type_name).to_string();
+    for _ in 0..64 {
+        if current == target {
+            return true;
+        }
+        let parent = SUPERCLASSES
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&current)
+            .cloned();
+        match parent {
+            Some(parent) => current = short_type_name(&parent).to_string(),
+            None => return false,
+        }
+    }
+    false
+}
+
 pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
-    match type_name {
+    let mut t = type_name.trim();
+    // Nullable `T?`: `null` always matches; otherwise fall through to the base
+    // type `T`. The self-hosted engine casts pervasively through `T?`
+    // (`input as String?`, `x as Map<String, Object?>?`) — issue #300.
+    if let Some(base) = t.strip_suffix('?') {
+        if matches!(value, BallValue::Null) {
+            return true;
+        }
+        t = base.trim();
+    }
+    // Strip generic type arguments (`Map<String, Object?>` → `Map`, `List<int>`
+    // → `List`) — the runtime value model is untyped, so only the container
+    // kind matters.
+    let base = match t.find('<') {
+        Some(index) => t[..index].trim(),
+        None => t,
+    };
+    match base {
         "int" => matches!(value, BallValue::Int(_)),
         "double" => matches!(value, BallValue::Double(_)),
         "num" => matches!(value, BallValue::Int(_) | BallValue::Double(_)),
         "String" | "string" => matches!(value, BallValue::String(_)),
         "bool" => matches!(value, BallValue::Bool(_)),
-        "List" | "list" => matches!(value, BallValue::List(_)),
+        "List" | "list" | "Iterable" => matches!(value, BallValue::List(_)),
+        "Set" | "set" => matches!(value, BallValue::List(_)),
         "Map" | "map" => matches!(value, BallValue::Map(_)),
+        "Function" => matches!(value, BallValue::Function(_)),
         "Null" | "null" => matches!(value, BallValue::Null),
         "Object" | "dynamic" | "var" => true,
-        other => matches!(value, BallValue::Message(message) if message.type_name == other),
+        // A message matches its own `TypeDefinition.name` or any **supertype**
+        // (the registered class hierarchy — `BallObject extends BallMap`), by
+        // full (`main:_Scope`) or short (`_Scope`) name.
+        other => match value {
+            BallValue::Message(message) => message_is_type(&message.type_name, other),
+            _ => false,
+        },
     }
 }
 
@@ -689,8 +856,21 @@ pub fn ball_as(value: BallValue, type_name: &str) -> BallValue {
 // Strings (pure manipulation)
 // ════════════════════════════════════════════════════════════
 
+/// `.isEmpty` (and, negated, `.isNotEmpty`) — **polymorphic**. The encoder
+/// emits `string_is_empty` for every `.isEmpty`/`.isNotEmpty` (it is syntactic
+/// and cannot tell a `String` receiver from a `List`/`Set`/`Map`), so this must
+/// accept any collection rather than only a string — matching the Dart
+/// reference engine's own polymorphic `string_is_empty`
+/// (`dart/engine/lib/engine_std.dart`).
 pub fn ball_string_is_empty(value: BallValue) -> BallValue {
-    BallValue::Bool(as_str(&value).is_empty())
+    BallValue::Bool(match &value {
+        BallValue::String(s) => s.is_empty(),
+        BallValue::List(l) => l.is_empty(),
+        BallValue::Map(m) => m.is_empty(),
+        BallValue::Bytes(b) => b.is_empty(),
+        BallValue::Null => true,
+        other => panic!("ball-compiler runtime: isEmpty on {other:?}"),
+    })
 }
 
 pub fn ball_string_contains(left: BallValue, right: BallValue) -> BallValue {
@@ -1064,11 +1244,30 @@ pub fn ball_list_single(list: BallValue) -> BallValue {
     list.into_iter().next().expect("length checked above")
 }
 
+/// `list.contains(value)` — **polymorphic over strings**: the encoder emits
+/// `list_contains` for `'abc'.contains('b')` too (it cannot tell a `String`
+/// receiver from a `List`), so a string receiver delegates to substring
+/// containment (matching the Dart reference engine's `list_contains`).
 pub fn ball_list_contains(list: BallValue, value: BallValue) -> BallValue {
+    if let BallValue::String(s) = &list {
+        return BallValue::Bool(s.contains(&value.to_string()));
+    }
     BallValue::Bool(as_list(list).contains(&value))
 }
 
+/// `list.indexOf(value)` — **polymorphic over strings** (see
+/// [`ball_list_contains`]): `'abc'.indexOf('b')` is encoded as `list_index_of`,
+/// so a string receiver delegates to `String.indexOf` (a UTF-16-agnostic
+/// byte→char index, BMP-exact).
 pub fn ball_list_index_of(list: BallValue, value: BallValue) -> BallValue {
+    if let BallValue::String(s) = &list {
+        let needle = value.to_string();
+        let index = match s.find(&needle) {
+            Some(byte_index) => s[..byte_index].chars().count() as i64,
+            None => -1,
+        };
+        return BallValue::Int(index);
+    }
     BallValue::Int(
         as_list(list)
             .iter()
@@ -1166,9 +1365,29 @@ pub fn ball_list_drop(list: BallValue, count: BallValue) -> BallValue {
     BallValue::List(as_list(list).into_iter().skip(as_index(&count)).collect())
 }
 
-pub fn ball_list_concat(left: BallValue, right: BallValue) -> BallValue {
-    let mut items = as_list(left);
-    items.extend(as_list(right));
+/// `list_concat(list, value)` — the encoder routes `.addAll` here for List,
+/// Set, **and Map** receivers (it is syntactic and cannot tell them apart; the
+/// native Dart engine resolves `Map.addAll` itself, but the self-host route
+/// funnels every `.addAll` through this op). A `Map` receiver merges (`value`'s
+/// entries win); a `List`/Set concatenates. An absent/`null` operand is the
+/// empty collection (proto3 default).
+pub fn ball_list_concat(list: BallValue, value: BallValue) -> BallValue {
+    if let BallValue::Map(mut merged) = list {
+        if let BallValue::Map(other) = value {
+            for (key, val) in other {
+                merged.insert(key, val);
+            }
+        }
+        return BallValue::Map(merged);
+    }
+    let mut items = match list {
+        BallValue::Null => Vec::new(),
+        other => as_list(other),
+    };
+    match value {
+        BallValue::Null => {}
+        other => items.extend(as_list(other)),
+    }
     BallValue::List(items)
 }
 
@@ -1255,6 +1474,22 @@ pub fn ball_map_from_entries(entries: BallValue) -> BallValue {
         let pair = as_list(entry);
         if pair.len() != 2 {
             panic!("ball-compiler runtime: map_from_entries expects [key, value] pairs");
+        }
+        map.insert(index_key(&pair[0]), pair[1].clone());
+    }
+    BallValue::Map(map)
+}
+
+/// `map_create` — build a map literal from a `[[key, value], …]` entry list
+/// (the compiler lowers a `{k: v, …}` literal's entries to this shape). Keys
+/// are stringified (Ball maps are string-keyed); an empty entry list yields an
+/// empty map (the overwhelmingly common self-host case — `<T>{}` / `{}`).
+pub fn ball_map_create(entries: BallValue) -> BallValue {
+    let mut map = BallMap::new();
+    for entry in as_list(entries) {
+        let pair = as_list(entry);
+        if pair.len() != 2 {
+            panic!("ball-compiler runtime: map_create expects [key, value] pairs");
         }
         map.insert(index_key(&pair[0]), pair[1].clone());
     }
@@ -1499,6 +1734,26 @@ pub fn ball_throw(value: BallValue) -> ! {
     std::panic::panic_any(value)
 }
 
+/// Non-local control flow escaping a `try` body (issue #300). A `return`/
+/// `break`/`continue` inside a `try` (`_evalExpression`'s `try { … return X }
+/// finally { … }`, pervasive in the engine) cannot use a bare Rust
+/// `return`/`break`/`continue`: the `try` body runs inside a
+/// `std::panic::catch_unwind` closure (to catch Ball `throw`s), so those would
+/// escape only the *closure*, losing the value. Instead the closure returns a
+/// `BallFlow`, and the `try`'s post-processing re-issues the real
+/// `return`/`break`/`continue` after the `finally` runs. `Normal` is an
+/// ordinary (fall-through) body value.
+pub enum BallFlow {
+    /// The body fell through to a value (no non-local exit).
+    Normal(BallValue),
+    /// `return value;` — the enclosing function must return `value`.
+    Return(BallValue),
+    /// `break [label];` — the enclosing loop must break.
+    Break(Option<String>),
+    /// `continue [label];` — the enclosing loop must continue.
+    Continue(Option<String>),
+}
+
 /// Recover a thrown [`BallValue`] from a caught [`std::panic::catch_unwind`]
 /// payload. A payload that isn't a [`BallValue`] means the panic came from
 /// somewhere else in the runtime (an `unwrap()`/bounds-check/... failure,
@@ -1528,6 +1783,481 @@ pub fn ball_catch_payload(payload: Box<dyn std::any::Any + Send>) -> BallValue {
 /// definition (issue #39 — a `cannot find function ball_null_coalesce`).
 pub fn ball_null_coalesce(left: BallValue, right: BallValue) -> BallValue {
     if left == BallValue::Null { right } else { left }
+}
+
+// ════════════════════════════════════════════════════════════
+// ball_proto — protobuf-compat AST access patterns (issue #300)
+// ════════════════════════════════════════════════════════════
+//
+// The self-hosted engine inspects an already-deserialized Ball program through
+// the `ball_proto` compat module (`dart/shared/lib/ball_proto.dart`): oneof
+// discriminators (`whichExpr`…), presence checks (`hasBody`…), and safe field
+// get/set. These have `isBase: true` and no body — this is their native Rust
+// implementation, and `rust/compiler/src/base_call.rs::compile_ball_proto_call`
+// routes each `ball_proto.<fn>` call here. Semantics match `ball_proto.dart`
+// exactly (the same logic the engine wrapper's `src/ball_proto.rs` unit-tests).
+
+/// The oneof variant keys of each discriminated message, in the declared
+/// check order (`ball_proto.dart`); the first present key wins. Keys are
+/// canonical proto3 `jsonName`s (the shape the loader produces).
+const BALL_PROTO_EXPR_VARIANTS: &[&str] = &[
+    "call",
+    "literal",
+    "reference",
+    "fieldAccess",
+    "messageCreation",
+    "block",
+    "lambda",
+];
+const BALL_PROTO_LITERAL_VARIANTS: &[&str] = &[
+    "intValue",
+    "doubleValue",
+    "stringValue",
+    "boolValue",
+    "bytesValue",
+    "listValue",
+];
+const BALL_PROTO_STMT_VARIANTS: &[&str] = &["let", "expression"];
+const BALL_PROTO_VALUE_KIND_VARIANTS: &[&str] = &[
+    "nullValue",
+    "numberValue",
+    "stringValue",
+    "boolValue",
+    "structValue",
+    "listValue",
+];
+const BALL_PROTO_SOURCE_VARIANTS: &[&str] = &["http", "file", "git", "registry", "inline"];
+
+/// Read field `key` from a `Map`/`Message` proto view (the two shapes the
+/// program view + constructed instances take), or `None` for any other value.
+fn proto_get(obj: &BallValue, key: &str) -> Option<BallValue> {
+    match obj {
+        BallValue::Map(map) => map.get(key).cloned(),
+        BallValue::Message(msg) => msg.get(key),
+        _ => None,
+    }
+}
+
+/// Shared discriminator: the first `variants` key present (and non-null) on
+/// `obj`, or `"notSet"`. A non-map/message input has no oneof set (`"notSet"`),
+/// matching `ball_proto.dart`'s permissive handling of a missing object.
+fn ball_proto_which(obj: BallValue, variants: &[&str]) -> BallValue {
+    for variant in variants {
+        if proto_get(&obj, variant).is_some_and(|v| v != BallValue::Null) {
+            return BallValue::String((*variant).to_string());
+        }
+    }
+    BallValue::String("notSet".to_string())
+}
+
+/// `whichExpr(obj)` — which `Expression` oneof arm is set.
+pub fn ball_which_expr(obj: BallValue) -> BallValue {
+    ball_proto_which(obj, BALL_PROTO_EXPR_VARIANTS)
+}
+/// `whichValue(obj)` — which `Literal` value arm is set.
+pub fn ball_which_value(obj: BallValue) -> BallValue {
+    ball_proto_which(obj, BALL_PROTO_LITERAL_VARIANTS)
+}
+/// `whichStmt(obj)` — which `Statement` arm is set.
+pub fn ball_which_stmt(obj: BallValue) -> BallValue {
+    ball_proto_which(obj, BALL_PROTO_STMT_VARIANTS)
+}
+/// `whichKind(obj)` — which `google.protobuf.Value` kind is set.
+pub fn ball_which_kind(obj: BallValue) -> BallValue {
+    ball_proto_which(obj, BALL_PROTO_VALUE_KIND_VARIANTS)
+}
+/// `whichSource(obj)` — which `ModuleImport` source is set.
+pub fn ball_which_source(obj: BallValue) -> BallValue {
+    ball_proto_which(obj, BALL_PROTO_SOURCE_VARIANTS)
+}
+
+/// `has<Field>(obj)` — whether `field` is present and non-default on `obj`,
+/// following proto3: an absent key, explicit `null`, empty string, or empty
+/// list/map/message all read as *not present*.
+pub fn ball_has_field(obj: BallValue, field: &str) -> BallValue {
+    let present = match proto_get(&obj, field) {
+        None | Some(BallValue::Null) => false,
+        Some(BallValue::String(s)) => !s.is_empty(),
+        Some(BallValue::List(l)) => !l.is_empty(),
+        Some(BallValue::Map(m)) => !m.is_empty(),
+        Some(BallValue::Message(msg)) => !msg.is_empty(),
+        Some(_) => true,
+    };
+    BallValue::Bool(present)
+}
+
+/// `getField(obj, name)` — read `name` from a map/message, or `null`.
+pub fn ball_proto_get_field(obj: BallValue, name: BallValue) -> BallValue {
+    proto_get(&obj, &index_key(&name)).unwrap_or(BallValue::Null)
+}
+
+/// `getFieldOr(obj, name, default)` — read `name`, or `default` if missing/null.
+pub fn ball_proto_get_field_or(obj: BallValue, name: BallValue, default: BallValue) -> BallValue {
+    match proto_get(&obj, &index_key(&name)) {
+        Some(value) if value != BallValue::Null => value,
+        _ => default,
+    }
+}
+
+/// `setField(obj, name, value)` — set `name` and return the modified map/message
+/// (a non-map/message `obj` is returned unchanged, matching the permissive Dart
+/// setter).
+pub fn ball_proto_set_field(obj: BallValue, name: BallValue, value: BallValue) -> BallValue {
+    let key = index_key(&name);
+    match obj {
+        BallValue::Map(mut map) => {
+            map.insert(key, value);
+            BallValue::Map(map)
+        }
+        BallValue::Message(msg) => {
+            msg.insert(key, value);
+            BallValue::Message(msg)
+        }
+        other => other,
+    }
+}
+
+/// `getStructField(struct, key)` — read a `google.protobuf.Struct`/metadata
+/// field (proto3-JSON renders a Struct as a plain object, so this is a plain
+/// keyed read), or `null`.
+pub fn ball_get_struct_field(struct_val: BallValue, key: BallValue) -> BallValue {
+    proto_get(&struct_val, &index_key(&key)).unwrap_or(BallValue::Null)
+}
+
+/// `getStringField(struct, key)` — string value or `""`.
+pub fn ball_get_string_field(struct_val: BallValue, key: BallValue) -> BallValue {
+    match proto_get(&struct_val, &index_key(&key)) {
+        Some(BallValue::String(s)) => BallValue::String(s),
+        _ => BallValue::String(String::new()),
+    }
+}
+
+/// `getBoolField(struct, key)` — bool value or `false`.
+pub fn ball_get_bool_field(struct_val: BallValue, key: BallValue) -> BallValue {
+    match proto_get(&struct_val, &index_key(&key)) {
+        Some(BallValue::Bool(b)) => BallValue::Bool(b),
+        _ => BallValue::Bool(false),
+    }
+}
+
+/// `getListField(struct, key)` — list value or `[]`.
+pub fn ball_get_list_field(struct_val: BallValue, key: BallValue) -> BallValue {
+    match proto_get(&struct_val, &index_key(&key)) {
+        Some(BallValue::List(l)) => BallValue::List(l),
+        _ => BallValue::List(Vec::new()),
+    }
+}
+
+/// `getNumberField(struct, key)` — number value or `0`.
+pub fn ball_get_number_field(struct_val: BallValue, key: BallValue) -> BallValue {
+    match proto_get(&struct_val, &index_key(&key)) {
+        Some(v @ (BallValue::Int(_) | BallValue::Double(_))) => v,
+        _ => BallValue::Int(0),
+    }
+}
+
+/// `getStructFieldKeys(struct)` — every key of a Struct/metadata map, in order.
+pub fn ball_get_struct_field_keys(struct_val: BallValue) -> BallValue {
+    match struct_val {
+        BallValue::Map(map) => BallValue::List(map.into_keys().map(BallValue::String).collect()),
+        BallValue::Message(msg) => {
+            BallValue::List(msg.snapshot().into_keys().map(BallValue::String).collect())
+        }
+        _ => BallValue::List(Vec::new()),
+    }
+}
+
+/// `ensureDefaults(obj, messageType)` — best-effort passthrough (the dynamic
+/// `BallValue` view already carries whatever fields the loader produced;
+/// proto3 defaults surface as absent-⇒-`Null`/`""`/`[]` at the read site).
+pub fn ball_proto_ensure_defaults(obj: BallValue) -> BallValue {
+    obj
+}
+
+// ════════════════════════════════════════════════════════════
+// Additional std / std_collections / std_convert base functions
+// (issue #300 — the self-host runtime surface)
+// ════════════════════════════════════════════════════════════
+
+/// `num.toDouble()` — widen an int, or return a double unchanged. A **string**
+/// is parsed: proto3-JSON encodes 64-bit integer fields (e.g. `Literal.intValue`)
+/// as strings, and the self-hosted engine's `lit.intValue.toInt()`/`.toDouble()`
+/// expects a number back (issue #300).
+pub fn ball_to_double(value: BallValue) -> BallValue {
+    match value {
+        BallValue::Int(v) => BallValue::Double(v as f64),
+        BallValue::Double(v) => BallValue::Double(v),
+        BallValue::String(s) => BallValue::Double(
+            s.trim()
+                .parse::<f64>()
+                .unwrap_or_else(|_| panic!("ball-compiler runtime: toDouble on '{s}'")),
+        ),
+        other => panic!("ball-compiler runtime: toDouble on a non-number: {other:?}"),
+    }
+}
+
+/// `num.toInt()` — truncate toward zero (Dart `double.toInt()`), return an int
+/// unchanged, or parse a string (the proto3-JSON int64 case — see
+/// [`ball_to_double`]).
+pub fn ball_to_int(value: BallValue) -> BallValue {
+    match value {
+        BallValue::Int(v) => BallValue::Int(v),
+        BallValue::Double(v) => BallValue::Int(v.trunc() as i64),
+        BallValue::String(s) => {
+            let trimmed = s.trim();
+            let parsed = trimmed
+                .parse::<i64>()
+                .or_else(|_| trimmed.parse::<f64>().map(|f| f.trunc() as i64))
+                .unwrap_or_else(|_| panic!("ball-compiler runtime: toInt on '{s}'"));
+            BallValue::Int(parsed)
+        }
+        other => panic!("ball-compiler runtime: toInt on a non-number: {other:?}"),
+    }
+}
+
+/// `num.toStringAsFixed(digits)` — fixed-point decimal string. Matches Dart:
+/// `-0.0` and values that round to zero render without a leading `-`
+/// (issue #101 parity — Dart's `toStringAsFixed` never emits `-0`).
+pub fn ball_to_string_as_fixed(value: BallValue, digits: BallValue) -> BallValue {
+    let n = as_f64(&value);
+    let d = as_index(&digits);
+    let mut formatted = format!("{n:.d$}");
+    if formatted.starts_with('-') && formatted[1..].chars().all(|c| c == '0' || c == '.') {
+        formatted.remove(0);
+    }
+    BallValue::String(formatted)
+}
+
+/// `num.roundToDouble()` — round half away from zero, as a double.
+pub fn ball_round_to_double(value: BallValue) -> BallValue {
+    BallValue::Double(as_f64(&value).round())
+}
+/// `num.floorToDouble()` — round toward negative infinity, as a double.
+pub fn ball_floor_to_double(value: BallValue) -> BallValue {
+    BallValue::Double(as_f64(&value).floor())
+}
+/// `num.ceilToDouble()` — round toward positive infinity, as a double.
+pub fn ball_ceil_to_double(value: BallValue) -> BallValue {
+    BallValue::Double(as_f64(&value).ceil())
+}
+/// `num.truncateToDouble()` — round toward zero, as a double.
+pub fn ball_truncate_to_double(value: BallValue) -> BallValue {
+    BallValue::Double(as_f64(&value).trunc())
+}
+
+/// `std.invoke` — call a first-class function *value* dynamically. The input
+/// message carries the `callee` plus its arguments (metadata keys stripped);
+/// a lone argument is passed directly (the single-`input` convention), no args
+/// pass `null`, and multiple args pass the remaining message. Mirrors
+/// `dart/engine/lib/engine_std.dart`'s `_stdInvoke`.
+pub fn ball_invoke(input: BallValue) -> BallValue {
+    let mut map = as_map(input);
+    let callee = map
+        .shift_remove("callee")
+        .unwrap_or_else(|| panic!("ball-compiler runtime: std.invoke: no callee"));
+    map.shift_remove("__type__");
+    let arg = match map.len() {
+        0 => BallValue::Null,
+        1 => map
+            .into_iter()
+            .next()
+            .map(|(_, v)| v)
+            .unwrap_or(BallValue::Null),
+        _ => BallValue::Map(map),
+    };
+    ball_call_function(callee, arg)
+}
+
+/// `map.containsValue(value)` — whether any value in the map equals `value`.
+pub fn ball_map_contains_value(map: BallValue, value: BallValue) -> BallValue {
+    BallValue::Bool(as_map(map).values().any(|v| *v == value))
+}
+
+/// `String.codeUnitAt(index)` — the UTF-16 code unit at `index`. Shares the
+/// `char_code_at` implementation (BMP-exact; astral planes diverge, as noted
+/// on [`ball_string_char_code_at`]).
+pub fn ball_string_code_unit_at(value: BallValue, index: BallValue) -> BallValue {
+    ball_string_char_code_at(value, index)
+}
+
+/// `Iterable.toList()` — a fresh copy of the list (a `Set` shares the `List`
+/// representation, so `.toList()` on either is the same copy).
+pub fn ball_list_to_list(list: BallValue) -> BallValue {
+    BallValue::List(as_list(list))
+}
+
+/// `list.join(separator)` — join a list's stringified elements. A `null`
+/// separator joins with no delimiter.
+pub fn ball_list_join(list: BallValue, separator: BallValue) -> BallValue {
+    let sep = match separator {
+        BallValue::Null => String::new(),
+        other => other.to_string(),
+    };
+    BallValue::String(
+        as_list(list)
+            .iter()
+            .map(|item| item.to_string())
+            .collect::<Vec<_>>()
+            .join(&sep),
+    )
+}
+
+/// `list.clear()` — empty the list in place, returning it.
+pub fn ball_list_clear(list: &mut BallValue) -> BallValue {
+    match list {
+        BallValue::List(items) => {
+            items.clear();
+            BallValue::List(items.clone())
+        }
+        other => panic!("ball-compiler runtime: list_clear on a non-list value: {other:?}"),
+    }
+}
+
+/// `list.sort([comparator])` — sort in place, returning the sorted list. With
+/// a comparator function it is invoked as `cmp({arg0, arg1})` returning a
+/// negative/zero/positive int (the single-`input` calling convention); without
+/// one, elements order by their natural string/number comparison.
+pub fn ball_list_sort(list: &mut BallValue, comparator: BallValue) -> BallValue {
+    match list {
+        BallValue::List(items) => {
+            match &comparator {
+                BallValue::Function(_) => {
+                    items.sort_by(|a, b| {
+                        let mut input = BallMap::new();
+                        input.insert("arg0".to_string(), a.clone());
+                        input.insert("arg1".to_string(), b.clone());
+                        let result = ball_call_function(comparator.clone(), BallValue::Map(input));
+                        as_i64(&result).cmp(&0)
+                    });
+                }
+                _ => items.sort_by(ball_natural_cmp),
+            }
+            BallValue::List(items.clone())
+        }
+        other => panic!("ball-compiler runtime: list_sort on a non-list value: {other:?}"),
+    }
+}
+
+/// Natural ordering for `list_sort` without a comparator: numbers by value,
+/// everything else by its `Display` string (a total, deterministic order).
+fn ball_natural_cmp(a: &BallValue, b: &BallValue) -> std::cmp::Ordering {
+    match (a, b) {
+        (BallValue::Int(x), BallValue::Int(y)) => x.cmp(y),
+        (BallValue::Int(_) | BallValue::Double(_), BallValue::Int(_) | BallValue::Double(_)) => {
+            as_f64(a)
+                .partial_cmp(&as_f64(b))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }
+        _ => a.to_string().cmp(&b.to_string()),
+    }
+}
+
+/// `map.putIfAbsent(key, ifAbsent)` — insert `key` with the computed value only
+/// if absent (an `ifAbsent` function value is invoked with no argument;
+/// otherwise the value is used directly), returning the value now at `key`.
+pub fn ball_map_put_if_absent(map: &mut BallValue, key: BallValue, value: BallValue) -> BallValue {
+    match map {
+        BallValue::Map(entries) => {
+            let k = index_key(&key);
+            if !entries.contains_key(&k) {
+                let computed = match &value {
+                    BallValue::Function(_) => ball_call_function(value, BallValue::Null),
+                    _ => value,
+                };
+                entries.insert(k.clone(), computed);
+            }
+            entries.get(&k).cloned().unwrap_or(BallValue::Null)
+        }
+        other => panic!("ball-compiler runtime: map_put_if_absent on a non-map value: {other:?}"),
+    }
+}
+
+/// `utf8.encode(string)` — UTF-8 bytes of a string.
+pub fn ball_utf8_encode(value: BallValue) -> BallValue {
+    BallValue::Bytes(as_str(&value).as_bytes().to_vec())
+}
+
+/// `utf8.decode(bytes)` — a string from UTF-8 bytes (lossy on invalid input,
+/// matching a permissive decoder rather than throwing).
+pub fn ball_utf8_decode(value: BallValue) -> BallValue {
+    match value {
+        BallValue::Bytes(bytes) => BallValue::String(String::from_utf8_lossy(&bytes).into_owned()),
+        BallValue::List(items) => {
+            let bytes: Vec<u8> = items.iter().map(|v| as_i64(v) as u8).collect();
+            BallValue::String(String::from_utf8_lossy(&bytes).into_owned())
+        }
+        other => panic!("ball-compiler runtime: utf8_decode on a non-bytes value: {other:?}"),
+    }
+}
+
+/// `base64.encode(bytes)` — standard base64 (RFC 4648) of a byte sequence.
+pub fn ball_base64_encode(value: BallValue) -> BallValue {
+    let bytes = match value {
+        BallValue::Bytes(bytes) => bytes,
+        BallValue::List(items) => items.iter().map(|v| as_i64(v) as u8).collect(),
+        other => panic!("ball-compiler runtime: base64_encode on a non-bytes value: {other:?}"),
+    };
+    BallValue::String(base64_encode_bytes(&bytes))
+}
+
+/// `base64.decode(string)` — bytes from a standard-base64 string.
+pub fn ball_base64_decode(value: BallValue) -> BallValue {
+    BallValue::Bytes(base64_decode_str(as_str(&value)))
+}
+
+const BASE64_ALPHABET: &[u8; 64] =
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// Standard (RFC 4648) base64 encoder — a tiny dependency-free implementation
+/// (the crate deliberately avoids pulling a `base64` crate for four call sites).
+fn base64_encode_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = *chunk.get(1).unwrap_or(&0) as u32;
+        let b2 = *chunk.get(2).unwrap_or(&0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(BASE64_ALPHABET[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(BASE64_ALPHABET[((triple >> 12) & 0x3F) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            BASE64_ALPHABET[((triple >> 6) & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            BASE64_ALPHABET[(triple & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Standard (RFC 4648) base64 decoder — skips whitespace and `=` padding.
+fn base64_decode_str(input: &str) -> Vec<u8> {
+    fn val(c: u8) -> Option<u32> {
+        match c {
+            b'A'..=b'Z' => Some((c - b'A') as u32),
+            b'a'..=b'z' => Some((c - b'a' + 26) as u32),
+            b'0'..=b'9' => Some((c - b'0' + 52) as u32),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let mut out = Vec::new();
+    let mut acc = 0u32;
+    let mut bits = 0u32;
+    for &c in input.as_bytes() {
+        let Some(v) = val(c) else { continue };
+        acc = (acc << 6) | v;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    out
 }
 
 pub use dartsdk::*;
@@ -1597,6 +2327,8 @@ mod dartsdk {
         LazyLock::new(|| BallValue::String("Function".to_string()));
     pub static DateTime: LazyLock<BallValue> =
         LazyLock::new(|| BallValue::String("DateTime".to_string()));
+    pub static Future: LazyLock<BallValue> =
+        LazyLock::new(|| BallValue::String("Future".to_string()));
 
     /// `dart:io`'s `FileMode` enum (`FileMode.write`/`.append`/…) — the values
     /// `File.writeAsStringSync(…, mode: FileMode.append)` reads. Mirrors the
@@ -1946,6 +2678,154 @@ mod dartsdk {
         BallValue::Map(fields)
     }
 
+    /// `DateTime.fromMillisecondsSinceEpoch(ms)` — a DateTime message
+    /// (`{millisecondsSinceEpoch, microsecondsSinceEpoch}`, the shape [`now`]
+    /// produces).
+    pub fn fromMillisecondsSinceEpoch(input: BallValue) -> BallValue {
+        let ms = as_i64(&m_get(&input, "arg0"));
+        let mut fields = BallMap::new();
+        fields.insert("millisecondsSinceEpoch".to_string(), BallValue::Int(ms));
+        fields.insert(
+            "microsecondsSinceEpoch".to_string(),
+            BallValue::Int(ms.saturating_mul(1000)),
+        );
+        BallValue::Map(fields)
+    }
+
+    /// `DateTime.toUtc()` — the value model carries no timezone (every engine
+    /// timestamp is epoch-based), so the receiver is returned unchanged.
+    pub fn toUtc(input: BallValue) -> BallValue {
+        m_get(&input, "self")
+    }
+
+    /// `DateTime.toIso8601String()` — ISO-8601 UTC from the receiver's epoch
+    /// milliseconds.
+    pub fn toIso8601String(input: BallValue) -> BallValue {
+        let dt = m_get(&input, "self");
+        let ms = as_i64(&m_get(&dt, "millisecondsSinceEpoch"));
+        BallValue::String(iso8601_utc_from_millis(ms))
+    }
+
+    /// `num.toInt()` (method form) — truncate the receiver toward zero.
+    pub fn toInt(input: BallValue) -> BallValue {
+        ball_to_int(m_get(&input, "self"))
+    }
+
+    /// `Random.nextInt(max)` — a uniform int in `[0, max)`.
+    pub fn nextInt(input: BallValue) -> BallValue {
+        ball_random_int(BallValue::Int(0), m_get(&input, "arg0"))
+    }
+
+    /// `Random.nextDouble()` — a uniform double in `[0, 1)`.
+    pub fn nextDouble(_input: BallValue) -> BallValue {
+        ball_random_double()
+    }
+
+    /// `Iterable.take(n)` — the first `n` elements (fewer if the list is
+    /// shorter).
+    pub fn take(input: BallValue) -> BallValue {
+        let list = as_list(m_get(&input, "self"));
+        let n = as_index(&m_get(&input, "arg0"));
+        BallValue::List(list.into_iter().take(n).collect())
+    }
+
+    /// `Iterable.skip(n)` — every element after the first `n`.
+    pub fn skip(input: BallValue) -> BallValue {
+        let list = as_list(m_get(&input, "self"));
+        let n = as_index(&m_get(&input, "arg0"));
+        BallValue::List(list.into_iter().skip(n).collect())
+    }
+
+    /// `List.generate(count, generator)` — `[generator(0), …, generator(count-1)]`
+    /// (`self` is the `List` type marker; `arg0` the length; `arg1` the
+    /// single-`input` generator function).
+    pub fn generate(input: BallValue) -> BallValue {
+        let count = as_index(&m_get(&input, "arg0"));
+        let generator = m_get(&input, "arg1");
+        let mut out: BallList = Vec::with_capacity(count);
+        for i in 0..count {
+            out.push(ball_call_function(
+                generator.clone(),
+                BallValue::Int(i as i64),
+            ));
+        }
+        BallValue::List(out)
+    }
+
+    /// `Iterable.fold(initial, combine)` — left fold with a two-argument
+    /// `combine(accumulator, element)` invoked under the single-`input`
+    /// convention (`{arg0: accumulator, arg1: element}`).
+    pub fn fold(input: BallValue) -> BallValue {
+        let list = as_list(m_get(&input, "self"));
+        let mut acc = m_get(&input, "arg0");
+        let combine = m_get(&input, "arg1");
+        for element in list {
+            let mut call_input = BallMap::new();
+            call_input.insert("arg0".to_string(), acc);
+            call_input.insert("arg1".to_string(), element);
+            acc = ball_call_function(combine.clone(), BallValue::Map(call_input));
+        }
+        acc
+    }
+
+    /// `RegExp.hasMatch(subject)` — whether the pattern matches anywhere.
+    pub fn hasMatch(input: BallValue) -> BallValue {
+        let pattern = regex_pattern_of(&m_get(&input, "self"));
+        let subject = m_get(&input, "arg0");
+        let re = compile_regex(&pattern);
+        BallValue::Bool(re.is_match(as_str(&subject)))
+    }
+
+    /// `Future.delayed(duration, computation)` — the synchronous value model
+    /// has no event loop, so the computation runs immediately (the engine's
+    /// own `await` is likewise the identity — see the compiler's `await`).
+    pub fn delayed(input: BallValue) -> BallValue {
+        let computation = m_get(&input, "arg1");
+        match &computation {
+            BallValue::Function(_) => ball_call_function(computation, BallValue::Null),
+            other => other.clone(),
+        }
+    }
+
+    /// A user module `resolver.resolve(target)` — the engine's import resolver
+    /// hook. A function-valued resolver is invoked with the target; anything
+    /// else (or an absent resolver) resolves to `Null`. Only reached by a
+    /// program that imports modules.
+    pub fn resolve(input: BallValue) -> BallValue {
+        let target = m_get(&input, "self");
+        let arg = m_get(&input, "arg0");
+        match &target {
+            BallValue::Function(_) => ball_call_function(target, arg),
+            _ => BallValue::Null,
+        }
+    }
+
+    /// Convert epoch milliseconds (UTC) to an ISO-8601 string
+    /// (`YYYY-MM-DDTHH:MM:SS.sssZ`), using Howard Hinnant's days→civil-date
+    /// algorithm (no chrono dependency for one call site).
+    fn iso8601_utc_from_millis(ms: i64) -> std::string::String {
+        let days = ms.div_euclid(86_400_000);
+        let mut rem = ms.rem_euclid(86_400_000);
+        let millis = rem % 1000;
+        rem /= 1000;
+        let seconds = rem % 60;
+        rem /= 60;
+        let minutes = rem % 60;
+        let hours = rem / 60;
+        // days since 1970-01-01 → civil (year, month, day).
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z - era * 146_097;
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let year = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = doy - (153 * mp + 2) / 5 + 1;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 };
+        let year = if month <= 2 { year + 1 } else { year };
+        format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
+    }
+
     // ── dart:math free functions (`dart_math::*`) ────────────
     //
     // The engine calls these as `dart_math::sqrt(x)` (module-qualified); the
@@ -1982,6 +2862,9 @@ mod dartsdk {
     }
     pub fn atan2(input: BallValue) -> BallValue {
         ball_math_atan2(m_get(&input, "arg0"), m_get(&input, "arg1"))
+    }
+    pub fn pow(input: BallValue) -> BallValue {
+        ball_math_pow(m_get(&input, "arg0"), m_get(&input, "arg1"))
     }
 
     // ── dart:io (`dart_io::File`/`Directory` + sync ops) ─────
@@ -2035,6 +2918,37 @@ mod dartsdk {
         match std::fs::read_to_string(&path) {
             Ok(contents) => BallValue::String(contents),
             Err(e) => panic!("ball-compiler runtime: readAsStringSync('{path}') failed: {e}"),
+        }
+    }
+
+    /// `File.readAsBytesSync()` — the file's raw bytes.
+    pub fn readAsBytesSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        match std::fs::read(&path) {
+            Ok(bytes) => BallValue::Bytes(bytes),
+            Err(e) => panic!("ball-compiler runtime: readAsBytesSync('{path}') failed: {e}"),
+        }
+    }
+
+    /// `Directory.listSync()` — the directory's immediate entries as
+    /// `File`/`Directory` handles (non-recursive).
+    pub fn listSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        match std::fs::read_dir(&path) {
+            Ok(entries) => {
+                let mut out: BallList = Vec::new();
+                for entry in entries.flatten() {
+                    let entry_path = entry.path();
+                    let kind = if entry_path.is_dir() {
+                        "__ball_io_directory__"
+                    } else {
+                        "__ball_io_file__"
+                    };
+                    out.push(fs_handle(kind, entry_path.to_string_lossy().into_owned()));
+                }
+                BallValue::List(out)
+            }
+            Err(e) => panic!("ball-compiler runtime: listSync('{path}') failed: {e}"),
         }
     }
 

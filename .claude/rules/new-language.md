@@ -16,7 +16,6 @@ paths:
   - "csharp/encoder/**"
   - "csharp/engine/**"
   - "csharp/cli/**"
-  - "rust/**"
   - "swift/**"
   - "kotlin/**"
   - "ruby/**"

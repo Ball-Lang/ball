@@ -40,12 +40,29 @@
 //! run thread. The default build (no `self_host`) still returns
 //! [`EngineError::SelfHostPending`].
 //!
-//! **Remaining:** loop-based programs (a `for`/`while` counter that must persist
-//! across the engine's fresh-per-iteration scope chain) do not yet terminate,
-//! and some programs exercise wrapper-class/SDK surfaces still being filled in —
-//! so the full conformance corpus is not yet at parity (tracked as follow-up).
-//! The crate's foundation (loader + scope + ball_proto access patterns) builds
-//! and tests green in the default build.
+//! **Corpus status (#39/#300): 139/323 fixtures pass Dart-identical.** The
+//! loop-scope and string-surface blockers are **resolved**:
+//! - Loop counters now persist. The engine routes `i++`/`i--` through a Dart
+//!   `switch` whose increment/decrement labels *fall through* to one shared
+//!   body; the Rust compiler lowered `switch` to an if-chain that gave each
+//!   body-less fall-through label an empty arm, so three of the four
+//!   increment/decrement functions silently no-op'd and every `for`/`while`
+//!   loop spun forever. `compile_switch` now implements fall-through, so
+//!   loops/recursion-with-loops/closures run (`self_host_run` acceptance tests).
+//! - String/field access works. The engine reads `FieldAccess.field` via the
+//!   Dart-renamed getter `.field_2`; `ball_field_get` now aliases that (and
+//!   `descriptor_`) back to the proto key, and the loader materializes proto3
+//!   defaults (`skip_default_fields(false)`) so an empty list literal `[]` no
+//!   longer reads back as `null`.
+//!
+//! **Remaining (follow-up):** the biggest bucket is Dart's *reference-semantic*
+//! `List` — the engine mutates a list passed as a function argument
+//! (`_addCollectionElement(element, scope, result)` appends to `result`), which
+//! the Rust value-semantic `BallValue::List` does not observe, so list literals
+//! and comprehensions evaluate empty; plus some class `toString`/constructor
+//! edge cases. See `rust/engine/AGENTS.md`. The default build (no `self_host`)
+//! still returns `EngineError::SelfHostPending`; its foundation (loader + scope
+//! + ball_proto) stays green.
 
 pub mod ball_proto;
 pub mod loader;

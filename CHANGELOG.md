@@ -1,3 +1,10 @@
+# [1.14.0](https://github.com/Ball-Lang/ball/compare/v1.13.0...v1.14.0) (2026-07-08)
+
+
+### Features
+
+* **rust:** [#39](https://github.com/Ball-Lang/ball/issues/39) self-host — Dart-SDK method runtime helpers (327→186) ([#295](https://github.com/Ball-Lang/ball/issues/295)) ([556f6f2](https://github.com/Ball-Lang/ball/commit/556f6f222762f1118a7d4af010c62a05fe3777f7)), closes [#35](https://github.com/Ball-Lang/ball/issues/35) [#6](https://github.com/Ball-Lang/ball/issues/6)
+
 # [1.13.0](https://github.com/Ball-Lang/ball/compare/v1.12.0...v1.13.0) (2026-07-08)
 
 

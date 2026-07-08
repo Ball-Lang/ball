@@ -1379,6 +1379,60 @@ TEST(compile_std_fs_file_write) {
     ASSERT_CONTAINS(out, "std::ofstream");
 }
 
+TEST(compile_std_fs_file_read_bytes) {
+    // issue #319: previously fell to the default `/* std_fs.file_read_bytes */`
+    // comment-only no-op.
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_fs", "file_read_bytes", make_msg("", {{"path", lit_string("a.bin")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::ios::binary");
+    ASSERT_CONTAINS(out, "std::ifstream");
+    ASSERT_NOT_CONTAINS(out, "/* std_fs.file_read_bytes */");
+}
+
+TEST(compile_std_fs_file_write_bytes) {
+    // issue #319: previously fell to the default no-op comment, silently
+    // dropping every byte written.
+    ball::v1::Expression bytes;
+    bytes.mutable_literal()->set_bytes_value(std::string("\x01\x00\x02", 3));
+    auto prog = build_program(call("std_fs", "file_write_bytes", make_msg("", {
+        {"path", lit_string("a.bin")}, {"content", std::move(bytes)}
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_listPtr()");
+    ASSERT_CONTAINS(out, "std::ios::binary");
+    ASSERT_NOT_CONTAINS(out, "/* std_fs.file_write_bytes */");
+}
+
+TEST(compile_std_fs_file_append) {
+    // issue #319: previously fell to the default no-op comment instead of
+    // appending (ios::app).
+    auto prog = build_program(call("std_fs", "file_append", make_msg("", {
+        {"path", lit_string("a.txt")}, {"content", lit_string("more")}
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::ios::app");
+    ASSERT_NOT_CONTAINS(out, "/* std_fs.file_append */");
+}
+
+TEST(compile_std_fs_unknown_fn_throws_at_compile_time) {
+    // issue #319: the default case for an unimplemented std_fs.* function
+    // must fail loud (compile-time throw), not silently emit a no-op
+    // comment.
+    auto prog = build_program(
+        call("std_fs", "totally_unimplemented_fn", make_msg("", {{"path", lit_string("a.txt")}})));
+    bool threw = false;
+    try {
+        compile_program(prog);
+    } catch (const std::exception& e) {
+        threw = true;
+        std::string msg = e.what();
+        ASSERT_CONTAINS(msg, "std_fs.totally_unimplemented_fn");
+        ASSERT_CONTAINS(msg, "not implemented in C++ direct compile");
+    }
+    ASSERT_TRUE(threw);
+}
+
 TEST(compile_std_fs_file_exists) {
     auto prog = build_program(print_call(std_unary("to_string",
         call("std_fs", "file_exists", make_msg("", {{"path", lit_string("a.txt")}})))));

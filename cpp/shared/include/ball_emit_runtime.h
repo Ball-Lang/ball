@@ -1686,6 +1686,26 @@ inline std::map<std::string, std::any> io_FileMode = {
     {"read", std::any(std::string("read"))},
 };
 
+// Determine whether a `writeAsStringSync`/`writeAsBytesSync` FileMode arg
+// requests append semantics. The self-hosted engine's `_stdFileAppend`
+// (engine_std.dart) compiles `File(path).writeAsStringSync(content, mode:
+// FileMode.append)` — through the generic method-call fallback in
+// compile_method_call — into `writeAsStringSync(File(path), content,
+// io_FileMode["append"s])`, so `mode` materializes as a std::any wrapping
+// the string "append"/"write"/"read". `file_write`'s 2-arg call passes no
+// third argument at all (defaults to an empty std::any), meaning
+// truncate/write. Any other value fails loud instead of silently guessing
+// truncate-vs-append (issue #310).
+inline bool _ball_file_mode_is_append(const std::any& mode) {
+    const std::any& v = _BallDynUnwrapper::unwrap(mode);
+    if (!v.has_value()) return false;  // no mode arg supplied -> write/truncate
+    std::string s = ball_to_string(v);
+    if (s == "append") return true;
+    if (s == "write" || s == "read") return false;
+    throw std::runtime_error(
+        "writeAsStringSync: unsupported FileMode value: " + s);
+}
+
 // ── File I/O stubs ──
 // The self-hosted engine calls `File(path)`, `readAsStringSync(file)`,
 // `writeAsStringSync(file, content)`, etc. Provide stubs.
@@ -1700,12 +1720,14 @@ inline std::string readAsStringSync(const File& f) {
     return std::string((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
 }
-inline void writeAsStringSync(const File& f, const std::string& content, const std::any& = {}) {
-    std::ofstream ofs(f.path);
+inline void writeAsStringSync(const File& f, const std::string& content, const std::any& mode = {}) {
+    auto flags = std::ios::out | (_ball_file_mode_is_append(mode) ? std::ios::app : std::ios::trunc);
+    std::ofstream ofs(f.path, flags);
     ofs << content;
 }
-inline void writeAsStringSync(const File& f, const std::any& content, const std::any& = {}) {
-    std::ofstream ofs(f.path);
+inline void writeAsStringSync(const File& f, const std::any& content, const std::any& mode = {}) {
+    auto flags = std::ios::out | (_ball_file_mode_is_append(mode) ? std::ios::app : std::ios::trunc);
+    std::ofstream ofs(f.path, flags);
     ofs << ball_to_string(content);
 }
 inline std::vector<std::any> readAsBytesSync(const File& f) {
@@ -1715,15 +1737,32 @@ inline std::vector<std::any> readAsBytesSync(const File& f) {
     while (ifs.get(c)) result.push_back(std::any(static_cast<int64_t>(static_cast<unsigned char>(c))));
     return result;
 }
-inline void writeAsBytesSync(const File& f, const std::any&) {
-    // Stub — byte write not fully implemented
+// Real byte write: `content` arrives as a Ball List<int> — either a bare
+// std::vector<std::any> or a wrapped/ref-deref'd list (ball_to_list handles
+// both) — each element an int64_t byte value 0-255, the same shape
+// readAsBytesSync produces and a `bytes` literal materializes to (see
+// TYPE_BYTES handling in test_selfhost_conformance.cpp's proto_msg_to_any).
+// The prior stub wrote nothing, silently dropping every byte written via
+// `std_fs.file_write_bytes` (fail-loud-invariant violation, issue #310).
+inline void writeAsBytesSync(const File& f, const std::any& content) {
+    std::vector<std::any> bytes = ball_to_list(content);
+    std::ofstream ofs(f.path, std::ios::binary | std::ios::trunc);
+    for (const auto& raw : bytes) {
+        const std::any& v = _BallDynUnwrapper::unwrap(raw);
+        int64_t byteVal;
+        if (v.type() == typeid(int64_t)) byteVal = std::any_cast<int64_t>(v);
+        else if (v.type() == typeid(int)) byteVal = static_cast<int64_t>(std::any_cast<int>(v));
+        else throw std::runtime_error(
+            "writeAsBytesSync: non-integer byte element in content list");
+        ofs.put(static_cast<char>(static_cast<unsigned char>(byteVal & 0xff)));
+    }
 }
 inline bool existsSync(const File& f) {
     std::ifstream ifs(f.path);
     return ifs.good();
 }
 // BallDyn overload in ball_dyn.h
-inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& = {});
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& mode = {});
 
 // ── Directory operations ──
 // Mirror Dart's dart:io Directory API. The self-hosted engine's std_fs

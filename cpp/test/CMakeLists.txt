@@ -315,4 +315,13 @@ if(BALL_SELFHOST_AVAILABLE)
              COMMAND test_selfhost_conformance "std_fs_dir")
     set_tests_properties("selfhost/std_fs_dir" PROPERTIES
         TIMEOUT 300 LABELS "selfhost")
+    # Self-host-only std_fs write-ops regression (issue #310 — fail-loud byte
+    # writes + append mode). Same rationale as std_fs_dir above: filesystem
+    # side effects aren't portable golden output, so it runs via the
+    # synthetic "std_fs_write" case (see run_fs_write_selfhost in
+    # test_selfhost_conformance.cpp), which owns its own temp dir + cleanup.
+    add_test(NAME "selfhost/std_fs_write"
+             COMMAND test_selfhost_conformance "std_fs_write")
+    set_tests_properties("selfhost/std_fs_write" PROPERTIES
+        TIMEOUT 300 LABELS "selfhost")
 endif()

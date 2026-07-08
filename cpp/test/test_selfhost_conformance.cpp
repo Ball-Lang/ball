@@ -630,6 +630,214 @@ static bool run_fs_dir_selfhost(std::string& failure_msg) {
     return true;
 }
 
+// ----------------------------------------------------------------------
+// Self-host-only: std_fs write ops (issue #310) — `writeAsBytesSync` was a
+// pure no-op stub (bytes silently dropped) and `writeAsStringSync` ignored
+// its FileMode argument (always truncated, so `file_append` silently
+// overwrote instead of appending). Same pattern as run_fs_dir_selfhost:
+// proves the runtime now does real filesystem work. The program:
+//   1. file_write_bytes 7 bytes (including an embedded NUL, to prove this
+//      isn't a naive C-string copy: [72,101,108,108,111,0,33] = "Hello\0!"),
+//      then file_read_bytes it back and assert length==7 and the first,
+//      NUL, and last byte values round-trip exactly (was 0/null under the
+//      stub — writing nothing left the file empty or absent).
+//   2. file_write "abc", file_append "def", then file_read: must yield
+//      "abcdef" (was "def" — a truncating overwrite — under the bug).
+// Isolated temp dir + cleanup, mirroring run_fs_dir_selfhost.
+static bool run_fs_write_selfhost(std::string& failure_msg) {
+    // Bytes literal "SGVsbG8AIQ==" is the base64 (proto3-JSON `bytes`
+    // encoding) of the 7 raw bytes [72,101,108,108,111,0,33].
+    static const char* kProgram = R"BALLJSON({
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "selfhost_std_fs_write",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [ { "name": "print", "isBase": true } ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [ { "name": "list_get", "isBase": true } ]
+    },
+    {
+      "name": "std_fs",
+      "functions": [
+        { "name": "file_write_bytes", "isBase": true },
+        { "name": "file_read_bytes", "isBase": true },
+        { "name": "file_write", "isBase": true },
+        { "name": "file_append", "isBase": true },
+        { "name": "file_read", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "moduleImports": [ { "name": "std" }, { "name": "std_fs" }, { "name": "std_collections" } ],
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                { "expression": { "call": {
+                  "module": "std_fs", "function": "file_write_bytes",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "path", "value": { "literal": { "stringValue": "bytes.bin" } } },
+                    { "name": "content", "value": { "literal": { "bytesValue": "SGVsbG8AIQ==" } } }
+                  ] } } } } },
+                { "let": {
+                  "name": "bytesRead",
+                  "value": { "call": {
+                    "module": "std_fs", "function": "file_read_bytes",
+                    "input": { "messageCreation": { "fields": [
+                      { "name": "path", "value": { "literal": { "stringValue": "bytes.bin" } } }
+                    ] } } } }
+                } },
+                { "expression": { "call": {
+                  "module": "std", "function": "print",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "message", "value": { "fieldAccess": {
+                      "object": { "reference": { "name": "bytesRead" } },
+                      "field": "length"
+                    } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std", "function": "print",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "message", "value": { "call": {
+                      "module": "std_collections", "function": "list_get",
+                      "input": { "messageCreation": { "fields": [
+                        { "name": "list", "value": { "reference": { "name": "bytesRead" } } },
+                        { "name": "index", "value": { "literal": { "intValue": "0" } } }
+                      ] } } } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std", "function": "print",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "message", "value": { "call": {
+                      "module": "std_collections", "function": "list_get",
+                      "input": { "messageCreation": { "fields": [
+                        { "name": "list", "value": { "reference": { "name": "bytesRead" } } },
+                        { "name": "index", "value": { "literal": { "intValue": "5" } } }
+                      ] } } } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std", "function": "print",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "message", "value": { "call": {
+                      "module": "std_collections", "function": "list_get",
+                      "input": { "messageCreation": { "fields": [
+                        { "name": "list", "value": { "reference": { "name": "bytesRead" } } },
+                        { "name": "index", "value": { "literal": { "intValue": "6" } } }
+                      ] } } } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std_fs", "function": "file_write",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "path", "value": { "literal": { "stringValue": "text.txt" } } },
+                    { "name": "content", "value": { "literal": { "stringValue": "abc" } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std_fs", "function": "file_append",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "path", "value": { "literal": { "stringValue": "text.txt" } } },
+                    { "name": "content", "value": { "literal": { "stringValue": "def" } } }
+                  ] } } } } }
+              ],
+              "result": { "call": {
+                "module": "std", "function": "print",
+                "input": { "messageCreation": { "fields": [
+                  { "name": "message", "value": { "call": {
+                    "module": "std_fs", "function": "file_read",
+                    "input": { "messageCreation": { "fields": [
+                      { "name": "path", "value": { "literal": { "stringValue": "text.txt" } } }
+                    ] } } } } }
+                ] } } } }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+})BALLJSON";
+    const std::string expected = "7\n72\n0\n33\nabcdef";
+
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec) /
+        ("ball_selfhost_fswrite_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(base, ec);
+    fs::create_directories(base, ec);
+    if (ec) { failure_msg = "temp setup failed: " + ec.message(); return false; }
+    fs::path oldCwd = fs::current_path(ec);
+    fs::current_path(base, ec);
+    if (ec) {
+        failure_msg = "chdir to temp failed: " + ec.message();
+        fs::remove_all(base, ec);
+        return false;
+    }
+
+    std::string captured;
+    std::string run_err;
+    bool ran = false;
+    try {
+        ball::v1::Program program = ball::DecodeProgram("std_fs_write", kProgram);
+        auto programAny = proto_msg_to_any(program);
+        auto cap = std::make_shared<std::string>();
+
+        BallEngine engine;
+        engine.program = BallDyn(programAny);
+        engine._types = BallDyn(BallMap{});
+        engine._functions = BallDyn(BallMap{});
+        engine._getters = BallDyn(BallMap{});
+        engine._setters = BallDyn(BallMap{});
+        engine._globalScope = BallDyn(BallMap{});
+        engine._currentModule = "";
+        engine._paramCache = BallDyn(BallMap{});
+        engine._callCache = BallDyn(BallMap{});
+        engine._enumValues = BallDyn(BallMap{});
+        engine._constructors = BallDyn(BallMap{});
+        engine._callCounts = BallDyn(BallMap{});
+        engine._nextMutexId = 0;
+        engine.stdout_ = BallDyn(BallFunc([cap](std::any arg) -> std::any {
+            *cap += ball_to_string(arg) + "\n";
+            return std::any{};
+        }));
+
+        auto stdDispatch = engine._buildStdDispatch();
+        StdModuleHandler handler(BallMap{{"_dispatch", std::any(stdDispatch)}});
+        engine.moduleHandlers = BallDyn(BallList{std::any(BallDyn(handler))});
+
+        engine._buildLookupTables();
+        engine._initTopLevelVariables();
+        engine.run();
+
+        captured = *cap;
+        ran = true;
+    } catch (const BallException& be) {
+        run_err = std::string("BallException: ") + be.what();
+    } catch (const std::exception& e) {
+        run_err = std::string("engine threw: ") + e.what();
+    } catch (...) {
+        run_err = "engine threw unknown exception";
+    }
+
+    fs::current_path(oldCwd, ec);
+    fs::remove_all(base, ec);
+
+    if (!ran) { failure_msg = run_err; return false; }
+    std::string actual = normalize(captured);
+    if (actual != normalize(expected)) {
+        failure_msg = "output mismatch\n--- expected ---\n" + normalize(expected) +
+                      "\n--- actual ---\n" + actual + "\n---";
+        return false;
+    }
+    return true;
+}
+
 int main(int argc, char** argv) {
     std::cout << "Ball Self-Hosted Engine Conformance Tests\n"
               << "==========================================\n";
@@ -665,6 +873,11 @@ int main(int argc, char** argv) {
     // run_fs_dir_selfhost manages its own temp dir + cleanup. Registered as its
     // own CTest test "selfhost/std_fs_dir" in cpp/test/CMakeLists.txt.
     cases.push_back({fs::path{}, fs::path{}, "std_fs_dir"});
+    // Synthetic self-host-only case: std_fs write ops (issue #310) — byte
+    // writes + append-mode. Same rationale as std_fs_dir above;
+    // run_fs_write_selfhost manages its own temp dir + cleanup. Registered as
+    // its own CTest test "selfhost/std_fs_write" in cpp/test/CMakeLists.txt.
+    cases.push_back({fs::path{}, fs::path{}, "std_fs_write"});
     std::sort(cases.begin(), cases.end(),
               [](auto& a, auto& b) { return a.name < b.name; });
 
@@ -711,6 +924,8 @@ int main(int argc, char** argv) {
         try {
             if (tc.name == "std_fs_dir") {
                 passed = run_fs_dir_selfhost(failure_msg);
+            } else if (tc.name == "std_fs_write") {
+                passed = run_fs_write_selfhost(failure_msg);
             } else {
                 passed = run_one(tc.program, tc.expected, tc.name, failure_msg);
             }

@@ -59,7 +59,9 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
 
 **Runtime stubs (compile, produce wrong/fake results):**
 - `jsonEncode`/`toProto3Json` are not real JSON (`ball_emit_runtime.h`).
-- Filesystem ops (`existsSync`/dir list/create, `writeAsBytesSync`) are no-ops.
+- Filesystem ops (`existsSync`, dir list/create/exists, `writeAsBytesSync`,
+  append-mode `writeAsStringSync`) now do real `std::filesystem`/`std::ofstream`
+  work (issues #307/#308/#310) — no longer no-ops.
 - `await`/`yield`/`yield_each` are synchronous pass-throughs (no event loop).
 - Generic proto `hasXxx`→false, `whichXxx`→"notSet" fallbacks.
 

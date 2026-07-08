@@ -32,6 +32,7 @@
 use ball_shared::extract_fields;
 use ball_shared::proto::ball::v1::Expression;
 use ball_shared::proto::ball::v1::expression::Expr;
+use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_shared::proto::ball::v1::statement::Stmt;
 
 use crate::Compiler;
@@ -140,11 +141,31 @@ impl Compiler<'_> {
         want_old: bool,
     ) -> String {
         let slot = self.lvalue_mut_expr(lvalue);
-        let new_value = combine_op(op, "__old.clone()", value_code);
+        // The right-hand value is bound to an owned temporary (`__val`)
+        // *before* the mutable slot borrow is taken, so a `value_code` that
+        // reads the same variable being assigned (`x = f(x)` → `x.clone()`
+        // inside `value_code`) or even mutates it (`x = list_push(x, e)`,
+        // where the collection helper needs its own `&mut x`) no longer
+        // overlaps the `&mut` slot borrow. Without this sequencing the two
+        // borrows of the one place are simultaneous and rustc rejects them
+        // (E0499 "borrow more than once" / E0502 "immutable while mutable") —
+        // the self-hosted engine hits this on `fieldNames = list_push(...)`,
+        // `superObj = _asMap(superObj[...])`, `instance[__super__] = {...
+        // instance ...}`, etc. Every compiled expression yields an owned
+        // `BallValue`, so binding it first is always valid and changes no
+        // semantics for the common `value_code` that doesn't touch the target.
+        let new_value = combine_op(op, "__old.clone()", "__val");
         let tail = if want_old { "__old" } else { "__new" };
+        // `__slot` is annotated `&mut BallValue` so an `LValue::Unsupported`
+        // slot (which compiles to a diverging `panic!(…)`, type `!`) has a
+        // concrete type to coerce to — without the annotation rustc can't
+        // infer `__slot`'s type from a `!` initializer alone (E0282 "type
+        // annotations needed"). The annotation is exactly the type every real
+        // slot (`&mut name`, `ball_field_get_mut`, `ball_index_get_mut`)
+        // already has, so it is a no-op for those.
         format!(
-            "{{ let __slot = {slot}; let __old = __slot.clone(); let __new = {new_value}; \
-             *__slot = __new.clone(); {tail} }}"
+            "{{ let __val = {value_code}; let __slot: &mut BallValue = {slot}; \
+             let __old = __slot.clone(); let __new = {new_value}; *__slot = __new.clone(); {tail} }}"
         )
     }
 
@@ -245,6 +266,22 @@ impl Compiler<'_> {
                 .object
                 .as_deref()
                 .is_some_and(|object| self.expr_mutates_var(object, name)),
+            // A list literal's elements can carry mutations too — most
+            // importantly `switch`'s `cases` and `try`'s `catches`, whose
+            // clause bodies (each a `MessageCreation`) live inside a
+            // `literal.list_value.elements` (see `base_call.rs`'s
+            // `literal_list_elements`). Without recursing here, a `let`
+            // mutated only inside a `switch`/`try` branch (the self-hosted
+            // engine's `items`/`self`/`selfMap` set-mutation methods) is never
+            // marked `let mut`, so its later `&mut` borrow is E0596 "cannot
+            // borrow as mutable".
+            Some(Expr::Literal(literal)) => match &literal.value {
+                Some(LiteralValue::ListValue(list)) => list
+                    .elements
+                    .iter()
+                    .any(|element| self.expr_mutates_var(element, name)),
+                _ => false,
+            },
             _ => false,
         }
     }

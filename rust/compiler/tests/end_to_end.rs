@@ -744,6 +744,35 @@ fn closures_compile_and_run() {
     assert_program_prints("closures", &program, "15");
 }
 
+/// Issue #39 (gap #6): a `lambda` captures a local (`n`) that the enclosing
+/// scope keeps using **after** the lambda is built. The lambda compiles to a
+/// `move` closure, which would move `n` out of the surrounding function
+/// (`BallValue` is not `Copy`) — `error[E0382]` "use of moved value" — so
+/// `compile_lambda` pre-clones each captured local into a fresh binding the
+/// closure owns, leaving the caller's `n` intact. Also exercises the
+/// function-value call path (`adder(5)` → `ball_call_function`, since `adder`
+/// is a local `BallValue::Function`, not a top-level function item).
+#[test]
+fn closure_capture_leaves_the_captured_local_usable_afterward() {
+    let adder_lambda = lambda(bin_call("add", reference("input"), reference("n")));
+    let main_body = block(
+        vec![
+            let_stmt("n", int_lit(10)),
+            let_stmt("adder", adder_lambda),
+            // `n` used again *after* the capturing lambda — the E0382 case.
+            let_stmt("doubled", bin_call("add", reference("n"), reference("n"))),
+        ],
+        print_to_string(bin_call(
+            "add",
+            call("", "adder", Some(int_lit(5))),
+            reference("doubled"),
+        )),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    // adder(5) = 5 + 10 = 15; doubled = 10 + 10 = 20; 15 + 20 = 35.
+    assert_program_prints("closure_capture", &program, "35");
+}
+
 /// A `block`'s value is its **last** (`result`) expression, not its first
 /// statement — proven by a block whose intermediate `let`s would produce a
 /// different value than the tail if tail-expression semantics were wrong.
@@ -1104,6 +1133,51 @@ fn list_mutations_affect_the_same_underlying_list() {
     );
     let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
     assert_program_prints("list_mutation", &program, "[99, 2, 3, 4]\n4");
+}
+
+/// Issue #39 (borrow-checker gap): an `assign` whose *value* reads or mutates
+/// the **same** variable being assigned must sequence the value's evaluation
+/// **before** the `&mut` slot borrow, or rustc rejects the two overlapping
+/// borrows of the one place (E0499 "cannot borrow more than once" when the
+/// value is itself a mutating collection call, E0502 "immutable while
+/// mutable" when it merely reads the target). `Compiler::emit_mutation` binds
+/// the value to an owned `__val` temporary first — see its doc comment.
+///
+/// - `x = x[0]` — the value reads `x` immutably (was E0502).
+/// - `items = list_push(items, 4)` — the value takes its own `&mut items`
+///   (was E0499); `ball_list_push` returns the mutated list, so the round
+///   trip through the assign is value-preserving.
+#[test]
+fn assign_whose_value_touches_the_target_compiles_and_runs() {
+    let index_of = |target: Expression, index: Expression| {
+        call(
+            "std",
+            "index",
+            Some(args(vec![("target", target), ("index", index)])),
+        )
+    };
+    let main_body = block(
+        vec![
+            let_stmt("x", list_lit(vec![int_lit(42), int_lit(7), int_lit(3)])),
+            // x = x[0]  (value reads the target — E0502 pre-fix)
+            expr_stmt(assign_expr(
+                reference("x"),
+                index_of(reference("x"), int_lit(0)),
+                "=",
+            )),
+            expr_stmt(print_to_string(reference("x"))),
+            let_stmt("items", list_lit(vec![int_lit(1), int_lit(2), int_lit(3)])),
+            // items = list_push(items, 4)  (value mutates the target — E0499 pre-fix)
+            expr_stmt(assign_expr(
+                reference("items"),
+                list_push_call(reference("items"), int_lit(4)),
+                "=",
+            )),
+        ],
+        print_to_string(reference("items")),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("assign_self_touch", &program, "42\n[1, 2, 3, 4]");
 }
 
 // ════════════════════════════════════════════════════════════

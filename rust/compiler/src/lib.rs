@@ -129,6 +129,39 @@ pub struct Compiler<'a> {
     /// `impl`/`trait` block and `compile_message_creation` can map a
     /// constructor's positional `argN` fields to real field names.
     class_members_by_owner: HashMap<String, Vec<&'a FunctionDefinition>>,
+    /// Every **sanitized** name that compiles to a callable Rust item — a
+    /// standalone user function (`pub fn <name>`) or a polymorphic method
+    /// dispatcher / short method name (`pub fn <short>`, see
+    /// `type_emit::compile_method_dispatchers`). Used by
+    /// [`Compiler::is_known_callable`] to tell a statically-resolvable
+    /// function call (`fibonacci(n)` → a direct Rust call) from a call
+    /// through a first-class function *value* (`bound(input)`, where `bound`
+    /// is a local `BallValue::Function` — the self-hosted engine's
+    /// `scope.lookup(name)(input)` shape), which must instead route through
+    /// `ball_call_function` (issue #39, gap #6). A `BallValue` is not a Rust
+    /// fn item, so emitting `bound(input)` for the latter is `error[E0618]`
+    /// "expected function, found `BallValue`".
+    callable_names: HashSet<String>,
+    /// Lexical scope stack of **sanitized local binding names** — function/
+    /// method/lambda parameters (`input`, aliased params, a method's `self_`
+    /// and field aliases), `let` bindings, `for`/`for_in` loop variables, and
+    /// `catch` variables. Each frame is one lexical scope (a function body, a
+    /// `block`, a loop/catch body); [`Compiler::is_local`] checks the whole
+    /// stack (every enclosing scope). Interior mutability keeps every
+    /// `compile_*` method `&self` (like [`Compiler::current_module`]); safe
+    /// because compilation is single-threaded and strictly nested — a frame
+    /// is pushed on entering a scope and popped on leaving it.
+    ///
+    /// This is what lets [`Compiler::compile_call`] tell a call *through a
+    /// value* (`bound(input)`, where `bound` is a local `BallValue::Function`
+    /// — dynamic dispatch via `ball_call_function`) from a call to a real
+    /// function *item* (a user function, or a `ball_shared::runtime` Dart-SDK
+    /// helper like `unmodifiable`/`now`/`cast` — a direct Rust call), which a
+    /// name-only test cannot: both are unqualified, and a local can even
+    /// shadow a function of the same name (the self-hosted engine binds a
+    /// local `init`/`func`/… alongside its top-level namesakes). Issue #39,
+    /// gap #6.
+    local_scopes: RefCell<Vec<HashSet<String>>>,
     /// The Ball module currently being compiled (module name, not sanitized
     /// Rust identifier) — read by `type_emit::resolve_user_call_name` to
     /// decide whether a same-module call needs no qualification. Interior
@@ -183,17 +216,101 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // Every sanitized name that resolves to a callable Rust *item* — a
+        // standalone function (emitted as `pub fn <name>`) or a class member
+        // that becomes a polymorphic dispatcher / short-named `pub fn`
+        // (`type_emit::compile_method_dispatchers`). Any *other* callee name
+        // is a first-class function value, dispatched dynamically (see
+        // `callable_names`' doc comment). Over-inclusion is safe: a name in
+        // this set compiles to a direct Rust call (the pre-#39 default),
+        // while *under*-inclusion would wrongly route a real function call
+        // through `ball_call_function` — so a constructor's `new` (invoked
+        // via `MessageCreation`, never a bare call — harmless here) is left
+        // in rather than special-cased out.
+        let mut callable_names: HashSet<String> = HashSet::new();
+        for module in &program.modules {
+            if base_modules.contains(&module.name) {
+                continue;
+            }
+            for func in &module.functions {
+                if func.is_base {
+                    continue;
+                }
+                // The entry function is never a callable `pub fn`: it is
+                // inlined into `fn main()` (binary mode) or skipped entirely
+                // (library mode — the self-host route), so it must not be
+                // treated as a direct-call target or wrapped as a function
+                // value (`BallFunction::new("main", main)` would bind Rust's
+                // zero-arg `fn main`, a type error).
+                if module.name == program.entry_module && func.name == program.entry_function {
+                    continue;
+                }
+                if is_class_member(func) {
+                    callable_names.insert(type_emit::member_short_name(&func.name));
+                } else {
+                    callable_names.insert(sanitize_ident(&func.name));
+                }
+            }
+        }
+
         Compiler {
             program,
             base_modules,
             user_module_names,
             class_members_by_owner,
+            callable_names,
+            local_scopes: RefCell::new(Vec::new()),
             current_module: RefCell::new(program.entry_module.clone()),
         }
     }
 
+    // ════════════════════════════════════════════════════════════
+    // Lexical scope tracking (issue #39, gap #6)
+    // ════════════════════════════════════════════════════════════
+
+    /// Enter a new lexical scope (a function/lambda/method body, a `block`, a
+    /// loop or `catch` body). Paired with [`Compiler::pop_scope`].
+    fn push_scope(&self) {
+        self.local_scopes.borrow_mut().push(HashSet::new());
+    }
+
+    /// Leave the innermost lexical scope.
+    fn pop_scope(&self) {
+        self.local_scopes.borrow_mut().pop();
+    }
+
+    /// Record `name` (a `let`/parameter/loop/catch binding) as a local in the
+    /// innermost scope. Stored sanitized so [`Compiler::is_local`] can be
+    /// asked with a raw Ball name.
+    fn bind_local(&self, name: &str) {
+        if let Some(frame) = self.local_scopes.borrow_mut().last_mut() {
+            frame.insert(sanitize_ident(name));
+        }
+    }
+
+    /// Is `name` a local binding in *any* enclosing scope (as opposed to a
+    /// top-level function item, a `ball_shared::runtime` helper, or an enum
+    /// namespace static)? See [`Compiler::local_scopes`].
+    fn is_local(&self, name: &str) -> bool {
+        let sanitized = sanitize_ident(name);
+        self.local_scopes
+            .borrow()
+            .iter()
+            .any(|frame| frame.contains(&sanitized))
+    }
+
     fn is_base_module(&self, module: &str) -> bool {
         self.base_modules.contains(module)
+    }
+
+    /// Does `function` (a `FunctionCall.function` / `Reference.name`) resolve
+    /// to a callable Rust item (a `pub fn`), as opposed to a first-class
+    /// function *value* held in a `BallValue`? Drives both the
+    /// direct-call-vs-`ball_call_function` choice in
+    /// [`Compiler::compile_call`] and the fn-item-vs-`BallValue::Function`
+    /// wrapping in [`Compiler::compile_reference`] (issue #39, gap #6).
+    fn is_known_callable(&self, function: &str) -> bool {
+        self.callable_names.contains(&sanitize_ident(function))
     }
 
     // ════════════════════════════════════════════════════════════
@@ -274,8 +391,8 @@ impl<'a> Compiler<'a> {
             "// Generated by ball compiler (Rust target)\n// Source: {} v{}\n\n",
             self.program.name, self.program.version
         ));
-        out.push_str("#![allow(unused_mut, dead_code)]\n\n");
-        out.push_str("use ball_shared::{BallMap, BallMessage, BallValue};\n");
+        out.push_str("#![allow(unused_mut, dead_code, unused_variables)]\n\n");
+        out.push_str("use ball_shared::{BallFunction, BallMap, BallMessage, BallValue};\n");
         out.push_str("use ball_shared::runtime::*;\n\n");
 
         // The Ball-proto oneof-discriminator enum namespaces
@@ -370,11 +487,14 @@ impl<'a> Compiler<'a> {
     /// name resolve — see [`param_alias_prologue`].
     fn compile_function(&self, func: &FunctionDefinition) -> String {
         let name = sanitize_ident(&func.name);
+        self.push_scope();
+        self.bind_local("input");
         let prologue = self.param_alias_prologue(func);
         let body = match &func.body {
             Some(body) => self.compile_expression(body),
             None => "BallValue::Null".to_string(),
         };
+        self.pop_scope();
         format!("pub fn {name}(input: BallValue) -> BallValue {{\n{prologue}{body}\n}}\n")
     }
 
@@ -385,11 +505,14 @@ impl<'a> Compiler<'a> {
     /// the module doc comment), so its value is bound to `_` and discarded;
     /// any `print` calls inside it still execute for their side effects.
     fn compile_entry_main(&self, func: &FunctionDefinition) -> String {
+        self.push_scope();
+        self.bind_local("input");
         let prologue = self.param_alias_prologue(func);
         let body = match &func.body {
             Some(body) => self.compile_expression(body),
             None => "BallValue::Null".to_string(),
         };
+        self.pop_scope();
         format!("fn main() {{\n{prologue}let _ballvalue_result: BallValue = {body};\n}}\n")
     }
 
@@ -507,6 +630,23 @@ impl<'a> Compiler<'a> {
             // so this compiles to `BallValue::Null` — the same value a read
             // of the still-unassigned variable yields.
             "BallValue::Null".to_string()
+        } else if !self.is_local(&reference.name) && self.is_known_callable(&reference.name) {
+            // A bare reference (value position, not a call) to a top-level
+            // function that is *not* shadowed by a local of the same name: it
+            // is being used as a first-class function *value* (`var f =
+            // someFunc;`, a callback argument, `builtinResult != _sentinel`).
+            // Every user function compiles to a Rust `fn(BallValue) ->
+            // BallValue` item, which is not itself a `BallValue`, so
+            // `<name>.clone()` here is `error[E0308]` "expected `BallValue`,
+            // found fn item". Wrap it as a `BallValue::Function` (the fn item
+            // coerces to the stored closure) so it flows as a value and can be
+            // invoked via `ball_call_function` (issue #39, gap #6). The
+            // `is_local` guard is essential — the self-hosted engine binds
+            // locals (`init`, `func`, …) that shadow top-level namesakes, and
+            // wrapping such a local (already a `BallValue`) as a fn item would
+            // reintroduce the very E0277/E0308 this fixes.
+            let name = sanitize_ident(&reference.name);
+            format!("BallValue::Function(BallFunction::new({name:?}, {name}))")
         } else {
             format!("{}.clone()", sanitize_ident(&reference.name))
         }
@@ -599,6 +739,13 @@ impl<'a> Compiler<'a> {
     /// has no way to make compile (Rust rejects reassigning an immutable
     /// `let`). See `crate::lvalue`'s module doc comment for the full design.
     fn compile_block(&self, block: &Block) -> String {
+        // A `block` is its own lexical scope: its `let` bindings shadow outer
+        // ones and are invisible after it. Each binding becomes a local
+        // *after* its value is compiled (so `let x = x;` reads the outer `x`),
+        // visible to every later statement and the tail — this is what lets a
+        // `let bound = <lambda>;` then `bound(input)` route through dynamic
+        // dispatch (issue #39, gap #6).
+        self.push_scope();
         let mut out = String::from("{\n");
         for (index, statement) in block.statements.iter().enumerate() {
             match &statement.stmt {
@@ -608,6 +755,7 @@ impl<'a> Compiler<'a> {
                         Some(value) => self.compile_expression(value),
                         None => "BallValue::Null".to_string(),
                     };
+                    self.bind_local(&let_binding.name);
                     let mutated = self.rest_mutates_var(
                         &block.statements[index + 1..],
                         block.result.as_deref(),
@@ -629,6 +777,7 @@ impl<'a> Compiler<'a> {
         };
         out.push_str(&tail);
         out.push_str("\n}");
+        self.pop_scope();
         out
     }
 
@@ -646,12 +795,127 @@ impl<'a> Compiler<'a> {
     /// single named parameter in its metadata gets the same alias
     /// prologue).
     fn compile_lambda(&self, lambda: &FunctionDefinition) -> String {
+        // Free variables the lambda captures from the enclosing scope: names
+        // referenced in the body that are enclosing locals (computed *before*
+        // pushing the lambda's own frame, and excluding `input` — the
+        // lambda's own parameter). A `move` closure would otherwise *move*
+        // each captured local out of the surrounding function (`BallValue` is
+        // not `Copy`), making it unavailable afterward — `error[E0382]` "use
+        // of moved value" — which the self-hosted engine hits when it builds a
+        // per-method closure capturing `func`/`module` and then keeps
+        // iterating with them. Pre-clone each captured local into a fresh
+        // binding the `move` closure owns, leaving the caller's original
+        // intact (the same trick a hand-written Rust closure uses:
+        // `{ let func = func.clone(); move || … func … }`).
+        let mut referenced = HashSet::new();
+        if let Some(body) = &lambda.body {
+            self.collect_referenced_names(body, &mut referenced);
+        }
+        let mut captured: Vec<String> = referenced
+            .into_iter()
+            .filter(|name| name != "input" && self.is_local(name))
+            .collect();
+        captured.sort();
+
+        self.push_scope();
+        self.bind_local("input");
         let prologue = self.param_alias_prologue(lambda);
         let body = match &lambda.body {
             Some(body) => self.compile_expression(body),
             None => "BallValue::Null".to_string(),
         };
-        format!("(move |input: BallValue| -> BallValue {{\n{prologue}{body}\n}})")
+        self.pop_scope();
+
+        // A lambda is a first-class function *value*: wrap the compiled `move`
+        // closure in a `BallValue::Function` so it can be stored in a
+        // scope/map, returned, passed as a callback, or compared `is Function`
+        // — and later invoked uniformly via `ball_call_function` (issue #39,
+        // gap #6). The closure is `Send + Sync + 'static` (it captures owned,
+        // already-`.clone()`d `BallValue`s), which `BallFunction`'s `Arc<dyn
+        // Fn … + Send + Sync>` requires — keeping `BallValue` `Send` so
+        // `ball_throw`'s `panic_any` still type-checks.
+        let name = &lambda.name;
+        let closure = format!(
+            "BallValue::Function(BallFunction::new({name:?}, move |input: BallValue| -> BallValue {{\n{prologue}{body}\n}}))"
+        );
+        if captured.is_empty() {
+            closure
+        } else {
+            let preclones: String = captured
+                .iter()
+                .map(|var| {
+                    let ident = sanitize_ident(var);
+                    format!("let {ident} = {ident}.clone();\n")
+                })
+                .collect();
+            format!("{{\n{preclones}{closure}\n}}")
+        }
+    }
+
+    /// Collect every identifier *referenced* anywhere in `expr` (reference
+    /// reads and call callees, recursing through the whole expression tree)
+    /// into `out`. Over-approximates a lambda's free variables for
+    /// [`Compiler::compile_lambda`]'s capture pre-cloning: it may include a
+    /// name that a nested binding shadows, but the caller keeps only names
+    /// that are enclosing locals, and an over-cloned (unused) pre-clone is
+    /// harmless (`#![allow(unused_variables)]`). Call callees are included
+    /// because a captured function *value* (`op`/`predicate`) is invoked, not
+    /// read, so it appears only as a `call.function`, never a `reference`.
+    fn collect_referenced_names(&self, expr: &Expression, out: &mut HashSet<String>) {
+        match &expr.expr {
+            Some(Expr::Reference(reference)) => {
+                out.insert(reference.name.clone());
+            }
+            Some(Expr::Call(call)) => {
+                out.insert(call.function.clone());
+                if let Some(input) = call.input.as_deref() {
+                    self.collect_referenced_names(input, out);
+                }
+            }
+            Some(Expr::FieldAccess(field_access)) => {
+                if let Some(object) = field_access.object.as_deref() {
+                    self.collect_referenced_names(object, out);
+                }
+            }
+            Some(Expr::MessageCreation(message_creation)) => {
+                for field in &message_creation.fields {
+                    if let Some(value) = &field.value {
+                        self.collect_referenced_names(value, out);
+                    }
+                }
+            }
+            Some(Expr::Block(block)) => {
+                for statement in &block.statements {
+                    match &statement.stmt {
+                        Some(Stmt::Let(let_binding)) => {
+                            if let Some(value) = &let_binding.value {
+                                self.collect_referenced_names(value, out);
+                            }
+                        }
+                        Some(Stmt::Expression(expression)) => {
+                            self.collect_referenced_names(expression, out);
+                        }
+                        None => {}
+                    }
+                }
+                if let Some(result) = block.result.as_deref() {
+                    self.collect_referenced_names(result, out);
+                }
+            }
+            Some(Expr::Lambda(inner)) => {
+                if let Some(body) = inner.body.as_deref() {
+                    self.collect_referenced_names(body, out);
+                }
+            }
+            Some(Expr::Literal(literal)) => {
+                if let Some(LiteralValue::ListValue(list)) = &literal.value {
+                    for element in &list.elements {
+                        self.collect_referenced_names(element, out);
+                    }
+                }
+            }
+            None => {}
+        }
     }
 }
 
@@ -983,12 +1247,35 @@ mod tests {
         let compiled = compiler.compile_expression(&expr);
         assert!(compiled.contains("move |input: BallValue| -> BallValue"));
         assert!(compiled.contains("input.clone()"));
+        // #39: a lambda is a first-class function *value* — the `move`
+        // closure is wrapped in a `BallValue::Function` so it can flow as a
+        // value and be invoked via `ball_call_function`.
+        assert!(compiled.starts_with("BallValue::Function(BallFunction::new("));
     }
 
     // ── call ─────────────────────────────────────────────────
+    /// A call whose callee names a **known** user function compiles to a
+    /// direct Rust call. `fibonacci` must actually be declared in the
+    /// program for it to be a known callable (issue #39) — otherwise the
+    /// compiler treats the name as a first-class function *value* and routes
+    /// it through `ball_call_function` (see
+    /// [`compiles_function_value_call_via_dynamic_dispatch`]).
     #[test]
     fn compiles_user_function_call() {
-        let program = program_with_std();
+        let mut program = program_with_std();
+        program.modules.push(Module {
+            name: "main".to_string(),
+            functions: vec![FunctionDefinition {
+                name: "fibonacci".to_string(),
+                input_type: "int".to_string(),
+                output_type: "int".to_string(),
+                body: Some(Box::new(reference("input"))),
+                description: String::new(),
+                is_base: false,
+                metadata: None,
+            }],
+            ..Default::default()
+        });
         let compiler = Compiler::new(&program);
         let expr = Expression {
             expr: Some(Expr::Call(Box::new(FunctionCall {
@@ -1002,6 +1289,82 @@ mod tests {
             compiler.compile_expression(&expr),
             "fibonacci(BallValue::Int(10i64))"
         );
+    }
+
+    /// A call whose callee is a **local** binding (not a top-level function)
+    /// is a call through a first-class function value and routes through the
+    /// dynamic dispatcher `ball_call_function` — the self-hosted engine's
+    /// `final bound = scope.lookup(name); bound(input)` shape (issue #39, gap
+    /// #6). An unqualified callee that is *not* a local stays a direct call
+    /// (a user function or a `ball_shared::runtime` Dart-SDK helper), even
+    /// when the same name is unknown to the compiler.
+    #[test]
+    fn compiles_function_value_call_via_dynamic_dispatch() {
+        let program = program_with_std();
+        let compiler = Compiler::new(&program);
+        let call_bound = Expression {
+            expr: Some(Expr::Call(Box::new(FunctionCall {
+                module: String::new(),
+                function: "bound".to_string(),
+                input: Some(Box::new(int_lit(5))),
+                type_args: vec![],
+            }))),
+        };
+        // Not a local → direct call (an unknown top-level function / SDK
+        // helper), unchanged from before #39.
+        assert_eq!(
+            compiler.compile_expression(&call_bound),
+            "bound(BallValue::Int(5i64))"
+        );
+        // With `bound` a local binding in scope → dynamic dispatch.
+        compiler.push_scope();
+        compiler.bind_local("bound");
+        assert_eq!(
+            compiler.compile_expression(&call_bound),
+            "ball_call_function(bound.clone(), BallValue::Int(5i64))"
+        );
+        compiler.pop_scope();
+    }
+
+    /// A bare reference (value position) to a top-level function wraps it as a
+    /// `BallValue::Function` so the fn item can flow as a value (issue #39,
+    /// gap #6) — but only when it is **not** shadowed by a local of the same
+    /// name (the self-hosted engine binds locals that shadow their top-level
+    /// namesakes; wrapping such a local — already a `BallValue` — would be a
+    /// type error).
+    #[test]
+    fn reference_to_unshadowed_function_wraps_as_value_but_local_shadow_does_not() {
+        let mut program = program_with_std();
+        program.modules.push(Module {
+            name: "main".to_string(),
+            functions: vec![FunctionDefinition {
+                name: "helper".to_string(),
+                input_type: "int".to_string(),
+                output_type: "int".to_string(),
+                body: Some(Box::new(reference("input"))),
+                description: String::new(),
+                is_base: false,
+                metadata: None,
+            }],
+            ..Default::default()
+        });
+        let compiler = Compiler::new(&program);
+        // Unshadowed top-level function used as a value → wrapped.
+        assert_eq!(
+            compiler.compile_expression(&reference("helper")),
+            "BallValue::Function(BallFunction::new(\"helper\", helper))"
+        );
+        // A plain (non-function) local → unchanged `.clone()`.
+        assert_eq!(compiler.compile_expression(&reference("x")), "x.clone()");
+        // A local shadowing the function name → treated as the local value,
+        // NOT wrapped as a fn item.
+        compiler.push_scope();
+        compiler.bind_local("helper");
+        assert_eq!(
+            compiler.compile_expression(&reference("helper")),
+            "helper.clone()"
+        );
+        compiler.pop_scope();
     }
 
     #[test]
@@ -1157,7 +1520,9 @@ mod tests {
         });
         let compiler = Compiler::new(&program);
         let compiled = compiler.compile();
-        assert!(compiled.contains("use ball_shared::{BallMap, BallMessage, BallValue};"));
+        assert!(
+            compiled.contains("use ball_shared::{BallFunction, BallMap, BallMessage, BallValue};")
+        );
         assert!(compiled.contains("use ball_shared::runtime::*;"));
         assert!(compiled.contains("fn main() {"));
         assert!(!compiled.contains("pub fn main(")); // entry fn is inlined, not emitted as a wrapper

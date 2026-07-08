@@ -540,11 +540,14 @@ impl Compiler<'_> {
     /// function's single named parameter.
     fn compile_method(&self, owner_td: &TypeDefinition, func: &FunctionDefinition) -> String {
         let short = member_short_name(&func.name);
+        self.push_scope();
+        self.bind_local("input");
         let prologue = self.method_prologue(owner_td, func);
         let body = match &func.body {
             Some(body) => self.compile_expression(body),
             None => "BallValue::Null".to_string(),
         };
+        self.pop_scope();
         format!("    pub fn {short}(input: BallValue) -> BallValue {{\n{prologue}{body}\n    }}\n")
     }
 
@@ -574,13 +577,36 @@ impl Compiler<'_> {
         let mut out = String::new();
         if !func_meta_bool(func, "is_static") {
             out.push_str("        let self_ = ball_field_get(input.clone(), \"self\");\n");
+            self.bind_local("self");
             if let Some(descriptor) = &owner_td.descriptor {
                 for field in &descriptor.field {
                     let Some(field_name) = field.name.as_deref() else {
                         continue;
                     };
+                    self.bind_local(field_name);
+                    // A method that reassigns (or mutates through) one of its
+                    // owner's fields — e.g. the engine's `_expressionDepth += 1`
+                    // or `_functions[key] = fn` — reads that field into a local
+                    // alias here; declare the alias `let mut` in that case so the
+                    // later `assign`/increment/`map_set`/`list_push` mutation can
+                    // take a `&mut` on it (rustc rejects mutating a plain `let`
+                    // — E0596 "cannot borrow as mutable"). Same mechanism
+                    // `params_binding_prologue` uses for reassigned parameters
+                    // (issue #287). This mutates the local *copy* of the field,
+                    // not the instance (the by-value receiver model clones
+                    // `self`), but that is the existing method-model limitation,
+                    // not a regression — the point here is only that it compiles.
+                    let keyword = if func
+                        .body
+                        .as_deref()
+                        .is_some_and(|body| self.expr_mutates_var(body, field_name))
+                    {
+                        "let mut"
+                    } else {
+                        "let"
+                    };
                     out.push_str(&format!(
-                        "        let {} = ball_field_get(self_.clone(), {field_name:?});\n",
+                        "        {keyword} {} = ball_field_get(self_.clone(), {field_name:?});\n",
                         crate::sanitize_ident(field_name)
                     ));
                 }
@@ -674,6 +700,9 @@ impl Compiler<'_> {
             if name == "input" {
                 return String::new();
             }
+            // Record the parameter as a local so a call/reference to it
+            // resolves as a value, not a function item (issue #39, gap #6).
+            self.bind_local(name);
             return format!(
                 "{} {} = input.clone();\n",
                 keyword(name),
@@ -697,6 +726,7 @@ impl Compiler<'_> {
             if name == "input" {
                 continue;
             }
+            self.bind_local(name);
             out.push_str(&format!(
                 "{} {} = {getter};\n",
                 keyword(name),
@@ -721,7 +751,10 @@ impl Compiler<'_> {
     fn compile_constructor(&self, owner_td: &TypeDefinition, ctor: &FunctionDefinition) -> String {
         let short = member_short_name(&ctor.name);
         if let Some(body) = &ctor.body {
+            self.push_scope();
+            self.bind_local("input");
             let body_code = self.compile_expression(body);
+            self.pop_scope();
             return format!(
                 "    pub fn {short}(input: BallValue) -> BallValue {{\n{body_code}\n    }}\n"
             );

@@ -28,7 +28,7 @@
 //! the self-hosted engine, and **that whole engine compiles cleanly** through
 //! `ball-compiler` (`cargo build -p ball-engine --features self_host` succeeds).
 //! With issue #298's **reference-`this`** (shared `Arc<Mutex>` instance fields)
-//! + **implicit-`this` injection**, the compiled engine now *executes*:
+//! plus **implicit-`this` injection**, the compiled engine now *executes*:
 //! [`BallEngine::run`] (under the `self_host` feature) constructs the compiled
 //! `main_BallEngine` and drives its `run`, and execution proceeds through
 //! construction, implicit-`this` dispatch, and `this._functions` population —

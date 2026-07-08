@@ -2142,8 +2142,9 @@ inline bool identical(const std::any& a, const std::any& b) {
 // File/Directory constructors from BallDyn
 inline File::File(const BallDyn& p) : path(ball_to_string(p)) {}
 inline Directory::Directory(const BallDyn& p) : path(ball_to_string(p)) {}
-inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any&) {
-    std::ofstream ofs(f.path);
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& mode) {
+    auto flags = std::ios::out | (_ball_file_mode_is_append(mode) ? std::ios::app : std::ios::trunc);
+    std::ofstream ofs(f.path, flags);
     ofs << ball_to_string(content);
 }
 

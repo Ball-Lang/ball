@@ -52,9 +52,10 @@ feature and `BallEngine::run` returns `EngineError::SelfHostPending` in the
 default build. `cargo build -p ball-engine` / `cargo test -p ball-engine` are
 green on the foundation.
 
-Compiling the whole 289-function engine currently produces ~326 `rustc` errors
-(down from ~348), because the self-hosted engine is authored against the full
-Dart SDK surface. The blocking compiler gaps (each a separate follow-up issue):
+Compiling the whole 289-function engine currently produces **186** `rustc`
+errors (down from ~326, then ~348), because the self-hosted engine is authored
+against the full Dart SDK surface. The blocking compiler gaps (each a separate
+follow-up issue):
 
 1. **Protobuf oneof-discriminator enum constants** — RESOLVED (71 errors, was
    ~70). The engine compares `whichExpr()`/`whichValue()`/`whichStmt()`/
@@ -67,14 +68,39 @@ Dart SDK surface. The blocking compiler gaps (each a separate follow-up issue):
    namespace whose members are the oneof arm's **string** case name (matching
    the `ball_proto` discriminator return values) — so `Expression_Expr.call`
    resolves to `BallValue::String("call")`. Mirrors the TS compiler's
-   `preamble.ts` constants. (One straggler remains — `io_FileMode.append`, a
-   `dart:io` enum, not a Ball oneof discriminator — but its only use site is the
-   Dart-SDK `writeAsStringSync` call in gap #2, so it is tracked there.)
-2. **Dart-SDK method calls** (~120 errors) — `RegExp.firstMatch`/`allMatches`,
-   `int.tryParse`, `num.parse`, `List.addAll`/`cast`/`toSet`, `DateTime.now`,
-   `File.writeAsStringSync`/`existsSync`, `.remove`/`.clear`/`.setAll`, etc.
-   These need a Rust runtime surface (in `ball-shared::runtime`) plus compiler
-   dispatch, since the engine relies on the Dart standard library.
+   `preamble.ts` constants. (`io_FileMode` — a `dart:io` enum, not a Ball oneof
+   discriminator — is now emitted as a runtime static alongside gap #2.)
+2. **Dart-SDK method calls** — RESOLVED for the whole String/List/Map/Set/`num`/
+   `int`/`double`/`String`/`DateTime`/`RegExp`/`File` surface (~140 errors, was
+   ~120 estimated). Fixed in `ball_shared::runtime` (the `dartsdk` submodule,
+   re-exported via `pub use dartsdk::*`), which defines each Dart-SDK method as a
+   free `fn <name>(input: BallValue) -> BallValue` matching the compiler's
+   emitted call shape — a method's receiver rides in the packed `input` message
+   under `self`, positional args as `arg0`/`arg1`/…, named args by name (the
+   invariant-#1 convention, see `ball_arg_get`). Implemented with exact Dart
+   semantics: `tryParse`/`parse`/`remainder` (numeric, `self` = an `int`/`double`/
+   `num` **type marker** value — also new runtime statics), `firstMatch`/
+   `allMatches`/`group` (regex, via the new `regex` dep — a `RegExpMatch` is a
+   `{groups: [...]}` message), `addAll`/`remove`/`clear`/`setAll`/`cast`/`toSet`/
+   `unmodifiable`/`filled`/`elementAt` (collections), `union_`/`intersection`/
+   `difference` (sets, `List`-backed per issue #35), `fromCharCode`, `identical`
+   (structural — a by-value model has no object identity), `DateTime.now`
+   (`{millisecondsSinceEpoch,…}`), the `dart_math::*` trig/log/exp/`atan2`
+   functions, and the `dart_io::File`/`Directory` + `existsSync`/
+   `readAsStringSync`/`writeAsStringSync`/`writeAsBytesSync`/`createSync`/
+   `deleteSync` filesystem ops (+ the `io_FileMode` static). The module-qualified
+   `dart_math::`/`dart_io::` calls resolve via a small compiler change: an
+   **empty namespace module** (no Ball functions/types — a foreign-SDK marker)
+   now emits `pub use ball_shared::runtime::*;` instead of a private
+   `use super::*;`. Also fixed the missing `ball_null_coalesce` (`??`/`??=`)
+   runtime helper the compiler had always emitted without a definition.
+   **Still open** (Dart-SDK methods that need dynamic function dispatch — really
+   gap #6, not a pure runtime helper): `Function.apply` (3) and `List.indexWhere`
+   (1) invoke a `BallValue::Function` value, for which `ball-shared` has no
+   dispatcher. The remaining `cannot find` errors are all out of this gap:
+   `hasValue`/`hasObject`/`writeToBuffer` (proto-message methods, gap #3),
+   `convert` (`JsonEncoder`/`JsonDecoder`, `std_convert`, gap #3), and
+   `entries`/`self_`/`_initialized`/`stackTrace`/… (gap #4/#5).
 3. **`ball_proto` / `std_convert` base dispatch** — the compiler emits
    `ball_unsupported_base_call("ball_proto", "whichExpr")`; it must route these
    16 `ball_proto` + 4 `std_convert` functions to runtime helpers (the wrapper

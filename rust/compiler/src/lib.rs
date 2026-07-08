@@ -300,12 +300,30 @@ impl<'a> Compiler<'a> {
             if module.name == entry_module.name || self.is_base_module(&module.name) {
                 continue;
             }
-            out.push_str(&format!(
-                "pub mod {} {{\n    use super::*;\n",
-                sanitize_ident(&module.name)
-            ));
-            out.push_str(&self.compile_module_body(module));
-            out.push_str("}\n\n");
+            let body = self.compile_module_body(module);
+            if body.trim().is_empty() {
+                // An empty non-base module (no Ball-defined functions or
+                // types) is a pure **namespace marker** for a foreign SDK —
+                // the self-hosted engine declares `dart_math`, `dart_io`, …
+                // this way and then calls into them fully qualified
+                // (`dart_math::sqrt(x)`, `dart_io::File(path)`). Re-export the
+                // shared runtime so those qualified calls resolve to the
+                // matching `ball_shared::runtime` helper (issue #39 gap #2 —
+                // the Dart-SDK method/type surface). A `use super::*;` glob
+                // would *not* work: it imports privately, so the names would
+                // not be reachable as `<mod>::<name>` from the crate root.
+                out.push_str(&format!(
+                    "pub mod {} {{\n    pub use ball_shared::runtime::*;\n}}\n\n",
+                    sanitize_ident(&module.name)
+                ));
+            } else {
+                out.push_str(&format!(
+                    "pub mod {} {{\n    use super::*;\n",
+                    sanitize_ident(&module.name)
+                ));
+                out.push_str(&body);
+                out.push_str("}\n\n");
+            }
         }
 
         out.push_str(&self.compile_module_body(entry_module));
@@ -1143,5 +1161,39 @@ mod tests {
         assert!(compiled.contains("use ball_shared::runtime::*;"));
         assert!(compiled.contains("fn main() {"));
         assert!(!compiled.contains("pub fn main(")); // entry fn is inlined, not emitted as a wrapper
+    }
+
+    // ── empty namespace module → runtime re-export (issue #39) ──
+    #[test]
+    fn empty_namespace_module_reexports_runtime() {
+        // A module with no functions/types is a foreign-SDK namespace marker
+        // (`dart_math`, `dart_io`) the engine calls into fully qualified
+        // (`dart_math::sqrt(x)`). It must re-export the shared runtime so those
+        // qualified calls resolve — a private `use super::*;` would not expose
+        // the names as `dart_math::…` path members.
+        let mut program = program_with_std();
+        program.modules.push(Module {
+            name: "dart_math".to_string(),
+            ..Default::default()
+        });
+        program.modules.push(Module {
+            name: "main".to_string(),
+            functions: vec![FunctionDefinition {
+                name: "main".to_string(),
+                input_type: String::new(),
+                output_type: "void".to_string(),
+                body: Some(Box::new(int_lit(1))),
+                description: String::new(),
+                is_base: false,
+                metadata: None,
+            }],
+            ..Default::default()
+        });
+        let compiler = Compiler::new(&program);
+        let compiled = compiler.compile();
+        assert!(
+            compiled.contains("pub mod dart_math {\n    pub use ball_shared::runtime::*;\n}"),
+            "empty namespace module should re-export the runtime, got:\n{compiled}"
+        );
     }
 }

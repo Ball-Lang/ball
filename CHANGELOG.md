@@ -1,3 +1,10 @@
+## [1.16.3](https://github.com/Ball-Lang/ball/compare/v1.16.2...v1.16.3) (2026-07-08)
+
+
+### Bug Fixes
+
+* **cpp:** real byte writes + append mode in self-host fs runtime ([#310](https://github.com/Ball-Lang/ball/issues/310)) ([#318](https://github.com/Ball-Lang/ball/issues/318)) ([d52acdb](https://github.com/Ball-Lang/ball/commit/d52acdbcfdeffaec0cf1604b5008d0212d5bbad4))
+
 ## [1.16.2](https://github.com/Ball-Lang/ball/compare/v1.16.1...v1.16.2) (2026-07-08)
 
 

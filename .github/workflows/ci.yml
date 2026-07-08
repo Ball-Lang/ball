@@ -610,12 +610,12 @@ jobs:
         with:
           workspaces: rust
 
-      # NOTE: the ball-engine `self_host` feature is intentionally left OFF
-      # here — compiled_engine.rs (generated from dart/self_host/engine.ball.json)
-      # does not yet compile through ball-compiler (issue #39). The default
-      # `--workspace` build/test below never enables it, so this job only
-      # gates the wrapper foundation that IS finished, not the in-progress
-      # self-host.
+      # NOTE: the default `--workspace` build/test below leaves the ball-engine
+      # `self_host` feature OFF (compiled_engine.rs is a gitignored, generated
+      # build artifact), so this part of the job gates only the wrapper
+      # foundation. The self-hosted engine — which now COMPILES **and RUNS**
+      # (issue #300: hello_world/fibonacci produce Dart-identical output) — is
+      # regenerated and exercised in the dedicated step at the end of this job.
       - name: Build
         run: cd rust && cargo build --workspace
 
@@ -640,6 +640,24 @@ jobs:
 
       - name: Clippy
         run: cd rust && cargo clippy --workspace --all-targets -- -D warnings
+
+      # ── Self-hosted engine: regenerate + RUN (issue #300) ──
+      # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
+      # itself gitignored) compiled through ball-compiler into the gitignored
+      # rust/engine/src/compiled_engine.rs. Regenerate both from source, then run
+      # the acceptance programs under `--features self_host` and assert
+      # Dart-identical output (hello_world -> "Hello, World!", fibonacci -> "55").
+      - name: Setup Dart (for engine.ball.json regeneration)
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+      - name: Regenerate self-hosted engine
+        run: |
+          dart pub get
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          cd ../rust && cargo run -p ball-engine-regen
+      - name: Self-host run tests (Dart-identical output)
+        run: cd rust && cargo test -p ball-engine --features self_host --test self_host_run
 
   # ──────────────────────────────────────────────────
   # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language

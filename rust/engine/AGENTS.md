@@ -52,15 +52,24 @@ feature and `BallEngine::run` returns `EngineError::SelfHostPending` in the
 default build. `cargo build -p ball-engine` / `cargo test -p ball-engine` are
 green on the foundation.
 
-Compiling the whole 289-function engine currently produces ~414 `rustc` errors,
-because the self-hosted engine is authored against the full Dart SDK surface.
-The blocking compiler gaps (each a separate follow-up issue):
+Compiling the whole 289-function engine currently produces ~348 `rustc` errors
+(down from ~414), because the self-hosted engine is authored against the full
+Dart SDK surface. The blocking compiler gaps (each a separate follow-up issue):
 
-1. **Protobuf oneof-discriminator enum constants** (~70 errors) — the engine
-   compares `whichExpr()` to `Expression_Expr.call`, `Statement_Stmt.let`,
-   `Literal_Value.stringValue`, `structpb_Value_Kind.*`. The compiler must map
-   these enum-constant references to the corresponding string case names (the
-   `ball_proto` discriminator return values).
+1. **Protobuf oneof-discriminator enum constants** — RESOLVED (71 errors, was
+   ~70). The engine compares `whichExpr()`/`whichValue()`/`whichStmt()`/
+   `whichKind()`/`whichSource()` to `Expression_Expr.call`, `Statement_Stmt.let`,
+   `Literal_Value.stringValue`, `structpb_Value_Kind.*`, `ModuleImport_Source.*`.
+   These are synthesized oneof discriminators with no `EnumDescriptorProto`, so
+   the compiler emitted an unresolved `Expression_Expr` name. Fixed by
+   `type_emit::oneof_discriminator_enum_defs` (wired into `Compiler::compile`),
+   which emits each as a crate-root `pub static <Enum>: LazyLock<BallValue>`
+   namespace whose members are the oneof arm's **string** case name (matching
+   the `ball_proto` discriminator return values) — so `Expression_Expr.call`
+   resolves to `BallValue::String("call")`. Mirrors the TS compiler's
+   `preamble.ts` constants. (One straggler remains — `io_FileMode.append`, a
+   `dart:io` enum, not a Ball oneof discriminator — but its only use site is the
+   Dart-SDK `writeAsStringSync` call in gap #2, so it is tracked there.)
 2. **Dart-SDK method calls** (~120 errors) — `RegExp.firstMatch`/`allMatches`,
    `int.tryParse`, `num.parse`, `List.addAll`/`cast`/`toSet`, `DateTime.now`,
    `File.writeAsStringSync`/`existsSync`, `.remove`/`.clear`/`.setAll`, etc.

@@ -279,6 +279,18 @@ impl<'a> Compiler<'a> {
         out.push_str("use ball_shared::{BallMap, BallMessage, BallValue};\n");
         out.push_str("use ball_shared::runtime::*;\n\n");
 
+        // The Ball-proto oneof-discriminator enum namespaces
+        // (`Expression_Expr`, `Literal_Value`, `Statement_Stmt`,
+        // `ModuleImport_Source`, `structpb_Value_Kind`) — synthesized enums
+        // with no `EnumDescriptorProto`, so `compile_module_types` never emits
+        // them, yet the self-hosted engine references them as bare
+        // `Expression_Expr.call` (issue #39). Emitted at the crate root so the
+        // top-level entry module sees them directly and every nested `mod …
+        // { use super::*; }` sees them via its glob import. See
+        // `type_emit::oneof_discriminator_enum_defs`.
+        out.push_str(&type_emit::oneof_discriminator_enum_defs());
+        out.push('\n');
+
         // Every other user (non-base) module → its own nested `mod` block,
         // one per Ball module (issue #38's multi-module output). `use
         // super::*;` brings the preamble's `BallValue`/`BallMap`/

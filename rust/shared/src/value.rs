@@ -217,7 +217,9 @@ impl BallFunction {
         BallFunction {
             name: name.into(),
             callable: Arc::new(move |input| {
-                (guarded.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))(input)
+                (guarded
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()))(input)
             }),
         }
     }

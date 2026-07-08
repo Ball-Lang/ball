@@ -22,27 +22,30 @@
 //! `src/compiled_engine.rs` is a **generated, NEVER-edit** file — regenerate
 //! it with `cargo run -p ball-engine-regen`, never hand-patch it.
 //!
-//! ## Self-host status (#39/#298)
+//! ## Self-host status (#39/#298/#300)
 //!
-//! The regeneration pipeline is complete and produces ~19k lines of Rust from
-//! the self-hosted engine, and **that whole engine compiles cleanly** through
-//! `ball-compiler` (`cargo build -p ball-engine --features self_host` succeeds).
-//! With issue #298's **reference-`this`** (shared `Arc<Mutex>` instance fields)
-//! plus **implicit-`this` injection**, the compiled engine now *executes*:
-//! [`BallEngine::run`] (under the `self_host` feature) constructs the compiled
-//! `main_BallEngine` and drives its `run`, and execution proceeds through
-//! construction, implicit-`this` dispatch, and `this._functions` population —
-//! reaching the base-function frontier instead of the old "self is `Null`" /
-//! "entry point not found" failure (the `self_host_run_evidence` probe in the
-//! tests below shows exactly how far). It does not yet *complete* a program:
-//! ~38 base functions (`ball_proto.*`, `std.map_create`/`record`/`await`/…)
-//! still lower to a panicking `ball_unsupported_base_call`, and the
-//! compiled-`StdModuleHandler` dispatch (needed for `std.print`) isn't wired —
-//! see `rust/engine/AGENTS.md`'s "Remaining run blocker". The default build
-//! (no `self_host`) still returns [`EngineError::SelfHostPending`].
+//! The self-hosted engine compiles cleanly **and RUNS** (`cargo build -p
+//! ball-engine --features self_host`; the `self_host_run` integration tests).
+//! Issue #300 wired the base-function runtime surface — `ball_proto.*`
+//! AST-inspection, `std.map_create`/`record`/`typed_list`/`switch_expr`/…,
+//! `std_collections`/`std_convert`, and the class-hierarchy/wrapper-class
+//! plumbing — so [`BallEngine::run`] (under `self_host`) constructs the compiled
+//! `main_BallEngine`, registers the `StdModuleHandler`, drives its `run`, and
+//! produces output **identical to the Dart reference engine**: `hello_world`
+//! prints `Hello, World!` and recursive `fibonacci(10)` prints `55`. The key
+//! enablers beyond the base-function dispatch were reference-`this` (#298),
+//! control-flow-through-`try` (`return`/`break`/`continue` escape a `try`'s
+//! `catch_unwind` closure via `ball_shared::runtime::BallFlow`), the
+//! method/constructor field write-back-on-early-`return` IIFE, and a large-stack
+//! run thread. The default build (no `self_host`) still returns
+//! [`EngineError::SelfHostPending`].
 //!
-//! The crate's foundation (loader + scope + ball_proto access patterns, all
-//! unit-tested) builds and tests green in the default build.
+//! **Remaining:** loop-based programs (a `for`/`while` counter that must persist
+//! across the engine's fresh-per-iteration scope chain) do not yet terminate,
+//! and some programs exercise wrapper-class/SDK surfaces still being filled in —
+//! so the full conformance corpus is not yet at parity (tracked as follow-up).
+//! The crate's foundation (loader + scope + ball_proto access patterns) builds
+//! and tests green in the default build.
 
 pub mod ball_proto;
 pub mod loader;
@@ -135,14 +138,12 @@ impl BallEngine {
 
     /// Run the program, returning its captured stdout lines.
     ///
-    /// Returns [`EngineError::SelfHostPending`] in every build for now: the
-    /// compiled self-hosted engine **compiles** through `ball-compiler` (issue
-    /// #39) but does not yet **run** correctly — the interpreter needs a mutable
-    /// `this`, which this crate's by-value `BallValue::Message` instance model
-    /// cannot provide (a method's field mutations land on a clone and are lost).
-    /// See the crate doc comment and `rust/engine/AGENTS.md`'s "Run blocker".
-    /// The loader, scope chain, and `ball_proto` access patterns this wrapper
-    /// provides are the foundation the driver will use once that lands.
+    /// Under the `self_host` feature this drives the compiled self-hosted engine
+    /// (see [`Self::run_self_hosted`]) — `hello_world`/`fibonacci` produce
+    /// Dart-identical output (issue #300). The default build (no `self_host`,
+    /// which excludes the generated `compiled_engine.rs`) returns
+    /// [`EngineError::SelfHostPending`]; the loader, scope chain, and
+    /// `ball_proto` access patterns this wrapper provides are still exercised.
     pub fn run(&self) -> Result<Vec<String>, EngineError> {
         #[cfg(feature = "self_host")]
         {
@@ -182,7 +183,11 @@ impl BallEngine {
     fn run_self_hosted(&self) -> Result<Vec<String>, EngineError> {
         use std::sync::{Arc, Mutex};
 
-        use ball_shared::{BallFunction, BallMap};
+        use ball_shared::{BallFunction, BallMap, BallMessage};
+
+        // Register the compiled engine's class hierarchy (`BallObject extends
+        // BallMap`, …) so runtime `is`/`as` supertype checks resolve (issue #300).
+        compiled_engine::__ball_register_types();
 
         let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&output);
@@ -192,6 +197,25 @@ impl BallEngine {
                 .push(message.to_string());
             BallValue::Null
         }));
+
+        // The compiled `StdModuleHandler` (issue #300) — the module handler the
+        // engine consults for every `std`/`std_collections`/… base call. It is
+        // constructed here (rather than via the constructor's `moduleHandlers ??
+        // [StdModuleHandler()]` default, which the Rust constructor does not
+        // evaluate) with its field-level defaults: `_dispatch`/`_composedDispatch`
+        // are mutated (`putIfAbsent`) by `init`, `_tombstones` is a (List-backed)
+        // set the built-in registration checks, and `_allowlist` is `null`
+        // (expose every built-in). The engine constructor calls `init(this)` on
+        // it, which populates `_dispatch` from `engine._buildStdDispatch()`.
+        let mut std_fields = BallMap::new();
+        std_fields.insert("_dispatch".to_string(), BallValue::Map(BallMap::new()));
+        std_fields.insert(
+            "_composedDispatch".to_string(),
+            BallValue::Map(BallMap::new()),
+        );
+        std_fields.insert("_tombstones".to_string(), BallValue::List(Vec::new()));
+        std_fields.insert("_allowlist".to_string(), BallValue::Null);
+        let std_handler = BallValue::Message(BallMessage::new("main:StdModuleHandler", std_fields));
 
         // The compiled `BallEngine` constructor reads `program` via
         // `ball_arg_get(input, "program", "arg0")` and every other field by
@@ -211,15 +235,35 @@ impl BallEngine {
         ctor_input.insert("maxExpressionDepth".to_string(), BallValue::Int(1_000_000));
         ctor_input.insert("maxProgramSizeBytes".to_string(), BallValue::Null);
         ctor_input.insert("sandbox".to_string(), BallValue::Bool(false));
-        ctor_input.insert("moduleHandlers".to_string(), BallValue::List(Vec::new()));
+        ctor_input.insert(
+            "moduleHandlers".to_string(),
+            BallValue::List(vec![std_handler]),
+        );
         ctor_input.insert("resolver".to_string(), BallValue::Null);
 
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let engine = compiled_engine::main_BallEngine::new(BallValue::Map(ctor_input));
-            let mut run_input = BallMap::new();
-            run_input.insert("self".to_string(), engine);
-            compiled_engine::run(BallValue::Map(run_input))
-        }));
+        // Run the compiled engine on a **large-stack thread** (issue #300). The
+        // self-hosted engine is a deep tree-walker whose compiled methods
+        // (`_evalExpression` → `_evalCall` → `_callFunction` → …) each carry a
+        // very large frame (hundreds of field-alias locals), so even a modestly
+        // recursive target program (`fibonacci(10)`) overflows the default 8 MB
+        // stack — a `SIGABRT` that `catch_unwind` cannot recover. A 512 MB stack
+        // (mirroring the compiler/encoder's own bumped stacks) gives ample
+        // headroom while `maxRecursionDepth` still bounds runaway recursion.
+        let outcome = std::thread::Builder::new()
+            .stack_size(512 * 1024 * 1024)
+            .spawn(move || {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let engine = compiled_engine::main_BallEngine::new(BallValue::Map(ctor_input));
+                    let mut run_input = BallMap::new();
+                    run_input.insert("self".to_string(), engine);
+                    compiled_engine::run(BallValue::Map(run_input))
+                }))
+            })
+            .expect("spawn self-host engine thread")
+            .join()
+            // A panic *outside* the inner `catch_unwind` (none is expected) is
+            // surfaced as the `Runtime` error path below.
+            .unwrap_or_else(Err);
 
         match outcome {
             Ok(_) => Ok(output.lock().unwrap_or_else(|e| e.into_inner()).clone()),

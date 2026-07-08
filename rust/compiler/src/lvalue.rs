@@ -72,7 +72,8 @@ impl Compiler<'_> {
                 ),
             },
             Some(Expr::Call(call))
-                if call.function == "index" && self.is_base_module(&call.module) =>
+                if (call.function == "index" || call.function == "null_aware_index")
+                    && self.is_base_module(&call.module) =>
             {
                 let fields = extract_fields(call);
                 match fields.get("target").map(|target_expr| &target_expr.expr) {
@@ -259,19 +260,26 @@ impl Compiler<'_> {
                 })
             }
             Some(Expr::Block(block)) => {
-                block
-                    .statements
-                    .iter()
-                    .any(|statement| match &statement.stmt {
-                        Some(Stmt::Let(let_binding)) => let_binding
-                            .value
-                            .as_ref()
-                            .is_some_and(|v| self.expr_mutates_var(v, name)),
-                        Some(Stmt::Expression(expression)) => {
-                            self.expr_mutates_var(expression, name)
-                        }
-                        None => false,
-                    })
+                // A **cascade** block writes its accumulated value back to a
+                // simple-reference receiver (issue #300 — see
+                // [`Compiler::compile_block`]), which is a mutation of that
+                // receiver even though the write-back is compiler-generated (not
+                // in the AST). Mark it so the receiver binds `let mut` and a
+                // method's field write-back persists it.
+                self.block_cascade_receiver(block).as_deref() == Some(name)
+                    || block
+                        .statements
+                        .iter()
+                        .any(|statement| match &statement.stmt {
+                            Some(Stmt::Let(let_binding)) => let_binding
+                                .value
+                                .as_ref()
+                                .is_some_and(|v| self.expr_mutates_var(v, name)),
+                            Some(Stmt::Expression(expression)) => {
+                                self.expr_mutates_var(expression, name)
+                            }
+                            None => false,
+                        })
                     || block
                         .result
                         .as_deref()

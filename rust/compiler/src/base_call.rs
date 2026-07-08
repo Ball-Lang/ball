@@ -121,7 +121,19 @@ impl Compiler<'_> {
             && self.instance_method_names.contains(&name)
             && !Self::call_input_has_explicit_self(call)
         {
-            return format!("{name}(ball_with_self({input}, __self_recv.clone()))");
+            // The injection *shape* depends on how the encoder packed the
+            // arguments (issue #300): a **multi-argument** call packs an
+            // anonymous `{arg0, arg1, …}` message and a **zero-argument** call
+            // packs nothing — both merge `self` in via `ball_with_self`
+            // (`Null` → `{self}`). A **single positional** argument is passed
+            // *directly* (not wrapped in `{arg0: …}`), so it must become
+            // `{self, arg0: arg}` via `ball_arg0_with_self` — otherwise
+            // `ball_with_self` would bury a message-shaped argument (e.g.
+            // `func.body`) and leave the method's parameter `Null`.
+            if Self::call_input_is_arg_message(call) || call.input.is_none() {
+                return format!("{name}(ball_with_self({input}, __self_recv.clone()))");
+            }
+            return format!("{name}(ball_arg0_with_self({input}, __self_recv.clone()))");
         }
         format!("{prefix}{name}({input})")
     }
@@ -211,7 +223,9 @@ impl Compiler<'_> {
             "floor_to_double" => self.un("ball_floor_to_double", &f),
             "ceil_to_double" => self.un("ball_ceil_to_double", &f),
             "truncate_to_double" => self.un("ball_truncate_to_double", &f),
-            "to_string_as_fixed" => self.compile_2("ball_to_string_as_fixed", &f, "value", "digits"),
+            "to_string_as_fixed" => {
+                self.compile_2("ball_to_string_as_fixed", &f, "value", "digits")
+            }
             "string_code_unit_at" => {
                 self.compile_2("ball_string_code_unit_at", &f, "value", "index")
             }
@@ -220,7 +234,10 @@ impl Compiler<'_> {
             // reference engine): `<T>[...]` and `<T>{...}` (a typed set). An
             // absent `elements` field means an empty literal.
             "typed_list" => self.field_list_or_empty(&f, "elements"),
-            "set_create" => format!("ball_set_create({})", self.field_list_or_empty(&f, "elements")),
+            "set_create" => format!(
+                "ball_set_create({})",
+                self.field_list_or_empty(&f, "elements")
+            ),
             // ── Null safety ──
             "null_check" => self.un("ball_null_check", &f),
             // ── Control flow (non-lazy leaves: `if` already handled inline) ──
@@ -452,13 +469,22 @@ impl Compiler<'_> {
                 );
             }
             // Struct field access.
-            "getStructField" => return self.compile_2("ball_get_struct_field", &f, "struct", "key"),
-            "getStringField" => return self.compile_2("ball_get_string_field", &f, "struct", "key"),
+            "getStructField" => {
+                return self.compile_2("ball_get_struct_field", &f, "struct", "key");
+            }
+            "getStringField" => {
+                return self.compile_2("ball_get_string_field", &f, "struct", "key");
+            }
             "getBoolField" => return self.compile_2("ball_get_bool_field", &f, "struct", "key"),
             "getListField" => return self.compile_2("ball_get_list_field", &f, "struct", "key"),
-            "getNumberField" => return self.compile_2("ball_get_number_field", &f, "struct", "key"),
+            "getNumberField" => {
+                return self.compile_2("ball_get_number_field", &f, "struct", "key");
+            }
             "getStructFieldKeys" => {
-                return format!("ball_get_struct_field_keys({})", self.field_or_null(&f, "struct"));
+                return format!(
+                    "ball_get_struct_field_keys({})",
+                    self.field_or_null(&f, "struct")
+                );
             }
             // Proto3 defaults.
             "ensureDefaults" => return format!("ball_proto_ensure_defaults({})", obj()),
@@ -509,14 +535,18 @@ impl Compiler<'_> {
     /// helper (which stringifies keys — Ball maps are string-keyed).
     fn compile_map_create(&self, call: &FunctionCall) -> String {
         let mut pairs: Vec<String> = Vec::new();
-        if let Some(Expression { expr: Some(Expr::MessageCreation(mc)) }) = call.input.as_deref() {
+        if let Some(Expression {
+            expr: Some(Expr::MessageCreation(mc)),
+        }) = call.input.as_deref()
+        {
             for field in &mc.fields {
                 if field.name == "type_args" || field.name == "elements" {
                     continue;
                 }
                 if field.name == "entry" {
-                    if let Some(Expression { expr: Some(Expr::MessageCreation(entry)) }) =
-                        field.value.as_ref()
+                    if let Some(Expression {
+                        expr: Some(Expr::MessageCreation(entry)),
+                    }) = field.value.as_ref()
                     {
                         let ef = self.message_creation_fields(entry);
                         pairs.push(format!(
@@ -528,7 +558,10 @@ impl Compiler<'_> {
                 }
             }
         }
-        format!("ball_map_create(BallValue::List(vec![{}]))", pairs.join(", "))
+        format!(
+            "ball_map_create(BallValue::List(vec![{}]))",
+            pairs.join(", ")
+        )
     }
 
     /// `record` — a Dart record literal. The input `MessageCreation` already
@@ -652,7 +685,9 @@ impl Compiler<'_> {
             Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
             None => "true".to_string(),
         };
+        self.push_flow_scope(crate::FlowScope::Loop);
         let body_code = self.field_or_null(&f, "body");
+        self.pop_flow_scope();
         let update_code = f
             .get("update")
             .map(|e| self.compile_expression(e))
@@ -721,7 +756,9 @@ impl Compiler<'_> {
         let iterable_code = self.field_or_null(&f, "iterable");
         self.push_scope();
         self.bind_local(&variable);
+        self.push_flow_scope(crate::FlowScope::Loop);
         let body_code = self.field_or_null(&f, "body");
+        self.pop_flow_scope();
         self.pop_scope();
         let mutated = f
             .get("body")
@@ -740,7 +777,9 @@ impl Compiler<'_> {
             Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
             None => "true".to_string(),
         };
+        self.push_flow_scope(crate::FlowScope::Loop);
         let body_code = self.field_or_null(&f, "body");
+        self.pop_flow_scope();
         let label_prefix = label.map(|l| format!("'{l}: ")).unwrap_or_default();
         format!(
             "{{\n{label_prefix}while {condition_code} {{\n{body_code};\n}}\nBallValue::Null\n}}"
@@ -772,7 +811,9 @@ impl Compiler<'_> {
     /// whether to run `body` again, exactly matching a native do-while.
     fn compile_do_while(&self, call: &FunctionCall, label: Option<&str>) -> String {
         let f = extract_fields(call);
+        self.push_flow_scope(crate::FlowScope::Loop);
         let body_code = self.field_or_null(&f, "body");
+        self.pop_flow_scope();
         let condition_code = match f.get("condition") {
             Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
             None => "true".to_string(),
@@ -823,7 +864,15 @@ impl Compiler<'_> {
     /// expression position expects, so it's always valid here regardless of
     /// context (block statement, `if` arm, ...).
     fn compile_return(&self, fields: &IndexMap<String, Expression>) -> String {
-        format!("return {}", self.field_or_null(fields, "value"))
+        let value = self.field_or_null(fields, "value");
+        if self.return_needs_flow() {
+            // Inside a `try` body — escape the `catch_unwind` closure via
+            // `BallFlow` so the value survives to a real function return after
+            // `finally` (issue #300).
+            format!("return BallFlow::Return({value})")
+        } else {
+            format!("return {value}")
+        }
     }
 
     /// `break([label])` — unlabeled breaks the innermost enclosing Rust
@@ -831,16 +880,44 @@ impl Compiler<'_> {
     /// for/while loops); a non-empty label targets the matching loop label
     /// (see [`Compiler::compile_label`]).
     fn compile_break(&self, fields: &IndexMap<String, Expression>) -> String {
-        match self.string_field(fields, "label").filter(|l| !l.is_empty()) {
-            Some(label) => format!("break '{}", sanitize_label(&label)),
-            None => "break".to_string(),
+        let label = self.string_field(fields, "label").filter(|l| !l.is_empty());
+        if self.break_needs_flow() {
+            // The nearest enclosing scope is a `try`: escape it via `BallFlow`
+            // (issue #300). The label is carried but the `try` re-issues a bare
+            // `break` (labeled `break` *through* a `try` to an outer loop is the
+            // documented boundary).
+            match label {
+                Some(label) => {
+                    format!(
+                        "return BallFlow::Break(Some({:?}.to_string()))",
+                        sanitize_label(&label)
+                    )
+                }
+                None => "return BallFlow::Break(None)".to_string(),
+            }
+        } else {
+            match label {
+                Some(label) => format!("break '{}", sanitize_label(&label)),
+                None => "break".to_string(),
+            }
         }
     }
 
     fn compile_continue(&self, fields: &IndexMap<String, Expression>) -> String {
-        match self.string_field(fields, "label").filter(|l| !l.is_empty()) {
-            Some(label) => format!("continue '{}", sanitize_label(&label)),
-            None => "continue".to_string(),
+        let label = self.string_field(fields, "label").filter(|l| !l.is_empty());
+        if self.break_needs_flow() {
+            match label {
+                Some(label) => format!(
+                    "return BallFlow::Continue(Some({:?}.to_string()))",
+                    sanitize_label(&label)
+                ),
+                None => "return BallFlow::Continue(None)".to_string(),
+            }
+        } else {
+            match label {
+                Some(label) => format!("continue '{}", sanitize_label(&label)),
+                None => "continue".to_string(),
+            }
         }
     }
 
@@ -875,22 +952,39 @@ impl Compiler<'_> {
     /// recovered value's `Debug` text.
     fn compile_try(&self, call: &FunctionCall) -> String {
         let f = extract_fields(call);
+        // The body runs inside the `catch_unwind` closure (to catch Ball
+        // `throw`s), so its `return`/`break`/`continue` escape as `BallFlow`
+        // (issue #300) — the fix for the engine's pervasive `try { … return X }
+        // finally { … }` (a bare Rust `return` would only leave the closure,
+        // losing the value).
+        self.push_flow_scope(crate::FlowScope::Try);
         let body_code = self.field_or_null(&f, "body");
-        let finally_code = f.get("finally").map(|e| self.compile_expression(e));
+        self.pop_flow_scope();
+
+        // `finally` runs on *every* exit — normal fall-through, a `BallFlow`
+        // exit, and a caught throw — so it is emitted before each propagation.
+        let finally_snippet = f
+            .get("finally")
+            .map(|e| format!("{};\n", self.compile_expression(e)))
+            .unwrap_or_default();
         let catches = f
             .get("catches")
             .map(literal_list_elements)
             .unwrap_or_default();
+        // Re-issue this `try`'s `BallFlow` result as real control flow, matching
+        // the *enclosing* scope (this try's own scope is already popped).
+        let propagate = self.flow_propagation();
 
         let mut out = String::from(
-            "{\nlet __try_result: Result<BallValue, Box<dyn std::any::Any + Send>> = \
-             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\n",
+            "{\nlet __try_outcome: Result<BallFlow, Box<dyn std::any::Any + Send>> = \
+             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {\nBallFlow::Normal(",
         );
         out.push_str(&body_code);
-        out.push_str(
-            "\n}));\nlet __try_value = match __try_result {\nOk(v) => v,\nErr(__payload) => {\n",
-        );
-        out.push_str("let __err = ball_catch_payload(__payload);\n");
+        out.push_str(")\n}));\nmatch __try_outcome {\n");
+        out.push_str(&format!(
+            "Ok(__flow) => {{\n{finally_snippet}{propagate}\n}}\n"
+        ));
+        out.push_str("Err(__payload) => {\n");
 
         if let Some(first_catch) = catches.first() {
             let cf = match &first_catch.expr {
@@ -904,13 +998,13 @@ impl Compiler<'_> {
             // (`dart/encoder/lib/encoder.dart`'s `_encodeCatchClause`); the
             // handler body reads it as a bare `st` reference. The by-value Rust
             // model captures no real trace, so it binds the caught error's
-            // string form — the closest faithful value (Ball programs that
-            // surface `st` print/propagate it; the reference engines bind the
-            // Dart `StackTrace` at the same catching point).
+            // string form — the closest faithful value.
             let stack_var = self
                 .string_field(&cf, "stack_trace")
                 .filter(|s| !s.is_empty());
-            // The catch variable(s) are locals in the handler body's scope.
+            // The catch handler runs *outside* the `catch_unwind` closure (in
+            // this match arm), so its own `return`/`break`/`continue` reflect the
+            // enclosing scope directly — compile it with this try's scope popped.
             self.push_scope();
             self.bind_local(&var_name);
             if let Some(stack_var) = &stack_var {
@@ -921,6 +1015,7 @@ impl Compiler<'_> {
                 .map(|b| self.compile_expression(b))
                 .unwrap_or_else(|| "BallValue::Null".to_string());
             self.pop_scope();
+            out.push_str("let __err = ball_catch_payload(__payload);\n");
             // Bind the stack-trace variable first (it reads `__err` by clone)
             // so the exception binding can then move `__err` into `var_name`.
             if let Some(stack_var) = &stack_var {
@@ -930,19 +1025,51 @@ impl Compiler<'_> {
                 ));
             }
             out.push_str(&format!(
-                "let {} = __err;\n{}\n",
-                crate::sanitize_ident(&var_name),
-                catch_body
+                "let {} = __err;\n",
+                crate::sanitize_ident(&var_name)
+            ));
+            out.push_str(&format!(
+                "let __flow = BallFlow::Normal({{\n{catch_body}\n}});\n{finally_snippet}{propagate}\n"
             ));
         } else {
-            out.push_str("panic!(\"ball-compiler runtime: uncaught exception: {:?}\", __err)\n");
+            // No `catch`: run `finally`, then re-raise the original panic
+            // (preserving the thrown Ball value so an *outer* `try` catches it).
+            out.push_str(&format!(
+                "{finally_snippet}std::panic::resume_unwind(__payload)\n"
+            ));
         }
-        out.push_str("}\n};\n");
-        if let Some(finally) = finally_code {
-            out.push_str(&format!("{finally};\n"));
-        }
-        out.push_str("__try_value\n}");
+        out.push_str("}\n}\n}");
         out
+    }
+
+    /// The `match __flow { … }` that re-issues a `try`'s [`ball_shared::runtime::BallFlow`]
+    /// result as real control flow, matching the **enclosing** scope (the
+    /// try's own scope must already be popped): a bare Rust keyword under a
+    /// loop, a fresh `BallFlow` under an outer `try`, and — for a `break`/
+    /// `continue` that reached a `try` with no enclosing loop (a malformed
+    /// program) — an `unreachable!` guard that still type-checks. Issue #300.
+    fn flow_propagation(&self) -> String {
+        let (ret, brk, cont) = match self.innermost_flow_scope() {
+            Some(crate::FlowScope::Try) => (
+                "return BallFlow::Return(__x)",
+                "return BallFlow::Break(__l)",
+                "return BallFlow::Continue(__l)",
+            ),
+            Some(crate::FlowScope::Loop) => ("return __x", "break", "continue"),
+            None => (
+                "return __x",
+                "unreachable!(\"break escaped a try with no enclosing loop\")",
+                "unreachable!(\"continue escaped a try with no enclosing loop\")",
+            ),
+        };
+        format!(
+            "match __flow {{\n\
+             BallFlow::Normal(__v) => __v,\n\
+             BallFlow::Return(__x) => {ret},\n\
+             BallFlow::Break(__l) => {brk},\n\
+             BallFlow::Continue(__l) => {cont},\n\
+             }}"
+        )
     }
 
     /// `switch(subject, cases[])` — compiles to an **if-chain** (each case
@@ -967,7 +1094,7 @@ impl Compiler<'_> {
             .map(literal_list_elements)
             .unwrap_or_default();
 
-        let mut arms: Vec<(String, String)> = Vec::new();
+        let mut arms: Vec<(Vec<String>, String)> = Vec::new();
         let mut default_body: Option<String> = None;
         for case in &cases {
             let Some(Expr::MessageCreation(mc)) = &case.expr else {
@@ -982,8 +1109,9 @@ impl Compiler<'_> {
                 default_body = Some(body_code);
                 continue;
             }
-            if let Some(value_code) = self.switch_case_value_code(&cf) {
-                arms.push((value_code, body_code));
+            let values = self.switch_case_match_values(&cf);
+            if !values.is_empty() {
+                arms.push((values, body_code));
             }
         }
 
@@ -993,13 +1121,23 @@ impl Compiler<'_> {
         if arms.is_empty() {
             out.push_str(default_body.as_deref().unwrap_or("BallValue::Null"));
         } else {
-            for (index, (value_code, body_code)) in arms.iter().enumerate() {
+            for (index, (values, body_code)) in arms.iter().enumerate() {
                 if index > 0 {
                     out.push_str(" else ");
                 }
-                out.push_str(&format!(
-                    "if ball_equals(__switch_subject.clone(), {value_code}) == BallValue::Bool(true) {{\n{body_code}\n}}"
-                ));
+                // A case matches if the subject equals **any** of its values
+                // (a `LogicalOrPattern` — `case 'a' || 'b':` — contributes
+                // several; a plain value contributes one).
+                let condition = values
+                    .iter()
+                    .map(|value_code| {
+                        format!(
+                            "ball_equals(__switch_subject.clone(), {value_code}) == BallValue::Bool(true)"
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" || ");
+                out.push_str(&format!("if {condition} {{\n{body_code}\n}}"));
             }
             out.push_str(&format!(
                 " else {{\n{}\n}}",
@@ -1022,17 +1160,51 @@ impl Compiler<'_> {
     /// other structured-pattern kinds (destructuring/type patterns) fall
     /// through to `None` (the case is skipped), the same documented-gap
     /// shape as this function's own doc comment.
-    fn switch_case_value_code(&self, cf: &IndexMap<String, Expression>) -> Option<String> {
+    /// The compiled value(s) a switch case matches — usually one (a plain
+    /// `value`, or a `ConstPattern`), but **several** for a `LogicalOrPattern`
+    /// (`case 'std' || 'std_collections' || …:`, which the engine's
+    /// `StdModuleHandler.handles`/`_callBaseFunction` use). A `LogicalOrPattern`
+    /// is a (possibly nested) `{left, right}` tree of `ConstPattern` leaves;
+    /// this flattens it to the full set of constant alternatives. An
+    /// unrecognized structured pattern yields no values (the case is skipped —
+    /// the documented gap).
+    fn switch_case_match_values(&self, cf: &IndexMap<String, Expression>) -> Vec<String> {
         if let Some(value) = cf.get("value") {
-            return Some(self.compile_expression(value));
+            return vec![self.compile_expression(value)];
         }
-        let pattern_expr = cf.get("pattern_expr")?;
-        match &pattern_expr.expr {
-            Some(Expr::MessageCreation(mc)) if mc.type_name == "ConstPattern" => {
+        match cf.get("pattern_expr") {
+            Some(pattern_expr) => self.pattern_match_values(pattern_expr),
+            None => Vec::new(),
+        }
+    }
+
+    /// Flatten a `pattern_expr` to the constant value expression(s) it matches:
+    /// a `ConstPattern`'s own `value`, or the union of a `LogicalOrPattern`'s
+    /// `left`/`right` sub-patterns (recursively). Any other pattern kind
+    /// contributes nothing.
+    fn pattern_match_values(&self, pattern_expr: &Expression) -> Vec<String> {
+        let Some(Expr::MessageCreation(mc)) = &pattern_expr.expr else {
+            return Vec::new();
+        };
+        match mc.type_name.as_str() {
+            "ConstPattern" => {
                 let pf = self.message_creation_fields(mc);
-                pf.get("value").map(|v| self.compile_expression(v))
+                pf.get("value")
+                    .map(|v| vec![self.compile_expression(v)])
+                    .unwrap_or_default()
             }
-            _ => None,
+            "LogicalOrPattern" => {
+                let pf = self.message_creation_fields(mc);
+                let mut values = Vec::new();
+                if let Some(left) = pf.get("left") {
+                    values.extend(self.pattern_match_values(left));
+                }
+                if let Some(right) = pf.get("right") {
+                    values.extend(self.pattern_match_values(right));
+                }
+                values
+            }
+            _ => Vec::new(),
         }
     }
 
@@ -1094,7 +1266,23 @@ impl Compiler<'_> {
             .string_field(&f, "op")
             .unwrap_or_else(|| "=".to_string());
         let lvalue = self.resolve_lvalue(target);
-        self.emit_mutation(&lvalue, &op, &value_code, false)
+        let mutation = self.emit_mutation(&lvalue, &op, &value_code, false);
+        // A **null-aware index** assignment (`obj?[k] = v` — the engine's
+        // `_callCounts?[func] = …` profiling counter) must skip the entire
+        // assignment, RHS included, when `obj` is null (issue #300). Guard it on
+        // the base's non-nullness; a plain index/field/var assign is unchanged.
+        if let Some(Expr::Call(target_call)) = &target.expr {
+            if target_call.function == "null_aware_index"
+                && self.is_base_module(&target_call.module)
+            {
+                let tf = extract_fields(target_call);
+                let base_code = self.field_or_null(&tf, "target");
+                return format!(
+                    "{{ if {base_code} != BallValue::Null {{ {mutation} }} else {{ BallValue::Null }} }}"
+                );
+            }
+        }
+        mutation
     }
 
     /// `pre_increment`/`post_increment`/`pre_decrement`/`post_decrement` —
@@ -1150,7 +1338,7 @@ impl Compiler<'_> {
             "list_flat_map" => self.callback_call("ball_list_flat_map", &f, "list"),
             "list_take" => self.compile_2("ball_list_take", &f, "list", "value"),
             "list_drop" => self.compile_2("ball_list_drop", &f, "list", "value"),
-            "list_concat" => self.bin("ball_list_concat", &f),
+            "list_concat" => self.compile_2("ball_list_concat", &f, "list", "value"),
             "list_to_list" => self.un_named("ball_list_to_list", &f, "list"),
             "list_join" => self.compile_2("ball_list_join", &f, "list", "separator"),
             "map_get" => self.compile_2("ball_map_get", &f, "map", "key"),
@@ -1199,7 +1387,15 @@ impl Compiler<'_> {
         collection_key: &str,
     ) -> String {
         let collection = self.field_or_null(fields, collection_key);
-        let callback = self.field_or_null(fields, "callback");
+        // The encoder packs a collection callback under `value` (`list.where((v)
+        // => …)` → `list_filter{list, value: <lambda>}`); older/hand-authored
+        // fixtures used `callback`/`function`. Prefer the real one.
+        let callback = fields
+            .get("value")
+            .or_else(|| fields.get("callback"))
+            .or_else(|| fields.get("function"))
+            .map(|expr| self.compile_expression(expr))
+            .unwrap_or_else(|| "BallValue::Null".to_string());
         format!("{helper}({collection}, {callback})")
     }
 

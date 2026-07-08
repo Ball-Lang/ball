@@ -138,8 +138,20 @@ fn func_meta_bool(func: &FunctionDefinition, key: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Whether a `let` binding is a **cascade** receiver (`metadata.kind ==
+/// "cascade"` — the encoder tags `let __cascade_self__ = x` this way when
+/// desugaring `x..a()..b()`). Issue #300 — see [`Compiler::compile_block`].
+pub(crate) fn let_is_cascade(let_binding: &ball_shared::proto::ball::v1::LetBinding) -> bool {
+    let_binding
+        .metadata
+        .as_ref()
+        .and_then(|m| meta_string_value(m, "kind"))
+        .as_deref()
+        == Some("cascade")
+}
+
 /// `func.metadata.kind`, if present.
-fn func_meta_kind(func: &FunctionDefinition) -> Option<String> {
+pub(crate) fn func_meta_kind(func: &FunctionDefinition) -> Option<String> {
     func.metadata
         .as_ref()
         .and_then(|m| meta_string_value(m, "kind"))
@@ -170,7 +182,7 @@ pub(crate) fn instance_method_short_name(func: &FunctionDefinition) -> Option<St
 /// name — the encoders store it bare, e.g. `main:BallObject`'s
 /// `superclass: "BallMap"`), if it names a non-empty superclass. Drives
 /// [`Compiler::all_instance_field_names`]'s chain walk (issue #39 gap #5).
-fn superclass_of(td: &TypeDefinition) -> Option<String> {
+pub(crate) fn superclass_of(td: &TypeDefinition) -> Option<String> {
     td.metadata
         .as_ref()
         .and_then(|m| meta_string_value(m, "superclass"))
@@ -691,15 +703,16 @@ impl Compiler<'_> {
                 "    pub fn {short}(input: BallValue) -> BallValue {{\n{prologue}{body}\n    }}\n"
             )
         } else {
-            // Bind the body's value first, run the write-back, then yield it —
-            // so a method that mutates `this.field` and returns a value still
-            // persists the mutation. (A body that `return`s early bypasses this
-            // tail write-back — the documented limitation of the write-back
-            // model; immediate-persistence would need reference-semantic
-            // collections or field-direct access, tracked as follow-up work.)
+            // Run the body inside an **IIFE closure** so an *early* `return`
+            // (`_Scope.set`'s `_bindings[name] = value; return;`) yields the
+            // value to `__method_result` instead of returning past the field
+            // write-back — otherwise the mutation to `this.<field>` is silently
+            // lost (issue #300 — the loop-counter-never-advances hang). The
+            // write-back then persists every body-mutated instance field, and
+            // the method returns the captured value.
             format!(
                 "    pub fn {short}(input: BallValue) -> BallValue {{\n{prologue}\
-                 let __method_result = {{\n{body}\n}};\n{writeback}__method_result\n    }}\n"
+                 let __method_result = (|| -> BallValue {{\n{body}\n}})();\n{writeback}__method_result\n    }}\n"
             )
         }
     }
@@ -952,6 +965,12 @@ impl Compiler<'_> {
 
         let mut out = String::new();
         let mut positional_index = 0;
+        // A parameter literally named `input` shadows the Rust `input` envelope
+        // every other getter reads from (`StdModuleHandler.call(function, input,
+        // engine)` — issue #300). Its binding is therefore deferred to *last*,
+        // after every other parameter has been extracted from the still-raw
+        // `input`, so `let input = …` does not disturb them.
+        let mut input_binding: Option<String> = None;
         for (name, is_named) in &decls {
             // A named argument always arrives under its own name; a positional
             // one arrives as `arg{i}` but may be passed by name instead (see
@@ -963,15 +982,20 @@ impl Compiler<'_> {
                 positional_index += 1;
                 format!("ball_arg_get(input.clone(), {name:?}, {positional_key:?})")
             };
-            if name == "input" {
-                continue;
-            }
             self.bind_local(name);
-            out.push_str(&format!(
+            let binding = format!(
                 "{} {} = {getter};\n",
                 keyword(name),
                 crate::sanitize_ident(name)
-            ));
+            );
+            if name == "input" {
+                input_binding = Some(binding);
+            } else {
+                out.push_str(&binding);
+            }
+        }
+        if let Some(binding) = input_binding {
+            out.push_str(&binding);
         }
         out
     }
@@ -1077,7 +1101,7 @@ impl Compiler<'_> {
              let mut self_ = {self_init};\n\
              let __self_recv = self_.clone();\n\
              {field_aliases}\
-             {body_code};\n\
+             (|| -> BallValue {{\n{body_code}\n}})();\n\
              {writeback}\
              self_\n\
              }}\n"
@@ -1103,7 +1127,28 @@ impl Compiler<'_> {
             .copied()
     }
 
-    pub(crate) fn field_initializer_text(&self, td: &TypeDefinition, field: &str) -> Option<String> {
+    /// The Rust associated-fn path (`main_BallObject::new`) of `type_name`'s
+    /// **body-carrying constructor**, if it has one — the constructor whose
+    /// body must actually *run* on construction (issue #300). Returns `None`
+    /// for a type with only an init-formal (bodyless) constructor or no
+    /// constructor (both build correctly as an inline field map).
+    pub(crate) fn body_constructor_fn(&self, type_name: &str) -> Option<String> {
+        let members = self.class_members_by_owner.get(type_name)?;
+        let ctor = members.iter().copied().find(|member| {
+            func_meta_kind(member).as_deref() == Some("constructor") && member.body.is_some()
+        })?;
+        Some(format!(
+            "{}::{}",
+            crate::sanitize_ident(type_name),
+            member_short_name(&ctor.name)
+        ))
+    }
+
+    pub(crate) fn field_initializer_text(
+        &self,
+        td: &TypeDefinition,
+        field: &str,
+    ) -> Option<String> {
         let mut current = td;
         for _ in 0..32 {
             if let Some(meta) = &current.metadata {
@@ -1189,7 +1234,9 @@ impl Compiler<'_> {
                 .field_initializer_text(td, &field)
                 .and_then(|init| self.lower_field_initializer(&init, visiting))
                 .unwrap_or_else(|| "BallValue::Null".to_string());
-            inserts.push_str(&format!("__ball_map.insert({field:?}.to_string(), {value});\n"));
+            inserts.push_str(&format!(
+                "__ball_map.insert({field:?}.to_string(), {value});\n"
+            ));
         }
         visiting.pop();
         Some(format!(
@@ -1197,6 +1244,32 @@ impl Compiler<'_> {
              BallValue::Message(BallMessage::new({:?}, __ball_map)) }}",
             td.name
         ))
+    }
+
+    /// The default for a **native superclass** backing field of `owner_td` —
+    /// currently just `BallMap`'s ordered-map `entries` (an empty map). Returns
+    /// `None` when `field` is not such a field. Issue #300.
+    fn native_inherited_field_default(
+        &self,
+        owner_td: &TypeDefinition,
+        field: &str,
+    ) -> Option<String> {
+        let mut current = owner_td;
+        for _ in 0..32 {
+            let super_name = superclass_of(current)?;
+            match self.type_defs_by_short_name.get(super_name.as_str()) {
+                Some(super_td) => current = super_td,
+                None => {
+                    // A native (no-`TypeDefinition`) base: `BallMap`'s `entries`.
+                    if native_superclass_fields(&super_name).contains(&field) && field == "entries"
+                    {
+                        return Some("BallValue::Map(BallMap::new())".to_string());
+                    }
+                    return None;
+                }
+            }
+        }
+        None
     }
 
     fn constructor_self_init(
@@ -1222,6 +1295,13 @@ impl Compiler<'_> {
             {
                 // A field-level default initializer (`final … _functions = {}`)
                 // — an empty map/list/string/instance, not `Null` (issue #300).
+                default
+            } else if let Some(default) = self.native_inherited_field_default(owner_td, &field) {
+                // A native-superclass backing field (`BallObject extends BallMap`
+                // inherits the ordered-map `entries`) — its `super(<…>{})` call
+                // seeds an empty map, which we cannot run (BallMap is native), so
+                // default it directly (issue #300 — else `_refreshEntries`'s
+                // `entries..clear()` panics on `Null`).
                 default
             } else {
                 "BallValue::Null".to_string()

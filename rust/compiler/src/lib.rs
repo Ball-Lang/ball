@@ -181,6 +181,16 @@ pub struct Compiler<'a> {
     /// dispatcher finds one (issue #298 — the implicit-`this` dispatch gap).
     /// See [`Compiler::compile_call`].
     instance_method_names: HashSet<String>,
+    /// The sanitized names of every **top-level variable** (`metadata.kind ==
+    /// "top_level_variable"` — a `const`/`final`/`var` at library scope, e.g.
+    /// the engine's `const _ballPointerBytes = 8;`). These compile to a nullary
+    /// `pub fn <name>(input) -> BallValue { <initializer> }`, so a *reference*
+    /// to one (`value.length * _ballPointerBytes`) is a **getter invocation**
+    /// that must be **called** — `<name>(BallValue::Null)` — not torn off as a
+    /// first-class function value (which would then fail arithmetic/comparison,
+    /// "expected a number, got Function"). A reference to a real function
+    /// (`kind == "function"`) stays a tear-off. Issue #300.
+    top_level_var_names: HashSet<String>,
     /// Whether the expression tree currently being compiled is the body of a
     /// **non-static** instance method or a body-carrying constructor — i.e. a
     /// context where `self_` is a bound local and an implicit-`this` method
@@ -198,6 +208,28 @@ pub struct Compiler<'a> {
     /// whole expression-compilation tree); safe because modules are compiled
     /// one at a time, never interleaved — see `compile_module_body`.
     current_module: RefCell<String>,
+    /// The stack of enclosing **control-flow scopes** — a `try` body or a loop
+    /// body — of the expression currently being compiled (issue #300). A
+    /// `return`/`break`/`continue` inside a `try` body cannot escape the `try`'s
+    /// `catch_unwind` closure with a bare Rust keyword; it must yield a
+    /// [`ball_shared::runtime::BallFlow`] the `try` re-issues after `finally`.
+    /// Whether a `break`/`continue` needs that treatment depends on whether the
+    /// nearest scope is the `try` (escape) or a loop (its own target) — hence a
+    /// stack, not a counter. See [`Compiler::compile_try`].
+    flow_scopes: RefCell<Vec<FlowScope>>,
+}
+
+/// A control-flow scope on [`Compiler::flow_scopes`] — a `try` body or a loop
+/// body — used to decide whether a `return`/`break`/`continue` must escape a
+/// `try`'s `catch_unwind` closure via [`ball_shared::runtime::BallFlow`]
+/// (issue #300).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FlowScope {
+    /// A `try` body: `return`/`break`/`continue` here escape via `BallFlow`.
+    Try,
+    /// A loop body: a `break`/`continue` whose nearest scope is this loop is a
+    /// bare Rust keyword (its target is inside every enclosing `try`).
+    Loop,
 }
 
 impl<'a> Compiler<'a> {
@@ -315,6 +347,23 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // Every top-level-variable name — a reference to one is a getter
+        // invocation (call it), not a function tear-off (issue #300).
+        let mut top_level_var_names: HashSet<String> = HashSet::new();
+        for module in &program.modules {
+            if base_modules.contains(&module.name) {
+                continue;
+            }
+            for func in &module.functions {
+                if func.is_base || is_class_member(func) {
+                    continue;
+                }
+                if type_emit::func_meta_kind(func).as_deref() == Some("top_level_variable") {
+                    top_level_var_names.insert(sanitize_ident(&func.name));
+                }
+            }
+        }
+
         Compiler {
             program,
             base_modules,
@@ -324,9 +373,44 @@ impl<'a> Compiler<'a> {
             callable_names,
             local_scopes: RefCell::new(Vec::new()),
             instance_method_names,
+            top_level_var_names,
             in_instance_method: RefCell::new(false),
             current_module: RefCell::new(program.entry_module.clone()),
+            flow_scopes: RefCell::new(Vec::new()),
         }
+    }
+
+    /// Enter a control-flow scope (a `try` body or a loop body). Paired with
+    /// [`Compiler::pop_flow_scope`].
+    pub(crate) fn push_flow_scope(&self, kind: FlowScope) {
+        self.flow_scopes.borrow_mut().push(kind);
+    }
+
+    /// Leave the innermost control-flow scope.
+    pub(crate) fn pop_flow_scope(&self) {
+        self.flow_scopes.borrow_mut().pop();
+    }
+
+    /// Does a `return` here need to escape a `try` via `BallFlow`? True iff any
+    /// enclosing scope is a `try` (a `return` crosses every scope out to its
+    /// function). Issue #300.
+    pub(crate) fn return_needs_flow(&self) -> bool {
+        self.flow_scopes.borrow().contains(&FlowScope::Try)
+    }
+
+    /// Does a `break`/`continue` here need to escape a `try` via `BallFlow`?
+    /// True iff the **nearest** enclosing scope is a `try` (the break must
+    /// cross it to reach its loop); false if the nearest scope is a loop (that
+    /// loop is the break's own target — a bare Rust keyword). Issue #300.
+    pub(crate) fn break_needs_flow(&self) -> bool {
+        matches!(self.flow_scopes.borrow().last(), Some(FlowScope::Try))
+    }
+
+    /// The innermost enclosing scope (used by [`Compiler::compile_try`] to
+    /// re-issue a `break`/`continue` that escaped it — into a bare keyword if a
+    /// loop encloses the `try`, or a fresh `BallFlow` if another `try` does).
+    pub(crate) fn innermost_flow_scope(&self) -> Option<FlowScope> {
+        self.flow_scopes.borrow().last().copied()
     }
 
     // ════════════════════════════════════════════════════════════
@@ -359,6 +443,21 @@ impl<'a> Compiler<'a> {
             call.input.as_deref(),
             Some(Expression { expr: Some(Expr::MessageCreation(mc)) })
                 if mc.fields.iter().any(|f| f.name == "self")
+        )
+    }
+
+    /// Is `call`'s input the encoder's **multi-argument message** — an anonymous
+    /// (empty `type_name`) `MessageCreation` packing `arg0`/`arg1`/named fields
+    /// (invariant #1)? A *single* positional argument is passed directly (any
+    /// other expression shape, or a *typed* `MessageCreation` that is a real
+    /// constructed instance), so this distinguishes the two for implicit-`this`
+    /// injection (issue #300 — [`Compiler::compile_call`]): a multi-arg message
+    /// gets `self` merged in, a single positional gets wrapped as `{self, arg0}`.
+    fn call_input_is_arg_message(call: &ball_shared::proto::ball::v1::FunctionCall) -> bool {
+        matches!(
+            call.input.as_deref(),
+            Some(Expression { expr: Some(Expr::MessageCreation(mc)) })
+                if mc.type_name.is_empty()
         )
     }
 
@@ -471,6 +570,30 @@ impl<'a> Compiler<'a> {
         self.compile_modules()
     }
 
+    /// Emit `pub fn __ball_register_types()` — one `ball_register_superclass`
+    /// per user class that `extends` another (from `metadata.superclass`), so a
+    /// runtime `is`/`as` against a supertype resolves (issue #300). Called once
+    /// by `fn main()` (binary mode) or the self-host wrapper (library mode)
+    /// before any program runs.
+    fn emit_type_registrations(&self) -> String {
+        let mut regs = String::new();
+        for module in &self.program.modules {
+            if self.is_base_module(&module.name) {
+                continue;
+            }
+            for td in &module.type_defs {
+                if let Some(superclass) = type_emit::superclass_of(td) {
+                    let child = type_emit::type_short_name(&td.name);
+                    let parent = type_emit::type_short_name(&superclass);
+                    regs.push_str(&format!(
+                        "    ball_register_superclass({child:?}, {parent:?});\n"
+                    ));
+                }
+            }
+        }
+        format!("pub fn __ball_register_types() {{\n{regs}}}\n")
+    }
+
     /// Shared body of [`Self::compile`] and [`Self::compile_library`]: the
     /// preamble (imports) plus every module's types/functions. The entry
     /// module is inlined at the top level; every other non-base module nests
@@ -503,6 +626,14 @@ impl<'a> Compiler<'a> {
         // { use super::*; }` sees them via its glob import. See
         // `type_emit::oneof_discriminator_enum_defs`.
         out.push_str(&type_emit::oneof_discriminator_enum_defs());
+        out.push('\n');
+
+        // The class-hierarchy registration (`BallObject extends BallMap`, …) —
+        // a `pub fn __ball_register_types()` the entry point / self-host wrapper
+        // calls once so a runtime `is`/`as` against a supertype resolves (issue
+        // #300). Emitted at the crate root (visible to `fn main()` and the
+        // wrapper alike).
+        out.push_str(&self.emit_type_registrations());
         out.push('\n');
 
         // Every other user (non-base) module → its own nested `mod` block,
@@ -611,7 +742,14 @@ impl<'a> Compiler<'a> {
             None => "BallValue::Null".to_string(),
         };
         self.pop_scope();
-        format!("fn main() {{\n{prologue}let _ballvalue_result: BallValue = {body};\n}}\n")
+        format!(
+            // The entry body runs inside an **IIFE closure** so a top-level
+            // `return X` (including one propagated out of a `try` as
+            // `BallFlow::Return`) returns from the closure — yielding a
+            // `BallValue` — rather than from `fn main()` (which returns `()`,
+            // an E0308 type error). Issue #300.
+            "fn main() {{\n__ball_register_types();\n{prologue}let _ballvalue_result: BallValue = (|| -> BallValue {{ {body} }})();\n}}\n"
+        )
     }
 
     /// Emit the `let`-bindings a free function's (or lambda's) body needs to
@@ -728,6 +866,39 @@ impl<'a> Compiler<'a> {
             // so this compiles to `BallValue::Null` — the same value a read
             // of the still-unassigned variable yields.
             "BallValue::Null".to_string()
+        } else if !self.is_local(&reference.name)
+            && self
+                .top_level_var_names
+                .contains(&sanitize_ident(&reference.name))
+        {
+            // A reference to a top-level variable (`_ballPointerBytes`) is a
+            // getter invocation — call its nullary `pub fn` to read the value,
+            // rather than tearing it off as a `BallValue::Function` (which then
+            // fails arithmetic, "expected a number, got Function"). Issue #300.
+            format!("{}(BallValue::Null)", sanitize_ident(&reference.name))
+        } else if !self.is_local(&reference.name)
+            && self.in_instance_method()
+            && self
+                .instance_method_names
+                .contains(&sanitize_ident(&reference.name))
+        {
+            // A bare reference to an **instance method** from inside an instance
+            // method body is a *bound* method tear-off (`{'print': _stdPrint}`
+            // in the engine's `_buildStdDispatch`) — Dart binds `this`. The
+            // method dispatcher reads its receiver from the input's `self`, so
+            // the tear-off must weave the enclosing receiver (`__self_recv`) into
+            // whatever single argument the value is later called with, as
+            // `{self, arg0: arg}` (issue #300 — otherwise the dispatcher sees no
+            // receiver, or a wrong one, and fails "no method for type"). The
+            // receiver is pre-cloned so the `move` closure owns it without moving
+            // the enclosing `__self_recv` (which other tear-offs in the same
+            // method also capture).
+            let name = sanitize_ident(&reference.name);
+            format!(
+                "{{ let __self_recv = __self_recv.clone(); \
+                 BallValue::Function(BallFunction::new({name:?}, move |__ball_arg: BallValue| -> BallValue {{ \
+                 {name}(ball_arg0_with_self(__ball_arg, __self_recv.clone())) }})) }}"
+            )
         } else if !self.is_local(&reference.name) && self.is_known_callable(&reference.name) {
             // A bare reference (value position, not a call) to a top-level
             // function that is *not* shadowed by a local of the same name: it
@@ -785,6 +956,34 @@ impl<'a> Compiler<'a> {
     /// e.g. a plain literal-field `MessageCreation` in a hand-built fixture)
     /// is inserted under its given name unchanged, exactly as before #38.
     fn compile_message_creation(&self, message_creation: &MessageCreation) -> String {
+        // A **Dart-SDK collection constructor** (`LinkedHashMap()`, `Map.from(x)`,
+        // `HashSet()`) builds the native `BallValue` collection, not an opaque
+        // `BallValue::Message` the map/set runtime helpers reject (issue #300).
+        if let Some(collection) = self.sdk_collection_creation(message_creation) {
+            return collection;
+        }
+        // A type with a **body-carrying constructor** (`BallObject.new` runs
+        // `_refreshEntries()`; `BallEngine.new` builds its lookup tables) must
+        // be built by *invoking that constructor*, not by an inline field map —
+        // otherwise the body never runs and the instance is half-built (issue
+        // #300). The constructor's own associated fn binds the args, seeds field
+        // defaults, runs the body, and writes mutated fields back.
+        if let Some(ctor_fn) = self.body_constructor_fn(&message_creation.type_name) {
+            let mut args = String::new();
+            for field in &message_creation.fields {
+                let value = match &field.value {
+                    Some(value) => self.compile_expression(value),
+                    None => "BallValue::Null".to_string(),
+                };
+                args.push_str(&format!(
+                    "__ball_map.insert({:?}.to_string(), {value});\n",
+                    field.name
+                ));
+            }
+            return format!(
+                "{ctor_fn}({{ let mut __ball_map = BallMap::new(); {args}BallValue::Map(__ball_map) }})"
+            );
+        }
         let ctor_params = self.constructor_field_names(&message_creation.type_name);
         let mut inserts = String::new();
         // Which instance fields are explicitly supplied (by real name, after the
@@ -793,7 +992,8 @@ impl<'a> Compiler<'a> {
         // so a constructed instance matches Dart's field-initialization
         // semantics rather than leaving every unset field `Null` (issue #300 —
         // e.g. `_Scope(parent)` must still get its `_bindings = {}`).
-        let mut explicit_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut explicit_fields: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
         for (index, field) in message_creation.fields.iter().enumerate() {
             let field_name = if type_emit::is_positional_arg_name(&field.name) {
                 ctor_params
@@ -857,6 +1057,58 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// A Dart-SDK collection constructor → the native `BallValue` collection
+    /// (issue #300). `LinkedHashMap()`/`HashMap()` are empty ordered maps;
+    /// `Map.from(x)`/`Map.of(x)` copy `x`; `HashSet()`/… are empty (List-backed)
+    /// sets; `Set.from(x)` dedups `x`. Returns `None` for any non-SDK-collection
+    /// `type_name` (built normally). `BallMap`/`BallList`/… are *user* classes
+    /// (they have a `TypeDefinition`) and are left alone.
+    fn sdk_collection_creation(&self, mc: &MessageCreation) -> Option<String> {
+        let short = type_emit::type_short_name(&mc.type_name);
+        let arg0 = || {
+            mc.fields
+                .iter()
+                .find(|f| f.name == "arg0")
+                .and_then(|f| f.value.as_ref())
+                .map(|v| self.compile_expression(v))
+                .unwrap_or_else(|| "BallValue::Null".to_string())
+        };
+        // `BallMap`/`BallList` are the engine's own value-wrapper classes — used
+        // pervasively but *not* encoded as `TypeDefinition`s (they live in
+        // `ball_value.dart`, outside the self-host part graph), so a `BallMap(x)`
+        // otherwise builds an opaque `{arg0: x}` shell with a null `entries`
+        // (issue #300). They are thin wrappers over a native `Map`/`List`, so
+        // build that directly — `has_arg0` distinguishes `BallMap(x)` (wrap `x`)
+        // from `BallMap()` (empty).
+        let has_arg0 = || mc.fields.iter().any(|f| f.name == "arg0");
+        match short {
+            "LinkedHashMap" | "HashMap" | "SplayTreeMap" => {
+                Some("BallValue::Map(BallMap::new())".to_string())
+            }
+            "Map.from" | "Map.of" | "LinkedHashMap.from" | "HashMap.from" => Some(format!(
+                "ball_map_merge(BallValue::Map(BallMap::new()), {})",
+                arg0()
+            )),
+            "BallMap" => Some(if has_arg0() {
+                format!("ball_map_merge(BallValue::Map(BallMap::new()), {})", arg0())
+            } else {
+                "BallValue::Map(BallMap::new())".to_string()
+            }),
+            "HashSet" | "LinkedHashSet" | "SplayTreeSet" => {
+                Some("BallValue::List(Vec::new())".to_string())
+            }
+            "Set.from" | "Set.of" | "HashSet.from" | "LinkedHashSet.from" => {
+                Some(format!("ball_set_create({})", arg0()))
+            }
+            "BallList" => Some(if has_arg0() {
+                format!("ball_list_to_list({})", arg0())
+            } else {
+                "BallValue::List(Vec::new())".to_string()
+            }),
+            _ => None,
+        }
+    }
+
     /// `block` — a Rust block expression `{ stmt; stmt; tail }`. Ball's
     /// `Block.statements` are `let`-bindings or bare expressions (evaluated
     /// for side effects); `Block.result` is the value the whole block
@@ -884,6 +1136,17 @@ impl<'a> Compiler<'a> {
         // visible to every later statement and the tail — this is what lets a
         // `let bound = <lambda>;` then `bound(input)` route through dynamic
         // dispatch (issue #39, gap #6).
+        //
+        // **Cascade blocks (issue #300):** the encoder desugars `x..a()..b()`
+        // into a block whose first `let` (`__cascade_self__ = x`, tagged
+        // `metadata.kind = "cascade"`) is followed by the cascade operations
+        // and returns the cascade var. On a **value-semantic** collection a
+        // mutating cascade method (`..clear()..addAll(f)`) returns the mutated
+        // copy but cannot mutate the receiver in place, so each such call must
+        // *reassign* the cascade var, and the accumulated value is written back
+        // to the receiver (a simple variable/field) at the block's end — see
+        // [`Compiler::block_cascade_receiver`].
+        let cascade_var = block.statements.first().and_then(cascade_let_var);
         self.push_scope();
         let mut out = String::from("{\n");
         for (index, statement) in block.statements.iter().enumerate() {
@@ -895,19 +1158,41 @@ impl<'a> Compiler<'a> {
                         None => "BallValue::Null".to_string(),
                     };
                     self.bind_local(&let_binding.name);
-                    let mutated = self.rest_mutates_var(
-                        &block.statements[index + 1..],
-                        block.result.as_deref(),
-                        &let_binding.name,
-                    );
+                    // A cascade var is reassigned by its mutating method calls,
+                    // so it is always `mut`.
+                    let mutated = cascade_var.as_deref() == Some(name.as_str())
+                        || self.rest_mutates_var(
+                            &block.statements[index + 1..],
+                            block.result.as_deref(),
+                            &let_binding.name,
+                        );
                     let keyword = if mutated { "let mut" } else { "let" };
                     out.push_str(&format!("{keyword} {name} = {value};\n"));
                 }
                 Some(Stmt::Expression(expression)) => {
-                    out.push_str(&self.compile_expression(expression));
-                    out.push_str(";\n");
+                    let compiled = self.compile_expression(expression);
+                    // Inside a cascade, a method call *on the cascade var*
+                    // reassigns it (value-semantic mutation persistence).
+                    match &cascade_var {
+                        Some(cv) if is_method_call_on(expression, cv) => {
+                            out.push_str(&format!("{cv} = {compiled};\n"));
+                        }
+                        _ => {
+                            out.push_str(&compiled);
+                            out.push_str(";\n");
+                        }
+                    }
                 }
                 None => {}
+            }
+        }
+        // Cascade write-back: persist the accumulated value onto the receiver
+        // (only a simple in-scope variable/field — the overwhelmingly common
+        // `entries..…` / `list..…` shape; a complex receiver is left as-is,
+        // the documented boundary).
+        if let (Some(cv), Some(receiver)) = (&cascade_var, self.block_cascade_receiver(block)) {
+            if receiver != *cv {
+                out.push_str(&format!("{receiver} = {cv}.clone();\n"));
             }
         }
         let tail = match &block.result {
@@ -918,6 +1203,24 @@ impl<'a> Compiler<'a> {
         out.push_str("\n}");
         self.pop_scope();
         out
+    }
+
+    /// The sanitized name of a cascade block's **receiver** (`entries` in
+    /// `entries..clear()..addAll(f)`) when it is a simple reference — the
+    /// write-back target (issue #300). `None` for a non-cascade block or a
+    /// complex receiver expression.
+    pub(crate) fn block_cascade_receiver(&self, block: &Block) -> Option<String> {
+        let first = block.statements.first()?;
+        let Some(Stmt::Let(let_binding)) = &first.stmt else {
+            return None;
+        };
+        if !type_emit::let_is_cascade(let_binding) {
+            return None;
+        }
+        match let_binding.value.as_ref().and_then(|v| v.expr.as_ref()) {
+            Some(Expr::Reference(reference)) => Some(sanitize_ident(&reference.name)),
+            _ => None,
+        }
     }
 
     /// `lambda` — an anonymous [`FunctionDefinition`] (`name` empty) whose
@@ -1127,6 +1430,43 @@ fn format_double_literal(value: f64) -> String {
 /// `crate` anyway). Ball identifiers from every existing encoder are
 /// already valid source identifiers in their origin language, so this is a
 /// defensive fallback, not the common case.
+/// The sanitized cascade-var name if `statement` is a cascade `let`
+/// (`let __cascade_self__ = <receiver>`, tagged `metadata.kind = "cascade"`),
+/// else `None`. See [`Compiler::compile_block`] (issue #300).
+fn cascade_let_var(statement: &ball_shared::proto::ball::v1::Statement) -> Option<String> {
+    match &statement.stmt {
+        Some(Stmt::Let(let_binding)) if type_emit::let_is_cascade(let_binding) => {
+            Some(sanitize_ident(&let_binding.name))
+        }
+        _ => None,
+    }
+}
+
+/// Whether `expr` is a **method call whose receiver is the cascade var** — a
+/// `call` whose packed input carries a `self` field referencing `cascade_var`
+/// (`clear({self: __cascade_self__})` / `addAll({self: __cascade_self__, arg0:
+/// f})`). Such a call reassigns the cascade var (value-semantic mutation);
+/// an index/field `assign` on the cascade var packs `target`/`value` (no
+/// `self`) and is therefore excluded — it already mutates in place. Issue #300.
+fn is_method_call_on(expr: &Expression, cascade_var: &str) -> bool {
+    let Some(Expr::Call(call)) = &expr.expr else {
+        return false;
+    };
+    let Some(Expression {
+        expr: Some(Expr::MessageCreation(mc)),
+    }) = call.input.as_deref()
+    else {
+        return false;
+    };
+    mc.fields.iter().any(|field| {
+        field.name == "self"
+            && matches!(
+                field.value.as_ref().and_then(|v| v.expr.as_ref()),
+                Some(Expr::Reference(reference)) if sanitize_ident(&reference.name) == cascade_var
+            )
+    })
+}
+
 fn sanitize_ident(name: &str) -> String {
     const RESERVED: &[&str] = &[
         "as", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false",

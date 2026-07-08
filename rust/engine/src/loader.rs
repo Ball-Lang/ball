@@ -80,7 +80,95 @@ fn finish(dynamic: DynamicMessage) -> Result<(Program, BallValue), EngineError> 
     let json: serde_json::Value = serde_json::from_slice(&serializer.into_inner())
         .map_err(|e| EngineError::Parse(format!("proto3-JSON reparse failed: {e}")))?;
 
-    Ok((program, json_to_ball_value(&json)))
+    Ok((program, normalize_metadata(json_to_ball_value(&json))))
+}
+
+/// Reconstruct the raw `google.protobuf.Struct` proto shape for every
+/// `metadata` field of the program view (issue #300).
+///
+/// prost-reflect's canonical proto3-JSON **collapses** a `google.protobuf.Struct`
+/// to a plain object (`{kind: "function", params: […]}`) — the well-known-type
+/// JSON encoding. But the self-hosted engine reads metadata through the *proto
+/// object* API it was authored against: `func.metadata.fields['kind'].stringValue`,
+/// `…fields['params'].listValue.values[i].structValue.fields[…]`, and the
+/// `whichKind`/`hasStringValue`/… discriminators on each `Value`. So each
+/// metadata Struct is re-expanded to `{fields: {key: <Value>}}` where every
+/// `Value` is `{stringValue|numberValue|boolValue|structValue|listValue|nullValue: …}`
+/// — exactly the shape the TS engine's `protoWrap` reconstructs with proxies
+/// (`ts/engine/src/engine_setup.ts`). Non-metadata values (including the
+/// `descriptor` `DescriptorProto`s, which are real messages, not Structs) are
+/// left untouched.
+fn normalize_metadata(value: BallValue) -> BallValue {
+    match value {
+        BallValue::Map(map) => {
+            let mut out = BallMap::with_capacity(map.len());
+            for (key, val) in map {
+                if key == "metadata" {
+                    if let BallValue::Map(struct_map) = val {
+                        out.insert(key, wrap_struct(struct_map));
+                        continue;
+                    }
+                }
+                out.insert(key, normalize_metadata(val));
+            }
+            BallValue::Map(out)
+        }
+        BallValue::List(items) => {
+            BallValue::List(items.into_iter().map(normalize_metadata).collect())
+        }
+        other => other,
+    }
+}
+
+/// A collapsed metadata object → the raw `Struct` shape `{fields: {key: Value}}`.
+fn wrap_struct(map: BallMap) -> BallValue {
+    let mut fields = BallMap::with_capacity(map.len());
+    for (key, val) in map {
+        fields.insert(key, wrap_value(val));
+    }
+    let mut out = BallMap::with_capacity(1);
+    out.insert("fields".to_string(), BallValue::Map(fields));
+    BallValue::Map(out)
+}
+
+/// A plain JSON metadata value → a `google.protobuf.Value` wrapper (the arm
+/// keyed by its kind). Numbers use `numberValue` (proto `Value` is always a
+/// double); a nested object recurses through [`wrap_struct`].
+fn wrap_value(value: BallValue) -> BallValue {
+    let mut out = BallMap::with_capacity(1);
+    match value {
+        BallValue::Null => {
+            out.insert("nullValue".to_string(), BallValue::Int(0));
+        }
+        BallValue::Bool(b) => {
+            out.insert("boolValue".to_string(), BallValue::Bool(b));
+        }
+        BallValue::Int(i) => {
+            out.insert("numberValue".to_string(), BallValue::Double(i as f64));
+        }
+        BallValue::Double(d) => {
+            out.insert("numberValue".to_string(), BallValue::Double(d));
+        }
+        BallValue::String(s) => {
+            out.insert("stringValue".to_string(), BallValue::String(s));
+        }
+        BallValue::List(items) => {
+            let values: Vec<BallValue> = items.into_iter().map(wrap_value).collect();
+            let mut list_value = BallMap::with_capacity(1);
+            list_value.insert("values".to_string(), BallValue::List(values));
+            out.insert("listValue".to_string(), BallValue::Map(list_value));
+        }
+        BallValue::Map(m) => {
+            out.insert("structValue".to_string(), wrap_struct(m));
+        }
+        other => {
+            out.insert(
+                "stringValue".to_string(),
+                BallValue::String(other.to_string()),
+            );
+        }
+    }
+    BallValue::Map(out)
 }
 
 /// Convert a `serde_json::Value` (canonical proto3 JSON) into a [`BallValue`]

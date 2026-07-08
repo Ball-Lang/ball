@@ -381,6 +381,13 @@ pub fn ball_null_check(value: BallValue) -> BallValue {
 /// `BallValue`'s own `Display`, which already matches every reference
 /// engine's stdout formatting.
 pub fn ball_to_string(value: BallValue) -> BallValue {
+    // A `StringBuffer`'s `.toString()` returns its accumulated text, not the
+    // backing message's `{content: …}` rendering (see `dartsdk::write`).
+    if let BallValue::Message(msg) = &value {
+        if msg.type_name == "main:StringBuffer" {
+            return BallValue::String(dartsdk::string_buffer_text(&value));
+        }
+    }
     BallValue::String(value.to_string())
 }
 
@@ -2050,6 +2057,260 @@ mod dartsdk {
             panic!("ball-compiler runtime: deleteSync('{path}') failed: {e}");
         }
         BallValue::Null
+    }
+
+    // ── StringBuffer (`dart:core` StringBuffer) ──────────────
+    //
+    // The engine builds a `StringBuffer` to render type descriptions
+    // (`_describeType`). It is a `main:StringBuffer` message whose accumulated
+    // text lives under `content` (an initial `StringBuffer(x)` argument arrives
+    // under `arg0`). `write` appends the stringified argument; the compiler
+    // lowers the buffer's `.toString()` to [`ball_to_string`], which
+    // special-cases this message shape (see that fn) to return the text.
+    //
+    // **Known limitation (by-value model, #39 gap #6):** the receiver arrives
+    // cloned under `self`, so an `sb.write(x);` statement whose result is
+    // discarded does not mutate the caller's binding — `write` returns the
+    // correctly-appended buffer, but a fresh buffer written to only through
+    // discarded statements renders as its initial content. Faithful in-place
+    // accumulation needs shared mutability, tracked with the other
+    // receiver-mutation divergences.
+
+    /// The text a `StringBuffer` message currently holds: its accumulated
+    /// `content`, falling back to the constructor's initial `arg0` value, then
+    /// the empty string.
+    pub(crate) fn string_buffer_text(buffer: &BallValue) -> std::string::String {
+        let field = |name: &str| match buffer {
+            BallValue::Message(msg) => msg.fields.get(name).cloned(),
+            BallValue::Map(map) => map.get(name).cloned(),
+            _ => None,
+        };
+        match field("content").or_else(|| field("arg0")) {
+            Some(BallValue::Null) | None => std::string::String::new(),
+            Some(value) => value.to_string(),
+        }
+    }
+
+    /// `StringBuffer.write(obj)` — append `obj`'s string form to the buffer,
+    /// returning the updated `main:StringBuffer` message.
+    pub fn write(input: BallValue) -> BallValue {
+        let buffer = m_get(&input, "self");
+        let mut text = string_buffer_text(&buffer);
+        text.push_str(&m_get(&input, "arg0").to_string());
+        let mut fields = BallMap::new();
+        fields.insert("content".to_string(), BallValue::String(text));
+        BallValue::Message(BallMessage {
+            type_name: "main:StringBuffer".to_string(),
+            fields,
+        })
+    }
+
+    // ── Function.apply / Iterable.indexWhere (function values) ─
+    //
+    // Both invoke a first-class function *value* — the engine's own
+    // `Function.apply(fn, args)` (used by `std.invoke`) and
+    // `list.indexWhere(predicate)` (pattern matching). They route through
+    // [`ball_call_function`], keeping invariant #1 (one input, one output):
+    // `Function.apply` passes the single element of the positional-args list.
+
+    /// `Function.apply(fn, positionalArguments)` — invoke `fn` with the lone
+    /// element of `positionalArguments` (invariant #1: a Ball function takes a
+    /// single input), or `null` when the list is empty.
+    pub fn apply(input: BallValue) -> BallValue {
+        let callee = m_get(&input, "arg0");
+        let args = as_list(m_get(&input, "arg1"));
+        let arg = args.into_iter().next().unwrap_or(BallValue::Null);
+        ball_call_function(callee, arg)
+    }
+
+    /// `Iterable.indexWhere(test)` — the index of the first element for which
+    /// `test` is truthy, or `-1` if none.
+    pub fn indexWhere(input: BallValue) -> BallValue {
+        let list = as_list(m_get(&input, "self"));
+        let predicate = m_get(&input, "arg0");
+        for (index, element) in list.into_iter().enumerate() {
+            if ball_truthy(ball_call_function(predicate.clone(), element)) {
+                return BallValue::Int(index as i64);
+            }
+        }
+        BallValue::Int(-1)
+    }
+
+    // ── proto-message presence + serialization ───────────────
+    //
+    // The self-hosted engine inspects Ball-AST messages with proto presence
+    // checks (`field.hasValue()`, `access.hasObject()`) and measures a
+    // program's serialized size (`program.writeToBuffer().length`). Presence
+    // mirrors `ball_proto.dart` (proto3: a message/string/collection field is
+    // "present" when set and non-empty).
+
+    /// Proto presence of field `name` on `obj` (proto3 semantics: present ⇒
+    /// set and non-default/non-empty). Mirrors `ball_proto.dart` /
+    /// `ball_engine::ball_proto::has_field`.
+    fn proto_has_field(obj: &BallValue, name: &str) -> BallValue {
+        let field = match obj {
+            BallValue::Map(map) => map.get(name),
+            BallValue::Message(msg) => msg.fields.get(name),
+            _ => None,
+        };
+        let present = match field {
+            None | Some(BallValue::Null) => false,
+            Some(BallValue::String(s)) => !s.is_empty(),
+            Some(BallValue::List(l)) => !l.is_empty(),
+            Some(BallValue::Map(m)) => !m.is_empty(),
+            Some(_) => true,
+        };
+        BallValue::Bool(present)
+    }
+
+    /// `Expression.hasValue()` / `LetBinding.hasValue()` / … — presence of a
+    /// `value` field.
+    pub fn hasValue(input: BallValue) -> BallValue {
+        proto_has_field(&m_get(&input, "self"), "value")
+    }
+
+    /// `FieldAccess.hasObject()` — presence of an `object` field.
+    pub fn hasObject(input: BallValue) -> BallValue {
+        proto_has_field(&m_get(&input, "self"), "object")
+    }
+
+    /// `Message.writeToBuffer()` — a byte buffer of the message's serialized
+    /// form. The engine reads only its `.length` (a program-size limit check),
+    /// so this returns the UTF-8 bytes of the canonical JSON rendering — an
+    /// exact byte count for that encoding, sufficient for the size guard.
+    pub fn writeToBuffer(input: BallValue) -> BallValue {
+        let message = m_get(&input, "self");
+        let json = ball_value_to_json_string(&message);
+        BallValue::Bytes(json.into_bytes())
+    }
+
+    // ── dart:convert JsonEncoder / JsonDecoder ───────────────
+
+    /// `JsonEncoder.convert(value)` / `JsonDecoder.convert(text)` — dispatched
+    /// on the receiver's `main:JsonEncoder` / `main:JsonDecoder` type. Encoding
+    /// produces Dart-`JsonEncoder`-compatible compact JSON (no whitespace,
+    /// map keys in insertion order); decoding parses a JSON string to a
+    /// `BallValue`.
+    pub fn convert(input: BallValue) -> BallValue {
+        let receiver = m_get(&input, "self");
+        let arg = m_get(&input, "arg0");
+        let type_name = match &receiver {
+            BallValue::Message(msg) => msg.type_name.as_str(),
+            _ => "",
+        };
+        if type_name.ends_with("JsonDecoder") {
+            let text = as_str(&arg);
+            match serde_json::from_str::<serde_json::Value>(text) {
+                Ok(value) => json_value_to_ball(&value),
+                Err(e) => panic!("ball-compiler runtime: JsonDecoder.convert failed: {e}"),
+            }
+        } else {
+            BallValue::String(ball_value_to_json_string(&arg))
+        }
+    }
+
+    /// Render `value` as compact JSON (Dart `JsonEncoder().convert` shape),
+    /// preserving map insertion order.
+    fn ball_value_to_json_string(value: &BallValue) -> std::string::String {
+        let mut out = std::string::String::new();
+        write_json(value, &mut out);
+        out
+    }
+
+    fn write_json(value: &BallValue, out: &mut std::string::String) {
+        use std::fmt::Write as _;
+        match value {
+            BallValue::Null => out.push_str("null"),
+            BallValue::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            BallValue::Int(i) => {
+                let _ = write!(out, "{i}");
+            }
+            BallValue::Double(d) => out.push_str(&crate::value::format_double(*d)),
+            BallValue::String(s) => write_json_string(s, out),
+            BallValue::Bytes(bytes) => {
+                out.push('[');
+                for (i, b) in bytes.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    let _ = write!(out, "{b}");
+                }
+                out.push(']');
+            }
+            BallValue::List(list) => {
+                out.push('[');
+                for (i, item) in list.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write_json(item, out);
+                }
+                out.push(']');
+            }
+            BallValue::Map(map) => write_json_object(map.iter(), out),
+            BallValue::Message(msg) => write_json_object(msg.fields.iter(), out),
+            BallValue::Function(_) => out.push_str("null"),
+        }
+    }
+
+    fn write_json_object<'a>(
+        entries: impl Iterator<Item = (&'a std::string::String, &'a BallValue)>,
+        out: &mut std::string::String,
+    ) {
+        out.push('{');
+        for (i, (key, value)) in entries.enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            write_json_string(key, out);
+            out.push(':');
+            write_json(value, out);
+        }
+        out.push('}');
+    }
+
+    fn write_json_string(s: &str, out: &mut std::string::String) {
+        out.push('"');
+        for ch in s.chars() {
+            match ch {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => {
+                    use std::fmt::Write as _;
+                    let _ = write!(out, "\\u{:04x}", c as u32);
+                }
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+    }
+
+    fn json_value_to_ball(value: &serde_json::Value) -> BallValue {
+        match value {
+            serde_json::Value::Null => BallValue::Null,
+            serde_json::Value::Bool(b) => BallValue::Bool(*b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    BallValue::Int(i)
+                } else {
+                    BallValue::Double(n.as_f64().unwrap_or(0.0))
+                }
+            }
+            serde_json::Value::String(s) => BallValue::String(s.clone()),
+            serde_json::Value::Array(items) => {
+                BallValue::List(items.iter().map(json_value_to_ball).collect())
+            }
+            serde_json::Value::Object(fields) => {
+                let mut map = BallMap::new();
+                for (key, value) in fields {
+                    map.insert(key.clone(), json_value_to_ball(value));
+                }
+                BallValue::Map(map)
+            }
+        }
     }
 }
 

@@ -255,7 +255,7 @@ fn write_entries<'a>(
 /// subnormals); Rust's `Display` never does. Matching that exact threshold
 /// is deferred to the engine/conformance phases (issues #39/#40), where it
 /// can be verified against the corpus instead of guessed here.
-fn format_double(value: f64) -> String {
+pub(crate) fn format_double(value: f64) -> String {
     if value.is_nan() {
         return "NaN".to_string();
     }

@@ -25,21 +25,22 @@
 //! ## Self-host status (issue #39)
 //!
 //! The regeneration pipeline is complete and produces ~19k lines of Rust from
-//! the 289-function self-hosted engine. Compiling that whole engine through
-//! the current `ball-compiler` still exposes a **large, multi-faceted set of
-//! compiler gaps** (the self-hosted engine is authored against the full Dart
-//! SDK surface): protobuf oneof-discriminator enum constants, ~120 Dart-SDK
-//! method calls (`RegExp`, `DateTime`, `File`, `Iterable`, `num.tryParse`, …),
-//! named/optional-parameter + getter/setter dispatch, constructor
-//! initializers + super-constructor inheritance, and dynamic-value-vs-borrow-
-//! checker conflicts. Those are tracked as follow-up compiler issues; see the
-//! PR/AGENTS.md gap report.
+//! the self-hosted engine, and **that whole engine now compiles cleanly**
+//! through `ball-compiler` (`cargo build -p ball-engine --features self_host`
+//! succeeds — every compiler gap is closed). The compiled-engine *driver* is
+//! nonetheless still gated behind the off-by-default `self_host` feature and
+//! [`BallEngine::run`] returns [`EngineError::SelfHostPending`], because the
+//! compiled engine does not yet **run** correctly: the interpreter relies on a
+//! mutable `this`, but this crate represents an instance as a **by-value**
+//! `BallValue::Message`, so a method's mutations to `this.<field>` land on a
+//! clone and are lost. Making them persist needs a shared, interior-mutable
+//! instance representation (an `Arc<Mutex<…>>`-backed value variant) — a
+//! `BallValue`-model reshape that is its own architectural epic, plus
+//! implicit-`this` receiver injection. See `rust/engine/AGENTS.md`'s
+//! "Run blocker" for the full analysis.
 //!
-//! Until they are closed, the compiled-engine driver is gated behind the
-//! off-by-default `self_host` cargo feature so this crate's foundation
-//! (loader + scope + ball_proto access patterns, all unit-tested) builds and
-//! tests green. [`BallEngine::run`] returns [`EngineError::SelfHostPending`]
-//! in the default build.
+//! The crate's foundation (loader + scope + ball_proto access patterns, all
+//! unit-tested) builds and tests green in the default build.
 
 pub mod ball_proto;
 pub mod loader;
@@ -132,11 +133,14 @@ impl BallEngine {
 
     /// Run the program, returning its captured stdout lines.
     ///
-    /// In the default build this returns [`EngineError::SelfHostPending`] — the
-    /// compiled self-hosted engine does not yet compile through
-    /// `ball-compiler` (issue #39; see the crate doc comment). The loader,
-    /// scope chain, and `ball_proto` access patterns this wrapper provides are
-    /// the foundation the driver will use once those compiler gaps are closed.
+    /// Returns [`EngineError::SelfHostPending`] in every build for now: the
+    /// compiled self-hosted engine **compiles** through `ball-compiler` (issue
+    /// #39) but does not yet **run** correctly — the interpreter needs a mutable
+    /// `this`, which this crate's by-value `BallValue::Message` instance model
+    /// cannot provide (a method's field mutations land on a clone and are lost).
+    /// See the crate doc comment and `rust/engine/AGENTS.md`'s "Run blocker".
+    /// The loader, scope chain, and `ball_proto` access patterns this wrapper
+    /// provides are the foundation the driver will use once that lands.
     pub fn run(&self) -> Result<Vec<String>, EngineError> {
         #[cfg(feature = "self_host")]
         {
@@ -145,9 +149,9 @@ impl BallEngine {
         #[cfg(not(feature = "self_host"))]
         {
             Err(EngineError::SelfHostPending(
-                "compiled_engine.rs does not yet build through ball-compiler; \
-                 enable the `self_host` feature once the compiler gaps in issue \
-                 #39 are closed (see rust/engine/AGENTS.md)"
+                "compiled_engine.rs compiles through ball-compiler but does not \
+                 yet run: the by-value instance model loses a method's mutations \
+                 to `this` (issue #39; see rust/engine/AGENTS.md 'Run blocker')"
                     .to_string(),
             ))
         }
@@ -155,14 +159,18 @@ impl BallEngine {
 
     #[cfg(feature = "self_host")]
     fn run_self_hosted(&self) -> Result<Vec<String>, EngineError> {
-        // Driver seam for the compiled engine (issue #39 follow-up). Wired in
-        // once `compiled_engine.rs` compiles: instantiate the compiled
-        // `BallEngine`/`StdModuleHandler` classes with `self.program_value`,
-        // call `run`, and collect the captured stdout — the same shape the TS
-        // wrapper's `new CompiledEngine(...).run()` uses.
+        // Driver seam for the compiled engine (issue #39 follow-up). The
+        // compiled `BallEngine`/`StdModuleHandler` classes now exist and
+        // type-check, but driving them (instantiate with `self.program_value`,
+        // call `run`, collect stdout — the shape the TS wrapper's
+        // `new CompiledEngine(...).run()` uses) is blocked on reference `this`
+        // semantics: the interpreter mutates `this._functions`/`_globalScope`,
+        // which a by-value `BallValue::Message` receiver clone discards. See the
+        // crate doc comment / AGENTS.md "Run blocker".
         Err(EngineError::SelfHostPending(
-            "self_host feature is enabled but the compiled-engine driver seam \
-             is not yet connected"
+            "self_host feature is enabled and compiled_engine.rs compiles, but \
+             the compiled engine needs reference `this` semantics to run \
+             (see rust/engine/AGENTS.md 'Run blocker')"
                 .to_string(),
         ))
     }

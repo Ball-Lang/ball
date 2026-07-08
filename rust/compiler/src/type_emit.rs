@@ -12,7 +12,7 @@
 //! system.
 use std::collections::HashMap;
 
-use ball_shared::proto::ball::v1::{FunctionDefinition, Module, TypeDefinition};
+use ball_shared::proto::ball::v1::{Expression, FunctionDefinition, Module, TypeDefinition};
 use ball_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
 use ball_shared::proto::google::protobuf::value::Kind;
 use ball_shared::proto::google::protobuf::{
@@ -143,6 +143,111 @@ fn func_meta_kind(func: &FunctionDefinition) -> Option<String> {
     func.metadata
         .as_ref()
         .and_then(|m| meta_string_value(m, "kind"))
+}
+
+/// A `TypeDefinition`'s `metadata.superclass` (the parent class's **short**
+/// name — the encoders store it bare, e.g. `main:BallObject`'s
+/// `superclass: "BallMap"`), if it names a non-empty superclass. Drives
+/// [`Compiler::all_instance_field_names`]'s chain walk (issue #39 gap #5).
+fn superclass_of(td: &TypeDefinition) -> Option<String> {
+    td.metadata
+        .as_ref()
+        .and_then(|m| meta_string_value(m, "superclass"))
+        .filter(|s| !s.is_empty())
+}
+
+/// The backing instance fields of a **native** superclass — one the
+/// self-hosted engine `extends` but that has no user `TypeDefinition` of its
+/// own (so [`Compiler::all_instance_field_names`]'s chain walk can't read a
+/// descriptor for it). The engine's `class BallObject extends BallMap`
+/// inherits `BallMap`'s ordered-map backing field `entries`, which its
+/// `setField`/`_refreshEntries`/`operator []=` bodies reference as a bare
+/// name (Dart's implicit-instance-field convention). Any other native base
+/// (`BallValue`, an abstract `BallModuleHandler` with no fields) contributes
+/// nothing.
+fn native_superclass_fields(name: &str) -> &'static [&'static str] {
+    match name {
+        "BallMap" => &["entries"],
+        _ => &[],
+    }
+}
+
+/// The descriptor field names of `td` (in declaration order), skipping
+/// unnamed/empty entries — the shape both the struct declaration and the
+/// method/constructor field-alias prologue read.
+fn descriptor_field_names(td: &TypeDefinition) -> Vec<String> {
+    let Some(descriptor) = &td.descriptor else {
+        return Vec::new();
+    };
+    descriptor
+        .field
+        .iter()
+        .filter_map(|field| field.name.as_deref())
+        .filter(|name| !name.is_empty())
+        .map(|name| name.to_string())
+        .collect()
+}
+
+/// A constructor's declared parameters as `(name, is_this)` pairs, in
+/// declaration order — read straight off `metadata.params` (each an
+/// `{name, is_this, …}` struct). Used by
+/// [`Compiler::compile_constructor_with_body`] to seed each `this.`-formal
+/// field of the instance.
+fn ctor_params(ctor: &FunctionDefinition) -> Vec<(String, bool)> {
+    let Some(meta) = &ctor.metadata else {
+        return Vec::new();
+    };
+    let Some(params) = meta_list_value(meta, "params") else {
+        return Vec::new();
+    };
+    params
+        .iter()
+        .filter_map(|v| match &v.kind {
+            Some(Kind::StructValue(param_struct)) => {
+                let name = meta_string_value(param_struct, "name")?;
+                Some((name, meta_bool_value(param_struct, "is_this")))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The parameter name that initializes instance field `field`, if a
+/// `metadata.initializers` entry sets it directly from a parameter (the common
+/// `field = param` / `field = param ?? default` shape). The initializer's
+/// `value` is cosmetic source text (not an expression tree), so this reads only
+/// its leading identifier token and accepts it when it names a declared
+/// parameter (`param_names`) — a richer initializer expression yields `None`
+/// (the field stays `Null`), the documented best-effort boundary.
+fn field_initializer_param(
+    ctor: &FunctionDefinition,
+    field: &str,
+    param_names: &std::collections::HashSet<&str>,
+) -> Option<String> {
+    let meta = ctor.metadata.as_ref()?;
+    let initializers = meta_list_value(meta, "initializers")?;
+    for init in initializers {
+        let Some(Kind::StructValue(init_struct)) = &init.kind else {
+            continue;
+        };
+        if meta_string_value(init_struct, "kind").as_deref() != Some("field") {
+            continue;
+        }
+        if meta_string_value(init_struct, "name").as_deref() != Some(field) {
+            continue;
+        }
+        let value = meta_string_value(init_struct, "value")?;
+        let token: String = value
+            .trim()
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        if param_names.contains(token.as_str()) {
+            return Some(token);
+        }
+        return None;
+    }
+    None
 }
 
 // ════════════════════════════════════════════════════════════
@@ -360,24 +465,26 @@ impl Compiler<'_> {
         out
     }
 
-    /// Dispatch a single `TypeDefinition` to a `struct` (plain class) or
-    /// `trait` (abstract class/interface) — `enum`-kind `TypeDefinition`s
-    /// are never reached here (see [`Compiler::compile_module_types`]'s
-    /// guard). `metadata.is_abstract` (set on the `TypeDefinition` itself,
-    /// e.g. `main:Shape`) decides struct vs. trait, matching the issue's
-    /// "kind → Rust shape" table (`"class"` → struct, abstract/interface →
-    /// trait).
+    /// Compile a single `TypeDefinition` to a `struct` + inherent `impl` —
+    /// including an **abstract** class/interface (`metadata.is_abstract`).
+    /// `enum`-kind `TypeDefinition`s are never reached here (see
+    /// [`Compiler::compile_module_types`]'s guard).
+    ///
+    /// An abstract class emits the same struct+`impl` shape as a concrete one,
+    /// *not* a Rust `trait` (issue #39 gap #5). This crate's polymorphic
+    /// dispatch is runtime `type_name` matching
+    /// ([`Compiler::compile_method_dispatchers`]), never Rust's trait system,
+    /// so a `trait` was pure dead documentation — and a `trait`'s default
+    /// method can't be called as `Trait::method(input)` from the dispatcher
+    /// (`error[E0790]`, "cannot call associated function on trait"), which the
+    /// engine's `StdModuleHandler extends BallModuleHandler` needs for the
+    /// inherited-but-not-overridden `init`. As an inherent `impl` fn it is a
+    /// real callable. A purely abstract member (bodyless) is still excluded
+    /// from the `impl` ([`Compiler::compile_struct_def`]) — only concrete
+    /// (bodied) members, whether declared on the abstract base or an override,
+    /// are emitted.
     fn compile_type_def(&self, td: &TypeDefinition) -> String {
-        let is_abstract = td
-            .metadata
-            .as_ref()
-            .map(|m| meta_bool_value(m, "is_abstract"))
-            .unwrap_or(false);
-        if is_abstract {
-            self.compile_trait_def(td)
-        } else {
-            self.compile_struct_def(td)
-        }
+        self.compile_struct_def(td)
     }
 
     /// `struct <Name> { pub field: Type, ... }` + an `impl <Name> { ... }`
@@ -427,39 +534,6 @@ impl Compiler<'_> {
             }
             out.push_str("}\n");
         }
-        out
-    }
-
-    /// `trait <Name> { fn method(input: BallValue) -> BallValue; ... }` for
-    /// an abstract class/interface. Each abstract (bodyless) member becomes
-    /// a signature-only trait method; a member that *does* carry a body (a
-    /// concrete/default method declared directly on the abstract class)
-    /// becomes a trait method with a default implementation. Nothing
-    /// actually `impl`s this trait — see the crate root doc comment for why
-    /// (dispatch is by runtime `type_name`, not Rust's trait system); it
-    /// exists purely as a faithful, documentation-level shape declaration
-    /// (harmless if never used — `#![allow(dead_code)]` already covers it).
-    fn compile_trait_def(&self, td: &TypeDefinition) -> String {
-        let rust_name = crate::sanitize_ident(&td.name);
-        let mut out = format!("pub trait {rust_name} {{\n");
-        for member in self
-            .class_members_by_owner
-            .get(&td.name)
-            .into_iter()
-            .flatten()
-        {
-            let short = member_short_name(&member.name);
-            match &member.body {
-                None => out.push_str(&format!("    fn {short}(input: BallValue) -> BallValue;\n")),
-                Some(body) => {
-                    let body_code = self.compile_expression(body);
-                    out.push_str(&format!(
-                        "    fn {short}(input: BallValue) -> BallValue {{\n{body_code}\n    }}\n"
-                    ));
-                }
-            }
-        }
-        out.push_str("}\n");
         out
     }
 
@@ -578,39 +652,7 @@ impl Compiler<'_> {
         if !func_meta_bool(func, "is_static") {
             out.push_str("        let self_ = ball_field_get(input.clone(), \"self\");\n");
             self.bind_local("self");
-            if let Some(descriptor) = &owner_td.descriptor {
-                for field in &descriptor.field {
-                    let Some(field_name) = field.name.as_deref() else {
-                        continue;
-                    };
-                    self.bind_local(field_name);
-                    // A method that reassigns (or mutates through) one of its
-                    // owner's fields — e.g. the engine's `_expressionDepth += 1`
-                    // or `_functions[key] = fn` — reads that field into a local
-                    // alias here; declare the alias `let mut` in that case so the
-                    // later `assign`/increment/`map_set`/`list_push` mutation can
-                    // take a `&mut` on it (rustc rejects mutating a plain `let`
-                    // — E0596 "cannot borrow as mutable"). Same mechanism
-                    // `params_binding_prologue` uses for reassigned parameters
-                    // (issue #287). This mutates the local *copy* of the field,
-                    // not the instance (the by-value receiver model clones
-                    // `self`), but that is the existing method-model limitation,
-                    // not a regression — the point here is only that it compiles.
-                    let keyword = if func
-                        .body
-                        .as_deref()
-                        .is_some_and(|body| self.expr_mutates_var(body, field_name))
-                    {
-                        "let mut"
-                    } else {
-                        "let"
-                    };
-                    out.push_str(&format!(
-                        "        {keyword} {} = ball_field_get(self_.clone(), {field_name:?});\n",
-                        crate::sanitize_ident(field_name)
-                    ));
-                }
-            }
+            out.push_str(&self.field_alias_prologue(owner_td, func.body.as_deref(), "        "));
         }
         // Bind every declared parameter beyond the receiver. A static member
         // has no receiver, so its lone positional argument (if any) is passed
@@ -618,6 +660,80 @@ impl Compiler<'_> {
         // an instance member's `input` is always the `{self, arg0, …}` message
         // the reference encoders emit, so each parameter is a field of it.
         out.push_str(&self.params_binding_prologue(func, func_meta_bool(func, "is_static")));
+        out
+    }
+
+    /// Every instance-field name of `owner_td` — its own descriptor fields
+    /// first, then each field inherited from its superclass chain
+    /// (`metadata.superclass` resolved via
+    /// [`Compiler::type_defs_by_short_name`]), then any known
+    /// [`native_superclass_fields`] of a native (no-`TypeDefinition`) base.
+    /// Deduplicated, own-first (a subclass field shadows an inherited
+    /// namesake). This is what lets a method/constructor body's bare reference
+    /// to an *inherited* field bind like an own field — the engine's
+    /// `BallObject extends BallMap` reads `entries`, and its `BallEngine`
+    /// constructor body references its own fields (issue #39 gap #5).
+    pub(crate) fn all_instance_field_names(&self, owner_td: &TypeDefinition) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for name in descriptor_field_names(owner_td) {
+            if seen.insert(name.clone()) {
+                names.push(name);
+            }
+        }
+        let mut current = owner_td;
+        // A finite guard against a malformed cyclic `superclass` chain.
+        for _ in 0..32 {
+            let Some(super_name) = superclass_of(current) else {
+                break;
+            };
+            if let Some(super_td) = self.type_defs_by_short_name.get(super_name.as_str()) {
+                for name in descriptor_field_names(super_td) {
+                    if seen.insert(name.clone()) {
+                        names.push(name);
+                    }
+                }
+                current = super_td;
+            } else {
+                for name in native_superclass_fields(&super_name) {
+                    if seen.insert((*name).to_string()) {
+                        names.push((*name).to_string());
+                    }
+                }
+                break;
+            }
+        }
+        names
+    }
+
+    /// Emit one `let [mut] <field> = ball_field_get(self_.clone(), "<field>");`
+    /// per instance field of `owner_td` ([`Compiler::all_instance_field_names`]
+    /// — own + inherited), binding each as a local so the body's bare field
+    /// references resolve (Dart's implicit unqualified-instance-field
+    /// convention). A field the body reassigns (or mutates through) is declared
+    /// `let mut` so its later `&mut` borrow compiles (E0596) — the same
+    /// mechanism `params_binding_prologue` uses for reassigned parameters
+    /// (issue #287). This aliases the local *copy* of the field (the by-value
+    /// receiver model clones `self`), the documented method-model limitation.
+    fn field_alias_prologue(
+        &self,
+        owner_td: &TypeDefinition,
+        body: Option<&Expression>,
+        indent: &str,
+    ) -> String {
+        let mut out = String::new();
+        for field_name in self.all_instance_field_names(owner_td) {
+            self.bind_local(&field_name);
+            let keyword = if body.is_some_and(|body| self.expr_mutates_var(body, &field_name)) {
+                "let mut"
+            } else {
+                "let"
+            };
+            out.push_str(&format!(
+                "{indent}{keyword} {} = ball_field_get(self_.clone(), {field_name:?});\n",
+                crate::sanitize_ident(&field_name)
+            ));
+        }
         out
     }
 
@@ -751,13 +867,7 @@ impl Compiler<'_> {
     fn compile_constructor(&self, owner_td: &TypeDefinition, ctor: &FunctionDefinition) -> String {
         let short = member_short_name(&ctor.name);
         if let Some(body) = &ctor.body {
-            self.push_scope();
-            self.bind_local("input");
-            let body_code = self.compile_expression(body);
-            self.pop_scope();
-            return format!(
-                "    pub fn {short}(input: BallValue) -> BallValue {{\n{body_code}\n    }}\n"
-            );
+            return self.compile_constructor_with_body(owner_td, ctor, body, &short);
         }
         let params = self.constructor_field_names(&owner_td.name);
         let mut inserts = String::new();
@@ -773,6 +883,103 @@ impl Compiler<'_> {
              let mut __ball_map = BallMap::new();\n{inserts}\
              BallValue::Message(BallMessage {{ type_name: {:?}.to_string(), fields: __ball_map }})\n\
              }}\n",
+            owner_td.name
+        )
+    }
+
+    /// A constructor that carries a **real body** (initializer-list +
+    /// statements — the engine's `BallEngine(...)` / `BallObject(...)`, not the
+    /// #38 fixtures' bodyless `Point(this.x, this.y)` init-formal shape). The
+    /// synthesized associated fn (issue #39 gap #5):
+    ///
+    /// 1. binds each declared parameter from `input`
+    ///    ([`Compiler::params_binding_prologue`]);
+    /// 2. builds the instance `self_` — every instance field (own + inherited)
+    ///    defaulted to `Null`, then overridden by each `this.`-formal parameter
+    ///    and by every `metadata.initializers` field initializer whose value is
+    ///    a plain parameter reference (the common `field = param` /
+    ///    `field = param ?? default` shape; a richer initializer expression —
+    ///    stored by the encoders as cosmetic source text, not an expression
+    ///    tree — is a best-effort `Null`, the documented boundary);
+    /// 3. binds each instance field as a local alias so the body's bare field
+    ///    references resolve ([`Compiler::field_alias_prologue`]);
+    /// 4. runs the body; then
+    /// 5. writes every body-mutated field back into `self_` and returns it.
+    ///
+    /// Constructors are invoked directly only by the runtime wrapper (a
+    /// `MessageCreation` builds its instance inline — see
+    /// [`Compiler::compile_message_creation`]), so this is primarily the
+    /// self-host wrapper's construction seam; the point here is a faithful,
+    /// type-checking instance-building constructor rather than a body compiled
+    /// with no `self_`/field/parameter bindings in scope.
+    fn compile_constructor_with_body(
+        &self,
+        owner_td: &TypeDefinition,
+        ctor: &FunctionDefinition,
+        body: &Expression,
+        short: &str,
+    ) -> String {
+        self.push_scope();
+        self.bind_local("input");
+        let params_prologue = self.params_binding_prologue(ctor, false);
+        let self_init = self.constructor_self_init(owner_td, ctor);
+        self.bind_local("self");
+        let field_aliases = self.field_alias_prologue(owner_td, Some(body), "");
+        let body_code = self.compile_expression(body);
+        let mut writeback = String::new();
+        for field_name in self.all_instance_field_names(owner_td) {
+            if self.expr_mutates_var(body, &field_name) {
+                writeback.push_str(&format!(
+                    "*ball_field_get_mut(&mut self_, {field_name:?}) = {}.clone();\n",
+                    crate::sanitize_ident(&field_name)
+                ));
+            }
+        }
+        self.pop_scope();
+        format!(
+            "    pub fn {short}(input: BallValue) -> BallValue {{\n\
+             {params_prologue}\
+             let mut self_ = {self_init};\n\
+             {field_aliases}\
+             {body_code};\n\
+             {writeback}\
+             self_\n\
+             }}\n"
+        )
+    }
+
+    /// Build the initial instance `BallValue::Message` for a body-carrying
+    /// constructor: every instance field (own + inherited) starts `Null`, then
+    /// each `this.`-formal parameter and each parameter-referencing field
+    /// initializer overrides its field with the (already-bound) parameter local
+    /// (see [`Compiler::compile_constructor_with_body`]).
+    fn constructor_self_init(
+        &self,
+        owner_td: &TypeDefinition,
+        ctor: &FunctionDefinition,
+    ) -> String {
+        let params = ctor_params(ctor);
+        let param_names: std::collections::HashSet<&str> =
+            params.iter().map(|(name, _)| name.as_str()).collect();
+        let mut inserts = String::new();
+        for field in self.all_instance_field_names(owner_td) {
+            let value = if params
+                .iter()
+                .any(|(name, is_this)| *is_this && name == &field)
+            {
+                format!("{}.clone()", crate::sanitize_ident(&field))
+            } else if let Some(param) = field_initializer_param(ctor, &field, &param_names) {
+                format!("{}.clone()", crate::sanitize_ident(&param))
+            } else {
+                "BallValue::Null".to_string()
+            };
+            inserts.push_str(&format!(
+                "__ball_map.insert({field:?}.to_string(), {value});\n"
+            ));
+        }
+        format!(
+            "{{ let mut __ball_map = BallMap::new(); {inserts}\
+             BallValue::Message(BallMessage {{ type_name: {:?}.to_string(), fields: __ball_map }}) }}",
             owner_td.name
         )
     }

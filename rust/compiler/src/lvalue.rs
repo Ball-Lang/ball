@@ -156,9 +156,16 @@ impl Compiler<'_> {
         // semantics for the common `value_code` that doesn't touch the target.
         let new_value = combine_op(op, "__old.clone()", "__val");
         let tail = if want_old { "__old" } else { "__new" };
+        // `__slot` is annotated `&mut BallValue` so an `LValue::Unsupported`
+        // slot (which compiles to a diverging `panic!(…)`, type `!`) has a
+        // concrete type to coerce to — without the annotation rustc can't
+        // infer `__slot`'s type from a `!` initializer alone (E0282 "type
+        // annotations needed"). The annotation is exactly the type every real
+        // slot (`&mut name`, `ball_field_get_mut`, `ball_index_get_mut`)
+        // already has, so it is a no-op for those.
         format!(
-            "{{ let __val = {value_code}; let __slot = {slot}; let __old = __slot.clone(); \
-             let __new = {new_value}; *__slot = __new.clone(); {tail} }}"
+            "{{ let __val = {value_code}; let __slot: &mut BallValue = {slot}; \
+             let __old = __slot.clone(); let __new = {new_value}; *__slot = __new.clone(); {tail} }}"
         )
     }
 

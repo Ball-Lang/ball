@@ -744,6 +744,35 @@ fn closures_compile_and_run() {
     assert_program_prints("closures", &program, "15");
 }
 
+/// Issue #39 (gap #6): a `lambda` captures a local (`n`) that the enclosing
+/// scope keeps using **after** the lambda is built. The lambda compiles to a
+/// `move` closure, which would move `n` out of the surrounding function
+/// (`BallValue` is not `Copy`) — `error[E0382]` "use of moved value" — so
+/// `compile_lambda` pre-clones each captured local into a fresh binding the
+/// closure owns, leaving the caller's `n` intact. Also exercises the
+/// function-value call path (`adder(5)` → `ball_call_function`, since `adder`
+/// is a local `BallValue::Function`, not a top-level function item).
+#[test]
+fn closure_capture_leaves_the_captured_local_usable_afterward() {
+    let adder_lambda = lambda(bin_call("add", reference("input"), reference("n")));
+    let main_body = block(
+        vec![
+            let_stmt("n", int_lit(10)),
+            let_stmt("adder", adder_lambda),
+            // `n` used again *after* the capturing lambda — the E0382 case.
+            let_stmt("doubled", bin_call("add", reference("n"), reference("n"))),
+        ],
+        print_to_string(bin_call(
+            "add",
+            call("", "adder", Some(int_lit(5))),
+            reference("doubled"),
+        )),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    // adder(5) = 5 + 10 = 15; doubled = 10 + 10 = 20; 15 + 20 = 35.
+    assert_program_prints("closure_capture", &program, "35");
+}
+
 /// A `block`'s value is its **last** (`result`) expression, not its first
 /// statement — proven by a block whose intermediate `let`s would produce a
 /// different value than the tail if tail-expression semantics were wrong.

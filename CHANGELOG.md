@@ -1,3 +1,10 @@
+# [1.12.0](https://github.com/Ball-Lang/ball/compare/v1.11.1...v1.12.0) (2026-07-08)
+
+
+### Features
+
+* **rust:** [#39](https://github.com/Ball-Lang/ball/issues/39) self-host — emit oneof-discriminator enum constants ([#293](https://github.com/Ball-Lang/ball/issues/293)) ([7be12f6](https://github.com/Ball-Lang/ball/commit/7be12f63a59811c2b35eb6fca72769905f8d4a9c))
+
 ## [1.11.1](https://github.com/Ball-Lang/ball/compare/v1.11.0...v1.11.1) (2026-07-07)
 
 

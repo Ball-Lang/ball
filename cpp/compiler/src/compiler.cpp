@@ -4356,11 +4356,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     if (fn == "for") {
         // A `for` in EXPRESSION context (e.g. inside a lambda body compiled as
         // an expression). We can emit a real loop IIFE only when the body has no
-        // break/continue/return/nested-loop (those can't cross the IIFE
-        // boundary); otherwise fall back to the stub. This unblocks
-        // _evalLambda's jump-free arg->param binding loop (multi-param lambda
-        // callbacks) without breaking bodies like the engine's sort (which has
-        // break). See SELF_HOST_STATUS.md.
+        // return/labeled-jump (those can't cross the IIFE boundary); otherwise
+        // fall back to a loud runtime throw (below). This unblocks _evalLambda's
+        // jump-free arg->param binding loop (multi-param lambda callbacks)
+        // without breaking bodies like the engine's sort (whose UNLABELED break
+        // acts on the emitted for natively). See SELF_HOST_STATUS.md.
         auto* body_e = get_message_field_expr(call, "body");
         if (body_e && !_exprHasReturnOrLabel(*body_e)) {
             std::string init;
@@ -4391,7 +4391,28 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                    update + ") {\n" + body + "} return BallDyn(); }())";
         }
         // Body has a `return`/labeled jump that can't cross the IIFE boundary.
-        return "([&](){\n" + indent_str() + "    // for loop (return/label body — see SELF_HOST_STATUS.md)\n" + indent_str() + "}(), BallDyn())";
+        //
+        // This shape is genuinely unlowerable to a portable-C++ expression:
+        //   * a labeled break/continue compiles to `goto __ball_break_<label>`,
+        //     whose target label is planted by an ENCLOSING loop OUTSIDE this
+        //     IIFE — and a goto cannot cross a lambda boundary (MSVC has no
+        //     statement-expressions, so the IIFE is the only portable option);
+        //   * a bare `return;` (void enclosing fn) cannot return from a
+        //     `-> BallDyn` IIFE.
+        // The previous code emitted an EMPTY IIFE `([&](){ /* comment */ }(),
+        // BallDyn())`, SILENTLY DROPPING the loop body: any program hitting this
+        // shape computed the wrong result with no error — a fail-loud-invariant
+        // violation. Emit a loud RUNTIME throw instead. Unlike a hard throw at
+        // COMPILE time, this still generates valid C++ (so engine_rt.cpp, which
+        // is auto-compiled from engine.ball.json, keeps building even if such a
+        // node appears in a never-evaluated path); it only fires — clearly —
+        // when the expression is actually evaluated. See SELF_HOST_STATUS.md.
+        return "([&]() -> BallDyn { throw std::runtime_error(\"Ball->C++: a "
+               "for-loop used in expression (value) position has a body that "
+               "returns or does a labeled break/continue; that control flow "
+               "cannot cross the lambda (IIFE) boundary portable C++ requires, "
+               "so it cannot be lowered. Restructure the loop into statement "
+               "position.\"); return BallDyn(); }())";
     }
     if (fn == "while") {
         auto* body_e = get_message_field_expr(call, "body");
@@ -4403,7 +4424,18 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             return "([&]() -> BallDyn { while (" + cond + ") {\n" + body +
                    "} return BallDyn(); }())";
         }
-        return "([&](){\n" + indent_str() + "    // while loop\n" + indent_str() + "}(), BallDyn())";
+        // Same unlowerable case as the expression-context `for` above (return /
+        // labeled break/continue in a value-position loop body). Previously this
+        // SILENTLY DROPPED the body (empty IIFE → wrong result, no error). Emit a
+        // loud RUNTIME throw (compiles cleanly, so engine_rt.cpp still builds;
+        // fires clearly only if the expression is actually evaluated) instead of
+        // a compile-time throw that would break engine_rt.cpp generation.
+        return "([&]() -> BallDyn { throw std::runtime_error(\"Ball->C++: a "
+               "while-loop used in expression (value) position has a body that "
+               "returns or does a labeled break/continue; that control flow "
+               "cannot cross the lambda (IIFE) boundary portable C++ requires, "
+               "so it cannot be lowered. Restructure the loop into statement "
+               "position.\"); return BallDyn(); }())";
     }
     if (fn == "return") {
         if (in_generator_) {

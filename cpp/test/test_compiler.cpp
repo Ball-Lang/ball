@@ -805,6 +805,67 @@ TEST(compile_labeled_continue_emits_goto) {
     ASSERT_CONTAINS(out, "__ball_break_loop:;");
 }
 
+TEST(for_in_expression_with_return_fails_loud) {
+    // A `for` used in VALUE position (here, a `let` initializer) whose body
+    // contains a `return`. This cannot be lowered to a portable-C++ IIFE (the
+    // return can't cross the lambda boundary), and previously the compiler
+    // SILENTLY DROPPED the loop body — emitting an empty IIFE so any program
+    // hitting this shape computed the wrong result with no error. The fix emits
+    // a loud runtime throw instead (fail-loud invariant), NOT the old no-op stub.
+    ball::v1::Expression for_body;
+    auto* for_blk = for_body.mutable_block();
+    *for_blk->add_statements()->mutable_expression() =
+        std_call("return", make_msg("", {{"value", lit_int(5)}}));
+    *for_blk->mutable_result() = lit_int(0);
+
+    auto for_call = std_call("for", make_msg("ForInput", {
+        {"init", lit_int(0)},
+        {"condition", lit_bool(true)},
+        {"update", lit_int(0)},
+        {"body", std::move(for_body)}
+    }));
+
+    // Bind the loop to a local, forcing the loop into expression (value) context.
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+    auto* let = blk->add_statements()->mutable_let();
+    let->set_name("x");
+    *let->mutable_value() = std::move(for_call);
+    *blk->mutable_result() = lit_int(0);
+
+    auto prog = build_program(std::move(body));
+    auto out = compile_program(prog);
+    // Fail-loud: our specific runtime-throw message, and NOT the old silent-drop
+    // empty-IIFE stub comment.
+    ASSERT_CONTAINS(out, "for-loop used in expression (value) position");
+    ASSERT_NOT_CONTAINS(out, "// for loop (return/label body");
+}
+
+TEST(while_in_expression_with_return_fails_loud) {
+    // The `while` analog of for_in_expression_with_return_fails_loud.
+    ball::v1::Expression while_body;
+    auto* while_blk = while_body.mutable_block();
+    *while_blk->add_statements()->mutable_expression() =
+        std_call("return", make_msg("", {{"value", lit_int(7)}}));
+    *while_blk->mutable_result() = lit_int(0);
+
+    auto while_call = std_call("while", make_msg("WhileInput", {
+        {"condition", lit_bool(true)},
+        {"body", std::move(while_body)}
+    }));
+
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+    auto* let = blk->add_statements()->mutable_let();
+    let->set_name("y");
+    *let->mutable_value() = std::move(while_call);
+    *blk->mutable_result() = lit_int(0);
+
+    auto prog = build_program(std::move(body));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "while-loop used in expression (value) position");
+}
+
 TEST(compile_try_catch_typed_dispatches_by_type) {
     // Two typed catch clauses + one untyped fallback. The emitted C++ must:
     //   1. Wrap the body in try

@@ -28,6 +28,11 @@
 // std::to_chars float overload.
 #include <cstdlib>
 #include <charconv>
+// std_fs directory ops (Directory listSync/createSync/existsSync below) do
+// real filesystem work via std::filesystem. emit_includes() does not emit
+// <filesystem>, and it is not reliably pulled in transitively, so include it
+// here (the include guard makes double-inclusion harmless).
+#include <filesystem>
 
 // Minimal Ball exception type used by `throw` / `try` to preserve
 // typed-catch semantics. Derives from std::exception so untyped
@@ -1720,7 +1725,18 @@ inline bool existsSync(const File& f) {
 // BallDyn overload in ball_dyn.h
 inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& = {});
 
-// ── Directory stubs ──
+// ── Directory operations ──
+// Mirror Dart's dart:io Directory API. The self-hosted engine's std_fs
+// handlers (engine_std.dart) call these as:
+//   io.Directory(path).listSync().map((e) => e.path).toList()   // dir_list
+//   io.Directory(path).createSync(recursive: true)              // dir_create
+//   io.Directory(path).existsSync()                             // dir_exists
+// These MUST do real filesystem work: returning {}/false silently degraded
+// dir_list to [] and dir_exists to false (a fail-loud-invariant violation —
+// the program computed wrong results with no error). Semantics match the
+// compiler's direct-compile std_fs emission (compile_fs_call in compiler.cpp):
+// dir_list → directory_iterator entry paths, dir_create → create_directories
+// (recursive), dir_exists → is_directory.
 struct Directory {
     std::string path;
     Directory(const std::string& p) : path(p) {}
@@ -1728,15 +1744,34 @@ struct Directory {
     Directory(const BallDyn& p);  // defined in ball_dyn.h
 };
 inline std::vector<std::any> listSync(const Directory& d) {
+    // Dart's listSync() yields FileSystemEntity objects; the engine then
+    // reads `.path` on each. Field access `e.path` compiles to
+    // `static_cast<BallDyn>(e)["path"s]`, so each element must be a map
+    // carrying a "path" key (a directory-entry view). Like Dart's listSync
+    // (and the direct-compile path), a missing/non-dir path throws.
     std::vector<std::any> result;
-    // Stub: directory listing not implemented
+    for (const auto& entry : std::filesystem::directory_iterator(d.path)) {
+        std::map<std::string, std::any> e;
+        e["path"] = std::any(entry.path().string());
+        result.push_back(std::any(e));
+    }
     return result;
 }
 inline void createSync(const Directory& d, bool recursive = false) {
-    // Stub: directory creation not implemented
+    // recursive:true (the engine's dir_create) creates missing parents, like
+    // Dart's createSync(recursive: true); recursive:false creates only the leaf
+    // and throws if a parent is missing (Dart createSync() parity).
+    if (recursive) {
+        std::filesystem::create_directories(d.path);
+    } else {
+        std::filesystem::create_directory(d.path);
+    }
 }
 inline bool existsSync(const Directory& d) {
-    return false;
+    // Dart existsSync() is false for a missing path; the error_code overload of
+    // is_directory returns false (no throw) for not-found instead of raising.
+    std::error_code ec;
+    return std::filesystem::is_directory(d.path, ec);
 }
 
 inline void deleteSync(const File& f) {

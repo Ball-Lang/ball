@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/Ball-Lang/ball/compare/v1.14.0...v1.15.0) (2026-07-08)
+
+
+### Features
+
+* **rust:** [#300](https://github.com/Ball-Lang/ball/issues/300) base-function runtime — self-host engine runs hello_world + fibonacci ([#301](https://github.com/Ball-Lang/ball/issues/301)) ([879a0bd](https://github.com/Ball-Lang/ball/commit/879a0bdec45b1f4cb438d828776dc983e003bca7)), closes [#3](https://github.com/Ball-Lang/ball/issues/3)
+
 # [1.14.0](https://github.com/Ball-Lang/ball/compare/v1.13.0...v1.14.0) (2026-07-08)
 
 

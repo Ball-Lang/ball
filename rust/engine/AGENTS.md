@@ -102,9 +102,28 @@ actual-vs-expected dump).
 **Regenerate + verify:** `cargo run -p ball-engine-regen` then `cargo test -p
 ball-engine --features self_host --test self_host_run`.
 
-### Remaining (the path to full parity, #40/#44)
+### Remaining buckets (163 fail — the path to full parity, #40/#44)
 
-- Some class `toString`/constructor edge cases (a user `toString` that throws
+Categorized from the 160/323 sweep (`BALL_FIXTURE=<name>` reproduces one):
+
+- **Uncaught panics (~100 fixtures).** Fixtures that hit an unsupported base
+  function or a Ball `throw` that isn't caught escape the per-fixture thread as a
+  Rust panic. (Note: the sweep's stderr also shows ~10k *caught* `ball_throw`
+  `panic_any`s at `runtime.rs:1798` — that is the engine's internal exception
+  mechanism, mostly caught by `try`'s `catch_unwind`, **not** a failure count.)
+- **Target-program `list_push`/set dispatch (~9, e.g. 123/126/127/129/130/131).**
+  A *target* program's `result.add(x)` (encoded `std_collections.list_push`) and
+  set ops on a freshly-created empty collection interpret to a nested
+  `{{…}, x}` structure instead of appending — an engine base-dispatch gap in how
+  the self-hosted engine evaluates a target's mutating collection call (distinct
+  from the value-model reshape, which fixed the *engine's own* list building).
+  This was empty-failing before the reshape; it now runs further but wrong.
+- **Class `toString` / instance-dump (e.g. 108/113/115).** The engine prints the
+  raw instance (`{typeName:…, fields:…, methods:…, entries:…}`) instead of
+  invoking the user's `toString()`/operator methods.
+- **Map iteration / entries (e.g. 116/120).** Map-entry iteration yields wrong
+  values (`null lives in null`, `Total: 0`).
+- A few class constructor arg-binding edge cases (a user `toString` that throws
   falls back to the raw instance dump; a few constructor arg-binding forms).
 
 ### Run blocker — RESOLVED: value-vs-reference `this` (issue #298)

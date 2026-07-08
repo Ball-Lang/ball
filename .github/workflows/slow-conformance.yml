@@ -1,0 +1,73 @@
+name: Slow Conformance (subprocess round-trip)
+
+# `dart/compiler/test/` has three suites tagged `@Tags(['slow'])`
+# (conformance_roundtrip_test.dart, cross_language_test.dart,
+# cross_language_fuzz_test.dart) that drive the conformance corpus through
+# REAL subprocesses — `dart run` (engine + recompiled Dart + the
+# encoder-in-the-loop round-trip) and `node` (the TS compiler) — rather than
+# the in-process legs the normal CI suites use. ci.yml, regression-gates.yml,
+# and release.yml all pass `--exclude-tags slow` for speed, which means this
+# leg never runs anywhere unless something explicitly opts back in. This
+# workflow is that opt-in: a scheduled + manually-triggerable run so the real
+# subprocess round-trip still gets exercised regularly, without slowing down
+# every PR.
+#
+# KNOWN RED (as of re-enabling this leg): while the leg was dark, six fixtures
+# rotted on the dart-compiled + dart-roundtrip legs — five are tracked in #305
+# and 229_closure_loop_var_semantics in #303. The harness has no
+# tolerated-failure baseline (by design), so this workflow stays red until
+# those compiler bugs are fixed. Do not add a baseline here; fix the bugs.
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Weekly on Monday at 07:00 UTC (after conformance-matrix.yml's 06:00 run)
+  workflow_dispatch:
+
+# Least-privilege: read-only token (this workflow only builds + runs tests).
+permissions:
+  contents: read
+
+concurrency:
+  group: slow-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slow-conformance:
+    name: Dart Compiler — slow subprocess round-trip (dart run + node)
+    runs-on: ubuntu-latest
+    # Generous budget: 319+ conformance programs each spawn several `dart
+    # run`/`node` child processes across multiple slow-tagged suites: the
+    # corpus round-trip has its own internal 2-hour timeout.
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      # The ts-compiled leg shells out to `node` running the built
+      # @ball-lang/compiler CLI, so both toolchains are required here (unlike
+      # most single-stack CI jobs).
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/compiler/package-lock.json
+
+      # The pub workspace root is the repo root (see pubspec.yaml); this
+      # resolves every dart/ package.
+      - name: Install dependencies
+        run: dart pub get
+
+      - name: Install & build @ball-lang/compiler
+        run: cd ts/compiler && npm ci && npm run build
+
+      - name: Run slow subprocess round-trip suites
+        run: cd dart/compiler && dart test -t slow --reporter expanded

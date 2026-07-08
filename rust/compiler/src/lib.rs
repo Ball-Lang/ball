@@ -171,6 +171,25 @@ pub struct Compiler<'a> {
     /// local `init`/`func`/… alongside its top-level namesakes). Issue #39,
     /// gap #6.
     local_scopes: RefCell<Vec<HashSet<String>>>,
+    /// The **short names of every instance method** (non-static, non-abstract,
+    /// non-constructor class member) declared anywhere in the program — the
+    /// method-dispatcher names whose generated free `pub fn <short>(input)`
+    /// reads `ball_field_get(input, "self")` to pick the concrete `impl`. A
+    /// call to one of these from *inside* an instance method/constructor body
+    /// (an implicit-`this` call — `this.method(args)`, encoded with only its
+    /// arguments and no `self`) must have the receiver injected so that
+    /// dispatcher finds one (issue #298 — the implicit-`this` dispatch gap).
+    /// See [`Compiler::compile_call`].
+    instance_method_names: HashSet<String>,
+    /// Whether the expression tree currently being compiled is the body of a
+    /// **non-static** instance method or a body-carrying constructor — i.e. a
+    /// context where `self_` is a bound local and an implicit-`this` method
+    /// call's receiver can be injected. Interior mutability (like
+    /// [`Compiler::local_scopes`]) keeps every `compile_*` method `&self`; safe
+    /// because method bodies are compiled one at a time, never interleaved
+    /// (a nested lambda inside a method keeps this `true`, which is correct —
+    /// the lambda still closes over the enclosing `self_`).
+    in_instance_method: RefCell<bool>,
     /// The Ball module currently being compiled (module name, not sanitized
     /// Rust identifier) — read by `type_emit::resolve_user_call_name` to
     /// decide whether a same-module call needs no qualification. Interior
@@ -277,6 +296,25 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // Every instance-method short name — the receiver-reading dispatch
+        // targets for implicit-`this` injection (issue #298). A method-call
+        // node from inside an instance method body that names one of these must
+        // have `self_` woven into its input.
+        let mut instance_method_names: HashSet<String> = HashSet::new();
+        for module in &program.modules {
+            if base_modules.contains(&module.name) {
+                continue;
+            }
+            for func in &module.functions {
+                if func.is_base {
+                    continue;
+                }
+                if let Some(short) = type_emit::instance_method_short_name(func) {
+                    instance_method_names.insert(short);
+                }
+            }
+        }
+
         Compiler {
             program,
             base_modules,
@@ -285,8 +323,43 @@ impl<'a> Compiler<'a> {
             type_defs_by_short_name,
             callable_names,
             local_scopes: RefCell::new(Vec::new()),
+            instance_method_names,
+            in_instance_method: RefCell::new(false),
             current_module: RefCell::new(program.entry_module.clone()),
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Implicit-`this` context (issue #298)
+    // ════════════════════════════════════════════════════════════
+
+    /// Run `body` with the "inside an instance method/constructor body" flag
+    /// set (so implicit-`this` calls inside it get `self_` injected), restoring
+    /// the previous value afterward. Paired around a non-static method or
+    /// body-carrying constructor's body compilation.
+    fn with_instance_method<R>(&self, active: bool, body: impl FnOnce() -> R) -> R {
+        let previous = self.in_instance_method.replace(active);
+        let result = body();
+        self.in_instance_method.replace(previous);
+        result
+    }
+
+    /// Whether a `self_` local is in scope for implicit-`this` injection.
+    fn in_instance_method(&self) -> bool {
+        *self.in_instance_method.borrow()
+    }
+
+    /// Does `call`'s input already carry an **explicit** `self` field (an
+    /// `obj.method(args)` call with a real receiver packed by the encoder)? If
+    /// so, an implicit-`this` receiver must NOT be injected over it. Only a
+    /// `message_creation` input can carry named fields, so any other input
+    /// shape (a bare positional value, or none) has no explicit receiver.
+    fn call_input_has_explicit_self(call: &ball_shared::proto::ball::v1::FunctionCall) -> bool {
+        matches!(
+            call.input.as_deref(),
+            Some(Expression { expr: Some(Expr::MessageCreation(mc)) })
+                if mc.fields.iter().any(|f| f.name == "self")
+        )
     }
 
     // ════════════════════════════════════════════════════════════
@@ -736,8 +809,12 @@ impl<'a> Compiler<'a> {
                 "{{ let mut __ball_map = BallMap::new(); {inserts}BallValue::Map(__ball_map) }}"
             )
         } else {
+            // A typed instance is a reference-semantic `BallMessage` (issue
+            // #298) — construct via `BallMessage::new`, which wraps the fields
+            // in the shared `Arc<Mutex>` handle (the struct's `fields` are
+            // private).
             format!(
-                "{{ let mut __ball_map = BallMap::new(); {inserts}BallValue::Message(BallMessage {{ type_name: {:?}.to_string(), fields: __ball_map }}) }}",
+                "{{ let mut __ball_map = BallMap::new(); {inserts}BallValue::Message(BallMessage::new({:?}, __ball_map)) }}",
                 message_creation.type_name
             )
         }
@@ -893,6 +970,21 @@ impl<'a> Compiler<'a> {
             }
             Some(Expr::Call(call)) => {
                 out.insert(call.function.clone());
+                // An implicit-`this` call inside a lambda body injects
+                // `__self_recv` (issue #298), so the lambda captures — and must
+                // therefore pre-clone — that receiver local (else the `move`
+                // closure moves the enclosing `__self_recv` out, E0382). Mark it
+                // referenced when the callee names an instance method with no
+                // explicit receiver; the capture filter only keeps it when
+                // `__self_recv` is actually an in-scope local (i.e. the lambda
+                // is inside an instance method), so this is harmless otherwise.
+                if self
+                    .instance_method_names
+                    .contains(&sanitize_ident(&call.function))
+                    && !Self::call_input_has_explicit_self(call)
+                {
+                    out.insert("__self_recv".to_string());
+                }
                 if let Some(input) = call.input.as_deref() {
                     self.collect_referenced_names(input, out);
                 }
@@ -1210,9 +1302,7 @@ mod tests {
             })),
         };
         let compiled = compiler.compile_expression(&expr);
-        assert!(
-            compiled.contains("BallValue::Message(BallMessage { type_name: \"Point\".to_string()")
-        );
+        assert!(compiled.contains("BallValue::Message(BallMessage::new(\"Point\","));
     }
 
     // ── block ────────────────────────────────────────────────

@@ -140,6 +140,27 @@ impl Compiler<'_> {
         value_code: &str,
         want_old: bool,
     ) -> String {
+        let new_value = combine_op(op, "__old.clone()", "__val");
+        let tail = if want_old { "__old" } else { "__new" };
+
+        // A `field = ...` target on a **message** can't yield a `&mut` slot —
+        // a reference-semantic `BallValue::Message` keeps its fields behind an
+        // `Arc<Mutex>` (issue #298), so there is no `&mut BallValue` into them
+        // to hand out. Compile the read/modify/write through `ball_field_get` +
+        // `ball_field_set` instead, which works for a plain `Map` object too
+        // (so this one path covers both, without the compiler having to know
+        // the object's runtime kind). The right-hand `__val` is still bound
+        // first so a value that reads the same field sequences before the
+        // write (the same borrow-ordering reason as the slot path below).
+        if let LValue::Field { object_var, field } = lvalue {
+            return format!(
+                "{{ let __val = {value_code}; \
+                 let __old = ball_field_get({object_var}.clone(), {field:?}); \
+                 let __new = {new_value}; \
+                 ball_field_set(&mut {object_var}, {field:?}, __new.clone()); {tail} }}"
+            );
+        }
+
         let slot = self.lvalue_mut_expr(lvalue);
         // The right-hand value is bound to an owned temporary (`__val`)
         // *before* the mutable slot borrow is taken, so a `value_code` that
@@ -154,15 +175,13 @@ impl Compiler<'_> {
         // instance ...}`, etc. Every compiled expression yields an owned
         // `BallValue`, so binding it first is always valid and changes no
         // semantics for the common `value_code` that doesn't touch the target.
-        let new_value = combine_op(op, "__old.clone()", "__val");
-        let tail = if want_old { "__old" } else { "__new" };
         // `__slot` is annotated `&mut BallValue` so an `LValue::Unsupported`
         // slot (which compiles to a diverging `panic!(…)`, type `!`) has a
         // concrete type to coerce to — without the annotation rustc can't
         // infer `__slot`'s type from a `!` initializer alone (E0282 "type
         // annotations needed"). The annotation is exactly the type every real
-        // slot (`&mut name`, `ball_field_get_mut`, `ball_index_get_mut`)
-        // already has, so it is a no-op for those.
+        // slot (`&mut name`, `ball_index_get_mut`) already has, so it is a
+        // no-op for those.
         format!(
             "{{ let __val = {value_code}; let __slot: &mut BallValue = {slot}; \
              let __old = __slot.clone(); let __new = {new_value}; *__slot = __new.clone(); {tail} }}"

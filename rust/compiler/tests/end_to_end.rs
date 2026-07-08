@@ -1766,6 +1766,146 @@ fn named_and_positional_parameters_bind_and_run() {
 }
 
 // ════════════════════════════════════════════════════════════
+// #298 — implicit-`this` dispatch + reference-semantic `this`
+// ════════════════════════════════════════════════════════════
+
+/// Issue #298 (the self-host "run blocker"): the self-hosted engine relies on
+/// a **mutable, reference-semantic `this`** — a method mutates `this.<field>`
+/// and another method (or the caller) reads the mutation back — and calls
+/// sibling methods with an **implicit receiver** (`this.method()`, encoded with
+/// only its arguments and no `self`). Two coupled fixes make that work:
+///
+/// 1. **Reference-semantic `BallValue::Message`** — a class instance's fields
+///    live behind a shared `Arc<Mutex>`, so a method's clone of the receiver
+///    (and its field write-back) is observed through every other holder of the
+///    same instance. (Before: a by-value clone discarded the mutation.)
+/// 2. **Implicit-`this` injection** — a call to an instance method from inside
+///    another instance method weaves `self_` into the input, so the dispatcher
+///    finds a receiver instead of `Null` (which made `ball_message_type_name`
+///    panic).
+///
+/// `Counter.incrementTwice()` calls `this.increment()` twice (implicit `this`);
+/// each `increment()` does `count = count + 1` (a bare instance-field mutation,
+/// written back into `self_`). `main` constructs one `Counter`, calls
+/// `incrementTwice()` on it, and reads `.count` back — which is `2` only if
+/// both the implicit dispatch and the cross-method reference mutation work.
+#[test]
+fn implicit_this_dispatch_and_reference_semantic_field_mutation() {
+    // increment(): count = count + 1   (mutates the instance field `count`)
+    let increment = FunctionDefinition {
+        name: "main:Counter.increment".to_string(),
+        input_type: String::new(),
+        output_type: "void".to_string(),
+        body: Some(Box::new(assign_expr(
+            reference("count"),
+            bin_call("add", reference("count"), int_lit(1)),
+            "=",
+        ))),
+        description: String::new(),
+        is_base: false,
+        metadata: Some(instance_method_meta(&[])),
+    };
+
+    // incrementTwice(): this.increment(); this.increment();  (implicit `this`)
+    let increment_twice = FunctionDefinition {
+        name: "main:Counter.incrementTwice".to_string(),
+        input_type: String::new(),
+        output_type: "void".to_string(),
+        body: Some(Box::new(block(
+            vec![
+                expr_stmt(call("", "increment", None)),
+                expr_stmt(call("", "increment", None)),
+            ],
+            int_lit(0),
+        ))),
+        description: String::new(),
+        is_base: false,
+        metadata: Some(instance_method_meta(&[])),
+    };
+
+    let counter_type = TypeDefinition {
+        name: "main:Counter".to_string(),
+        descriptor: Some(DescriptorProto {
+            name: Some("main:Counter".to_string()),
+            field: vec![int_field_descriptor("count", 1)],
+            ..Default::default()
+        }),
+        type_params: vec![],
+        description: "Class metadata for main:Counter".to_string(),
+        metadata: None,
+    };
+
+    let main_body = block(
+        vec![
+            let_stmt("c", message("main:Counter", vec![("count", int_lit(0))])),
+            // Explicit receiver: `c.incrementTwice()` packs `{self: c}` — must
+            // NOT be re-injected over.
+            expr_stmt(call(
+                "",
+                "incrementTwice",
+                Some(args(vec![("self", reference("c"))])),
+            )),
+        ],
+        print_to_string(field_access(reference("c"), "count")),
+    );
+
+    let program = Program {
+        name: "test".to_string(),
+        version: "1.0.0".to_string(),
+        modules: vec![
+            ball_shared::build_std_module(),
+            Module {
+                name: "main".to_string(),
+                functions: vec![
+                    increment,
+                    increment_twice,
+                    user_fn("main", "", "void", main_body, None),
+                ],
+                type_defs: vec![counter_type],
+                module_imports: vec![ModuleImport {
+                    name: "std".to_string(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        ],
+        entry_module: "main".to_string(),
+        entry_function: "main".to_string(),
+        metadata: None,
+    };
+
+    let compiled = Compiler::new(&program).compile();
+    // The implicit `this.increment()` call weaves in the receiver (via the
+    // dedicated `__self_recv` receiver-clone, which avoids `&mut self_` borrow /
+    // move-into-closure conflicts).
+    assert!(
+        compiled.contains("increment(ball_with_self(BallValue::Null, __self_recv.clone()))"),
+        "an implicit-`this` method call must inject the receiver (issue #298):\n{compiled}"
+    );
+    // The explicit `c.incrementTwice()` call is NOT re-injected.
+    assert!(
+        !compiled.contains("incrementTwice(ball_with_self("),
+        "an explicit-receiver call must not have `self_` injected over it \
+         (issue #298):\n{compiled}"
+    );
+    // The mutating method writes its field back into the shared instance.
+    assert!(
+        compiled.contains("ball_field_set(&mut self_, \"count\""),
+        "a body-mutated instance field must be written back into `self_` \
+         (issue #298):\n{compiled}"
+    );
+
+    let stdout = compile_and_run("implicit_this_reference", &compiled);
+    assert_eq!(
+        stdout.trim(),
+        "2",
+        "fixture 'implicit_this_reference' produced unexpected stdout \
+         (implicit-`this` dispatch + reference-semantic field mutation).\n\
+         --- generated main.rs ---\n{compiled}"
+    );
+}
+
+// ════════════════════════════════════════════════════════════
 // #39 — oneof-discriminator enum constants (self-host gap)
 // ════════════════════════════════════════════════════════════
 

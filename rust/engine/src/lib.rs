@@ -22,22 +22,24 @@
 //! `src/compiled_engine.rs` is a **generated, NEVER-edit** file — regenerate
 //! it with `cargo run -p ball-engine-regen`, never hand-patch it.
 //!
-//! ## Self-host status (issue #39)
+//! ## Self-host status (#39/#298)
 //!
 //! The regeneration pipeline is complete and produces ~19k lines of Rust from
-//! the self-hosted engine, and **that whole engine now compiles cleanly**
-//! through `ball-compiler` (`cargo build -p ball-engine --features self_host`
-//! succeeds — every compiler gap is closed). The compiled-engine *driver* is
-//! nonetheless still gated behind the off-by-default `self_host` feature and
-//! [`BallEngine::run`] returns [`EngineError::SelfHostPending`], because the
-//! compiled engine does not yet **run** correctly: the interpreter relies on a
-//! mutable `this`, but this crate represents an instance as a **by-value**
-//! `BallValue::Message`, so a method's mutations to `this.<field>` land on a
-//! clone and are lost. Making them persist needs a shared, interior-mutable
-//! instance representation (an `Arc<Mutex<…>>`-backed value variant) — a
-//! `BallValue`-model reshape that is its own architectural epic, plus
-//! implicit-`this` receiver injection. See `rust/engine/AGENTS.md`'s
-//! "Run blocker" for the full analysis.
+//! the self-hosted engine, and **that whole engine compiles cleanly** through
+//! `ball-compiler` (`cargo build -p ball-engine --features self_host` succeeds).
+//! With issue #298's **reference-`this`** (shared `Arc<Mutex>` instance fields)
+//! plus **implicit-`this` injection**, the compiled engine now *executes*:
+//! [`BallEngine::run`] (under the `self_host` feature) constructs the compiled
+//! `main_BallEngine` and drives its `run`, and execution proceeds through
+//! construction, implicit-`this` dispatch, and `this._functions` population —
+//! reaching the base-function frontier instead of the old "self is `Null`" /
+//! "entry point not found" failure (the `self_host_run_evidence` probe in the
+//! tests below shows exactly how far). It does not yet *complete* a program:
+//! ~38 base functions (`ball_proto.*`, `std.map_create`/`record`/`await`/…)
+//! still lower to a panicking `ball_unsupported_base_call`, and the
+//! compiled-`StdModuleHandler` dispatch (needed for `std.print`) isn't wired —
+//! see `rust/engine/AGENTS.md`'s "Remaining run blocker". The default build
+//! (no `self_host`) still returns [`EngineError::SelfHostPending`].
 //!
 //! The crate's foundation (loader + scope + ball_proto access patterns, all
 //! unit-tested) builds and tests green in the default build.
@@ -157,22 +159,77 @@ impl BallEngine {
         }
     }
 
+    /// Drive the compiled self-hosted engine (issue #298): build its 16-field
+    /// constructor input (the program view, a stdout callback capturing into a
+    /// shared buffer, and permissive limits), construct the `BallEngine`
+    /// instance, then call its `run`. Reference-`this` semantics + implicit-`this`
+    /// injection (issue #298) now let construction and dispatch actually
+    /// *proceed* — the by-value clone no longer loses `this._functions`, and
+    /// `this._buildLookupTables()`/`this._callFunction(...)` find their
+    /// receiver. Execution runs until it reaches a base function the Rust
+    /// runtime does not yet implement (`ball_unsupported_base_call` for
+    /// `ball_proto.*`/`std.map_create`/`std.record`/… — the ~38-function
+    /// runtime surface + `StdModuleHandler` dispatch that remain; see
+    /// `rust/engine/AGENTS.md`), which panics and is surfaced here as a
+    /// `Runtime` error. A clean completion returns the captured stdout lines.
+    ///
+    /// `moduleHandlers` is empty for now (registering the compiled
+    /// `StdModuleHandler` requires those same unimplemented base functions in
+    /// its `init`/`_buildStdDispatch`), so a program's own `std.print` dispatch
+    /// is not yet wired — this is the driver seam the remaining runtime work
+    /// plugs into, not a finished runner.
     #[cfg(feature = "self_host")]
     fn run_self_hosted(&self) -> Result<Vec<String>, EngineError> {
-        // Driver seam for the compiled engine (issue #39 follow-up). The
-        // compiled `BallEngine`/`StdModuleHandler` classes now exist and
-        // type-check, but driving them (instantiate with `self.program_value`,
-        // call `run`, collect stdout — the shape the TS wrapper's
-        // `new CompiledEngine(...).run()` uses) is blocked on reference `this`
-        // semantics: the interpreter mutates `this._functions`/`_globalScope`,
-        // which a by-value `BallValue::Message` receiver clone discards. See the
-        // crate doc comment / AGENTS.md "Run blocker".
-        Err(EngineError::SelfHostPending(
-            "self_host feature is enabled and compiled_engine.rs compiles, but \
-             the compiled engine needs reference `this` semantics to run \
-             (see rust/engine/AGENTS.md 'Run blocker')"
-                .to_string(),
-        ))
+        use std::sync::{Arc, Mutex};
+
+        use ball_shared::{BallFunction, BallMap};
+
+        let output: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&output);
+        let stdout_fn = BallValue::Function(BallFunction::new("stdout", move |message| {
+            sink.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(message.to_string());
+            BallValue::Null
+        }));
+
+        // The compiled `BallEngine` constructor reads `program` via
+        // `ball_arg_get(input, "program", "arg0")` and every other field by
+        // name (see the generated `main_BallEngine::new`).
+        let mut ctor_input = BallMap::new();
+        ctor_input.insert("program".to_string(), self.program_value.clone());
+        ctor_input.insert("stdout".to_string(), stdout_fn);
+        ctor_input.insert("stderr".to_string(), BallValue::Null);
+        ctor_input.insert("stdinReader".to_string(), BallValue::Null);
+        ctor_input.insert("envGet".to_string(), BallValue::Null);
+        ctor_input.insert("args".to_string(), BallValue::List(Vec::new()));
+        ctor_input.insert("enableProfiling".to_string(), BallValue::Bool(false));
+        ctor_input.insert("maxRecursionDepth".to_string(), BallValue::Int(100_000));
+        ctor_input.insert("timeoutMs".to_string(), BallValue::Null);
+        ctor_input.insert("maxMemoryBytes".to_string(), BallValue::Null);
+        ctor_input.insert("maxModules".to_string(), BallValue::Int(1_000_000));
+        ctor_input.insert("maxExpressionDepth".to_string(), BallValue::Int(1_000_000));
+        ctor_input.insert("maxProgramSizeBytes".to_string(), BallValue::Null);
+        ctor_input.insert("sandbox".to_string(), BallValue::Bool(false));
+        ctor_input.insert("moduleHandlers".to_string(), BallValue::List(Vec::new()));
+        ctor_input.insert("resolver".to_string(), BallValue::Null);
+
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let engine = compiled_engine::main_BallEngine::new(BallValue::Map(ctor_input));
+            let mut run_input = BallMap::new();
+            run_input.insert("self".to_string(), engine);
+            compiled_engine::run(BallValue::Map(run_input))
+        }));
+
+        match outcome {
+            Ok(_) => Ok(output.lock().unwrap_or_else(|e| e.into_inner()).clone()),
+            Err(payload) => {
+                let value = ball_shared::runtime::ball_catch_payload(payload);
+                Err(EngineError::Runtime(format!(
+                    "self-hosted engine did not complete: {value}"
+                )))
+            }
+        }
     }
 }
 
@@ -202,10 +259,28 @@ mod tests {
         assert!(matches!(err, EngineError::Parse(_)));
     }
 
+    #[cfg(not(feature = "self_host"))]
     #[test]
     fn run_reports_self_host_pending_in_default_build() {
         let engine = BallEngine::from_json(HELLO).expect("load");
         let err = engine.run().unwrap_err();
         assert!(matches!(err, EngineError::SelfHostPending(_)));
+    }
+
+    #[cfg(feature = "self_host")]
+    #[test]
+    fn self_host_run_evidence() {
+        // Not an assertion of success — a probe (issue #298): with reference
+        // `this` + implicit-`this` injection, does execution now *proceed*
+        // past construction/dispatch (which previously panicked on a `Null`
+        // receiver / lost `_functions`) and reach the remaining unimplemented
+        // runtime surface? Print the outcome so `--nocapture` shows exactly how
+        // far it gets.
+        std::panic::set_hook(Box::new(|_| {})); // silence the caught-panic noise
+        let engine = BallEngine::from_json(HELLO).expect("load");
+        match engine.run() {
+            Ok(lines) => eprintln!("[self-host evidence] completed, stdout = {lines:?}"),
+            Err(e) => eprintln!("[self-host evidence] {e}"),
+        }
     }
 }

@@ -126,7 +126,7 @@ pub fn has_field(obj: &BallValue, field: &str) -> BallValue {
 pub fn get_field(obj: &BallValue, name: &str) -> BallValue {
     match obj {
         BallValue::Map(map) => map.get(name).cloned().unwrap_or(BallValue::Null),
-        BallValue::Message(msg) => msg.fields.get(name).cloned().unwrap_or(BallValue::Null),
+        BallValue::Message(msg) => msg.get(name).unwrap_or(BallValue::Null),
         _ => BallValue::Null,
     }
 }
@@ -148,8 +148,10 @@ pub fn set_field(obj: BallValue, name: &str, value: BallValue) -> BallValue {
             map.insert(name.to_string(), value);
             BallValue::Map(map)
         }
-        BallValue::Message(mut msg) => {
-            msg.fields.insert(name.to_string(), value);
+        BallValue::Message(msg) => {
+            // Reference semantics (issue #298): `insert` mutates the shared
+            // field map in place; the returned message shares it.
+            msg.insert(name, value);
             BallValue::Message(msg)
         }
         other => other,

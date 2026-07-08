@@ -108,6 +108,21 @@ impl Compiler<'_> {
         if prefix.is_empty() && self.is_local(&call.function) {
             return format!("ball_call_function({name}.clone(), {input})");
         }
+        // Implicit-`this` receiver injection (issue #298): a call to an
+        // instance-method dispatcher (which reads `input.self`) made from inside
+        // an instance method/constructor body, with no explicit `self` already
+        // in its input, is a `this.method(args)` call — the encoder packs only
+        // the arguments. Weave `self_` (the enclosing receiver) into the input
+        // so the dispatcher finds a receiver instead of `Null` (which would make
+        // `ball_message_type_name` panic). An explicit `obj.method(args)` (whose
+        // input already carries `self`) is left untouched.
+        if prefix.is_empty()
+            && self.in_instance_method()
+            && self.instance_method_names.contains(&name)
+            && !Self::call_input_has_explicit_self(call)
+        {
+            return format!("{name}(ball_with_self({input}, __self_recv.clone()))");
+        }
         format!("{prefix}{name}({input})")
     }
 
@@ -1006,7 +1021,36 @@ impl Compiler<'_> {
             return self.unsupported(call);
         };
         let lvalue = self.resolve_lvalue(target);
-        let slot = self.lvalue_mut_expr(&lvalue);
+        // A collection stored in a **message field** (`list_push(obj.field, x)`)
+        // can't hand out a `&mut` slot — a reference-semantic
+        // `BallValue::Message` keeps its fields behind an `Arc<Mutex>` (issue
+        // #298). Read the collection out of the field, mutate the owned copy
+        // through the ordinary `&mut __coll` slot, then write it back with
+        // `ball_field_set` (works for a `Map` object too). The helper's own
+        // return value is preserved as the expression's result.
+        let field_wrap: Option<(String, String)> = match &lvalue {
+            crate::lvalue::LValue::Field { object_var, field } => {
+                Some((object_var.clone(), field.clone()))
+            }
+            _ => None,
+        };
+        let slot = if field_wrap.is_some() {
+            "(&mut __coll)".to_string()
+        } else {
+            self.lvalue_mut_expr(&lvalue)
+        };
+        // Wrap a slot-based operation (which reads/writes `__coll` when the
+        // target is a message field) in the read-mutate-writeback block; a
+        // non-field target passes the operation through unchanged.
+        let wrap = |op: String| -> String {
+            match &field_wrap {
+                Some((object_var, field)) => format!(
+                    "{{ let mut __coll = ball_field_get({object_var}.clone(), {field:?}); \
+                     let __r = {op}; ball_field_set(&mut {object_var}, {field:?}, __coll); __r }}"
+                ),
+                None => op,
+            }
+        };
         let extra_args: Vec<String> = match call.function.as_str() {
             "list_push" => vec![self.field_or_null(&f, "value")],
             "list_pop" => vec![],
@@ -1040,9 +1084,9 @@ impl Compiler<'_> {
                 // lvalue and the index handled via `ball_index_get_mut`.
                 let index_code = &extra_args[0];
                 let value_code = &extra_args[1];
-                return format!(
+                return wrap(format!(
                     "{{ let __v = {value_code}; *ball_index_get_mut({slot}, {index_code}) = __v.clone(); __v }}"
-                );
+                ));
             }
             "map_set" => "ball_map_set",
             "map_delete" => "ball_map_delete",
@@ -1052,9 +1096,9 @@ impl Compiler<'_> {
         };
         let args = extra_args.join(", ");
         if args.is_empty() {
-            format!("{helper}({slot})")
+            wrap(format!("{helper}({slot})"))
         } else {
-            format!("{helper}({slot}, {args})")
+            wrap(format!("{helper}({slot}, {args})"))
         }
     }
 

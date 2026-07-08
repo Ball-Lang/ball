@@ -39,7 +39,7 @@ const HEADER: &str = "\
 // fix `rust/compiler/` (or the `dart/self_host/` source) and rerun the
 // regenerator — never hand-patch this file. See rust/engine/AGENTS.md.
 #![cfg_attr(rustfmt, rustfmt::skip)]
-#![allow(unused_mut, dead_code, unused_variables, unused_parens, clippy::all)]
+#![allow(warnings, clippy::all)]
 
 ";
 

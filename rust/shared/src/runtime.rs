@@ -169,6 +169,40 @@ pub fn ball_call_function(callee: BallValue, input: BallValue) -> BallValue {
     }
 }
 
+/// Attach an implicit receiver to a method call's packed `input` message
+/// (invariant #1). A `this.method(args)` call is encoded with only its
+/// arguments — no `self` — so the compiler, when it lowers such a call from
+/// inside an instance method/constructor body, wraps the input with this so the
+/// method dispatcher's `ball_field_get(input, "self")` finds the receiver
+/// (issue #298 — implicit-`this` dispatch). An `input` that is already a
+/// message/map gains (or, defensively, keeps) a `self` slot; a `Null` input (a
+/// no-argument call like `this._buildLookupTables()`) becomes a fresh
+/// `{self}` map. A non-collection input is returned unchanged (a lone
+/// positional argument is never how an instance method is called — those always
+/// arrive as a `{self, arg0, …}` message).
+///
+/// The compiler only emits this for a call whose input does **not** already
+/// carry an explicit `self` (an `obj.method(args)` call with a real receiver),
+/// so it never overwrites an explicit receiver.
+pub fn ball_with_self(input: BallValue, self_value: BallValue) -> BallValue {
+    match input {
+        BallValue::Map(mut map) => {
+            map.insert("self".to_string(), self_value);
+            BallValue::Map(map)
+        }
+        BallValue::Message(message) => {
+            message.insert("self", self_value);
+            BallValue::Message(message)
+        }
+        BallValue::Null => {
+            let mut map = BallMap::with_capacity(1);
+            map.insert("self".to_string(), self_value);
+            BallValue::Map(map)
+        }
+        other => other,
+    }
+}
+
 // ════════════════════════════════════════════════════════════
 // Arithmetic
 // ════════════════════════════════════════════════════════════
@@ -449,11 +483,7 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
     }
     match value {
         BallValue::Map(map) => map.get(field).cloned().unwrap_or(BallValue::Null),
-        BallValue::Message(message) => message
-            .fields
-            .get(field)
-            .cloned()
-            .unwrap_or(BallValue::Null),
+        BallValue::Message(message) => message.get(field).unwrap_or(BallValue::Null),
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
     }
 }
@@ -479,10 +509,8 @@ pub fn ball_arg_get(input: BallValue, named_key: &str, positional_key: &str) -> 
             .cloned()
             .unwrap_or(BallValue::Null),
         BallValue::Message(message) => message
-            .fields
             .get(named_key)
-            .or_else(|| message.fields.get(positional_key))
-            .cloned()
+            .or_else(|| message.get(positional_key))
             .unwrap_or(BallValue::Null),
         _ => BallValue::Null,
     }
@@ -515,12 +543,43 @@ pub fn ball_message_type_name(value: &BallValue) -> String {
 pub fn ball_field_get_mut<'a>(value: &'a mut BallValue, field: &str) -> &'a mut BallValue {
     match value {
         BallValue::Map(map) => map.entry(field.to_string()).or_insert(BallValue::Null),
-        BallValue::Message(message) => message
-            .fields
-            .entry(field.to_string())
-            .or_insert(BallValue::Null),
+        // A `BallValue::Message`'s fields live behind an `Arc<Mutex>` (reference
+        // semantics — issue #298), so no `&mut` into them can outlive the lock
+        // guard. A message field mutation therefore goes through
+        // [`ball_field_set`] instead (the compiler emits that for a
+        // field-assignment target — see `rust/compiler/src/lvalue.rs`); this
+        // `&mut`-slot path is Map-only.
+        BallValue::Message(_) => panic!(
+            "ball-compiler runtime: ball_field_get_mut on a message — message fields mutate via \
+             ball_field_set (reference semantics, issue #298)"
+        ),
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
     }
+}
+
+/// Set `field` on a field-bearing value (`Map` or `Message`), the write half of
+/// a `obj.field = value` / `obj.field op= value` assignment (see
+/// `rust/compiler/src/lvalue.rs`'s `emit_mutation`). Unlike [`ball_field_get_mut`]
+/// this works for a **message** too: a `BallValue::Message`'s fields are behind
+/// an `Arc<Mutex>` (reference semantics — issue #298), so this locks and inserts
+/// through the shared handle, and the mutation is visible through every clone of
+/// that instance (`this.field = x` in one method is observed by another — the
+/// self-hosted engine's core requirement). Returns `value` (so an assignment
+/// expression evaluates to the assigned value). `&mut` is taken for the `Map`
+/// arm's in-place insert; the `Message` arm needs only shared access.
+pub fn ball_field_set(target: &mut BallValue, field: &str, value: BallValue) -> BallValue {
+    match target {
+        BallValue::Map(map) => {
+            map.insert(field.to_string(), value.clone());
+        }
+        BallValue::Message(message) => {
+            message.insert(field, value.clone());
+        }
+        other => {
+            panic!("ball-compiler runtime: field assignment on a non-message value: {other:?}")
+        }
+    }
+    value
 }
 
 pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
@@ -1512,7 +1571,7 @@ mod dartsdk {
     fn m_get(input: &BallValue, key: &str) -> BallValue {
         match input {
             BallValue::Map(map) => map.get(key).cloned().unwrap_or(BallValue::Null),
-            BallValue::Message(msg) => msg.fields.get(key).cloned().unwrap_or(BallValue::Null),
+            BallValue::Message(msg) => msg.get(key).unwrap_or(BallValue::Null),
             _ => BallValue::Null,
         }
     }
@@ -1548,10 +1607,7 @@ mod dartsdk {
         for name in ["read", "write", "append", "writeOnly", "writeOnlyAppend"] {
             fields.insert(name.to_string(), BallValue::String(name.to_string()));
         }
-        BallValue::Message(BallMessage {
-            type_name: "io_FileMode".to_string(),
-            fields,
-        })
+        BallValue::Message(BallMessage::new("io_FileMode", fields))
     });
 
     // ── num / int / double parsing ───────────────────────────
@@ -1665,10 +1721,9 @@ mod dartsdk {
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             BallValue::Message(msg) => msg
-                .fields
                 .get("arg0")
-                .or_else(|| msg.fields.get("pattern"))
-                .or_else(|| msg.fields.get("source"))
+                .or_else(|| msg.get("pattern"))
+                .or_else(|| msg.get("source"))
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             other => panic!("ball-compiler runtime: RegExp receiver is not a pattern: {other:?}"),
@@ -1690,10 +1745,7 @@ mod dartsdk {
         }
         let mut fields = BallMap::new();
         fields.insert("groups".to_string(), BallValue::List(groups));
-        BallValue::Message(BallMessage {
-            type_name: "__ball_regexp_match__".to_string(),
-            fields,
-        })
+        BallValue::Message(BallMessage::new("__ball_regexp_match__", fields))
     }
 
     /// `RegExp.firstMatch(subject)` — the first match, or `Null` if none.
@@ -1752,7 +1804,7 @@ mod dartsdk {
                         }
                     }
                     BallValue::Message(msg) => {
-                        for (k, v) in msg.fields {
+                        for (k, v) in msg.snapshot() {
                             map.insert(k, v);
                         }
                     }
@@ -1947,9 +1999,8 @@ mod dartsdk {
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             BallValue::Message(msg) => msg
-                .fields
                 .get("path")
-                .or_else(|| msg.fields.get("arg0"))
+                .or_else(|| msg.get("arg0"))
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
             other => other.to_string(),
@@ -1959,10 +2010,7 @@ mod dartsdk {
     fn fs_handle(kind: &str, path: std::string::String) -> BallValue {
         let mut fields = BallMap::new();
         fields.insert("path".to_string(), BallValue::String(path));
-        BallValue::Message(BallMessage {
-            type_name: kind.to_string(),
-            fields,
-        })
+        BallValue::Message(BallMessage::new(kind, fields))
     }
 
     /// `File(path)`.
@@ -2081,7 +2129,7 @@ mod dartsdk {
     /// the empty string.
     pub(crate) fn string_buffer_text(buffer: &BallValue) -> std::string::String {
         let field = |name: &str| match buffer {
-            BallValue::Message(msg) => msg.fields.get(name).cloned(),
+            BallValue::Message(msg) => msg.get(name),
             BallValue::Map(map) => map.get(name).cloned(),
             _ => None,
         };
@@ -2099,10 +2147,7 @@ mod dartsdk {
         text.push_str(&m_get(&input, "arg0").to_string());
         let mut fields = BallMap::new();
         fields.insert("content".to_string(), BallValue::String(text));
-        BallValue::Message(BallMessage {
-            type_name: "main:StringBuffer".to_string(),
-            fields,
-        })
+        BallValue::Message(BallMessage::new("main:StringBuffer", fields))
     }
 
     // ── Function.apply / Iterable.indexWhere (function values) ─
@@ -2148,12 +2193,12 @@ mod dartsdk {
     /// set and non-default/non-empty). Mirrors `ball_proto.dart` /
     /// `ball_engine::ball_proto::has_field`.
     fn proto_has_field(obj: &BallValue, name: &str) -> BallValue {
-        let field = match obj {
-            BallValue::Map(map) => map.get(name),
-            BallValue::Message(msg) => msg.fields.get(name),
+        let field: Option<BallValue> = match obj {
+            BallValue::Map(map) => map.get(name).cloned(),
+            BallValue::Message(msg) => msg.get(name),
             _ => None,
         };
-        let present = match field {
+        let present = match &field {
             None | Some(BallValue::Null) => false,
             Some(BallValue::String(s)) => !s.is_empty(),
             Some(BallValue::List(l)) => !l.is_empty(),
@@ -2248,7 +2293,7 @@ mod dartsdk {
                 out.push(']');
             }
             BallValue::Map(map) => write_json_object(map.iter(), out),
-            BallValue::Message(msg) => write_json_object(msg.fields.iter(), out),
+            BallValue::Message(msg) => write_json_object(msg.snapshot().iter(), out),
             BallValue::Function(_) => out.push_str("null"),
         }
     }
@@ -2527,10 +2572,7 @@ mod tests {
     fn message_type_name_reads_the_tag_used_for_method_dispatch() {
         let mut fields = BallMap::new();
         fields.insert("radius".to_string(), BallValue::Double(5.0));
-        let circle = BallValue::Message(crate::value::BallMessage {
-            type_name: "main:Circle".to_string(),
-            fields,
-        });
+        let circle = BallValue::Message(crate::value::BallMessage::new("main:Circle", fields));
         assert_eq!(ball_message_type_name(&circle), "main:Circle");
     }
 

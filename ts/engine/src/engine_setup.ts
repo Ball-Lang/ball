@@ -704,6 +704,21 @@ export function createEngineSetup(mod: EngineModule) {
     // Mirrors the compiled engine's `_ballPointerBytes` accounting constant.
     const _ptrBytes = 8;
     const _track = (bytes: number) => engine._trackMemoryAllocation(bytes);
+    // Resolve a count-like argument from `count`/`length`/`arg0` (in that
+    // priority) as OWN properties only. Plain bracket access on `length`
+    // hits the Object.prototype `.length` getter the preamble installs for
+    // EVERY plain object (same hazard as `map_create`/`map_from_entries`
+    // above) — it silently returns the input map's OWN key count instead of
+    // ever falling through to `arg0`, so e.g. `filled({arg0: 5})` created an
+    // array whose length was the number of keys in the input map (1),
+    // not 5 (issue found via branch-coverage testing).
+    const _countOf = (m: any): number => {
+      const hop = Object.prototype.hasOwnProperty;
+      if (hop.call(m, 'count')) return Number(m['count']);
+      if (hop.call(m, 'length')) return Number(m['length']);
+      if (hop.call(m, 'arg0')) return Number(m['arg0']);
+      return 0;
+    };
   
     // ── Collection: list_* ─────────────────────────────────────────────
     _r('list_foreach', async (i: any) => {
@@ -953,8 +968,20 @@ export function createEngineSetup(mod: EngineModule) {
     _r('string_trim', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').trim(); });
     _r('string_starts_with', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').startsWith(String(m['prefix'] ?? m['pattern'] ?? '')); });
     _r('string_ends_with', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').endsWith(String(m['suffix'] ?? m['pattern'] ?? '')); });
-    _r('string_pad_left', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').padStart(Number(m['width'] ?? m['length'] ?? 0), String(m['padding'] ?? m['pad'] ?? ' ')); });
-    _r('string_pad_right', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').padEnd(Number(m['width'] ?? m['length'] ?? 0), String(m['padding'] ?? m['pad'] ?? ' ')); });
+    // `m['width'] ?? m['length'] ?? 0` has the same Object.prototype '.length'
+    // getter hazard as `_countOf` above: plain bracket access on 'length'
+    // never falls through to the `0` default (it returns the input map's own
+    // key count instead), silently padding to the wrong width whenever
+    // 'width' is omitted. `_countOf` doesn't apply here (its chain looks for
+    // 'count'/'arg0', not 'width'), so guard 'width' directly instead.
+    const _widthOf = (m: any): number => {
+      const hop = Object.prototype.hasOwnProperty;
+      if (hop.call(m, 'width')) return Number(m['width']);
+      if (hop.call(m, 'length')) return Number(m['length']);
+      return 0;
+    };
+    _r('string_pad_left', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').padStart(_widthOf(m), String(m['padding'] ?? m['pad'] ?? ' ')); });
+    _r('string_pad_right', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').padEnd(_widthOf(m), String(m['padding'] ?? m['pad'] ?? ' ')); });
     _r('string_char_at', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').charAt(Number(m['index'] ?? m['arg0'] ?? 0)); });
     _r('string_to_int', (i: any) => {
       const m = _m(i); const s = String(m['value'] ?? m['string'] ?? i ?? '').trim();
@@ -1096,14 +1123,14 @@ export function createEngineSetup(mod: EngineModule) {
   
     // ── Static dispatch aliases ────────────────────────────────────────
     _r('generate', async (i: any) => {
-      const m = _m(i); const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+      const m = _m(i); const count = _countOf(m);
       const gen = m['generator'] ?? m['function'] ?? m['arg1'] ?? m['value'];
       const result: any[] = [];
       if (typeof gen === 'function') { for (let j = 0; j < count; j++) { let r = gen(j); if (r?.then) r = await r; result.push(r); } }
       else { for (let j = 0; j < count; j++) result.push(null); }
       return result;
     });
-    _r('filled', (i: any) => { const m = _m(i); return Array(Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0)).fill(m['value'] ?? m['fill'] ?? m['arg1'] ?? null); });
+    _r('filled', (i: any) => { const m = _m(i); return Array(_countOf(m)).fill(m['value'] ?? m['fill'] ?? m['arg1'] ?? null); });
   
     // Override length — compiled engine's _stdLength misses map length
     _r('length', (i: any) => {
@@ -1122,7 +1149,22 @@ export function createEngineSetup(mod: EngineModule) {
     _r('map_values', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([, v]: any) => v); });
     _r('map_entries', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return []; return Object.entries(map).filter(([k]: any) => !k.startsWith('__')).map(([k, v]: any) => ({key: k, value: v})); });
     _r('map_length', (i: any) => { const m = _m(i); const map = m['map'] ?? m['value'] ?? i; if (typeof map !== 'object' || map === null) return 0; return Object.keys(map).filter((k: string) => !k.startsWith('__')).length; });
-    _r('map_from_entries', (i: any) => { const m = _m(i); const list = m['list'] ?? m['entries'] ?? m['value'] ?? []; if (!Array.isArray(list)) return {}; const r: any = {}; for (const e of list) { if (typeof e === 'object' && e !== null) { r[e.key ?? e.name ?? e.arg0 ?? e[0]] = e.value ?? e.arg1 ?? e[1]; } } return r; });
+    _r('map_from_entries', (i: any) => {
+      const m = _m(i);
+      // Read `list`/`entries`/`value` as OWN properties only (same hazard as
+      // `map_create` above): plain bracket access on `entries` hits the
+      // Object.prototype `.entries` getter installed by the preamble for
+      // EVERY plain object, which silently shadows the `?? m['value'] ?? []`
+      // fallbacks with the input map's own top-level entries instead of ever
+      // reaching them (issue found via branch-coverage testing — a caller
+      // that omits `list` got the wrong map back instead of falling through).
+      const hop = Object.prototype.hasOwnProperty;
+      const list = hop.call(m, 'list') ? m['list'] : (hop.call(m, 'entries') ? m['entries'] : (hop.call(m, 'value') ? m['value'] : []));
+      if (!Array.isArray(list)) return {};
+      const r: any = {};
+      for (const e of list) { if (typeof e === 'object' && e !== null) { r[e.key ?? e.name ?? e.arg0 ?? e[0]] = e.value ?? e.arg1 ?? e[1]; } }
+      return r;
+    });
   
     // Override set operations
     _r('set_create', (i: any) => { const m = _m(i); const elements = m['elements']; if (Array.isArray(elements)) return new Set(elements); return new Set(); });
@@ -1183,19 +1225,19 @@ export function createEngineSetup(mod: EngineModule) {
     });
     _r('dart_list_filled', (i: any) => {
       const m = _m(i);
-      const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+      const count = _countOf(m);
       _track(Math.max(0, count | 0) * _ptrBytes);
       return Array(Math.max(0, count | 0)).fill(m['value'] ?? m['arg1'] ?? null);
     });
     _r('list_filled', (i: any) => {
       const m = _m(i);
-      const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+      const count = _countOf(m);
       _track(Math.max(0, count | 0) * _ptrBytes);
       return Array(Math.max(0, count | 0)).fill(m['value'] ?? m['arg1'] ?? null);
     });
     _r('list_generate', (i: any) => {
       const m = _m(i);
-      const count = Number(m['count'] ?? m['length'] ?? m['arg0'] ?? 0);
+      const count = _countOf(m);
       const fn = m['function'] ?? m['generator'] ?? m['callback'] ?? m['value'];
       if (typeof fn !== 'function') return [];
       _track(Math.max(0, count | 0) * _ptrBytes);

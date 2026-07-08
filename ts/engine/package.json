@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-strip-types test/engine_test.ts && node --experimental-strip-types --test test/*.test.ts",
-    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --exclude \"src/compiled_engine.ts\" --check-coverage --lines 99 --branches 65 --functions 97 --statements 99 npm test",
+    "coverage": "c8 --reporter=text --reporter=lcov --include \"src/**\" --exclude \"src/compiled_engine.ts\" --check-coverage --lines 99 --branches 97 --functions 97 --statements 99 npm test",
     "prepublishOnly": "npm run build",
     "prepack": "npm run build"
   },

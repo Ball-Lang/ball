@@ -789,6 +789,28 @@ pub fn ball_iterate(value: BallValue) -> Vec<BallValue> {
     }
 }
 
+/// Splice the operand of a list/set **spread** (`...x` / `...?x` inside a `[…]`
+/// or `{…}` literal) into the collection being built: yields the operand's
+/// *elements* — a list's items, or the backing items of a portable ordered set
+/// (`{'__ball_set__': [...]}`). Unlike [`ball_iterate`], a set-form map splices
+/// its members (NOT `[key, value]` entry pairs), matching Dart's `...` on a
+/// `Set`. The compiler emits a `for … in ball_spread_iter(x)` push loop for each
+/// spread element (see `Compiler::compile_list_literal`); without it a spread
+/// nested as a single element, so the self-hosted engine's own
+/// `_ballSetOf([...items, v])` produced `{{…}, v}` (issues #39/#300). A `Null`
+/// operand splices nothing (`...?x` on null, and proto3-absent leniency).
+pub fn ball_spread_iter(value: BallValue) -> Vec<BallValue> {
+    match &value {
+        BallValue::List(list) => list.snapshot(),
+        BallValue::Map(map) if map.contains_key(BALL_SET_TAG) => match map.get(BALL_SET_TAG) {
+            Some(BallValue::List(items)) => items.snapshot(),
+            _ => Vec::new(),
+        },
+        BallValue::Null => Vec::new(),
+        other => panic!("ball-compiler runtime: cannot spread a non-iterable: {other:?}"),
+    }
+}
+
 // ════════════════════════════════════════════════════════════
 // Type operations (`is` / `is_not` / `as`)
 // ════════════════════════════════════════════════════════════
@@ -843,6 +865,20 @@ fn message_is_type(type_name: &str, target: &str) -> bool {
     false
 }
 
+/// The marker key of the portable ordered-set value
+/// (`{'__ball_set__': [...]}`). Mirrors `dart/engine/lib/engine_types.dart`'s
+/// `_kBallSetTag` and the C++ self-host's `ball_is_ball_set`.
+pub const BALL_SET_TAG: &str = "__ball_set__";
+
+/// True when `value` is the portable ordered-set representation — a
+/// `BallValue::Map` carrying the [`BALL_SET_TAG`] marker key. The self-hosted
+/// engine's `_ballSetOf` builds sets in this form and `_ballValueIsSet` detects
+/// them; keeping `is Set` in step (rather than "any list") is what stops a
+/// target list-append from being mistaken for a set op (issues #39/#300).
+pub fn is_ball_set_value(value: &BallValue) -> bool {
+    matches!(value, BallValue::Map(map) if map.contains_key(BALL_SET_TAG))
+}
+
 pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
     let mut t = type_name.trim();
     // Nullable `T?`: `null` always matches; otherwise fall through to the base
@@ -867,8 +903,25 @@ pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
         "num" => matches!(value, BallValue::Int(_) | BallValue::Double(_)),
         "String" | "string" => matches!(value, BallValue::String(_)),
         "bool" => matches!(value, BallValue::Bool(_)),
-        "List" | "list" | "Iterable" => matches!(value, BallValue::List(_)),
-        "Set" | "set" => matches!(value, BallValue::List(_)),
+        "List" | "list" => matches!(value, BallValue::List(_)),
+        // Dart's `Set implements Iterable`, so an ordered set (the portable
+        // `{'__ball_set__': [...]}` map form) is `Iterable` too — but a plain
+        // list is NOT a `Set`. See the `"Set"` arm below.
+        "Iterable" => matches!(value, BallValue::List(_)) || is_ball_set_value(value),
+        // An ordered `Set` in the self-hosted engine's value model is the
+        // portable `{'__ball_set__': [...]}` **map** form (matching the Dart/C++
+        // self-hosts — the engine's `_ballSetOf` builds it and
+        // `_ballValueIsSet` detects it), NOT a plain `BallValue::List`. The old
+        // rule (every list is a `Set`) made the engine's
+        // `_isBallSet(nativeList)` wrongly true, so a target `result.add(x)`
+        // (`std_collections.list_push`) / set op on a freshly-built empty list
+        // detoured into the set branch and produced a nested `{{…}, x}` instead
+        // of appending (issues #39/#300). Regular (non-self-host) compiled
+        // programs keep list-backed sets, but there a list and a set are
+        // structurally identical, so `x is Set` is inherently ambiguous (issue
+        // #35/#68) — the self-host engine, which represents sets distinctly, is
+        // the correct bar (and no non-self-host test relies on `x is Set`).
+        "Set" | "set" => is_ball_set_value(value),
         "Map" | "map" => matches!(value, BallValue::Map(_)),
         "Function" => matches!(value, BallValue::Function(_)),
         "Null" | "null" => matches!(value, BallValue::Null),

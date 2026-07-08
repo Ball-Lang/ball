@@ -638,7 +638,7 @@ impl Compiler<'_> {
         format!(
             "pub static {short_name}: std::sync::LazyLock<BallValue> = std::sync::LazyLock::new(|| {{\n\
              let mut __ns = BallMap::new();\n{member_code}\
-             __ns.insert(\"values\".to_string(), BallValue::List(vec![{list_items}]));\n\
+             __ns.insert(\"values\".to_string(), BallValue::List(BallList::from(vec![{list_items}])));\n\
              BallValue::Message(BallMessage::new({full_name:?}, __ns))\n\
              }});\n"
         )
@@ -1194,7 +1194,7 @@ impl Compiler<'_> {
         let s = strip_generic_prefix(init.trim());
         match s {
             "{}" => return Some("BallValue::Map(BallMap::new())".to_string()),
-            "[]" => return Some("BallValue::List(Vec::new())".to_string()),
+            "[]" => return Some("BallValue::List(BallList::new())".to_string()),
             "''" | "\"\"" => return Some("BallValue::String(String::new())".to_string()),
             "true" => return Some("BallValue::Bool(true)".to_string()),
             "false" => return Some("BallValue::Bool(false)".to_string()),

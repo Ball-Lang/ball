@@ -22,7 +22,7 @@
 //! engine resolves dynamically on native `String`/`List`/`Map` values rather
 //! than by a field lookup — see [`virtual_property`].
 
-use ball_shared::BallValue;
+use ball_shared::{BallList, BallValue};
 
 // ════════════════════════════════════════════════════════════
 // Oneof discriminators
@@ -165,7 +165,7 @@ pub fn get_struct_field_keys(struct_val: &BallValue) -> BallValue {
         BallValue::Map(map) => {
             BallValue::List(map.keys().cloned().map(BallValue::String).collect())
         }
-        _ => BallValue::List(Vec::new()),
+        _ => BallValue::List(BallList::new()),
     }
 }
 
@@ -241,7 +241,7 @@ mod tests {
         // Empty string / empty list read as not present.
         let empties = map(&[
             ("name", BallValue::String(String::new())),
-            ("items", BallValue::List(Vec::new())),
+            ("items", BallValue::List(BallList::new())),
         ]);
         assert_eq!(has_field(&empties, "name"), BallValue::Bool(false));
         assert_eq!(has_field(&empties, "items"), BallValue::Bool(false));
@@ -267,7 +267,10 @@ mod tests {
             Some(BallValue::Int(3))
         );
         assert_eq!(
-            virtual_property(&BallValue::List(vec![BallValue::Int(1)]), "isEmpty"),
+            virtual_property(
+                &BallValue::List(BallList::from(vec![BallValue::Int(1)])),
+                "isEmpty"
+            ),
             Some(BallValue::Bool(false))
         );
         // Not a virtual property -> None (engine falls back to field lookup).

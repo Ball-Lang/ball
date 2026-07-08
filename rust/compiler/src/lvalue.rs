@@ -4,21 +4,22 @@
 //! (`list_push`, `map_set`, ...) that need a real mutable handle onto an
 //! already-bound variable rather than a `.clone()`d read.
 //!
-//! ## Why this exists (the aliasing problem)
+//! ## Why this exists (the mutation-target problem)
 //!
 //! Every ordinary `reference` expression compiles to `<name>.clone()`
-//! ([`Compiler::compile_reference`]) — correct for *reading* a value, but
-//! insufficient for anything that must **mutate the variable the caller
-//! already has a handle to** (a loop counter, a list a caller later reads
-//! again, ...). Dart's reference compiler can get away with a bare
-//! cascade (`list..add(value)`) because Dart `List`/`Map` are reference
-//! types and a plain variable read already aliases the same underlying
-//! object; Rust's `BallValue::List(Vec<BallValue>)` has no such aliasing —
-//! `myList.clone()` is an independent copy, so `ball_list_push(myList.clone(),
-//! value)` would silently mutate a throwaway clone instead of `myList`
-//! itself. [`LValue`]/[`Compiler::resolve_lvalue`]/[`Compiler::lvalue_mut_expr`]
-//! sidestep this by compiling the *target* of a mutation to a real
-//! `&mut BallValue` Rust place expression instead of a cloned read.
+//! ([`Compiler::compile_reference`]) — correct for *reading* a value, but a
+//! reassignment (`x = …`, `i++`, `x op= …`) must write back to the caller's
+//! own binding, not a throwaway clone. `BallValue::List`/`Message` now share
+//! their backing (`Arc<Mutex>`, issues #298/#39/#300), so a *mutating method*
+//! on a list/message clone (`myList.clone()` then push) is already observed by
+//! aliases — but a bare `x = …` on a primitive, or a `list[i] = …` element
+//! write, still needs the *place* it targets. [`LValue`]/[`Compiler::resolve_lvalue`]
+//! resolve that place; [`Compiler::emit_mutation`] then writes it either through
+//! a `&mut BallValue` slot ([`Compiler::lvalue_mut_expr`], for a plain variable)
+//! or, for a *field*/*index* target whose collection backing is behind an
+//! `Arc<Mutex>` and so yields no `&mut` into it, through the
+//! `ball_field_get`+`ball_field_set` / `ball_index_get`+`ball_index_set`
+//! read-modify-write pair.
 //!
 //! ## Scope
 //!
@@ -111,10 +112,15 @@ impl Compiler<'_> {
             LValue::Field { object_var, field } => {
                 format!("ball_field_get_mut(&mut {object_var}, {field:?})")
             }
-            LValue::Index {
-                target_var,
-                index_code,
-            } => format!("ball_index_get_mut(&mut {target_var}, {index_code})"),
+            // A reference-semantic `BallValue::List` (issues #39/#300) has no
+            // `&mut BallValue` into an element, so an index target never yields a
+            // raw `&mut` slot — `emit_mutation` and `compile_mutating_collection_call`
+            // both route `LValue::Index` through `ball_index_get` + `ball_index_set`
+            // (read/modify/write) instead. This arm is therefore unreachable; it
+            // panics rather than silently mis-mutating.
+            LValue::Index { .. } => "panic!(\"ball-compiler runtime: index lvalue slot must go \
+                 through ball_index_set (issues #39/#300)\")"
+                .to_string(),
             LValue::Unsupported(reason) => {
                 format!(
                     "panic!(\"ball-compiler runtime: {}\")",
@@ -162,6 +168,31 @@ impl Compiler<'_> {
             );
         }
 
+        // A `list[i] = ...` target on a **list** can't yield a `&mut` slot
+        // either — a reference-semantic `BallValue::List` keeps its elements
+        // behind an `Arc<Mutex>` (issues #39/#300), so there is no
+        // `&mut BallValue` into an element to hand out. Compile the
+        // read/modify/write through `ball_index_get` + `ball_index_set`
+        // (the exact shape the message-field path above uses), which works for
+        // a value-semantic `Map` index target too — so this one path covers
+        // both list and map without the compiler having to know the runtime
+        // kind. The index is bound to `__idx` once so a compound `list[i] op= v`
+        // (or `list[i]++`) evaluates the index expression a single time, and the
+        // right-hand `__val` is bound first for the same borrow-ordering reason
+        // as the slot path below.
+        if let LValue::Index {
+            target_var,
+            index_code,
+        } = lvalue
+        {
+            return format!(
+                "{{ let __val = {value_code}; let __idx = {index_code}; \
+                 let __old = ball_index_get({target_var}.clone(), __idx.clone()); \
+                 let __new = {new_value}; \
+                 ball_index_set(&mut {target_var}, __idx, __new.clone()); {tail} }}"
+            );
+        }
+
         let slot = self.lvalue_mut_expr(lvalue);
         // The right-hand value is bound to an owned temporary (`__val`)
         // *before* the mutable slot borrow is taken, so a `value_code` that
@@ -180,9 +211,10 @@ impl Compiler<'_> {
         // slot (which compiles to a diverging `panic!(…)`, type `!`) has a
         // concrete type to coerce to — without the annotation rustc can't
         // infer `__slot`'s type from a `!` initializer alone (E0282 "type
-        // annotations needed"). The annotation is exactly the type every real
-        // slot (`&mut name`, `ball_index_get_mut`) already has, so it is a
-        // no-op for those.
+        // annotations needed"). The annotation is exactly the type the real
+        // slot (`&mut name`, for an `LValue::Var`) already has, so it is a
+        // no-op there (field/index targets take their own read-modify-write
+        // paths above and never reach here).
         format!(
             "{{ let __val = {value_code}; let __slot: &mut BallValue = {slot}; \
              let __old = __slot.clone(); let __new = {new_value}; *__slot = __new.clone(); {tail} }}"

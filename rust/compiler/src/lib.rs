@@ -613,7 +613,9 @@ impl<'a> Compiler<'a> {
             self.program.name, self.program.version
         ));
         out.push_str("#![allow(unused_mut, dead_code, unused_variables)]\n\n");
-        out.push_str("use ball_shared::{BallFunction, BallMap, BallMessage, BallValue};\n");
+        out.push_str(
+            "use ball_shared::{BallFunction, BallList, BallMap, BallMessage, BallValue};\n",
+        );
         out.push_str("use ball_shared::runtime::*;\n\n");
 
         // The Ball-proto oneof-discriminator enum namespaces
@@ -830,7 +832,11 @@ impl<'a> Compiler<'a> {
                     .map(|el| self.compile_expression(el))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("BallValue::List(vec![{items}])")
+                // A list *literal* builds a **fresh** reference-semantic backing
+                // (`BallList::from`) — a distinct list per evaluation, never
+                // aliasing (issues #39/#300). Aliasing only happens on a *read*
+                // of an existing list (`compile_reference`'s `.clone()`).
+                format!("BallValue::List(BallList::from(vec![{items}]))")
             }
         }
     }
@@ -1095,7 +1101,7 @@ impl<'a> Compiler<'a> {
                 "BallValue::Map(BallMap::new())".to_string()
             }),
             "HashSet" | "LinkedHashSet" | "SplayTreeSet" => {
-                Some("BallValue::List(Vec::new())".to_string())
+                Some("BallValue::List(BallList::new())".to_string())
             }
             "Set.from" | "Set.of" | "HashSet.from" | "LinkedHashSet.from" => {
                 Some(format!("ball_set_create({})", arg0()))
@@ -1103,7 +1109,7 @@ impl<'a> Compiler<'a> {
             "BallList" => Some(if has_arg0() {
                 format!("ball_list_to_list({})", arg0())
             } else {
-                "BallValue::List(Vec::new())".to_string()
+                "BallValue::List(BallList::new())".to_string()
             }),
             _ => None,
         }
@@ -1580,7 +1586,7 @@ mod tests {
                     elements: vec![int_lit(1), int_lit(2)],
                 })),
             }),
-            "BallValue::List(vec![BallValue::Int(1i64), BallValue::Int(2i64)])"
+            "BallValue::List(BallList::from(vec![BallValue::Int(1i64), BallValue::Int(2i64)]))"
         );
     }
 
@@ -2036,9 +2042,9 @@ mod tests {
         });
         let compiler = Compiler::new(&program);
         let compiled = compiler.compile();
-        assert!(
-            compiled.contains("use ball_shared::{BallFunction, BallMap, BallMessage, BallValue};")
-        );
+        assert!(compiled.contains(
+            "use ball_shared::{BallFunction, BallList, BallMap, BallMessage, BallValue};"
+        ));
         assert!(compiled.contains("use ball_shared::runtime::*;"));
         assert!(compiled.contains("fn main() {"));
         assert!(!compiled.contains("pub fn main(")); // entry fn is inlined, not emitted as a wrapper

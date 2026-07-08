@@ -346,7 +346,7 @@ impl Compiler<'_> {
     fn field_list_or_empty(&self, fields: &IndexMap<String, Expression>, key: &str) -> String {
         match fields.get(key) {
             Some(expr) => self.compile_expression(expr),
-            None => "BallValue::List(Vec::new())".to_string(),
+            None => "BallValue::List(BallList::new())".to_string(),
         }
     }
 
@@ -489,7 +489,7 @@ impl Compiler<'_> {
             // Proto3 defaults.
             "ensureDefaults" => return format!("ball_proto_ensure_defaults({})", obj()),
             "defaultString" => return "BallValue::String(String::new())".to_string(),
-            "defaultList" => return "BallValue::List(Vec::new())".to_string(),
+            "defaultList" => return "BallValue::List(BallList::new())".to_string(),
             "defaultBool" => return "BallValue::Bool(false)".to_string(),
             "defaultInt" => return "BallValue::Int(0i64)".to_string(),
             // Case-name validators — the engine reads them back as the name.
@@ -550,7 +550,7 @@ impl Compiler<'_> {
                     {
                         let ef = self.message_creation_fields(entry);
                         pairs.push(format!(
-                            "BallValue::List(vec![{}, {}])",
+                            "BallValue::List(BallList::from(vec![{}, {}]))",
                             self.field_or_null(&ef, "key"),
                             self.field_or_null(&ef, "value")
                         ));
@@ -559,7 +559,7 @@ impl Compiler<'_> {
             }
         }
         format!(
-            "ball_map_create(BallValue::List(vec![{}]))",
+            "ball_map_create(BallValue::List(BallList::from(vec![{}])))",
             pairs.join(", ")
         )
     }
@@ -1443,33 +1443,48 @@ impl Compiler<'_> {
         };
         let lvalue = self.resolve_lvalue(target);
         // A collection stored in a **message field** (`list_push(obj.field, x)`)
-        // can't hand out a `&mut` slot — a reference-semantic
-        // `BallValue::Message` keeps its fields behind an `Arc<Mutex>` (issue
-        // #298). Read the collection out of the field, mutate the owned copy
-        // through the ordinary `&mut __coll` slot, then write it back with
-        // `ball_field_set` (works for a `Map` object too). The helper's own
-        // return value is preserved as the expression's result.
-        let field_wrap: Option<(String, String)> = match &lvalue {
+        // or a **list/map element** (`list_push(matrix[i], x)`) can't hand out a
+        // `&mut` slot — a reference-semantic `BallValue::Message`/`BallValue::List`
+        // keeps its backing behind an `Arc<Mutex>` (issues #298/#39/#300). Read
+        // the collection out into an owned `__coll`, mutate it through the
+        // ordinary `&mut __coll` slot, then write it back (`ball_field_set` /
+        // `ball_index_set`). For a *list* `__coll` the write-back is redundant
+        // (its shared backing is already mutated in place), but a value-semantic
+        // *map*/*set* `__coll` needs it — so this one path is correct for both,
+        // without the compiler having to know the runtime kind. A plain-variable
+        // target (`LValue::Var`) still passes the operation through unchanged on
+        // a direct `(&mut var)` slot.
+        enum Wrapped {
+            Direct,
+            Field(String, String),
+            Index(String, String),
+        }
+        let wrapped = match &lvalue {
             crate::lvalue::LValue::Field { object_var, field } => {
-                Some((object_var.clone(), field.clone()))
+                Wrapped::Field(object_var.clone(), field.clone())
             }
-            _ => None,
+            crate::lvalue::LValue::Index {
+                target_var,
+                index_code,
+            } => Wrapped::Index(target_var.clone(), index_code.clone()),
+            _ => Wrapped::Direct,
         };
-        let slot = if field_wrap.is_some() {
-            "(&mut __coll)".to_string()
-        } else {
-            self.lvalue_mut_expr(&lvalue)
+        let slot = match &wrapped {
+            Wrapped::Direct => self.lvalue_mut_expr(&lvalue),
+            _ => "(&mut __coll)".to_string(),
         };
-        // Wrap a slot-based operation (which reads/writes `__coll` when the
-        // target is a message field) in the read-mutate-writeback block; a
-        // non-field target passes the operation through unchanged.
         let wrap = |op: String| -> String {
-            match &field_wrap {
-                Some((object_var, field)) => format!(
+            match &wrapped {
+                Wrapped::Direct => op,
+                Wrapped::Field(object_var, field) => format!(
                     "{{ let mut __coll = ball_field_get({object_var}.clone(), {field:?}); \
                      let __r = {op}; ball_field_set(&mut {object_var}, {field:?}, __coll); __r }}"
                 ),
-                None => op,
+                Wrapped::Index(target_var, index_code) => format!(
+                    "{{ let __ci = {index_code}; \
+                     let mut __coll = ball_index_get({target_var}.clone(), __ci.clone()); \
+                     let __r = {op}; ball_index_set(&mut {target_var}, __ci, __coll); __r }}"
+                ),
             }
         };
         let extra_args: Vec<String> = match call.function.as_str() {
@@ -1506,13 +1521,14 @@ impl Compiler<'_> {
             "list_remove_at" => "ball_list_remove_at",
             "list_set" => {
                 // `list[index] = value` isn't its own runtime helper — it's
-                // the same "slot then write" shape `assign` uses, just with
-                // the list *itself* (not one element) resolved as the
-                // lvalue and the index handled via `ball_index_get_mut`.
+                // the same "slot then write" shape `assign` uses, with the list
+                // *itself* (not one element) resolved as the lvalue and the
+                // element write done through `ball_index_set` (the list's
+                // `Arc<Mutex>` backing has no `&mut` into an element — #39/#300).
                 let index_code = &extra_args[0];
                 let value_code = &extra_args[1];
                 return wrap(format!(
-                    "{{ let __v = {value_code}; *ball_index_get_mut({slot}, {index_code}) = __v.clone(); __v }}"
+                    "{{ let __v = {value_code}; ball_index_set({slot}, {index_code}, __v.clone()); __v }}"
                 ));
             }
             "map_set" => "ball_map_set",

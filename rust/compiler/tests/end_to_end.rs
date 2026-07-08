@@ -1875,10 +1875,12 @@ fn implicit_this_dispatch_and_reference_semantic_field_mutation() {
     };
 
     let compiled = Compiler::new(&program).compile();
-    // The implicit `this.increment()` call weaves in the receiver.
+    // The implicit `this.increment()` call weaves in the receiver (via the
+    // dedicated `__self_recv` receiver-clone, which avoids `&mut self_` borrow /
+    // move-into-closure conflicts).
     assert!(
-        compiled.contains("increment(ball_with_self(BallValue::Null, self_.clone()))"),
-        "an implicit-`this` method call must inject `self_` (issue #298):\n{compiled}"
+        compiled.contains("increment(ball_with_self(BallValue::Null, __self_recv.clone()))"),
+        "an implicit-`this` method call must inject the receiver (issue #298):\n{compiled}"
     );
     // The explicit `c.incrementTwice()` call is NOT re-injected.
     assert!(

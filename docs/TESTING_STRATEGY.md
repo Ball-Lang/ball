@@ -158,6 +158,7 @@ coverage is additionally gated by the conformance matrix.
 | Reverse sourcing | `check_conformance_sources.dart` | every PR |
 | **Completeness (§2)** | `check_encoder_completeness.dart` | every PR |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
-| Engine/compiler behavior | `conformance_test.dart`, `conformance_roundtrip_test.dart` | every PR |
+| Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
+| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
 | Line coverage ratchet | `coverage` job | every PR |

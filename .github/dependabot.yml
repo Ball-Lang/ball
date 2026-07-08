@@ -37,3 +37,14 @@ updates:
       pub-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # cargo — the Rust workspace root (rust/Cargo.toml) resolves every rust/
+  # crate.
+  - package-ecosystem: "cargo"
+    directory: "/rust"
+    schedule:
+      interval: "weekly"
+    groups:
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

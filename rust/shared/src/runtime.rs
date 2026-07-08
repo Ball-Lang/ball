@@ -542,6 +542,16 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             if let Some(existing) = map.get(field) {
                 return existing.clone();
             }
+            // Dart-protobuf getter aliases: the reference engine reads a
+            // renamed getter (`FieldAccess.field` → `.field_2`, a keyword-clash
+            // rename) but proto3-JSON keeps the original key. Fall back to the
+            // original before treating the field as absent — mirrors the TS
+            // engine's `preamble.ts` `field_2`/`descriptor_` aliases.
+            if let Some(alias) = proto_getter_alias(field) {
+                if let Some(existing) = map.get(alias) {
+                    return existing.clone();
+                }
+            }
             match field {
                 "length" => BallValue::Int(map.len() as i64),
                 "entries" => BallValue::List(
@@ -573,8 +583,26 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             "isNotEmpty" => BallValue::Bool(!s.is_empty()),
             _ => panic!("ball-compiler runtime: field access '{field}' on a string"),
         },
-        BallValue::Message(message) => message.get(field).unwrap_or(BallValue::Null),
+        BallValue::Message(message) => message
+            .get(field)
+            .or_else(|| proto_getter_alias(field).and_then(|alias| message.get(alias)))
+            .unwrap_or(BallValue::Null),
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
+    }
+}
+
+/// The original proto3-JSON key for a Dart-protobuf **renamed getter**. Dart's
+/// protobuf codegen renames a field whose name clashes with a Dart keyword or
+/// `GeneratedMessage` member (`FieldAccess.field` → `.field_2`, `descriptor` →
+/// `descriptor_`), but proto3-JSON — the shape the engine reads a target
+/// [`Program`] as — keeps the original field name. The self-hosted engine calls
+/// the renamed getter, so a field lookup that misses on the renamed name must
+/// retry the original. Mirrors the TS engine's `preamble.ts` aliases.
+fn proto_getter_alias(field: &str) -> Option<&'static str> {
+    match field {
+        "field_2" => Some("field"),
+        "descriptor_" => Some("descriptor"),
+        _ => None,
     }
 }
 

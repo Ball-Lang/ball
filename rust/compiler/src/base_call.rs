@@ -1078,14 +1078,25 @@ impl Compiler<'_> {
     /// necessarily `match`-pattern-legal literals), matching the issue's own
     /// "`match`/`if`-chain" phrasing.
     ///
-    /// **Known limitation:** no C-style fall-through (each case's `body` is
-    /// independent — a case with an empty body does *not* fall through to
-    /// the next, unlike Dart's `_generateSwitch`), and `break` inside a case
-    /// body is *not* specially scoped to "exit the switch" — Rust's
-    /// `break`/`continue` only make sense inside a real loop, and this
-    /// if-chain isn't one. Neither limitation is exercised by any #37
-    /// fixture; both are real gaps for a future issue to close (most
-    /// naturally alongside `switch_expr`/pattern-matching support).
+    /// **Fall-through:** Dart's label fall-through (`case A: case B: body;`)
+    /// encodes as consecutive cases where the leading ones carry *no* body
+    /// (or an empty body) and the last carries the shared body — exactly what
+    /// the reference Dart compiler's `_generateSwitch` relies on Dart's native
+    /// `switch` to handle. Because this target lowers to an `if`-chain rather
+    /// than a native `match`, fall-through is realized explicitly: body-less
+    /// cases *accumulate* their match values into the next case that has a real
+    /// body (`case 'post_increment': case 'pre_increment': … case
+    /// 'pre_decrement': return _evalIncDec(…)` → one arm matching any of the
+    /// four). Without this, a body-less fall-through case compiled to an empty
+    /// `BallValue::Null` arm and the shared body was reached only for the *last*
+    /// label — which silently no-op'd `i++`/`i--` (the engine routes three of
+    /// the four increment/decrement functions through such a fall-through),
+    /// wedging every `for`/`while` loop in an infinite spin.
+    ///
+    /// **Known limitation:** `break` inside a case body is not specially scoped
+    /// to "exit the switch" — Rust's `break`/`continue` only make sense inside a
+    /// real loop, and this if-chain isn't one. Not exercised by the corpus (the
+    /// engine's switches all `return`/fall through, never bare-`break`).
     fn compile_switch(&self, call: &FunctionCall) -> String {
         let f = extract_fields(call);
         let subject_code = self.field_or_null(&f, "subject");
@@ -1096,22 +1107,44 @@ impl Compiler<'_> {
 
         let mut arms: Vec<(Vec<String>, String)> = Vec::new();
         let mut default_body: Option<String> = None;
+        // Match values of body-less (fall-through) cases, carried forward until
+        // the next case that supplies a real body absorbs them.
+        let mut pending_values: Vec<String> = Vec::new();
         for case in &cases {
             let Some(Expr::MessageCreation(mc)) = &case.expr else {
                 continue;
             };
             let cf = self.message_creation_fields(mc);
-            let body_code = cf
+            let is_default = self.bool_field(&cf, "is_default");
+            // A case "has a body" only if `body` is present AND not an empty
+            // block/`notSet` literal — mirroring the Dart compiler's
+            // `_isEmptyBody` fall-through test. A missing/empty body means this
+            // label falls through to the next.
+            let real_body = cf
                 .get("body")
-                .map(|b| self.compile_expression(b))
-                .unwrap_or_else(|| "BallValue::Null".to_string());
-            if self.bool_field(&cf, "is_default") {
-                default_body = Some(body_code);
-                continue;
+                .filter(|b| !is_empty_switch_body(b))
+                .map(|b| self.compile_expression(b));
+
+            if !is_default {
+                pending_values.extend(self.switch_case_match_values(&cf));
             }
-            let values = self.switch_case_match_values(&cf);
-            if !values.is_empty() {
-                arms.push((values, body_code));
+
+            let Some(body_code) = real_body else {
+                // Fall-through: keep accumulating (non-default) match values;
+                // a body-less `default` contributes nothing on its own.
+                continue;
+            };
+
+            if is_default {
+                default_body = Some(body_code);
+                // Any values that fell through *into* this default are already
+                // covered by the trailing `else` (default) arm, so drop them.
+                pending_values.clear();
+            } else {
+                let values = std::mem::take(&mut pending_values);
+                if !values.is_empty() {
+                    arms.push((values, body_code));
+                }
             }
         }
 
@@ -1556,5 +1589,17 @@ fn literal_list_elements(expr: &Expression) -> Vec<Expression> {
             _ => Vec::new(),
         },
         _ => Vec::new(),
+    }
+}
+
+/// Whether a switch case's `body` expression is "empty" — an empty block (no
+/// statements, no result) or a `notSet` literal — the signal (alongside an
+/// absent `body`) that the case falls through to the next label's body. Mirrors
+/// the reference Dart compiler's `_isEmptyBody`.
+fn is_empty_switch_body(expr: &Expression) -> bool {
+    match &expr.expr {
+        Some(Expr::Block(block)) => block.statements.is_empty() && block.result.is_none(),
+        Some(Expr::Literal(literal)) => literal.value.is_none(),
+        _ => false,
     }
 }

@@ -1,3 +1,10 @@
+# [1.16.0](https://github.com/Ball-Lang/ball/compare/v1.15.0...v1.16.0) (2026-07-08)
+
+
+### Features
+
+* **rust:** [#41](https://github.com/Ball-Lang/ball/issues/41) CLI — run/compile/encode/check subcommands ([#304](https://github.com/Ball-Lang/ball/issues/304)) ([11fd2fe](https://github.com/Ball-Lang/ball/commit/11fd2fec15c6a37ca4c5b4cc806614a2b5a52710))
+
 # [1.15.0](https://github.com/Ball-Lang/ball/compare/v1.14.0...v1.15.0) (2026-07-08)
 
 

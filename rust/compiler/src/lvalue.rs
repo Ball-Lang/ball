@@ -32,6 +32,7 @@
 use ball_shared::extract_fields;
 use ball_shared::proto::ball::v1::Expression;
 use ball_shared::proto::ball::v1::expression::Expr;
+use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_shared::proto::ball::v1::statement::Stmt;
 
 use crate::Compiler;
@@ -258,6 +259,22 @@ impl Compiler<'_> {
                 .object
                 .as_deref()
                 .is_some_and(|object| self.expr_mutates_var(object, name)),
+            // A list literal's elements can carry mutations too — most
+            // importantly `switch`'s `cases` and `try`'s `catches`, whose
+            // clause bodies (each a `MessageCreation`) live inside a
+            // `literal.list_value.elements` (see `base_call.rs`'s
+            // `literal_list_elements`). Without recursing here, a `let`
+            // mutated only inside a `switch`/`try` branch (the self-hosted
+            // engine's `items`/`self`/`selfMap` set-mutation methods) is never
+            // marked `let mut`, so its later `&mut` borrow is E0596 "cannot
+            // borrow as mutable".
+            Some(Expr::Literal(literal)) => match &literal.value {
+                Some(LiteralValue::ListValue(list)) => list
+                    .elements
+                    .iter()
+                    .any(|element| self.expr_mutates_var(element, name)),
+                _ => false,
+            },
             _ => false,
         }
     }

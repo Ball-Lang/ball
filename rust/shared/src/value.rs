@@ -8,11 +8,12 @@
 //! plain `enum` so the compiler/engine can pattern-match exhaustively.
 
 use std::fmt;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 
 use crate::proto::ball::v1::expression::Expr;
-use crate::proto::ball::v1::{Expression, FunctionCall, FunctionDefinition};
+use crate::proto::ball::v1::{Expression, FunctionCall};
 
 /// An ordered list of Ball values. Equivalent to Dart's `BallList`/C++'s
 /// `BallList = std::vector<BallValue>`.
@@ -44,66 +45,84 @@ pub struct BallMessage {
     pub fields: BallMap,
 }
 
-/// A first-class callable value: either a reference to an already-declared
-/// module function, or an inline `lambda` expression closing over its
-/// defining scope.
+/// A first-class callable value — a compiled Ball `lambda`, or a top-level
+/// function referenced as a value — wrapping a **native Rust closure**.
 ///
-/// Modeled as a callable *handle* (name/module + captured scope) rather than
-/// a native Rust closure (`Box<dyn Fn>`) because Ball function values must
-/// be `Clone`/`Debug`/`PartialEq` and serializable-shaped for the
-/// tree-walking engine (issue #39) to invoke by looking up `module.name` (or
-/// re-entering `definition.body` with `captured_scope` merged into a fresh
-/// call scope) — a boxed closure can't offer any of that.
-#[derive(Debug, Clone, PartialEq)]
+/// The compiled-target engine (issue #39) invokes function values directly
+/// through this closure (`ball_call_function`), so — unlike a tree-walking
+/// interpreter, which could re-enter an AST — the callable *must* be a real
+/// `Fn`, not a name/definition handle (there is no interpreter to re-enter,
+/// and no runtime registry mapping a function name string back to its
+/// compiled Rust item). The closure is stored behind an `Arc` so
+/// `BallFunction` (and thus [`BallValue`]) stays:
+/// - `Clone` — an `Arc` clone shares the one closure (a `BallValue` is
+///   `.clone()`d on every read; see the compiler's `compile_reference`);
+/// - `Send + Sync` — required because `ball_throw` panics with a `BallValue`
+///   payload via `panic_any`, which needs `Any + Send`, and every reference
+///   engine's `throw` can carry *any* value, including a closure.
+///
+/// The wrapped closure is `'static`: a compiled `move |input| { … }` lambda
+/// captures owned, already-`.clone()`d `BallValue`s, and a top-level function
+/// coerces from its `fn` item (also `'static`).
+#[derive(Clone)]
 pub struct BallFunction {
-    /// Module the function is declared in. Empty for an inline lambda value
-    /// that has not been bound to a module.
-    pub module: String,
-    /// Function name within `module`. For inline lambdas this is the
-    /// `FunctionDefinition.name` carried by the `lambda` oneof arm of the
-    /// originating `Expression` (frequently empty — lambdas are anonymous).
+    /// Cosmetic label for `Debug`/`Display` — a bound function's name, or
+    /// empty for an anonymous lambda. Never affects call behavior or
+    /// equality (functions are compared by closure identity — see
+    /// [`PartialEq`]).
     pub name: String,
-    /// The lambda's own definition (parameter type + body), present only
-    /// when this handle wraps an inline `lambda` expression rather than a
-    /// reference to an already-declared module function.
-    pub definition: Option<FunctionDefinition>,
-    /// Captured lexical environment at the point the function value was
-    /// created (closure over the enclosing scope), keyed by variable name.
-    pub captured_scope: BallMap,
+    /// The native callable. `Arc<dyn Fn …>` keeps this cheaply `Clone`able
+    /// and `Send + Sync` (see the type doc comment).
+    pub callable: Arc<dyn Fn(BallValue) -> BallValue + Send + Sync>,
 }
 
 impl BallFunction {
-    /// Build a handle referencing an already-declared module function
-    /// (e.g. a bare function name passed as a callback value).
-    pub fn reference(module: impl Into<String>, name: impl Into<String>) -> Self {
+    /// Wrap a native Rust closure as a callable Ball function value. `name`
+    /// is cosmetic (a lambda passes `""`); `callable` is the compiled body
+    /// (`move |input| { … }`) or a top-level function's `fn` item.
+    pub fn new(
+        name: impl Into<String>,
+        callable: impl Fn(BallValue) -> BallValue + Send + Sync + 'static,
+    ) -> Self {
         BallFunction {
-            module: module.into(),
             name: name.into(),
-            definition: None,
-            captured_scope: BallMap::new(),
+            callable: Arc::new(callable),
         }
     }
 
-    /// Build a handle wrapping an inline lambda expression, closing over
-    /// `captured_scope`.
-    pub fn lambda(definition: FunctionDefinition, captured_scope: BallMap) -> Self {
-        BallFunction {
-            module: String::new(),
-            name: definition.name.clone(),
-            definition: Some(definition),
-            captured_scope,
-        }
+    /// Invoke the wrapped closure with `input` (invariant #1 — one input,
+    /// one output).
+    pub fn call(&self, input: BallValue) -> BallValue {
+        (self.callable)(input)
+    }
+}
+
+/// Two function values are equal iff they share the *same* underlying
+/// closure (`Arc` pointer identity). A by-value model has no structural way
+/// to compare two distinct closures, and the reference engines' `identical`
+/// on functions is likewise reference identity — so this matches Dart's
+/// closure `==` (same function instance) rather than claiming any two
+/// closures with equal behavior are equal.
+impl PartialEq for BallFunction {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.callable, &other.callable)
+    }
+}
+
+/// `dyn Fn` is not `Debug`, so this prints the cosmetic label instead of the
+/// closure itself (matching [`Display`]).
+impl fmt::Debug for BallFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
     }
 }
 
 impl fmt::Display for BallFunction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.module.is_empty() && self.name.is_empty() {
+        if self.name.is_empty() {
             write!(f, "<lambda>")
-        } else if self.module.is_empty() {
-            write!(f, "<function {}>", self.name)
         } else {
-            write!(f, "<function {}.{}>", self.module, self.name)
+            write!(f, "<function {}>", self.name)
         }
     }
 }
@@ -131,8 +150,9 @@ pub enum BallValue {
     List(BallList),
     /// A string-keyed, insertion-ordered map of values.
     Map(BallMap),
-    /// A first-class function value (module reference or inline lambda).
-    Function(Box<BallFunction>),
+    /// A first-class function value wrapping a native Rust closure (a
+    /// compiled `lambda`, or a top-level function referenced as a value).
+    Function(BallFunction),
     /// A descriptor-backed message instance.
     Message(BallMessage),
 }
@@ -355,15 +375,10 @@ mod tests {
         map.insert("b".to_string(), BallValue::String("x".to_string()));
         assert_eq!(BallValue::Map(map).to_string(), "{a: 1, b: x}");
 
-        let function = BallValue::Function(Box::new(BallFunction::reference("std", "print")));
-        assert_eq!(function.to_string(), "<function std.print>");
+        let function = BallValue::Function(BallFunction::new("print", |input| input));
+        assert_eq!(function.to_string(), "<function print>");
 
-        let lambda = BallValue::Function(Box::new(BallFunction {
-            module: String::new(),
-            name: String::new(),
-            definition: None,
-            captured_scope: BallMap::new(),
-        }));
+        let lambda = BallValue::Function(BallFunction::new("", |input| input));
         assert_eq!(lambda.to_string(), "<lambda>");
 
         let mut fields = BallMap::new();

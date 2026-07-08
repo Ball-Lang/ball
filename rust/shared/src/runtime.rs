@@ -149,6 +149,27 @@ pub fn ball_unsupported_base_call(module: &str, function: &str) -> BallValue {
 }
 
 // ════════════════════════════════════════════════════════════
+// Dynamic function-value dispatch (issue #39, gap #6)
+// ════════════════════════════════════════════════════════════
+
+/// Invoke a first-class function value with `input` (invariant #1 — one
+/// input, one output). This is the compiled target's answer to a dynamically
+/// dispatched call: a Ball `FunctionCall` whose callee is a *value* (a local
+/// holding a `lambda`, a `scope.lookup(name)` result, a callback parameter),
+/// not a statically-known function item, compiles to
+/// `ball_call_function(<value>, <input>)` — the self-hosted engine's
+/// `final bound = scope.lookup(name); bound(input)` /
+/// `Function.apply(fn, args)` / `list.indexWhere(predicate)` shapes all land
+/// here. A non-callable value fails loud (Ball programs never invoke a
+/// non-function; the reference engines raise the same way).
+pub fn ball_call_function(callee: BallValue, input: BallValue) -> BallValue {
+    match callee {
+        BallValue::Function(function) => function.call(input),
+        other => panic!("ball-compiler runtime: value is not callable: {other:?}"),
+    }
+}
+
+// ════════════════════════════════════════════════════════════
 // Arithmetic
 // ════════════════════════════════════════════════════════════
 
@@ -991,47 +1012,58 @@ pub fn ball_list_index_of(list: BallValue, value: BallValue) -> BallValue {
     )
 }
 
-pub fn ball_list_map<F: Fn(BallValue) -> BallValue>(list: BallValue, callback: F) -> BallValue {
-    BallValue::List(as_list(list).into_iter().map(callback).collect())
-}
-
-pub fn ball_list_filter<F: Fn(BallValue) -> BallValue>(list: BallValue, callback: F) -> BallValue {
+/// Apply a Ball function *value* to each element. Since #39's function-value
+/// model (see [`ball_call_function`]), a compiled `lambda` is a
+/// `BallValue::Function`, not a native Rust closure — so every
+/// callback-taking collection helper takes the callback as a `BallValue` and
+/// dispatches through [`ball_call_function`], exactly as the reference
+/// engines pass a `BallValue`-typed callback around.
+pub fn ball_list_map(list: BallValue, callback: BallValue) -> BallValue {
     BallValue::List(
         as_list(list)
             .into_iter()
-            .filter(|item| ball_truthy(callback(item.clone())))
+            .map(|item| ball_call_function(callback.clone(), item))
             .collect(),
     )
 }
 
-pub fn ball_list_find<F: Fn(BallValue) -> BallValue>(list: BallValue, callback: F) -> BallValue {
+pub fn ball_list_filter(list: BallValue, callback: BallValue) -> BallValue {
+    BallValue::List(
+        as_list(list)
+            .into_iter()
+            .filter(|item| ball_truthy(ball_call_function(callback.clone(), item.clone())))
+            .collect(),
+    )
+}
+
+pub fn ball_list_find(list: BallValue, callback: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
-        .find(|item| ball_truthy(callback(item.clone())))
+        .find(|item| ball_truthy(ball_call_function(callback.clone(), item.clone())))
         .unwrap_or_else(|| panic!("ball-compiler runtime: list_find found no matching element"))
 }
 
-pub fn ball_list_any<F: Fn(BallValue) -> BallValue>(list: BallValue, callback: F) -> BallValue {
+pub fn ball_list_any(list: BallValue, callback: BallValue) -> BallValue {
     BallValue::Bool(
         as_list(list)
             .into_iter()
-            .any(|item| ball_truthy(callback(item))),
+            .any(|item| ball_truthy(ball_call_function(callback.clone(), item))),
     )
 }
 
-pub fn ball_list_all<F: Fn(BallValue) -> BallValue>(list: BallValue, callback: F) -> BallValue {
+pub fn ball_list_all(list: BallValue, callback: BallValue) -> BallValue {
     BallValue::Bool(
         as_list(list)
             .into_iter()
-            .all(|item| ball_truthy(callback(item))),
+            .all(|item| ball_truthy(ball_call_function(callback.clone(), item))),
     )
 }
 
-pub fn ball_list_none<F: Fn(BallValue) -> BallValue>(list: BallValue, callback: F) -> BallValue {
+pub fn ball_list_none(list: BallValue, callback: BallValue) -> BallValue {
     BallValue::Bool(
         !as_list(list)
             .into_iter()
-            .any(|item| ball_truthy(callback(item))),
+            .any(|item| ball_truthy(ball_call_function(callback.clone(), item))),
     )
 }
 
@@ -1052,13 +1084,10 @@ pub fn ball_list_slice(list: BallValue, start: BallValue, end: BallValue) -> Bal
     BallValue::List(items[start_index..end_index.max(start_index)].to_vec())
 }
 
-pub fn ball_list_flat_map<F: Fn(BallValue) -> BallValue>(
-    list: BallValue,
-    callback: F,
-) -> BallValue {
+pub fn ball_list_flat_map(list: BallValue, callback: BallValue) -> BallValue {
     let mut out = Vec::new();
     for item in as_list(list) {
-        out.extend(as_list(callback(item)));
+        out.extend(as_list(ball_call_function(callback.clone(), item)));
     }
     BallValue::List(out)
 }
@@ -2164,12 +2193,29 @@ mod tests {
     }
 
     #[test]
-    fn list_map_applies_a_generic_callback() {
+    fn list_map_applies_a_function_value_callback() {
         let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
-        let doubled = ball_list_map(list, |v| ball_multiply(v, BallValue::Int(2)));
+        // The callback is a Ball function *value* (a `BallValue::Function`
+        // wrapping a native closure), dispatched via `ball_call_function` —
+        // matching what the compiler now emits for a `lambda` (#39).
+        let doubler = BallValue::Function(crate::BallFunction::new("", |v| {
+            ball_multiply(v, BallValue::Int(2))
+        }));
+        let doubled = ball_list_map(list, doubler);
         assert_eq!(
             doubled,
             BallValue::List(vec![BallValue::Int(2), BallValue::Int(4)])
+        );
+    }
+
+    #[test]
+    fn ball_call_function_invokes_a_wrapped_closure() {
+        let inc = BallValue::Function(crate::BallFunction::new("inc", |v| {
+            ball_add(v, BallValue::Int(1))
+        }));
+        assert_eq!(
+            ball_call_function(inc, BallValue::Int(41)),
+            BallValue::Int(42)
         );
     }
 

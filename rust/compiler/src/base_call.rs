@@ -92,6 +92,22 @@ impl Compiler<'_> {
             Some(input) => self.compile_expression(input),
             None => "BallValue::Null".to_string(),
         };
+        // A callee that is a **local binding** (a `let`/parameter holding a
+        // `BallValue::Function` — a stored `lambda`, a `scope.lookup(name)`
+        // result, a callback parameter `op`/`predicate`/`callback`, the
+        // `arg0` of `Function.apply`) is a call *through a value*: that local
+        // is a `BallValue`, not a callable Rust item, so `name(input)` is
+        // `error[E0618]` "expected function, found `BallValue`". Route it
+        // through the dynamic dispatcher (issue #39, gap #6). Every *other*
+        // unqualified callee names a real Rust `fn` — a user function or a
+        // `ball_shared::runtime` Dart-SDK helper (`unmodifiable`/`now`/`cast`/
+        // …) — and stays a direct call; only lexical scope (not the name
+        // alone) distinguishes the two, since a local can shadow a function
+        // of the same name. A cross-module call (non-empty `prefix`) is always
+        // a real function.
+        if prefix.is_empty() && self.is_local(&call.function) {
+            return format!("ball_call_function({name}.clone(), {input})");
+        }
         format!("{prefix}{name}({input})")
     }
 
@@ -419,6 +435,11 @@ impl Compiler<'_> {
     /// exactly matching a native C-style `for`.
     fn compile_for(&self, call: &FunctionCall, label: Option<&str>) -> String {
         let f = extract_fields(call);
+        // The C-style `for` is its own lexical scope: the `init` clause's
+        // loop counters are visible to `condition`/`update`/`body` and gone
+        // afterward. Bind them (via `compile_for_init`) so a call/reference
+        // to a counter resolves as a value (#39, gap #6).
+        self.push_scope();
         let init_code = f
             .get("init")
             .map(|e| self.compile_for_init(e))
@@ -432,6 +453,7 @@ impl Compiler<'_> {
             .get("update")
             .map(|e| self.compile_expression(e))
             .unwrap_or_default();
+        self.pop_scope();
         let label_prefix = label.map(|l| format!("'{l}: ")).unwrap_or_default();
         format!(
             "{{\n{init_code}let mut __ball_for_first = true;\n{label_prefix}loop {{\n\
@@ -470,6 +492,7 @@ impl Compiler<'_> {
                             Some(value) => self.compile_expression(value),
                             None => "BallValue::Null".to_string(),
                         };
+                        self.bind_local(&let_binding.name);
                         out.push_str(&format!("let mut {name} = {value};\n"));
                     }
                 }
@@ -488,8 +511,14 @@ impl Compiler<'_> {
             .string_field(&f, "variable")
             .unwrap_or_else(|| "item".to_string());
         let var_ident = crate::sanitize_ident(&variable);
+        // The iterable is evaluated in the *outer* scope (before the loop
+        // variable exists); the body is a new scope with the loop variable
+        // bound (so a call/reference to it resolves as a value — #39 gap #6).
         let iterable_code = self.field_or_null(&f, "iterable");
+        self.push_scope();
+        self.bind_local(&variable);
         let body_code = self.field_or_null(&f, "body");
+        self.pop_scope();
         let mutated = f
             .get("body")
             .is_some_and(|body| self.expr_mutates_var(body, &variable));
@@ -667,10 +696,14 @@ impl Compiler<'_> {
             let var_name = self
                 .string_field(&cf, "variable")
                 .unwrap_or_else(|| "_ball_err".to_string());
+            // The catch variable is a local in the handler body's scope.
+            self.push_scope();
+            self.bind_local(&var_name);
             let catch_body = cf
                 .get("body")
                 .map(|b| self.compile_expression(b))
                 .unwrap_or_else(|| "BallValue::Null".to_string());
+            self.pop_scope();
             out.push_str(&format!(
                 "let {} = __err;\n{}\n",
                 crate::sanitize_ident(&var_name),

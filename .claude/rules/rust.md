@@ -98,11 +98,14 @@ cargo fmt --check && cargo clippy --workspace
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-compiler` into `src/compiled_engine.rs`.
-- **Status: blocked, not runnable.** ~414 `rustc` errors compiling the full self-hosted engine
-  (oneof-discriminator enum constants, missing Dart-SDK-shaped runtime helpers, `ball_proto`/
-  `std_convert` base dispatch, named/optional-param binding, constructor/super-constructor
-  inheritance, borrow-checker-vs-dynamic-value mismatches). Full breakdown in
-  `rust/engine/AGENTS.md`. The `self_host` cargo feature keeps the broken driver off by
+- **Status: blocked, not runnable.** 186 `rustc` errors compiling the full self-hosted engine
+  (down from ~414 → ~326). Resolved so far: oneof-discriminator enum constants, named/optional-
+  param binding, the `__no_init__` sentinel, and the whole Dart-SDK method/type-ref surface
+  (String/List/Map/Set/`num`/`int`/`double`/`RegExp`/`DateTime`/`File` — the `ball_shared::
+  runtime::dartsdk` submodule). Still blocking: `ball_proto`/`std_convert` base dispatch,
+  constructor/super-constructor inheritance, `Function.apply`/`List.indexWhere` (dynamic function
+  dispatch), and the borrow-checker-vs-dynamic-value mismatches (the bulk of the remaining count).
+  Full breakdown in `rust/engine/AGENTS.md`. The `self_host` cargo feature keeps the broken driver off by
   default; `cargo build -p ball-engine` / `cargo test -p ball-engine` are green on the wrapper
   foundation (`loader.rs`/`scope.rs`/`ball_proto.rs`) only.
 - Do NOT wire new callers to `BallEngine::run` expecting real execution — it currently returns

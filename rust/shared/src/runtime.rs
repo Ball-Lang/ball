@@ -57,7 +57,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::value::{BallList, BallMap, BallValue};
+use crate::value::{BallList, BallMap, BallMessage, BallValue};
 
 // ════════════════════════════════════════════════════════════
 // Internal coercion helpers
@@ -1425,6 +1425,605 @@ pub fn ball_catch_payload(payload: Box<dyn std::any::Any + Send>) -> BallValue {
     }
 }
 
+/// `a ?? b` / `a ??= b` — the null-coalescing operator. Yields `left` unless
+/// it is `null`, otherwise `right` (Dart's `??`: a non-null left short-circuits
+/// and `right` is never observed for its value). Emitted by the compiler's
+/// `lvalue` module for `??=` (`compiler/src/lvalue.rs`) and by
+/// `compile_null_coalesce`; both previously referenced this helper without a
+/// definition (issue #39 — a `cannot find function ball_null_coalesce`).
+pub fn ball_null_coalesce(left: BallValue, right: BallValue) -> BallValue {
+    if left == BallValue::Null { right } else { left }
+}
+
+pub use dartsdk::*;
+
+/// Dart-SDK method + type helpers (issue #39 — self-host gap #2).
+///
+/// The self-hosted engine (`dart/self_host/engine.ball.json`) is authored
+/// against the full Dart SDK: it calls `String`/`List`/`Map`/`Set`/`num`/
+/// `int`/`double`/`RegExp`/`DateTime`/`File` methods and static constructors
+/// which the Ball compiler lowers verbatim as free-function calls
+/// `<method>({self: <receiver>, arg0: <a0>, arg1: <a1>, …})` — a method's
+/// receiver rides in the packed `input` message under `self`, positional
+/// arguments are `arg0`/`arg1`/…, named arguments under their own name (the
+/// universal invariant-#1 calling convention; see [`ball_arg_get`]). A
+/// *static* receiver (`int.tryParse`, `List.filled`, `DateTime.now`) lowers
+/// its type name to a bare value reference, so each SDK type also needs an
+/// in-scope marker value.
+///
+/// Semantics match Dart's exactly (`dart/engine/lib/engine_std.dart` /
+/// `dart/shared/lib/std*.dart`, the conformance oracle). Where the Rust value
+/// model can't express a Dart construct faithfully the divergence is noted
+/// inline: a `Set` shares the `List` representation (issue #35), so a method
+/// that would dedup on a genuine `Set` is documented; object *identity* can't
+/// exist in a by-value model, so `identical` falls back to structural
+/// equality. Receiver mutation does not propagate back to the caller's binding
+/// (the receiver arrives cloned under `self`) — that is the separate
+/// borrow-checker/dynamic-value gap (#39 gap #6); these helpers still compute
+/// and return the correct *result* value.
+mod dartsdk {
+    #![allow(non_snake_case, non_upper_case_globals)]
+
+    use std::sync::LazyLock;
+
+    use super::*;
+
+    // ── input unpacking ──────────────────────────────────────
+
+    /// Read a keyed field (`self`/`arg0`/`arg1`/a named parameter) out of a
+    /// method call's packed `input` message. Absent ⇒ `Null` (an omitted
+    /// optional argument), matching [`ball_arg_get`]'s convention.
+    fn m_get(input: &BallValue, key: &str) -> BallValue {
+        match input {
+            BallValue::Map(map) => map.get(key).cloned().unwrap_or(BallValue::Null),
+            BallValue::Message(msg) => msg.fields.get(key).cloned().unwrap_or(BallValue::Null),
+            _ => BallValue::Null,
+        }
+    }
+
+    // ── SDK type markers (static receivers) ──────────────────
+    //
+    // A static call `int.tryParse(s)` lowers `int` to a bare value read, so
+    // each type needs an in-scope marker. The marker is the type's own name
+    // (a `String`), which the polymorphic helpers below (`tryParse`/`parse`/
+    // `unmodifiable`) read to dispatch. `String` lives in the *value*
+    // namespace and never collides with the prelude's `String` *type*.
+
+    pub static int: LazyLock<BallValue> = LazyLock::new(|| BallValue::String("int".to_string()));
+    pub static double: LazyLock<BallValue> =
+        LazyLock::new(|| BallValue::String("double".to_string()));
+    pub static num: LazyLock<BallValue> = LazyLock::new(|| BallValue::String("num".to_string()));
+    pub static List: LazyLock<BallValue> = LazyLock::new(|| BallValue::String("List".to_string()));
+    pub static Map: LazyLock<BallValue> = LazyLock::new(|| BallValue::String("Map".to_string()));
+    pub static Set: LazyLock<BallValue> = LazyLock::new(|| BallValue::String("Set".to_string()));
+    pub static String: LazyLock<BallValue> =
+        LazyLock::new(|| BallValue::String("String".to_string()));
+    pub static Function: LazyLock<BallValue> =
+        LazyLock::new(|| BallValue::String("Function".to_string()));
+    pub static DateTime: LazyLock<BallValue> =
+        LazyLock::new(|| BallValue::String("DateTime".to_string()));
+
+    /// `dart:io`'s `FileMode` enum (`FileMode.write`/`.append`/…) — the values
+    /// `File.writeAsStringSync(…, mode: FileMode.append)` reads. Mirrors the
+    /// oneof-discriminator enum namespaces: a message whose members are the
+    /// enum arm's own name string.
+    pub static io_FileMode: LazyLock<BallValue> = LazyLock::new(|| {
+        let mut fields = BallMap::new();
+        for name in ["read", "write", "append", "writeOnly", "writeOnlyAppend"] {
+            fields.insert(name.to_string(), BallValue::String(name.to_string()));
+        }
+        BallValue::Message(BallMessage {
+            type_name: "io_FileMode".to_string(),
+            fields,
+        })
+    });
+
+    // ── num / int / double parsing ───────────────────────────
+    //
+    // Dart's `int.parse`/`num.parse`/`double.parse` allow surrounding
+    // whitespace and an optional leading sign; the `try*` forms return `null`
+    // instead of throwing. `num.tryParse` returns an `int` when the source is
+    // an integer literal and a `double` otherwise.
+
+    fn parse_int_dart(s: &str) -> Option<i64> {
+        s.trim().parse::<i64>().ok()
+    }
+
+    fn parse_double_dart(s: &str) -> Option<f64> {
+        let t = s.trim();
+        match t {
+            "Infinity" | "+Infinity" => Some(f64::INFINITY),
+            "-Infinity" => Some(f64::NEG_INFINITY),
+            "NaN" => Some(f64::NAN),
+            // Rust's own `f64` parser also accepts "inf"/"nan", which Dart does
+            // *not*; the engine only ever feeds numeric literals, so the extra
+            // spellings are unreachable and harmless.
+            _ => t.parse::<f64>().ok(),
+        }
+    }
+
+    fn parse_num_dart(s: &str) -> Option<BallValue> {
+        let t = s.trim();
+        if let Ok(i) = t.parse::<i64>() {
+            return Some(BallValue::Int(i));
+        }
+        parse_double_dart(t).map(BallValue::Double)
+    }
+
+    fn marker_str(v: &BallValue) -> &str {
+        match v {
+            BallValue::String(m) => m.as_str(),
+            _ => "num",
+        }
+    }
+
+    /// `int.tryParse(s)` / `double.tryParse(s)` / `num.tryParse(s)` — `self` is
+    /// the numeric type marker, `arg0` the source string. Returns `Null` on a
+    /// non-string source or a parse failure.
+    pub fn tryParse(input: BallValue) -> BallValue {
+        let ty = m_get(&input, "self");
+        let source = m_get(&input, "arg0");
+        let BallValue::String(s) = &source else {
+            return BallValue::Null;
+        };
+        match marker_str(&ty) {
+            "int" => parse_int_dart(s)
+                .map(BallValue::Int)
+                .unwrap_or(BallValue::Null),
+            "double" => parse_double_dart(s)
+                .map(BallValue::Double)
+                .unwrap_or(BallValue::Null),
+            _ => parse_num_dart(s).unwrap_or(BallValue::Null),
+        }
+    }
+
+    /// `int.parse(s)` / `num.parse(s)` / `double.parse(s)` — the throwing form
+    /// (Dart raises `FormatException` on a bad source; this fails loud).
+    pub fn parse(input: BallValue) -> BallValue {
+        let result = tryParse(input.clone());
+        if result == BallValue::Null {
+            let source = m_get(&input, "arg0");
+            panic!("ball-compiler runtime: FormatException: cannot parse '{source}' as a number");
+        }
+        result
+    }
+
+    /// `num.remainder(other)` — the *truncated* remainder (sign of the
+    /// dividend), distinct from `%` (which is Euclidean in Ball). Integer
+    /// operands yield an `int`; any `double` operand yields a `double`.
+    pub fn remainder(input: BallValue) -> BallValue {
+        let a = m_get(&input, "self");
+        let b = m_get(&input, "arg0");
+        match (&a, &b) {
+            (BallValue::Int(x), BallValue::Int(y)) => {
+                if *y == 0 {
+                    panic!("ball-compiler runtime: integer remainder by zero");
+                }
+                BallValue::Int(x.wrapping_rem(*y))
+            }
+            _ => BallValue::Double(as_f64(&a) % as_f64(&b)),
+        }
+    }
+
+    /// `String.fromCharCode(code)` — a one-character string from a UTF-16/rune
+    /// code point (`self` is the `String` type marker, `arg0` the code).
+    pub fn fromCharCode(input: BallValue) -> BallValue {
+        ball_string_from_char_code(m_get(&input, "arg0"))
+    }
+
+    // ── RegExp ───────────────────────────────────────────────
+    //
+    // The engine constructs a `RegExp(pattern)` as an anonymous message
+    // `{arg0: <pattern>}`; a match is materialized as
+    // `{__ball_regexp_match__ groups: [<full>, <g1>, …]}` so `group(i)` is a
+    // list read. Dart's `RegExp` throws a `FormatException` on an invalid
+    // pattern — here compilation fails loud at first use.
+
+    fn regex_pattern_of(v: &BallValue) -> std::string::String {
+        match v {
+            BallValue::String(s) => s.clone(),
+            BallValue::Map(map) => map
+                .get("arg0")
+                .or_else(|| map.get("pattern"))
+                .or_else(|| map.get("source"))
+                .map(|x| x.to_string())
+                .unwrap_or_default(),
+            BallValue::Message(msg) => msg
+                .fields
+                .get("arg0")
+                .or_else(|| msg.fields.get("pattern"))
+                .or_else(|| msg.fields.get("source"))
+                .map(|x| x.to_string())
+                .unwrap_or_default(),
+            other => panic!("ball-compiler runtime: RegExp receiver is not a pattern: {other:?}"),
+        }
+    }
+
+    fn compile_regex(pattern: &str) -> regex::Regex {
+        regex::Regex::new(pattern)
+            .unwrap_or_else(|e| panic!("ball-compiler runtime: invalid RegExp /{pattern}/: {e}"))
+    }
+
+    fn regex_match_value(caps: &regex::Captures) -> BallValue {
+        let mut groups: BallList = Vec::new();
+        for i in 0..caps.len() {
+            match caps.get(i) {
+                Some(m) => groups.push(BallValue::String(m.as_str().to_string())),
+                None => groups.push(BallValue::Null),
+            }
+        }
+        let mut fields = BallMap::new();
+        fields.insert("groups".to_string(), BallValue::List(groups));
+        BallValue::Message(BallMessage {
+            type_name: "__ball_regexp_match__".to_string(),
+            fields,
+        })
+    }
+
+    /// `RegExp.firstMatch(subject)` — the first match, or `Null` if none.
+    pub fn firstMatch(input: BallValue) -> BallValue {
+        let pattern = regex_pattern_of(&m_get(&input, "self"));
+        let subject = m_get(&input, "arg0");
+        let re = compile_regex(&pattern);
+        match re.captures(as_str(&subject)) {
+            Some(caps) => regex_match_value(&caps),
+            None => BallValue::Null,
+        }
+    }
+
+    /// `RegExp.allMatches(subject)` — every non-overlapping match, in order.
+    pub fn allMatches(input: BallValue) -> BallValue {
+        let pattern = regex_pattern_of(&m_get(&input, "self"));
+        let subject = m_get(&input, "arg0");
+        let re = compile_regex(&pattern);
+        BallValue::List(
+            re.captures_iter(as_str(&subject))
+                .map(|caps| regex_match_value(&caps))
+                .collect(),
+        )
+    }
+
+    /// `RegExpMatch.group(i)` — group 0 is the whole match; a group that did
+    /// not participate is `Null` (`self` is the match, `arg0` the index).
+    pub fn group(input: BallValue) -> BallValue {
+        let match_value = m_get(&input, "self");
+        let index = as_index(&m_get(&input, "arg0"));
+        match m_get(&match_value, "groups") {
+            BallValue::List(groups) => groups.get(index).cloned().unwrap_or(BallValue::Null),
+            _ => BallValue::Null,
+        }
+    }
+
+    // ── List / Map / Set methods ─────────────────────────────
+    //
+    // Receiver mutation is not observed by the caller (the receiver is cloned
+    // into `self` — gap #6); each helper returns the correct *result* value,
+    // and returns the mutated collection so a `cascade` (`..addAll(x)`) reads
+    // the receiver it expects.
+
+    /// `List.addAll(iterable)` / `Map.addAll(other)`. `Set.addAll` shares the
+    /// `List` path and therefore does *not* dedup (the value model has no
+    /// distinct `Set` — issue #35).
+    pub fn addAll(input: BallValue) -> BallValue {
+        let receiver = m_get(&input, "self");
+        let other = m_get(&input, "arg0");
+        match receiver {
+            BallValue::Map(mut map) => {
+                match other {
+                    BallValue::Map(entries) => {
+                        for (k, v) in entries {
+                            map.insert(k, v);
+                        }
+                    }
+                    BallValue::Message(msg) => {
+                        for (k, v) in msg.fields {
+                            map.insert(k, v);
+                        }
+                    }
+                    _ => {}
+                }
+                BallValue::Map(map)
+            }
+            BallValue::List(mut list) => {
+                list.extend(as_list(other));
+                BallValue::List(list)
+            }
+            other => panic!("ball-compiler runtime: addAll on unsupported receiver: {other:?}"),
+        }
+    }
+
+    /// `List.remove(value)` / `Set.remove(value)` → `bool` (was it present);
+    /// `Map.remove(key)` → the removed value (or `Null`).
+    pub fn remove(input: BallValue) -> BallValue {
+        let receiver = m_get(&input, "self");
+        let target = m_get(&input, "arg0");
+        match receiver {
+            BallValue::Map(mut map) => map
+                .shift_remove(&index_key(&target))
+                .unwrap_or(BallValue::Null),
+            BallValue::List(mut list) => match list.iter().position(|item| *item == target) {
+                Some(pos) => {
+                    list.remove(pos);
+                    BallValue::Bool(true)
+                }
+                None => BallValue::Bool(false),
+            },
+            other => panic!("ball-compiler runtime: remove on unsupported receiver: {other:?}"),
+        }
+    }
+
+    /// `List.clear()` / `Map.clear()` / `Set.clear()` — the emptied receiver.
+    pub fn clear(input: BallValue) -> BallValue {
+        match m_get(&input, "self") {
+            BallValue::Map(_) => BallValue::Map(BallMap::new()),
+            BallValue::List(_) => BallValue::List(BallList::new()),
+            other => other,
+        }
+    }
+
+    /// `List.setAll(index, iterable)` — overwrite elements starting at `index`
+    /// (Dart throws if it would run past the end).
+    pub fn setAll(input: BallValue) -> BallValue {
+        let mut list = as_list(m_get(&input, "self"));
+        let start = as_index(&m_get(&input, "arg0"));
+        for (offset, item) in as_list(m_get(&input, "arg1")).into_iter().enumerate() {
+            let index = start + offset;
+            if index >= list.len() {
+                panic!("ball-compiler runtime: setAll range past end of list");
+            }
+            list[index] = item;
+        }
+        BallValue::List(list)
+    }
+
+    /// `Iterable.cast<T>()` — a re-typed view; in the dynamic value model the
+    /// receiver is returned unchanged.
+    pub fn cast(input: BallValue) -> BallValue {
+        m_get(&input, "self")
+    }
+
+    /// `Iterable.toSet()` — an insertion-ordered, de-duplicated `Set` (the
+    /// `List`-backed set representation, matching `ball_set_create`).
+    pub fn toSet(input: BallValue) -> BallValue {
+        ball_set_create(m_get(&input, "self"))
+    }
+
+    /// `List.unmodifiable(x)` / `Map.unmodifiable(x)` / `Set.unmodifiable(x)` —
+    /// a copy of `x` (unmodifiability is not enforced by the value model). A
+    /// `Set` copy de-duplicates.
+    pub fn unmodifiable(input: BallValue) -> BallValue {
+        let collection = m_get(&input, "arg0");
+        match m_get(&input, "self") {
+            BallValue::String(ref m) if m == "Set" => ball_set_create(collection),
+            _ => collection,
+        }
+    }
+
+    /// `List.filled(count, value)` — a `count`-length list of `value`.
+    pub fn filled(input: BallValue) -> BallValue {
+        let count = as_index(&m_get(&input, "arg0"));
+        let value = m_get(&input, "arg1");
+        BallValue::List(vec![value; count])
+    }
+
+    /// `Iterable.elementAt(index)` — the element at `index` (Dart throws
+    /// `RangeError` when out of bounds).
+    pub fn elementAt(input: BallValue) -> BallValue {
+        let list = as_list(m_get(&input, "self"));
+        let index = as_index(&m_get(&input, "arg0"));
+        list.get(index).cloned().unwrap_or_else(|| {
+            panic!("ball-compiler runtime: elementAt index {index} out of range")
+        })
+    }
+
+    /// `Set.union(other)`.
+    pub fn union_(input: BallValue) -> BallValue {
+        ball_set_union(m_get(&input, "self"), m_get(&input, "arg0"))
+    }
+
+    /// `Set.intersection(other)`.
+    pub fn intersection(input: BallValue) -> BallValue {
+        ball_set_intersection(m_get(&input, "self"), m_get(&input, "arg0"))
+    }
+
+    /// `Set.difference(other)`.
+    pub fn difference(input: BallValue) -> BallValue {
+        ball_set_difference(m_get(&input, "self"), m_get(&input, "arg0"))
+    }
+
+    /// Top-level `identical(a, b)`. A by-value model has no object identity,
+    /// so this is structural equality (`a == b`) — exact for primitives, and
+    /// the closest faithful answer for the engine's own comparisons.
+    pub fn identical(input: BallValue) -> BallValue {
+        ball_equals(m_get(&input, "arg0"), m_get(&input, "arg1"))
+    }
+
+    // ── DateTime ─────────────────────────────────────────────
+
+    /// `DateTime.now()` — surfaced as `{millisecondsSinceEpoch,
+    /// microsecondsSinceEpoch}` (the only fields the engine's profiling reads).
+    pub fn now(_input: BallValue) -> BallValue {
+        let elapsed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let mut fields = BallMap::new();
+        fields.insert(
+            "millisecondsSinceEpoch".to_string(),
+            BallValue::Int(elapsed.as_millis() as i64),
+        );
+        fields.insert(
+            "microsecondsSinceEpoch".to_string(),
+            BallValue::Int(elapsed.as_micros() as i64),
+        );
+        BallValue::Map(fields)
+    }
+
+    // ── dart:math free functions (`dart_math::*`) ────────────
+    //
+    // The engine calls these as `dart_math::sqrt(x)` (module-qualified); the
+    // compiler's empty-namespace-module re-export makes them resolve here.
+    // Unary functions receive the number directly; `atan2` receives an
+    // `{arg0, arg1}` message.
+
+    pub fn sqrt(input: BallValue) -> BallValue {
+        ball_math_sqrt(input)
+    }
+    pub fn sin(input: BallValue) -> BallValue {
+        ball_math_sin(input)
+    }
+    pub fn cos(input: BallValue) -> BallValue {
+        ball_math_cos(input)
+    }
+    pub fn tan(input: BallValue) -> BallValue {
+        ball_math_tan(input)
+    }
+    pub fn asin(input: BallValue) -> BallValue {
+        ball_math_asin(input)
+    }
+    pub fn acos(input: BallValue) -> BallValue {
+        ball_math_acos(input)
+    }
+    pub fn atan(input: BallValue) -> BallValue {
+        ball_math_atan(input)
+    }
+    pub fn log(input: BallValue) -> BallValue {
+        ball_math_log(input)
+    }
+    pub fn exp(input: BallValue) -> BallValue {
+        ball_math_exp(input)
+    }
+    pub fn atan2(input: BallValue) -> BallValue {
+        ball_math_atan2(m_get(&input, "arg0"), m_get(&input, "arg1"))
+    }
+
+    // ── dart:io (`dart_io::File`/`Directory` + sync ops) ─────
+    //
+    // A `File`/`Directory` is a message tagged with its kind holding the
+    // path; the `*Sync` operations are genuine filesystem side effects (Dart's
+    // `*Sync` throws on error — these fail loud).
+
+    fn path_arg(v: &BallValue) -> std::string::String {
+        match v {
+            BallValue::String(s) => s.clone(),
+            BallValue::Map(map) => map
+                .get("path")
+                .or_else(|| map.get("arg0"))
+                .map(|x| x.to_string())
+                .unwrap_or_default(),
+            BallValue::Message(msg) => msg
+                .fields
+                .get("path")
+                .or_else(|| msg.fields.get("arg0"))
+                .map(|x| x.to_string())
+                .unwrap_or_default(),
+            other => other.to_string(),
+        }
+    }
+
+    fn fs_handle(kind: &str, path: std::string::String) -> BallValue {
+        let mut fields = BallMap::new();
+        fields.insert("path".to_string(), BallValue::String(path));
+        BallValue::Message(BallMessage {
+            type_name: kind.to_string(),
+            fields,
+        })
+    }
+
+    /// `File(path)`.
+    pub fn File(input: BallValue) -> BallValue {
+        fs_handle("__ball_io_file__", path_arg(&input))
+    }
+
+    /// `Directory(path)`.
+    pub fn Directory(input: BallValue) -> BallValue {
+        fs_handle("__ball_io_directory__", path_arg(&input))
+    }
+
+    /// `File.existsSync()` / `Directory.existsSync()`.
+    pub fn existsSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        BallValue::Bool(std::path::Path::new(&path).exists())
+    }
+
+    /// `File.readAsStringSync()`.
+    pub fn readAsStringSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        match std::fs::read_to_string(&path) {
+            Ok(contents) => BallValue::String(contents),
+            Err(e) => panic!("ball-compiler runtime: readAsStringSync('{path}') failed: {e}"),
+        }
+    }
+
+    /// `File.writeAsStringSync(contents, {mode})` — `FileMode.append` appends,
+    /// every other mode truncates.
+    pub fn writeAsStringSync(input: BallValue) -> BallValue {
+        use std::io::Write;
+        let path = path_arg(&m_get(&input, "self"));
+        let contents = m_get(&input, "arg0").to_string();
+        let mode = m_get(&input, "mode");
+        let append = matches!(&mode, BallValue::String(m) if m == "append");
+        let result = if append {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut file| file.write_all(contents.as_bytes()))
+        } else {
+            std::fs::write(&path, contents.as_bytes())
+        };
+        if let Err(e) = result {
+            panic!("ball-compiler runtime: writeAsStringSync('{path}') failed: {e}");
+        }
+        BallValue::Null
+    }
+
+    /// `File.writeAsBytesSync(bytes)`.
+    pub fn writeAsBytesSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        let bytes = match m_get(&input, "arg0") {
+            BallValue::Bytes(b) => b,
+            BallValue::List(list) => list.iter().map(|v| as_i64(v) as u8).collect(),
+            other => {
+                panic!("ball-compiler runtime: writeAsBytesSync expected bytes, got {other:?}")
+            }
+        };
+        if let Err(e) = std::fs::write(&path, bytes) {
+            panic!("ball-compiler runtime: writeAsBytesSync('{path}') failed: {e}");
+        }
+        BallValue::Null
+    }
+
+    /// `Directory.createSync({recursive})`.
+    pub fn createSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        let recursive = ball_truthy(m_get(&input, "recursive"));
+        let result = if recursive {
+            std::fs::create_dir_all(&path)
+        } else {
+            std::fs::create_dir(&path)
+        };
+        if let Err(e) = result {
+            panic!("ball-compiler runtime: createSync('{path}') failed: {e}");
+        }
+        BallValue::Null
+    }
+
+    /// `File.deleteSync()` / `Directory.deleteSync()`.
+    pub fn deleteSync(input: BallValue) -> BallValue {
+        let path = path_arg(&m_get(&input, "self"));
+        let path_ref = std::path::Path::new(&path);
+        let result = if path_ref.is_dir() {
+            std::fs::remove_dir_all(path_ref)
+        } else {
+            std::fs::remove_file(path_ref)
+        };
+        if let Err(e) = result {
+            panic!("ball-compiler runtime: deleteSync('{path}') failed: {e}");
+        }
+        BallValue::Null
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1682,5 +2281,354 @@ mod tests {
             ball_math_lcm(BallValue::Int(4), BallValue::Int(6)),
             BallValue::Int(12)
         );
+    }
+}
+
+/// Dart-SDK method/type helpers (issue #39 gap #2). Each helper is called with
+/// the exact packed `input` message shape the compiler emits — a `Map` whose
+/// `self` slot is the receiver and `arg0`/`arg1`/named slots the arguments.
+#[cfg(test)]
+mod dartsdk_tests {
+    use super::*;
+
+    /// Build the packed method-call `input` message (`{key: value, …}`).
+    fn call(pairs: &[(&str, BallValue)]) -> BallValue {
+        let mut map = BallMap::new();
+        for (key, value) in pairs {
+            map.insert((*key).to_string(), value.clone());
+        }
+        BallValue::Map(map)
+    }
+
+    fn s(text: &str) -> BallValue {
+        BallValue::String(text.to_string())
+    }
+
+    #[test]
+    fn null_coalesce_prefers_non_null_left() {
+        assert_eq!(
+            ball_null_coalesce(BallValue::Null, BallValue::Int(7)),
+            BallValue::Int(7)
+        );
+        assert_eq!(
+            ball_null_coalesce(BallValue::Int(3), BallValue::Int(7)),
+            BallValue::Int(3)
+        );
+    }
+
+    #[test]
+    fn try_parse_int_double_num() {
+        // int.tryParse
+        assert_eq!(
+            tryParse(call(&[("self", int.clone()), ("arg0", s("  42 "))])),
+            BallValue::Int(42)
+        );
+        assert_eq!(
+            tryParse(call(&[("self", int.clone()), ("arg0", s("nope"))])),
+            BallValue::Null
+        );
+        assert_eq!(
+            tryParse(call(&[("self", int.clone()), ("arg0", s("3.5"))])),
+            BallValue::Null // "3.5" is not a valid int
+        );
+        // double.tryParse
+        assert_eq!(
+            tryParse(call(&[("self", double.clone()), ("arg0", s("3.5"))])),
+            BallValue::Double(3.5)
+        );
+        // num.tryParse: integer literal -> int, fractional -> double
+        assert_eq!(
+            tryParse(call(&[("self", num.clone()), ("arg0", s("10"))])),
+            BallValue::Int(10)
+        );
+        assert_eq!(
+            tryParse(call(&[("self", num.clone()), ("arg0", s("10.5"))])),
+            BallValue::Double(10.5)
+        );
+    }
+
+    #[test]
+    fn parse_throws_on_bad_source() {
+        assert_eq!(
+            parse(call(&[("self", int.clone()), ("arg0", s("100"))])),
+            BallValue::Int(100)
+        );
+        let bad =
+            std::panic::catch_unwind(|| parse(call(&[("self", int.clone()), ("arg0", s("x"))])));
+        assert!(bad.is_err());
+    }
+
+    #[test]
+    fn remainder_is_truncated_sign_of_dividend() {
+        // int.remainder keeps the dividend's sign (unlike Euclidean `%`).
+        assert_eq!(
+            remainder(call(&[
+                ("self", BallValue::Int(-7)),
+                ("arg0", BallValue::Int(3))
+            ])),
+            BallValue::Int(-1)
+        );
+        assert_eq!(
+            remainder(call(&[
+                ("self", BallValue::Double(5.5)),
+                ("arg0", BallValue::Int(2))
+            ])),
+            BallValue::Double(1.5)
+        );
+    }
+
+    #[test]
+    fn from_char_code_builds_string() {
+        assert_eq!(
+            fromCharCode(call(&[
+                ("self", String.clone()),
+                ("arg0", BallValue::Int(65))
+            ])),
+            s("A")
+        );
+    }
+
+    #[test]
+    fn regex_first_match_and_group() {
+        // RegExp is the anonymous `{arg0: pattern}` message the engine builds.
+        let regexp = call(&[("arg0", s(r"^(\w+)\[(\d+)\]$"))]);
+        let matched = firstMatch(call(&[("self", regexp.clone()), ("arg0", s("items[7]"))]));
+        // group(0) whole match, group(1)/group(2) captures.
+        assert_eq!(
+            group(call(&[
+                ("self", matched.clone()),
+                ("arg0", BallValue::Int(0))
+            ])),
+            s("items[7]")
+        );
+        assert_eq!(
+            group(call(&[
+                ("self", matched.clone()),
+                ("arg0", BallValue::Int(1))
+            ])),
+            s("items")
+        );
+        assert_eq!(
+            group(call(&[
+                ("self", matched.clone()),
+                ("arg0", BallValue::Int(2))
+            ])),
+            s("7")
+        );
+        // No match -> Null.
+        assert_eq!(
+            firstMatch(call(&[("self", regexp), ("arg0", s("nope"))])),
+            BallValue::Null
+        );
+    }
+
+    #[test]
+    fn add_all_list_and_map() {
+        let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
+        let extra = BallValue::List(vec![BallValue::Int(3)]);
+        assert_eq!(
+            addAll(call(&[("self", list), ("arg0", extra)])),
+            BallValue::List(vec![
+                BallValue::Int(1),
+                BallValue::Int(2),
+                BallValue::Int(3)
+            ])
+        );
+        let mut base = BallMap::new();
+        base.insert("a".to_string(), BallValue::Int(1));
+        let mut more = BallMap::new();
+        more.insert("b".to_string(), BallValue::Int(2));
+        let merged = addAll(call(&[
+            ("self", BallValue::Map(base)),
+            ("arg0", BallValue::Map(more)),
+        ]));
+        let BallValue::Map(result) = merged else {
+            panic!("expected map");
+        };
+        assert_eq!(result.get("a"), Some(&BallValue::Int(1)));
+        assert_eq!(result.get("b"), Some(&BallValue::Int(2)));
+    }
+
+    #[test]
+    fn remove_list_returns_bool_map_returns_value() {
+        let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
+        assert_eq!(
+            remove(call(&[("self", list.clone()), ("arg0", BallValue::Int(2))])),
+            BallValue::Bool(true)
+        );
+        assert_eq!(
+            remove(call(&[("self", list), ("arg0", BallValue::Int(9))])),
+            BallValue::Bool(false)
+        );
+        let mut map = BallMap::new();
+        map.insert("k".to_string(), s("v"));
+        assert_eq!(
+            remove(call(&[("self", BallValue::Map(map)), ("arg0", s("k"))])),
+            s("v")
+        );
+    }
+
+    #[test]
+    fn to_set_dedups_preserving_order() {
+        let list = BallValue::List(vec![
+            BallValue::Int(2),
+            BallValue::Int(1),
+            BallValue::Int(2),
+            BallValue::Int(3),
+        ]);
+        assert_eq!(
+            toSet(call(&[("self", list)])),
+            BallValue::List(vec![
+                BallValue::Int(2),
+                BallValue::Int(1),
+                BallValue::Int(3)
+            ])
+        );
+    }
+
+    #[test]
+    fn filled_and_element_at_and_set_all() {
+        let filled_list = filled(call(&[
+            ("self", List.clone()),
+            ("arg0", BallValue::Int(3)),
+            ("arg1", s("x")),
+        ]));
+        assert_eq!(filled_list, BallValue::List(vec![s("x"), s("x"), s("x")]));
+        assert_eq!(
+            elementAt(call(&[
+                ("self", filled_list.clone()),
+                ("arg0", BallValue::Int(1))
+            ])),
+            s("x")
+        );
+        let target = BallValue::List(vec![
+            BallValue::Int(0),
+            BallValue::Int(0),
+            BallValue::Int(0),
+        ]);
+        let replacement = BallValue::List(vec![BallValue::Int(8), BallValue::Int(9)]);
+        assert_eq!(
+            setAll(call(&[
+                ("self", target),
+                ("arg0", BallValue::Int(1)),
+                ("arg1", replacement)
+            ])),
+            BallValue::List(vec![
+                BallValue::Int(0),
+                BallValue::Int(8),
+                BallValue::Int(9)
+            ])
+        );
+    }
+
+    #[test]
+    fn set_operations() {
+        let a = BallValue::List(vec![
+            BallValue::Int(1),
+            BallValue::Int(2),
+            BallValue::Int(3),
+        ]);
+        let b = BallValue::List(vec![
+            BallValue::Int(2),
+            BallValue::Int(3),
+            BallValue::Int(4),
+        ]);
+        assert_eq!(
+            union_(call(&[("self", a.clone()), ("arg0", b.clone())])),
+            BallValue::List(vec![
+                BallValue::Int(1),
+                BallValue::Int(2),
+                BallValue::Int(3),
+                BallValue::Int(4)
+            ])
+        );
+        assert_eq!(
+            intersection(call(&[("self", a.clone()), ("arg0", b.clone())])),
+            BallValue::List(vec![BallValue::Int(2), BallValue::Int(3)])
+        );
+        assert_eq!(
+            difference(call(&[("self", a), ("arg0", b)])),
+            BallValue::List(vec![BallValue::Int(1)])
+        );
+    }
+
+    #[test]
+    fn identical_is_structural_for_primitives() {
+        assert_eq!(
+            identical(call(&[
+                ("arg0", BallValue::Int(5)),
+                ("arg1", BallValue::Int(5))
+            ])),
+            BallValue::Bool(true)
+        );
+        assert_eq!(
+            identical(call(&[("arg0", s("a")), ("arg1", s("b"))])),
+            BallValue::Bool(false)
+        );
+    }
+
+    #[test]
+    fn now_exposes_epoch_fields() {
+        let now_value = now(BallValue::Null);
+        assert!(matches!(
+            ball_field_get(now_value.clone(), "millisecondsSinceEpoch"),
+            BallValue::Int(_)
+        ));
+        assert!(matches!(
+            ball_field_get(now_value, "microsecondsSinceEpoch"),
+            BallValue::Int(_)
+        ));
+    }
+
+    #[test]
+    fn dart_math_helpers() {
+        assert_eq!(sqrt(BallValue::Int(9)), BallValue::Double(3.0));
+        assert_eq!(
+            atan2(call(&[
+                ("arg0", BallValue::Int(0)),
+                ("arg1", BallValue::Int(1))
+            ])),
+            BallValue::Double(0.0)
+        );
+    }
+
+    #[test]
+    fn file_mode_marker_has_append() {
+        assert_eq!(ball_field_get(io_FileMode.clone(), "append"), s("append"));
+    }
+
+    #[test]
+    fn file_roundtrip_write_read_exists_delete() {
+        let dir = std::env::temp_dir();
+        let path = dir
+            .join(format!("ball_dartsdk_test_{}.txt", std::process::id()))
+            .to_string_lossy()
+            .into_owned();
+        let file = File(s(&path));
+        assert_eq!(
+            existsSync(call(&[("self", file.clone())])),
+            BallValue::Bool(false)
+        );
+        writeAsStringSync(call(&[("self", file.clone()), ("arg0", s("hello"))]));
+        assert_eq!(
+            existsSync(call(&[("self", file.clone())])),
+            BallValue::Bool(true)
+        );
+        assert_eq!(
+            readAsStringSync(call(&[("self", file.clone())])),
+            s("hello")
+        );
+        // append mode
+        writeAsStringSync(call(&[
+            ("self", file.clone()),
+            ("arg0", s(" world")),
+            ("mode", s("append")),
+        ]));
+        assert_eq!(
+            readAsStringSync(call(&[("self", file.clone())])),
+            s("hello world")
+        );
+        deleteSync(call(&[("self", file.clone())]));
+        assert_eq!(existsSync(call(&[("self", file)])), BallValue::Bool(false));
     }
 }

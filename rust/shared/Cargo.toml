@@ -16,6 +16,7 @@ prost-reflect = { workspace = true, features = ["serde"] }
 # Insertion-ordered runtime map (`BallMap`, issue #35) — see the workspace
 # Cargo.toml comment for why this replaces a plain `HashMap`.
 indexmap = { workspace = true }
+regex = "1.12.4"
 
 [dev-dependencies]
 serde_json = "1"

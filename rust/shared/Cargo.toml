@@ -17,6 +17,7 @@ prost-reflect = { workspace = true, features = ["serde"] }
 # Cargo.toml comment for why this replaces a plain `HashMap`.
 indexmap = { workspace = true }
 regex = "1.12.4"
-
-[dev-dependencies]
+# `dart:convert` JsonEncoder/JsonDecoder in the self-hosted engine's
+# `std_convert` surface (issue #39) — parse/emit JSON via the compiled engine's
+# `convert` runtime helper (see `runtime::dartsdk::convert`).
 serde_json = "1"

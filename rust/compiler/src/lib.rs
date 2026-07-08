@@ -85,7 +85,7 @@ use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_shared::proto::ball::v1::statement::Stmt;
 use ball_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FunctionDefinition, Literal, MessageCreation, Module, Program,
-    Reference,
+    Reference, TypeDefinition,
 };
 
 mod base_call;
@@ -129,6 +129,15 @@ pub struct Compiler<'a> {
     /// `impl`/`trait` block and `compile_message_creation` can map a
     /// constructor's positional `argN` fields to real field names.
     class_members_by_owner: HashMap<String, Vec<&'a FunctionDefinition>>,
+    /// Every user `TypeDefinition`, keyed by its **short** name (`"BallObject"`
+    /// for a `TypeDefinition.name` of `"main:BallObject"`). Lets
+    /// [`Compiler::inherited_field_names`] resolve a class's
+    /// `metadata.superclass` (which the encoders store as the bare short name,
+    /// e.g. `BallObject`'s `superclass: "BallMap"`) to the superclass's own
+    /// `TypeDefinition`, so a subclass method/constructor body's bare reference
+    /// to an *inherited* field binds like an own field (issue #39, gap #5 —
+    /// class-hierarchy field inheritance).
+    type_defs_by_short_name: HashMap<String, &'a TypeDefinition>,
     /// Every **sanitized** name that compiles to a callable Rust item — a
     /// standalone user function (`pub fn <name>`) or a polymorphic method
     /// dispatcher / short method name (`pub fn <short>`, see
@@ -216,6 +225,21 @@ impl<'a> Compiler<'a> {
             }
         }
 
+        // Every user `TypeDefinition` keyed by short name, for superclass
+        // resolution (issue #39 gap #5 — inherited-field binding). A
+        // `metadata.superclass` names its parent by short name, so this map
+        // resolves it back to the parent's `TypeDefinition`.
+        let mut type_defs_by_short_name: HashMap<String, &'a TypeDefinition> = HashMap::new();
+        for module in &program.modules {
+            if base_modules.contains(&module.name) {
+                continue;
+            }
+            for td in &module.type_defs {
+                type_defs_by_short_name
+                    .insert(type_emit::type_short_name(&td.name).to_string(), td);
+            }
+        }
+
         // Every sanitized name that resolves to a callable Rust *item* — a
         // standalone function (emitted as `pub fn <name>`) or a class member
         // that becomes a polymorphic dispatcher / short-named `pub fn`
@@ -258,6 +282,7 @@ impl<'a> Compiler<'a> {
             base_modules,
             user_module_names,
             class_members_by_owner,
+            type_defs_by_short_name,
             callable_names,
             local_scopes: RefCell::new(Vec::new()),
             current_module: RefCell::new(program.entry_module.clone()),

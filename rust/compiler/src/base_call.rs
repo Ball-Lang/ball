@@ -696,14 +696,35 @@ impl Compiler<'_> {
             let var_name = self
                 .string_field(&cf, "variable")
                 .unwrap_or_else(|| "_ball_err".to_string());
-            // The catch variable is a local in the handler body's scope.
+            // A `catch (e, st)` clause names a second variable in `stack_trace`
+            // (`dart/encoder/lib/encoder.dart`'s `_encodeCatchClause`); the
+            // handler body reads it as a bare `st` reference. The by-value Rust
+            // model captures no real trace, so it binds the caught error's
+            // string form — the closest faithful value (Ball programs that
+            // surface `st` print/propagate it; the reference engines bind the
+            // Dart `StackTrace` at the same catching point).
+            let stack_var = self
+                .string_field(&cf, "stack_trace")
+                .filter(|s| !s.is_empty());
+            // The catch variable(s) are locals in the handler body's scope.
             self.push_scope();
             self.bind_local(&var_name);
+            if let Some(stack_var) = &stack_var {
+                self.bind_local(stack_var);
+            }
             let catch_body = cf
                 .get("body")
                 .map(|b| self.compile_expression(b))
                 .unwrap_or_else(|| "BallValue::Null".to_string());
             self.pop_scope();
+            // Bind the stack-trace variable first (it reads `__err` by clone)
+            // so the exception binding can then move `__err` into `var_name`.
+            if let Some(stack_var) = &stack_var {
+                out.push_str(&format!(
+                    "let {} = ball_to_string(__err.clone());\n",
+                    crate::sanitize_ident(stack_var)
+                ));
+            }
             out.push_str(&format!(
                 "let {} = __err;\n{}\n",
                 crate::sanitize_ident(&var_name),

@@ -1,3 +1,10 @@
+## [1.16.1](https://github.com/Ball-Lang/ball/compare/v1.16.0...v1.16.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **cpp:** fail-loud std_fs dir ops in self-host runtime + real loop-in-expression emission ([#309](https://github.com/Ball-Lang/ball/issues/309)) ([09ea855](https://github.com/Ball-Lang/ball/commit/09ea855c9fa13593eb094ac3cc1343267e8b4aa4)), closes [#307](https://github.com/Ball-Lang/ball/issues/307) [#308](https://github.com/Ball-Lang/ball/issues/308) [#307](https://github.com/Ball-Lang/ball/issues/307) [#308](https://github.com/Ball-Lang/ball/issues/308)
+
 # [1.16.0](https://github.com/Ball-Lang/ball/compare/v1.15.0...v1.16.0) (2026-07-08)
 
 

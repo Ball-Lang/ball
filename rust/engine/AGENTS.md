@@ -52,10 +52,10 @@ feature and `BallEngine::run` returns `EngineError::SelfHostPending` in the
 default build. `cargo build -p ball-engine` / `cargo test -p ball-engine` are
 green on the foundation.
 
-Compiling the whole 289-function engine currently produces **186** `rustc`
-errors (down from ~326, then ~348), because the self-hosted engine is authored
-against the full Dart SDK surface. The blocking compiler gaps (each a separate
-follow-up issue):
+Compiling the whole 289-function engine currently produces **25** `rustc`
+errors (down from ~326 → ~348 → 186 → 25), because the self-hosted engine is
+authored against the full Dart SDK surface. The blocking compiler gaps (each a
+separate follow-up issue):
 
 1. **Protobuf oneof-discriminator enum constants** — RESOLVED (71 errors, was
    ~70). The engine compares `whichExpr()`/`whichValue()`/`whichStmt()`/
@@ -129,10 +129,40 @@ follow-up issue):
    carries `metadata.initializers`; `StdModuleHandler extends BallModuleHandler`
    needs super-constructor invocation and inherited-field handling the current
    `compile_constructor` doesn't emit.
-6. **Dynamic-value vs. borrow-checker** (E0308 / E0618 / E0596 / E0499 / E0502)
-   — the engine mutates `BallValue`s through method chains and calls
-   dynamically-typed callables in ways the current `lvalue`/dynamic model can't
-   yet express in borrow-checked Rust.
+6. **Dynamic-value vs. borrow-checker** (E0618 / E0596 / E0499 / E0502 / E0308 /
+   E0277 / E0382 / E0282) — RESOLVED (was ~150 errors; self-host total 186 → 25).
+   The engine calls first-class function *values* and mutates `BallValue`s
+   through the dynamic model in ways borrow-checked Rust rejected. Fixed by:
+   - **First-class function values.** `BallFunction` is now a native-closure
+     wrapper (`Arc<dyn Fn(BallValue) -> BallValue + Send + Sync>`, keeping
+     `BallValue` `Clone`/`Send`/`Sync` — `Send` is required by `ball_throw`'s
+     `panic_any`), invoked by the new `ball_shared::runtime::ball_call_function`.
+     A `lambda` compiles to `BallValue::Function(BallFunction::new(…, move |input|
+     …))`, and a top-level function referenced as a *value* is wrapped the same
+     way (`compile_reference`). The 7 callback collection helpers
+     (`list_map`/`filter`/… ) take a `BallValue` callback. Cleared E0618 (call a
+     `BallValue`), the E0308 "found fn item"/"found closure", and E0277.
+   - **Lexical scope tracking** (`Compiler::local_scopes`). Parameters, `let`s,
+     `for`/`for_in`/`catch` vars, and a method's `self_`/field aliases are
+     recorded as locals. This distinguishes a call *through a value* (a local
+     `BallValue::Function` → `ball_call_function`) from a real function item — a
+     user fn or a `ball_shared::runtime` Dart-SDK helper (`unmodifiable`/`now`/
+     `cast`) → direct call — which a name-only test can't (a local can shadow a
+     top-level namesake). It also guards `compile_reference`'s value-wrapping.
+   - **Closure capture pre-cloning** (`compile_lambda` + `collect_referenced_names`).
+     A `move` closure pre-clones each captured enclosing local so the original
+     stays usable afterward (was E0382 "use of moved value").
+   - **Mutation-borrow sequencing** (`emit_mutation`). The RHS value is bound to
+     an owned temporary *before* the `&mut` slot borrow, and the slot is typed
+     `&mut BallValue` (cleared E0499/E0502 and the `panic!`-slot E0282); a method
+     field alias and a `let` mutated only inside a `switch`/`try` branch are now
+     declared `let mut` (`expr_mutates_var` recurses into list-literal elements —
+     cleared E0596).
+
+   The remaining 25 errors are **out of this gap**: E0425 (21) + E0790 (1) are
+   gap #5 (constructor initializers / super-constructor inheritance / trait
+   dispatch), and E0423 (2) is the Dart-SDK `StringBuffer.write` helper (gap
+   #2/#3).
 
 A localized compiler fix landed with this issue: the `__no_init__` sentinel
 (uninitialized `late`/nullable declaration) now lowers to `BallValue::Null`

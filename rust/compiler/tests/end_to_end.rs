@@ -1461,3 +1461,80 @@ fn receiver_less_associated_function_compiles_and_runs() {
         "fixture 'receiver_less_assoc_fn' produced unexpected stdout.\n--- generated main.rs ---\n{compiled}"
     );
 }
+
+// ════════════════════════════════════════════════════════════
+// #39 — oneof-discriminator enum constants (self-host gap)
+// ════════════════════════════════════════════════════════════
+
+/// Issue #39 — the self-hosted engine references the Ball-proto
+/// **oneof-discriminator enums** (`Expression_Expr`, `Literal_Value`,
+/// `Statement_Stmt`, `ModuleImport_Source`, `structpb_Value_Kind`) as bare
+/// `Expression_Expr.call`, `Literal_Value.stringValue`, … in its
+/// `switch (expr.whichExpr()) { case Expression_Expr.call: … }` dispatch.
+/// These are synthesized oneof discriminators with **no**
+/// `EnumDescriptorProto` in any `Module.enums[]`, so before this fix the
+/// compiler emitted an unresolved `Expression_Expr` name (`error[E0425]:
+/// cannot find value`) — ~70 such errors in the compiled engine alone.
+///
+/// [`Compiler::compile`] now emits each as a crate-root `pub static
+/// <Enum>: LazyLock<BallValue>` namespace whose members are the oneof arm's
+/// **string** case name (mirroring the `ball_proto` `whichExpr`/… functions'
+/// runtime return value), so a `field_access` `Expression_Expr.call` (lowered
+/// to `ball_field_get(Expression_Expr.clone(), "call")`) resolves to
+/// `BallValue::String("call")`.
+///
+/// This fixture reads one member off each of the five discriminator enums —
+/// exercising the `reference` → static + `field_access` → `ball_field_get`
+/// pair the engine relies on — and, as its tail, proves the exact equality
+/// the engine's dispatch depends on (`Expression_Expr.call == "call"`) holds.
+#[test]
+fn oneof_discriminator_enum_constants_compile_and_run() {
+    let discriminator = |enum_name: &str, member: &str| field_access(reference(enum_name), member);
+
+    let main_body = block(
+        vec![
+            expr_stmt(print_to_string(discriminator("Expression_Expr", "call"))),
+            expr_stmt(print_to_string(discriminator(
+                "Literal_Value",
+                "stringValue",
+            ))),
+            expr_stmt(print_to_string(discriminator("Statement_Stmt", "let"))),
+            expr_stmt(print_to_string(discriminator(
+                "ModuleImport_Source",
+                "inline",
+            ))),
+            expr_stmt(print_to_string(discriminator(
+                "structpb_Value_Kind",
+                "numberValue",
+            ))),
+        ],
+        // The comparison the self-hosted engine's oneof dispatch relies on:
+        // `whichExpr()` returns the string `"call"`, so `Expression_Expr.call`
+        // must equal it for `case Expression_Expr.call:` to ever match.
+        print_to_string(bin_call(
+            "equals",
+            discriminator("Expression_Expr", "call"),
+            string_lit("call"),
+        )),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+
+    let compiled = Compiler::new(&program).compile();
+    assert!(
+        compiled.contains("pub static Expression_Expr: std::sync::LazyLock<BallValue>"),
+        "expected a crate-root `Expression_Expr` discriminator-enum namespace \
+         static (issue #39):\n{compiled}"
+    );
+    assert!(
+        compiled.contains("pub static structpb_Value_Kind: std::sync::LazyLock<BallValue>"),
+        "expected a crate-root `structpb_Value_Kind` discriminator-enum \
+         namespace static (issue #39):\n{compiled}"
+    );
+
+    let stdout = compile_and_run("oneof_discriminator_enums", &compiled);
+    assert_eq!(
+        stdout.trim(),
+        "call\nstringValue\nlet\ninline\nnumberValue\ntrue",
+        "fixture 'oneof_discriminator_enums' produced unexpected stdout.\n--- generated main.rs ---\n{compiled}"
+    );
+}

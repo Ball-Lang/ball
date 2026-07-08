@@ -196,6 +196,114 @@ pub(crate) fn proto_field_rust_type(field: &FieldDescriptorProto) -> String {
     }
 }
 
+// ════════════════════════════════════════════════════════════
+// Oneof-discriminator enum namespaces (issue #39, self-host)
+// ════════════════════════════════════════════════════════════
+
+/// The Ball-proto **oneof-discriminator enums** the self-hosted engine
+/// references as bare `Expression_Expr.call`, `Literal_Value.stringValue`,
+/// `Statement_Stmt.let`, `structpb_Value_Kind.numberValue`,
+/// `ModuleImport_Source.inline`, … — each an `(enum_name, &[member, …])` pair.
+///
+/// These are **not** real protobuf `enum`s: they are the synthesized oneof
+/// discriminators the Dart protobuf codegen emits for each `oneof`
+/// (`Expression.expr` → `Expression_Expr`, `Literal.value` →
+/// `Literal_Value`, `Statement.stmt` → `Statement_Stmt`, `ModuleImport.source`
+/// → `ModuleImport_Source`, `google.protobuf.Value.kind` →
+/// `structpb_Value_Kind`). They carry no `EnumDescriptorProto` in any
+/// `Module.enums[]`, so [`Compiler::compile_module_types`] never emits them —
+/// yet the engine's `switch (expr.whichExpr()) { case Expression_Expr.call: … }`
+/// logic compares the `ball_proto` discriminators' return value against them.
+///
+/// Member order is irrelevant (they are read by name), so this lists the full
+/// arm set of each oneof plus the trailing `notSet` sentinel — mirroring the
+/// TypeScript compiler's `preamble.ts` constants (`Expression_Expr`,
+/// `Literal_Value`, `Statement_Stmt`, `ModuleImport_Source`,
+/// `structpb_Value_Kind`) exactly.
+const ONEOF_DISCRIMINATOR_ENUMS: &[(&str, &[&str])] = &[
+    (
+        "Expression_Expr",
+        &[
+            "call",
+            "literal",
+            "reference",
+            "fieldAccess",
+            "messageCreation",
+            "block",
+            "lambda",
+            "notSet",
+        ],
+    ),
+    (
+        "Literal_Value",
+        &[
+            "intValue",
+            "doubleValue",
+            "stringValue",
+            "boolValue",
+            "bytesValue",
+            "listValue",
+            "notSet",
+        ],
+    ),
+    ("Statement_Stmt", &["let", "expression", "notSet"]),
+    (
+        "ModuleImport_Source",
+        &["http", "file", "git", "registry", "inline", "notSet"],
+    ),
+    (
+        "structpb_Value_Kind",
+        &[
+            "nullValue",
+            "numberValue",
+            "stringValue",
+            "boolValue",
+            "structValue",
+            "listValue",
+            "notSet",
+        ],
+    ),
+];
+
+/// Emit each [`ONEOF_DISCRIMINATOR_ENUMS`] entry as a crate-root
+/// `pub static <Enum>: LazyLock<BallValue>` namespace — the compile-time
+/// counterpart of the `ball_proto` discriminator functions
+/// (`whichExpr`/`whichValue`/`whichStmt`/`whichKind`/`whichSource`), whose
+/// runtime return value is the set oneof arm's **string** case name
+/// (`rust/engine/src/ball_proto.rs`). Each member therefore resolves to
+/// `BallValue::String("<caseName>")` (a `field_access` `Expression_Expr.call`
+/// lowers to `ball_field_get(Expression_Expr.clone(), "call")` — see
+/// [`Compiler::compile_field_access`]), so the engine's
+/// `whichExpr() == Expression_Expr.call` comparisons hold. Same shape as
+/// [`Compiler::compile_enum_descriptor`], but with **string** members rather
+/// than `index`/`name` `Message`s, because a discriminator arm *is* just its
+/// case-name string, not an ordinal enum value.
+///
+/// Emitted once at the crate root (before the nested per-module `mod` blocks),
+/// so top-level entry-module code sees them directly and every nested
+/// `mod … { use super::*; }` sees them via its glob import — matching the
+/// TypeScript target's always-present preamble constants (harmless dead code
+/// for a program that never touches the Ball AST; `#![allow(dead_code)]`
+/// already covers it).
+pub(crate) fn oneof_discriminator_enum_defs() -> String {
+    let mut out = String::new();
+    for (enum_name, members) in ONEOF_DISCRIMINATOR_ENUMS {
+        let mut inserts = String::new();
+        for member in *members {
+            inserts.push_str(&format!(
+                "    __ns.insert({member:?}.to_string(), BallValue::String({member:?}.to_string()));\n"
+            ));
+        }
+        out.push_str(&format!(
+            "pub static {enum_name}: std::sync::LazyLock<BallValue> = std::sync::LazyLock::new(|| {{\n\
+             let mut __ns = BallMap::new();\n{inserts}\
+             BallValue::Message(BallMessage {{ type_name: {enum_name:?}.to_string(), fields: __ns }})\n\
+             }});\n"
+        ));
+    }
+    out
+}
+
 impl Compiler<'_> {
     // ════════════════════════════════════════════════════════════
     // Cross-module call resolution

@@ -274,6 +274,205 @@ static bool run_and_check(const Program& p, const fs::path& build_dir,
     return true;
 }
 
+// ================================================================
+// std_fs direct-compile e2e coverage (issue #319)
+// ================================================================
+//
+// The numbered corpus above loads pre-generated .ball.json fixtures (built
+// by the Dart encoder from tests/conformance/src/*.dart), which only
+// exercises constructs the encoder currently emits — std_fs byte/append
+// operations have no such fixture yet. These two programs are instead built
+// directly via the ball::v1 protobuf API (mirroring cpp/test/test_compiler.cpp's
+// builder-helper style) and appended to the same `programs` vector so they
+// share the single CMake configure+build pass below. Each owns a unique
+// temp-file path and deletes it once done; expected stdout is compared
+// inline (no on-disk .expected_output.txt) to keep this self-contained.
+
+static ball::v1::Expression fs_lit_string(const std::string& v) {
+    ball::v1::Expression e;
+    e.mutable_literal()->set_string_value(v);
+    return e;
+}
+
+static ball::v1::Expression fs_lit_int(int64_t v) {
+    ball::v1::Expression e;
+    e.mutable_literal()->set_int_value(v);
+    return e;
+}
+
+static ball::v1::Expression fs_lit_bytes(const std::string& raw) {
+    ball::v1::Expression e;
+    e.mutable_literal()->set_bytes_value(raw);
+    return e;
+}
+
+static ball::v1::Expression fs_ref(const std::string& name) {
+    ball::v1::Expression e;
+    e.mutable_reference()->set_name(name);
+    return e;
+}
+
+static ball::v1::Expression fs_msg(
+    std::vector<std::pair<std::string, ball::v1::Expression>> fields) {
+    ball::v1::Expression e;
+    auto* mc = e.mutable_message_creation();
+    for (auto& [name, value] : fields) {
+        auto* f = mc->add_fields();
+        f->set_name(name);
+        *f->mutable_value() = std::move(value);
+    }
+    return e;
+}
+
+static ball::v1::Expression fs_call(const std::string& module,
+                                    const std::string& function,
+                                    ball::v1::Expression input) {
+    ball::v1::Expression e;
+    auto* c = e.mutable_call();
+    c->set_module(module);
+    c->set_function(function);
+    *c->mutable_input() = std::move(input);
+    return e;
+}
+
+static ball::v1::Expression fs_print(ball::v1::Expression message) {
+    return fs_call("std", "print", fs_msg({{"message", std::move(message)}}));
+}
+
+static ball::v1::Program fs_build_program(ball::v1::Expression body) {
+    ball::v1::Program program;
+    auto* mod = program.add_modules();
+    mod->set_name("main");
+    auto* func = mod->add_functions();
+    func->set_name("main");
+    *func->mutable_body() = std::move(body);
+    program.set_entry_module("main");
+    program.set_entry_function("main");
+    return program;
+}
+
+// file_write_bytes -> file_read_bytes round trip. The content includes an
+// embedded NUL byte (proves the byte path isn't string/NUL-terminator
+// based) followed by a trailing byte (proves the write/read isn't
+// truncated at the NUL).
+static ball::v1::Program fs_build_write_bytes_program(const std::string& path) {
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+
+    *blk->add_statements()->mutable_expression() =
+        fs_call("std_fs", "file_write_bytes", fs_msg({
+            {"path", fs_lit_string(path)},
+            {"content", fs_lit_bytes(std::string("\x48\x65\x00\x21\x0A", 5))}
+        }));
+
+    auto* let_bytes = blk->add_statements()->mutable_let();
+    let_bytes->set_name("bytes");
+    *let_bytes->mutable_value() =
+        fs_call("std_fs", "file_read_bytes", fs_msg({{"path", fs_lit_string(path)}}));
+
+    // bytes[2] is the embedded NUL (0).
+    *blk->add_statements()->mutable_expression() =
+        fs_print(fs_call("std", "index", fs_msg({
+            {"target", fs_ref("bytes")}, {"index", fs_lit_int(2)}
+        })));
+    // bytes[4] is the trailing byte (10) written after the NUL.
+    *blk->add_statements()->mutable_expression() =
+        fs_print(fs_call("std", "index", fs_msg({
+            {"target", fs_ref("bytes")}, {"index", fs_lit_int(4)}
+        })));
+
+    *blk->add_statements()->mutable_expression() =
+        fs_call("std_fs", "file_delete", fs_msg({{"path", fs_lit_string(path)}}));
+
+    *blk->mutable_result() = fs_lit_int(0);
+    return fs_build_program(std::move(body));
+}
+
+// file_write (truncate) then file_append -> file_read proves append
+// concatenates onto existing content instead of overwriting it.
+static ball::v1::Program fs_build_append_program(const std::string& path) {
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+
+    *blk->add_statements()->mutable_expression() =
+        fs_call("std_fs", "file_write", fs_msg({
+            {"path", fs_lit_string(path)}, {"content", fs_lit_string("Hello, ")}
+        }));
+    *blk->add_statements()->mutable_expression() =
+        fs_call("std_fs", "file_append", fs_msg({
+            {"path", fs_lit_string(path)}, {"content", fs_lit_string("World!")}
+        }));
+
+    auto* let_s = blk->add_statements()->mutable_let();
+    let_s->set_name("s");
+    *let_s->mutable_value() =
+        fs_call("std_fs", "file_read", fs_msg({{"path", fs_lit_string(path)}}));
+
+    *blk->add_statements()->mutable_expression() = fs_print(fs_ref("s"));
+
+    *blk->add_statements()->mutable_expression() =
+        fs_call("std_fs", "file_delete", fs_msg({{"path", fs_lit_string(path)}}));
+
+    *blk->mutable_result() = fs_lit_int(0);
+    return fs_build_program(std::move(body));
+}
+
+struct InlineExpectation {
+    std::string name;
+    std::string expected_stdout;
+};
+
+// Compile an in-memory Program (built above, not loaded from a fixture
+// file) and append it to `programs`/`expectations` for the shared build +
+// run pass. Returns false (and logs a FAIL) if compilation itself throws —
+// e.g. exactly the issue #319 regression this coverage guards against.
+static bool add_inline_fs_program(const std::string& name,
+                                  const ball::v1::Program& program,
+                                  const std::string& expected_stdout,
+                                  std::vector<Program>& programs,
+                                  std::vector<InlineExpectation>& expectations,
+                                  int& tests_run_ref, int& tests_failed_ref) {
+    Program p;
+    p.name = name;
+    try {
+        ball::CppCompiler compiler(program);
+        p.cpp_source = compiler.compile();
+    } catch (const std::exception& e) {
+        tests_run_ref++;
+        tests_failed_ref++;
+        std::cout << "  " << name << "... FAIL (compile threw: " << e.what() << ")\n";
+        return false;
+    }
+    programs.push_back(std::move(p));
+    expectations.push_back({name, expected_stdout});
+    return true;
+}
+
+static bool run_and_check_inline(const InlineExpectation& exp, const fs::path& build_dir,
+                                 std::string& failure_msg) {
+    auto exe_path = locate_binary(build_dir, exp.name);
+    if (exe_path.empty()) {
+        failure_msg = "built binary not found for " + exp.name;
+        return false;
+    }
+    std::string run_cmd = cmd_wrap(quote(exe_path.string()));
+    std::string run_output;
+    int run_rc = run_capture(run_cmd, run_output);
+    if (run_rc != 0) {
+        failure_msg = "binary exited rc=" + std::to_string(run_rc) +
+                      ", output: " + run_output;
+        return false;
+    }
+    auto actual = normalize(std::move(run_output));
+    auto expected = normalize(exp.expected_stdout);
+    if (actual != expected) {
+        failure_msg = "output mismatch\n--- expected ---\n" + expected +
+                      "\n--- actual ---\n" + actual + "\n---";
+        return false;
+    }
+    return true;
+}
+
 int main() {
     // Disable abseil mutex deadlock detection — protobuf v34.1's internal
     // descriptor pool initialization triggers a false-positive cycle.
@@ -583,25 +782,62 @@ int main() {
         }
     }
 
-    if (programs.empty()) {
+    // Step 1b: build the std_fs direct-compile e2e programs (issue #319).
+    // Kept in a separate vector (not `programs`) because their expected
+    // output is compared inline rather than via an on-disk
+    // .expected_output.txt — see run_and_check_inline.
+    std::vector<Program> fs_programs;
+    std::vector<InlineExpectation> fs_expectations;
+    {
+        fs::path fs_scratch = fs::temp_directory_path();
+        std::string bytes_path = (fs_scratch / "ball_e2e_319_fs_write_bytes.bin").string();
+        std::string append_path = (fs_scratch / "ball_e2e_319_fs_append.txt").string();
+        add_inline_fs_program("319_fs_write_bytes_roundtrip",
+                              fs_build_write_bytes_program(bytes_path), "0\n10\n",
+                              fs_programs, fs_expectations, tests_run, tests_failed);
+        add_inline_fs_program("319_fs_append_roundtrip",
+                              fs_build_append_program(append_path), "Hello, World!\n",
+                              fs_programs, fs_expectations, tests_run, tests_failed);
+    }
+
+    if (programs.empty() && fs_programs.empty()) {
         std::cout << "\nNo programs to test.\n";
         return tests_failed > 0 ? 1 : 0;
     }
 
-    // Step 2: build all programs in a single CMake invocation.
+    // Step 2: build all programs (fixture-loaded + inline) in a single CMake
+    // invocation.
+    std::vector<Program> build_targets = programs;
+    build_targets.insert(build_targets.end(), fs_programs.begin(), fs_programs.end());
     std::string build_msg;
-    if (!build_sub_project(proj_dir, build_dir, programs, build_msg)) {
+    if (!build_sub_project(proj_dir, build_dir, build_targets, build_msg)) {
         std::cout << "\nBuild of e2e scratch project FAILED:\n"
                   << build_msg << "\n";
         return 1;
     }
 
-    // Step 3: run each binary and diff.
+    // Step 3: run each fixture-loaded binary and diff against its
+    // .expected_output.txt.
     for (const auto& p : programs) {
         tests_run++;
         std::cout << "  " << p.name << "... ";
         std::string failure_msg;
         if (run_and_check(p, build_dir, failure_msg)) {
+            std::cout << "PASS\n";
+            tests_passed++;
+        } else {
+            std::cout << "FAIL\n" << failure_msg << "\n";
+            tests_failed++;
+        }
+    }
+
+    // Step 3b: run each inline std_fs binary and diff against its inline
+    // expected stdout (issue #319).
+    for (const auto& exp : fs_expectations) {
+        tests_run++;
+        std::cout << "  " << exp.name << "... ";
+        std::string failure_msg;
+        if (run_and_check_inline(exp, build_dir, failure_msg)) {
             std::cout << "PASS\n";
             tests_passed++;
         } else {

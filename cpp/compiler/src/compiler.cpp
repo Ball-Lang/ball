@@ -11518,11 +11518,67 @@ std::string CppCompiler::compile_fs_call(const std::string& fn,
             "std::ifstream f(p);return std::string((std::istreambuf_iterator<char>(f)),"
             "std::istreambuf_iterator<char>());", {path}).str();
     }
+    if (fn == "file_read_bytes") {
+        // Mirrors ball_emit_runtime.h's readAsBytesSync (the now-correct
+        // self-host runtime helper): read the whole file in binary mode and
+        // box each byte as an int64_t — a Ball `bytes` value is a List<int>,
+        // not a raw byte buffer (see the Literal::kBytesValue comment in
+        // compile_expr's literal switch above). Previously this call fell to
+        // the default case and silently returned nothing (issue #319).
+        auto path = field_expr(call, "path");
+        return CppExpr::iife("", "const std::string& p",
+            "std::ifstream f(p,std::ios::binary);std::vector<std::any> r;char ch;"
+            "while(f.get(ch))r.push_back(std::any(static_cast<int64_t>("
+            "static_cast<unsigned char>(ch))));return r;", {path}).str();
+    }
     if (fn == "file_write") {
         auto path = field_expr(call, "path");
         auto content = field_expr(call, "content");
         return CppExpr::iife("", "const std::string& p, const std::string& c",
             "std::ofstream f(p);f<<c;", {path, content}).paren().str();
+    }
+    if (fn == "file_write_bytes") {
+        // `content` is a Ball `bytes` value (a List<int>) that arrives in
+        // whatever C++ shape its source expression compiled to: a bytes
+        // LITERAL compiles to a raw `std::vector<int64_t>` (see the
+        // Literal::kBytesValue case above), while a variable/call-result is
+        // already a BallDyn-wrapped list. Declaring the lambda parameter as
+        // `const BallDyn&` lets overload resolution pick the matching BallDyn
+        // constructor for either shape — ball_dyn.h normalizes a raw
+        // `vector<int64_t>` into a proper BallList at construction — so
+        // `_listPtr()` below always sees a real byte list regardless of the
+        // source shape. Previously this call fell to the default case and
+        // silently wrote nothing (issue #319).
+        auto path = field_expr(call, "path");
+        auto content = field_expr(call, "content");
+        return CppExpr::iife("", "const std::string& p, const BallDyn& c",
+            "const BallList* bl = c._listPtr();"
+            "if (!bl) throw std::runtime_error("
+            "\"std_fs.file_write_bytes: content is not a byte list\");"
+            "std::ofstream f(p, std::ios::binary | std::ios::trunc);"
+            "for (const auto& raw : *bl) {"
+            "int64_t b;"
+            "if (raw.type() == typeid(int64_t)) b = std::any_cast<int64_t>(raw);"
+            "else if (raw.type() == typeid(int)) b = static_cast<int64_t>(std::any_cast<int>(raw));"
+            "else throw std::runtime_error("
+            "\"std_fs.file_write_bytes: non-integer byte element\");"
+            "f.put(static_cast<char>(static_cast<unsigned char>(b & 0xff)));"
+            "}", {path, content}).paren().str();
+    }
+    if (fn == "file_append") {
+        // Same shape as file_write but opened with ios::app instead of the
+        // implicit truncate, so writes land after existing content rather
+        // than overwriting it — matches Dart's
+        // File.writeAsStringSync(mode: FileMode.append) and mirrors the
+        // self-host runtime's _ball_file_mode_is_append-gated ios::app open.
+        // Previously this call fell to the default case and silently
+        // overwrote (well, no-op'd entirely) instead of appending (issue
+        // #319).
+        auto path = field_expr(call, "path");
+        auto content = field_expr(call, "content");
+        return CppExpr::iife("", "const std::string& p, const std::string& c",
+            "std::ofstream f(p, std::ios::out | std::ios::app);f<<c;",
+            {path, content}).paren().str();
     }
     if (fn == "file_exists") {
         auto path = field_expr(call, "path");
@@ -11550,7 +11606,18 @@ std::string CppCompiler::compile_fs_call(const std::string& fn,
         return CppExpr::ref("std::filesystem").scope("is_directory")
             .call(std::vector<CppExpr>{path}).str();
     }
-    return "/* std_fs." + fn + " */";
+    // Every other std_fs.* function has no direct-compile emission. A bare
+    // comment (the previous behavior) compiled to a valid, silently-no-op
+    // C++ statement — any Ball program calling it ran to completion and
+    // reported success while doing nothing, violating the fail-loud
+    // invariant (issue #319). This function is never reached while
+    // regenerating engine_rt.cpp: the self-hosted engine's own Dart source
+    // (dart/self_host/) never calls std_fs, so a COMPILE-TIME throw here is
+    // safe — it can only fire while direct-compiling a user Ball program
+    // that calls an unimplemented std_fs function, never while building the
+    // self-hosted engine.
+    throw std::runtime_error("std_fs." + fn +
+                              " not implemented in C++ direct compile");
 }
 
 std::string CppCompiler::compile_time_call(const std::string& fn,

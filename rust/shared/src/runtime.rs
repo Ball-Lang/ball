@@ -234,9 +234,14 @@ pub fn ball_arg0_with_self(arg: BallValue, self_value: BallValue) -> BallValue {
 pub fn ball_add(left: BallValue, right: BallValue) -> BallValue {
     match (left, right) {
         (BallValue::String(a), BallValue::String(b)) => BallValue::String(a + &b),
-        (BallValue::List(mut a), BallValue::List(b)) => {
-            a.extend(b);
-            BallValue::List(a)
+        (BallValue::List(a), BallValue::List(b)) => {
+            // Dart's `list1 + list2` returns a **new** list and never mutates
+            // either operand — so build a fresh backing from a snapshot of `a`
+            // rather than `a.extend(b)` (which, now that `BallList` shares its
+            // backing, would mutate the left operand in place — issue #39/#300).
+            let mut out = a.snapshot();
+            out.extend(b);
+            BallValue::List(BallList::from(out))
         }
         (l, r) => match both_int(&l, &r) {
             Some((a, b)) => BallValue::Int(a.wrapping_add(b)),
@@ -574,8 +579,8 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
         BallValue::List(list) => match field {
             "isEmpty" => BallValue::Bool(list.is_empty()),
             "isNotEmpty" => BallValue::Bool(!list.is_empty()),
-            "first" => list.first().cloned().unwrap_or(BallValue::Null),
-            "last" => list.last().cloned().unwrap_or(BallValue::Null),
+            "first" => list.get(0).unwrap_or(BallValue::Null),
+            "last" => list.snapshot().last().cloned().unwrap_or(BallValue::Null),
             _ => panic!("ball-compiler runtime: field access '{field}' on a list"),
         },
         BallValue::String(s) => match field {
@@ -702,7 +707,11 @@ pub fn ball_field_set(target: &mut BallValue, field: &str, value: BallValue) -> 
 
 pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
     match target {
-        BallValue::List(list) => list[as_index(&index)].clone(),
+        BallValue::List(list) => {
+            let i = as_index(&index);
+            list.get(i)
+                .unwrap_or_else(|| panic!("ball-compiler runtime: list index {i} out of range"))
+        }
         BallValue::Map(map) => map
             .get(&index_key(&index))
             .cloned()
@@ -722,19 +731,29 @@ pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
     }
 }
 
-/// Mutable slot for `target[index]`, auto-vivifying a `Map` entry (matches
-/// [`ball_field_get_mut`]'s auto-vivification for a fresh key) but requiring
-/// an in-bounds index for a `List` (there is no sensible "vivify" for a
-/// list — Dart's `list[i] = v` on an out-of-bounds `i` throws too).
-pub fn ball_index_get_mut(target: &mut BallValue, index: BallValue) -> &mut BallValue {
+/// Set `target[index] = value` — the write half of an `list[i] = v` /
+/// `map[k] = v` (or compound `list[i] op= v`) assignment (see
+/// `rust/compiler/src/lvalue.rs`'s `emit_mutation`). The `List` counterpart of
+/// [`ball_field_set`]: a `BallValue::List`'s backing is behind an `Arc<Mutex>`
+/// (reference semantics — issues #39/#300), so there is no `&mut BallValue`
+/// into an element to hand out; this mutates *through* the shared backing, so
+/// the write is visible via every clone/alias of the list. A `Map` (still
+/// value-semantic) is mutated in place through the `&mut` target, auto-vivifying
+/// a fresh key (matching the old `entry().or_insert()` slot). Returns `value`
+/// so an index-assignment expression evaluates to the assigned value.
+pub fn ball_index_set(target: &mut BallValue, index: BallValue, value: BallValue) -> BallValue {
     match target {
         BallValue::List(list) => {
-            let i = as_index(&index);
-            &mut list[i]
+            // Dart's `list[i] = v` throws `RangeError` out of bounds — `set`
+            // panics identically (there is no "vivify" for a list).
+            list.set(as_index(&index), value.clone());
         }
-        BallValue::Map(map) => map.entry(index_key(&index)).or_insert(BallValue::Null),
-        other => panic!("ball-compiler runtime: index access on unsupported value: {other:?}"),
+        BallValue::Map(map) => {
+            map.insert(index_key(&index), value.clone());
+        }
+        other => panic!("ball-compiler runtime: index assignment on unsupported value: {other:?}"),
     }
+    value
 }
 
 fn index_key(index: &BallValue) -> String {
@@ -747,12 +766,17 @@ fn index_key(index: &BallValue) -> String {
 /// `for_in` — iterate a `List` element-by-element (the common case) or a
 /// `Map`'s entries (each entry surfaced as a 2-element `[key, value]` list,
 /// matching how the reference engines expose `Map.entries`).
-pub fn ball_iterate(value: BallValue) -> BallList {
+pub fn ball_iterate(value: BallValue) -> Vec<BallValue> {
     match value {
-        BallValue::List(list) => list,
+        // An owned snapshot of the elements: `for x in list` reads a copy of the
+        // sequence (the loop body may append to the same list — Dart iterates a
+        // fixed view, not the live tail). Reference-semantic sharing is
+        // preserved at the *element* level (each element is still the shared
+        // list/message it was).
+        BallValue::List(list) => list.snapshot(),
         BallValue::Map(map) => map
             .into_iter()
-            .map(|(k, v)| BallValue::List(vec![BallValue::String(k), v]))
+            .map(|(k, v)| BallValue::List(BallList::from(vec![BallValue::String(k), v])))
             .collect(),
         // An **absent proto3 repeated field** reads as `Null` in the JSON view
         // (`ball_field_get` on a missing key), but its value is the empty list
@@ -1010,7 +1034,7 @@ pub fn ball_string_split(left: BallValue, right: BallValue) -> BallValue {
             .map(|s| BallValue::String(s.to_string()))
             .collect()
     };
-    BallValue::List(parts)
+    BallValue::List(BallList::from(parts))
 }
 
 pub fn ball_string_runes(value: BallValue) -> BallValue {
@@ -1228,9 +1252,15 @@ pub fn ball_math_lcm(left: BallValue, right: BallValue) -> BallValue {
 // std_collections — non-mutating (safe to compile from a `.clone()` read)
 // ════════════════════════════════════════════════════════════
 
-fn as_list(value: BallValue) -> BallList {
+/// Coerce a value to an owned `Vec<BallValue>` **snapshot** of a list's
+/// elements. Used by every non-mutating `std_collections` reader (and every
+/// value-semantic copy point — `toList()`/`List.from`/set builders wrap the
+/// snapshot in a fresh `BallList`, so they copy rather than alias, matching
+/// Dart). A mutating operation does NOT go through here — it keeps the shared
+/// [`BallList`] and mutates it in place (see `ball_list_push`/`ball_list_sort`).
+fn as_list(value: BallValue) -> Vec<BallValue> {
     match value {
-        BallValue::List(list) => list,
+        BallValue::List(list) => list.snapshot(),
         other => panic!("ball-compiler runtime: expected a list, got {other:?}"),
     }
 }
@@ -1363,7 +1393,7 @@ pub fn ball_list_none(list: BallValue, callback: BallValue) -> BallValue {
 pub fn ball_list_reverse(list: BallValue) -> BallValue {
     let mut items = as_list(list);
     items.reverse();
-    BallValue::List(items)
+    BallValue::List(BallList::from(items))
 }
 
 pub fn ball_list_slice(list: BallValue, start: BallValue, end: BallValue) -> BallValue {
@@ -1374,7 +1404,9 @@ pub fn ball_list_slice(list: BallValue, start: BallValue, end: BallValue) -> Bal
     } else {
         as_index(&end).min(items.len())
     };
-    BallValue::List(items[start_index..end_index.max(start_index)].to_vec())
+    BallValue::List(BallList::from(
+        items[start_index..end_index.max(start_index)].to_vec(),
+    ))
 }
 
 pub fn ball_list_flat_map(list: BallValue, callback: BallValue) -> BallValue {
@@ -1382,7 +1414,7 @@ pub fn ball_list_flat_map(list: BallValue, callback: BallValue) -> BallValue {
     for item in as_list(list) {
         out.extend(as_list(ball_call_function(callback.clone(), item)));
     }
-    BallValue::List(out)
+    BallValue::List(BallList::from(out))
 }
 
 pub fn ball_list_take(list: BallValue, count: BallValue) -> BallValue {
@@ -1416,7 +1448,7 @@ pub fn ball_list_concat(list: BallValue, value: BallValue) -> BallValue {
         BallValue::Null => {}
         other => items.extend(as_list(other)),
     }
-    BallValue::List(items)
+    BallValue::List(BallList::from(items))
 }
 
 // ── mutating (take a `&mut BallValue` slot — see rust/compiler/src/lvalue.rs) ──
@@ -1491,7 +1523,7 @@ pub fn ball_map_entries(map: BallValue) -> BallValue {
     BallValue::List(
         as_map(map)
             .into_iter()
-            .map(|(k, v)| BallValue::List(vec![BallValue::String(k), v]))
+            .map(|(k, v)| BallValue::List(BallList::from(vec![BallValue::String(k), v])))
             .collect(),
     )
 }
@@ -1586,13 +1618,13 @@ pub fn ball_string_join(list: BallValue, separator: BallValue) -> BallValue {
 // schema decision out of this issue's scope.
 
 pub fn ball_set_create(list: BallValue) -> BallValue {
-    let mut out: BallList = Vec::new();
+    let mut out: Vec<BallValue> = Vec::new();
     for item in as_list(list) {
         if !out.contains(&item) {
             out.push(item);
         }
     }
-    BallValue::List(out)
+    BallValue::List(BallList::from(out))
 }
 
 pub fn ball_set_add(set: &mut BallValue, value: BallValue) -> BallValue {
@@ -1629,7 +1661,7 @@ pub fn ball_set_union(left: BallValue, right: BallValue) -> BallValue {
             out.push(item);
         }
     }
-    BallValue::List(out)
+    BallValue::List(BallList::from(out))
 }
 
 pub fn ball_set_intersection(left: BallValue, right: BallValue) -> BallValue {
@@ -1661,7 +1693,7 @@ pub fn ball_set_is_empty(set: BallValue) -> BallValue {
 }
 
 pub fn ball_set_to_list(set: BallValue) -> BallValue {
-    BallValue::List(as_list(set))
+    BallValue::List(BallList::from(as_list(set)))
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1972,7 +2004,7 @@ pub fn ball_get_bool_field(struct_val: BallValue, key: BallValue) -> BallValue {
 pub fn ball_get_list_field(struct_val: BallValue, key: BallValue) -> BallValue {
     match proto_get(&struct_val, &index_key(&key)) {
         Some(BallValue::List(l)) => BallValue::List(l),
-        _ => BallValue::List(Vec::new()),
+        _ => BallValue::List(BallList::new()),
     }
 }
 
@@ -1991,7 +2023,7 @@ pub fn ball_get_struct_field_keys(struct_val: BallValue) -> BallValue {
         BallValue::Message(msg) => {
             BallValue::List(msg.snapshot().into_keys().map(BallValue::String).collect())
         }
-        _ => BallValue::List(Vec::new()),
+        _ => BallValue::List(BallList::new()),
     }
 }
 
@@ -2111,7 +2143,10 @@ pub fn ball_string_code_unit_at(value: BallValue, index: BallValue) -> BallValue
 /// `Iterable.toList()` — a fresh copy of the list (a `Set` shares the `List`
 /// representation, so `.toList()` on either is the same copy).
 pub fn ball_list_to_list(list: BallValue) -> BallValue {
-    BallValue::List(as_list(list))
+    // A **fresh** backing (`as_list` snapshots, `BallList::from` wraps a new
+    // handle) — `toList()` copies, so mutating the result never touches the
+    // source (Dart semantics).
+    BallValue::List(BallList::from(as_list(list)))
 }
 
 /// `list.join(separator)` — join a list's stringified elements. A `null`
@@ -2211,7 +2246,7 @@ pub fn ball_utf8_decode(value: BallValue) -> BallValue {
     match value {
         BallValue::Bytes(bytes) => BallValue::String(String::from_utf8_lossy(&bytes).into_owned()),
         BallValue::List(items) => {
-            let bytes: Vec<u8> = items.iter().map(|v| as_i64(v) as u8).collect();
+            let bytes: Vec<u8> = items.snapshot().iter().map(|v| as_i64(v) as u8).collect();
             BallValue::String(String::from_utf8_lossy(&bytes).into_owned())
         }
         other => panic!("ball-compiler runtime: utf8_decode on a non-bytes value: {other:?}"),
@@ -2222,7 +2257,7 @@ pub fn ball_utf8_decode(value: BallValue) -> BallValue {
 pub fn ball_base64_encode(value: BallValue) -> BallValue {
     let bytes = match value {
         BallValue::Bytes(bytes) => bytes,
-        BallValue::List(items) => items.iter().map(|v| as_i64(v) as u8).collect(),
+        BallValue::List(items) => items.snapshot().iter().map(|v| as_i64(v) as u8).collect(),
         other => panic!("ball-compiler runtime: base64_encode on a non-bytes value: {other:?}"),
     };
     BallValue::String(base64_encode_bytes(&bytes))
@@ -2496,7 +2531,7 @@ mod dartsdk {
     }
 
     fn regex_match_value(caps: &regex::Captures) -> BallValue {
-        let mut groups: BallList = Vec::new();
+        let mut groups: Vec<BallValue> = Vec::new();
         for i in 0..caps.len() {
             match caps.get(i) {
                 Some(m) => groups.push(BallValue::String(m.as_str().to_string())),
@@ -2504,7 +2539,10 @@ mod dartsdk {
             }
         }
         let mut fields = BallMap::new();
-        fields.insert("groups".to_string(), BallValue::List(groups));
+        fields.insert(
+            "groups".to_string(),
+            BallValue::List(BallList::from(groups)),
+        );
         BallValue::Message(BallMessage::new("__ball_regexp_match__", fields))
     }
 
@@ -2537,7 +2575,7 @@ mod dartsdk {
         let match_value = m_get(&input, "self");
         let index = as_index(&m_get(&input, "arg0"));
         match m_get(&match_value, "groups") {
-            BallValue::List(groups) => groups.get(index).cloned().unwrap_or(BallValue::Null),
+            BallValue::List(groups) => groups.get(index).unwrap_or(BallValue::Null),
             _ => BallValue::Null,
         }
     }
@@ -2572,7 +2610,10 @@ mod dartsdk {
                 }
                 BallValue::Map(map)
             }
-            BallValue::List(mut list) => {
+            // `List.addAll(other)` mutates the receiver in place (Dart); the
+            // receiver's shared backing (#39/#300) makes that visible to the
+            // caller, matching Dart — no snapshot here (unlike `+` above).
+            BallValue::List(list) => {
                 list.extend(as_list(other));
                 BallValue::List(list)
             }
@@ -2589,7 +2630,10 @@ mod dartsdk {
             BallValue::Map(mut map) => map
                 .shift_remove(&index_key(&target))
                 .unwrap_or(BallValue::Null),
-            BallValue::List(mut list) => match list.iter().position(|item| *item == target) {
+            // `List.remove(value)` mutates in place; the receiver's shared
+            // backing (reference semantics — #39/#300) means the caller observes
+            // the removal, matching Dart.
+            BallValue::List(list) => match list.position(&target) {
                 Some(pos) => {
                     list.remove(pos);
                     BallValue::Bool(true)
@@ -2621,7 +2665,7 @@ mod dartsdk {
             }
             list[index] = item;
         }
-        BallValue::List(list)
+        BallValue::List(BallList::from(list))
     }
 
     /// `Iterable.cast<T>()` — a re-typed view; in the dynamic value model the
@@ -2651,7 +2695,7 @@ mod dartsdk {
     pub fn filled(input: BallValue) -> BallValue {
         let count = as_index(&m_get(&input, "arg0"));
         let value = m_get(&input, "arg1");
-        BallValue::List(vec![value; count])
+        BallValue::List(BallList::from(vec![value; count]))
     }
 
     /// `Iterable.elementAt(index)` — the element at `index` (Dart throws
@@ -2770,14 +2814,14 @@ mod dartsdk {
     pub fn generate(input: BallValue) -> BallValue {
         let count = as_index(&m_get(&input, "arg0"));
         let generator = m_get(&input, "arg1");
-        let mut out: BallList = Vec::with_capacity(count);
+        let mut out: Vec<BallValue> = Vec::with_capacity(count);
         for i in 0..count {
             out.push(ball_call_function(
                 generator.clone(),
                 BallValue::Int(i as i64),
             ));
         }
-        BallValue::List(out)
+        BallValue::List(BallList::from(out))
     }
 
     /// `Iterable.fold(initial, combine)` — left fold with a two-argument
@@ -2964,7 +3008,7 @@ mod dartsdk {
         let path = path_arg(&m_get(&input, "self"));
         match std::fs::read_dir(&path) {
             Ok(entries) => {
-                let mut out: BallList = Vec::new();
+                let mut out: Vec<BallValue> = Vec::new();
                 for entry in entries.flatten() {
                     let entry_path = entry.path();
                     let kind = if entry_path.is_dir() {
@@ -2974,7 +3018,7 @@ mod dartsdk {
                     };
                     out.push(fs_handle(kind, entry_path.to_string_lossy().into_owned()));
                 }
-                BallValue::List(out)
+                BallValue::List(BallList::from(out))
             }
             Err(e) => panic!("ball-compiler runtime: listSync('{path}') failed: {e}"),
         }
@@ -3008,7 +3052,7 @@ mod dartsdk {
         let path = path_arg(&m_get(&input, "self"));
         let bytes = match m_get(&input, "arg0") {
             BallValue::Bytes(b) => b,
-            BallValue::List(list) => list.iter().map(|v| as_i64(v) as u8).collect(),
+            BallValue::List(list) => list.snapshot().iter().map(|v| as_i64(v) as u8).collect(),
             other => {
                 panic!("ball-compiler runtime: writeAsBytesSync expected bytes, got {other:?}")
             }
@@ -3226,7 +3270,7 @@ mod dartsdk {
             }
             BallValue::List(list) => {
                 out.push('[');
-                for (i, item) in list.iter().enumerate() {
+                for (i, item) in list.snapshot().iter().enumerate() {
                     if i > 0 {
                         out.push(',');
                     }
@@ -3322,10 +3366,10 @@ mod tests {
         );
         assert_eq!(
             ball_add(
-                BallValue::List(vec![BallValue::Int(1)]),
-                BallValue::List(vec![BallValue::Int(2)])
+                BallValue::List(BallList::from(vec![BallValue::Int(1)])),
+                BallValue::List(BallList::from(vec![BallValue::Int(2)]))
             ),
-            BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)])
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]))
         );
     }
 
@@ -3420,29 +3464,56 @@ mod tests {
     }
 
     #[test]
-    fn index_get_mut_mutates_a_list_element_in_place() {
-        let mut list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
-        *ball_index_get_mut(&mut list, BallValue::Int(1)) = BallValue::Int(99);
+    fn index_set_mutates_a_list_element_in_place() {
+        let mut list = BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]));
+        // `list[1] = 99` — reference-semantic `BallList` has no `&mut` into an
+        // element, so the write goes through `ball_index_set` (issues #39/#300).
+        ball_index_set(&mut list, BallValue::Int(1), BallValue::Int(99));
         assert_eq!(
             list,
-            BallValue::List(vec![BallValue::Int(1), BallValue::Int(99)])
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(99)]))
+        );
+    }
+
+    #[test]
+    fn list_clone_shares_backing_reference_semantics() {
+        // Issue #39/#300: cloning a `BallValue::List` (which every read does)
+        // shares the backing, so a mutation through one clone is observed
+        // through the other — the property the self-hosted engine's
+        // list-building relies on. A snapshot copy (`toList`) does NOT share.
+        let a = BallValue::List(BallList::from(vec![BallValue::Int(1)]));
+        let mut b = a.clone();
+        ball_list_push(&mut b, BallValue::Int(2));
+        assert_eq!(
+            a,
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)])),
+            "a mutation through an aliasing clone must be visible (Dart List semantics)"
+        );
+        // `toList()` copies — mutating the copy must NOT touch the source.
+        let copy = ball_list_to_list(a.clone());
+        let mut copy_mut = copy.clone();
+        ball_list_push(&mut copy_mut, BallValue::Int(3));
+        assert_eq!(
+            a,
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)])),
+            "mutating a toList() copy must not touch the source (explicit copy point)"
         );
     }
 
     // ── collections ──
     #[test]
     fn list_push_mutates_the_underlying_list() {
-        let mut list = BallValue::List(vec![BallValue::Int(1)]);
+        let mut list = BallValue::List(BallList::from(vec![BallValue::Int(1)]));
         ball_list_push(&mut list, BallValue::Int(2));
         assert_eq!(
             list,
-            BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)])
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]))
         );
     }
 
     #[test]
     fn list_map_applies_a_function_value_callback() {
-        let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
+        let list = BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]));
         // The callback is a Ball function *value* (a `BallValue::Function`
         // wrapping a native closure), dispatched via `ball_call_function` —
         // matching what the compiler now emits for a `lambda` (#39).
@@ -3452,7 +3523,7 @@ mod tests {
         let doubled = ball_list_map(list, doubler);
         assert_eq!(
             doubled,
-            BallValue::List(vec![BallValue::Int(2), BallValue::Int(4)])
+            BallValue::List(BallList::from(vec![BallValue::Int(2), BallValue::Int(4)]))
         );
     }
 
@@ -3469,23 +3540,23 @@ mod tests {
 
     #[test]
     fn set_add_deduplicates() {
-        let mut set = BallValue::List(vec![BallValue::Int(1)]);
+        let mut set = BallValue::List(BallList::from(vec![BallValue::Int(1)]));
         ball_set_add(&mut set, BallValue::Int(1));
         ball_set_add(&mut set, BallValue::Int(2));
         assert_eq!(
             set,
-            BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)])
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]))
         );
     }
 
     // ── virtual properties / method dispatch tag (issue #38) ──
     #[test]
     fn field_get_length_is_a_virtual_property_on_list_string_and_bytes() {
-        let list = BallValue::List(vec![
+        let list = BallValue::List(BallList::from(vec![
             BallValue::Int(1),
             BallValue::Int(2),
             BallValue::Int(3),
-        ]);
+        ]));
         assert_eq!(ball_field_get(list, "length"), BallValue::Int(3));
         assert_eq!(
             ball_field_get(BallValue::String("héllo".into()), "length"),
@@ -3715,15 +3786,15 @@ mod dartsdk_tests {
 
     #[test]
     fn add_all_list_and_map() {
-        let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
-        let extra = BallValue::List(vec![BallValue::Int(3)]);
+        let list = BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]));
+        let extra = BallValue::List(BallList::from(vec![BallValue::Int(3)]));
         assert_eq!(
             addAll(call(&[("self", list), ("arg0", extra)])),
-            BallValue::List(vec![
+            BallValue::List(BallList::from(vec![
                 BallValue::Int(1),
                 BallValue::Int(2),
                 BallValue::Int(3)
-            ])
+            ]))
         );
         let mut base = BallMap::new();
         base.insert("a".to_string(), BallValue::Int(1));
@@ -3742,7 +3813,7 @@ mod dartsdk_tests {
 
     #[test]
     fn remove_list_returns_bool_map_returns_value() {
-        let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
+        let list = BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]));
         assert_eq!(
             remove(call(&[("self", list.clone()), ("arg0", BallValue::Int(2))])),
             BallValue::Bool(true)
@@ -3761,19 +3832,19 @@ mod dartsdk_tests {
 
     #[test]
     fn to_set_dedups_preserving_order() {
-        let list = BallValue::List(vec![
+        let list = BallValue::List(BallList::from(vec![
             BallValue::Int(2),
             BallValue::Int(1),
             BallValue::Int(2),
             BallValue::Int(3),
-        ]);
+        ]));
         assert_eq!(
             toSet(call(&[("self", list)])),
-            BallValue::List(vec![
+            BallValue::List(BallList::from(vec![
                 BallValue::Int(2),
                 BallValue::Int(1),
                 BallValue::Int(3)
-            ])
+            ]))
         );
     }
 
@@ -3784,7 +3855,10 @@ mod dartsdk_tests {
             ("arg0", BallValue::Int(3)),
             ("arg1", s("x")),
         ]));
-        assert_eq!(filled_list, BallValue::List(vec![s("x"), s("x"), s("x")]));
+        assert_eq!(
+            filled_list,
+            BallValue::List(BallList::from(vec![s("x"), s("x"), s("x")]))
+        );
         assert_eq!(
             elementAt(call(&[
                 ("self", filled_list.clone()),
@@ -3792,54 +3866,55 @@ mod dartsdk_tests {
             ])),
             s("x")
         );
-        let target = BallValue::List(vec![
+        let target = BallValue::List(BallList::from(vec![
             BallValue::Int(0),
             BallValue::Int(0),
             BallValue::Int(0),
-        ]);
-        let replacement = BallValue::List(vec![BallValue::Int(8), BallValue::Int(9)]);
+        ]));
+        let replacement =
+            BallValue::List(BallList::from(vec![BallValue::Int(8), BallValue::Int(9)]));
         assert_eq!(
             setAll(call(&[
                 ("self", target),
                 ("arg0", BallValue::Int(1)),
                 ("arg1", replacement)
             ])),
-            BallValue::List(vec![
+            BallValue::List(BallList::from(vec![
                 BallValue::Int(0),
                 BallValue::Int(8),
                 BallValue::Int(9)
-            ])
+            ]))
         );
     }
 
     #[test]
     fn set_operations() {
-        let a = BallValue::List(vec![
+        let a = BallValue::List(BallList::from(vec![
             BallValue::Int(1),
             BallValue::Int(2),
             BallValue::Int(3),
-        ]);
-        let b = BallValue::List(vec![
+        ]));
+        let b = BallValue::List(BallList::from(vec![
             BallValue::Int(2),
             BallValue::Int(3),
             BallValue::Int(4),
-        ]);
+        ]));
         assert_eq!(
             union_(call(&[("self", a.clone()), ("arg0", b.clone())])),
-            BallValue::List(vec![
+            BallValue::List(BallList::from(vec![
                 BallValue::Int(1),
                 BallValue::Int(2),
                 BallValue::Int(3),
                 BallValue::Int(4)
-            ])
+            ]))
         );
         assert_eq!(
             intersection(call(&[("self", a.clone()), ("arg0", b.clone())])),
-            BallValue::List(vec![BallValue::Int(2), BallValue::Int(3)])
+            BallValue::List(BallList::from(vec![BallValue::Int(2), BallValue::Int(3)]))
         );
         assert_eq!(
             difference(call(&[("self", a), ("arg0", b)])),
-            BallValue::List(vec![BallValue::Int(1)])
+            BallValue::List(BallList::from(vec![BallValue::Int(1)]))
         );
     }
 

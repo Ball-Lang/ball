@@ -24,7 +24,7 @@
 //! to the same program in JSON.
 
 use ball_shared::proto::ball::v1::Program;
-use ball_shared::{BallMap, BallValue, DESCRIPTOR_POOL};
+use ball_shared::{BallList, BallMap, BallValue, DESCRIPTOR_POOL};
 use prost::Message;
 use prost_reflect::{DynamicMessage, SerializeOptions};
 
@@ -166,7 +166,10 @@ fn wrap_value(value: BallValue) -> BallValue {
         BallValue::List(items) => {
             let values: Vec<BallValue> = items.into_iter().map(wrap_value).collect();
             let mut list_value = BallMap::with_capacity(1);
-            list_value.insert("values".to_string(), BallValue::List(values));
+            list_value.insert(
+                "values".to_string(),
+                BallValue::List(BallList::from(values)),
+            );
             out.insert("listValue".to_string(), BallValue::Map(list_value));
         }
         BallValue::Map(m) => {

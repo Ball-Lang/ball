@@ -40,8 +40,9 @@
 //! run thread. The default build (no `self_host`) still returns
 //! [`EngineError::SelfHostPending`].
 //!
-//! **Corpus status (#39/#300): 139/323 fixtures pass Dart-identical.** The
-//! loop-scope and string-surface blockers are **resolved**:
+//! **Corpus status (#39/#300): 160/323 fixtures pass Dart-identical.** The
+//! loop-scope, string-surface, and reference-semantic-`List` blockers are
+//! **resolved**:
 //! - Loop counters now persist. The engine routes `i++`/`i--` through a Dart
 //!   `switch` whose increment/decrement labels *fall through* to one shared
 //!   body; the Rust compiler lowered `switch` to an if-chain that gave each
@@ -55,14 +56,18 @@
 //!   defaults (`skip_default_fields(false)`) so an empty list literal `[]` no
 //!   longer reads back as `null`.
 //!
-//! **Remaining (follow-up):** the biggest bucket is Dart's *reference-semantic*
-//! `List` — the engine mutates a list passed as a function argument
-//! (`_addCollectionElement(element, scope, result)` appends to `result`), which
-//! the Rust value-semantic `BallValue::List` does not observe, so list literals
-//! and comprehensions evaluate empty; plus some class `toString`/constructor
-//! edge cases. See `rust/engine/AGENTS.md`. The default build (no `self_host`)
-//! still returns `EngineError::SelfHostPending`; its foundation (loader + scope
-//! + ball_proto) stays green.
+//! **Reference-semantic `List` (issues #39/#300) — DONE.** Dart's `List` is a
+//! reference type: the engine mutates a list passed as a function argument
+//! (`_addCollectionElement(element, scope, result)` appends to `result`), and
+//! `BallValue::List` now shares its backing (`Arc<Mutex<Vec>>`, like
+//! `BallMessage`), so that append is observed by the caller and list literals /
+//! comprehensions / sorts evaluate correctly. Only aliasing *reads* share; the
+//! copy points (`toList()`/`List.from`/spread) still snapshot. See
+//! `rust/shared/src/value.rs` (`BallList`) and `rust/engine/AGENTS.md`.
+//!
+//! **Remaining (follow-up):** some class `toString`/constructor edge cases. The
+//! default build (no `self_host`) still returns `EngineError::SelfHostPending`;
+//! its foundation (loader + scope + ball_proto) stays green.
 
 pub mod ball_proto;
 pub mod loader;
@@ -79,6 +84,11 @@ use std::fmt;
 
 use ball_shared::BallValue;
 use ball_shared::proto::ball::v1::Program;
+// `BallList` is only constructed on the `self_host` run path (the compiled
+// engine's std-handler/constructor input below); gate the import so the default
+// build (which stops at `SelfHostPending`) doesn't flag it unused.
+#[cfg(feature = "self_host")]
+use ball_shared::BallList;
 
 /// A failure loading or running a Ball program.
 #[derive(Debug, Clone, PartialEq)]
@@ -230,7 +240,7 @@ impl BallEngine {
             "_composedDispatch".to_string(),
             BallValue::Map(BallMap::new()),
         );
-        std_fields.insert("_tombstones".to_string(), BallValue::List(Vec::new()));
+        std_fields.insert("_tombstones".to_string(), BallValue::List(BallList::new()));
         std_fields.insert("_allowlist".to_string(), BallValue::Null);
         let std_handler = BallValue::Message(BallMessage::new("main:StdModuleHandler", std_fields));
 
@@ -243,7 +253,7 @@ impl BallEngine {
         ctor_input.insert("stderr".to_string(), BallValue::Null);
         ctor_input.insert("stdinReader".to_string(), BallValue::Null);
         ctor_input.insert("envGet".to_string(), BallValue::Null);
-        ctor_input.insert("args".to_string(), BallValue::List(Vec::new()));
+        ctor_input.insert("args".to_string(), BallValue::List(BallList::new()));
         ctor_input.insert("enableProfiling".to_string(), BallValue::Bool(false));
         ctor_input.insert("maxRecursionDepth".to_string(), BallValue::Int(100_000));
         ctor_input.insert("timeoutMs".to_string(), BallValue::Null);
@@ -254,7 +264,7 @@ impl BallEngine {
         ctor_input.insert("sandbox".to_string(), BallValue::Bool(false));
         ctor_input.insert(
             "moduleHandlers".to_string(),
-            BallValue::List(vec![std_handler]),
+            BallValue::List(BallList::from(vec![std_handler])),
         );
         ctor_input.insert("resolver".to_string(), BallValue::Null);
 

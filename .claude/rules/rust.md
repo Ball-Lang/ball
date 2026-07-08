@@ -70,6 +70,17 @@ cargo fmt --check && cargo clippy --workspace
   does": `modulo` is Euclidean (sign of divisor, via `ball_shared::runtime`), int ops use
   wrapping arithmetic (Dart's fixed-width 64-bit `int`, no overflow panics), `equals`/
   `not_equals` promote `Int`/`Double` cross-type.
+- **Reference-semantic collections (Dart parity, #298/#39/#300).** `BallValue::List` and
+  `BallValue::Message` share their backing (`Arc<Mutex<Vec>>` / `Arc<Mutex<Map>>`,
+  `rust/shared/src/value.rs`), so a `.clone()`-on-read *aliases* — a `list.add(x)` /
+  `this.field = y` through any clone is observed by the caller, exactly like Dart's reference
+  types. Only `Map` stays value-semantic. **Copy points must snapshot**, matching Dart: a list
+  *literal* `[…]` emits `BallValue::List(BallList::from(vec![…]))` (fresh backing), and
+  `toList()`/`List.from`/spread/`Set` + the `+` concat operator go through `as_list()` (a
+  snapshot `Vec`) — never `.extend()` on a shared list, which would mutate an operand. A
+  `list[i] = x` / `obj.field = x` write can't borrow `&mut` through the `Mutex`, so it routes
+  through `ball_index_get`+`ball_index_set` / `ball_field_get`+`ball_field_set` read-modify-write
+  (`lvalue.rs::emit_mutation`).
 - Documented scope gaps live in `rust/compiler/src/lib.rs`'s module doc comment (a handful of
   base functions, constructors/methods with a real mutating body, class-hierarchy/`is`/`as`
   subtyping, multi-parameter lambdas) — read it before assuming something is a bug vs. a known,

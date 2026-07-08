@@ -15,9 +15,232 @@ use indexmap::IndexMap;
 use crate::proto::ball::v1::expression::Expr;
 use crate::proto::ball::v1::{Expression, FunctionCall};
 
-/// An ordered list of Ball values. Equivalent to Dart's `BallList`/C++'s
-/// `BallList = std::vector<BallValue>`.
-pub type BallList = Vec<BallValue>;
+/// An ordered, **reference-semantic** list of Ball values — the runtime
+/// materialization of every Ball `list`/`set` (a `Set` is a duplicate-free
+/// `List`, see `runtime.rs`). Equivalent to Dart's `List`, C++'s
+/// `BallList = std::vector<BallValue>`, and JS's `Array`.
+///
+/// # Reference semantics (issues #39/#300)
+///
+/// Dart's `List` is a **reference type**: `var b = a;` makes `b` and `a` the
+/// *same* list, so `b.add(x)` is observable through `a`, and passing a list to
+/// a function passes the reference (the callee's mutations persist to the
+/// caller). Every reference engine (Dart/TS/C++) — and Dart itself — behaves
+/// this way, and the self-hosted engine (`dart/self_host/engine.ball.json`)
+/// *depends* on it: `_evalListLiteral` creates a fresh `result`, then calls
+/// `_addCollectionElement(element, scope, result)` which does `result.add(…)`,
+/// relying on the append being visible to the caller. A plain by-value
+/// `Vec<BallValue>` clone (the original `BallList = Vec` alias) copied on every
+/// call, so those appends were lost and list literals/comprehensions/sorts
+/// evaluated **empty** (issue #300's biggest remaining bucket).
+///
+/// So — exactly like [`BallMessage`] (issue #298) — the backing vector lives
+/// behind an `Arc<Mutex<…>>`: cloning a [`BallList`] (which every `BallValue`
+/// read does — the value model is `.clone()`-on-read) shares the *same*
+/// underlying vector, so a mutation through any clone is visible through all of
+/// them. `Arc<Mutex>` (not `Rc<RefCell>`) keeps `BallValue` `Send + Sync`,
+/// which `ball_throw`'s `panic_any` and [`BallFunction`]'s
+/// `Arc<dyn Fn … + Send + Sync>` require.
+///
+/// **Where copies still happen** (matching Dart exactly): a list *literal*
+/// `[…]` builds a fresh backing (the compiler emits `BallList::from`), and the
+/// explicit copy constructors — `toList()`, `List.from`/`List.of`, spread
+/// `[…a]`, `Set` construction — go through [`as_list`](crate::runtime) which
+/// returns an owned snapshot `Vec`, so `BallValue::List(as_list(x))` is a fresh
+/// list. Only *aliasing* reads (a bare variable read, an argument pass) share
+/// the backing — again mirroring Dart.
+#[derive(Clone)]
+pub struct BallList {
+    /// The insertion-ordered elements, held behind a shared, interior-mutable
+    /// handle (see the type doc comment). Private so every access goes through
+    /// the reference-semantic accessors ([`BallList::push`]/[`BallList::get`]/…)
+    /// rather than a raw vector.
+    items: Arc<Mutex<Vec<BallValue>>>,
+}
+
+impl BallList {
+    /// An empty list owning a fresh shared backing.
+    pub fn new() -> Self {
+        BallList {
+            items: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Build a list owning `items` (wrapped in a fresh shared handle). Every
+    /// clone of the returned value shares this one backing vector — this is the
+    /// **fresh-backing** constructor a list literal `[…]` / `toList()` /
+    /// `List.from` uses (a distinct list, no aliasing of the source).
+    pub fn from_vec(items: Vec<BallValue>) -> Self {
+        BallList {
+            items: Arc::new(Mutex::new(items)),
+        }
+    }
+
+    /// Lock the shared vector, recovering from a poisoned mutex (a prior panic
+    /// while a — very short, no-user-code — critical section was held; the data
+    /// is still consistent, so recover rather than cascade-panic). Mirrors
+    /// [`BallMessage::guard`].
+    fn guard(&self) -> MutexGuard<'_, Vec<BallValue>> {
+        self.items
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Append `value` (visible through every clone — reference semantics).
+    /// Takes `&self` (not `&mut`): the interior `Mutex` provides the mutation.
+    pub fn push(&self, value: BallValue) {
+        self.guard().push(value);
+    }
+
+    /// Remove and return the last element (Dart's `removeLast`), or `None` when
+    /// empty.
+    pub fn pop(&self) -> Option<BallValue> {
+        self.guard().pop()
+    }
+
+    /// Insert `value` at `index`, shifting later elements right (Dart's
+    /// `insert`). Panics on an out-of-range index like `Vec::insert`.
+    pub fn insert(&self, index: usize, value: BallValue) {
+        self.guard().insert(index, value);
+    }
+
+    /// Remove and return the element at `index`, shifting later elements left
+    /// (Dart's `removeAt`). Panics on an out-of-range index like `Vec::remove`.
+    pub fn remove(&self, index: usize) -> BallValue {
+        self.guard().remove(index)
+    }
+
+    /// Empty the list in place (Dart's `clear`).
+    pub fn clear(&self) {
+        self.guard().clear();
+    }
+
+    /// Read the element at `index` (cloned out of the shared vector), or `None`
+    /// if out of range.
+    pub fn get(&self, index: usize) -> Option<BallValue> {
+        self.guard().get(index).cloned()
+    }
+
+    /// Overwrite the element at `index` (`list[index] = value`). Panics on an
+    /// out-of-range index — matching Dart's `[]=`, which throws `RangeError`
+    /// (there is no auto-vivification for a list).
+    pub fn set(&self, index: usize, value: BallValue) {
+        let mut guard = self.guard();
+        if index >= guard.len() {
+            panic!(
+                "ball-compiler runtime: list index {index} out of range (len {})",
+                guard.len()
+            );
+        }
+        guard[index] = value;
+    }
+
+    /// Number of elements.
+    pub fn len(&self) -> usize {
+        self.guard().len()
+    }
+
+    /// Whether the list has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.guard().is_empty()
+    }
+
+    /// Whether `value` is present (structural equality, honoring the numeric
+    /// cross-type rule via [`BallValue`]'s `PartialEq`).
+    pub fn contains(&self, value: &BallValue) -> bool {
+        self.guard().contains(value)
+    }
+
+    /// First index of `value`, or `None` if absent.
+    pub fn position(&self, value: &BallValue) -> Option<usize> {
+        self.guard().iter().position(|item| item == value)
+    }
+
+    /// Append every element of `iter` (Dart's `addAll`) — visible through every
+    /// clone.
+    pub fn extend(&self, iter: impl IntoIterator<Item = BallValue>) {
+        self.guard().extend(iter);
+    }
+
+    /// Retain only elements satisfying `keep` (Dart's `removeWhere` inverse),
+    /// mutating in place.
+    pub fn retain(&self, keep: impl FnMut(&BallValue) -> bool) {
+        self.guard().retain(keep);
+    }
+
+    /// Sort in place by `compare`. The list is snapshot **before** sorting and
+    /// written back **after**, so `compare` (which — for `list.sort(cmp)` —
+    /// re-enters the engine to invoke a user comparator) never runs while this
+    /// list's `Mutex` is held: a comparator that reads the same list would
+    /// otherwise deadlock.
+    pub fn sort_by(&self, compare: impl FnMut(&BallValue, &BallValue) -> std::cmp::Ordering) {
+        let mut items = self.snapshot();
+        items.sort_by(compare);
+        *self.guard() = items;
+    }
+
+    /// A snapshot **copy** of the elements — for iteration, `Display`,
+    /// structural equality, and every value-semantic copy point (`toList()`,
+    /// `List.from`, spread). A lock guard can't escape the method, so callers
+    /// that need to iterate take an owned copy (mirrors [`BallMessage::snapshot`]).
+    pub fn snapshot(&self) -> Vec<BallValue> {
+        self.guard().clone()
+    }
+}
+
+impl Default for BallList {
+    fn default() -> Self {
+        BallList::new()
+    }
+}
+
+/// `Vec<BallValue> -> BallList` builds a **fresh** shared backing (a distinct
+/// list — used by list-literal compilation and the value-semantic copy points).
+impl From<Vec<BallValue>> for BallList {
+    fn from(items: Vec<BallValue>) -> Self {
+        BallList::from_vec(items)
+    }
+}
+
+/// `.collect::<BallList>()` / any `FromIterator` site builds a fresh backing —
+/// so every `BallValue::List(iter.map(…).collect())` in the runtime keeps
+/// compiling unchanged, just producing a distinct list (never aliasing).
+impl FromIterator<BallValue> for BallList {
+    fn from_iter<I: IntoIterator<Item = BallValue>>(iter: I) -> Self {
+        BallList::from_vec(iter.into_iter().collect())
+    }
+}
+
+/// Iterating a `BallList` (`for x in list`, `list.into_iter()`) walks an owned
+/// **snapshot** — the lock is released before the loop body runs, so a body
+/// that mutates the same list can't deadlock (and matches Dart, where mutating
+/// a list mid-`for-in` is a `ConcurrentModificationError`, not shared-mutation).
+impl IntoIterator for BallList {
+    type Item = BallValue;
+    type IntoIter = std::vec::IntoIter<BallValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.snapshot().into_iter()
+    }
+}
+
+/// Two lists are equal iff their elements are structurally equal — a *value*
+/// comparison over snapshots (reference identity is deliberately not used for
+/// `==`, matching Dart's `List.==` on the value/AST lists the engine compares).
+/// Snapshotting means no two locks are ever held at once (no deadlock even for
+/// `a == a` aliasing the one backing).
+impl PartialEq for BallList {
+    fn eq(&self, other: &Self) -> bool {
+        self.snapshot() == other.snapshot()
+    }
+}
+
+/// `Debug` over an element snapshot (the raw `Arc<Mutex<…>>` would print the
+/// lock, not the contents).
+impl fmt::Debug for BallList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_list().entries(self.snapshot()).finish()
+    }
+}
 
 /// A string-keyed, **insertion-ordered** map of Ball values.
 ///
@@ -341,7 +564,7 @@ impl fmt::Display for BallValue {
             }
             BallValue::List(items) => {
                 write!(f, "[")?;
-                for (index, item) in items.iter().enumerate() {
+                for (index, item) in items.snapshot().iter().enumerate() {
                     if index > 0 {
                         write!(f, ", ")?;
                     }
@@ -501,7 +724,7 @@ mod tests {
         assert_eq!(BallValue::Double(3.25).to_string(), "3.25");
         assert_eq!(BallValue::Double(0.1).to_string(), "0.1");
 
-        let list = BallValue::List(vec![BallValue::Int(1), BallValue::Int(2)]);
+        let list = BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]));
         assert_eq!(list.to_string(), "[1, 2]");
 
         let mut map = BallMap::new();
@@ -574,9 +797,45 @@ mod tests {
         assert_ne!(BallValue::Int(1), BallValue::Bool(true));
         // Nested (list/map) equality recurses through the same numeric rule.
         assert_eq!(
-            BallValue::List(vec![BallValue::Int(1)]),
-            BallValue::List(vec![BallValue::Double(1.0)])
+            BallValue::List(BallList::from(vec![BallValue::Int(1)])),
+            BallValue::List(BallList::from(vec![BallValue::Double(1.0)]))
         );
+    }
+
+    #[test]
+    fn list_has_reference_semantics_across_clones() {
+        // Issues #39/#300: a `BallList` clone (which every `BallValue` read
+        // does) shares the *same* backing vector, so a mutation through one
+        // clone is observed through the other — the property the self-hosted
+        // engine's `_addCollectionElement(…, result)` append relies on. A
+        // `snapshot()` (the copy point) does NOT share.
+        let a = BallList::from(vec![BallValue::Int(1)]);
+        let b = a.clone();
+        b.push(BallValue::Int(2));
+        assert_eq!(a.snapshot(), vec![BallValue::Int(1), BallValue::Int(2)]);
+        a.push(BallValue::Int(3));
+        assert_eq!(
+            b.snapshot(),
+            vec![BallValue::Int(1), BallValue::Int(2), BallValue::Int(3)]
+        );
+        // `set`/`get`/`remove` also go through the shared backing.
+        a.set(0, BallValue::Int(9));
+        assert_eq!(b.get(0), Some(BallValue::Int(9)));
+        // A snapshot is a detached copy — mutating it never touches the source.
+        let mut detached = a.snapshot();
+        detached.push(BallValue::Int(100));
+        assert_eq!(a.len(), 3, "snapshot copy must not grow the source list");
+
+        // The `BallValue::List` wrapper shares likewise (the shape the compiler
+        // emits: a `.clone()`d read aliases, so an append is visible).
+        let av = BallValue::List(a.clone());
+        let bv = av.clone();
+        if let BallValue::List(l) = &av {
+            l.push(BallValue::Int(4));
+        }
+        if let BallValue::List(l) = &bv {
+            assert_eq!(l.len(), 4);
+        }
     }
 
     #[test]

@@ -1,3 +1,10 @@
+## [1.16.2](https://github.com/Ball-Lang/ball/compare/v1.16.1...v1.16.2) (2026-07-08)
+
+
+### Bug Fixes
+
+* **compiler:** per-iteration for-loop capture, typed catch, type-literal toString, goto body, const-ctor fields ([#303](https://github.com/Ball-Lang/ball/issues/303), [#305](https://github.com/Ball-Lang/ball/issues/305)) ([#320](https://github.com/Ball-Lang/ball/issues/320)) ([d1bdd11](https://github.com/Ball-Lang/ball/commit/d1bdd11c1ec35637a667c16bce1d9fe6f10eb9c6))
+
 ## [1.16.1](https://github.com/Ball-Lang/ball/compare/v1.16.0...v1.16.1) (2026-07-08)
 
 

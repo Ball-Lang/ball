@@ -2383,173 +2383,24 @@ class DartCompiler {
     final initExpr = fields['init'];
     final body = fields['body'];
 
-    // Detect closure capture: if the for-body contains a lambda that
-    // references a loop variable declared in init, hoist the variable
-    // declaration before the for-loop. This implements Ball's shared-
-    // variable semantics (unlike Dart's per-iteration binding).
-    final initVarNames = _extractForInitVarNames(initExpr);
-    final needsHoist =
-        initVarNames.isNotEmpty &&
-        body != null &&
-        _bodyContainsLambdaCapturing(body, initVarNames);
-
-    if (needsHoist &&
-        initExpr != null &&
-        initExpr.whichExpr() == Expression_Expr.block) {
-      // Hoist variable declarations before the loop.
-      for (final s in initExpr.block.statements) {
-        if (s.whichStmt() == Statement_Stmt.let) {
-          _wl('${_letDeclKeyword(s.let)} ${s.let.name} = ${_e(s.let.value)};');
-        }
-      }
-      final condStr = fields['condition'] != null
-          ? _e(fields['condition']!)
-          : '';
-      final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
-      _wl('for (; $condStr; $updateStr) {');
-    } else {
-      final init = initExpr != null
-          ? (_stringFieldValue(fields, 'init') ??
-                _renderForInit(initExpr) ??
-                _e(initExpr))
-          : '';
-      final condStr = fields['condition'] != null
-          ? _e(fields['condition']!)
-          : '';
-      final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
-      _wl('for ($init; $condStr; $updateStr) {');
-    }
+    // Declare the loop variable INSIDE the for-init clause (`for (var i = 0;
+    // …)`) rather than hoisting it before the loop. Dart's C-style `for`
+    // gives each iteration a FRESH binding of the loop variable, so a closure
+    // created in the body captures that iteration's value — the per-iteration
+    // semantics the Ball engine (and the golden) require (#303). Hoisting the
+    // declaration would make every closure share the single final value.
+    final init = initExpr != null
+        ? (_stringFieldValue(fields, 'init') ??
+              _renderForInit(initExpr) ??
+              _e(initExpr))
+        : '';
+    final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
+    final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
+    _wl('for ($init; $condStr; $updateStr) {');
     _depth++;
     if (body != null) _generateBranchBody(body, false);
     _depth--;
     _wl('}');
-  }
-
-  /// Extract variable names declared in a for-loop init block.
-  Set<String> _extractForInitVarNames(Expression? initExpr) {
-    if (initExpr == null) return const {};
-    if (initExpr.whichExpr() != Expression_Expr.block) return const {};
-    final names = <String>{};
-    for (final s in initExpr.block.statements) {
-      if (s.whichStmt() == Statement_Stmt.let) names.add(s.let.name);
-    }
-    return names;
-  }
-
-  /// Returns true if [expr] contains any lambda that references one of [varNames].
-  bool _bodyContainsLambdaCapturing(Expression expr, Set<String> varNames) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.lambda:
-        // Check if the lambda body references any of the varNames.
-        return _exprReferences(
-          Expression()..lambda = expr.lambda,
-          varNames,
-          insideLambda: true,
-        );
-      case Expression_Expr.call:
-        if (expr.call.hasInput()) {
-          if (_bodyContainsLambdaCapturing(expr.call.input, varNames)) {
-            return true;
-          }
-        }
-        return false;
-      case Expression_Expr.messageCreation:
-        for (final f in expr.messageCreation.fields) {
-          if (_bodyContainsLambdaCapturing(f.value, varNames)) return true;
-        }
-        return false;
-      case Expression_Expr.block:
-        for (final s in expr.block.statements) {
-          if (s.whichStmt() == Statement_Stmt.expression) {
-            if (_bodyContainsLambdaCapturing(s.expression, varNames)) {
-              return true;
-            }
-          } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
-            if (_bodyContainsLambdaCapturing(s.let.value, varNames)) {
-              return true;
-            }
-          }
-        }
-        if (expr.block.hasResult()) {
-          return _bodyContainsLambdaCapturing(expr.block.result, varNames);
-        }
-        return false;
-      default:
-        return false;
-    }
-  }
-
-  /// Returns true if [expr] references any name in [varNames].
-  /// When [insideLambda] is true, we're already inside a lambda and any
-  /// reference to varNames counts as a capture.
-  bool _exprReferences(
-    Expression expr,
-    Set<String> varNames, {
-    bool insideLambda = false,
-  }) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.reference:
-        return insideLambda && varNames.contains(expr.reference.name);
-      case Expression_Expr.lambda:
-        // Recurse into the lambda body with insideLambda=true.
-        final func = expr.lambda;
-        if (func.hasBody()) {
-          return _exprReferences(func.body, varNames, insideLambda: true);
-        }
-        return false;
-      case Expression_Expr.call:
-        if (expr.call.hasInput()) {
-          return _exprReferences(
-            expr.call.input,
-            varNames,
-            insideLambda: insideLambda,
-          );
-        }
-        return false;
-      case Expression_Expr.messageCreation:
-        for (final f in expr.messageCreation.fields) {
-          if (_exprReferences(f.value, varNames, insideLambda: insideLambda)) {
-            return true;
-          }
-        }
-        return false;
-      case Expression_Expr.block:
-        for (final s in expr.block.statements) {
-          if (s.whichStmt() == Statement_Stmt.expression) {
-            if (_exprReferences(
-              s.expression,
-              varNames,
-              insideLambda: insideLambda,
-            )) {
-              return true;
-            }
-          } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
-            if (_exprReferences(
-              s.let.value,
-              varNames,
-              insideLambda: insideLambda,
-            )) {
-              return true;
-            }
-          }
-        }
-        if (expr.block.hasResult()) {
-          return _exprReferences(
-            expr.block.result,
-            varNames,
-            insideLambda: insideLambda,
-          );
-        }
-        return false;
-      case Expression_Expr.fieldAccess:
-        return _exprReferences(
-          expr.fieldAccess.object,
-          varNames,
-          insideLambda: insideLambda,
-        );
-      default:
-        return false;
-    }
   }
 
   /// Render a Ball for-loop `init` block as a Dart `for` initialiser

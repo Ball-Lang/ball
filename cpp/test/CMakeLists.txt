@@ -305,4 +305,14 @@ if(BALL_SELFHOST_AVAILABLE)
         set_tests_properties("selfhost/${_fxname}" PROPERTIES
             TIMEOUT 1200 LABELS "selfhost")
     endforeach()
+    # Self-host-only std_fs directory-ops regression (fail-loud dir stubs). Not
+    # backed by a tests/conformance/*.ball.json — filesystem side effects aren't
+    # portable golden output — so the harness runs it via the synthetic
+    # "std_fs_dir" case (see run_fs_dir_selfhost in test_selfhost_conformance.cpp),
+    # which owns its temp dir + cleanup. Labeled selfhost so the tally job
+    # (`ctest -L selfhost`) includes it.
+    add_test(NAME "selfhost/std_fs_dir"
+             COMMAND test_selfhost_conformance "std_fs_dir")
+    set_tests_properties("selfhost/std_fs_dir" PROPERTIES
+        TIMEOUT 300 LABELS "selfhost")
 endif()

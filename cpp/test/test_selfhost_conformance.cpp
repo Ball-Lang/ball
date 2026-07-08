@@ -442,6 +442,194 @@ static bool run_one(const fs::path& program_path, const fs::path& expected_path,
     return true;
 }
 
+// ============================================================
+// std_fs directory-ops self-host test
+// ============================================================
+//
+// Regression for the fail-loud-invariant violation where the self-hosted
+// runtime's Directory ops (listSync/createSync/existsSync in
+// cpp/shared/include/ball_emit_runtime.h) were silent-degradation stubs:
+// dir_list returned [], dir_exists returned false, and dir_create was a no-op,
+// so any Ball program using std_fs.dir_* computed wrong results with no error.
+//
+// This is NOT a shared-corpus fixture (tests/conformance/*.ball.json):
+//   * filesystem side effects aren't portable golden output, and
+//   * the Dart encoder cannot emit std_fs.dir_* from ordinary source,
+// so no corpus fixture exercises these ops. Instead we run an inline Ball
+// program through the SAME self-hosted BallEngine (engine_rt) the corpus uses,
+// proving the runtime now does real filesystem work. The test owns an isolated
+// temp directory (chdir + cleanup) so the program's relative paths are
+// deterministic and it leaves no artifacts behind.
+//
+// The program: create ./sub, write ./sub/a.txt into it, then print
+//   dir_exists("sub")   -> true   (was false under the stub → also proves dir_create)
+//   dir_exists("nope")  -> false  (control)
+//   dir_list("sub").length -> 1   (was 0 under the stub; a NON-empty dir is
+//                                   essential — an empty dir lists as [] under
+//                                   BOTH the stub and the fix, hiding the bug)
+static bool run_fs_dir_selfhost(std::string& failure_msg) {
+    // typeName is omitted on every messageCreation: an empty typeName makes the
+    // engine build a plain field map (no type/function resolution), exactly the
+    // {path:...} / {message:...} shape the std_fs / std handlers expect.
+    static const char* kProgram = R"BALLJSON({
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "selfhost_std_fs_dir",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [ { "name": "print", "isBase": true } ]
+    },
+    {
+      "name": "std_fs",
+      "functions": [
+        { "name": "dir_create", "isBase": true },
+        { "name": "dir_exists", "isBase": true },
+        { "name": "dir_list", "isBase": true },
+        { "name": "file_write", "isBase": true }
+      ]
+    },
+    {
+      "name": "main",
+      "moduleImports": [ { "name": "std" }, { "name": "std_fs" } ],
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                { "expression": { "call": {
+                  "module": "std_fs", "function": "dir_create",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "path", "value": { "literal": { "stringValue": "sub" } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std_fs", "function": "file_write",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "path", "value": { "literal": { "stringValue": "sub/a.txt" } } },
+                    { "name": "content", "value": { "literal": { "stringValue": "x" } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std", "function": "print",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "message", "value": { "call": {
+                      "module": "std_fs", "function": "dir_exists",
+                      "input": { "messageCreation": { "fields": [
+                        { "name": "path", "value": { "literal": { "stringValue": "sub" } } }
+                      ] } } } } }
+                  ] } } } } },
+                { "expression": { "call": {
+                  "module": "std", "function": "print",
+                  "input": { "messageCreation": { "fields": [
+                    { "name": "message", "value": { "call": {
+                      "module": "std_fs", "function": "dir_exists",
+                      "input": { "messageCreation": { "fields": [
+                        { "name": "path", "value": { "literal": { "stringValue": "nope" } } }
+                      ] } } } } }
+                  ] } } } } }
+              ],
+              "result": { "call": {
+                "module": "std", "function": "print",
+                "input": { "messageCreation": { "fields": [
+                  { "name": "message", "value": { "fieldAccess": {
+                    "object": { "call": {
+                      "module": "std_fs", "function": "dir_list",
+                      "input": { "messageCreation": { "fields": [
+                        { "name": "path", "value": { "literal": { "stringValue": "sub" } } }
+                      ] } } } },
+                    "field": "length"
+                  } } }
+                ] } } } }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+})BALLJSON";
+    const std::string expected = "true\nfalse\n1";
+
+    // Isolated, deterministic workspace under the system temp dir. Relative
+    // paths in the program resolve against it after we chdir, so the program
+    // stays path-independent and portable.
+    std::error_code ec;
+    fs::path base = fs::temp_directory_path(ec) /
+        ("ball_selfhost_fs_" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::remove_all(base, ec);
+    fs::create_directories(base, ec);
+    if (ec) { failure_msg = "temp setup failed: " + ec.message(); return false; }
+    fs::path oldCwd = fs::current_path(ec);
+    fs::current_path(base, ec);
+    if (ec) {
+        failure_msg = "chdir to temp failed: " + ec.message();
+        fs::remove_all(base, ec);
+        return false;
+    }
+
+    std::string captured;
+    std::string run_err;
+    bool ran = false;
+    try {
+        // Mirror run_one's engine construction (the well-exercised corpus path).
+        ball::v1::Program program = ball::DecodeProgram("std_fs_dir", kProgram);
+        auto programAny = proto_msg_to_any(program);
+        auto cap = std::make_shared<std::string>();
+
+        BallEngine engine;
+        engine.program = BallDyn(programAny);
+        engine._types = BallDyn(BallMap{});
+        engine._functions = BallDyn(BallMap{});
+        engine._getters = BallDyn(BallMap{});
+        engine._setters = BallDyn(BallMap{});
+        engine._globalScope = BallDyn(BallMap{});
+        engine._currentModule = "";
+        engine._paramCache = BallDyn(BallMap{});
+        engine._callCache = BallDyn(BallMap{});
+        engine._enumValues = BallDyn(BallMap{});
+        engine._constructors = BallDyn(BallMap{});
+        engine._callCounts = BallDyn(BallMap{});
+        engine._nextMutexId = 0;
+        engine.stdout_ = BallDyn(BallFunc([cap](std::any arg) -> std::any {
+            *cap += ball_to_string(arg) + "\n";
+            return std::any{};
+        }));
+
+        auto stdDispatch = engine._buildStdDispatch();
+        StdModuleHandler handler(BallMap{{"_dispatch", std::any(stdDispatch)}});
+        engine.moduleHandlers = BallDyn(BallList{std::any(BallDyn(handler))});
+
+        engine._buildLookupTables();
+        engine._initTopLevelVariables();
+        engine.run();
+
+        captured = *cap;
+        ran = true;
+    } catch (const BallException& be) {
+        run_err = std::string("BallException: ") + be.what();
+    } catch (const std::exception& e) {
+        run_err = std::string("engine threw: ") + e.what();
+    } catch (...) {
+        run_err = "engine threw unknown exception";
+    }
+
+    // Always restore the CWD and remove the temp workspace, even on failure.
+    fs::current_path(oldCwd, ec);
+    fs::remove_all(base, ec);
+
+    if (!ran) { failure_msg = run_err; return false; }
+    std::string actual = normalize(captured);
+    if (actual != normalize(expected)) {
+        failure_msg = "output mismatch\n--- expected ---\n" + normalize(expected) +
+                      "\n--- actual ---\n" + actual + "\n---";
+        return false;
+    }
+    return true;
+}
+
 int main(int argc, char** argv) {
     std::cout << "Ball Self-Hosted Engine Conformance Tests\n"
               << "==========================================\n";
@@ -472,6 +660,11 @@ int main(int argc, char** argv) {
             }
         }
     }
+    // Synthetic self-host-only case: std_fs directory ops. Not backed by a
+    // corpus fixture (filesystem side effects aren't portable golden output);
+    // run_fs_dir_selfhost manages its own temp dir + cleanup. Registered as its
+    // own CTest test "selfhost/std_fs_dir" in cpp/test/CMakeLists.txt.
+    cases.push_back({fs::path{}, fs::path{}, "std_fs_dir"});
     std::sort(cases.begin(), cases.end(),
               [](auto& a, auto& b) { return a.name < b.name; });
 
@@ -516,7 +709,11 @@ int main(int argc, char** argv) {
         // hang fails only that fixture.
         bool passed = false;
         try {
-            passed = run_one(tc.program, tc.expected, tc.name, failure_msg);
+            if (tc.name == "std_fs_dir") {
+                passed = run_fs_dir_selfhost(failure_msg);
+            } else {
+                passed = run_one(tc.program, tc.expected, tc.name, failure_msg);
+            }
         } catch (const std::exception& e) {
             failure_msg = std::string("unexpected C++ exception: ") + e.what();
         } catch (...) {

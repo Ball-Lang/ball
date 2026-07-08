@@ -9,28 +9,28 @@ managed:
       value: github.com/ball-lang/ball/go/shared/gen
 
 plugins:
-  - remote: buf.build/protocolbuffers/dart
+  - remote: buf.build/protocolbuffers/dart:v25.0.0
     out: dart/shared/lib/gen
     include_imports: true
     include_wkt: true
 
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.11
     out: go/shared/gen
     opt: paths=source_relative
 
-  - remote: buf.build/protocolbuffers/python
+  - remote: buf.build/protocolbuffers/python:v35.1
     out: python/shared/gen
 
-  - remote: buf.build/bufbuild/es
+  - remote: buf.build/bufbuild/es:v2.12.1
     out: ts/shared/gen
 
-  - remote: buf.build/protocolbuffers/java
+  - remote: buf.build/protocolbuffers/java:v35.1
     out: java/shared/gen
 
-  - remote: buf.build/protocolbuffers/cpp
+  - remote: buf.build/protocolbuffers/cpp:v35.1
     out: cpp/shared/gen
 
-  - remote: buf.build/protocolbuffers/csharp
+  - remote: buf.build/protocolbuffers/csharp:v35.1
     out: csharp/shared/gen
 
   - remote: buf.build/community/neoeinstein-prost:v0.4.0

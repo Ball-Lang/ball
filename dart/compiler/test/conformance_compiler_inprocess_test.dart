@@ -15,17 +15,10 @@
 ///
 /// A failing leg here is a compiler (or encoder-of-generated-code) bug, never a
 /// tolerated baseline — and the Dart regression gate asserts 0 failed AND 0
-/// skipped, so this suite carries no `skip:` markers. One fixture reproduces a
-/// known, tracked Dart-compiler bug and is EXCLUDED from the loop. It stays
-/// covered by the direct-path encoder round-trip (#61) and the plain `engine`
-/// leg (which interprets the original program directly, with no compile step,
-/// and passes):
-///   - 229_closure_loop_var_…     → #303 (closure capture in a C-style
-///                                   `for(var i)` shares the loop var, once it
-///                                   round-trips through DartCompiler — a
-///                                   different leg/scope than the now-closed
-///                                   #69, which was C++/TS compilers only)
-/// Delete an entry from [_knownGaps] (and confirm green) when its issue lands.
+/// skipped, so this suite carries no `skip:` markers. The whole corpus runs
+/// with no carve-outs; add an entry to [_knownGaps] only to park a freshly
+/// discovered, tracked compiler/encoder bug, and delete it (confirming green)
+/// when its issue lands.
 @TestOn('vm')
 library;
 
@@ -43,10 +36,7 @@ String _norm(String s) =>
 /// Excluded (not `skip:`-ped) so the suite stays at 0 skipped for the
 /// regression gate; each is still covered by the direct-path encoder round-trip
 /// and the slow legs. Remove an entry when its issue is fixed.
-const _knownGaps = <String, String>{
-  '229_closure_loop_var_semantics':
-      '#303 — Dart-compiler closure loop-var capture',
-};
+const _knownGaps = <String, String>{};
 
 Directory _findConformanceDir() {
   var dir = Directory.current.absolute;

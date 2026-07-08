@@ -1,9 +1,10 @@
 /// Unit tests for the compiler's function-body statement generation: the
 /// `notSet` statement, scope/destructure block-as-statement, the async
 /// throw-only safety `return null as dynamic;`, the `throw null;` statement, a
-/// standalone `label` statement (and an unsupported control statement), the
-/// for-loop closure-capture hoisting path, and goto/label appearing as a
-/// block's *result* (the branch the existing goto/label tests don't reach).
+/// standalone `label` statement (and an unsupported control statement), a
+/// for-loop whose loop var is captured by a body lambda (per-iteration
+/// binding), and goto/label appearing as a block's *result* (the branch the
+/// existing goto/label tests don't reach).
 ///
 /// These build Ball IR directly because the Dart encoder never emits goto/label
 /// and only emits the malformed/edge shapes through specific source.
@@ -230,8 +231,8 @@ void main() {
     });
   });
 
-  group('for-loop closure capture hoisting', () {
-    test('loop var captured by a lambda is hoisted before the loop', () {
+  group('for-loop loop var captured by a body lambda', () {
+    test('loop var captured by a lambda stays in the for-init clause', () {
       // for (var i = 0; i < n; i = i + 1) { final f = () => i; }
       final initBlock = _block([_letStmt('i', _intLit(0))]);
       // A lambda body that references `i` (captures the loop variable).
@@ -251,9 +252,11 @@ void main() {
       ]);
       final body = _block([_exprStmt(forCall)]);
       final out = _flat(body);
-      // The `i` declaration is hoisted; the for header has an empty init slot.
-      expect(out, contains('final i = 0;'));
-      expect(out, contains('for (; cond; upd)'));
+      // The declaration must stay INSIDE the for header so Dart gives each
+      // iteration a fresh binding — a captured closure snapshots that
+      // iteration's value, not the shared final value (#303).
+      expect(out, contains('for (var i = 0; cond; upd)'));
+      expect(out, isNot(contains('for (; cond; upd)')));
     });
   });
 

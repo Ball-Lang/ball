@@ -308,10 +308,13 @@ void main() {
     });
   });
 
-  group('lambda capture recursion', () {
+  group('loop var captured by a lambda stays in the for-init', () {
+    // A closure that captures the loop variable must NOT force the declaration
+    // out of the `for` header: Dart's C-style `for` gives each iteration a
+    // fresh binding, so the closure snapshots that iteration's value — the
+    // per-iteration semantics the engine and goldens require (#303).
     test('loop var captured via a let inside a lambda body block', () {
-      // for-init declares `i`; the body lambda's block has `let z = i;` — the
-      // capture is found through the block/let recursion.
+      // for-init declares `i`; the body lambda's block has `let z = i;`.
       final initBlock = _block([_letStmt('i', _intLit(0))]);
       final lambdaFn = _fn('_l', body: _block([_letStmt('z', _ref('i'))]));
       final forBody = _block([_letStmt('f', Expression()..lambda = lambdaFn)]);
@@ -322,8 +325,8 @@ void main() {
         _field('body', forBody),
       ]);
       final out = _flatBody(_block([_exprStmt(forCall)]));
-      expect(out, contains('final i = 0;'));
-      expect(out, contains('for (; c; u)'));
+      expect(out, contains('for (var i = 0; c; u)'));
+      expect(out, isNot(contains('for (; c; u)')));
     });
 
     test('loop var captured via a lambda as a block result', () {
@@ -340,7 +343,7 @@ void main() {
         _field('body', forBody),
       ]);
       final out = _flatBody(_block([_exprStmt(forCall)]));
-      expect(out, contains('final j = 0;'));
+      expect(out, contains('for (var j = 0; c; u)'));
     });
   });
 

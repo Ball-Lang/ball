@@ -975,7 +975,23 @@ class DartCompiler {
         }
       }
 
-      _addClassFields(b, descriptor, meta);
+      // A const constructor forbids `late final` fields, so field emission
+      // must know whether any constructor in this class is const (#305).
+      final hasConstConstructor = methods.any((m) {
+        final mMeta = _readMeta(m);
+        var mKind = mMeta['kind'] as String? ?? 'method';
+        if (mKind == 'method' && _memberName(m.name) == 'new') {
+          mKind = 'constructor';
+        }
+        return mKind == 'constructor' && mMeta['is_const'] == true;
+      });
+
+      _addClassFields(
+        b,
+        descriptor,
+        meta,
+        hasConstConstructor: hasConstConstructor,
+      );
 
       final staticFields = methods
           .where((m) => (_readMeta(m)['kind'] as String?) == 'static_field')
@@ -1101,13 +1117,15 @@ class DartCompiler {
   void _addClassFields(
     cb.ClassBuilder b,
     google.DescriptorProto type,
-    Map<String, Object?> meta,
-  ) {
+    Map<String, Object?> meta, {
+    bool hasConstConstructor = false,
+  }) {
     _addInstanceFields(
       (f) => b.fields.add(f),
       (m) => b.methods.add(m),
       type,
       meta,
+      hasConstConstructor: hasConstConstructor,
     );
   }
 
@@ -1117,8 +1135,9 @@ class DartCompiler {
     void Function(cb.Field) addField,
     void Function(cb.Method) addMethod,
     google.DescriptorProto type,
-    Map<String, Object?> meta,
-  ) {
+    Map<String, Object?> meta, {
+    bool hasConstConstructor = false,
+  }) {
     final fieldsMeta = meta['fields'] as List?;
 
     for (final field in type.field) {
@@ -1192,14 +1211,18 @@ class DartCompiler {
               fb.type = cb.refer(fieldType);
             }
             // Non-nullable fields without an initializer need `late` in
-            // null-safe Dart (they're set in the constructor body).
+            // null-safe Dart (they're set in the constructor body) — EXCEPT
+            // when the class has a const constructor, which forbids `late
+            // final` fields (they're initialized via initializing formals /
+            // the initializer list instead) (#305).
             fb.late =
-                isLate ||
-                (initializer == null &&
-                    hasExplicitType &&
-                    fieldType != null &&
-                    !fieldType.endsWith('?') &&
-                    modifier != 'const');
+                !hasConstConstructor &&
+                (isLate ||
+                    (initializer == null &&
+                        hasExplicitType &&
+                        fieldType != null &&
+                        !fieldType.endsWith('?') &&
+                        modifier != 'const'));
             if (initializer != null) fb.assignment = cb.Code(initializer);
             switch (modifier) {
               case 'final':
@@ -1935,27 +1958,38 @@ class DartCompiler {
       labels.add(_stringFieldValue(fields, 'name') ?? '');
     }
 
+    // Find where the first label is.
+    var firstLabelIdx = block.statements.indexWhere(_isLabelStmt);
+    if (firstLabelIdx < 0 && !labels.isNotEmpty)
+      firstLabelIdx = block.statements.length;
+    final preEnd = firstLabelIdx >= 0 ? firstLabelIdx : block.statements.length;
+
+    // Dart scopes a variable declared in a switch case group to THAT group,
+    // so a `var` declared in the pre-label `case 0:` is invisible to the later
+    // label cases that read/mutate it — the goto loop's state variables.
+    // Hoist those declarations ABOVE the switch so every case group shares
+    // them; the non-declaration pre-label statements stay in case 0 (#305).
+    for (var i = 0; i < preEnd; i++) {
+      final s = block.statements[i];
+      if (s.whichStmt() == Statement_Stmt.let) {
+        _generateStatement(s);
+      }
+    }
+
     _wl('switch (0) {');
     _depth++;
 
     var caseIdx = 0;
 
-    // Emit pre-label statements in case 0.
-    // Find where first label is.
-    var firstLabelIdx = block.statements.indexWhere(_isLabelStmt);
-    if (firstLabelIdx < 0 && !labels.isNotEmpty)
-      firstLabelIdx = block.statements.length;
-
-    // Emit case 0 for pre-label statements.
+    // Emit case 0 for the pre-label statements that were NOT hoisted.
     if (firstLabelIdx > 0 ||
         (firstLabelIdx == -1 && block.statements.isNotEmpty)) {
       _wl('case $caseIdx:');
       _depth++;
-      final preEnd = firstLabelIdx >= 0
-          ? firstLabelIdx
-          : block.statements.length;
       for (var i = 0; i < preEnd; i++) {
-        _generateStatement(block.statements[i]);
+        final s = block.statements[i];
+        if (s.whichStmt() == Statement_Stmt.let) continue; // hoisted above
+        _generateStatement(s);
       }
       // Fall through to next label or break.
       if (labels.isNotEmpty) {
@@ -1984,7 +2018,11 @@ class DartCompiler {
         _wl('case $caseIdx:');
         _depth++;
         if (body != null) {
-          _wl('${_e(body)};');
+          // Emit the label body as STATEMENTS, not an inline `(() {…})()`
+          // block-expression. A block wrapped in an IIFE hides its control
+          // flow (a nested `if`/`goto` becomes an "unsupported block-expr"
+          // marker, and `continue <label>` cannot cross the closure) (#305).
+          _generateBranchBody(body, false);
         }
         // Fall through to next label or break.
         final nextLabel = labelOrdinal + 1 < labels.length
@@ -2020,7 +2058,8 @@ class DartCompiler {
         _wl('case $caseIdx:');
         _depth++;
         if (body != null) {
-          _wl(hasReturn ? 'return ${_e(body)};' : '${_e(body)};');
+          // As above: emit statements so nested control flow / gotos survive.
+          _generateBranchBody(body, hasReturn);
         }
         _wl('break;');
         _depth--;
@@ -2383,173 +2422,24 @@ class DartCompiler {
     final initExpr = fields['init'];
     final body = fields['body'];
 
-    // Detect closure capture: if the for-body contains a lambda that
-    // references a loop variable declared in init, hoist the variable
-    // declaration before the for-loop. This implements Ball's shared-
-    // variable semantics (unlike Dart's per-iteration binding).
-    final initVarNames = _extractForInitVarNames(initExpr);
-    final needsHoist =
-        initVarNames.isNotEmpty &&
-        body != null &&
-        _bodyContainsLambdaCapturing(body, initVarNames);
-
-    if (needsHoist &&
-        initExpr != null &&
-        initExpr.whichExpr() == Expression_Expr.block) {
-      // Hoist variable declarations before the loop.
-      for (final s in initExpr.block.statements) {
-        if (s.whichStmt() == Statement_Stmt.let) {
-          _wl('${_letDeclKeyword(s.let)} ${s.let.name} = ${_e(s.let.value)};');
-        }
-      }
-      final condStr = fields['condition'] != null
-          ? _e(fields['condition']!)
-          : '';
-      final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
-      _wl('for (; $condStr; $updateStr) {');
-    } else {
-      final init = initExpr != null
-          ? (_stringFieldValue(fields, 'init') ??
-                _renderForInit(initExpr) ??
-                _e(initExpr))
-          : '';
-      final condStr = fields['condition'] != null
-          ? _e(fields['condition']!)
-          : '';
-      final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
-      _wl('for ($init; $condStr; $updateStr) {');
-    }
+    // Declare the loop variable INSIDE the for-init clause (`for (var i = 0;
+    // …)`) rather than hoisting it before the loop. Dart's C-style `for`
+    // gives each iteration a FRESH binding of the loop variable, so a closure
+    // created in the body captures that iteration's value — the per-iteration
+    // semantics the Ball engine (and the golden) require (#303). Hoisting the
+    // declaration would make every closure share the single final value.
+    final init = initExpr != null
+        ? (_stringFieldValue(fields, 'init') ??
+              _renderForInit(initExpr) ??
+              _e(initExpr))
+        : '';
+    final condStr = fields['condition'] != null ? _e(fields['condition']!) : '';
+    final updateStr = fields['update'] != null ? _e(fields['update']!) : '';
+    _wl('for ($init; $condStr; $updateStr) {');
     _depth++;
     if (body != null) _generateBranchBody(body, false);
     _depth--;
     _wl('}');
-  }
-
-  /// Extract variable names declared in a for-loop init block.
-  Set<String> _extractForInitVarNames(Expression? initExpr) {
-    if (initExpr == null) return const {};
-    if (initExpr.whichExpr() != Expression_Expr.block) return const {};
-    final names = <String>{};
-    for (final s in initExpr.block.statements) {
-      if (s.whichStmt() == Statement_Stmt.let) names.add(s.let.name);
-    }
-    return names;
-  }
-
-  /// Returns true if [expr] contains any lambda that references one of [varNames].
-  bool _bodyContainsLambdaCapturing(Expression expr, Set<String> varNames) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.lambda:
-        // Check if the lambda body references any of the varNames.
-        return _exprReferences(
-          Expression()..lambda = expr.lambda,
-          varNames,
-          insideLambda: true,
-        );
-      case Expression_Expr.call:
-        if (expr.call.hasInput()) {
-          if (_bodyContainsLambdaCapturing(expr.call.input, varNames)) {
-            return true;
-          }
-        }
-        return false;
-      case Expression_Expr.messageCreation:
-        for (final f in expr.messageCreation.fields) {
-          if (_bodyContainsLambdaCapturing(f.value, varNames)) return true;
-        }
-        return false;
-      case Expression_Expr.block:
-        for (final s in expr.block.statements) {
-          if (s.whichStmt() == Statement_Stmt.expression) {
-            if (_bodyContainsLambdaCapturing(s.expression, varNames)) {
-              return true;
-            }
-          } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
-            if (_bodyContainsLambdaCapturing(s.let.value, varNames)) {
-              return true;
-            }
-          }
-        }
-        if (expr.block.hasResult()) {
-          return _bodyContainsLambdaCapturing(expr.block.result, varNames);
-        }
-        return false;
-      default:
-        return false;
-    }
-  }
-
-  /// Returns true if [expr] references any name in [varNames].
-  /// When [insideLambda] is true, we're already inside a lambda and any
-  /// reference to varNames counts as a capture.
-  bool _exprReferences(
-    Expression expr,
-    Set<String> varNames, {
-    bool insideLambda = false,
-  }) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.reference:
-        return insideLambda && varNames.contains(expr.reference.name);
-      case Expression_Expr.lambda:
-        // Recurse into the lambda body with insideLambda=true.
-        final func = expr.lambda;
-        if (func.hasBody()) {
-          return _exprReferences(func.body, varNames, insideLambda: true);
-        }
-        return false;
-      case Expression_Expr.call:
-        if (expr.call.hasInput()) {
-          return _exprReferences(
-            expr.call.input,
-            varNames,
-            insideLambda: insideLambda,
-          );
-        }
-        return false;
-      case Expression_Expr.messageCreation:
-        for (final f in expr.messageCreation.fields) {
-          if (_exprReferences(f.value, varNames, insideLambda: insideLambda)) {
-            return true;
-          }
-        }
-        return false;
-      case Expression_Expr.block:
-        for (final s in expr.block.statements) {
-          if (s.whichStmt() == Statement_Stmt.expression) {
-            if (_exprReferences(
-              s.expression,
-              varNames,
-              insideLambda: insideLambda,
-            )) {
-              return true;
-            }
-          } else if (s.whichStmt() == Statement_Stmt.let && s.let.hasValue()) {
-            if (_exprReferences(
-              s.let.value,
-              varNames,
-              insideLambda: insideLambda,
-            )) {
-              return true;
-            }
-          }
-        }
-        if (expr.block.hasResult()) {
-          return _exprReferences(
-            expr.block.result,
-            varNames,
-            insideLambda: insideLambda,
-          );
-        }
-        return false;
-      case Expression_Expr.fieldAccess:
-        return _exprReferences(
-          expr.fieldAccess.object,
-          varNames,
-          insideLambda: insideLambda,
-        );
-      default:
-        return false;
-    }
   }
 
   /// Render a Ball for-loop `init` block as a Dart `for` initialiser
@@ -2673,6 +2563,14 @@ class DartCompiler {
     final isDefault = _boolFieldValue(cf, 'is_default');
     final body = cf['body'];
 
+    // A Dart label on a case (`loop: case 1:`) is a `continue <label>` target
+    // — e.g. the switch-based goto lowering. Preserve it so the target survives
+    // a compile → encode → compile round-trip (#305).
+    final caseLabel = _stringFieldValue(cf, 'label');
+    if (caseLabel != null && caseLabel.isNotEmpty) {
+      _wl('$caseLabel:');
+    }
+
     if (isDefault) {
       _wl('default:');
     } else {
@@ -2762,6 +2660,13 @@ class DartCompiler {
     'SocketException',
   };
 
+  /// True when [type] names a class defined in this program (via `typeDefs`),
+  /// so the compiler emits it as a real Dart class and `throw`s it as a real
+  /// instance. Such a caught value is matched with `on T catch` and its fields
+  /// read with dotted access — not the Ball tag-map dispatch (#305).
+  bool _isUserDefinedClass(String type) =>
+      _types.containsKey(type) || _types.containsKey(_dartType(type));
+
   void _generateTry(Map<String, Expression> fields) {
     final body = fields['body'];
     final catches = fields['catches'];
@@ -2784,7 +2689,12 @@ class DartCompiler {
         final type = _stringFieldValue(cf, 'type');
         if (type == null || type.isEmpty) {
           untypedCatch ??= ce;
-        } else if (_dartBuiltinExceptions.contains(type)) {
+        } else if (_dartBuiltinExceptions.contains(type) ||
+            _isUserDefinedClass(type)) {
+          // Real Dart classes — built-in exceptions AND user-defined types,
+          // which this program emits as real classes and `throw`s as real
+          // instances (not Ball tag-maps). Both dispatch via `on T catch`
+          // with dotted field access, not `e['__type']` map probing (#305).
           dartClassCatches.add(ce);
         } else {
           tagCatches.add(ce);
@@ -2904,7 +2814,9 @@ class DartCompiler {
 
     final clause = StringBuffer();
     if (type != null && type.isNotEmpty) {
-      clause.write('} on $type catch ($variable');
+      // Strip any `module:` prefix so a user type `main:NotFound` catches as
+      // `on NotFound` (built-in exceptions carry no prefix, pass through).
+      clause.write('} on ${_dartType(type)} catch ($variable');
     } else {
       // Unreachable: _generateCatchClause is only called for `dartClassCatches`
       // (real Dart-builtin exception types), so `type` is always non-empty.
@@ -4015,6 +3927,15 @@ class DartCompiler {
         // `Type.toString()` and avoids the static-method error.
         return "'\$$name'";
       }
+    }
+    // A type literal (`int`, `List<int>`, …) is itself the Type value, but a
+    // bare `int.toString()` re-parses as a (nonexistent) static access — even
+    // for lowercase primitives that the reference heuristic above misses.
+    // Materialize the Type by parenthesizing it: `(int).toString()` (#305).
+    if (v.whichExpr() == Expression_Expr.call &&
+        (v.call.module == 'std' || v.call.module.isEmpty) &&
+        v.call.function == 'type_literal') {
+      return '(${_e(v)}).toString()';
     }
     // Receivers of `.toString()` must bind tighter than method call.
     // `!f.toString()` parses as `!(f.toString())`, not `(!f).toString()`.

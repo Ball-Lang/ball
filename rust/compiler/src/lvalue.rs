@@ -140,11 +140,24 @@ impl Compiler<'_> {
         want_old: bool,
     ) -> String {
         let slot = self.lvalue_mut_expr(lvalue);
-        let new_value = combine_op(op, "__old.clone()", value_code);
+        // The right-hand value is bound to an owned temporary (`__val`)
+        // *before* the mutable slot borrow is taken, so a `value_code` that
+        // reads the same variable being assigned (`x = f(x)` → `x.clone()`
+        // inside `value_code`) or even mutates it (`x = list_push(x, e)`,
+        // where the collection helper needs its own `&mut x`) no longer
+        // overlaps the `&mut` slot borrow. Without this sequencing the two
+        // borrows of the one place are simultaneous and rustc rejects them
+        // (E0499 "borrow more than once" / E0502 "immutable while mutable") —
+        // the self-hosted engine hits this on `fieldNames = list_push(...)`,
+        // `superObj = _asMap(superObj[...])`, `instance[__super__] = {...
+        // instance ...}`, etc. Every compiled expression yields an owned
+        // `BallValue`, so binding it first is always valid and changes no
+        // semantics for the common `value_code` that doesn't touch the target.
+        let new_value = combine_op(op, "__old.clone()", "__val");
         let tail = if want_old { "__old" } else { "__new" };
         format!(
-            "{{ let __slot = {slot}; let __old = __slot.clone(); let __new = {new_value}; \
-             *__slot = __new.clone(); {tail} }}"
+            "{{ let __val = {value_code}; let __slot = {slot}; let __old = __slot.clone(); \
+             let __new = {new_value}; *__slot = __new.clone(); {tail} }}"
         )
     }
 

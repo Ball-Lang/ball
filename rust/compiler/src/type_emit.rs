@@ -579,8 +579,29 @@ impl Compiler<'_> {
                     let Some(field_name) = field.name.as_deref() else {
                         continue;
                     };
+                    // A method that reassigns (or mutates through) one of its
+                    // owner's fields — e.g. the engine's `_expressionDepth += 1`
+                    // or `_functions[key] = fn` — reads that field into a local
+                    // alias here; declare the alias `let mut` in that case so the
+                    // later `assign`/increment/`map_set`/`list_push` mutation can
+                    // take a `&mut` on it (rustc rejects mutating a plain `let`
+                    // — E0596 "cannot borrow as mutable"). Same mechanism
+                    // `params_binding_prologue` uses for reassigned parameters
+                    // (issue #287). This mutates the local *copy* of the field,
+                    // not the instance (the by-value receiver model clones
+                    // `self`), but that is the existing method-model limitation,
+                    // not a regression — the point here is only that it compiles.
+                    let keyword = if func
+                        .body
+                        .as_deref()
+                        .is_some_and(|body| self.expr_mutates_var(body, field_name))
+                    {
+                        "let mut"
+                    } else {
+                        "let"
+                    };
                     out.push_str(&format!(
-                        "        let {} = ball_field_get(self_.clone(), {field_name:?});\n",
+                        "        {keyword} {} = ball_field_get(self_.clone(), {field_name:?});\n",
                         crate::sanitize_ident(field_name)
                     ));
                 }

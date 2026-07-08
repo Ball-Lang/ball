@@ -670,6 +670,34 @@ void f(int x) {
       expect(j, contains('switch'));
     });
 
+    test('labelled switch case preserves its `continue` target label', () {
+      // A Dart label on a case (`loop:`) is a `continue <label>` target — the
+      // switch-based goto lowering the compiler emits. The encoder must keep it
+      // as a `label` field so the target survives a round-trip (#305).
+      final j = jsonOf('''
+void f() {
+  var i = 0;
+  switch (0) {
+    case 0:
+      continue loop;
+    loop:
+    case 1:
+      print(i);
+      i = i + 1;
+      if (i < 3) {
+        continue loop;
+      }
+      break;
+  }
+}
+''');
+      // The case's `label` field carries the target name, and the `continue`
+      // still references it.
+      expect(j, contains('"name":"label"'));
+      expect(j, contains('"stringValue":"loop"'));
+      expect(j, contains('continue'));
+    });
+
     test('cast, null-check and null-assert patterns', () {
       final j = jsonOf('''
 String f(Object? o) => switch (o) {

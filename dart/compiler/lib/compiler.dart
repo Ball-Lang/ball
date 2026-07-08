@@ -2563,6 +2563,14 @@ class DartCompiler {
     final isDefault = _boolFieldValue(cf, 'is_default');
     final body = cf['body'];
 
+    // A Dart label on a case (`loop: case 1:`) is a `continue <label>` target
+    // — e.g. the switch-based goto lowering. Preserve it so the target survives
+    // a compile → encode → compile round-trip (#305).
+    final caseLabel = _stringFieldValue(cf, 'label');
+    if (caseLabel != null && caseLabel.isNotEmpty) {
+      _wl('$caseLabel:');
+    }
+
     if (isDefault) {
       _wl('default:');
     } else {

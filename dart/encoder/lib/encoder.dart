@@ -2337,11 +2337,22 @@ class DartEncoder {
 
     final cases = <Expression>[];
     for (final member in stmt.members) {
+      // A Dart label on a case (`loop: case 1:`) is a `continue <label>` target
+      // — e.g. the switch-based goto lowering the compiler emits. Preserve it
+      // as a `label` field so the target survives the round-trip (#305).
+      final labelField = member.labels.isNotEmpty
+          ? (FieldValuePair()
+              ..name = 'label'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..stringValue = member.labels.first.name.lexeme)))
+          : null;
       if (member is ast.SwitchCase) {
         // Flatten case body: if the case has a single Block statement (braces),
         // use its inner statements directly instead of double-wrapping.
         final stmts = _flattenCaseStatements(member.statements);
         final caseFlds = <FieldValuePair>[
+          if (labelField != null) labelField,
           FieldValuePair()
             ..name = 'value'
             ..value = _encodeExpr(member.expression),
@@ -2360,6 +2371,7 @@ class DartEncoder {
         // Flatten case body to avoid IIFE wrapping.
         final stmts = _flattenCaseStatements(member.statements);
         final caseFlds = <FieldValuePair>[
+          if (labelField != null) labelField,
           FieldValuePair()
             ..name = 'pattern'
             ..value = (Expression()
@@ -2395,6 +2407,7 @@ class DartEncoder {
       } else if (member is ast.SwitchDefault) {
         final stmts = _flattenCaseStatements(member.statements);
         final caseFlds = <FieldValuePair>[
+          if (labelField != null) labelField,
           FieldValuePair()
             ..name = 'is_default'
             ..value = (Expression()..literal = (Literal()..boolValue = true)),

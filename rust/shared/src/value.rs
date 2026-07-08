@@ -8,7 +8,7 @@
 //! plain `enum` so the compiler/engine can pattern-match exhaustively.
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use indexmap::IndexMap;
 
@@ -37,12 +37,121 @@ pub type BallMap = IndexMap<String, BallValue>;
 /// Mirrors the Dart engine's convention of tagging a field map with a
 /// `__type__` key (see `dart/engine/lib/engine_eval.dart`) but as a proper
 /// struct instead of a stringly-typed sentinel field.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// # Reference semantics (issue #298)
+///
+/// A message is a **class instance**, and — like every reference engine
+/// (Dart/TS/C++) and like Dart itself — a class instance has **reference
+/// semantics**: `var b = a;` makes `b` and `a` the *same* object, so
+/// `b.field = x` is observable through `a`. The self-hosted engine
+/// (`dart/self_host/engine.ball.json`) depends on this: it mutates
+/// `this._functions`/`this._globalScope` during setup and reads them back
+/// later, and calls `this.method()` (compiled as a *cloned* receiver) whose
+/// field mutations must persist. A plain by-value `BallMap` clone would lose
+/// them (issue #39's "run blocker").
+///
+/// So the field map lives behind an `Arc<Mutex<…>>`: cloning a
+/// [`BallMessage`] (which every `BallValue` read does — the value model is
+/// `.clone()`-on-read) shares the *same* underlying fields, so a mutation
+/// through any clone is visible through all of them. `Arc<Mutex>` (not
+/// `Rc<RefCell>`) keeps `BallValue` `Send + Sync`, which `ball_throw`'s
+/// `panic_any` and [`BallFunction`]'s `Arc<dyn Fn … + Send + Sync>` require.
+/// Primitives/`List`/`Map` keep value semantics (the by-value model other
+/// programs rely on) — only a *typed instance* is shared, matching the
+/// reference engines exactly.
+#[derive(Clone)]
 pub struct BallMessage {
     /// The originating `TypeDefinition.name`.
     pub type_name: String,
-    /// Field name -> value, insertion-ordered like every other Ball map.
-    pub fields: BallMap,
+    /// Field name -> value, insertion-ordered like every other Ball map, held
+    /// behind a shared, interior-mutable handle (see the type doc comment).
+    /// Private so every access goes through the reference-semantic accessors
+    /// ([`BallMessage::get`]/[`BallMessage::insert`]/…) rather than a raw map.
+    fields: Arc<Mutex<BallMap>>,
+}
+
+impl BallMessage {
+    /// Build a message instance owning `fields` (wrapped in a fresh shared
+    /// handle). Every clone of the returned value shares this one field map.
+    pub fn new(type_name: impl Into<String>, fields: BallMap) -> Self {
+        BallMessage {
+            type_name: type_name.into(),
+            fields: Arc::new(Mutex::new(fields)),
+        }
+    }
+
+    /// Lock the shared field map, recovering from a poisoned mutex (a prior
+    /// panic while a — very short, no-user-code — critical section was held;
+    /// the data is still consistent, so recover rather than cascade-panic).
+    fn guard(&self) -> MutexGuard<'_, BallMap> {
+        self.fields
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Read field `key` (cloned out of the shared map), or `None` if absent.
+    pub fn get(&self, key: &str) -> Option<BallValue> {
+        self.guard().get(key).cloned()
+    }
+
+    /// Set field `key` (visible through every clone — reference semantics).
+    /// Takes `&self` (not `&mut`): the interior `Mutex` provides the mutation.
+    pub fn insert(&self, key: impl Into<String>, value: BallValue) {
+        self.guard().insert(key.into(), value);
+    }
+
+    /// Whether field `key` is present.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.guard().contains_key(key)
+    }
+
+    /// Remove field `key`, preserving insertion order of the rest (Dart's
+    /// `Map.remove`), returning the removed value if present.
+    pub fn remove(&self, key: &str) -> Option<BallValue> {
+        self.guard().shift_remove(key)
+    }
+
+    /// A snapshot **copy** of the field map — for iteration, `Display`, and
+    /// structural equality (a lock guard can't escape the method, so callers
+    /// that need to iterate take an owned copy).
+    pub fn snapshot(&self) -> BallMap {
+        self.guard().clone()
+    }
+
+    /// Number of fields.
+    pub fn len(&self) -> usize {
+        self.guard().len()
+    }
+
+    /// Whether the message has no fields.
+    pub fn is_empty(&self) -> bool {
+        self.guard().is_empty()
+    }
+}
+
+/// Two messages are equal iff they carry the same `type_name` and structurally
+/// equal fields — a *value* comparison over a snapshot (reference identity is
+/// deliberately not used for `==`; that matches Dart's `==` on the AST/value
+/// messages the engine compares). Compared over snapshots so no two locks are
+/// ever held at once (no deadlock even for `a == a` aliasing the one map).
+impl PartialEq for BallMessage {
+    fn eq(&self, other: &Self) -> bool {
+        if self.type_name != other.type_name {
+            return false;
+        }
+        self.snapshot() == other.snapshot()
+    }
+}
+
+/// `Debug` over a field snapshot (the raw `Arc<Mutex<…>>` would print the
+/// lock, not the contents).
+impl fmt::Debug for BallMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("BallMessage")
+            .field("type_name", &self.type_name)
+            .field("fields", &self.snapshot())
+            .finish()
+    }
 }
 
 /// A first-class callable value — a compiled Ball `lambda`, or a top-level
@@ -217,7 +326,7 @@ impl fmt::Display for BallValue {
             }
             BallValue::Map(map) => write_entries(f, map.iter()),
             BallValue::Function(function) => write!(f, "{function}"),
-            BallValue::Message(message) => write_entries(f, message.fields.iter()),
+            BallValue::Message(message) => write_entries(f, message.snapshot().iter()),
         }
     }
 }
@@ -383,10 +492,7 @@ mod tests {
 
         let mut fields = BallMap::new();
         fields.insert("x".to_string(), BallValue::Int(1));
-        let message = BallValue::Message(BallMessage {
-            type_name: "Point".to_string(),
-            fields,
-        });
+        let message = BallValue::Message(BallMessage::new("Point", fields));
         assert_eq!(message.to_string(), "{x: 1}");
     }
 
@@ -446,6 +552,37 @@ mod tests {
             BallValue::List(vec![BallValue::Int(1)]),
             BallValue::List(vec![BallValue::Double(1.0)])
         );
+    }
+
+    #[test]
+    fn message_has_reference_semantics_across_clones() {
+        // Issue #298: a `BallMessage` is a class instance — cloning it (which
+        // every `BallValue` read does) shares the *same* field map, so a
+        // mutation through one clone is observed through the other. This is the
+        // property the self-hosted engine's mutable `this` relies on (a
+        // method's clone of the receiver must see setup mutations, and vice
+        // versa).
+        let mut fields = BallMap::new();
+        fields.insert("_functions".to_string(), BallValue::Null);
+        let a = BallMessage::new("main:BallEngine", fields);
+        let b = a.clone();
+
+        // Mutate through `b`; observe through `a` (and vice versa).
+        b.insert("_functions", BallValue::Int(42));
+        assert_eq!(a.get("_functions"), Some(BallValue::Int(42)));
+        a.insert("added", BallValue::String("x".into()));
+        assert_eq!(b.get("added"), Some(BallValue::String("x".into())));
+
+        // A field-set through the `BallValue::Message` wrapper is likewise
+        // shared (the shape the compiler emits via `ball_field_set`).
+        let av = BallValue::Message(a.clone());
+        let bv = av.clone();
+        if let BallValue::Message(m) = &av {
+            m.insert("_functions", BallValue::Int(7));
+        }
+        if let BallValue::Message(m) = &bv {
+            assert_eq!(m.get("_functions"), Some(BallValue::Int(7)));
+        }
     }
 
     #[test]

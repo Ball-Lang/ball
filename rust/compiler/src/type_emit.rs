@@ -145,6 +145,27 @@ fn func_meta_kind(func: &FunctionDefinition) -> Option<String> {
         .and_then(|m| meta_string_value(m, "kind"))
 }
 
+/// The short name under which `func` is dispatched as an **instance method**
+/// (issue #298), or `None` if it isn't one. An instance method is a class
+/// member that is not a constructor, not abstract (has a real `impl` to route
+/// to), and not `is_static` (its dispatcher reads `input.self` to pick the
+/// concrete type) — exactly the members [`Compiler::compile_method_dispatchers`]
+/// emits a self-reading `pub fn <short>` for. The compiler injects the implicit
+/// receiver into a call to one of these names made from inside an instance
+/// method/constructor body.
+pub(crate) fn instance_method_short_name(func: &FunctionDefinition) -> Option<String> {
+    if !is_class_member(func) {
+        return None;
+    }
+    if func_meta_kind(func).as_deref() == Some("constructor") {
+        return None;
+    }
+    if func_meta_bool(func, "is_abstract") || func_meta_bool(func, "is_static") {
+        return None;
+    }
+    Some(member_short_name(&func.name))
+}
+
 /// A `TypeDefinition`'s `metadata.superclass` (the parent class's **short**
 /// name — the encoders store it bare, e.g. `main:BallObject`'s
 /// `superclass: "BallMap"`), if it names a non-empty superclass. Drives
@@ -402,7 +423,7 @@ pub(crate) fn oneof_discriminator_enum_defs() -> String {
         out.push_str(&format!(
             "pub static {enum_name}: std::sync::LazyLock<BallValue> = std::sync::LazyLock::new(|| {{\n\
              let mut __ns = BallMap::new();\n{inserts}\
-             BallValue::Message(BallMessage {{ type_name: {enum_name:?}.to_string(), fields: __ns }})\n\
+             BallValue::Message(BallMessage::new({enum_name:?}, __ns))\n\
              }});\n"
         ));
     }
@@ -565,7 +586,7 @@ impl Compiler<'_> {
                 "let mut __m{index} = BallMap::new();\n\
                  __m{index}.insert(\"index\".to_string(), BallValue::Int({ordinal}i64));\n\
                  __m{index}.insert(\"name\".to_string(), BallValue::String({member_name:?}.to_string()));\n\
-                 let {var} = BallValue::Message(BallMessage {{ type_name: {full_name:?}.to_string(), fields: __m{index} }});\n\
+                 let {var} = BallValue::Message(BallMessage::new({full_name:?}, __m{index}));\n\
                  __ns.insert({member_name:?}.to_string(), {var}.clone());\n"
             ));
             list_items.push_str(&format!("{var}.clone(), "));
@@ -574,7 +595,7 @@ impl Compiler<'_> {
             "pub static {short_name}: std::sync::LazyLock<BallValue> = std::sync::LazyLock::new(|| {{\n\
              let mut __ns = BallMap::new();\n{member_code}\
              __ns.insert(\"values\".to_string(), BallValue::List(vec![{list_items}]));\n\
-             BallValue::Message(BallMessage {{ type_name: {full_name:?}.to_string(), fields: __ns }})\n\
+             BallValue::Message(BallMessage::new({full_name:?}, __ns))\n\
              }});\n"
         )
     }
@@ -614,15 +635,69 @@ impl Compiler<'_> {
     /// function's single named parameter.
     fn compile_method(&self, owner_td: &TypeDefinition, func: &FunctionDefinition) -> String {
         let short = member_short_name(&func.name);
+        let is_static = func_meta_bool(func, "is_static");
         self.push_scope();
         self.bind_local("input");
         let prologue = self.method_prologue(owner_td, func);
-        let body = match &func.body {
+        // A non-static method body has a bound `self_`, so implicit-`this`
+        // calls inside it get the receiver injected (issue #298).
+        let body = self.with_instance_method(!is_static, || match &func.body {
             Some(body) => self.compile_expression(body),
             None => "BallValue::Null".to_string(),
+        });
+        // Persist body-mutated instance fields back into `self_` (issue #298).
+        // Empty for a static member (no `self_`) and for a method that mutates
+        // no field (the read-only common case — no `let mut`/extra emission).
+        let writeback = if is_static {
+            String::new()
+        } else {
+            self.method_field_writeback(owner_td, func.body.as_deref())
         };
         self.pop_scope();
-        format!("    pub fn {short}(input: BallValue) -> BallValue {{\n{prologue}{body}\n    }}\n")
+        if writeback.is_empty() {
+            format!(
+                "    pub fn {short}(input: BallValue) -> BallValue {{\n{prologue}{body}\n    }}\n"
+            )
+        } else {
+            // Bind the body's value first, run the write-back, then yield it —
+            // so a method that mutates `this.field` and returns a value still
+            // persists the mutation. (A body that `return`s early bypasses this
+            // tail write-back — the documented limitation of the write-back
+            // model; immediate-persistence would need reference-semantic
+            // collections or field-direct access, tracked as follow-up work.)
+            format!(
+                "    pub fn {short}(input: BallValue) -> BallValue {{\n{prologue}\
+                 let __method_result = {{\n{body}\n}};\n{writeback}__method_result\n    }}\n"
+            )
+        }
+    }
+
+    /// The `ball_field_set(&mut self_, "<field>", <field>.clone());` lines that
+    /// write each body-mutated instance field of `owner_td` back into `self_`
+    /// (issue #298). A reference-semantic `BallValue::Message` shares its field
+    /// map across clones, so this persists the mutation to the caller's
+    /// instance (and to any other method that later reads the same instance) —
+    /// the mechanism the constructor's own write-back already uses
+    /// ([`Compiler::compile_constructor_with_body`]). Only fields the body
+    /// actually mutates ([`Compiler::expr_mutates_var`]) are written back.
+    fn method_field_writeback(
+        &self,
+        owner_td: &TypeDefinition,
+        body: Option<&Expression>,
+    ) -> String {
+        let Some(body) = body else {
+            return String::new();
+        };
+        let mut out = String::new();
+        for field_name in self.all_instance_field_names(owner_td) {
+            if self.expr_mutates_var(body, &field_name) {
+                out.push_str(&format!(
+                    "ball_field_set(&mut self_, {field_name:?}, {}.clone());\n",
+                    crate::sanitize_ident(&field_name)
+                ));
+            }
+        }
+        out
     }
 
     /// Bind `self_` (`input`'s `"self"` field — `"self"` itself is a
@@ -650,8 +725,25 @@ impl Compiler<'_> {
     fn method_prologue(&self, owner_td: &TypeDefinition, func: &FunctionDefinition) -> String {
         let mut out = String::new();
         if !func_meta_bool(func, "is_static") {
-            out.push_str("        let self_ = ball_field_get(input.clone(), \"self\");\n");
+            // `self_` is `mut` so a body-mutated instance field can be written
+            // back into it (issue #298 — [`Compiler::method_field_writeback`]);
+            // a reference-semantic `BallValue::Message` clone shares its fields,
+            // so the write-back persists to the caller's instance. `unused_mut`
+            // is allowed by the emitted preamble, so a read-only method's
+            // `let mut self_` is harmless.
+            out.push_str("        let mut self_ = ball_field_get(input.clone(), \"self\");\n");
             self.bind_local("self");
+            // A stable receiver clone for implicit-`this` injection (issue
+            // #298). Injecting `__self_recv.clone()` (rather than `self_`) keeps
+            // the receiver-clone's borrow off `self_` itself, so a call that
+            // both mutably borrows `self_` (`self.removeAt(_toInt(x))`) and
+            // injects the receiver into a sub-call doesn't collide (E0502), and
+            // a `move` closure capturing the receiver pre-clones this local
+            // (see `collect_referenced_names`) instead of moving `self_` out
+            // (E0382). A `BallValue::Message` clone shares its fields, so the
+            // injected receiver is the same instance.
+            out.push_str("        let __self_recv = self_.clone();\n");
+            self.bind_local("__self_recv");
             out.push_str(&self.field_alias_prologue(owner_td, func.body.as_deref(), "        "));
         }
         // Bind every declared parameter beyond the receiver. A static member
@@ -881,7 +973,7 @@ impl Compiler<'_> {
         format!(
             "    pub fn {short}(input: BallValue) -> BallValue {{\n\
              let mut __ball_map = BallMap::new();\n{inserts}\
-             BallValue::Message(BallMessage {{ type_name: {:?}.to_string(), fields: __ball_map }})\n\
+             BallValue::Message(BallMessage::new({:?}, __ball_map))\n\
              }}\n",
             owner_td.name
         )
@@ -924,13 +1016,24 @@ impl Compiler<'_> {
         let params_prologue = self.params_binding_prologue(ctor, false);
         let self_init = self.constructor_self_init(owner_td, ctor);
         self.bind_local("self");
+        // Stable receiver clone for implicit-`this` injection (see
+        // [`Compiler::method_prologue`] for why this is a dedicated local).
+        self.bind_local("__self_recv");
         let field_aliases = self.field_alias_prologue(owner_td, Some(body), "");
-        let body_code = self.compile_expression(body);
+        // A body-carrying constructor has a bound `self_`, so implicit-`this`
+        // calls in its body (`this._buildLookupTables()`, …) inject the
+        // receiver (issue #298).
+        let body_code = self.with_instance_method(true, || self.compile_expression(body));
         let mut writeback = String::new();
         for field_name in self.all_instance_field_names(owner_td) {
             if self.expr_mutates_var(body, &field_name) {
+                // Reference-semantic message field write-back (issue #298):
+                // `self_`'s fields live behind a shared `Arc<Mutex>`, so
+                // `ball_field_set` persists the body-mutated field alias into
+                // the instance (visible to every holder of it — the caller, and
+                // any later method call on the same instance).
                 writeback.push_str(&format!(
-                    "*ball_field_get_mut(&mut self_, {field_name:?}) = {}.clone();\n",
+                    "ball_field_set(&mut self_, {field_name:?}, {}.clone());\n",
                     crate::sanitize_ident(&field_name)
                 ));
             }
@@ -940,6 +1043,7 @@ impl Compiler<'_> {
             "    pub fn {short}(input: BallValue) -> BallValue {{\n\
              {params_prologue}\
              let mut self_ = {self_init};\n\
+             let __self_recv = self_.clone();\n\
              {field_aliases}\
              {body_code};\n\
              {writeback}\
@@ -979,7 +1083,7 @@ impl Compiler<'_> {
         }
         format!(
             "{{ let mut __ball_map = BallMap::new(); {inserts}\
-             BallValue::Message(BallMessage {{ type_name: {:?}.to_string(), fields: __ball_map }}) }}",
+             BallValue::Message(BallMessage::new({:?}, __ball_map)) }}",
             owner_td.name
         )
     }

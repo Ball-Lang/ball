@@ -3,12 +3,13 @@
 # FeatureSetDefaults golden files.
 #
 # Usage:
-#   ./tools/gen_edition_defaults.sh            # regenerate in-place
-#   ./tools/gen_edition_defaults.sh --check    # CI drift check (exit 1 on diff)
+#   ./tools/gen_edition_defaults.sh                     # regenerate in-place (max edition 2024)
+#   ./tools/gen_edition_defaults.sh --check             # CI drift check (exit 1 on diff)
+#   ./tools/gen_edition_defaults.sh --max-edition=2023  # regenerate pinned to an older ceiling
 #
 # Requires: protoc 28+ on PATH with its bundled include directory.
 # The flag --edition_defaults_out is not printed by --help but it exists in
-# protoc >=27; confirmed empirically with protoc 28.2.
+# protoc >=27; confirmed empirically with protoc 28.2 and protoc 35.1.
 
 set -euo pipefail
 
@@ -23,7 +24,7 @@ TXTPB="$REPO_ROOT/tests/editions/golden/featureset_defaults.txtpb"
 VERSION_FILE="$REPO_ROOT/tests/editions/golden/PROTOC_VERSION.txt"
 
 MIN_EDITION="PROTO2"
-MAX_EDITION="2023"
+MAX_EDITION="2024"
 
 # ---------------------------------------------------------------------------
 # Locate protoc and its include directory
@@ -94,6 +95,8 @@ CHECK_MODE=0
 for arg in "$@"; do
   case "$arg" in
     --check|-check) CHECK_MODE=1 ;;
+    --max-edition=*) MAX_EDITION="${arg#*=}" ;;
+    --min-edition=*) MIN_EDITION="${arg#*=}" ;;
     *) echo "ERROR: unknown argument: $arg" >&2; exit 1 ;;
   esac
 done

@@ -141,11 +141,11 @@ void main() {
         );
         expect(resp['supported_features'], 3);
 
-        // Edition range = ball_protobuf's supported span (proto2 .. 2023).
+        // Edition range = ball_protobuf's supported span (proto2 .. 2024).
         expect(resp['minimum_edition'], minimumSupportedEdition);
         expect(resp['maximum_edition'], maximumSupportedEdition);
         expect(resp['minimum_edition'], editionProto2);
-        expect(resp['maximum_edition'], edition2023);
+        expect(resp['maximum_edition'], edition2024);
       },
     );
 

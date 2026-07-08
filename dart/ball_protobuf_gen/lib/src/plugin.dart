@@ -49,11 +49,13 @@ const int featureSupportsEditions = 2;
 const int minimumSupportedEdition = editionProto2; // EDITION_PROTO2 = 998
 
 /// The maximum edition this plugin supports. `ball_protobuf`'s FeatureSet
-/// defaults table is golden-pinned to protoc 28.2, which tops out at
-/// EDITION_2023 (see docs/EDITIONS_SPEC.md "Golden FeatureSet resolution
-/// data"); editions 2024+ are not yet golden-verified, so we advertise 2023 as
-/// the conservative, correct ceiling.
-const int maximumSupportedEdition = edition2023; // EDITION_2023 = 1000
+/// defaults table is golden-pinned to protoc 35.1, which tops out at
+/// EDITION_2024 (see docs/EDITIONS_SPEC.md "Golden FeatureSet resolution
+/// data") — EDITION_2024's runtime feature defaults are golden-verified
+/// identical to EDITION_2023's. EDITION_2026 is not yet a published edition
+/// in any stable protoc release (no dedicated FeatureSetDefaults row exists
+/// upstream), so 2024 remains the conservative, correct ceiling.
+const int maximumSupportedEdition = edition2024; // EDITION_2024 = 1001
 
 // ---------------------------------------------------------------------------
 // Hand-authored Map descriptors for the plugin.proto messages (only the fields

@@ -221,12 +221,18 @@ Apply **before** step 1 of the file resolution, for each field in the file:
 
 ### Golden Data Pinning
 
-Golden FeatureSet resolution data (in `tests/editions/golden/`) is **pinned to protoc 28.2**, which supports editions up to **2023** (see `tests/editions/golden/PROTOC_VERSION.txt`). Protoc ≥29 is required to generate golden data for EDITION_2024 and EDITION_2026; such versions are **not yet golden-verified** against the reference implementation.
+Golden FeatureSet resolution data (in `tests/editions/golden/`) is **pinned to protoc 35.1**, which supports editions up to **2024** (see `tests/editions/golden/PROTOC_VERSION.txt`). EDITION_2024 is now golden-verified (see below); EDITION_2026 is not yet a published edition in any stable protoc release (see below).
 
-### EDITION_2024 and Later
+### EDITION_2024 — golden-verified
 
-- The EDITION_2024 row in the FeatureSet defaults table (section 2 above) has **identical runtime feature values** to EDITION_2023 by construction: EDITION_2024 only adds `RETENTION_SOURCE` features (`enforce_naming_style`, `default_symbol_visibility`) which the runtime ignores.
-- EDITION_2024 and EDITION_2026 runtime semantics are **not yet validated against protoc ≥29** golden data.
+- The EDITION_2024 row in the FeatureSet defaults table (section 2 above) has **identical runtime feature values** to EDITION_2023. This was previously an assumption asserted by construction (the golden was pinned to protoc 28.2, which tops out at edition 2023). It has since been **validated against protoc 35.1** (which emits a real EDITION_2024 row): `dart/ball_protobuf/test/editions_test.dart` drives the resolver through the protoc-generated golden and confirms the six runtime feature values (`field_presence`, `enum_type`, `repeated_field_encoding`, `utf8_validation`, `message_encoding`, `json_format`) match exactly. No resolver changes were required — the assumption held.
+- EDITION_2024 also introduces two `RETENTION_SOURCE` features (`enforce_naming_style`, `default_symbol_visibility`, descriptor.proto fields 7/8) which the runtime correctly ignores (they never reach `FeatureSet` decoding paths our resolver reads).
+- No FeatureSet runtime field (`utf8_validation` or otherwise) changed shape or default between 2023 and 2024; the "java_utf8 → utf8_validation" migration referenced in older audits already completed at EDITION_2023 (`utf8_validation`, field 4, `edition_introduced: EDITION_2023` in descriptor.proto) — there is no additional 2024-specific UTF-8 migration.
+
+### EDITION_2026 — not yet a published edition
+
+- `descriptor.proto`'s `Edition` enum declares `EDITION_2026 = 1002` as a numeric placeholder, but protoc 35.1 (the latest stable release as of this writing) does **not** emit a dedicated `EDITION_2026` row in `FeatureSetDefaults` — even `--edition_defaults_maximum=2026` succeeds but the resulting table's highest entry is keyed `EDITION_UNSTABLE`, not `EDITION_2026`. The `EDITION_UNSTABLE` row's `enforce_naming_style` default (`STYLE2026`) is a preview of the naming style 2026 will likely carry, but its six *runtime* feature values are identical to EDITION_2023/2024 — consistent with Ball's fallback resolution (any edition above the highest table floor resolves through that floor).
+- Conclusion: Ball's `edition2026` constant is a forward-compatible enum value only. There is nothing to golden-verify yet because protoc itself has not finalized EDITION_2026's defaults. Re-run this validation when a protoc release ships a genuine `EDITION_2026` row.
 
 ### DELIMITED (Group) Message Encoding
 
@@ -234,7 +240,7 @@ Support for `message_encoding=DELIMITED` (wiretype 3/4, group-style encoding) is
 
 ### Closed Enum Unknown Field Handling
 
-The semantics of routing out-of-range enum values to the unknown-field set (when `enum_type=CLOSED`) are **context-dependent**: during JSON unmarshal, JSON-layer unknown fields and proto-level unknown fields have different precedence rules. This is **not yet fully harmonized** with all target implementations.
+The semantics of routing out-of-range enum values to the unknown-field set (when `enum_type=CLOSED`) are **context-dependent**: during JSON unmarshal, JSON-layer unknown fields and proto-level unknown fields have different precedence rules. This is **not yet fully harmonized** with all target implementations. (Re-audited alongside the EDITION_2024 validation above; still open — tracked separately, out of scope for the golden-validation work.)
 
 ---
 

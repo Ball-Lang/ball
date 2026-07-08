@@ -12,7 +12,7 @@ Cross-language conformance corpus and supporting test assets. This directory is 
 | `conformance/src/*.dart` | **Editable** Dart fixture sources — one per language construct |
 | `conformance/*.ball.json` | **Generated** Ball programs — do NOT hand-edit; regenerate via `dart run bin/generate_conformance.dart` in `dart/encoder/` |
 | `conformance/*.expected_output.txt` | Golden stdout for each fixture, compared by all three engines |
-| `editions/featureset_defaults.binpb` | Golden Editions feature-set defaults (from protoc 28.2); regenerate with `tools/gen_edition_defaults.{ps1,sh}` |
+| `editions/featureset_defaults.binpb` | Golden Editions feature-set defaults (from protoc 35.1, max edition 2024); regenerate with `tools/gen_edition_defaults.{ps1,sh}` |
 | `editions/conformance_runner.{ps1,sh}` | Runs the Editions portability matrix across engines |
 | `editions/portability_matrix.md` | Status table for Editions resolver across Dart/TS/C++ |
 | `editions/descriptors/` | Proto descriptor fixtures for Editions tests |

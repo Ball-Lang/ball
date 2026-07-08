@@ -226,8 +226,8 @@ impl Compiler<'_> {
                     if call.module == "std_collections" {
                         let collection_field = match call.function.as_str() {
                             "list_push" | "list_pop" | "list_insert" | "list_remove_at"
-                            | "list_set" => Some("list"),
-                            "map_set" | "map_delete" => Some("map"),
+                            | "list_set" | "list_clear" | "list_sort" => Some("list"),
+                            "map_set" | "map_delete" | "map_put_if_absent" => Some("map"),
                             "set_add" | "set_remove" => Some("set"),
                             _ => None,
                         };

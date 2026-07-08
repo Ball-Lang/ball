@@ -787,6 +787,43 @@ impl<'a> Compiler<'a> {
     fn compile_message_creation(&self, message_creation: &MessageCreation) -> String {
         let ctor_params = self.constructor_field_names(&message_creation.type_name);
         let mut inserts = String::new();
+        // Which instance fields are explicitly supplied (by real name, after the
+        // positional `argN` → parameter-name remap)? Fields *not* supplied get
+        // their class's field-level default initializer (`_bindings = {}`, …)
+        // so a constructed instance matches Dart's field-initialization
+        // semantics rather than leaving every unset field `Null` (issue #300 —
+        // e.g. `_Scope(parent)` must still get its `_bindings = {}`).
+        let mut explicit_fields: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for (index, field) in message_creation.fields.iter().enumerate() {
+            let field_name = if type_emit::is_positional_arg_name(&field.name) {
+                ctor_params
+                    .get(index)
+                    .map(|(name, _)| name.clone())
+                    .unwrap_or_else(|| field.name.clone())
+            } else {
+                field.name.clone()
+            };
+            explicit_fields.insert(field_name);
+        }
+        // Prepend field-level defaults for any instance field the constructor
+        // call does not itself set (only for a resolvable user class — a
+        // Dart-SDK constructor like `List.filled`/`StringBuffer` has no
+        // `TypeDefinition` and is left to its explicit fields / the runtime).
+        if let Some(td) = self.type_def_for(&message_creation.type_name) {
+            for field in self.all_instance_field_names(td) {
+                if explicit_fields.contains(&field) {
+                    continue;
+                }
+                if let Some(default) = self
+                    .field_initializer_text(td, &field)
+                    .and_then(|init| self.lower_field_initializer(&init, &mut Vec::new()))
+                {
+                    inserts.push_str(&format!(
+                        "__ball_map.insert({field:?}.to_string(), {default});\n"
+                    ));
+                }
+            }
+        }
         for (index, field) in message_creation.fields.iter().enumerate() {
             let value = match &field.value {
                 Some(value) => self.compile_expression(value),
@@ -936,9 +973,28 @@ impl<'a> Compiler<'a> {
         // already-`.clone()`d `BallValue`s), which `BallFunction`'s `Arc<dyn
         // Fn … + Send + Sync>` requires — keeping `BallValue` `Send` so
         // `ball_throw`'s `panic_any` still type-checks.
+        //
+        // A captured variable the body **mutates** (`(_) => _nextMutexId++` —
+        // the engine's ID counters) makes the `move` closure `FnMut`, not `Fn`:
+        // its pre-clone must be `let mut`, and the value wraps via
+        // `BallFunction::new_mut` (an interior-`Mutex` `FnMut` adapter) rather
+        // than the lighter `Fn` `BallFunction::new` (issue #300).
+        let mutated_captures: HashSet<String> = match &lambda.body {
+            Some(body) => captured
+                .iter()
+                .filter(|var| self.expr_mutates_var(body, var))
+                .cloned()
+                .collect(),
+            None => HashSet::new(),
+        };
+        let ctor = if mutated_captures.is_empty() {
+            "BallFunction::new"
+        } else {
+            "BallFunction::new_mut"
+        };
         let name = &lambda.name;
         let closure = format!(
-            "BallValue::Function(BallFunction::new({name:?}, move |input: BallValue| -> BallValue {{\n{prologue}{body}\n}}))"
+            "BallValue::Function({ctor}({name:?}, move |input: BallValue| -> BallValue {{\n{prologue}{body}\n}}))"
         );
         if captured.is_empty() {
             closure
@@ -947,7 +1003,12 @@ impl<'a> Compiler<'a> {
                 .iter()
                 .map(|var| {
                     let ident = sanitize_ident(var);
-                    format!("let {ident} = {ident}.clone();\n")
+                    let keyword = if mutated_captures.contains(var) {
+                        "let mut"
+                    } else {
+                        "let"
+                    };
+                    format!("{keyword} {ident} = {ident}.clone();\n")
                 })
                 .collect();
             format!("{{\n{preclones}{closure}\n}}")

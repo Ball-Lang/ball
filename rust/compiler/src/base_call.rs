@@ -134,6 +134,8 @@ impl Compiler<'_> {
         match call.module.as_str() {
             "std_collections" => return self.compile_collections_call(call),
             "std_io" => return self.compile_io_call(call),
+            "std_convert" => return self.compile_convert_call(call),
+            "ball_proto" => return self.compile_ball_proto_call(call),
             "std_memory" => {
                 return format!(
                     "ball_unsupported_base_call({:?}, {:?})",
@@ -156,6 +158,10 @@ impl Compiler<'_> {
             "do_while" => return self.compile_do_while(call, None),
             "label" => return self.compile_label(call),
             "switch" => return self.compile_switch(call),
+            "switch_expr" => return self.compile_switch(call),
+            "map_create" => return self.compile_map_create(call),
+            "record" => return self.compile_record(call),
+            "invoke" => return self.compile_invoke(call),
             "try" => return self.compile_try(call),
             "assign" => return self.compile_assign(call),
             "pre_increment" => return self.compile_mutate_by_one(call, "+=", false),
@@ -199,6 +205,22 @@ impl Compiler<'_> {
             "length" | "string_length" => self.un("ball_length", &f),
             "string_to_int" => self.un("ball_string_to_int", &f),
             "string_to_double" => self.un("ball_string_to_double", &f),
+            "to_double" => self.un("ball_to_double", &f),
+            "to_int" => self.un("ball_to_int", &f),
+            "round_to_double" => self.un("ball_round_to_double", &f),
+            "floor_to_double" => self.un("ball_floor_to_double", &f),
+            "ceil_to_double" => self.un("ball_ceil_to_double", &f),
+            "truncate_to_double" => self.un("ball_truncate_to_double", &f),
+            "to_string_as_fixed" => self.compile_2("ball_to_string_as_fixed", &f, "value", "digits"),
+            "string_code_unit_at" => {
+                self.compile_2("ball_string_code_unit_at", &f, "value", "index")
+            }
+            // Collection literals whose semantic content is just the underlying
+            // list (the type arguments are cosmetic and dropped — same as every
+            // reference engine): `<T>[...]` and `<T>{...}` (a typed set). An
+            // absent `elements` field means an empty literal.
+            "typed_list" => self.field_list_or_empty(&f, "elements"),
+            "set_create" => format!("ball_set_create({})", self.field_list_or_empty(&f, "elements")),
             // ── Null safety ──
             "null_check" => self.un("ball_null_check", &f),
             // ── Control flow (non-lazy leaves: `if` already handled inline) ──
@@ -210,7 +232,16 @@ impl Compiler<'_> {
             "return" => self.compile_return(&f),
             "break" => self.compile_break(&f),
             "continue" => self.compile_continue(&f),
-            "goto" | "yield" | "await" => self.unsupported(call),
+            // `await` in a synchronous target is the identity on its operand:
+            // the value model has no futures, so awaiting a value yields the
+            // value (the reference engines' `await` on a non-future does the
+            // same). `paren` is a parenthesized expression — also identity.
+            "await" | "paren" => self.field_or_null(&f, "value"),
+            // `spread` outside a collection literal (a standalone call) yields
+            // its operand; spread *inside* a list literal is spliced by
+            // `compile_literal` (see [`Compiler::compile_list_literal`]).
+            "spread" | "null_spread" => self.field_or_null(&f, "value"),
+            "goto" | "yield" => self.unsupported(call),
             // ── Type operations ──
             "is" => self.compile_type_op("ball_is", &f),
             "is_not" => self.compile_type_op("ball_is_not", &f),
@@ -291,6 +322,17 @@ impl Compiler<'_> {
         }
     }
 
+    /// Like [`Compiler::field_or_null`] but defaults an absent field to an
+    /// **empty list** rather than `Null` — for collection-literal builders
+    /// (`typed_list`/`set_create`) whose `elements` field is omitted when the
+    /// literal is empty, where a `Null` would panic the list runtime helpers.
+    fn field_list_or_empty(&self, fields: &IndexMap<String, Expression>, key: &str) -> String {
+        match fields.get(key) {
+            Some(expr) => self.compile_expression(expr),
+            None => "BallValue::List(Vec::new())".to_string(),
+        }
+    }
+
     /// Read a plain `string` descriptor field's value — stored as a literal
     /// string [`Expression`] inside the calling `MessageCreation` (see
     /// `dart/compiler/lib/compiler.dart`'s `_stringFieldValue`, which this
@@ -364,6 +406,153 @@ impl Compiler<'_> {
             "ball_unsupported_base_call({:?}, {:?})",
             call.module, call.function
         )
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // ball_proto — protobuf-compat AST access patterns (issue #300)
+    // ════════════════════════════════════════════════════════════
+
+    /// Route a `ball_proto.<fn>` call to its native `ball_shared::runtime`
+    /// helper (implemented there; see that module's `ball_proto` section). The
+    /// compiler had always lowered these to `ball_unsupported_base_call` (the
+    /// long-open AGENTS gap #3), which is what blocked the self-hosted engine
+    /// from *running* — it inspects every program through this module.
+    fn compile_ball_proto_call(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        let obj = || self.field_or_null(&f, "obj");
+        match call.function.as_str() {
+            // Oneof discriminators.
+            "whichExpr" => return format!("ball_which_expr({})", obj()),
+            "whichValue" => return format!("ball_which_value({})", obj()),
+            "whichStmt" => return format!("ball_which_stmt({})", obj()),
+            "whichKind" => return format!("ball_which_kind({})", obj()),
+            "whichSource" => return format!("ball_which_source({})", obj()),
+            // Safe field access.
+            "getField" => {
+                return format!(
+                    "ball_proto_get_field({}, {})",
+                    obj(),
+                    self.field_or_null(&f, "name")
+                );
+            }
+            "getFieldOr" => {
+                return format!(
+                    "ball_proto_get_field_or({}, {}, {})",
+                    obj(),
+                    self.field_or_null(&f, "name"),
+                    self.field_or_null(&f, "defaultValue")
+                );
+            }
+            "setField" => {
+                return format!(
+                    "ball_proto_set_field({}, {}, {})",
+                    obj(),
+                    self.field_or_null(&f, "name"),
+                    self.field_or_null(&f, "value")
+                );
+            }
+            // Struct field access.
+            "getStructField" => return self.compile_2("ball_get_struct_field", &f, "struct", "key"),
+            "getStringField" => return self.compile_2("ball_get_string_field", &f, "struct", "key"),
+            "getBoolField" => return self.compile_2("ball_get_bool_field", &f, "struct", "key"),
+            "getListField" => return self.compile_2("ball_get_list_field", &f, "struct", "key"),
+            "getNumberField" => return self.compile_2("ball_get_number_field", &f, "struct", "key"),
+            "getStructFieldKeys" => {
+                return format!("ball_get_struct_field_keys({})", self.field_or_null(&f, "struct"));
+            }
+            // Proto3 defaults.
+            "ensureDefaults" => return format!("ball_proto_ensure_defaults({})", obj()),
+            "defaultString" => return "BallValue::String(String::new())".to_string(),
+            "defaultList" => return "BallValue::List(Vec::new())".to_string(),
+            "defaultBool" => return "BallValue::Bool(false)".to_string(),
+            "defaultInt" => return "BallValue::Int(0i64)".to_string(),
+            // Case-name validators — the engine reads them back as the name.
+            "exprCase" | "literalCase" | "stmtCase" => {
+                return self.field_or_null(&f, "name");
+            }
+            _ => {}
+        }
+        // Presence checks: `has<Field>(obj)` → the named field's presence.
+        if let Some(suffix) = call.function.strip_prefix("has") {
+            if !suffix.is_empty() {
+                let field = lower_first(suffix);
+                return format!("ball_has_field({}, {field:?})", obj());
+            }
+        }
+        self.unsupported(call)
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // std_convert
+    // ════════════════════════════════════════════════════════════
+
+    fn compile_convert_call(&self, call: &FunctionCall) -> String {
+        let f = extract_fields(call);
+        match call.function.as_str() {
+            "utf8_encode" => self.un("ball_utf8_encode", &f),
+            "utf8_decode" => self.un("ball_utf8_decode", &f),
+            "base64_encode" => self.un("ball_base64_encode", &f),
+            "base64_decode" => self.un("ball_base64_decode", &f),
+            _ => self.unsupported(call),
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Collection / record literals
+    // ════════════════════════════════════════════════════════════
+
+    /// `map_create` — a map literal. The input `MessageCreation`'s fields are
+    /// the entries (the cosmetic `type_args`/`elements` fields are dropped): an
+    /// `entry` field carries a `{key, value}` message. Mirrors
+    /// `dart/compiler/lib/compiler.dart`'s `_compileMapCreate`. Builds a
+    /// `[[key, value], …]` list and hands it to the `ball_map_create` runtime
+    /// helper (which stringifies keys — Ball maps are string-keyed).
+    fn compile_map_create(&self, call: &FunctionCall) -> String {
+        let mut pairs: Vec<String> = Vec::new();
+        if let Some(Expression { expr: Some(Expr::MessageCreation(mc)) }) = call.input.as_deref() {
+            for field in &mc.fields {
+                if field.name == "type_args" || field.name == "elements" {
+                    continue;
+                }
+                if field.name == "entry" {
+                    if let Some(Expression { expr: Some(Expr::MessageCreation(entry)) }) =
+                        field.value.as_ref()
+                    {
+                        let ef = self.message_creation_fields(entry);
+                        pairs.push(format!(
+                            "BallValue::List(vec![{}, {}])",
+                            self.field_or_null(&ef, "key"),
+                            self.field_or_null(&ef, "value")
+                        ));
+                    }
+                }
+            }
+        }
+        format!("ball_map_create(BallValue::List(vec![{}]))", pairs.join(", "))
+    }
+
+    /// `record` — a Dart record literal. The input `MessageCreation` already
+    /// compiles to a `BallValue::Map` keyed by the record's field names
+    /// (positional `$0`/`$1`/… or named), which is exactly the engine's
+    /// `_stdRecord` value (`m['fields'] ?? m` — records here carry no `fields`
+    /// key), so this is just its compiled input.
+    fn compile_record(&self, call: &FunctionCall) -> String {
+        match call.input.as_deref() {
+            Some(input) => self.compile_expression(input),
+            None => "BallValue::Map(BallMap::new())".to_string(),
+        }
+    }
+
+    /// `invoke` — dynamically call a first-class function value. The whole
+    /// input message (carrying `callee` + arguments) is handed to the
+    /// `ball_invoke` runtime helper, which unpacks the callee and applies the
+    /// single-`input` calling convention (see its doc comment).
+    fn compile_invoke(&self, call: &FunctionCall) -> String {
+        let input = match call.input.as_deref() {
+            Some(input) => self.compile_expression(input),
+            None => "BallValue::Null".to_string(),
+        };
+        format!("ball_invoke({input})")
     }
 
     // ════════════════════════════════════════════════════════════
@@ -930,10 +1119,9 @@ impl Compiler<'_> {
         // slot onto the caller's own binding), not a `.clone()`d read — see
         // `crate::lvalue`'s module doc comment.
         let mutating_field = match call.function.as_str() {
-            "list_push" | "list_pop" | "list_insert" | "list_remove_at" | "list_set" => {
-                Some("list")
-            }
-            "map_set" | "map_delete" => Some("map"),
+            "list_push" | "list_pop" | "list_insert" | "list_remove_at" | "list_set"
+            | "list_clear" | "list_sort" => Some("list"),
+            "map_set" | "map_delete" | "map_put_if_absent" => Some("map"),
             "set_add" | "set_remove" => Some("set"),
             _ => None,
         };
@@ -963,8 +1151,11 @@ impl Compiler<'_> {
             "list_take" => self.compile_2("ball_list_take", &f, "list", "value"),
             "list_drop" => self.compile_2("ball_list_drop", &f, "list", "value"),
             "list_concat" => self.bin("ball_list_concat", &f),
+            "list_to_list" => self.un_named("ball_list_to_list", &f, "list"),
+            "list_join" => self.compile_2("ball_list_join", &f, "list", "separator"),
             "map_get" => self.compile_2("ball_map_get", &f, "map", "key"),
             "map_contains_key" => self.compile_2("ball_map_contains_key", &f, "map", "key"),
+            "map_contains_value" => self.compile_2("ball_map_contains_value", &f, "map", "value"),
             "map_keys" => self.un_named("ball_map_keys", &f, "map"),
             "map_values" => self.un_named("ball_map_values", &f, "map"),
             "map_entries" => self.un_named("ball_map_entries", &f, "map"),
@@ -984,8 +1175,9 @@ impl Compiler<'_> {
             // Deferred — genuinely multi-parameter callbacks
             // (accumulator+element / key-extractor+element), which Ball's
             // single-`input` lambda convention can't express until #38.
-            "list_reduce" | "list_sort" | "list_sort_by" | "list_zip" | "map_map"
-            | "map_filter" => self.unsupported(call),
+            "list_reduce" | "list_sort_by" | "list_zip" | "map_map" | "map_filter" => {
+                self.unsupported(call)
+            }
             _ => self.unsupported(call),
         }
     }
@@ -1068,8 +1260,14 @@ impl Compiler<'_> {
                 self.field_or_null(&f, "value"),
             ],
             "map_delete" => vec![self.field_or_null(&f, "key")],
+            "map_put_if_absent" => vec![
+                self.field_or_null(&f, "key"),
+                self.field_or_null(&f, "value"),
+            ],
             "set_add" => vec![self.field_or_null(&f, "value")],
             "set_remove" => vec![self.field_or_null(&f, "value")],
+            "list_clear" => vec![],
+            "list_sort" => vec![self.field_or_null(&f, "value")],
             _ => return self.unsupported(call),
         };
         let helper = match call.function.as_str() {
@@ -1090,8 +1288,11 @@ impl Compiler<'_> {
             }
             "map_set" => "ball_map_set",
             "map_delete" => "ball_map_delete",
+            "map_put_if_absent" => "ball_map_put_if_absent",
             "set_add" => "ball_set_add",
             "set_remove" => "ball_set_remove",
+            "list_clear" => "ball_list_clear",
+            "list_sort" => "ball_list_sort",
             _ => return self.unsupported(call),
         };
         let args = extra_args.join(", ");
@@ -1121,6 +1322,17 @@ impl Compiler<'_> {
             "args_get" => "ball_args_get()".to_string(),
             _ => self.unsupported(call),
         }
+    }
+}
+
+/// Lowercase the first character of a camelCase name — turns a `has<Field>`
+/// presence-check function name's suffix (`Body`, `StringValue`, `Metadata`)
+/// into its proto `jsonName` field (`body`, `stringValue`, `metadata`).
+fn lower_first(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 

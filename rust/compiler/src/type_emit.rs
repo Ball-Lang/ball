@@ -193,6 +193,38 @@ fn native_superclass_fields(name: &str) -> &'static [&'static str] {
     }
 }
 
+/// Strip a leading Dart generic type-argument prefix from an initializer's
+/// cosmetic source text (`<String, int>{}` → `{}`, `<Object?>[]` → `[]`), so
+/// the literal shape underneath can be recognized. Non-generic text is
+/// returned unchanged.
+fn strip_generic_prefix(s: &str) -> &str {
+    if !s.starts_with('<') {
+        return s;
+    }
+    let mut depth = 0usize;
+    for (index, ch) in s.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return s[index + ch.len_utf8()..].trim_start();
+                }
+            }
+            _ => {}
+        }
+    }
+    s
+}
+
+/// Whether `s` is a plain identifier (a bare class name in `Type()` initializer
+/// text) — used to recognize a zero-argument constructor default.
+fn is_simple_ident(s: &str) -> bool {
+    !s.is_empty()
+        && !s.chars().next().is_some_and(|c| c.is_ascii_digit())
+        && s.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 /// The descriptor field names of `td` (in declaration order), skipping
 /// unnamed/empty entries — the shape both the struct declaration and the
 /// method/constructor field-alias prologue read.
@@ -1057,6 +1089,116 @@ impl Compiler<'_> {
     /// each `this.`-formal parameter and each parameter-referencing field
     /// initializer overrides its field with the (already-bound) parameter local
     /// (see [`Compiler::compile_constructor_with_body`]).
+    /// The field-level default initializer's cosmetic source text for instance
+    /// field `field` of `td` (searching `td`'s own then each inherited
+    /// `metadata.fields[]` entry). The encoders record `final Map … _functions
+    /// = {}` as an `{name: "_functions", initializer: "{}"}` field entry — this
+    /// is the raw `"{}"`/`"[]"`/`"_Scope()"`/… text.
+    /// Resolve a `MessageCreation.type_name` (full, e.g. `main:_Scope`) to its
+    /// user `TypeDefinition`, or `None` for a Dart-SDK constructor / unknown
+    /// type (no `TypeDefinition` — e.g. `List.filled`, `StringBuffer`).
+    pub(crate) fn type_def_for(&self, type_name: &str) -> Option<&TypeDefinition> {
+        self.type_defs_by_short_name
+            .get(type_short_name(type_name))
+            .copied()
+    }
+
+    pub(crate) fn field_initializer_text(&self, td: &TypeDefinition, field: &str) -> Option<String> {
+        let mut current = td;
+        for _ in 0..32 {
+            if let Some(meta) = &current.metadata {
+                if let Some(fields) = meta_list_value(meta, "fields") {
+                    for entry in fields {
+                        let Some(Kind::StructValue(entry_struct)) = &entry.kind else {
+                            continue;
+                        };
+                        if meta_string_value(entry_struct, "name").as_deref() == Some(field) {
+                            // The first (own-most) declaration of `field` wins,
+                            // whether or not it carries an initializer.
+                            return meta_string_value(entry_struct, "initializer");
+                        }
+                    }
+                }
+            }
+            let Some(super_name) = superclass_of(current) else {
+                break;
+            };
+            match self.type_defs_by_short_name.get(super_name.as_str()) {
+                Some(super_td) => current = super_td,
+                None => break,
+            }
+        }
+        None
+    }
+
+    /// Lower a field-level initializer's cosmetic source text
+    /// ([`Compiler::field_initializer_text`]) to a Rust `BallValue` expression
+    /// for the common literal / zero-argument-constructor shapes — the
+    /// constructor/message-creation field-default fix (issue #300): `_functions
+    /// = {}` must build an empty map, not `Null` (which panicked the moment the
+    /// engine indexed it), and `_globalScope = _Scope()` must build a real
+    /// `_Scope` instance (with its own `_bindings = {}` default, recursively).
+    /// A richer initializer expression the encoder stored only as source text
+    /// yields `None` — the documented best-effort boundary (the field stays
+    /// `Null`). `visiting` guards against a cyclic constructor-default chain.
+    pub(crate) fn lower_field_initializer(
+        &self,
+        init: &str,
+        visiting: &mut Vec<String>,
+    ) -> Option<String> {
+        let s = strip_generic_prefix(init.trim());
+        match s {
+            "{}" => return Some("BallValue::Map(BallMap::new())".to_string()),
+            "[]" => return Some("BallValue::List(Vec::new())".to_string()),
+            "''" | "\"\"" => return Some("BallValue::String(String::new())".to_string()),
+            "true" => return Some("BallValue::Bool(true)".to_string()),
+            "false" => return Some("BallValue::Bool(false)".to_string()),
+            "null" => return Some("BallValue::Null".to_string()),
+            _ => {}
+        }
+        if let Ok(int_value) = s.parse::<i64>() {
+            return Some(format!("BallValue::Int({int_value}i64)"));
+        }
+        if let Ok(double_value) = s.parse::<f64>() {
+            if double_value.is_finite() {
+                return Some(format!("BallValue::Double({double_value}f64)"));
+            }
+        }
+        if let Some(type_name) = s.strip_suffix("()") {
+            let type_name = type_name.trim();
+            if is_simple_ident(type_name) {
+                return self.default_instance_of(type_name, visiting);
+            }
+        }
+        None
+    }
+
+    /// Build a default instance of the class `short` (a `Type()` field
+    /// initializer): a `BallValue::Message` whose every instance field is set
+    /// to its own field-level default (recursively lowered) or `Null`. Returns
+    /// `None` for an unknown class or a cycle (the field then stays `Null`).
+    fn default_instance_of(&self, short: &str, visiting: &mut Vec<String>) -> Option<String> {
+        let td = *self.type_defs_by_short_name.get(short)?;
+        if visiting.iter().any(|v| v == short) {
+            return None;
+        }
+        visiting.push(short.to_string());
+        let mut inserts = String::new();
+        for field in self.all_instance_field_names(td) {
+            let value = self
+                .field_initializer_text(td, &field)
+                .and_then(|init| self.lower_field_initializer(&init, visiting))
+                .unwrap_or_else(|| "BallValue::Null".to_string());
+            inserts.push_str(&format!("__ball_map.insert({field:?}.to_string(), {value});\n"));
+        }
+        visiting.pop();
+        Some(format!(
+            "{{ let mut __ball_map = BallMap::new(); {inserts}\
+             BallValue::Message(BallMessage::new({:?}, __ball_map)) }}",
+            td.name
+        ))
+    }
+
     fn constructor_self_init(
         &self,
         owner_td: &TypeDefinition,
@@ -1074,6 +1216,13 @@ impl Compiler<'_> {
                 format!("{}.clone()", crate::sanitize_ident(&field))
             } else if let Some(param) = field_initializer_param(ctor, &field, &param_names) {
                 format!("{}.clone()", crate::sanitize_ident(&param))
+            } else if let Some(default) = self
+                .field_initializer_text(owner_td, &field)
+                .and_then(|init| self.lower_field_initializer(&init, &mut Vec::new()))
+            {
+                // A field-level default initializer (`final … _functions = {}`)
+                // — an empty map/list/string/instance, not `Null` (issue #300).
+                default
             } else {
                 "BallValue::Null".to_string()
             };

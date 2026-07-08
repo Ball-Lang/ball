@@ -1,3 +1,10 @@
+## [1.16.4](https://github.com/Ball-Lang/ball/compare/v1.16.3...v1.16.4) (2026-07-08)
+
+
+### Bug Fixes
+
+* **cpp:** compile_fs_call implements file byte/append ops + fail-loud default ([#319](https://github.com/Ball-Lang/ball/issues/319)) ([#323](https://github.com/Ball-Lang/ball/issues/323)) ([be4e519](https://github.com/Ball-Lang/ball/commit/be4e519bf8e57607926feb86d3bbb5af28e83bbb))
+
 ## [1.16.3](https://github.com/Ball-Lang/ball/compare/v1.16.2...v1.16.3) (2026-07-08)
 
 

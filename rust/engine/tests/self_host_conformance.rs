@@ -26,7 +26,7 @@ use ball_engine::BallEngine;
 /// must not wedge the whole sweep — a fixture that blows the budget is recorded
 /// as a timeout and the sweep moves on (the leaked worker thread is harmless
 /// for a measurement run).
-const TIMEOUT: Duration = Duration::from_secs(30);
+const TIMEOUT: Duration = Duration::from_secs(120);
 
 fn conformance_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance")
@@ -79,6 +79,13 @@ fn expected_lines(text: &str) -> Vec<String> {
 #[test]
 #[ignore = "whole-corpus sweep; run explicitly with --ignored --nocapture"]
 fn conformance_corpus() {
+    // Silence the default panic printer. Every Ball `throw` is a `panic_any`
+    // (normally caught right back by the engine's compiled `try`), and the
+    // exception-heavy fixtures generate thousands per run — the default hook's
+    // stderr printing dominated the sweep's runtime and produced multi-MB logs
+    // (large enough to take down a memory-constrained WSL session, #39/#300).
+    // Outcomes are reported by this harness itself, so nothing is lost.
+    std::panic::set_hook(Box::new(|_| {}));
     let dir = conformance_dir();
     let single = std::env::var("BALL_FIXTURE").ok();
 

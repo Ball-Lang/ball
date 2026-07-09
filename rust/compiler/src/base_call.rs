@@ -201,7 +201,12 @@ impl Compiler<'_> {
             "greater_than" => self.bin("ball_greater_than", &f),
             "lte" => self.bin("ball_lte", &f),
             "gte" => self.bin("ball_gte", &f),
-            "compare_to" => self.bin("ball_compare_to", &f),
+            "compare_to" => self.bin_alias(
+                "ball_compare_to",
+                &f,
+                &["left", "value"],
+                &["right", "other"],
+            ),
             // ── Logic / bitwise ──
             "not" => self.un("ball_not", &f),
             "bitwise_and" => self.bin("ball_bitwise_and", &f),
@@ -226,6 +231,24 @@ impl Compiler<'_> {
             "to_string_as_fixed" => {
                 self.compile_2("ball_to_string_as_fixed", &f, "value", "digits")
             }
+            // `toStringAsExponential([fractionDigits])` / `toStringAsPrecision(p)`
+            // — issue #100. An absent `digits` (the no-argument exponential
+            // form) compiles to `Null`, which the runtime maps to the
+            // shortest-round-trip mantissa. Field aliases mirror the engine's
+            // handler (`m['digits'] ?? m['fractionDigits']`, `m['precision'] ??
+            // m['digits']` — `dart/engine/lib/engine_std.dart`).
+            "to_string_as_exponential" => self.bin_alias(
+                "ball_to_string_as_exponential",
+                &f,
+                &["value", "left"],
+                &["digits", "fractionDigits"],
+            ),
+            "to_string_as_precision" => self.bin_alias(
+                "ball_to_string_as_precision",
+                &f,
+                &["value", "left"],
+                &["precision", "digits"],
+            ),
             "string_code_unit_at" => {
                 self.compile_2("ball_string_code_unit_at", &f, "value", "index")
             }
@@ -244,7 +267,7 @@ impl Compiler<'_> {
             "if" => self.compile_if(&f),
             // ── Error handling / flow signals ──
             "throw" => self.un("ball_throw", &f),
-            "rethrow" => self.unsupported(call),
+            "rethrow" => self.compile_rethrow(),
             "assert" => self.compile_assert(&f),
             "return" => self.compile_return(&f),
             "break" => self.compile_break(&f),
@@ -282,7 +305,12 @@ impl Compiler<'_> {
             "string_trim_end" => self.un("ball_string_trim_end", &f),
             "string_replace" => self.tri("ball_string_replace", &f, "value", "from", "to"),
             "string_replace_all" => self.tri("ball_string_replace_all", &f, "value", "from", "to"),
-            "string_split" => self.bin("ball_string_split", &f),
+            "string_split" => self.bin_alias(
+                "ball_string_split",
+                &f,
+                &["left", "value", "string"],
+                &["right", "separator", "delimiter"],
+            ),
             "string_runes" => self.un("ball_string_runes", &f),
             "string_repeat" => self.compile_2("ball_string_repeat", &f, "value", "count"),
             "string_pad_left" => self.tri("ball_string_pad_left", &f, "value", "width", "padding"),
@@ -337,6 +365,41 @@ impl Compiler<'_> {
             Some(expr) => self.compile_expression(expr),
             None => "BallValue::Null".to_string(),
         }
+    }
+
+    /// Read the first field present among `keys` (a compile-time decision —
+    /// exactly one alias is emitted), else `Null`. Mirrors the Dart engine's
+    /// `m['a'] ?? m['b'] ?? m['c']` tolerance for base functions whose
+    /// canonical descriptor field names (e.g. `BinaryInput`'s `left`/`right`
+    /// for `string_split`/`compare_to`) differ from the names the Dart
+    /// *encoder* actually emits when it routes a method call (`value`/
+    /// `separator` for `str.split`, `value`/`other` for `x.compareTo`). Without
+    /// this, `bin`'s hard-coded `left`/`right` read `Null` and the runtime
+    /// helper panics with `expected a number/string, got Null` (#39/#300).
+    fn field_alias_or_null(&self, fields: &IndexMap<String, Expression>, keys: &[&str]) -> String {
+        for key in keys {
+            if let Some(expr) = fields.get(*key) {
+                return self.compile_expression(expr);
+            }
+        }
+        "BallValue::Null".to_string()
+    }
+
+    /// A binary base function whose two operands may arrive under any of the
+    /// listed alias field names (canonical descriptor name first, then the
+    /// encoder's method-routed names). See [`Compiler::field_alias_or_null`].
+    fn bin_alias(
+        &self,
+        helper: &str,
+        fields: &IndexMap<String, Expression>,
+        left: &[&str],
+        right: &[&str],
+    ) -> String {
+        format!(
+            "{helper}({}, {})",
+            self.field_alias_or_null(fields, left),
+            self.field_alias_or_null(fields, right)
+        )
     }
 
     /// Like [`Compiler::field_or_null`] but defaults an absent field to an
@@ -1157,12 +1220,21 @@ impl Compiler<'_> {
             if let Some(stack_var) = &stack_var {
                 self.bind_local(stack_var);
             }
+            // Compile the handler with a catch in scope so a `std.rethrow`
+            // (Dart `rethrow`) re-raises `_ball_rethrow_err` (issue #39/#300).
+            self.enter_catch();
             let catch_body = cf
                 .get("body")
                 .map(|b| self.compile_expression(b))
                 .unwrap_or_else(|| "BallValue::Null".to_string());
+            self.exit_catch();
             self.pop_scope();
             out.push_str("let __err = ball_catch_payload(__payload);\n");
+            // Stable rethrow target: `rethrow` re-raises the *originally caught*
+            // exception even if the handler reassigns its `catch (e)` variable,
+            // so bind it before `__err` is moved into `var_name`. The leading
+            // underscore keeps it warning-free when the handler never rethrows.
+            out.push_str("let _ball_rethrow_err = __err.clone();\n");
             // Bind the stack-trace variable first (it reads `__err` by clone)
             // so the exception binding can then move `__err` into `var_name`.
             if let Some(stack_var) = &stack_var {
@@ -1187,6 +1259,22 @@ impl Compiler<'_> {
         }
         out.push_str("}\n}\n}");
         out
+    }
+
+    /// `std.rethrow` (the Dart `rethrow` keyword) — re-raise the exception the
+    /// innermost enclosing `catch` is handling. [`Compiler::compile_try`] binds
+    /// that as `_ball_rethrow_err` (the originally-caught value, stable against
+    /// the handler reassigning its `catch (e)` variable) and marks the handler
+    /// via [`Compiler::enter_catch`], so a `rethrow` here re-panics with it (the
+    /// same `ball_throw` an outer `try` catches). A `rethrow` with no enclosing
+    /// catch mirrors the reference engine's `rethrow outside of catch` error
+    /// (only reachable in a malformed program). Issue #39/#300.
+    fn compile_rethrow(&self) -> String {
+        if self.in_catch() {
+            "ball_throw(_ball_rethrow_err.clone())".to_string()
+        } else {
+            "ball_throw(BallValue::String(\"rethrow outside of catch\".to_string()))".to_string()
+        }
     }
 
     /// The `match __flow { … }` that re-issues a `try`'s [`ball_shared::runtime::BallFlow`]

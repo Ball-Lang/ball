@@ -193,6 +193,43 @@ impl Compiler<'_> {
             );
         }
 
+        // A plain-variable target that is an **instance-field alias** of the
+        // member being compiled must keep the shared instance in sync
+        // (issue #39/#300 — the `_activeException` rethrow mechanism):
+        //
+        // - **Inside a lambda**, the alias the `move` closure captured is a
+        //   stale pre-clone; the mutation routes through `__self_recv` (a clone
+        //   of the reference-semantic instance) via read-modify-write, so the
+        //   write is visible to the instance (and every other reader) at once.
+        // - **In the method body**, the local alias is still mutated (body
+        //   reads keep using it), but the new value is *also* written through
+        //   to `self_` immediately — the end-of-method write-back alone is too
+        //   late for a nested call made mid-method (the engine's `_evalTry`
+        //   sets `_activeException = e` and then, still inside the method,
+        //   evaluates the target's catch handler, which must observe it).
+        if let LValue::Var(name) = lvalue {
+            if let Some(field_key) = self.instance_field_key_of_var(name) {
+                if self.in_lambda() && self.late_bound_field(&field_key).is_some() {
+                    return format!(
+                        "{{ let __val = {value_code}; \
+                         let mut __self_field_recv = __self_recv.clone(); \
+                         let __old = ball_field_get(__self_field_recv.clone(), {field_key:?}); \
+                         let __new = {new_value}; \
+                         ball_field_set(&mut __self_field_recv, {field_key:?}, __new.clone()); {tail} }}"
+                    );
+                }
+                if !self.in_lambda() {
+                    return format!(
+                        "{{ let __val = {value_code}; \
+                         let __slot: &mut BallValue = (&mut {name}); \
+                         let __old = __slot.clone(); let __new = {new_value}; \
+                         *__slot = __new.clone(); \
+                         ball_field_set(&mut self_, {field_key:?}, __new.clone()); {tail} }}"
+                    );
+                }
+            }
+        }
+
         let slot = self.lvalue_mut_expr(lvalue);
         // The right-hand value is bound to an owned temporary (`__val`)
         // *before* the mutable slot borrow is taken, so a `value_code` that

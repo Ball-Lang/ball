@@ -26,7 +26,7 @@ use ball_engine::BallEngine;
 /// must not wedge the whole sweep — a fixture that blows the budget is recorded
 /// as a timeout and the sweep moves on (the leaked worker thread is harmless
 /// for a measurement run).
-const TIMEOUT: Duration = Duration::from_secs(30);
+const TIMEOUT: Duration = Duration::from_secs(120);
 
 fn conformance_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance")

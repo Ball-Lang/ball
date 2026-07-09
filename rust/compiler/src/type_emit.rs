@@ -1328,6 +1328,23 @@ impl Compiler<'_> {
     /// `TypeDefinition` for at all) — the caller's own fallback (keep the
     /// field name as given) then applies unchanged.
     pub(crate) fn constructor_field_names(&self, type_name: &str) -> Vec<(String, bool)> {
+        // Value-wrapper classes (`BallInt`/`BallDouble`/`BallString`/`BallBool`)
+        // live in `ball_value.dart`, outside the self-host part graph, so they
+        // carry no `TypeDefinition`/constructor metadata — yet the engine
+        // constructs them positionally (`_evalLiteral` builds
+        // `BallDouble(lit.doubleValue)`) and reads them back through their
+        // single `value` field (`_toNum`/`_toDouble`/… do `v.value`). Each
+        // wraps exactly one `value` (see `dart/engine/lib/ball_value.dart`), so
+        // map the positional `arg0` to `value`; otherwise the value is stored
+        // under `arg0` and every `.value` read is `Null` — which panicked
+        // double-literal arithmetic with `expected a number, got Null`
+        // (#39/#300). `BallNull` has no field and needs no entry.
+        if matches!(
+            type_short_name(type_name),
+            "BallInt" | "BallDouble" | "BallString" | "BallBool"
+        ) {
+            return vec![("value".to_string(), true)];
+        }
         let Some(members) = self.class_members_by_owner.get(type_name) else {
             return Vec::new();
         };

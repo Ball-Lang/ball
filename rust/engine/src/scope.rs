@@ -94,7 +94,7 @@ pub fn set(scope: &Scope, name: &str, value: BallValue) {
 }
 
 fn set_existing(scope: &Scope, name: &str, value: &BallValue) -> bool {
-    let mut node = scope.borrow_mut();
+    let node = scope.borrow_mut();
     if node.bindings.contains_key(name) {
         node.bindings.insert(name.to_string(), value.clone());
         return true;

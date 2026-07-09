@@ -66,7 +66,7 @@ const SOURCE_VARIANTS: &[&str] = &["http", "file", "git", "registry", "inline"];
 fn which(obj: &BallValue, variants: &[&str]) -> BallValue {
     if let BallValue::Map(map) = obj {
         for variant in variants {
-            if map.get(*variant).is_some_and(|v| *v != BallValue::Null) {
+            if map.get(variant).is_some_and(|v| v != BallValue::Null) {
                 return BallValue::String((*variant).to_string());
             }
         }
@@ -125,7 +125,7 @@ pub fn has_field(obj: &BallValue, field: &str) -> BallValue {
 /// map.
 pub fn get_field(obj: &BallValue, name: &str) -> BallValue {
     match obj {
-        BallValue::Map(map) => map.get(name).cloned().unwrap_or(BallValue::Null),
+        BallValue::Map(map) => map.get(name).unwrap_or(BallValue::Null),
         BallValue::Message(msg) => msg.get(name).unwrap_or(BallValue::Null),
         _ => BallValue::Null,
     }
@@ -144,7 +144,7 @@ pub fn get_field_or(obj: &BallValue, name: &str, default: BallValue) -> BallValu
 /// `ball_proto.dart`'s permissive setter).
 pub fn set_field(obj: BallValue, name: &str, value: BallValue) -> BallValue {
     match obj {
-        BallValue::Map(mut map) => {
+        BallValue::Map(map) => {
             map.insert(name.to_string(), value);
             BallValue::Map(map)
         }
@@ -163,7 +163,7 @@ pub fn set_field(obj: BallValue, name: &str, value: BallValue) -> BallValue {
 pub fn get_struct_field_keys(struct_val: &BallValue) -> BallValue {
     match struct_val {
         BallValue::Map(map) => {
-            BallValue::List(map.keys().cloned().map(BallValue::String).collect())
+            BallValue::List(map.keys().into_iter().map(BallValue::String).collect())
         }
         _ => BallValue::List(BallList::new()),
     }
@@ -200,7 +200,7 @@ mod tests {
     use ball_shared::BallMap;
 
     fn map(pairs: &[(&str, BallValue)]) -> BallValue {
-        let mut m = BallMap::new();
+        let m = BallMap::new();
         for (k, v) in pairs {
             m.insert((*k).to_string(), v.clone());
         }

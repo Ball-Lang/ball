@@ -234,7 +234,7 @@ impl BallEngine {
         // set the built-in registration checks, and `_allowlist` is `null`
         // (expose every built-in). The engine constructor calls `init(this)` on
         // it, which populates `_dispatch` from `engine._buildStdDispatch()`.
-        let mut std_fields = BallMap::new();
+        let std_fields = BallMap::new();
         std_fields.insert("_dispatch".to_string(), BallValue::Map(BallMap::new()));
         std_fields.insert(
             "_composedDispatch".to_string(),
@@ -247,7 +247,7 @@ impl BallEngine {
         // The compiled `BallEngine` constructor reads `program` via
         // `ball_arg_get(input, "program", "arg0")` and every other field by
         // name (see the generated `main_BallEngine::new`).
-        let mut ctor_input = BallMap::new();
+        let ctor_input = BallMap::new();
         ctor_input.insert("program".to_string(), self.program_value.clone());
         ctor_input.insert("stdout".to_string(), stdout_fn);
         ctor_input.insert("stderr".to_string(), BallValue::Null);
@@ -281,7 +281,7 @@ impl BallEngine {
             .spawn(move || {
                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     let engine = compiled_engine::main_BallEngine::new(BallValue::Map(ctor_input));
-                    let mut run_input = BallMap::new();
+                    let run_input = BallMap::new();
                     run_input.insert("self".to_string(), engine);
                     compiled_engine::run(BallValue::Map(run_input))
                 }))

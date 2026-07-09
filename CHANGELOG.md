@@ -1,3 +1,10 @@
+# [1.19.0](https://github.com/Ball-Lang/ball/compare/v1.18.1...v1.19.0) (2026-07-09)
+
+
+### Features
+
+* **cpp:** [#18](https://github.com/Ball-Lang/ball/issues/18) stage 3 — binary-path cutover behind BALL_USE_BALL_PROTOBUF + byte-equivalence proof ([#341](https://github.com/Ball-Lang/ball/issues/341)) ([143219f](https://github.com/Ball-Lang/ball/commit/143219f5cef1e6ed92d0bd7da1bd62644a978710)), closes [addAll-throu#alias](https://github.com/addAll-throu/issues/alias) [#25](https://github.com/Ball-Lang/ball/issues/25) [addAll-throu#alias](https://github.com/addAll-throu/issues/alias) [#25](https://github.com/Ball-Lang/ball/issues/25)
+
 ## [1.18.1](https://github.com/Ball-Lang/ball/compare/v1.18.0...v1.18.1) (2026-07-09)
 
 

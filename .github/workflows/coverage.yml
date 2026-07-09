@@ -65,26 +65,33 @@ jobs:
       # count as 0%, never dropped) and fails if overall line coverage drops
       # below the floor. RAISE the floor toward 100% as tests are added (see
       # docs/TESTING_STRATEGY.md); never lower it without justification.
-      # Honest PRODUCT coverage measured ~97.6% (all 9 packages' lib/; bin/
+      # Honest PRODUCT coverage measured ~98.55% (all 9 packages' lib/; bin/
       # entry-point tooling excluded — see coverage_dart.dart). Per-package:
-      # ball_rpc 100%, resolver 100%, shared 100%, compiler 99.97%,
-      # protobuf_gen 98.5%, ball_protobuf 98%, engine 97.1% (#61 — was 83%;
-      # closed by dedicated e2e BallEngine tests, see engine_wave5_*
-      # coverage test files), encoder 94.8%, cli 92.7%. The remaining engine
-      # gap is verified per-branch as genuinely unreachable from any
-      # Ball-syntax program (e.g. cross-engine-only wrapper-unwrap arms a
-      # Ball try/catch can never produce, or std-dispatch branches already
-      # shadowed by an earlier type narrowing) — not a coverage shortcut.
-      # Dedicated suites drove the workspace from ~64% → ~97.6%.
+      # ball_protobuf 100%, ball_rpc 100%, resolver 100%, shared 100%,
+      # compiler 99.97%, protobuf_gen 98.92%, engine 98.84% (#61 — was 83%;
+      # closed by dedicated e2e BallEngine tests, see engine_wave5_*/
+      # engine_wave6_coverage_test.dart), encoder 96.06%, cli 92.31%. The
+      # remaining engine gap is verified per-branch as genuinely unreachable
+      # from any Ball-syntax program (e.g. cross-engine-only wrapper-unwrap
+      # arms a Ball try/catch can never produce, or std-dispatch branches
+      # already shadowed by an earlier type narrowing) — not a coverage
+      # shortcut. cli's remaining gap is the documented `identical(out,
+      # stdout)` raw-binary-to-real-stdout branch (deliberately not
+      # unit-tested — it corrupts the test process's own stdout capture, see
+      # runner_test.dart) plus the network-tagged pub.dev download paths.
+      # Dedicated suites drove the workspace from ~64% → ~98.55%.
       # Floor set below it to absorb local↔CI variance (CI counts ≥ local);
       # RAISE toward 100% as tests land.
       - name: Dart line coverage ratchet (all packages)
-        # Ratcheted 96 -> 97 after #61 Phase-2 (encoder feature-branch tests,
-        # conformance.dart I/O-harness targeted-ignores, engine Set-arm body
-        # exclusions) took the workspace to ~98%. Kept below the actual to
-        # preserve the local<->CI variance margin (local undercounts when the
-        # Windows-only cli-suite gotcha trips). Remaining per-arm triage: #261.
-        run: dart run tools/coverage_dart.dart --floor 97
+        # Ratcheted 97 -> 98 after #61 Phase-3 (engine wrapper-type
+        # fieldAccess arms, encoder extension/extension_type/for-loop-init/
+        # cascade-paren branches, compiler tag-catch field-access rewrite,
+        # ball_protobuf_gen enum-extension codegen + registry getter,
+        # ball_protobuf conformance serialize_error path) took the workspace
+        # to ~98.55%. Kept below the actual to preserve the local<->CI
+        # variance margin (local undercounts when the Windows-only cli-suite
+        # gotcha trips). Remaining per-arm triage: #261.
+        run: dart run tools/coverage_dart.dart --floor 98
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

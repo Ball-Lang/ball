@@ -383,6 +383,31 @@ void main() {
       }, registry);
       expect(out['skipped'], contains('unsupported output format 99'));
     });
+
+    test('a message field with no messageDescriptor parses but fails to '
+        're-serialize, yielding a serialize_error', () {
+      // TYPE_MESSAGE fields need a 'messageDescriptor' entry for
+      // marshal/marshalJson to encode a nested value; unmarshalJson is
+      // lenient (it just stores the raw decoded JSON object) so this
+      // request parses fine and only fails on the RE-serialize half.
+      final nestedRegistry = <String, List<Map<String, Object?>>>{
+        'foo.Nested': [
+          {
+            'name': 'nested',
+            'number': 1,
+            'type': 'TYPE_MESSAGE',
+            'label': 'LABEL_OPTIONAL',
+            // Deliberately no 'messageDescriptor'.
+          },
+        ],
+      };
+      final out = processConformanceRequest({
+        'json_payload': '{"nested": {"x": 1}}',
+        'requested_output_format': wireFormatProtobuf,
+        'message_type': 'foo.Nested',
+      }, nestedRegistry);
+      expect(out['serialize_error'], contains('serialize error'));
+    });
   });
 
   group('wire format constants', () {

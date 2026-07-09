@@ -1,3 +1,10 @@
+## [1.17.3](https://github.com/Ball-Lang/ball/compare/v1.17.2...v1.17.3) (2026-07-09)
+
+
+### Bug Fixes
+
+* **ci:** unbreak main — quote colon-in-name (ci.yml startup failure) + realign cpp gencode to FetchContent v34.1 ([#333](https://github.com/Ball-Lang/ball/issues/333)) ([#338](https://github.com/Ball-Lang/ball/issues/338)) ([696be4a](https://github.com/Ball-Lang/ball/commit/696be4a4006507a3160e280f77c7cdbfdd3e21c9)), closes [#302](https://github.com/Ball-Lang/ball/issues/302) [#error](https://github.com/Ball-Lang/ball/issues/error) [pre-#302](https://github.com/pre-/issues/302)
+
 ## [1.17.2](https://github.com/Ball-Lang/ball/compare/v1.17.1...v1.17.2) (2026-07-09)
 
 

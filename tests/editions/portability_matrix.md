@@ -20,7 +20,9 @@ concatenation — no sort/join — so the output is engine-independent).
 That one program is run by the existing **conformance matrix** on each engine and
 its stdout compared byte-for-byte against the single checked-in golden,
 [`256_editions_resolver.expected_output.txt`](256_editions_resolver.expected_output.txt),
-whose values match `protoc --edition_defaults_out` (protoc 28.2).
+whose values match `protoc --edition_defaults_out` (protoc 35.1; the LEGACY/
+proto3/2023 values exercised here are unchanged from the earlier protoc 28.2
+golden — see the *Notes* section below on EDITION_2024 golden verification).
 
 ## Results
 
@@ -75,9 +77,12 @@ test passes (0 failed, 0 skipped) on each engine.
 
 ## Notes
 
-- **Edition 2024** runtime features are identical to 2023 by construction (2024
-  only adds `RETENTION_SOURCE` features the runtime ignores) and so are not
-  separately exercised here; see the *Known limitations* section of
+- **Edition 2024** runtime features are identical to 2023 — this is now
+  golden-verified against protoc 35.1 (`dart/ball_protobuf/test/editions_test.dart`),
+  not just asserted by construction (2024 only adds `RETENTION_SOURCE`
+  features the runtime ignores). Edition 2024 is not separately exercised in
+  this cross-engine resolver program (its output would be identical to the
+  2023 row above); see the *Known limitations* section of
   [`docs/EDITIONS_SPEC.md`](../../docs/EDITIONS_SPEC.md).
 - **C++ linear memory.** The C++ engine's 65 KB linear-memory budget was flagged
   as a risk for the resolver + defaults table. The

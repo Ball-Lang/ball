@@ -12,17 +12,34 @@
     CI drift-check mode: regenerate to a temp file and exit non-zero if it
     differs from the committed golden. Does not modify working-tree files.
 
+.PARAMETER MaxEdition
+    Value passed to protoc's --edition_defaults_maximum. Defaults to '2024'
+    (the current golden's ceiling). Accepts any value protoc understands
+    ('2023', '2024', '2026', ...) — pass an older value to regenerate a
+    golden pinned to a lower edition ceiling (e.g. for bisecting a protoc
+    upgrade).
+
+.PARAMETER MinEdition
+    Value passed to protoc's --edition_defaults_minimum. Defaults to
+    'PROTO2'.
+
 .EXAMPLE
-    # Regenerate in-place
+    # Regenerate in-place (max edition 2024)
     .\tools\gen_edition_defaults.ps1
 
 .EXAMPLE
     # CI drift check
     .\tools\gen_edition_defaults.ps1 -Check
+
+.EXAMPLE
+    # Regenerate pinned to edition 2023 (old behavior)
+    .\tools\gen_edition_defaults.ps1 -MaxEdition 2023
 #>
 [CmdletBinding()]
 param(
-    [switch]$Check
+    [switch]$Check,
+    [string]$MaxEdition = '2024',
+    [string]$MinEdition = 'PROTO2'
 )
 
 Set-StrictMode -Version Latest
@@ -37,9 +54,6 @@ $RepoRoot  = Split-Path -Parent $ScriptDir
 $BinPb       = Join-Path $RepoRoot 'tests\editions\featureset_defaults.binpb'
 $TxtPb       = Join-Path $RepoRoot 'tests\editions\golden\featureset_defaults.txtpb'
 $VersionFile = Join-Path $RepoRoot 'tests\editions\golden\PROTOC_VERSION.txt'
-
-$MinEdition = 'PROTO2'
-$MaxEdition = '2023'
 
 # ---------------------------------------------------------------------------
 # Locate protoc and its include directory

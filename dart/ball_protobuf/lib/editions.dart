@@ -107,7 +107,10 @@ List<String> featureKeys() => [
 // use `features`). EDITION_2023 holds all six as OVERRIDABLE. EDITION_2024
 // mirrors 2023's six runtime features — edition 2024 only adds
 // source-retention features (naming style, symbol visibility) that the runtime
-// ignores; verify against protoc >= 29 in CI.
+// ignores. Validated against real protoc (35.1, which supports editions
+// through 2024) in dart/ball_protobuf/test/editions_test.dart — the golden
+// FeatureSetDefaults confirms EDITION_2024's runtime-relevant feature values
+// are byte-for-byte identical to EDITION_2023's, matching this table.
 
 List<Map<String, Object?>> _defaultsTable() {
   final legacyFixed = <String, String>{};

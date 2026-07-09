@@ -1,9 +1,20 @@
 /// Tests for protobuf Editions feature resolution.
 ///
 /// The edition-defaults expectations below are the ground truth emitted by
-/// `protoc --edition_defaults_out` (protoc 28.2) and checked into
-/// tests/editions/golden/featureset_defaults.txtpb. If protoc's defaults
-/// change, regenerate that golden AND update these expectations together.
+/// `protoc --edition_defaults_out` (protoc 35.1, covering editions through
+/// EDITION_2024) and checked into tests/editions/golden/featureset_defaults.txtpb.
+/// If protoc's defaults change, regenerate that golden AND update these
+/// expectations together.
+///
+/// protoc 35.1 also emits an EDITION_UNSTABLE floor (used for in-development
+/// features beyond the last released edition; its enforce_naming_style value
+/// of STYLE2026 hints at what EDITION_2026 will carry, but EDITION_2026 does
+/// not yet have its own dedicated row in FeatureSetDefaults — see
+/// docs/EDITIONS_SPEC.md §8). The golden-driven loop below iterates whatever
+/// entries protoc emits, so EDITION_UNSTABLE is verified too: our resolver
+/// falls through to the highest defined floor (EDITION_2024) for any edition
+/// above it, which happens to carry identical runtime-feature values to what
+/// protoc reports for EDITION_UNSTABLE.
 library;
 
 import 'dart:io';
@@ -167,18 +178,41 @@ void main() {
   // FeatureSetDefaults binary and drive the resolver through it, so the
   // hand-authored defaults table is verified against protoc ground truth
   // rather than against our own transcription.
-  group('golden FeatureSetDefaults (protoc 28.2) drives the resolver', () {
+  group('golden FeatureSetDefaults (protoc 35.1) drives the resolver', () {
     final defaults = FeatureSetDefaults.fromBuffer(
       _goldenBinpb().readAsBytesSync(),
     );
 
     test('golden carries the expected edition floors', () {
       final editions = defaults.defaults.map((d) => d.edition.value).toList();
-      // protoc 28.2 emits LEGACY / PROTO3 / 2023 floors (max edition 2023).
+      // protoc 35.1 (max edition 2024) emits LEGACY / PROTO3 / 2023 / 2024
+      // floors, plus a trailing EDITION_UNSTABLE floor for in-development
+      // features.
       expect(
         editions,
-        containsAll([editionLegacy, editionProto3, edition2023]),
+        containsAll([
+          editionLegacy,
+          editionProto3,
+          edition2023,
+          edition2024,
+          editionUnstable,
+        ]),
       );
+    });
+
+    // The specific validation this issue set out to do: EDITION_2024's
+    // runtime-relevant FeatureSet values (the six fields our resolver acts
+    // on) were previously *asserted* identical to EDITION_2023 by
+    // construction (protoc 28.2 never emitted a 2024 row to check against).
+    // protoc 35.1 confirms the assumption was correct — no code fix needed.
+    test('EDITION_2024 golden overridable features match protoc ground truth '
+        '(validates the by-construction assumption)', () {
+      final entry2024 = defaults.defaults.firstWhere(
+        (d) => d.edition.value == edition2024,
+      );
+      final goldenOverridable = _featureSetToMap(entry2024.overridableFeatures);
+      expect(goldenOverridable, baseFeaturesForEdition(edition2023));
+      expect(baseFeaturesForEdition(edition2024), goldenOverridable);
     });
 
     for (final entry in defaults.defaults) {
@@ -216,12 +250,13 @@ void main() {
       });
     }
 
-    test('minimum edition matches golden; our max extends past it', () {
+    test('minimum/maximum edition match the golden exactly', () {
       expect(defaults.minimumEdition.value, minimumEdition); // EDITION_PROTO2
-      // Golden max (2023, protoc 28.2) must be within our supported ceiling;
-      // we hand-extend to 2024 (runtime-identical to 2023) per EDITIONS_SPEC.
-      expect(defaults.maximumEdition.value, lessThanOrEqualTo(maximumEdition));
-      expect(defaults.maximumEdition.value, edition2023);
+      // Golden max (2024, protoc 35.1) now equals our supported ceiling
+      // exactly — previously (protoc 28.2, max 2023) we hand-extended past
+      // the golden; that gap is now closed and golden-verified.
+      expect(defaults.maximumEdition.value, maximumEdition);
+      expect(defaults.maximumEdition.value, edition2024);
     });
   });
 

@@ -42,7 +42,7 @@ Type system: `TypeParameter`, `TypeAlias`, `Constant`, `ModuleAsset`
 ### Code Generation
 
 `buf.gen.yaml` generates bindings for: Dart, Go, Python, TypeScript, C++, Java, C#
-Output directories are language-specific (e.g., `dart/shared/lib/gen/`, `cpp/shared/gen/`)
+Output directories are language-specific (e.g., `dart/shared/lib/gen/`, `ts/shared/gen/`). The C++ target has no generated bindings — it is libprotobuf-free (#18 Stage 5)
 
 ## Wire-format conformance (upstream protobuf suite)
 

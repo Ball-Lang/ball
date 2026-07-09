@@ -39,7 +39,6 @@ Each implementation documents its own generated/editable files. See the per-lang
 | `dart/shared/lib/std.dart` | Std library definition | Yes — run `gen_std.dart` after |
 | `dart/shared/std.json` | Compiled std module | NO — generated |
 | `dart/shared/lib/gen/` | Protobuf Dart types | NO — generated |
-| `cpp/shared/gen/` | Protobuf C++ types | NO — generated |
 | `rust/shared/gen/` | Protobuf Rust types (`buf.build/community/neoeinstein-prost`) | NO — generated |
 | `dart/compiler/lib/compiler.dart` | Reference compiler | Yes |
 | `dart/encoder/lib/encoder.dart` | Reference encoder | Yes |

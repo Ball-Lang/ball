@@ -34,11 +34,9 @@ ctest -R encoder_tests
 ## Buf CLI Integration
 
 - `cpp/cmake/BufGenerate.cmake` — CMake module for buf CLI operations
-- `cpp/buf.gen.cpp.yaml` — C++-only buf generation template
 - When buf is available, CMake regenerates C++ protos from ball.proto on change
-- Fallback: checked-in `cpp/shared/gen/` files used when buf is not installed
+- #18 Stage 5: the C++ build is libprotobuf-free — no `cpp/shared/gen/`, no protobuf FetchContent, no `google.protobuf` in any TU
 - Extra targets: `buf_lint`, `buf_breaking`, `buf_format`, `buf_check`
-- NEVER edit `cpp/shared/gen/` manually — regenerate via `buf generate`
 
 ## Known Broken/Stubbed Features
 
@@ -82,7 +80,7 @@ toolchain (the engine itself is the self-hosted `engine_rt.cpp`, not native C++)
 - Encoder inlines C++ pointer ops to universal std/std_memory during encoding (no separate normalizer)
 - Compiler stack size: 128MB, Encoder: 256MB, Engine memory: 65KB
 - Memory.hpp: typed linear buffer for C/C++ interop
-- Ball files (`.ball.json`/`.ball.bin`) are self-describing `google.protobuf.Any`
+- Ball files (`.ball.json`/`.ball.bin`) are self-describing `google.protobuf.Any` envelopes, but the loader is now libprotobuf-free (JSON via `ball::ir`/nlohmann; binary via Ball's own `ball_rt_decode.cpp`). Ball files are self-describing `google.protobuf.Any`
   envelopes (JSON form carries an `@type` key). Read them via
   `cpp/shared/include/ball_file.h` (`ball::LoadProgram(path)` / `LoadModule(path)`
   / `DecodeProgram(path, content)`), which mirrors `dart/shared/lib/ball_file.dart`.

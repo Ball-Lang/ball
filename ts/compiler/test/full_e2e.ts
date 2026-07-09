@@ -21,11 +21,22 @@
  * it up -- this spawns one node process per fixture (slow) and is meant to
  * be invoked directly, not as part of the fast unit-test loop.
  *
- * Usage: node --experimental-strip-types test/full_e2e.ts
+ * Usage: node --experimental-strip-types test/full_e2e.ts [--fixtures=<names>]
  * Prints "Results: N passed, M failed, T total" (same format
  * conformance-matrix.yml's other engine legs parse; N/M/T exclude carved-out
  * fixtures, matching the C++ Compiled leg's convention of excluding its
  * carve-outs from the total).
+ *
+ * `--fixtures=<comma/space-separated fixture stems>` restricts the run to
+ * just those fixtures (bare names, no dir, no `.ball.json` extension), e.g.
+ * `--fixtures="042_foo 043_bar"`. Used by ci.yml's per-PR gate to run this
+ * (relatively expensive, one-node-subprocess-per-fixture) harness against
+ * ONLY the fixtures a PR added or changed, instead of the whole ~350-fixture
+ * corpus -- closing the escape class where the full sweep (main-only, in
+ * coverage.yml) is the only thing that would have caught a PR-introduced
+ * regression (see #337/#345). Omit the flag to run the full corpus,
+ * unchanged from before. A requested fixture that doesn't exist in
+ * tests/conformance/ is a hard error (fail loud, never a silent no-op).
  */
 import { readFileSync, writeFileSync, unlinkSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -57,9 +68,35 @@ function findRepoRoot(): string {
 const root = findRepoRoot();
 const conformanceDir = resolve(root, "tests/conformance");
 
-const files = readdirSync(conformanceDir)
+// Optional `--fixtures=<names>` filter -- see the module docstring above.
+const fixturesArg = process.argv.slice(2).find((a) => a.startsWith("--fixtures="));
+const fixtureFilter: Set<string> | undefined = fixturesArg
+  ? new Set(
+      fixturesArg
+        .slice("--fixtures=".length)
+        .split(/[\s,]+/)
+        .filter(Boolean),
+    )
+  : undefined;
+
+const allFiles = readdirSync(conformanceDir)
   .filter((f) => f.endsWith(".ball.json"))
   .sort();
+
+if (fixtureFilter) {
+  const available = new Set(allFiles.map((f) => f.replace(/\.ball\.json$/, "")));
+  const missing = [...fixtureFilter].filter((n) => !available.has(n));
+  if (missing.length > 0) {
+    console.error(
+      `::error::--fixtures requested fixture(s) not found in ${conformanceDir}: ${missing.join(", ")}`,
+    );
+    process.exit(1);
+  }
+}
+
+const files = fixtureFilter
+  ? allFiles.filter((f) => fixtureFilter.has(f.replace(/\.ball\.json$/, "")))
+  : allFiles;
 
 type Outcome =
   | { kind: "pass" }
@@ -142,6 +179,9 @@ function describe(outcome: Outcome): string {
 }
 
 console.log("==================================================");
+if (fixtureFilter) {
+  console.log(`TS compiler e2e (FILTERED -- ${fixtureFilter.size} requested fixture(s)):`);
+}
 console.log(`TS compiler e2e: ${pass}/${total} passed (${fail} failed, ${skip} skipped no-output, ${Object.keys(CARVE_OUTS).length} carve-outs)`);
 console.log("==================================================");
 console.log("");

@@ -46,6 +46,9 @@ jobs:
       cpp: ${{ steps.f.outputs.cpp }}
       rust: ${{ steps.f.outputs.rust }}
       infra: ${{ steps.f.outputs.infra }}
+      # New/changed conformance fixture stems (space-separated, no dir, no
+      # extension) — see the fixture_status computation below.
+      changed_fixtures: ${{ steps.f.outputs.changed_fixtures }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -64,7 +67,10 @@ jobs:
           zero="0000000000000000000000000000000000000000"
           if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
             echo "No usable diff base ('$base') — failing OPEN: run every stack."
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "infra=true"; } >> "$GITHUB_OUTPUT"
+            # changed_fixtures=ALL is the fail-open sentinel for the fixture
+            # filter too — the typescript job runs the FULL full_e2e.ts sweep
+            # rather than skip it, since we cannot compute what changed.
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "infra=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot (merge-base) diff: ONLY this branch's own changes, never
@@ -85,12 +91,32 @@ jobs:
           # can never silently skip a check (fail-safe by construction).
           infra=false
           if grep -qvE '^(dart/|ts/|cpp/|rust/)' <<< "$files"; then infra=true; fi
+
+          # New/changed conformance fixtures (never deleted) under
+          # tests/conformance/*.ball.json, as bare fixture stems (no dir, no
+          # extension), space-separated. Closes the escape class where a
+          # fixture regression is only caught by a heavy leg that runs
+          # main-only (e.g. full_e2e.ts's ~350-fixture sweep, gated behind
+          # coverage.yml — see #337/#345): the typescript job below runs
+          # full_e2e.ts against JUST this list on every PR, cheaply.
+          # --name-status columns are "STATUS\tFILE" for add/modify, or
+          # "R###\tOLD\tNEW" for renames — $NF (last field) is the current
+          # path either way. Deleted files ('D') are excluded: a fixture that
+          # no longer exists has nothing to run.
+          fixture_status="$(git diff --name-status "$base...HEAD" -- 'tests/conformance/*.ball.json')"
+          changed_fixtures="$(printf '%s\n' "$fixture_status" \
+            | awk '$1 !~ /^D/ && NF { print $NF }' \
+            | sed -E 's#.*/##; s/\.ball\.json$//' \
+            | sort -u | tr '\n' ' ' | sed -E 's/^ +//; s/ +$//')"
+          echo "Changed/added conformance fixtures vs merge-base: ${changed_fixtures:-<none>}"
+
           {
             out dart '^dart/'
             out ts   '^ts/'
             out cpp  '^cpp/'
             out rust '^rust/'
             echo "infra=$infra"
+            echo "changed_fixtures=$changed_fixtures"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
@@ -590,6 +616,30 @@ jobs:
       # Coverage-gated (issue #62): fixtures + engine parse tests, under c8.
       - name: Test @ball-lang/compiler (fixtures + engine parse, coverage-gated)
         run: cd ts/compiler && npm run coverage
+
+      # Lean per-PR conformance gate for NEW/CHANGED fixtures only. The full
+      # ~350-fixture full_e2e.ts sweep (Ball IR -> native TS -> node, diffed
+      # against golden output) runs ONLY on push-to-main, inside coverage.yml's
+      # TS job -- so a PR-introduced fixture regression could merge green and
+      # only turn red after landing on main (this is exactly how fixture 400
+      # broke this leg and merged via #337, only caught + fixed later by
+      # #345). `needs.changes` computed which conformance fixtures this PR
+      # added/changed vs the merge-base (or the `ALL` fail-open sentinel, when
+      # it couldn't determine a diff base at all) -- run full_e2e.ts against
+      # just those, so a typical PR pays a few seconds instead of the full
+      # sweep's minutes, with zero coverage gap: every fixture a PR touches is
+      # proven on THIS engine before merge, not just at the next main push.
+      - name: "TS compiled (direct) e2e — new/changed fixtures only (closes main-only-leg escape class)"
+        if: ${{ needs.changes.outputs.changed_fixtures != '' }}
+        run: |
+          cd ts/compiler
+          if [ "${{ needs.changes.outputs.changed_fixtures }}" = "ALL" ]; then
+            echo "No usable diff base upstream — running the FULL full_e2e.ts sweep."
+            node --experimental-strip-types test/full_e2e.ts
+          else
+            echo "Running full_e2e.ts for changed fixtures: ${{ needs.changes.outputs.changed_fixtures }}"
+            node --experimental-strip-types test/full_e2e.ts --fixtures="${{ needs.changes.outputs.changed_fixtures }}"
+          fi
 
       # @ball-lang/encoder (TypeScript → Ball)
       - name: Install @ball-lang/encoder deps

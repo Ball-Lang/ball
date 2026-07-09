@@ -1,3 +1,10 @@
+## [1.18.1](https://github.com/Ball-Lang/ball/compare/v1.18.0...v1.18.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **cpp-compiler:** named-arg slot alignment + switch case-body return leak; regen ball_protobuf_rt.h ([#18](https://github.com/Ball-Lang/ball/issues/18) stage 2) ([#339](https://github.com/Ball-Lang/ball/issues/339)) ([0ca06bd](https://github.com/Ball-Lang/ball/commit/0ca06bdceb63d33cfc444980e7a40a85dfe33fee)), closes [#25](https://github.com/Ball-Lang/ball/issues/25) [#331](https://github.com/Ball-Lang/ball/issues/331) [#19](https://github.com/Ball-Lang/ball/issues/19) [post-#331](https://github.com/post-/issues/331) [#25](https://github.com/Ball-Lang/ball/issues/25)
+
 # [1.18.0](https://github.com/Ball-Lang/ball/compare/v1.17.3...v1.18.0) (2026-07-09)
 
 

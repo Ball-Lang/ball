@@ -1,3 +1,10 @@
+## [1.19.2](https://github.com/Ball-Lang/ball/compare/v1.19.1...v1.19.2) (2026-07-09)
+
+
+### Bug Fixes
+
+* **rust-compiler:** goto-via-switch state machine for labelled switch cases ([#349](https://github.com/Ball-Lang/ball/issues/349)) ([7c4884f](https://github.com/Ball-Lang/ball/commit/7c4884f079383595d42b680937046da75e90c9a9)), closes [#345](https://github.com/Ball-Lang/ball/issues/345) [#346](https://github.com/Ball-Lang/ball/issues/346)
+
 ## [1.19.1](https://github.com/Ball-Lang/ball/compare/v1.19.0...v1.19.1) (2026-07-09)
 
 

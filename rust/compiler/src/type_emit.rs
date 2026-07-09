@@ -1428,6 +1428,34 @@ impl Compiler<'_> {
                 "pub fn {short}(input: BallValue) -> BallValue {{\n"
             ));
             out.push_str("    let __self = ball_field_get(input.clone(), \"self\");\n");
+            // `toString` is defined on EVERY Dart value (`Object.toString`), so
+            // its dispatcher must accept a non-message receiver — a String/int/
+            // list — rather than panic in `ball_message_type_name`. The
+            // self-hosted engine's `_ballToStringAsync` does `result?.toString()`
+            // where the user `toString` already returned a `String`; without this
+            // fallback that `.toString()` on the `String` panicked, so every
+            // class print fell back to the raw instance dump (issues #39/#300,
+            // bucket 2). A message of a class that DOES override `toString`
+            // routes to it; anything else (a primitive, or a message with no
+            // override) uses the built-in stringify — matching Dart, where
+            // `.toString()` never fails.
+            if short == "toString" {
+                out.push_str("    if let BallValue::Message(__m) = &__self {\n");
+                out.push_str("        match __m.type_name.as_str() {\n");
+                for (td, _) in owners {
+                    let rust_name = crate::sanitize_ident(&td.name);
+                    out.push_str(&format!(
+                        "            {:?} => return {rust_name}::{short}(input),\n",
+                        td.name
+                    ));
+                }
+                out.push_str("            _ => {}\n");
+                out.push_str("        }\n");
+                out.push_str("    }\n");
+                out.push_str("    ball_to_string(__self)\n");
+                out.push_str("}\n\n");
+                continue;
+            }
             out.push_str("    match ball_message_type_name(&__self).as_str() {\n");
             for (td, _) in owners {
                 let rust_name = crate::sanitize_ident(&td.name);

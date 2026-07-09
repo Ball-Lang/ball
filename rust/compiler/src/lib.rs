@@ -825,19 +825,13 @@ impl<'a> Compiler<'a> {
                     .join(", ");
                 format!("BallValue::Bytes(vec![{items}])")
             }
-            Some(LiteralValue::ListValue(list)) => {
-                let items = list
-                    .elements
-                    .iter()
-                    .map(|el| self.compile_expression(el))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                // A list *literal* builds a **fresh** reference-semantic backing
-                // (`BallList::from`) — a distinct list per evaluation, never
-                // aliasing (issues #39/#300). Aliasing only happens on a *read*
-                // of an existing list (`compile_reference`'s `.clone()`).
-                format!("BallValue::List(BallList::from(vec![{items}]))")
-            }
+            // A list *literal* builds a **fresh** reference-semantic backing
+            // (`BallList::from`) — a distinct list per evaluation, never aliasing
+            // (issues #39/#300). Aliasing only happens on a *read* of an existing
+            // list (`compile_reference`'s `.clone()`). Spread/`collection_if`/
+            // `collection_for` elements are *spliced* (see
+            // [`Compiler::compile_list_literal`]).
+            Some(LiteralValue::ListValue(list)) => self.compile_list_literal(list),
         }
     }
 

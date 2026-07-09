@@ -66,7 +66,7 @@ use indexmap::IndexMap;
 use ball_shared::extract_fields;
 use ball_shared::proto::ball::v1::expression::Expr;
 use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::{Expression, FunctionCall, MessageCreation};
+use ball_shared::proto::ball::v1::{Expression, FunctionCall, ListLiteral, MessageCreation};
 
 use crate::Compiler;
 
@@ -348,6 +348,153 @@ impl Compiler<'_> {
             Some(expr) => self.compile_expression(expr),
             None => "BallValue::List(BallList::new())".to_string(),
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // List-literal construction (spread / collection_if / collection_for)
+    // ════════════════════════════════════════════════════════════
+
+    /// If `el` is a list-literal element that must be **spliced** rather than
+    /// pushed as one value — a `std.spread`/`null_spread` (`...x` / `...?x`), a
+    /// `std.collection_if` (`if (c) x`), or a `std.collection_for`
+    /// (`for (v in it) x`) — return its function name. These are the shapes the
+    /// encoder emits inside a `ListLiteral.elements`, mirroring the reference
+    /// engines' `_addCollectionElement`.
+    fn collection_element_fn(el: &Expression) -> Option<&str> {
+        if let Some(Expr::Call(call)) = &el.expr {
+            if call.module == "std" {
+                return match call.function.as_str() {
+                    "spread" | "null_spread" | "collection_if" | "collection_for" => {
+                        Some(call.function.as_str())
+                    }
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
+    /// Compile a `ListLiteral`. The common case — every element a plain value —
+    /// is a direct `vec![…]`. When any element is a spread/`collection_if`/
+    /// `collection_for`, the whole literal is built imperatively so those
+    /// elements *splice* their contents instead of nesting as a single element.
+    /// The missing splice made the self-hosted engine's own
+    /// `_ballSetOf([...items, v])` produce `{{…}, v}` (issues #39/#300).
+    pub(crate) fn compile_list_literal(&self, list: &ListLiteral) -> String {
+        if !list
+            .elements
+            .iter()
+            .any(|el| Self::collection_element_fn(el).is_some())
+        {
+            let items = list
+                .elements
+                .iter()
+                .map(|el| self.compile_expression(el))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return format!("BallValue::List(BallList::from(vec![{items}]))");
+        }
+        let mut out = String::from("{\nlet mut __lit: Vec<BallValue> = Vec::new();\n");
+        for el in &list.elements {
+            out.push_str(&self.compile_collection_element("__lit", el));
+        }
+        out.push_str("BallValue::List(BallList::from(__lit))\n}");
+        out
+    }
+
+    /// Emit code appending one list-literal element to `target` (a
+    /// `Vec<BallValue>` local). A plain element is `push`ed; a spread splices
+    /// (`ball_spread_iter`); a `collection_if` conditionally emits its
+    /// then/else element; a `collection_for` loops. Nested element forms recurse
+    /// (`[if (c) ...x]` composes).
+    fn compile_collection_element(&self, target: &str, el: &Expression) -> String {
+        let Some(kind) = Self::collection_element_fn(el) else {
+            return format!("{target}.push({});\n", self.compile_expression(el));
+        };
+        // `collection_element_fn` already proved this is an `Expr::Call`.
+        let Some(Expr::Call(call)) = &el.expr else {
+            unreachable!("collection_element_fn matched a non-call element")
+        };
+        let f = extract_fields(call);
+        match kind {
+            "spread" => format!(
+                "for __sp in ball_spread_iter({}) {{ {target}.push(__sp); }}\n",
+                self.field_or_null(&f, "value")
+            ),
+            "null_spread" => format!(
+                "{{ let __sp = {}; if !matches!(__sp, BallValue::Null) {{ \
+                 for __e in ball_spread_iter(__sp) {{ {target}.push(__e); }} }} }}\n",
+                self.field_or_null(&f, "value")
+            ),
+            "collection_if" => {
+                let cond = match f.get("condition") {
+                    Some(c) => format!("ball_truthy({})", self.compile_expression(c)),
+                    None => "false".to_string(),
+                };
+                let then = f
+                    .get("then")
+                    .map(|e| self.compile_collection_element(target, e))
+                    .unwrap_or_default();
+                match f.get("else") {
+                    Some(else_expr) => {
+                        let els = self.compile_collection_element(target, else_expr);
+                        format!("if {cond} {{\n{then}}} else {{\n{els}}}\n")
+                    }
+                    None => format!("if {cond} {{\n{then}}}\n"),
+                }
+            }
+            "collection_for" => self.compile_collection_for(target, &f),
+            _ => unreachable!("collection_element_fn returned an unexpected kind"),
+        }
+    }
+
+    /// Compile a `collection_for` list-literal element, appending each produced
+    /// value to `target`. Handles both shapes the encoder emits (mirroring
+    /// `compile_for`/`compile_for_in`): for-each (`variable`+`iterable`+`body`)
+    /// and C-style (`init`;`condition`;`update`;`body`), each with a fresh
+    /// lexical scope so the loop var resolves as a value (#39 gap #6).
+    fn compile_collection_for(&self, target: &str, f: &IndexMap<String, Expression>) -> String {
+        if let Some(iterable) = f.get("iterable") {
+            let variable = self
+                .string_field(f, "variable")
+                .unwrap_or_else(|| "item".to_string());
+            let var_ident = crate::sanitize_ident(&variable);
+            let iterable_code = self.compile_expression(iterable);
+            self.push_scope();
+            self.bind_local(&variable);
+            let body = f
+                .get("body")
+                .map(|e| self.compile_collection_element(target, e))
+                .unwrap_or_default();
+            self.pop_scope();
+            return format!(
+                "for __item in ball_iterate({iterable_code}) {{\nlet {var_ident} = __item;\n{body}}}\n"
+            );
+        }
+        // C-style `for (init; condition; update) body`.
+        self.push_scope();
+        let init_code = f
+            .get("init")
+            .map(|e| self.compile_for_init(e))
+            .unwrap_or_default();
+        let condition_code = match f.get("condition") {
+            Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
+            None => "true".to_string(),
+        };
+        let body = f
+            .get("body")
+            .map(|e| self.compile_collection_element(target, e))
+            .unwrap_or_default();
+        let update_code = f
+            .get("update")
+            .map(|e| self.compile_expression(e))
+            .unwrap_or_default();
+        self.pop_scope();
+        format!(
+            "{{\n{init_code}let mut __ball_cfor_first = true;\nloop {{\n\
+             if __ball_cfor_first {{ __ball_cfor_first = false; }} else {{ {update_code}; }}\n\
+             if !{condition_code} {{ break; }}\n{body}}}\n}}\n"
+        )
     }
 
     /// Read a plain `string` descriptor field's value — stored as a literal

@@ -1,3 +1,10 @@
+## [1.17.2](https://github.com/Ball-Lang/ball/compare/v1.17.1...v1.17.2) (2026-07-09)
+
+
+### Bug Fixes
+
+* **cpp:** compile_time_call DateTime components + fail-loud default ([#328](https://github.com/Ball-Lang/ball/issues/328)) ([#336](https://github.com/Ball-Lang/ball/issues/336)) ([79fca84](https://github.com/Ball-Lang/ball/commit/79fca84dd832376467470708c6474934b16c009b))
+
 ## [1.17.1](https://github.com/Ball-Lang/ball/compare/v1.17.0...v1.17.1) (2026-07-09)
 
 

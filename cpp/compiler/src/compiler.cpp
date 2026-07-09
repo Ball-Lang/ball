@@ -11658,7 +11658,29 @@ std::string CppCompiler::compile_time_call(const std::string& fn,
         return "_ball_parse_timestamp(static_cast<std::string>(" +
                field_expr(call, "value").str() + "))";
     }
-    return "/* std_time." + fn + " */";
+    // DateTime component getters — no input; each reads the current UTC
+    // instant, matching the Dart engine's `DateTime.now().toUtc().<field>`
+    // (dart/engine/lib/engine_std.dart) and std_time.dart's "current UTC
+    // time" descriptions. Backed by _ball_time_* in ball_emit_runtime.h.
+    if (fn == "year") return "_ball_time_year()";
+    if (fn == "month") return "_ball_time_month()";
+    if (fn == "day") return "_ball_time_day()";
+    if (fn == "hour") return "_ball_time_hour()";
+    if (fn == "minute") return "_ball_time_minute()";
+    if (fn == "second") return "_ball_time_second()";
+    // Every other std_time.* function has no direct-compile emission. A bare
+    // comment (the previous behavior) was spliced in wherever a value was
+    // expected — an invalid C++ expression that failed at the *generated
+    // program's* compile step with a confusing error instead of a clear,
+    // immediate diagnostic here (issue #328; same defect class as #319's
+    // compile_fs_call fix). This function is never reached while
+    // regenerating engine_rt.cpp: the self-hosted engine's own Dart source
+    // (dart/self_host/) never calls std_time, so a COMPILE-TIME throw here
+    // is safe — it can only fire while direct-compiling a user Ball program
+    // that calls an unimplemented std_time function, never while building
+    // the self-hosted engine.
+    throw std::runtime_error("std_time." + fn +
+                              " not implemented in C++ direct compile");
 }
 
 std::string CppCompiler::compile_concurrency_call(const std::string& fn,

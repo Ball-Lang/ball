@@ -27,7 +27,10 @@ plugins:
   - remote: buf.build/protocolbuffers/java:v35.1
     out: java/shared/gen
 
-  - remote: buf.build/protocolbuffers/cpp:v35.1
+  # cpp is pinned to v34.1 (not latest) to match cpp/CMakeLists' FetchContent
+  # protobuf v34.1 runtime — 35.1 gencode + 34.1 runtime is a hard #error
+  # (issue #333; the real fix is #18's protobuf cutover).
+  - remote: buf.build/protocolbuffers/cpp:v34.1
     out: cpp/shared/gen
 
   - remote: buf.build/protocolbuffers/csharp:v35.1

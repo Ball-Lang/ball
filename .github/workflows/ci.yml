@@ -665,7 +665,7 @@ jobs:
       # golden-having fixture passing (Dart parity). The 4 golden-less
       # resource-limit/sandbox fixtures (196/197/201/202) are behavioral
       # carve-outs the runner skips, exactly like the Dart runner.
-      - name: Self-host conformance sweep (Results: line)
+      - name: "Self-host conformance sweep (Results: line)"
         run: |
           cd rust
           set +e

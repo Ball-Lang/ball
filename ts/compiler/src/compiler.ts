@@ -112,6 +112,36 @@ export class BallCompiler {
    */
   private activeGotoLabels: string[] = [];
 
+  /**
+   * Stack of enclosing *goto-switch* lowerings (see `emitGotoSwitchStmt`). A
+   * Ball `switch` with labelled cases (`case 0: continue one; one: case 1: …`)
+   * is Dart's goto-via-switch: `continue <caseLabel>` transfers control to that
+   * case's body with NO subject re-check. TS has no labelled switch cases, so
+   * such a switch lowers to a `<loopLabel>: while (…) switch (<stateVar>) { … }`
+   * state machine; a `continue <caseLabel>` inside a case body becomes
+   * `<stateVar> = <armIndex>; continue <loopLabel>;`. `labelToIndex` maps each
+   * case label to its arm index, `depth` records `loopNest` at the case-body
+   * level (so an unlabeled `break`/`continue` inside a *nested* loop is left
+   * verbatim for that loop rather than hijacked into the switch's own loop).
+   */
+  private switchLabelStack: Array<{
+    loopLabel: string;
+    stateVar: string;
+    labelToIndex: Map<string, number>;
+    depth: number;
+  }> = [];
+
+  /**
+   * Count of enclosing break/continue-capturing scopes (loops + switches)
+   * currently open during body emission. Consulted only when a
+   * `switchLabelStack` entry is active, to tell a case-body-level break from a
+   * nested-loop break (see `switchLabelStack`).
+   */
+  private loopNest = 0;
+
+  /** Monotonic id for uniquely naming goto-switch loop labels / state vars. */
+  private switchUid = 0;
+
   constructor(program: Program) {
     this.program = program;
   }
@@ -3188,12 +3218,42 @@ function __isUnknownFnError(e: any): boolean {
       }
       case "break": {
         const label = stringField(call, "label");
-        this.writeln(label ? `break ${label};` : "break;");
+        if (label) {
+          // A labelled break targets an enclosing labelled loop, never a
+          // switch case — emit verbatim.
+          this.writeln(`break ${label};`);
+        } else {
+          // An unlabeled break directly inside a goto-switch case body exits
+          // the switch (its lowered state-machine loop). Inside a *nested* loop
+          // it belongs to that loop, so leave it verbatim (see switchLabelStack).
+          const ctx = this.switchLabelStack[this.switchLabelStack.length - 1];
+          this.writeln(
+            ctx && this.loopNest === ctx.depth ? `break ${ctx.loopLabel};` : "break;",
+          );
+        }
         break;
       }
       case "continue": {
         const label = stringField(call, "label");
-        this.writeln(label ? `continue ${label};` : "continue;");
+        if (label) {
+          // `continue <caseLabel>` naming a labelled case of an enclosing
+          // goto-switch is a goto: jump to that case's arm with no subject
+          // re-check (innermost matching switch wins). Any other label targets
+          // an enclosing labelled loop and is emitted verbatim.
+          let handled = false;
+          for (let i = this.switchLabelStack.length - 1; i >= 0; i--) {
+            const ctx = this.switchLabelStack[i];
+            const idx = ctx.labelToIndex.get(label);
+            if (idx !== undefined) {
+              this.writeln(`${ctx.stateVar} = ${idx}; continue ${ctx.loopLabel};`);
+              handled = true;
+              break;
+            }
+          }
+          if (!handled) this.writeln(`continue ${label};`);
+        } else {
+          this.writeln("continue;");
+        }
         break;
       }
       case "labeled": {
@@ -3233,101 +3293,26 @@ function __isUnknownFnError(e: any): boolean {
           break;
         }
         const subjectStr = this.expr(subjectExpr);
+        const caseExprs = casesField.literal?.listValue?.elements ?? [];
+        const parsed = this.parseSwitchCases(caseExprs);
+        // A switch whose cases carry labels (`case 0: continue one; one: case
+        // 1: …`) is Dart's goto-via-switch — lower it to a state machine so
+        // `continue <caseLabel>` can jump between arms. Plain switches keep the
+        // if/else-chain (zero change for the non-labelled common case).
+        if (parsed.labelToArmIndex.size > 0) {
+          this.emitGotoSwitchStmt(subjectStr, parsed);
+          break;
+        }
+        const { parsedCases, defaultBody } = parsed;
+        let first = true;
         // Wrap in do-while(false) so case `break;` exits the switch,
         // not an enclosing for loop (switch is compiled as if/else chain).
         this.writeln(`do { const __sw = ${subjectStr};`);
         this.depth++;
-        const caseExprs = casesField.literal?.listValue?.elements ?? [];
-        let defaultBody: Expression | undefined;
-        let first = true;
-        // Parse all cases, detecting fall-through (empty body = merge
-        // with next case via ||).
-        const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }>; guard?: Expression }> = [];
-        const pendingConds: string[] = [];
-        let lastPatText: string | undefined;
-        for (const ce of caseExprs) {
-          if (!ce.messageCreation) continue;
-          let pattern: Expression | undefined;
-          let body: Expression | undefined;
-          let isDefaultFlag = false;
-          let patternExprField: Expression | undefined;
-          let guardField: Expression | undefined;
-          for (const fd of ce.messageCreation.fields ?? []) {
-            if (fd.name === "pattern") pattern = fd.value;
-            if (fd.name === "body") body = fd.value;
-            if (fd.name === "is_default" && fd.value?.literal?.boolValue === true) isDefaultFlag = true;
-            if (fd.name === "pattern_expr") patternExprField = fd.value;
-            if (fd.name === "guard") guardField = fd.value;
-          }
-          // Check for is_default flag
-          if (isDefaultFlag) { defaultBody = body; continue; }
-          // Handle structured pattern_expr (only for known pattern kinds)
-          if (patternExprField) {
-            const result = compileStructuredPattern(patternExprField, "__sw", (e) => this.expr(e));
-            if (result) {
-              const cond = result.condition;
-              // A catch-all with no guard ends the chain; with a guard the
-              // branch stays refutable (a false guard falls through).
-              if (cond === "true" && !guardField) { defaultBody = body; break; }
-              const isEmpty = body && body.block &&
-                (body.block.statements ?? []).length === 0 &&
-                body.block.result === undefined;
-              if (!guardField && (!body || isEmpty)) {
-                pendingConds.push(cond);
-                continue;
-              }
-              pendingConds.push(cond);
-              parsedCases.push({ conds: [...pendingConds], body, structuredBindings: result.bindings, guard: guardField });
-              pendingConds.length = 0;
-              continue;
-            }
-            // Unknown pattern kind -- fall through to text-based pattern handling
-          }
-          if (!pattern) { defaultBody = body; continue; }
-          const patText = patternLiteralText(pattern);
-          const cond = patText !== undefined
-            ? patternToTsCondition(patText, "__sw")
-            : `((__sw) === ${this.expr(pattern)})`;
-          if (cond === "true" && !guardField) { defaultBody = body; break; }
-          // Empty body = fall-through: accumulate conditions.
-          const isEmpty = body && body.block &&
-            (body.block.statements ?? []).length === 0 &&
-            body.block.result === undefined;
-          if (!guardField && (!body || isEmpty)) {
-            pendingConds.push(cond);
-            lastPatText = patText;
-            continue;
-          }
-          pendingConds.push(cond);
-          parsedCases.push({ conds: [...pendingConds], body, patText: patText ?? lastPatText, guard: guardField });
-          pendingConds.length = 0;
-          lastPatText = undefined;
-        }
+        this.loopNest++;
         for (const pc of parsedCases) {
-          // Gather this case's pattern bindings.
-          const caseBindings: Array<{ varName: string; expr: string }> = [];
-          if (pc.structuredBindings) caseBindings.push(...pc.structuredBindings);
-          if (pc.patText) caseBindings.push(...patternBindings(pc.patText, "__sw"));
-          // When a `when` guard is present the bindings must be visible to the
-          // guard, which is part of the `if` condition. Hoist them to temps
-          // BEFORE the `if` (so the guard can read them) and reference the temps
-          // inside. Without this, an entered `if` block swallows the arm and
-          // later cases never get tested when the guard is false.
-          let combinedCond = pc.conds.join(" || ");
-          if (pc.guard) {
-            // Evaluate the guard inside an IIFE bound to the pattern variables,
-            // gated by the match condition via `&&` (so the IIFE only runs when
-            // the pattern matched and the temps are valid). The guard's binders
-            // are passed positionally; the guard expression itself is untouched.
-            const matchCond = `(${pc.conds.join(" || ")})`;
-            if (caseBindings.length > 0) {
-              const params = caseBindings.map(b => b.varName).join(", ");
-              const args = caseBindings.map(b => b.expr).join(", ");
-              combinedCond = `${matchCond} && ((${params}) => (${this.expr(pc.guard)}))(${args})`;
-            } else {
-              combinedCond = `${matchCond} && (${this.expr(pc.guard)})`;
-            }
-          }
+          const caseBindings = this.switchArmBindings(pc);
+          const combinedCond = this.buildSwitchArmCond(pc, caseBindings);
           const kw = first ? "if" : "else if";
           this.writeln(`${kw} (${combinedCond}) {`);
           this.depth++;
@@ -3351,11 +3336,246 @@ function __isUnknownFnError(e: any): boolean {
             this.writeln("}");
           }
         }
+        this.loopNest--;
         this.depth--;
         this.writeln("} while (false);");
         break;
       }
     }
+  }
+
+  /**
+   * Parse a switch's `cases[]` into if/else-chain arms, merging empty-body
+   * fall-through cases (`case 'a': case 'b': body`) into the following arm via
+   * `||`. Also records `label → arm index` for labelled cases so a
+   * goto-via-switch (`emitGotoSwitchStmt`) can jump between arms; a label on an
+   * empty fall-through case maps to the arm that absorbs it (jumping there and
+   * immediately falling through are equivalent). Conditions reference the
+   * subject as `__sw`, so callers must bind `const __sw = <subject>`.
+   */
+  private parseSwitchCases(caseExprs: Expression[]): {
+    parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }>; guard?: Expression }>;
+    defaultBody?: Expression;
+    labelToArmIndex: Map<string, number>;
+    defaultArmIndex: number;
+  } {
+    const parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }>; guard?: Expression }> = [];
+    const labelToArmIndex = new Map<string, number>();
+    let defaultBody: Expression | undefined;
+    // Labels waiting to be bound to the arm that absorbs them (labels on empty
+    // fall-through cases, and the label of a non-empty case, both attach when
+    // that case's arm is pushed). Labels pending when `default` is reached bind
+    // to the default arm.
+    const pendingConds: string[] = [];
+    const pendingLabels: string[] = [];
+    const defaultLabels: string[] = [];
+    let lastPatText: string | undefined;
+    // Push the current arm, binding any labels accumulated for it.
+    const pushArm = (arm: { conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }>; guard?: Expression }) => {
+      const armIndex = parsedCases.length;
+      for (const l of pendingLabels) labelToArmIndex.set(l, armIndex);
+      pendingLabels.length = 0;
+      parsedCases.push(arm);
+    };
+    // Record the default arm's body and drain any labels accumulated up to it
+    // (a `continue <label>` naming a labelled case that falls into `default`
+    // jumps to the default arm).
+    const markDefault = (b: Expression | undefined) => {
+      defaultBody = b;
+      defaultLabels.push(...pendingLabels);
+      pendingLabels.length = 0;
+    };
+    for (const ce of caseExprs) {
+      if (!ce.messageCreation) continue;
+      let pattern: Expression | undefined;
+      let body: Expression | undefined;
+      let isDefaultFlag = false;
+      let patternExprField: Expression | undefined;
+      let guardField: Expression | undefined;
+      let caseLabel: string | undefined;
+      for (const fd of ce.messageCreation.fields ?? []) {
+        if (fd.name === "pattern") pattern = fd.value;
+        if (fd.name === "body") body = fd.value;
+        if (fd.name === "is_default" && fd.value?.literal?.boolValue === true) isDefaultFlag = true;
+        if (fd.name === "pattern_expr") patternExprField = fd.value;
+        if (fd.name === "guard") guardField = fd.value;
+        if (fd.name === "label") {
+          const l = fd.value?.literal?.stringValue;
+          if (l) caseLabel = l;
+        }
+      }
+      if (caseLabel) pendingLabels.push(caseLabel);
+      // Check for is_default flag
+      if (isDefaultFlag) { markDefault(body); continue; }
+      // Handle structured pattern_expr (only for known pattern kinds)
+      if (patternExprField) {
+        const result = compileStructuredPattern(patternExprField, "__sw", (e) => this.expr(e));
+        if (result) {
+          const cond = result.condition;
+          // A catch-all with no guard ends the chain; with a guard the
+          // branch stays refutable (a false guard falls through).
+          if (cond === "true" && !guardField) { markDefault(body); break; }
+          const isEmpty = body && body.block &&
+            (body.block.statements ?? []).length === 0 &&
+            body.block.result === undefined;
+          if (!guardField && (!body || isEmpty)) {
+            pendingConds.push(cond);
+            continue;
+          }
+          pendingConds.push(cond);
+          pushArm({ conds: [...pendingConds], body, structuredBindings: result.bindings, guard: guardField });
+          pendingConds.length = 0;
+          continue;
+        }
+        // Unknown pattern kind -- fall through to text-based pattern handling
+      }
+      if (!pattern) { markDefault(body); continue; }
+      const patText = patternLiteralText(pattern);
+      const cond = patText !== undefined
+        ? patternToTsCondition(patText, "__sw")
+        : `((__sw) === ${this.expr(pattern)})`;
+      if (cond === "true" && !guardField) { markDefault(body); break; }
+      // Empty body = fall-through: accumulate conditions.
+      const isEmpty = body && body.block &&
+        (body.block.statements ?? []).length === 0 &&
+        body.block.result === undefined;
+      if (!guardField && (!body || isEmpty)) {
+        pendingConds.push(cond);
+        lastPatText = patText;
+        continue;
+      }
+      pendingConds.push(cond);
+      pushArm({ conds: [...pendingConds], body, patText: patText ?? lastPatText, guard: guardField });
+      pendingConds.length = 0;
+      lastPatText = undefined;
+    }
+    const defaultArmIndex = defaultBody !== undefined ? parsedCases.length : -1;
+    if (defaultArmIndex >= 0) {
+      for (const l of defaultLabels) labelToArmIndex.set(l, defaultArmIndex);
+    }
+    return { parsedCases, defaultBody, labelToArmIndex, defaultArmIndex };
+  }
+
+  /**
+   * Lower a goto-via-switch (a Ball `switch` with labelled cases) to a
+   * state-machine loop. TS has no labelled switch cases, so
+   *
+   *   switch (s) { case 0: …; continue one; one: case 1: …; break; default: … }
+   *
+   * becomes
+   *
+   *   { const __sw = s; let __swst = -1;
+   *     if (__sw === 0) __swst = 0; else if (__sw === 1) __swst = 1;
+   *     if (__swst === -1) __swst = <default arm>;
+   *     __swl: while (__swst >= 0) { switch (__swst) {
+   *       case 0: { …; __swst = 1; continue __swl; }   // continue one → arm 1
+   *       case 1: { …; break __swl; }
+   *       case <default>: { …; break __swl; }
+   *     } break __swl; } }
+   *
+   * Phase 1 picks the entry arm by matching the subject (default only if
+   * nothing matched); phase 2 runs from that arm, where a `continue <label>`
+   * inside a body re-enters the loop at the labelled arm with NO subject
+   * re-check (see the `break`/`continue` cases in `emitControlFlowStatement`).
+   * A body that falls off its arm exits via the trailing `break __swl`.
+   *
+   * Known limitation: pattern bindings are recomputed from `__sw` on each arm
+   * (so a goto INTO a case with different bindings would rebind from the
+   * subject rather than leave them unbound as the reference engine does) — not
+   * reachable from valid Dart, where a `continue` target can't use a preceding
+   * case's binders.
+   */
+  private emitGotoSwitchStmt(
+    subjectStr: string,
+    parsed: {
+      parsedCases: Array<{ conds: string[]; body?: Expression; patText?: string; structuredBindings?: Array<{ varName: string; expr: string }>; guard?: Expression }>;
+      defaultBody?: Expression;
+      labelToArmIndex: Map<string, number>;
+      defaultArmIndex: number;
+    },
+  ): void {
+    const { parsedCases, defaultBody, labelToArmIndex, defaultArmIndex } = parsed;
+    const uid = this.switchUid++;
+    const loopLabel = `__swl${uid}`;
+    const stateVar = `__swst${uid}`;
+
+    this.writeln("{");
+    this.depth++;
+    this.writeln(`const __sw = ${subjectStr};`);
+    this.writeln(`let ${stateVar} = -1;`);
+    // Phase 1 — entry arm selection (non-default arms, in order).
+    let first = true;
+    for (let i = 0; i < parsedCases.length; i++) {
+      const pc = parsedCases[i];
+      const combinedCond = this.buildSwitchArmCond(pc, this.switchArmBindings(pc));
+      this.writeln(`${first ? "if" : "else if"} (${combinedCond}) { ${stateVar} = ${i}; }`);
+      first = false;
+    }
+    if (defaultArmIndex >= 0) {
+      this.writeln(`if (${stateVar} === -1) ${stateVar} = ${defaultArmIndex};`);
+    }
+    // Phase 2 — run from the entry arm, honoring goto/break.
+    this.writeln(`${loopLabel}: while (${stateVar} >= 0) {`);
+    this.depth++;
+    this.writeln(`switch (${stateVar}) {`);
+    this.depth++;
+    this.switchLabelStack.push({ loopLabel, stateVar, labelToIndex: labelToArmIndex, depth: this.loopNest + 1 });
+    this.loopNest++;
+    const emitArm = (idx: number, body: Expression | undefined, bindings: Array<{ varName: string; expr: string }>) => {
+      this.writeln(`case ${idx}: {`);
+      this.depth++;
+      for (const b of bindings) this.writeln(`const ${b.varName} = ${b.expr};`);
+      if (body) this.emitStatementOrExpression(body, false);
+      // A body that falls off its arm (or an inner `break` that exited a nested
+      // loop) ends the switch — arms never fall through to the next.
+      this.writeln(`break ${loopLabel};`);
+      this.depth--;
+      this.writeln("}");
+    };
+    for (let i = 0; i < parsedCases.length; i++) {
+      emitArm(i, parsedCases[i].body, this.switchArmBindings(parsedCases[i]));
+    }
+    if (defaultArmIndex >= 0) emitArm(defaultArmIndex, defaultBody, []);
+    this.loopNest--;
+    this.switchLabelStack.pop();
+    this.depth--;
+    this.writeln("}");
+    this.writeln(`break ${loopLabel};`);
+    this.depth--;
+    this.writeln("}");
+    this.depth--;
+    this.writeln("}");
+  }
+
+  /** A switch arm's pattern bindings (`case int n`, `case {'k': var v}`, …),
+   *  read off the subject alias `__sw`. Shared by the if/else-chain and
+   *  goto-switch lowerings. */
+  private switchArmBindings(pc: { patText?: string; structuredBindings?: Array<{ varName: string; expr: string }> }): Array<{ varName: string; expr: string }> {
+    const b: Array<{ varName: string; expr: string }> = [];
+    if (pc.structuredBindings) b.push(...pc.structuredBindings);
+    if (pc.patText) b.push(...patternBindings(pc.patText, "__sw"));
+    return b;
+  }
+
+  /**
+   * A switch arm's match condition over `__sw`, folding a `when` guard in. The
+   * guard runs inside an IIFE bound to the pattern variables, gated by the
+   * match condition via `&&` (so it only runs once the pattern matched and the
+   * temps are valid); its binders are passed positionally, the guard expression
+   * itself untouched. Shared by the if/else-chain and goto-switch lowerings.
+   */
+  private buildSwitchArmCond(
+    pc: { conds: string[]; guard?: Expression },
+    caseBindings: Array<{ varName: string; expr: string }>,
+  ): string {
+    if (!pc.guard) return pc.conds.join(" || ");
+    const matchCond = `(${pc.conds.join(" || ")})`;
+    if (caseBindings.length > 0) {
+      const params = caseBindings.map(b => b.varName).join(", ");
+      const args = caseBindings.map(b => b.expr).join(", ");
+      return `${matchCond} && ((${params}) => (${this.expr(pc.guard)}))(${args})`;
+    }
+    return `${matchCond} && (${this.expr(pc.guard)})`;
   }
 
   private emitIfStmt(call: FunctionCall): void {
@@ -3419,7 +3639,9 @@ function __isUnknownFnError(e: any): boolean {
     const updateStr = update ? this.expr(unwrapLambda(update)) : "";
     this.writeln(`for (${initStr}; ${condStr}; ${updateStr}) {`);
     this.depth++;
+    this.loopNest++;
     if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
+    this.loopNest--;
     this.depth--;
     this.writeln(`}`);
   }
@@ -3430,7 +3652,9 @@ function __isUnknownFnError(e: any): boolean {
     const body = field(call, "body");
     this.writeln(`for (const ${variable} of ${this.expr(iterable)}) {`);
     this.depth++;
+    this.loopNest++;
     if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
+    this.loopNest--;
     this.depth--;
     this.writeln(`}`);
   }
@@ -3440,7 +3664,9 @@ function __isUnknownFnError(e: any): boolean {
     const body = field(call, "body");
     this.writeln(`while (${this.expr(unwrapLambda(cond!))}) {`);
     this.depth++;
+    this.loopNest++;
     if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
+    this.loopNest--;
     this.depth--;
     this.writeln(`}`);
   }
@@ -3464,7 +3690,9 @@ function __isUnknownFnError(e: any): boolean {
     this.activeGotoLabels.push(name);
     this.writeln(`${name}: while (true) {`);
     this.depth++;
+    this.loopNest++;
     this.emitStatementOrExpression(body, false);
+    this.loopNest--;
     this.writeln(`break ${name};`);
     this.depth--;
     this.writeln(`}`);
@@ -3491,7 +3719,9 @@ function __isUnknownFnError(e: any): boolean {
     const body = field(call, "body");
     this.writeln(`do {`);
     this.depth++;
+    this.loopNest++;
     if (body) this.emitStatementOrExpression(unwrapLambda(body), false);
+    this.loopNest--;
     this.depth--;
     this.writeln(`} while (${this.expr(unwrapLambda(cond!))});`);
   }

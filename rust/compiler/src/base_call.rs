@@ -201,7 +201,12 @@ impl Compiler<'_> {
             "greater_than" => self.bin("ball_greater_than", &f),
             "lte" => self.bin("ball_lte", &f),
             "gte" => self.bin("ball_gte", &f),
-            "compare_to" => self.bin("ball_compare_to", &f),
+            "compare_to" => self.bin_alias(
+                "ball_compare_to",
+                &f,
+                &["left", "value"],
+                &["right", "other"],
+            ),
             // ── Logic / bitwise ──
             "not" => self.un("ball_not", &f),
             "bitwise_and" => self.bin("ball_bitwise_and", &f),
@@ -282,7 +287,12 @@ impl Compiler<'_> {
             "string_trim_end" => self.un("ball_string_trim_end", &f),
             "string_replace" => self.tri("ball_string_replace", &f, "value", "from", "to"),
             "string_replace_all" => self.tri("ball_string_replace_all", &f, "value", "from", "to"),
-            "string_split" => self.bin("ball_string_split", &f),
+            "string_split" => self.bin_alias(
+                "ball_string_split",
+                &f,
+                &["left", "value", "string"],
+                &["right", "separator", "delimiter"],
+            ),
             "string_runes" => self.un("ball_string_runes", &f),
             "string_repeat" => self.compile_2("ball_string_repeat", &f, "value", "count"),
             "string_pad_left" => self.tri("ball_string_pad_left", &f, "value", "width", "padding"),
@@ -337,6 +347,41 @@ impl Compiler<'_> {
             Some(expr) => self.compile_expression(expr),
             None => "BallValue::Null".to_string(),
         }
+    }
+
+    /// Read the first field present among `keys` (a compile-time decision —
+    /// exactly one alias is emitted), else `Null`. Mirrors the Dart engine's
+    /// `m['a'] ?? m['b'] ?? m['c']` tolerance for base functions whose
+    /// canonical descriptor field names (e.g. `BinaryInput`'s `left`/`right`
+    /// for `string_split`/`compare_to`) differ from the names the Dart
+    /// *encoder* actually emits when it routes a method call (`value`/
+    /// `separator` for `str.split`, `value`/`other` for `x.compareTo`). Without
+    /// this, `bin`'s hard-coded `left`/`right` read `Null` and the runtime
+    /// helper panics with `expected a number/string, got Null` (#39/#300).
+    fn field_alias_or_null(&self, fields: &IndexMap<String, Expression>, keys: &[&str]) -> String {
+        for key in keys {
+            if let Some(expr) = fields.get(*key) {
+                return self.compile_expression(expr);
+            }
+        }
+        "BallValue::Null".to_string()
+    }
+
+    /// A binary base function whose two operands may arrive under any of the
+    /// listed alias field names (canonical descriptor name first, then the
+    /// encoder's method-routed names). See [`Compiler::field_alias_or_null`].
+    fn bin_alias(
+        &self,
+        helper: &str,
+        fields: &IndexMap<String, Expression>,
+        left: &[&str],
+        right: &[&str],
+    ) -> String {
+        format!(
+            "{helper}({}, {})",
+            self.field_alias_or_null(fields, left),
+            self.field_alias_or_null(fields, right)
+        )
     }
 
     /// Like [`Compiler::field_or_null`] but defaults an absent field to an

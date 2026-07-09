@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/Ball-Lang/ball/compare/v1.16.4...v1.17.0) (2026-07-09)
+
+
+### Features
+
+* **rust:** [#39](https://github.com/Ball-Lang/ball/issues/39)/[#300](https://github.com/Ball-Lang/ball/issues/300) reference-semantic Map (Arc<Mutex<IndexMap>>) — 205→230/323 ([#327](https://github.com/Ball-Lang/ball/issues/327)) ([a020995](https://github.com/Ball-Lang/ball/commit/a0209956a39a409e243c4e97ea995b339a1c9ef0)), closes [#326](https://github.com/Ball-Lang/ball/issues/326) [#322](https://github.com/Ball-Lang/ball/issues/322)
+
 ## [1.16.4](https://github.com/Ball-Lang/ball/compare/v1.16.3...v1.16.4) (2026-07-08)
 
 

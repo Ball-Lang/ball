@@ -29,15 +29,15 @@ Universal standard library base module. Every function here represents a languag
 | `and` | ✅ | ✅ 14 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `131_insertion_sort` +11 more | ✅ |
 | `as` | ✅ | ✅ 2 fixture(s): `195_deep_nesting`, `256_editions_resolver` | ✅ |
 | `assert` | ✅ | ✅ 1 fixture(s): `313_assert_statement` | ✅ |
-| `assign` | ✅ | ✅ 112 fixture(s): `100_complex_control_flow`, `101_simple_class`, `104_getter_setter` +109 more | ✅ |
+| `assign` | ✅ | ✅ 113 fixture(s): `100_complex_control_flow`, `101_simple_class`, `104_getter_setter` +110 more | ✅ |
 | `await` | ✅ | ✅ 11 fixture(s): `160_async_basic`, `161_async_chained`, `163_generator_async` +8 more | ✅ |
 | `bitwise_and` | ✅ | ✅ 4 fixture(s): `206_integer_arithmetic_edge`, `251_bitwise_signed_edges`, `284_enc_bitwise` +1 more | ✅ |
 | `bitwise_not` | ✅ | ✅ 3 fixture(s): `251_bitwise_signed_edges`, `284_enc_bitwise`, `61_bitwise_ops` | ✅ |
 | `bitwise_or` | ✅ | ✅ 3 fixture(s): `206_integer_arithmetic_edge`, `284_enc_bitwise`, `61_bitwise_ops` | ✅ |
 | `bitwise_xor` | ✅ | ✅ 5 fixture(s): `113_operator_overloading`, `206_integer_arithmetic_edge`, `251_bitwise_signed_edges` +2 more | ✅ |
-| `break` | ✅ | ✅ 9 fixture(s): `100_complex_control_flow`, `136_string_pattern_match`, `148_labeled_loops` +6 more | ✅ |
+| `break` | ✅ | ✅ 10 fixture(s): `100_complex_control_flow`, `136_string_pattern_match`, `148_labeled_loops` +7 more | ✅ |
 | `concat` | ✅ | ✅ 95 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +92 more | ✅ |
-| `continue` | ✅ | ✅ 5 fixture(s): `100_complex_control_flow`, `148_labeled_loops`, `274_enc_nested_control` +2 more | ✅ |
+| `continue` | ✅ | ✅ 6 fixture(s): `100_complex_control_flow`, `148_labeled_loops`, `274_enc_nested_control` +3 more | ✅ |
 | `divide` | ✅ | ✅ 18 fixture(s): `108_class_tostring`, `132_merge_sort`, `143_perfect_number` +15 more | ✅ |
 | `divide_double` | ✅ | ✅ 12 fixture(s): `104_getter_setter`, `130_running_average`, `214_nan_propagation` +9 more | ✅ |
 | `do_while` | ✅ | ✅ 2 fixture(s): `282_enc_do_while`, `47_do_while` | ✅ |
@@ -101,7 +101,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 66 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +63 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 320 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +317 more | ✅ |
+| `print` | ✅ | ✅ 321 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +318 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -137,7 +137,7 @@ Universal standard library base module. Every function here represents a languag
 | `string_trim_end` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
 | `string_trim_start` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
 | `subtract` | ✅ | ✅ 36 fixture(s): `104_getter_setter`, `113_operator_overloading`, `131_insertion_sort` +33 more | ✅ |
-| `switch` | ✅ | ✅ 21 fixture(s): `109_enum_values`, `147_complex_switch`, `150_state_machine` +18 more | ✅ |
+| `switch` | ✅ | ✅ 22 fixture(s): `109_enum_values`, `147_complex_switch`, `150_state_machine` +19 more | ✅ |
 | `throw` | ✅ | ✅ 20 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +17 more | ✅ |
 | `to_string` | ✅ | ✅ 183 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +180 more | ✅ |
 | `try` | ✅ | ✅ 23 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `199_malicious_input_patterns` +20 more | ✅ |
@@ -169,7 +169,7 @@ Standard collections module. List and map operations. Separate from std because 
 | `list_map` | ✅ | ✅ 1 fixture(s): `121_map_from_entries` | ✅ |
 | `list_none` | ❌ | ❌ | ✅ |
 | `list_pop` | ✅ | ✅ 2 fixture(s): `115_generic_class`, `97_stack_operations` | ✅ |
-| `list_push` | ✅ | ✅ 32 fixture(s): `111_cascade_operator`, `115_generic_class`, `120_list_of_maps` +29 more | ✅ |
+| `list_push` | ✅ | ✅ 33 fixture(s): `111_cascade_operator`, `115_generic_class`, `120_list_of_maps` +30 more | ✅ |
 | `list_reduce` | ✅ | ✅ 1 fixture(s): `318_list_reduce` | ✅ |
 | `list_remove_at` | ✅ | ✅ 1 fixture(s): `123_queue_simulation` | ✅ |
 | `list_reverse` | ✅ | ✅ 1 fixture(s): `387_list_reverse_getter` | ✅ |

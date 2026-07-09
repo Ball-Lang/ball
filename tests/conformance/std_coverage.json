@@ -270,6 +270,7 @@
         "392_empty_set_literal",
         "393_untyped_empty_braces_map",
         "39_compound_assign",
+        "400_switch_continue_label",
         "41_for_sum",
         "43_countdown",
         "55_scope_variable",
@@ -395,6 +396,7 @@
         "23_labeled_break",
         "280_enc_labeled_break",
         "291_enc_continue",
+        "400_switch_continue_label",
         "48_break_continue"
       ],
       "engineImplementedDart": true,
@@ -515,6 +517,7 @@
         "148_labeled_loops",
         "274_enc_nested_control",
         "291_enc_continue",
+        "400_switch_continue_label",
         "48_break_continue"
       ],
       "engineImplementedDart": true,
@@ -2230,6 +2233,7 @@
         "398_const_constructor",
         "399_bytes_literal",
         "39_compound_assign",
+        "400_switch_continue_label",
         "40_increment_decrement",
         "41_for_sum",
         "42_nested_functions",
@@ -2819,7 +2823,8 @@
         "304_when_guards",
         "306_nullable_type_patterns",
         "394_mappattern_excludes_set",
-        "396_switch_case_fallthrough"
+        "396_switch_case_fallthrough",
+        "400_switch_continue_label"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3362,6 +3367,7 @@
         "256_editions_resolver",
         "350_set_value",
         "392_empty_set_literal",
+        "400_switch_continue_label",
         "76_list_map_filter",
         "85_closure_counter",
         "97_stack_operations",

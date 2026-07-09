@@ -1,11 +1,22 @@
 // ball::CppCompiler CLI — reads a .ball.json or .ball.pb program and emits C++ source.
+//
+// #18: the compiler consumes the protobuf-free `ball::ir` IR. `.ball.json` is
+// parsed directly via ball::ir (no libprotobuf). Binary `.ball.pb`/`.ball.bin`
+// is decoded with google's Any/Program reader and re-serialized to proto3-JSON,
+// then handed to ball::ir — a thin bridge kept only for the binary wire format;
+// the compiler proper never sees a `ball::v1::` type.
 
 #include <cstdlib>
 #include <exception>
 #include <fstream>
 #include <iostream>
 #include <sstream>
+
+#include <google/protobuf/util/json_util.h>
+#include <nlohmann/json.hpp>
+
 #include "ball_file.h"
+#include "ball_ir.h"
 #include "compiler.h"
 
 #ifdef _WIN32
@@ -23,6 +34,48 @@ static void suppress_windows_crash_dialogs() {
 #else
 static void suppress_windows_crash_dialogs() {}
 #endif
+
+// Decode a ball-file's content into a protobuf-free ir::Program.
+// JSON path is pure ball::ir; binary path bridges through google once.
+static ball::ir::Program load_program_ir(const std::string& path,
+                                         const std::string& content) {
+    if (ball::detail::is_binary_path(path)) {
+        ball::v1::Program p = ball::DecodeProgram(path, content);
+        std::string js;
+        google::protobuf::util::JsonPrintOptions opt;
+        auto st = google::protobuf::util::MessageToJsonString(p, &js, opt);
+        if (!st.ok())
+            throw ball::BallFileFormatException(
+                "failed to re-serialize Program to JSON");
+        return ball::ir::parseProgramString(js);
+    }
+    return ball::ir::parseProgramString(content);
+}
+
+// Decode a ball-file's content into a protobuf-free ir::Module (library mode).
+static ball::ir::Module load_module_ir(const std::string& path,
+                                       const std::string& content) {
+    if (ball::detail::is_binary_path(path)) {
+        ball::v1::Program prog;
+        ball::v1::Module mod;
+        auto kind = ball::DecodeBallFile(path, content, prog, mod);
+        if (kind != ball::BallFileKind::kModule)
+            throw ball::BallFileFormatException(
+                "Library mode expects a Module (got a Program)");
+        std::string js;
+        google::protobuf::util::JsonPrintOptions opt;
+        auto st = google::protobuf::util::MessageToJsonString(mod, &js, opt);
+        if (!st.ok())
+            throw ball::BallFileFormatException(
+                "failed to re-serialize Module to JSON");
+        return ball::ir::parseModule(nlohmann::json::parse(js));
+    }
+    // JSON module file: {"@type": ".../ball.v1.Module", <fields>}.
+    if (content.find("/ball.v1.Program") != std::string::npos)
+        throw ball::BallFileFormatException(
+            "Library mode expects a Module (got a Program)");
+    return ball::ir::parseModule(nlohmann::json::parse(content));
+}
 
 static int run_compile(int argc, char** argv);
 
@@ -85,18 +138,10 @@ static int run_compile(int argc, char** argv) {
 
     // Library mode: input is a Module (not a Program).
     if (library_mode) {
-        ball::v1::Module module;
+        ball::ir::Module module;
         try {
-            ball::v1::Program unused_prog;
-            auto kind = ball::DecodeBallFile(input_path, content, unused_prog, module);
-            if (kind != ball::BallFileKind::kModule) {
-                // Also try decoding as a Module directly in case the file lacks
-                // the @type wrapper (happens with some tool outputs).
-                std::cerr << "Warning: file is a Program, not a Module. "
-                          << "Library mode expects a Module.\n";
-                return 1;
-            }
-        } catch (const ball::BallFileFormatException& e) {
+            module = load_module_ir(input_path, content);
+        } catch (const std::exception& e) {
             std::cerr << "Failed to read ball file: " << e.what() << std::endl;
             return 1;
         }
@@ -121,15 +166,15 @@ static int run_compile(int argc, char** argv) {
 
     // Ball files are self-describing google.protobuf.Any envelopes. Extension
     // selects binary vs JSON; the envelope's type URL must be a Program here.
-    ball::v1::Program program;
+    ball::ir::Program program;
     try {
-        program = ball::DecodeProgram(input_path, content);
-    } catch (const ball::BallFileFormatException& e) {
+        program = load_program_ir(input_path, content);
+    } catch (const std::exception& e) {
         std::cerr << "Failed to read ball file: " << e.what() << std::endl;
         return 1;
     }
 
-    ball::CppCompiler compiler(program);
+    ball::CppCompiler compiler(std::move(program));
 
     if (!split_dir.empty()) {
         auto result = compiler.compile_split(split_dir, split_shards);

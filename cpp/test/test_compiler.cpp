@@ -2,6 +2,8 @@
 // Verifies that the compiler generates valid C++ code from Ball programs.
 
 #include "compiler.h"
+#include "ball_ir.h"
+#include <google/protobuf/util/json_util.h>
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -164,7 +166,9 @@ ball::v1::Program build_program(ball::v1::Expression body) {
 }
 
 std::string compile_program(const ball::v1::Program& prog) {
-    CppCompiler compiler(prog);
+    std::string js;
+    google::protobuf::util::MessageToJsonString(prog, &js);
+    CppCompiler compiler(ball::ir::parseProgramString(js));
     return compiler.compile();
 }
 

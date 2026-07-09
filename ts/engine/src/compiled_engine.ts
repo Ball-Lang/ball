@@ -5110,51 +5110,76 @@ export class BallEngine {
     if ((!__ball_eq(whichExpr(cases), Expression_Expr.literal) || !__ball_eq(whichValue(cases.literal), Literal_Value.listValue))) {
       return null;
     }
-    let defaultBody;
-    let matched = false;
-    for (const caseExpr of cases.literal.listValue.elements) {
-      if (!__ball_eq(whichExpr(caseExpr), Expression_Expr.messageCreation)) {
-        continue;
-      }
+    let elements = cases.literal.listValue.elements;
+    let caseFieldsList = [];
+    let labelToIndex = {};
+    let defaultIndex = __ball_negate(1);
+    for (let i = 0; __ball_lt(i, elements.length); (i++)) {
+      let caseExpr = __ball_index(elements, i);
       let cf = {};
-      for (const f of caseExpr.messageCreation.fields) {
-        cf[f.name] = f.value;
+      if (__ball_eq(whichExpr(caseExpr), Expression_Expr.messageCreation)) {
+        for (const f of caseExpr.messageCreation.fields) {
+          cf[f.name] = f.value;
+        }
+      }
+      caseFieldsList = (caseFieldsList.push(cf), caseFieldsList);
+      let label = this._stringFieldVal(cf, 'label');
+      if ((!__ball_eq(label, null) && !(label.length === 0))) {
+        labelToIndex[label] = i;
       }
       if (this._caseIsDefault(cf)) {
-        defaultBody = __ball_index(cf, 'body');
-        continue;
-      }
-      let bodyScope = scope;
-      if (!matched) {
-        let bindings = {};
-        matched = await this._matchesSwitchCasePattern(subjectVal, cf, bindings, scope);
-        if (matched) {
-          bodyScope = this._scopeWithPatternBindings(scope, bindings);
-          let guard = __ball_index(cf, 'guard');
-          if ((!__ball_eq(guard, null) && !this._toBool(await this._evalExpression(guard, bodyScope)))) {
-            matched = false;
-            continue;
-          }
-        }
-      }
-      if (matched) {
-        let body = __ball_index(cf, 'body');
-        if (!__ball_eq(body, null)) {
-          if (((__ball_eq(whichExpr(body), Expression_Expr.block) && (body.block.statements.length === 0)) && !hasResult(body.block))) {
-            continue;
-          }
-          let result = await this._evalExpression(body, bodyScope);
-          if ((((result instanceof _FlowSignal) && __ball_eq(result.kind, 'break')) && __ball_eq(result.label, null))) {
-            return null;
-          }
-          return result;
-        }
+        defaultIndex = i;
       }
     }
-    if (!__ball_eq(defaultBody, null)) {
-      let result = await this._evalExpression(defaultBody, scope);
-      if ((((result instanceof _FlowSignal) && __ball_eq(result.kind, 'break')) && __ball_eq(result.label, null))) {
+    let index = __ball_negate(1);
+    let bodyScope = scope;
+    for (let i = 0; __ball_lt(i, caseFieldsList.length); (i++)) {
+      let cf = __ball_index(caseFieldsList, i);
+      if (this._caseIsDefault(cf)) {
+        continue;
+      }
+      let bindings = {};
+      let matched = await this._matchesSwitchCasePattern(subjectVal, cf, bindings, scope);
+      if (!matched) {
+        continue;
+      }
+      let matchScope = this._scopeWithPatternBindings(scope, bindings);
+      let guard = __ball_index(cf, 'guard');
+      if ((!__ball_eq(guard, null) && !this._toBool(await this._evalExpression(guard, matchScope)))) {
+        continue;
+      }
+      index = i;
+      bodyScope = matchScope;
+      break;
+    }
+    if (__ball_eq(index, __ball_negate(1))) {
+      if (__ball_eq(defaultIndex, __ball_negate(1))) {
         return null;
+      }
+      index = defaultIndex;
+      bodyScope = scope;
+    }
+    while ((__ball_ge(index, 0) && __ball_lt(index, caseFieldsList.length))) {
+      let cf = __ball_index(caseFieldsList, index);
+      let body = __ball_index(cf, 'body');
+      if ((__ball_eq(body, null) || ((__ball_eq(whichExpr(body), Expression_Expr.block) && (body.block.statements.length === 0)) && !hasResult(body.block)))) {
+        (index++);
+        continue;
+      }
+      let result = await this._evalExpression(body, bodyScope);
+      if ((result instanceof _FlowSignal)) {
+        if ((__ball_eq(result.kind, 'break') && __ball_eq(result.label, null))) {
+          return null;
+        }
+        let label = result.label;
+        if ((__ball_eq(result.kind, 'continue') && !__ball_eq(label, null))) {
+          let targetIndex = __ball_index(labelToIndex, label);
+          if (!__ball_eq(targetIndex, null)) {
+            index = targetIndex;
+            bodyScope = scope;
+            continue;
+          }
+        }
       }
       return result;
     }

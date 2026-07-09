@@ -217,6 +217,12 @@ pub struct Compiler<'a> {
     /// nearest scope is the `try` (escape) or a loop (its own target) — hence a
     /// stack, not a counter. See [`Compiler::compile_try`].
     flow_scopes: RefCell<Vec<FlowScope>>,
+    /// The stack of enclosing **goto-via-switch** label maps (issue #346) —
+    /// see [`SwitchLabelCtx`] and `base_call.rs`'s `compile_switch_goto`.
+    switch_label_stack: RefCell<Vec<SwitchLabelCtx>>,
+    /// Monotonic counter minting unique `__swst<N>`/`swl<N>` names for
+    /// (possibly nested) goto-via-switch lowerings.
+    switch_uid: RefCell<usize>,
     /// Nesting depth of compiled `catch` handler bodies. `std.rethrow` (the
     /// Dart `rethrow` keyword) re-raises the exception the *innermost* enclosing
     /// catch is handling; `compile_try` binds that as `_ball_rethrow_err` and
@@ -255,6 +261,35 @@ pub(crate) enum FlowScope {
     /// A loop body: a `break`/`continue` whose nearest scope is this loop is a
     /// bare Rust keyword (its target is inside every enclosing `try`).
     Loop,
+}
+
+/// A registered goto-via-switch's label→arm map, scoped for the duration of
+/// compiling that switch's arm bodies (issue #346 — the Rust port of
+/// `ts/compiler/src/compiler.ts`'s `switchLabelStack`). Looked up by
+/// [`Compiler::resolve_switch_goto`] to lower a `continue <caseLabel>;` to a
+/// state-variable jump instead of a (nonexistent) Rust loop label. See
+/// `base_call.rs`'s `compile_switch_goto`.
+pub(crate) struct SwitchLabelCtx {
+    /// The lifetime-style Rust label on this switch's own dispatch `loop`
+    /// (`swl0`, `swl1`, ...; used as `'swl0` — see
+    /// [`Compiler::next_switch_uid`]). `continue <caseLabel>` re-enters it
+    /// via `continue '<loop_label>` after setting `state_var`.
+    pub(crate) loop_label: String,
+    /// The `i64` local holding the currently-dispatched arm index.
+    pub(crate) state_var: String,
+    /// Case label name → its arm's `match` index. The default arm, if any,
+    /// is index `arms.len()` — one past the last real case.
+    pub(crate) label_to_arm: HashMap<String, usize>,
+    /// [`Compiler::flow_scopes`]'s length at the moment this switch's own
+    /// `FlowScope::Loop` was pushed. A `continue <caseLabel>` whose
+    /// `flow_scopes[flow_floor..]` contains a `Try` must cross that `try`'s
+    /// `catch_unwind` closure — a raw `continue '<loop_label>` there is an
+    /// "unreachable label" `rustc` error (a closure can't jump to a label in
+    /// its enclosing function), so [`Compiler::resolve_switch_goto`] declines
+    /// the rewrite in that case, falling back to the existing (documented)
+    /// labeled-continue-through-a-`try` gap instead of emitting code that
+    /// fails to compile.
+    pub(crate) flow_floor: usize,
 }
 
 impl<'a> Compiler<'a> {
@@ -402,6 +437,8 @@ impl<'a> Compiler<'a> {
             in_instance_method: RefCell::new(false),
             current_module: RefCell::new(program.entry_module.clone()),
             flow_scopes: RefCell::new(Vec::new()),
+            switch_label_stack: RefCell::new(Vec::new()),
+            switch_uid: RefCell::new(0),
             catch_depth: RefCell::new(0),
             instance_fields: RefCell::new(std::collections::HashMap::new()),
             lambda_scope_floors: RefCell::new(Vec::new()),
@@ -521,6 +558,60 @@ impl<'a> Compiler<'a> {
     /// loop encloses the `try`, or a fresh `BallFlow` if another `try` does).
     pub(crate) fn innermost_flow_scope(&self) -> Option<FlowScope> {
         self.flow_scopes.borrow().last().copied()
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Goto-via-switch (issue #346)
+    // ════════════════════════════════════════════════════════════
+
+    /// Register a goto-via-switch's label→arm map for the duration of
+    /// compiling its arm bodies. Paired with
+    /// [`Compiler::pop_switch_label_scope`].
+    pub(crate) fn push_switch_label_scope(&self, ctx: SwitchLabelCtx) {
+        self.switch_label_stack.borrow_mut().push(ctx);
+    }
+
+    /// Leave the innermost goto-via-switch label scope.
+    pub(crate) fn pop_switch_label_scope(&self) {
+        self.switch_label_stack.borrow_mut().pop();
+    }
+
+    /// The next unique id for a goto-via-switch's generated
+    /// `__swst<N>`/`swl<N>` names (distinct per switch, including nested
+    /// ones — mirrors `ts/compiler/src/compiler.ts`'s `switchUid`).
+    pub(crate) fn next_switch_uid(&self) -> usize {
+        let mut counter = self.switch_uid.borrow_mut();
+        let id = *counter;
+        *counter += 1;
+        id
+    }
+
+    /// Does `label` name a case of an *enclosing* goto-via-switch (innermost
+    /// wins — "innermost matching switch wins", mirroring
+    /// `ts/compiler/src/compiler.ts`'s `switchLabelStack` search)? If so,
+    /// return the compiled `continue <caseLabel>;` — a state-variable jump
+    /// with no subject re-check. `None` means either `label` isn't a
+    /// registered switch-case label, or it is one but resolving it here would
+    /// have to cross an intervening `try`'s `catch_unwind` closure (see
+    /// [`SwitchLabelCtx::flow_floor`]) — in both cases the caller
+    /// ([`base_call::Compiler::compile_continue`]) falls back to a verbatim
+    /// labeled `continue`.
+    pub(crate) fn resolve_switch_goto(&self, label: &str) -> Option<String> {
+        let stack = self.switch_label_stack.borrow();
+        for ctx in stack.iter().rev() {
+            let Some(&idx) = ctx.label_to_arm.get(label) else {
+                continue;
+            };
+            let flow_scopes = self.flow_scopes.borrow();
+            if flow_scopes[ctx.flow_floor..].contains(&FlowScope::Try) {
+                return None;
+            }
+            return Some(format!(
+                "{{ {} = {idx}; continue '{} }}",
+                ctx.state_var, ctx.loop_label
+            ));
+        }
+        None
     }
 
     // ════════════════════════════════════════════════════════════

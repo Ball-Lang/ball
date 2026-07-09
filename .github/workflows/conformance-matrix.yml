@@ -12,6 +12,7 @@ on:
       - "ts/compiler/**"
       - "ts/shared/**"
       - "cpp/**"
+      - "rust/**"
       - "dart/self_host/**"
   schedule:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
@@ -295,6 +296,71 @@ jobs:
       total: ${{ steps.conformance.outputs.total }}
 
   # ──────────────────────────────────────────────────
+  # Rust self-hosted engine (Ball → Rust → cargo → run)
+  # ──────────────────────────────────────────────────
+  rust-engine:
+    name: Rust Self-Hosted Engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # rustup ships preinstalled; `rustup show` installs the pinned toolchain
+      # from rust/rust-toolchain.toml.
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      # The self-hosted engine is a Ball program compiled through ball-compiler,
+      # so regenerate engine.ball.json (Dart) then compiled_engine.rs first.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Regenerate self-hosted engine
+        run: |
+          dart pub get
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          cd ../rust && cargo run -p ball-engine-regen
+
+      - name: Run conformance tests
+        id: conformance
+        run: |
+          cd rust
+          set +e
+          output=$(cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored --nocapture 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse "Results: N passed, M failed, T total" line. T is the
+          # golden-having (executed) fixture count — the 4 golden-less
+          # resource-limit/sandbox fixtures (196/197/201/202) are behavioral
+          # carve-outs the runner skips, exactly like the Dart runner.
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+
+          echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
+          echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Rust Self-Hosted Engine ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+
+          exit $exit_code
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  # ──────────────────────────────────────────────────
   # NEW LANGUAGE ENGINE TEMPLATE — copy and customize
   # ──────────────────────────────────────────────────
   # <lang>-engine:
@@ -353,7 +419,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled]
+    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine]
     steps:
       - name: Print conformance matrix
         run: |
@@ -401,6 +467,12 @@ jobs:
             "${{ needs.cpp-compiled.outputs.total }}" \
             "${{ needs.cpp-compiled.result }}"
 
+          print_row "Rust Self-Hosted Engine" \
+            "${{ needs.rust-engine.outputs.passed }}" \
+            "${{ needs.rust-engine.outputs.failed }}" \
+            "${{ needs.rust-engine.outputs.total }}" \
+            "${{ needs.rust-engine.result }}"
+
           echo "╚══════════════════════════════╩════════╩════════╩════════╩════════╝"
 
           # Fail the summary if any engine job failed
@@ -408,7 +480,8 @@ jobs:
              [ "${{ needs.ts-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-compiled-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-compiled-direct.result }}" != "success" ] || \
-             [ "${{ needs.cpp-compiled.result }}" != "success" ]; then
+             [ "${{ needs.cpp-compiled.result }}" != "success" ] || \
+             [ "${{ needs.rust-engine.result }}" != "success" ]; then
             echo ""
             echo "One or more engines failed conformance. See individual job logs above."
             exit 1

@@ -949,6 +949,16 @@ pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
         "Function" => matches!(value, BallValue::Function(_)),
         "Null" | "null" => matches!(value, BallValue::Null),
         "Object" | "dynamic" | "var" => true,
+        // Dart's `int`/`double`/`num`/`String` all implement `Comparable`, so
+        // the engine's default sort — `(a as Comparable).compareTo(b)`
+        // (`engine_std.dart`) — casts each element to `Comparable`; without
+        // this arm a `String`/`int` element fell to the message catch-all
+        // (false) and the cast threw `not a subtype of Comparable`
+        // (#39/#300, 124/125/155 `keys.toList()..sort()`).
+        "Comparable" => matches!(
+            value,
+            BallValue::Int(_) | BallValue::Double(_) | BallValue::String(_)
+        ),
         // A message matches its own `TypeDefinition.name` or any **supertype**
         // (the registered class hierarchy — `BallObject extends BallMap`), by
         // full (`main:_Scope`) or short (`_Scope`) name.

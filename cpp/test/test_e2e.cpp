@@ -29,6 +29,7 @@
 #include <google/protobuf/util/json_util.h>
 
 #include "ball_file.h"
+#include "ball_ir.h"
 
 #ifndef BALL_CONFORMANCE_DIR
 #error "BALL_CONFORMANCE_DIR must be defined"
@@ -155,6 +156,14 @@ static bool resolve_fixture(const std::string& name, fs::path& out_program_path,
     return false;
 }
 
+// #18: bridge a ball::v1 Program (built by the test) to the ir-consuming
+// compiler via proto3-JSON.
+static ball::ir::Program to_ir(const ball::v1::Program& p) {
+    std::string js;
+    google::protobuf::util::MessageToJsonString(p, &js);
+    return ball::ir::parseProgramString(js);
+}
+
 static bool load_and_compile(const fs::path& dir, const std::string& name,
                              Program& out_prog, std::string& failure_msg) {
     fs::path program_path, expected_path;
@@ -170,7 +179,7 @@ static bool load_and_compile(const fs::path& dir, const std::string& name,
         return false;
     }
     try {
-        ball::CppCompiler compiler(program);
+        ball::CppCompiler compiler(to_ir(program));
         out_prog.cpp_source = compiler.compile();
     } catch (const std::exception& e) {
         failure_msg = std::string("compile threw: ") + e.what();
@@ -573,7 +582,7 @@ static bool add_inline_fs_program(const std::string& name,
     Program p;
     p.name = name;
     try {
-        ball::CppCompiler compiler(program);
+        ball::CppCompiler compiler(to_ir(program));
         p.cpp_source = compiler.compile();
     } catch (const std::exception& e) {
         tests_run_ref++;
@@ -949,7 +958,7 @@ int main() {
         Program p;
         p.name = kTimeProgramName;
         try {
-            ball::CppCompiler compiler(time_build_components_program());
+            ball::CppCompiler compiler(to_ir(time_build_components_program()));
             p.cpp_source = compiler.compile();
             time_program_built = true;
         } catch (const std::exception& e) {

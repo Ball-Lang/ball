@@ -21,6 +21,7 @@
 #include <google/protobuf/util/json_util.h>
 
 #include "ball_file.h"
+#include "ball_ir.h"
 
 #ifndef BALL_SNAPSHOT_DIR
 #error "BALL_SNAPSHOT_DIR must be defined"
@@ -111,10 +112,10 @@ int main() {
         tests_run++;
         std::cout << "  " << name << "... ";
 
-        ball::v1::Program program;
+        ball::ir::Program program;
         try {
-            program = ball::DecodeProgram(jpath.string(), read_file(jpath));
-        } catch (const ball::BallFileFormatException& e) {
+            program = ball::ir::parseProgramString(read_file(jpath));
+        } catch (const std::exception& e) {
             std::cout << "PARSE_FAIL: " << e.what() << "\n";
             tests_failed++;
             continue;
@@ -122,7 +123,7 @@ int main() {
 
         std::string compiled;
         try {
-            ball::CppCompiler compiler(program);
+            ball::CppCompiler compiler(std::move(program));
             compiled = compiler.compile();
         } catch (const std::exception& e) {
             std::cout << "COMPILE_FAIL: " << e.what() << "\n";

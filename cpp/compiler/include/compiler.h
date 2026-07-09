@@ -11,6 +11,7 @@
 // C++ standard library calls.
 
 #include "ball_shared.h"
+#include "ball_ir.h"
 #include "code_builder.h"
 #include <map>
 #include <sstream>
@@ -38,7 +39,7 @@ struct CompileLibraryResult {
 
 class CppCompiler {
 public:
-    explicit CppCompiler(const ball::v1::Program& program);
+    explicit CppCompiler(ball::ir::Program program);
 
     // Compile the entire program to a single C++ source string
     std::string compile();
@@ -59,7 +60,7 @@ public:
     // program's module list. The namespace defaults to the module's name
     // (sanitized, e.g., "ball_protobuf").
     static CompileLibraryResult compile_library(
-        const ball::v1::Module& facade,
+        const ball::ir::Module& facade,
         const std::string& ns_override = "");
 
     // Namespace used for multi-TU emission (single-TU uses anonymous namespace).
@@ -77,16 +78,16 @@ public:
         "// === BALL EMITTED PROGRAM ===";
 
 private:
-    ball::v1::Program program_;
+    ball::ir::Program program_;
 
     // Lookup tables
-    std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_;
+    std::unordered_map<std::string, const ball::ir::FunctionDefinition*> functions_;
     // Same functions, keyed by their emitted (sanitized) C++ name, so a call
     // site — which only knows the bare function name, not the owning module —
     // can recover the callee's declared parameters to align named/optional
     // arguments to positional C++ slots (see compile_call). Sanitized names are
     // unique in a valid program (a collision would be a C++ redefinition).
-    std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_by_cpp_name_;
+    std::unordered_map<std::string, const ball::ir::FunctionDefinition*> functions_by_cpp_name_;
     std::unordered_set<std::string> base_modules_;
 
     // Output state
@@ -217,7 +218,7 @@ private:
     // Set of all enum type names (sanitized, e.g. "Color").
     std::unordered_set<std::string> enum_names_;
     // Maps class name to its TypeDefinition for field lookups.
-    std::unordered_map<std::string, const ball::v1::TypeDefinition*> class_typedefs_;
+    std::unordered_map<std::string, const ball::ir::TypeDefinition*> class_typedefs_;
     // The sanitized name of the class currently being emitted (empty outside
     // emit_struct). Used for super call resolution.
     std::string current_class_name_;
@@ -248,8 +249,8 @@ private:
     std::unordered_set<std::string> dynamic_class_names_;
     // Maps a dynamic class's bare-sanitized name to its TypeDefinition + ordered
     // method list, so messageCreation can emit the make_<Class> factory inline.
-    std::unordered_map<std::string, const ball::v1::TypeDefinition*> dynamic_class_typedefs_;
-    std::unordered_map<std::string, std::vector<const ball::v1::FunctionDefinition*>>
+    std::unordered_map<std::string, const ball::ir::TypeDefinition*> dynamic_class_typedefs_;
+    std::unordered_map<std::string, std::vector<const ball::ir::FunctionDefinition*>>
         dynamic_class_methods_;
     // Sanitized method/getter basenames owned by ANY dynamic class. A method
     // call or field access whose name is in this set, on a non-static receiver,
@@ -283,12 +284,12 @@ private:
     }
     // Emit the make_<Class> factory + per-method closure free functions for a
     // dynamic class, plus a ball_to_string overload routing to toString.
-    void emit_dynamic_class(const ball::v1::TypeDefinition& td,
-        const std::vector<const ball::v1::FunctionDefinition*>& methods);
+    void emit_dynamic_class(const ball::ir::TypeDefinition& td,
+        const std::vector<const ball::ir::FunctionDefinition*>& methods);
     // Build the inline make_<Class>(...) construction expression for a dynamic
     // class message-creation (positional argN fields → field map + __methods__).
     std::string emit_dynamic_construction(const std::string& bare_class,
-        const ball::v1::MessageCreation& msg, const std::string& type_args_expr);
+        const ball::ir::MessageCreation& msg, const std::string& type_args_expr);
 
     // Sanitized names of locals/parameters declared in the function body
     // currently being emitted. A reference to one of these resolves to the
@@ -316,17 +317,17 @@ private:
     void queue_split_definition(std::string definition);
     void emit_namespace_open();
     void emit_namespace_close();
-    void emit_function_signature_only(const ball::v1::FunctionDefinition& func);
-    void emit_function_body_out_of_line(const ball::v1::FunctionDefinition& func);
+    void emit_function_signature_only(const ball::ir::FunctionDefinition& func);
+    void emit_function_body_out_of_line(const ball::ir::FunctionDefinition& func);
 
     void build_lookup_tables();
-    std::vector<std::string> extract_params(const google::protobuf::Struct& metadata);
-    std::map<std::string, std::string> read_meta(const ball::v1::FunctionDefinition& func);
-    std::vector<std::string> read_meta_list(const google::protobuf::Struct& meta,
+    std::vector<std::string> extract_params(const nlohmann::json& metadata);
+    std::map<std::string, std::string> read_meta(const ball::ir::FunctionDefinition& func);
+    std::vector<std::string> read_meta_list(const nlohmann::json& meta,
                                              const std::string& key);
-    std::map<std::string, std::string> read_type_meta(const ball::v1::TypeDefinition& td);
-    void emit_template_prefix(const ball::v1::TypeDefinition& td);
-    void emit_template_prefix_from_meta(const google::protobuf::Struct& meta);
+    std::map<std::string, std::string> read_type_meta(const ball::ir::TypeDefinition& td);
+    void emit_template_prefix(const ball::ir::TypeDefinition& td);
+    void emit_template_prefix_from_meta(const nlohmann::json& meta);
 
     // Code generation
     void emit(const std::string& code);
@@ -341,91 +342,91 @@ private:
     // std_memory base function the compiler implements (issue #154). Shared
     // by compile() and compile_split() so the two codegen paths never drift.
     void emit_memory_runtime_preamble();
-    void emit_forward_decls(const ball::v1::Module& module);
-    void emit_struct(const ball::v1::TypeDefinition& td,
-                    const std::vector<const ball::v1::FunctionDefinition*>& methods);
-    void emit_enum(const google::protobuf::EnumDescriptorProto& ed);
-    void emit_function(const ball::v1::FunctionDefinition& func);
-    void emit_top_level_var(const ball::v1::FunctionDefinition& func);
-    void emit_main(const ball::v1::FunctionDefinition& entry);
+    void emit_forward_decls(const ball::ir::Module& module);
+    void emit_struct(const ball::ir::TypeDefinition& td,
+                    const std::vector<const ball::ir::FunctionDefinition*>& methods);
+    void emit_enum(const nlohmann::json& ed);
+    void emit_function(const ball::ir::FunctionDefinition& func);
+    void emit_top_level_var(const ball::ir::FunctionDefinition& func);
+    void emit_main(const ball::ir::FunctionDefinition& entry);
     // Populate boxed_vars_/boxed_params_/value_capture_vars_ for a function/main
     // body: `let` locals + non-function params captured by closures are boxed;
     // function-typed captured params are value-captured. `param_types` is the
     // mapped C++ type per param (empty entries / no params ⇒ treat as non-fn).
-    void compute_boxed_vars(const ball::v1::Expression& body,
+    void compute_boxed_vars(const ball::ir::Expression& body,
                             const std::vector<std::string>& params,
                             const std::vector<std::string>& param_types = {});
 
     // Expression compilation — returns C++ expression string
-    std::string compile_expr(const ball::v1::Expression& expr);
+    std::string compile_expr(const ball::ir::Expression& expr);
     // Bridge: compile expression to CppExpr for method chaining
-    CppExpr expr(const ball::v1::Expression& e) { return CppExpr(compile_expr(e)); }
-    std::string compile_call(const ball::v1::FunctionCall& call);
+    CppExpr expr(const ball::ir::Expression& e) { return CppExpr(compile_expr(e)); }
+    std::string compile_call(const ball::ir::FunctionCall& call);
     // Emit the comma-separated C++ argument list for a call to the user
     // function emitted as `cpp_name`, aligning named/optional IR arguments to
     // the callee's declared positional parameters (fills skipped optional
     // params with their declared defaults). Falls back to appearance order when
     // the callee is unknown or a field does not map cleanly.
     std::string compile_call_arguments(const std::string& cpp_name,
-                                       const ball::v1::MessageCreation& msg);
-    std::string compile_literal(const ball::v1::Literal& lit);
+                                       const ball::ir::MessageCreation& msg);
+    std::string compile_literal(const ball::ir::Literal& lit);
     // Escape a raw string for safe embedding inside a C++ string literal.
     static std::string cpp_escape_string(const std::string& s);
-    std::string compile_reference(const ball::v1::Reference& ref);
+    std::string compile_reference(const ball::ir::Reference& ref);
     // True when `e` is a call to a void-returning user function (so the call
     // must not be wrapped in BallDyn(...)).
-    bool _isVoidUserCall(const ball::v1::Expression& e);
-    std::string compile_field_access(const ball::v1::FieldAccess& access);
-    std::string compile_message_creation(const ball::v1::MessageCreation& msg);
-    std::string compile_block(const ball::v1::Block& block);
+    bool _isVoidUserCall(const ball::ir::Expression& e);
+    std::string compile_field_access(const ball::ir::FieldAccess& access);
+    std::string compile_message_creation(const ball::ir::MessageCreation& msg);
+    std::string compile_block(const ball::ir::Block& block);
     // Emit a block's statements as real C++ statements (not an IIFE), captured
     // to a string by diverting out_. Used for expression-context loop bodies so
     // break/continue work in the enclosing real for/while.
-    std::string compile_block_statements(const ball::v1::Block& block);
-    std::string compile_lambda(const ball::v1::FunctionDefinition& func);
+    std::string compile_block_statements(const ball::ir::Block& block);
+    std::string compile_lambda(const ball::ir::FunctionDefinition& func);
 
     // Statement compilation — emits directly
-    void compile_statement(const ball::v1::Statement& stmt);
+    void compile_statement(const ball::ir::Statement& stmt);
 
     // std function compilation
     std::string compile_std_call(const std::string& function,
-                                  const ball::v1::FunctionCall& call);
+                                  const ball::ir::FunctionCall& call);
     std::string compile_method_call(const std::string& function,
-                                     const ball::v1::FunctionCall& call);
+                                     const ball::ir::FunctionCall& call);
     std::string compile_collections_call(const std::string& function,
-                                          const ball::v1::FunctionCall& call);
+                                          const ball::ir::FunctionCall& call);
     std::string compile_io_call(const std::string& function,
-                                 const ball::v1::FunctionCall& call);
+                                 const ball::ir::FunctionCall& call);
     std::string compile_cpp_std_call(const std::string& function,
-                                      const ball::v1::FunctionCall& call);
+                                      const ball::ir::FunctionCall& call);
     std::string compile_convert_call(const std::string& function,
-                                      const ball::v1::FunctionCall& call);
+                                      const ball::ir::FunctionCall& call);
     std::string compile_fs_call(const std::string& function,
-                                 const ball::v1::FunctionCall& call);
+                                 const ball::ir::FunctionCall& call);
     std::string compile_time_call(const std::string& function,
-                                   const ball::v1::FunctionCall& call);
+                                   const ball::ir::FunctionCall& call);
     std::string compile_concurrency_call(const std::string& function,
-                                          const ball::v1::FunctionCall& call);
+                                          const ball::ir::FunctionCall& call);
     std::string compile_binary_op(const std::string& op,
-                                   const ball::v1::FunctionCall& call);
+                                   const ball::ir::FunctionCall& call);
     std::string compile_unary_op(const std::string& op,
-                                  const ball::v1::FunctionCall& call);
+                                  const ball::ir::FunctionCall& call);
 
     // Type mapping
     std::string map_type(const std::string& ball_type);
-    std::string map_return_type(const ball::v1::FunctionDefinition& func);
+    std::string map_return_type(const ball::ir::FunctionDefinition& func);
 
     // Helpers
-    std::string get_message_field(const ball::v1::FunctionCall& call,
+    std::string get_message_field(const ball::ir::FunctionCall& call,
                                    const std::string& field_name);
-    std::string get_optional_field(const ball::v1::FunctionCall& call,
+    std::string get_optional_field(const ball::ir::FunctionCall& call,
                                     const std::string& field_name);
-    std::string get_string_field(const ball::v1::FunctionCall& call,
+    std::string get_string_field(const ball::ir::FunctionCall& call,
                                   const std::string& field_name);
-    const ball::v1::Expression* get_message_field_expr(
-        const ball::v1::FunctionCall& call, const std::string& field_name);
+    const ball::ir::Expression* get_message_field_expr(
+        const ball::ir::FunctionCall& call, const std::string& field_name);
     // Bridge: get a message field compiled to CppExpr
-    CppExpr field_expr(const ball::v1::FunctionCall& call,
+    CppExpr field_expr(const ball::ir::FunctionCall& call,
                        const std::string& field_name) {
         auto* e = get_message_field_expr(call, field_name);
         return e ? CppExpr(compile_expr(*e)) : CppExpr("/* missing " + field_name + " */");
@@ -435,25 +436,25 @@ private:
     // self-hosted engine's `.any`/`.every`/`.firstWhere`/`.fold` callbacks
     // arrive under "value". Try each in turn so the lambda is never dropped
     // (a dropped lambda compiles to an empty BallDyn() and silently no-ops).
-    std::string get_callback_field(const ball::v1::FunctionCall& call) {
+    std::string get_callback_field(const ball::ir::FunctionCall& call) {
         auto* e = get_message_field_expr(call, "callback");
         if (!e) e = get_message_field_expr(call, "function");
         if (!e) e = get_message_field_expr(call, "value");
         return e ? compile_expr(*e) : "BallDyn()";
     }
     // Compile a map entry sentinel expression as a map insertion statement.
-    std::string compile_map_entry_insert(const ball::v1::Expression& expr,
+    std::string compile_map_entry_insert(const ball::ir::Expression& expr,
                                           const std::string& map_var);
     // Compile a single list/set collection element into statements that append
     // to the BallList named `list_var`, splicing spread (`...x` / `...?x`),
     // nested collection_for, and collection_if elements (mirrors the Dart
     // engine's `_addCollectionElement`). Returns a sequence of C++ statements.
-    std::string compile_collection_element(const ball::v1::Expression& expr,
+    std::string compile_collection_element(const ball::ir::Expression& expr,
                                             const std::string& list_var);
     // Compile a map collection element into statements that insert into the
     // BallOrderedMap named `map_var`, splicing map spread (`...m`), nested
     // map comprehensions, and key/value entry sentinels.
-    std::string compile_map_collection_element(const ball::v1::Expression& expr,
+    std::string compile_map_collection_element(const ball::ir::Expression& expr,
                                                const std::string& map_var);
     // Render the C++ `for (...)` header (no trailing brace) for a C-style
     // `collection_for` (init/condition/update), inlining the single-let init.
@@ -463,7 +464,7 @@ private:
     // loop body with a fresh per-iteration cell (see
     // `_wrap_cstyle_loop_body`). Leave `boxed_var_out` null to opt out.
     std::string _render_collection_for_cstyle_header(
-        const ball::v1::FunctionCall& call, std::string* boxed_var_out = nullptr);
+        const ball::ir::FunctionCall& call, std::string* boxed_var_out = nullptr);
     // Wraps a C-style collection_for's body statements with the
     // shared_ptr<BallDyn> per-iteration shadow cell for `boxed_var` (mirrors
     // the statement-form `for`'s boxing in compile_statement — see fixture

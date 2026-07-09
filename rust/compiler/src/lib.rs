@@ -1194,6 +1194,14 @@ impl<'a> Compiler<'a> {
                 .map(|v| self.compile_expression(v))
                 .unwrap_or_else(|| "BallValue::Null".to_string())
         };
+        let arg1 = || {
+            mc.fields
+                .iter()
+                .find(|f| f.name == "arg1")
+                .and_then(|f| f.value.as_ref())
+                .map(|v| self.compile_expression(v))
+                .unwrap_or_else(|| "BallValue::Null".to_string())
+        };
         // `BallMap`/`BallList` are the engine's own value-wrapper classes — used
         // pervasively but *not* encoded as `TypeDefinition`s (they live in
         // `ball_value.dart`, outside the self-host part graph), so a `BallMap(x)`
@@ -1226,6 +1234,21 @@ impl<'a> Compiler<'a> {
             } else {
                 "BallValue::List(BallList::new())".to_string()
             }),
+            // Dart-SDK `List.filled(n, v)`. The engine's own `_stdListFilled`
+            // handler returns `List<Object?>.filled(n, v)` in its body, which the
+            // encoder emits as a typed `List.filled` message-creation; without
+            // routing it the self-host built an opaque `BallMessage("List.filled",
+            // …)` that `for_in`/`.length` rejected ("value is not iterable
+            // (List.filled)") — issues #39/#300, fixtures 187/198. Route it to the
+            // `filled` runtime helper (an `n`-length list of `v`).
+            "List.filled" => Some(format!(
+                "filled({{ let mut __ball_map = BallMap::new(); \
+                 __ball_map.insert(\"arg0\".to_string(), {}); \
+                 __ball_map.insert(\"arg1\".to_string(), {}); \
+                 BallValue::Map(__ball_map) }})",
+                arg0(),
+                arg1()
+            )),
             _ => None,
         }
     }

@@ -104,6 +104,7 @@ fn conformance_corpus() {
     let mut passed = 0usize;
     let mut failures: Vec<(String, Outcome)> = Vec::new();
     let mut total = 0usize;
+    let mut skipped = 0usize;
 
     for fixture in &fixtures {
         let name = fixture
@@ -118,16 +119,37 @@ fn conformance_corpus() {
                 continue;
             }
         }
-        total += 1;
-
+        // A fixture with no `.expected_output.txt` is a documented **behavioral
+        // carve-out** (196_timeout / 197_memory_limit / 201_input_validation /
+        // 202_sandbox_mode — resource-limit/sandbox fixtures asserted elsewhere;
+        // see tests/conformance/CARVEOUTS.md). The Dart reference runner
+        // (`tests/conformance/run_conformance.dart`) SKIPS these — so skip them
+        // here too for true parity (running one as "expected empty" would falsely
+        // pass 197/202 and falsely fail 196/201). They are excluded from the
+        // pass/fail total, matching the TS/C++ matrix runners' carve-out handling.
         let expected_path = dir.join(format!("{name}.expected_output.txt"));
-        let expected = std::fs::read_to_string(&expected_path)
-            .map(|t| expected_lines(&t))
-            .unwrap_or_default();
+        let Ok(expected_text) = std::fs::read_to_string(&expected_path) else {
+            skipped += 1;
+            if single.is_some() {
+                eprintln!("[{name}] SKIP (no golden — behavioral carve-out)");
+            }
+            continue;
+        };
+        let expected = expected_lines(&expected_text);
+        total += 1;
 
         let json = std::fs::read_to_string(fixture).unwrap();
         let outcome = match run_fixture(json) {
-            Ok(actual) => {
+            Ok(prints) => {
+                // `run()` returns one element per `print(...)` call. A single
+                // print may itself contain embedded newlines (`print('a\nb')`),
+                // which on real stdout are distinct lines — and the golden,
+                // captured from the Dart reference's stdout, splits them. So
+                // reconstruct stdout exactly as Dart emits it (each `print`
+                // writes its argument + '\n') and split it the same way the
+                // golden is read (fixtures 247/249/250 — #39/#300).
+                let stdout: String = prints.iter().map(|s| format!("{s}\n")).collect();
+                let actual = expected_lines(&stdout);
                 if actual == expected {
                     passed += 1;
                     Outcome::Pass
@@ -166,9 +188,11 @@ fn conformance_corpus() {
         }
     }
 
-    // Summary line (the format the conformance tooling greps for).
+    // Summary line (the exact `Results: N passed, M failed, T total` format the
+    // conformance-matrix workflow greps — #40). `total` is the golden-having
+    // (executed) fixture count; behavioral carve-outs are reported separately.
     eprintln!(
-        "\nResults: {passed} passed, {} failed, {total} total",
+        "\nResults: {passed} passed, {} failed, {total} total ({skipped} skipped carve-outs)",
         total - passed
     );
     if !failures.is_empty() && single.is_none() {

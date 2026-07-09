@@ -2,15 +2,18 @@
 
 # Rust Implementation Agents
 
-Rust implementation of Ball tools (epic #32). **Not production-ready** — the compiler and
-encoder are complete and tested, but the self-hosted engine is still blocked on compiler gaps
-and there is no CLI or CI wiring yet. Always reference the Dart implementation
-(`dart/compiler/lib/compiler.dart`, `dart/encoder/lib/encoder.dart`,
-`dart/engine/lib/engine.dart`) as the canonical behavior; the C++ prototype
-(`cpp/compiler/`, `cpp/encoder/`) is the closest sibling for compiler/encoder patterns since
-both emit target source via string concatenation. **Verify maturity against CI, not this
-prose** — as of this writing there is no `rust` job in `.github/workflows/ci.yml` or
-`conformance-matrix.yml` yet (tracked by #44).
+Rust implementation of Ball tools (epic #32). The full pipeline is in place —
+compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
+**runs the whole conformance corpus at Dart parity** (`Results: 319 passed, 0
+failed, 319 total`; the 4 golden-less resource-limit/sandbox fixtures are
+carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
+Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
+`dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
+behavior; the C++ prototype (`cpp/compiler/`, `cpp/encoder/`) is the closest
+sibling for compiler/encoder patterns since both emit target source via string
+concatenation. **Verify maturity against CI, not this prose** — the `rust` job in
+`.github/workflows/ci.yml` gates build/test/fmt/clippy plus the self-host
+run-acceptance and the full conformance sweep.
 
 ## Package Layout
 
@@ -19,13 +22,13 @@ prose** — as of this writing there is no `rust` job in `.github/workflows/ci.y
 | `ball-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders + `runtime::*` base-op helpers | Complete (#34, #35) |
 | `ball-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
 | `ball-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
-| `ball-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **In progress / blocked** (#39) — see below |
+| `ball-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
 | `ball-engine-regen` | `rust/engine/tool/` | Internal helper crate: regenerates `rust/engine/src/compiled_engine.rs` | Complete, run manually |
-| `ball-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check` CLI | **Not started** (#41) — placeholder `main()` only, no subcommands |
+| `ball-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check` CLI | Complete (#41/#304) — clap subcommands, `run` behind the `self_host` feature |
 
-Conformance harness (#40) and CI/CD wiring (#44) are also not started — there is no
-`Results: N passed, M failed, T total` runner and no `rust` job in `ci.yml` or
-`conformance-matrix.yml` yet.
+The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs` — it
+prints the canonical `Results: N passed, M failed, T total` line and is run in CI
+(the `rust` job). CI/CD wiring is in `.github/workflows/ci.yml`.
 
 ## Build & Test
 
@@ -52,8 +55,10 @@ cargo clippy --workspace
 **Prefer conformance tests over unit tests where they exist.** `ball-compiler` and
 `ball-encoder` both have `tests/end_to_end.rs` suites that compile emitted Rust with the real
 `cargo`/`rustc` toolchain and assert on actual stdout — this is the same "compile → execute
-with the native toolchain → compare" idiom `ts/compiler/test/` uses. There is no
-`tests/conformance/*.ball.json` runner wired up for Rust yet (#40).
+with the native toolchain → compare" idiom `ts/compiler/test/` uses. The whole-corpus
+conformance runner is `rust/engine/tests/self_host_conformance.rs` (`--features self_host`,
+`#[ignore]` by default) — it drives every `tests/conformance/*.ball.json` through the
+self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 
 ## Generated Files — NEVER Edit
 
@@ -78,21 +83,26 @@ with the native toolchain → compare" idiom `ts/compiler/test/` uses. There is 
 - `syn = "2"` (`features = ["full", "extra-traits"]`) + `proc-macro2` + `quote` — the encoder's
   Rust source parser, the Rust analog of Dart's `analyzer` / TS's TS-Compiler-API.
 
-## Self-Hosted Engine Status (#39) — In Progress / Blocked
+## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
-The regeneration pipeline (`ball-engine-regen`) and the wrapper foundation (`rust/engine/src/loader.rs`
-+ `scope.rs` + `ball_proto.rs`) are complete, build, and are unit-tested. **The compiled engine
-does not yet compile through `ball-compiler`** — compiling the full 289-function self-hosted
-engine currently produces roughly 414 `rustc` errors (protobuf oneof-discriminator enum
-constants, Dart-SDK method calls with no Rust runtime surface yet, `ball_proto`/`std_convert`
-base dispatch gaps, named/optional-parameter binding, constructor/super-constructor
-inheritance, and dynamic-value-vs-borrow-checker mismatches — see `rust/engine/AGENTS.md` for
-the itemized breakdown). Because of this, the compiled-engine driver is behind the
-off-by-default `self_host` cargo feature; `BallEngine::run` returns
-`EngineError::SelfHostPending` in the default build. **Do not claim the Rust engine can run Ball
-programs or passes conformance** until #39 closes and #40 wires up a real conformance runner.
+The self-hosted engine compiles through `ball-compiler` **and runs the whole
+conformance corpus with Dart-identical output**: `Results: 319 passed, 0 failed,
+319 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+are documented behavioral carve-outs, skipped like the Dart runner skips them).
+The compiled-engine driver is behind the `self_host` cargo feature (the generated
+`compiled_engine.rs` is a gitignored build artifact, so a default build without it
+stays green on the wrapper foundation); regenerate + run with:
 
-See `rust/engine/AGENTS.md` for the full gap-by-gap breakdown and regeneration instructions.
+```bash
+cd dart && dart run compiler/tool/gen_engine_json.dart   # regen engine.ball.json
+cd ../rust && cargo run -p ball-engine-regen             # regen compiled_engine.rs
+cargo test -p ball-engine --features self_host --test self_host_run          # acceptance
+cargo test -p ball-engine --features self_host --test self_host_conformance \
+  -- --ignored --nocapture                               # whole-corpus sweep (Results: line)
+```
+
+See `rust/engine/AGENTS.md` for the resolved-bucket history and regeneration
+instructions.
 
 ## Conventions
 

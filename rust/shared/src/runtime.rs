@@ -474,15 +474,28 @@ pub fn ball_to_string(value: BallValue) -> BallValue {
     BallValue::String(value.to_string())
 }
 
-/// `length` — polymorphic over `String`/`List`/`Map`/`Bytes`.
-///
-/// **Known limitation:** Dart's `String.length` counts UTF-16 code units;
-/// this counts Unicode scalar values (`str::chars().count()`) instead, so
-/// the two diverge for astral-plane characters (surrogate pairs). Every
-/// ASCII/BMP string — the entire #37 test corpus — is unaffected.
+/// Dart `String` measures/indexes by **UTF-16 code unit**, not by Unicode
+/// scalar value (`char`) or byte — an astral-plane character (a surrogate
+/// pair) counts as two. Rust `String` is UTF-8, so every string length/index
+/// op the engine exposes (`.length`, `codeUnitAt`, `substring`, `indexOf`,
+/// `padLeft`/`padRight`) routes through these helpers for Dart-exact results.
+/// Mirrors the C++ self-host's `ball_u16_length`/`ball_u16_to_byte`
+/// (`ball_emit_runtime.h`) — issues #39/#300, fixtures 193/228/255.
+pub(crate) fn utf16_len(s: &str) -> usize {
+    s.encode_utf16().count()
+}
+
+/// The UTF-16 code-unit count of the prefix `s[..byte_index]` — converts a
+/// byte offset (from `str::find`/`rfind`) to Dart's UTF-16 index.
+fn utf16_len_upto(s: &str, byte_index: usize) -> usize {
+    s[..byte_index].encode_utf16().count()
+}
+
+/// `length` — polymorphic over `String`/`List`/`Map`/`Bytes`. A `String`'s
+/// length is its UTF-16 code-unit count (Dart semantics — see [`utf16_len`]).
 pub fn ball_length(value: BallValue) -> BallValue {
     BallValue::Int(match &value {
-        BallValue::String(s) => s.chars().count() as i64,
+        BallValue::String(s) => utf16_len(s) as i64,
         BallValue::List(list) => list.len() as i64,
         BallValue::Map(map) => map.len() as i64,
         BallValue::Bytes(bytes) => bytes.len() as i64,
@@ -491,21 +504,21 @@ pub fn ball_length(value: BallValue) -> BallValue {
 }
 
 pub fn ball_string_to_int(value: BallValue) -> BallValue {
-    BallValue::Int(as_str(&value).parse().unwrap_or_else(|_| {
-        panic!(
-            "ball-compiler runtime: cannot parse '{}' as int",
-            as_str(&value)
-        )
-    }))
+    let s = as_str(&value);
+    match s.parse() {
+        Ok(n) => BallValue::Int(n),
+        // Dart's `int.parse` throws `FormatException` — throw a catchable one so
+        // `on FormatException catch` sees it (#39/#300, fixture 275).
+        Err(_) => ball_throw_typed("FormatException", format!("cannot parse '{s}' as int")),
+    }
 }
 
 pub fn ball_string_to_double(value: BallValue) -> BallValue {
-    BallValue::Double(as_str(&value).parse().unwrap_or_else(|_| {
-        panic!(
-            "ball-compiler runtime: cannot parse '{}' as double",
-            as_str(&value)
-        )
-    }))
+    let s = as_str(&value);
+    match s.parse() {
+        Ok(n) => BallValue::Double(n),
+        Err(_) => ball_throw_typed("FormatException", format!("cannot parse '{s}' as double")),
+    }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -548,7 +561,7 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
     if field == "length" {
         match &value {
             BallValue::List(list) => return BallValue::Int(list.len() as i64),
-            BallValue::String(s) => return BallValue::Int(s.chars().count() as i64),
+            BallValue::String(s) => return BallValue::Int(utf16_len(s) as i64),
             BallValue::Bytes(b) => return BallValue::Int(b.len() as i64),
             // `Map`/`Message` are deliberately *not* in this fast path — a real
             // key literally named `"length"` must not be shadowed; a map/message
@@ -612,6 +625,40 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             .get(field)
             .or_else(|| proto_getter_alias(field).and_then(|alias| message.get(alias)))
             .unwrap_or(BallValue::Null),
+        // Number getters accessed as a bare field (`n.isEven`, `d.isNegative`,
+        // `n.sign`, …). The engine's own field-access dispatch reads these off a
+        // *raw* number (`object.value.isNegative` after unwrapping a
+        // `BallDouble`/`BallInt`), so a raw `Int`/`Double` must answer them
+        // instead of falling to the non-message panic (#39/#300, fixture 317).
+        BallValue::Int(i) => match field {
+            "isNegative" => BallValue::Bool(i < 0),
+            "isEven" => BallValue::Bool(i % 2 == 0),
+            "isOdd" => BallValue::Bool(i % 2 != 0),
+            "sign" => BallValue::Int(i.signum()),
+            "isFinite" => BallValue::Bool(true),
+            "isInfinite" => BallValue::Bool(false),
+            "isNaN" => BallValue::Bool(false),
+            other => panic!("ball-compiler runtime: field access '{other}' on an int"),
+        },
+        BallValue::Double(d) => match field {
+            // Dart's `double.isNegative` is the sign bit — `-0.0` is negative.
+            "isNegative" => BallValue::Bool(d.is_sign_negative()),
+            "isFinite" => BallValue::Bool(d.is_finite()),
+            "isInfinite" => BallValue::Bool(d.is_infinite()),
+            "isNaN" => BallValue::Bool(d.is_nan()),
+            // Dart's `double.sign`: 1.0 / -1.0 / the value itself for ±0.0, NaN
+            // for NaN.
+            "sign" => BallValue::Double(if d.is_nan() {
+                f64::NAN
+            } else if d > 0.0 {
+                1.0
+            } else if d < 0.0 {
+                -1.0
+            } else {
+                d
+            }),
+            other => panic!("ball-compiler runtime: field access '{other}' on a double"),
+        },
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
     }
 }
@@ -735,8 +782,11 @@ pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
     match target {
         BallValue::List(list) => {
             let i = as_index(&index);
-            list.get(i)
-                .unwrap_or_else(|| panic!("ball-compiler runtime: list index {i} out of range"))
+            // Dart's `list[i]` throws `RangeError` out of bounds — catchable so
+            // `on RangeError catch` sees it (#39/#300, fixture 199).
+            list.get(i).unwrap_or_else(|| {
+                ball_throw_typed("RangeError", format!("list index {i} out of range"))
+            })
         }
         BallValue::Map(map) => map.get(&index_key(&index)).unwrap_or(BallValue::Null),
         BallValue::String(s) => {
@@ -748,6 +798,16 @@ pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
                         panic!("ball-compiler runtime: string index {i} out of range")
                     })
                     .to_string(),
+            )
+        }
+        // `bytes[i]` — the byte int at `i` (`bytes` is a `List<int>`, #39/#300).
+        BallValue::Bytes(bytes) => {
+            let i = as_index(&index);
+            BallValue::Int(
+                *bytes
+                    .get(i)
+                    .unwrap_or_else(|| panic!("ball-compiler runtime: byte index {i} out of range"))
+                    as i64,
             )
         }
         other => panic!("ball-compiler runtime: index access on unsupported value: {other:?}"),
@@ -808,6 +868,11 @@ pub fn ball_iterate(value: BallValue) -> Vec<BallValue> {
         // as empty matches proto3 semantics (and the reference engines, which
         // see a real `[]`), rather than throwing.
         BallValue::Null => Vec::new(),
+        // `bytes` iterates as its byte ints (a `List<int>` — #39/#300).
+        BallValue::Bytes(bytes) => bytes
+            .into_iter()
+            .map(|b| BallValue::Int(b as i64))
+            .collect(),
         other => panic!("ball-compiler runtime: '{other:?}' is not iterable"),
     }
 }
@@ -926,11 +991,20 @@ pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
         "num" => matches!(value, BallValue::Int(_) | BallValue::Double(_)),
         "String" | "string" => matches!(value, BallValue::String(_)),
         "bool" => matches!(value, BallValue::Bool(_)),
-        "List" | "list" => matches!(value, BallValue::List(_)),
+        // Dart's `bytes`/`Uint8List` **is a `List<int>`** — the reference engine
+        // even reads a bytes literal as a `List<int>` — so `bytes` satisfies a
+        // `List`/`List<int>` cast (`utf8.decode`/`base64.encode` do `value as
+        // List<int>?`; the fixture-190/191/399 bytes flow, #39/#300). The value
+        // model keeps a distinct `BallValue::Bytes`, but every list op treats it
+        // as a list of its byte ints (`as_list`/`ball_iterate`/`ball_index_get`).
+        "List" | "list" => matches!(value, BallValue::List(_) | BallValue::Bytes(_)),
         // Dart's `Set implements Iterable`, so an ordered set (the portable
         // `{'__ball_set__': [...]}` map form) is `Iterable` too — but a plain
-        // list is NOT a `Set`. See the `"Set"` arm below.
-        "Iterable" => matches!(value, BallValue::List(_)) || is_ball_set_value(value),
+        // list is NOT a `Set`. See the `"Set"` arm below. `bytes` (a `List<int>`)
+        // is `Iterable` as well.
+        "Iterable" => {
+            matches!(value, BallValue::List(_) | BallValue::Bytes(_)) || is_ball_set_value(value)
+        }
         // An ordered `Set` in the self-hosted engine's value model is the
         // portable `{'__ball_set__': [...]}` **map** form (matching the Dart/C++
         // self-hosts — the engine's `_ballSetOf` builds it and
@@ -1023,14 +1097,13 @@ pub fn ball_string_ends_with(left: BallValue, right: BallValue) -> BallValue {
     BallValue::Bool(as_str(&left).ends_with(as_str(&right)))
 }
 
-/// Character-index (not byte-index) search, so multi-byte UTF-8 doesn't skew
-/// the result — matches Dart's UTF-16-code-unit indexing for the common
-/// (BMP) case. Returns `-1` when not found (Dart's `String.indexOf`).
+/// UTF-16-code-unit index (Dart's `String.indexOf`), so multi-byte UTF-8 and
+/// astral characters don't skew the result. Returns `-1` when not found.
 pub fn ball_string_index_of(left: BallValue, right: BallValue) -> BallValue {
     let haystack = as_str(&left);
     let needle = as_str(&right);
     BallValue::Int(match haystack.find(needle) {
-        Some(byte_index) => haystack[..byte_index].chars().count() as i64,
+        Some(byte_index) => utf16_len_upto(haystack, byte_index) as i64,
         None => -1,
     })
 }
@@ -1039,35 +1112,41 @@ pub fn ball_string_last_index_of(left: BallValue, right: BallValue) -> BallValue
     let haystack = as_str(&left);
     let needle = as_str(&right);
     BallValue::Int(match haystack.rfind(needle) {
-        Some(byte_index) => haystack[..byte_index].chars().count() as i64,
+        Some(byte_index) => utf16_len_upto(haystack, byte_index) as i64,
         None => -1,
     })
 }
 
+/// `String.substring(start, [end])` — indices are UTF-16 code units (Dart
+/// semantics). A slice that falls in the middle of a surrogate pair yields a
+/// lone surrogate in Dart; the UTF-8-backed Rust `String` can't hold one, so
+/// [`String::from_utf16_lossy`] substitutes U+FFFD (no corpus fixture slices
+/// mid-surrogate — 193/228 slice on BMP boundaries).
 pub fn ball_string_substring(value: BallValue, start: BallValue, end: BallValue) -> BallValue {
-    let chars: Vec<char> = as_str(&value).chars().collect();
-    let start_index = as_index(&start).min(chars.len());
+    let s = as_str(&value);
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let start_index = as_index(&start).min(units.len());
     let end_index = if end == BallValue::Null {
-        chars.len()
+        units.len()
     } else {
-        as_index(&end).min(chars.len())
+        as_index(&end).min(units.len())
     };
-    BallValue::String(
-        chars[start_index..end_index.max(start_index)]
-            .iter()
-            .collect(),
-    )
+    BallValue::String(String::from_utf16_lossy(
+        &units[start_index..end_index.max(start_index)],
+    ))
 }
 
+/// `String.codeUnitAt(index)` — the UTF-16 code unit at `index` (an astral
+/// character's high/low surrogate for the two indices it spans). Dart-exact
+/// for surrogate pairs (fixture 255).
 pub fn ball_string_char_code_at(target: BallValue, index: BallValue) -> BallValue {
-    let chars: Vec<char> = as_str(&target).chars().collect();
+    let s = as_str(&target);
     let i = as_index(&index);
-    BallValue::Int(
-        *chars
-            .get(i)
-            .unwrap_or_else(|| panic!("ball-compiler runtime: string index {i} out of range"))
-            as i64,
-    )
+    let unit = s
+        .encode_utf16()
+        .nth(i)
+        .unwrap_or_else(|| panic!("ball-compiler runtime: string index {i} out of range"));
+    BallValue::Int(unit as i64)
 }
 
 pub fn ball_string_from_char_code(value: BallValue) -> BallValue {
@@ -1145,7 +1224,7 @@ pub fn ball_string_pad_left(value: BallValue, width: BallValue, padding: BallVal
     let s = as_str(&value);
     let target_width = as_index(&width);
     let pad_char = padding_char(&padding);
-    let current_len = s.chars().count();
+    let current_len = utf16_len(s);
     if current_len >= target_width {
         return BallValue::String(s.to_string());
     }
@@ -1158,7 +1237,7 @@ pub fn ball_string_pad_right(value: BallValue, width: BallValue, padding: BallVa
     let s = as_str(&value);
     let target_width = as_index(&width);
     let pad_char = padding_char(&padding);
-    let current_len = s.chars().count();
+    let current_len = utf16_len(s);
     if current_len >= target_width {
         return BallValue::String(s.to_string());
     }
@@ -1347,12 +1426,24 @@ pub fn ball_math_lcm(left: BallValue, right: BallValue) -> BallValue {
 fn as_list(value: BallValue) -> Vec<BallValue> {
     match value {
         BallValue::List(list) => list.snapshot(),
+        // `bytes` is a `List<int>` in Dart — a bytes literal or `utf8.encode`
+        // result flows through list ops (`.toList()`/`for-in`/indexing) as its
+        // byte ints (#39/#300, fixtures 190/191/399).
+        BallValue::Bytes(bytes) => bytes
+            .into_iter()
+            .map(|b| BallValue::Int(b as i64))
+            .collect(),
         other => panic!("ball-compiler runtime: expected a list, got {other:?}"),
     }
 }
 
 pub fn ball_list_get(list: BallValue, index: BallValue) -> BallValue {
-    as_list(list)[as_index(&index)].clone()
+    let items = as_list(list);
+    let i = as_index(&index);
+    items
+        .get(i)
+        .cloned()
+        .unwrap_or_else(|| ball_throw_typed("RangeError", format!("list index {i} out of range")))
 }
 
 pub fn ball_list_length(list: BallValue) -> BallValue {
@@ -1401,13 +1492,13 @@ pub fn ball_list_contains(list: BallValue, value: BallValue) -> BallValue {
 
 /// `list.indexOf(value)` — **polymorphic over strings** (see
 /// [`ball_list_contains`]): `'abc'.indexOf('b')` is encoded as `list_index_of`,
-/// so a string receiver delegates to `String.indexOf` (a UTF-16-agnostic
-/// byte→char index, BMP-exact).
+/// so a string receiver delegates to `String.indexOf` (a UTF-16 code-unit
+/// index, Dart-exact — see [`utf16_len_upto`]).
 pub fn ball_list_index_of(list: BallValue, value: BallValue) -> BallValue {
     if let BallValue::String(s) = &list {
         let needle = value.to_string();
         let index = match s.find(&needle) {
-            Some(byte_index) => s[..byte_index].chars().count() as i64,
+            Some(byte_index) => utf16_len_upto(s, byte_index) as i64,
             None => -1,
         };
         return BallValue::Int(index);
@@ -1887,6 +1978,25 @@ pub fn ball_args_get() -> BallValue {
 
 pub fn ball_throw(value: BallValue) -> ! {
     std::panic::panic_any(value)
+}
+
+/// Throw a Ball exception a typed `on <Type> catch` clause can match. The
+/// reference engine's catch dispatch (`engine_control_flow.dart`) matches a
+/// thrown value against the `on` type by `e['__type__']` when the value is a
+/// map (case *b*). The compiled self-host has no real Dart `FormatException`/
+/// `RangeError`, so a failing `int.parse`/`double.parse` or an out-of-range
+/// index/`.first`/… synthesizes one here as a `{'__type__': <name>, 'message':
+/// <msg>}` map — catchable exactly like the reference engines' real exception
+/// (a plain `panic!` string is only recoverable by an *untyped* `catch`, so
+/// `on FormatException`/`on RangeError` silently missed it — #39/#300, 199/275).
+pub fn ball_throw_typed(type_name: &str, message: String) -> ! {
+    let map = BallMap::new();
+    map.insert(
+        "__type__".to_string(),
+        BallValue::String(type_name.to_string()),
+    );
+    map.insert("message".to_string(), BallValue::String(message));
+    ball_throw(BallValue::Map(map))
 }
 
 /// Non-local control flow escaping a `try` body (issue #300). A `return`/
@@ -2628,7 +2738,7 @@ fn base64_encode_bytes(bytes: &[u8]) -> String {
 }
 
 /// Standard (RFC 4648) base64 decoder — skips whitespace and `=` padding.
-fn base64_decode_str(input: &str) -> Vec<u8> {
+pub fn base64_decode_str(input: &str) -> Vec<u8> {
     fn val(c: u8) -> Option<u32> {
         match c {
             b'A'..=b'Z' => Some((c - b'A') as u32),
@@ -2798,10 +2908,38 @@ mod dartsdk {
     /// `int.parse(s)` / `num.parse(s)` / `double.parse(s)` — the throwing form
     /// (Dart raises `FormatException` on a bad source; this fails loud).
     pub fn parse(input: BallValue) -> BallValue {
+        // `DateTime.parse(str)` routes here too (its `self` is the "DateTime"
+        // type marker). It returns a DateTime message, not a number — the
+        // engine's `parse_timestamp` reads `.millisecondsSinceEpoch` off it
+        // (#39/#300, fixture 188).
+        if matches!(&m_get(&input, "self"), BallValue::String(s) if s == "DateTime") {
+            let arg = m_get(&input, "arg0");
+            let src = as_str(&arg);
+            return match iso8601_millis_from_utc(src) {
+                Some(ms) => {
+                    let fields = BallMap::new();
+                    fields.insert("millisecondsSinceEpoch".to_string(), BallValue::Int(ms));
+                    fields.insert(
+                        "microsecondsSinceEpoch".to_string(),
+                        BallValue::Int(ms.saturating_mul(1000)),
+                    );
+                    BallValue::Map(fields)
+                }
+                None => ball_throw_typed(
+                    "FormatException",
+                    format!("cannot parse '{src}' as DateTime"),
+                ),
+            };
+        }
         let result = tryParse(input.clone());
         if result == BallValue::Null {
             let source = m_get(&input, "arg0");
-            panic!("ball-compiler runtime: FormatException: cannot parse '{source}' as a number");
+            // Catchable `FormatException` (Dart's `int.parse`/`num.parse`), so
+            // `on FormatException catch` sees it (#39/#300, fixture 275).
+            ball_throw_typed(
+                "FormatException",
+                format!("cannot parse '{source}' as a number"),
+            );
         }
         result
     }
@@ -3225,6 +3363,59 @@ mod dartsdk {
         let month = if mp < 10 { mp + 3 } else { mp - 9 };
         let year = if month <= 2 { year + 1 } else { year };
         format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
+    }
+
+    /// Days since 1970-01-01 for a civil (year, month, day) — the exact inverse
+    /// of the civil-from-days conversion in [`iso8601_utc_from_millis`] (Howard
+    /// Hinnant's algorithm).
+    fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+        let y = if m <= 2 { y - 1 } else { y };
+        let era = (if y >= 0 { y } else { y - 399 }) / 400;
+        let yoe = y - era * 400;
+        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146_097 + doe - 719_468
+    }
+
+    /// `DateTime.parse` for the canonical UTC ISO-8601 form the engine's
+    /// `format_timestamp` emits (`"YYYY-MM-DDTHH:MM:SS[.fff][Z]"`, `T` or space
+    /// separator) → epoch milliseconds. The inverse of [`iso8601_utc_from_millis`]
+    /// (#39/#300, fixture 188). A trailing `Z`/offset is treated as UTC (the
+    /// value model is epoch-based). Returns `None` on a malformed string.
+    fn iso8601_millis_from_utc(s: &str) -> Option<i64> {
+        let s = s.trim();
+        let bytes = s.as_bytes();
+        if s.len() < 19 {
+            return None;
+        }
+        let field = |a: usize, b: usize| -> Option<i64> { s.get(a..b)?.parse().ok() };
+        if bytes[4] != b'-' || bytes[7] != b'-' || (bytes[10] != b'T' && bytes[10] != b' ') {
+            return None;
+        }
+        if bytes[13] != b':' || bytes[16] != b':' {
+            return None;
+        }
+        let year = field(0, 4)?;
+        let month = field(5, 7)?;
+        let day = field(8, 10)?;
+        let hour = field(11, 13)?;
+        let minute = field(14, 16)?;
+        let second = field(17, 19)?;
+        let mut millis = 0i64;
+        if bytes.get(19) == Some(&b'.') {
+            let frac_start = 20;
+            let mut frac_end = frac_start;
+            while frac_end < bytes.len() && bytes[frac_end].is_ascii_digit() {
+                frac_end += 1;
+            }
+            let mut ms_str = s[frac_start..frac_end].to_string();
+            while ms_str.len() < 3 {
+                ms_str.push('0');
+            }
+            millis = ms_str.get(..3)?.parse().ok()?;
+        }
+        let days = days_from_civil(year, month, day);
+        Some(days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1000 + millis)
     }
 
     // ── dart:math free functions (`dart_math::*`) ────────────

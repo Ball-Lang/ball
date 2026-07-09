@@ -215,6 +215,22 @@ pub fn json_to_ball_value(value: &serde_json::Value) -> BallValue {
         serde_json::Value::Object(fields) => {
             let map = BallMap::with_capacity(fields.len());
             for (key, val) in fields {
+                // A `Literal.bytesValue` (proto3-JSON `bytes` field) serializes as
+                // a base64 string, but the reference engine reads a bytes literal
+                // as a `List<int>` (`_evalLiteral` does `lit.bytesValue.toList()`).
+                // Decode it to `BallValue::Bytes` here so the literal materializes
+                // as byte ints instead of the raw base64 text (which panicked
+                // `expected a list, got String("…")` — #39/#300, fixture 399).
+                // `bytesValue` is the ball proto's only `bytes` field name.
+                if key == "bytesValue" {
+                    if let serde_json::Value::String(b64) = val {
+                        map.insert(
+                            key.clone(),
+                            BallValue::Bytes(ball_shared::runtime::base64_decode_str(b64)),
+                        );
+                        continue;
+                    }
+                }
                 map.insert(key.clone(), json_to_ball_value(val));
             }
             BallValue::Map(map)

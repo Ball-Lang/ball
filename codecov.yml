@@ -1,8 +1,9 @@
 # Codecov configuration for the Ball monorepo.
 #
-# Each language stack uploads its lcov with a flag (dart / typescript / cpp) and
-# Codecov MERGES them into one repo-wide report. See epic #59 / #60. Auth is
-# OIDC (public repo, no CODECOV_TOKEN) — see .github/workflows/coverage.yml.
+# Each language stack uploads its lcov with a flag (dart / typescript / cpp /
+# rust) and Codecov MERGES them into one repo-wide report. See epic #59 / #60.
+# Auth is OIDC (public repo, no CODECOV_TOKEN) — see
+# .github/workflows/coverage.yml.
 #
 # While climbing toward 100% (epic #59) the coverage statuses are INFORMATIONAL:
 # Codecov reports the delta on each PR but never fails a check or blocks a merge.
@@ -33,6 +34,10 @@ flag_management:
       paths:
         - cpp/
       carryforward: true
+    - name: rust
+      paths:
+        - rust/
+      carryforward: true
 
 # Generated / never-authored files are excluded (CLAUDE.md: "Never edit
 # generated files"). Mirrors the exclusions in tools/coverage_dart.dart.
@@ -42,6 +47,7 @@ ignore:
   - "**/*.g.dart"             # build_runner output
   - "ts/engine/src/compiled_engine.ts"  # generated from the self-hosted engine
   - "dart/self_host"          # engine_rt.cpp, engine_roundtrip.dart (generated)
+  - "rust/engine/src/compiled_engine.rs"  # generated from the self-hosted engine
 
 comment:
   layout: "reach, diff, flags, files"

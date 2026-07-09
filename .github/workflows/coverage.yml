@@ -1,9 +1,9 @@
 name: Coverage
 
 # Cross-stack coverage: each language stack runs its suites under coverage,
-# emits lcov, and uploads to Codecov with a flag (dart / typescript / cpp).
-# Codecov merges the flags into one repo-wide report (epic #59, #60). Auth is
-# OIDC — public repo, no CODECOV_TOKEN needed.
+# emits lcov, and uploads to Codecov with a flag (dart / typescript / cpp /
+# rust). Codecov merges the flags into one repo-wide report (epic #59, #60).
+# Auth is OIDC — public repo, no CODECOV_TOKEN needed.
 #
 # The Dart job ALSO enforces the line-coverage ratchet (floor must never
 # regress; raise toward 100%). Runs on push to main + on demand (the
@@ -298,4 +298,59 @@ jobs:
           use_oidc: true
           files: ./cpp.lcov
           flags: cpp
+          fail_ci_if_error: false
+
+  # ──────────────────────────────────────────────────
+  # Rust — cargo-llvm-cov over the default-feature workspace
+  # ──────────────────────────────────────────────────
+  rust:
+    name: Rust coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # rustup ships preinstalled on GitHub-hosted runners; `rustup show` reads
+      # rust/rust-toolchain.toml (channel = stable) and installs it (mirrors
+      # ci.yml's rust job). llvm-tools-preview is the extra component
+      # cargo-llvm-cov instruments with (source-based coverage via LLVM, not
+      # gcov/lcov like the C++ job).
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: |
+          rustup show
+          rustup component add llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@c7eb1735f09259a5035e8e5d44b1406b1cddc0fb # v2.83.0
+        with:
+          tool: cargo-llvm-cov
+
+      # Default-feature workspace only (mirrors ci.yml's plain `cargo build
+      # --workspace` / `cargo test --workspace`) — deliberately NOT
+      # `--features self_host`. The self-hosted engine (`ball-engine`'s
+      # `compiled_engine.rs`) is a gitignored, generated artifact that first
+      # needs `dart pub get` + `gen_engine_json.dart` + `cargo run -p
+      # ball-engine-regen` (see ci.yml's dedicated steps) — pulling that whole
+      # dance into this job would double its runtime to instrument a single
+      # generated file that's excluded from coverage anyway (see codecov.yml's
+      # `ignore:` list, mirroring the TS/C++ generated-file exclusions). This
+      # keeps the job lean while still measuring every authored crate
+      # (ball-shared, ball-compiler, ball-encoder, ball-engine's wrapper
+      # foundation, ball-cli).
+      - name: Coverage — cargo-llvm-cov (workspace, default features)
+        run: cd rust && cargo llvm-cov --workspace --lcov --output-path ../rust.lcov
+
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: ./rust.lcov
+          flags: rust
+          # Best-effort: a Codecov outage / not-yet-activated repo must not
+          # fail this job (mirrors the dart/typescript/cpp uploads above).
           fail_ci_if_error: false

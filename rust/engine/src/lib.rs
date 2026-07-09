@@ -40,7 +40,8 @@
 //! run thread. The default build (no `self_host`) still returns
 //! [`EngineError::SelfHostPending`].
 //!
-//! **Corpus status (#39/#300): 160/323 fixtures pass Dart-identical.** The
+//! **Corpus status (#39/#300): see `rust/engine/AGENTS.md` for the current
+//! tally and per-bucket categorization** (this comment does not track it). The
 //! loop-scope, string-surface, and reference-semantic-`List` blockers are
 //! **resolved**:
 //! - Loop counters now persist. The engine routes `i++`/`i--` through a Dart

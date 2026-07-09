@@ -418,6 +418,24 @@ jobs:
       - name: Run tests
         run: ctest --test-dir cpp/build --output-on-failure -C Release
 
+      # #18 Stage 3 proof (Linux only): the default cpp/build above stays google
+      # end-to-end (zero risk). This SEPARATE option-ON build dir routes
+      # ball_file.h's binary path through Ball's own compiled protobuf runtime
+      # (BALL_USE_BALL_PROTOBUF) and runs the byte-equivalence harness — every
+      # conformance fixture decoded through BOTH the google Any/Program parser
+      # and ball_protobuf's descriptor-driven unmarshal→re-marshal must yield a
+      # MessageDifferencer-equal Program. It reuses the ccache-warmed protobuf
+      # objects from the build above, so it only recompiles ball_shared + the
+      # harness (negligible next to the FetchContent protobuf build already paid).
+      - name: "#18 Stage 3 — ball_protobuf binary-path byte-equivalence"
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S cpp -B cpp/build-rt -DCMAKE_BUILD_TYPE=Release \
+            -DBALL_USE_BALL_PROTOBUF=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build cpp/build-rt --target test_ball_rt_equivalence --config Release -j 2
+          ctest --test-dir cpp/build-rt -R ball_rt_equivalence --output-on-failure -C Release
+
   # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
   # through the REAL protobuf conformance_test_runner for the proto2, proto3,

@@ -1,3 +1,10 @@
+# [1.18.0](https://github.com/Ball-Lang/ball/compare/v1.17.3...v1.18.0) (2026-07-09)
+
+
+### Features
+
+* **engine:** continue-to-labelled-switch-case (goto-via-switch) ([#321](https://github.com/Ball-Lang/ball/issues/321)) ([#337](https://github.com/Ball-Lang/ball/issues/337)) ([2bc2111](https://github.com/Ball-Lang/ball/commit/2bc211168b45c38472d4f5580f351453daa4bdd7)), closes [#320](https://github.com/Ball-Lang/ball/issues/320)
+
 ## [1.17.3](https://github.com/Ball-Lang/ball/compare/v1.17.2...v1.17.3) (2026-07-09)
 
 

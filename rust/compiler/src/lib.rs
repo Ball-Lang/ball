@@ -217,6 +217,31 @@ pub struct Compiler<'a> {
     /// nearest scope is the `try` (escape) or a loop (its own target) — hence a
     /// stack, not a counter. See [`Compiler::compile_try`].
     flow_scopes: RefCell<Vec<FlowScope>>,
+    /// Nesting depth of compiled `catch` handler bodies. `std.rethrow` (the
+    /// Dart `rethrow` keyword) re-raises the exception the *innermost* enclosing
+    /// catch is handling; `compile_try` binds that as `_ball_rethrow_err` and
+    /// increments this while compiling the handler body, so `compile_rethrow`
+    /// knows a rethrow target is in scope (issue #39/#300).
+    catch_depth: RefCell<usize>,
+    /// The instance fields of the class member currently being compiled, as
+    /// `sanitized local name → original field key` (populated by
+    /// `field_alias_prologue`, cleared when the member's compilation ends).
+    /// Drives **late-bound field access inside lambdas** (issue #39/#300): a
+    /// `move` closure pre-clones the method's field *alias*, freezing the value
+    /// at closure-build time — the engine's `_buildStdDispatch` closures then
+    /// read `_activeException` as it was at engine init (permanently `Null`),
+    /// so a target program's `rethrow` reported "rethrow outside of catch".
+    /// With this set, a lambda-body reference to an instance field compiles to
+    /// a call-time `ball_field_get(__self_recv, …)` (and an assignment to a
+    /// `ball_field_set` through the shared receiver), matching Dart's
+    /// closure-over-`this` semantics.
+    instance_fields: RefCell<std::collections::HashMap<String, String>>,
+    /// The `local_scopes` frame index where each currently-open lambda's own
+    /// scope begins. A name bound at/after the innermost floor is a lambda-local
+    /// (parameter/`let` — shadows any instance-field namesake); a
+    /// known-instance-field name bound only *below* it resolves late-bound
+    /// through `__self_recv` (see `instance_fields`).
+    lambda_scope_floors: RefCell<Vec<usize>>,
 }
 
 /// A control-flow scope on [`Compiler::flow_scopes`] — a `try` body or a loop
@@ -377,7 +402,92 @@ impl<'a> Compiler<'a> {
             in_instance_method: RefCell::new(false),
             current_module: RefCell::new(program.entry_module.clone()),
             flow_scopes: RefCell::new(Vec::new()),
+            catch_depth: RefCell::new(0),
+            instance_fields: RefCell::new(std::collections::HashMap::new()),
+            lambda_scope_floors: RefCell::new(Vec::new()),
         }
+    }
+
+    /// Record one instance field of the class member being compiled (called by
+    /// `field_alias_prologue` per field). `sanitized` is the alias local's
+    /// name, `original` the runtime field key (`ball_field_get`'s argument).
+    pub(crate) fn record_instance_field(&self, sanitized: String, original: String) {
+        self.instance_fields
+            .borrow_mut()
+            .insert(sanitized, original);
+    }
+
+    /// Forget the current member's instance fields (member compilation ended).
+    pub(crate) fn clear_instance_fields(&self) {
+        self.instance_fields.borrow_mut().clear();
+    }
+
+    /// Is `original` (an un-sanitized referenced name) an instance field of the
+    /// class member currently being compiled?
+    pub(crate) fn is_instance_field(&self, original: &str) -> bool {
+        self.instance_fields
+            .borrow()
+            .get(&sanitize_ident(original))
+            .is_some_and(|orig| orig == original)
+    }
+
+    /// Is `name` bound in a scope frame at or above `floor` (i.e. *inside* the
+    /// innermost open lambda)? Used to let a lambda parameter/`let` shadow an
+    /// instance-field namesake in the late-bound-field check.
+    fn is_bound_at_or_above(&self, name: &str, floor: usize) -> bool {
+        self.local_scopes.borrow()[floor..]
+            .iter()
+            .any(|frame| frame.contains(name))
+    }
+
+    /// If a reference to `original` from the current compilation point must be
+    /// **late-bound** — read through the shared receiver at closure-call time
+    /// rather than a pre-cloned alias — return the runtime field key. True only
+    /// inside a lambda, for an instance field of the current member, when no
+    /// lambda-local shadows the name and a `__self_recv` receiver is in scope.
+    pub(crate) fn late_bound_field(&self, original: &str) -> Option<String> {
+        // The *outermost* open lambda's floor: any binding created inside any
+        // open lambda (its params/`let`s, or an enclosing lambda's) is a real
+        // lambda-local that shadows a field namesake; only a binding from the
+        // method scope proper (below every floor) is a stale-prone field alias.
+        let floor = *self.lambda_scope_floors.borrow().first()?;
+        if !self.is_instance_field(original)
+            || self.is_bound_at_or_above(original, floor)
+            || !self.is_local("__self_recv")
+        {
+            return None;
+        }
+        Some(original.to_string())
+    }
+
+    /// If `sanitized` (an `LValue::Var` mutation-target name) is an instance
+    /// field of the current member, return its runtime field key — the
+    /// mutation must also write through to the shared instance (immediately in
+    /// a method body; via `__self_recv` inside a lambda). See
+    /// [`Compiler::emit_mutation`].
+    pub(crate) fn instance_field_key_of_var(&self, sanitized: &str) -> Option<String> {
+        self.instance_fields.borrow().get(sanitized).cloned()
+    }
+
+    /// Is compilation currently inside a lambda body?
+    pub(crate) fn in_lambda(&self) -> bool {
+        !self.lambda_scope_floors.borrow().is_empty()
+    }
+
+    /// Enter a compiled `catch` handler body (`_ball_rethrow_err` is in scope).
+    pub(crate) fn enter_catch(&self) {
+        *self.catch_depth.borrow_mut() += 1;
+    }
+
+    /// Leave a compiled `catch` handler body. Paired with [`Compiler::enter_catch`].
+    pub(crate) fn exit_catch(&self) {
+        *self.catch_depth.borrow_mut() -= 1;
+    }
+
+    /// Is a `catch` handler body currently being compiled — i.e. is a
+    /// `_ball_rethrow_err` binding in scope for `std.rethrow` to re-raise?
+    pub(crate) fn in_catch(&self) -> bool {
+        *self.catch_depth.borrow() > 0
     }
 
     /// Enter a control-flow scope (a `try` body or a loop body). Paired with
@@ -866,6 +976,17 @@ impl<'a> Compiler<'a> {
             // so this compiles to `BallValue::Null` — the same value a read
             // of the still-unassigned variable yields.
             "BallValue::Null".to_string()
+        } else if let Some(field_key) = self.late_bound_field(&reference.name) {
+            // Late-bound instance-field read inside a lambda (issue #39/#300):
+            // read through the shared receiver at closure-*call* time. The
+            // pre-cloned field alias a `move` closure captures freezes the
+            // value at closure-build time — the engine's `_buildStdDispatch`
+            // closures (built once at init) then read `_activeException` (and
+            // every other scalar field) permanently stale. `__self_recv` is a
+            // clone of the reference-semantic instance (`Arc<Mutex>`-backed
+            // fields), so this sees the field as of the call — Dart's
+            // closure-over-`this` semantics.
+            format!("ball_field_get(__self_recv.clone(), {field_key:?})")
         } else if !self.is_local(&reference.name)
             && self
                 .top_level_var_names
@@ -1268,12 +1389,19 @@ impl<'a> Compiler<'a> {
         captured.sort();
 
         self.push_scope();
+        // Record where this lambda's own bindings begin, so instance-field
+        // references inside the body resolve late-bound through `__self_recv`
+        // unless a lambda-local shadows them (see `late_bound_field`).
+        self.lambda_scope_floors
+            .borrow_mut()
+            .push(self.local_scopes.borrow().len() - 1);
         self.bind_local("input");
         let prologue = self.param_alias_prologue(lambda);
         let body = match &lambda.body {
             Some(body) => self.compile_expression(body),
             None => "BallValue::Null".to_string(),
         };
+        self.lambda_scope_floors.borrow_mut().pop();
         self.pop_scope();
 
         // A lambda is a first-class function *value*: wrap the compiled `move`
@@ -1339,6 +1467,16 @@ impl<'a> Compiler<'a> {
         match &expr.expr {
             Some(Expr::Reference(reference)) => {
                 out.insert(reference.name.clone());
+                // A lambda-body reference to an **instance field** compiles to
+                // a late-bound `ball_field_get(__self_recv, …)` (see
+                // `late_bound_field`), so the closure captures — and must
+                // pre-clone — the receiver local. The capture filter keeps
+                // `__self_recv` only when it is actually an in-scope local
+                // (i.e. the lambda is inside an instance member), so this is
+                // harmless for a free function's lambda.
+                if self.is_instance_field(&reference.name) {
+                    out.insert("__self_recv".to_string());
+                }
             }
             Some(Expr::Call(call)) => {
                 out.insert(call.function.clone());

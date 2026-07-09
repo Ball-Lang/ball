@@ -249,7 +249,7 @@ impl Compiler<'_> {
             "if" => self.compile_if(&f),
             // ── Error handling / flow signals ──
             "throw" => self.un("ball_throw", &f),
-            "rethrow" => self.unsupported(call),
+            "rethrow" => self.compile_rethrow(),
             "assert" => self.compile_assert(&f),
             "return" => self.compile_return(&f),
             "break" => self.compile_break(&f),
@@ -1202,12 +1202,21 @@ impl Compiler<'_> {
             if let Some(stack_var) = &stack_var {
                 self.bind_local(stack_var);
             }
+            // Compile the handler with a catch in scope so a `std.rethrow`
+            // (Dart `rethrow`) re-raises `_ball_rethrow_err` (issue #39/#300).
+            self.enter_catch();
             let catch_body = cf
                 .get("body")
                 .map(|b| self.compile_expression(b))
                 .unwrap_or_else(|| "BallValue::Null".to_string());
+            self.exit_catch();
             self.pop_scope();
             out.push_str("let __err = ball_catch_payload(__payload);\n");
+            // Stable rethrow target: `rethrow` re-raises the *originally caught*
+            // exception even if the handler reassigns its `catch (e)` variable,
+            // so bind it before `__err` is moved into `var_name`. The leading
+            // underscore keeps it warning-free when the handler never rethrows.
+            out.push_str("let _ball_rethrow_err = __err.clone();\n");
             // Bind the stack-trace variable first (it reads `__err` by clone)
             // so the exception binding can then move `__err` into `var_name`.
             if let Some(stack_var) = &stack_var {
@@ -1232,6 +1241,22 @@ impl Compiler<'_> {
         }
         out.push_str("}\n}\n}");
         out
+    }
+
+    /// `std.rethrow` (the Dart `rethrow` keyword) — re-raise the exception the
+    /// innermost enclosing `catch` is handling. [`Compiler::compile_try`] binds
+    /// that as `_ball_rethrow_err` (the originally-caught value, stable against
+    /// the handler reassigning its `catch (e)` variable) and marks the handler
+    /// via [`Compiler::enter_catch`], so a `rethrow` here re-panics with it (the
+    /// same `ball_throw` an outer `try` catches). A `rethrow` with no enclosing
+    /// catch mirrors the reference engine's `rethrow outside of catch` error
+    /// (only reachable in a malformed program). Issue #39/#300.
+    fn compile_rethrow(&self) -> String {
+        if self.in_catch() {
+            "ball_throw(_ball_rethrow_err.clone())".to_string()
+        } else {
+            "ball_throw(BallValue::String(\"rethrow outside of catch\".to_string()))".to_string()
+        }
     }
 
     /// The `match __flow { … }` that re-issues a `try`'s [`ball_shared::runtime::BallFlow`]

@@ -697,6 +697,7 @@ impl Compiler<'_> {
         } else {
             self.method_field_writeback(owner_td, func.body.as_deref())
         };
+        self.clear_instance_fields();
         self.pop_scope();
         if writeback.is_empty() {
             format!(
@@ -861,6 +862,11 @@ impl Compiler<'_> {
         let mut out = String::new();
         for field_name in self.all_instance_field_names(owner_td) {
             self.bind_local(&field_name);
+            // Record the field for late-bound access inside lambdas and
+            // immediate write-through on assignment (issue #39/#300 — see
+            // `Compiler::late_bound_field` / `Compiler::emit_mutation`).
+            // Cleared by the member compilers when the body is done.
+            self.record_instance_field(crate::sanitize_ident(&field_name), field_name.clone());
             let keyword = if body.is_some_and(|body| self.expr_mutates_var(body, &field_name)) {
                 "let mut"
             } else {
@@ -1094,6 +1100,7 @@ impl Compiler<'_> {
                 ));
             }
         }
+        self.clear_instance_fields();
         self.pop_scope();
         format!(
             "    pub fn {short}(input: BallValue) -> BallValue {{\n\

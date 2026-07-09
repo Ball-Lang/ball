@@ -231,6 +231,24 @@ impl Compiler<'_> {
             "to_string_as_fixed" => {
                 self.compile_2("ball_to_string_as_fixed", &f, "value", "digits")
             }
+            // `toStringAsExponential([fractionDigits])` / `toStringAsPrecision(p)`
+            // — issue #100. An absent `digits` (the no-argument exponential
+            // form) compiles to `Null`, which the runtime maps to the
+            // shortest-round-trip mantissa. Field aliases mirror the engine's
+            // handler (`m['digits'] ?? m['fractionDigits']`, `m['precision'] ??
+            // m['digits']` — `dart/engine/lib/engine_std.dart`).
+            "to_string_as_exponential" => self.bin_alias(
+                "ball_to_string_as_exponential",
+                &f,
+                &["value", "left"],
+                &["digits", "fractionDigits"],
+            ),
+            "to_string_as_precision" => self.bin_alias(
+                "ball_to_string_as_precision",
+                &f,
+                &["value", "left"],
+                &["precision", "digits"],
+            ),
             "string_code_unit_at" => {
                 self.compile_2("ball_string_code_unit_at", &f, "value", "index")
             }

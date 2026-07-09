@@ -2172,17 +2172,249 @@ pub fn ball_to_int(value: BallValue) -> BallValue {
     }
 }
 
-/// `num.toStringAsFixed(digits)` — fixed-point decimal string. Matches Dart:
-/// `-0.0` and values that round to zero render without a leading `-`
-/// (issue #101 parity — Dart's `toStringAsFixed` never emits `-0`).
+/// `num.toStringAsFixed(digits)` — fixed-point decimal string with Dart's
+/// round-half-AWAY-from-zero on an exact decimal tie (`(-2.5).toStringAsFixed(0)`
+/// → `-3`, where Rust's `{:.0}` ties-to-even gives `-2` — the 316 golden).
+/// Uses the same exact-decimal-digit extraction as
+/// [`ball_to_string_as_exponential`]. The historic sign-strip for values that
+/// render as all zeros is preserved (the compiled engine's own handler re-adds
+/// the sign for a genuinely negative receiver — issue #101 negative-zero
+/// parity).
 pub fn ball_to_string_as_fixed(value: BallValue, digits: BallValue) -> BallValue {
     let n = as_f64(&value);
     let d = as_index(&digits);
-    let mut formatted = format!("{n:.d$}");
+    if n.is_nan() {
+        return BallValue::String("NaN".to_string());
+    }
+    if n.is_infinite() {
+        return BallValue::String(if n < 0.0 { "-Infinity" } else { "Infinity" }.to_string());
+    }
+    let neg = n.is_sign_negative();
+    let ax = n.abs();
+    let mut formatted = if ax == 0.0 {
+        if d > 0 {
+            format!("0.{}", "0".repeat(d))
+        } else {
+            "0".to_string()
+        }
+    } else {
+        fixed_away_from_zero(ax, d)
+    };
+    if neg {
+        formatted.insert(0, '-');
+    }
     if formatted.starts_with('-') && formatted[1..].chars().all(|c| c == '0' || c == '.') {
         formatted.remove(0);
     }
     BallValue::String(formatted)
+}
+
+/// Fixed-point rendering of a finite `ax > 0` with `d` fraction digits,
+/// rounding half away from zero on exact decimal ties (see
+/// [`ball_to_string_as_fixed`]).
+fn fixed_away_from_zero(ax: f64, d: usize) -> String {
+    let s = format!("{ax:.1080e}");
+    let epos = s.find('e').expect("float exp format always has an 'e'");
+    let exp: i32 = s[epos + 1..].parse().expect("exponent parses");
+    // Significant digits that survive at `d` fraction digits.
+    let k = exp as i64 + 1 + d as i64;
+    let (m, e2) = if k <= 0 {
+        // Every digit is dropped. The first dropped digit decides: at `k == 0`
+        // the leading significant digit sits exactly one place below the last
+        // kept fractional place, so `>= 5` rounds up to a `1` there
+        // (`0.05.toStringAsFixed(1)` → `0.1`); anything smaller — and any
+        // `k < 0` — rounds to zero.
+        if k == 0 && s.as_bytes()[0] >= b'5' {
+            ("1".to_string(), exp + 1)
+        } else {
+            return if d > 0 {
+                format!("0.{}", "0".repeat(d))
+            } else {
+                "0".to_string()
+            };
+        }
+    } else {
+        round_sig_digits(ax, k as usize)
+    };
+    // value = m[0].m[1..] × 10^e2 — lay the digits out around the point.
+    let intd = e2 + 1;
+    let int_part;
+    let mut frac = String::new();
+    if intd <= 0 {
+        int_part = "0".to_string();
+        frac.push_str(&"0".repeat((-intd) as usize));
+        frac.push_str(&m);
+    } else {
+        let intd = intd as usize;
+        if m.len() >= intd {
+            int_part = m[..intd].to_string();
+            frac.push_str(&m[intd..]);
+        } else {
+            // A rounding carry can leave fewer significant digits than integer
+            // places (9.99 → "10" with e2 bumped): zero-fill the integer part.
+            int_part = format!("{}{}", m, "0".repeat(intd - m.len()));
+        }
+    }
+    // Exactly `d` fraction digits (a carry shortens the natural count by one).
+    while frac.len() < d {
+        frac.push('0');
+    }
+    frac.truncate(d);
+    if d > 0 {
+        format!("{int_part}.{frac}")
+    } else {
+        int_part
+    }
+}
+
+// ── num.toStringAsExponential / num.toStringAsPrecision (byte-exact Dart) ──
+// Dart's (and ECMAScript's) exponential/precision formatting differs from a
+// naive `format!("{:e}")`/precision print in three ways that MUST match for
+// conformance (issue #100): a *minimal* exponent (`1.23e+2`, never `e+02`),
+// significant digits padded with trailing zeros (`1.0.toStringAsPrecision(3)`
+// → `1.00`), and round-half-AWAY-from-zero on an exact decimal tie
+// (`2.5.toStringAsExponential(0)` → `3e+0`, where IEEE ties-to-even gives
+// `2e+0`). Ported from the proven C++ emission
+// (`cpp/shared/include/ball_emit_runtime.h`): extract the value's EXACT
+// decimal digits and round the digit string ourselves.
+
+/// Round the exact significant digits of `ax` (finite, > 0) to `k` significant
+/// digits using round-half-away-from-zero. Returns the k-digit string and the
+/// decimal exponent of the leading digit (value = D[0].D[1..] × 10^E); a
+/// rounding carry (9.99 → 10) bumps it.
+///
+/// `{:.1080e}` yields 1081 significant digits — more than the 767 a double's
+/// exact decimal expansion can ever need — so the printed digits are EXACT
+/// (trailing zeros, never a rounding artifact). Because the discarded tail is
+/// therefore exact, "away from zero on a tie" reduces to the simple test
+/// `D[k] >= '5'` (any exact-half rounds up, matching Dart).
+fn round_sig_digits(ax: f64, k: usize) -> (String, i32) {
+    let s = format!("{ax:.1080e}");
+    let epos = s.find('e').expect("float exp format always has an 'e'");
+    let mut exp: i32 = s[epos + 1..].parse().expect("exponent parses");
+    // "D.DDD…e±E" → the significant digits without the decimal point.
+    let mut digits = String::with_capacity(1081);
+    digits.push_str(&s[..1]);
+    digits.push_str(&s[2..epos]);
+    if digits.len() <= k {
+        let pad = k - digits.len();
+        digits.extend(std::iter::repeat_n('0', pad));
+        return (digits, exp);
+    }
+    let round_up = digits.as_bytes()[k] >= b'5';
+    let mut kept: Vec<u8> = digits.as_bytes()[..k].to_vec();
+    if round_up {
+        let mut carried = true;
+        for slot in kept.iter_mut().rev() {
+            if *slot != b'9' {
+                *slot += 1;
+                carried = false;
+                break;
+            }
+            *slot = b'0';
+        }
+        if carried {
+            // All nines: 9.99 → 10.0 — one more leading digit, drop the last.
+            kept.truncate(k.saturating_sub(1));
+            kept.insert(0, b'1');
+            exp += 1;
+        }
+    }
+    (String::from_utf8(kept).expect("ASCII digits"), exp)
+}
+
+/// Append Dart's minimal exponent suffix (`e+2` / `e-4`) to `out`.
+fn push_dart_exponent(out: &mut String, e: i32) {
+    out.push('e');
+    out.push(if e < 0 { '-' } else { '+' });
+    out.push_str(&e.abs().to_string());
+}
+
+/// `num.toStringAsExponential([fractionDigits])` — `digits == Null` means the
+/// no-argument form (shortest round-trip mantissa, which Rust's `{:e}`
+/// produces exactly — only the exponent needs Dart's `+` sign).
+pub fn ball_to_string_as_exponential(value: BallValue, digits: BallValue) -> BallValue {
+    let x = as_f64(&value);
+    if x.is_nan() {
+        return BallValue::String("NaN".to_string());
+    }
+    if x.is_infinite() {
+        return BallValue::String(if x < 0.0 { "-Infinity" } else { "Infinity" }.to_string());
+    }
+    let neg = x.is_sign_negative();
+    let ax = x.abs();
+    let mut out;
+    if matches!(digits, BallValue::Null) {
+        let s = format!("{ax:e}");
+        let epos = s.find('e').expect("float exp format always has an 'e'");
+        out = s[..epos].to_string();
+        push_dart_exponent(&mut out, s[epos + 1..].parse().expect("exponent parses"));
+    } else {
+        let d = as_index(&digits);
+        if ax == 0.0 {
+            out = String::from("0");
+            if d > 0 {
+                out.push('.');
+                out.extend(std::iter::repeat_n('0', d));
+            }
+            out.push_str("e+0");
+        } else {
+            let (m, e) = round_sig_digits(ax, d + 1);
+            out = m[..1].to_string();
+            if d > 0 {
+                out.push('.');
+                out.push_str(&m[1..]);
+            }
+            push_dart_exponent(&mut out, e);
+        }
+    }
+    BallValue::String(if neg { format!("-{out}") } else { out })
+}
+
+/// `num.toStringAsPrecision(precision)` — `p` significant digits, choosing
+/// fixed vs exponential form by ECMAScript's rule (exponent < -6 or >= p ⇒
+/// exponential form).
+pub fn ball_to_string_as_precision(value: BallValue, precision: BallValue) -> BallValue {
+    let x = as_f64(&value);
+    if x.is_nan() {
+        return BallValue::String("NaN".to_string());
+    }
+    if x.is_infinite() {
+        return BallValue::String(if x < 0.0 { "-Infinity" } else { "Infinity" }.to_string());
+    }
+    let p = as_index(&precision).max(1);
+    let neg = x.is_sign_negative();
+    let ax = x.abs();
+    let mut out;
+    if ax == 0.0 {
+        out = String::from("0");
+        if p > 1 {
+            out.push('.');
+            out.extend(std::iter::repeat_n('0', p - 1));
+        }
+    } else {
+        let (m, e) = round_sig_digits(ax, p);
+        if e < -6 || e >= p as i32 {
+            out = m[..1].to_string();
+            if p > 1 {
+                out.push('.');
+                out.push_str(&m[1..]);
+            }
+            push_dart_exponent(&mut out, e);
+        } else if e >= 0 {
+            let intd = (e + 1) as usize;
+            out = m[..intd].to_string();
+            if p > intd {
+                out.push('.');
+                out.push_str(&m[intd..]);
+            }
+        } else {
+            out = String::from("0.");
+            out.extend(std::iter::repeat_n('0', (-e - 1) as usize));
+            out.push_str(&m);
+        }
+    }
+    BallValue::String(if neg { format!("-{out}") } else { out })
 }
 
 /// `num.roundToDouble()` — round half away from zero, as a double.

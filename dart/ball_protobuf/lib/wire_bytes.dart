@@ -11,7 +11,15 @@ List<int> makeBuffer() => [];
 /// Reference: https://protobuf.dev/programming-guides/encoding/#length-types
 List<int> encodeBytes(List<int> buffer, List<int> data) {
   encodeVarint(buffer, data.length);
-  buffer.addAll(data);
+  // Append per-item (NOT buffer.addAll(data)): addAll encodes to the
+  // non-mutating `list_concat` on the C++/TS targets, which returns a NEW list
+  // that callers relying on in-place mutation (marshal discards the return
+  // value) silently drop — corrupting every string/bytes/packed/message field.
+  // `.add` compiles to an in-place `list_push` on the shared buffer, so the
+  // appended bytes are visible to the caller. See .claude/rules/dart.md.
+  for (final b in data) {
+    buffer.add(b);
+  }
   return buffer;
 }
 

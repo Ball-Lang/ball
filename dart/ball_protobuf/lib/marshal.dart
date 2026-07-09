@@ -120,7 +120,11 @@ int wireTypeForFieldType(String type) {
 /// END_GROUP tag.
 List<int> encodeGroupField(List<int> buffer, int fieldNumber, List<int> body) {
   encodeTag(buffer, fieldNumber, _wtSGroup);
-  buffer.addAll(body);
+  // Per-item append: addAll -> non-mutating list_concat drops the body on the
+  // C++/TS targets when the caller discards the return (see wire_bytes.dart).
+  for (final b in body) {
+    buffer.add(b);
+  }
   encodeTag(buffer, fieldNumber, _wtEGroup);
   return buffer;
 }
@@ -428,10 +432,17 @@ List<int> _writeScalarForced(
   if (buffer.length != before) return buffer; // non-default: encoder wrote it.
   final wt = wireTypeForFieldType(type);
   encodeTag(buffer, fieldNumber, wt);
+  // Per-item append: addAll -> non-mutating list_concat drops the zero payload
+  // on the C++/TS targets when the caller discards the return (see
+  // wire_bytes.dart).
   if (wt == _wtI32) {
-    buffer.addAll(const [0, 0, 0, 0]);
+    for (final b in const [0, 0, 0, 0]) {
+      buffer.add(b);
+    }
   } else if (wt == _wtI64) {
-    buffer.addAll(const [0, 0, 0, 0, 0, 0, 0, 0]);
+    for (final b in const [0, 0, 0, 0, 0, 0, 0, 0]) {
+      buffer.add(b);
+    }
   } else {
     // VARINT (0) and LEN (length 0) both encode as a single zero byte.
     buffer.add(0);

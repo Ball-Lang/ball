@@ -143,7 +143,12 @@ List<int> encodeFloatField(List<int> buffer, int fieldNumber, double value) {
   // false, so negative zero falls through and is serialized.
   if (identical(value, 0.0)) return buffer;
   encodeTag(buffer, fieldNumber, 5);
-  buffer.addAll(_encodeFloatBytes(value));
+  // Per-item append: addAll -> non-mutating list_concat drops the bytes on the
+  // C++/TS targets when the caller discards the return (see wire_bytes.dart).
+  final bytes = _encodeFloatBytes(value);
+  for (final b in bytes) {
+    buffer.add(b);
+  }
   return buffer;
 }
 
@@ -160,7 +165,12 @@ List<int> encodeDoubleField(List<int> buffer, int fieldNumber, double value) {
   // false, so negative zero falls through and is serialized.
   if (identical(value, 0.0)) return buffer;
   encodeTag(buffer, fieldNumber, 1);
-  buffer.addAll(_encodeDoubleBytes(value));
+  // Per-item append: addAll -> non-mutating list_concat drops the bytes on the
+  // C++/TS targets when the caller discards the return (see wire_bytes.dart).
+  final bytes = _encodeDoubleBytes(value);
+  for (final b in bytes) {
+    buffer.add(b);
+  }
   return buffer;
 }
 

@@ -85,6 +85,58 @@ loading.
     (`encodeVarint(buf, 300)` → `decodeVarint` → `{value: 300, bytesRead: 2}`)
     before wiring it into the smoke target.
 
+**Wire-codec portability fix (source) — regen still pending:**
+- `dart/ball_protobuf/lib/` used `buffer.addAll(data)` to append multi-byte
+  payloads (`wire_bytes.dart` `encodeBytes`, `marshal.dart` `encodeGroupField` /
+  `_writeScalarForced`, `field_fixed.dart` float/double). `addAll` encodes to the
+  NON-mutating `list_concat`, which returns a NEW list; callers that thread a
+  buffer through and rely on in-place mutation (`marshal` discards the return of
+  `encodeBytes`/`encodeTag`) silently DROP the appended bytes on the C++/TS
+  targets — so every string/bytes/packed/nested-message field mis-encoded (the
+  length prefix is written by the per-byte `encodeVarint`, but the payload is
+  lost). Native Dart tests never caught it (Dart's real `addAll` is in-place);
+  see `.claude/rules/dart.md`'s `addAll` trap. **Fixed at source** by appending
+  per-item (`for (final b in data) buffer.add(b);` → in-place `list_push`),
+  proven byte-exact against the compiled runtime with a standalone g++ harness,
+  and the 587-test native `ball_protobuf` suite still passes. `ball_protobuf.json`
+  is regenerated (freshness-gated).
+- **`cpp/shared/ball_protobuf_rt.h` is NOT yet regenerated** (it is a generated
+  artifact produced by the built `ball_cpp_compile`; unlike `ball_protobuf.json`
+  it has no CI freshness gate). Regenerating it locally is currently blocked:
+  building the C++ compiler pulls protobuf via FetchContent, and BOTH the pinned
+  `v34.1` (its runtime is incompatible with the checked-in `cpp/shared/gen`
+  gencode, which now carries a `PROTOBUF_VERSION == 7035001` / 35.1 guard — a
+  pre-existing skew that only bites when `buf` is off PATH so the stale gen
+  fallback is used) and `v35.1` (its `repeated_ptr_field.h` will not compile with
+  g++ 14.2 — `ABSL_ATTRIBUTE_VIEW`/`RepeatedPtrIterator` template conflict) fail
+  to build. **TODO:** regenerate on a toolchain that can build the compiler
+  (`cd dart/compiler && dart run tool/compile_ball_protobuf_cpp.dart`, or
+  `ball_cpp_compile dart/shared/ball_protobuf.json --library --ns ball_protobuf
+  --out cpp/shared/ball_protobuf_rt.h`) so the fix reaches the C++ runtime.
+- **Two further defects the current `ball_protobuf_rt.h` still exhibits** (found
+  while building a descriptor-driven canary; both need the regen above and/or a
+  compiler fix — the `-DBALL_BUILD_PROTOBUF_RT=ON` canary only covers
+  varint/zigzag/fixed32 primitives, so it does NOT catch either):
+  1. **Singular `TYPE_MESSAGE` marshaling is broken by named-arg lowering.**
+     `marshal.dart` calls `marshalField(buffer, fieldNumber, type, value,
+     explicitPresence: …, delimited: …, messageDescriptor: msgDescriptor)` —
+     omitting the earlier optional `repeated:`. The C++ compiler lowered the
+     named args into consecutive positional slots (`repeated`, `explicitPresence`,
+     `delimited`) instead of by declared-parameter position, so `messageDescriptor`
+     lands in the `delimited` slot and the real `messageDescriptor` defaults to
+     null → `marshalField` throws "TYPE_MESSAGE field N received a Map but no
+     messageDescriptor". Repeated-message fields go through a different path
+     (`marshal(item, msgDescriptor)` directly) and are unaffected. This is a
+     compiler codegen bug (named→positional arg alignment must fill skipped
+     optionals with defaults); scalar fields happen to work because the
+     mis-slotted values are all falsy.
+  2. **`unmarshal` mis-tracks offset** in the committed header: a byte-exact
+     marshal output (verified) fails to round-trip — `unmarshal` reads a field
+     tag but does not advance past the field VALUE, re-reading the value byte as
+     the next tag. Native Dart `unmarshal` passes, so this is header
+     staleness/miscompilation, not a source bug; regenerating the header should
+     clear it (re-verify with a descriptor-driven round-trip canary afterward).
+
 **Deferred (full cutover):**
 - The compiler (`compiler/`) and encoder (`encoder/`) still consume the
   generated `ball::v1::` protobuf types throughout their ~600 KB emission code

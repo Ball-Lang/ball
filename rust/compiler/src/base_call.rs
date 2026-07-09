@@ -66,7 +66,9 @@ use indexmap::IndexMap;
 use ball_shared::extract_fields;
 use ball_shared::proto::ball::v1::expression::Expr;
 use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::{Expression, FunctionCall, ListLiteral, MessageCreation};
+use ball_shared::proto::ball::v1::{
+    Expression, FieldValuePair, FunctionCall, ListLiteral, MessageCreation,
+};
 
 use crate::Compiler;
 
@@ -744,33 +746,160 @@ impl Compiler<'_> {
     /// `[[key, value], …]` list and hands it to the `ball_map_create` runtime
     /// helper (which stringifies keys — Ball maps are string-keyed).
     fn compile_map_create(&self, call: &FunctionCall) -> String {
-        let mut pairs: Vec<String> = Vec::new();
-        if let Some(Expression {
-            expr: Some(Expr::MessageCreation(mc)),
-        }) = call.input.as_deref()
-        {
-            for field in &mc.fields {
-                if field.name == "type_args" || field.name == "elements" {
-                    continue;
+        let fields: &[FieldValuePair] = match call.input.as_deref() {
+            Some(Expression {
+                expr: Some(Expr::MessageCreation(mc)),
+            }) => &mc.fields,
+            _ => &[],
+        };
+        let entry_fields: Vec<&FieldValuePair> = fields
+            .iter()
+            .filter(|f| f.name != "type_args" && f.name != "elements")
+            .collect();
+        // A map **comprehension** encodes its `for`/`if`/spread parts as
+        // `element` fields (a `collection_for`/`collection_if`/`spread` call),
+        // with `key: value` leaves as bare `{key, value}` message-creations —
+        // NOT `entry` fields. The old code processed only `entry`, so a
+        // comprehension (`{for e in m.entries: k: v}`, e.g. the engine's own
+        // `_toJsonSafe`) produced an EMPTY map and `jsonEncode` printed `{}`
+        // (#39/#300, fixture 185). When any `element` field is present, build the
+        // pair list imperatively so the comprehension parts splice.
+        if entry_fields.iter().any(|f| f.name == "element") {
+            let mut out = String::from("{\nlet mut __map_entries: Vec<BallValue> = Vec::new();\n");
+            for field in &entry_fields {
+                if let Some(value) = field.value.as_ref() {
+                    out.push_str(&self.compile_map_collection_element("__map_entries", value));
                 }
-                if field.name == "entry" {
-                    if let Some(Expression {
-                        expr: Some(Expr::MessageCreation(entry)),
-                    }) = field.value.as_ref()
-                    {
-                        let ef = self.message_creation_fields(entry);
-                        pairs.push(format!(
-                            "BallValue::List(BallList::from(vec![{}, {}]))",
-                            self.field_or_null(&ef, "key"),
-                            self.field_or_null(&ef, "value")
-                        ));
-                    }
+            }
+            out.push_str("ball_map_create(BallValue::List(BallList::from(__map_entries)))\n}");
+            return out;
+        }
+        let mut pairs: Vec<String> = Vec::new();
+        for field in &entry_fields {
+            if field.name == "entry" {
+                if let Some(Expression {
+                    expr: Some(Expr::MessageCreation(entry)),
+                }) = field.value.as_ref()
+                {
+                    let ef = self.message_creation_fields(entry);
+                    pairs.push(format!(
+                        "BallValue::List(BallList::from(vec![{}, {}]))",
+                        self.field_or_null(&ef, "key"),
+                        self.field_or_null(&ef, "value")
+                    ));
                 }
             }
         }
         format!(
             "ball_map_create(BallValue::List(BallList::from(vec![{}])))",
             pairs.join(", ")
+        )
+    }
+
+    /// Append one map-literal element to `target` (a `Vec<BallValue>` of
+    /// `[key, value]` pairs). The map analogue of [`compile_collection_element`]:
+    /// a `collection_if`/`collection_for` splices its produced entries, a
+    /// `spread` splices another map's entries, and a leaf `{key, value}`
+    /// message-creation (the encoded shape of a `key: value` map entry) pushes
+    /// one pair. Nested forms recurse (`{if (c) k: v}` composes) — #39/#300, 185.
+    fn compile_map_collection_element(&self, target: &str, el: &Expression) -> String {
+        if let Some(kind) = Self::collection_element_fn(el) {
+            let Some(Expr::Call(call)) = &el.expr else {
+                unreachable!("collection_element_fn matched a non-call element")
+            };
+            let f = extract_fields(call);
+            return match kind {
+                "spread" | "null_spread" => {
+                    // `{...m}` — splice each `[key, value]` entry pair of `m`.
+                    // `ball_iterate` on a map yields `[key, value]` lists (the
+                    // pair shape `ball_map_create` consumes).
+                    let operand = self.field_or_null(&f, "value");
+                    let guard = if kind == "null_spread" {
+                        "if !matches!(__sp, BallValue::Null)"
+                    } else {
+                        "if true"
+                    };
+                    format!(
+                        "{{ let __sp = {operand}; {guard} {{ for __e in ball_iterate(__sp) {{ {target}.push(__e); }} }} }}\n"
+                    )
+                }
+                "collection_if" => {
+                    let cond = match f.get("condition") {
+                        Some(c) => format!("ball_truthy({})", self.compile_expression(c)),
+                        None => "false".to_string(),
+                    };
+                    let then = f
+                        .get("then")
+                        .map(|e| self.compile_map_collection_element(target, e))
+                        .unwrap_or_default();
+                    match f.get("else") {
+                        Some(else_expr) => {
+                            let els = self.compile_map_collection_element(target, else_expr);
+                            format!("if {cond} {{\n{then}}} else {{\n{els}}}\n")
+                        }
+                        None => format!("if {cond} {{\n{then}}}\n"),
+                    }
+                }
+                "collection_for" => self.compile_map_collection_for(target, &f),
+                _ => unreachable!("collection_element_fn returned an unexpected kind"),
+            };
+        }
+        // Leaf: a `key: value` map entry (a bare `{key, value}` message-creation).
+        if let Some(Expr::MessageCreation(entry)) = &el.expr {
+            let ef = self.message_creation_fields(entry);
+            return format!(
+                "{target}.push(BallValue::List(BallList::from(vec![{}, {}])));\n",
+                self.field_or_null(&ef, "key"),
+                self.field_or_null(&ef, "value")
+            );
+        }
+        // A defensive no-op for an unexpected element shape (never reached by the
+        // encoder's map-literal output).
+        format!("let _ = {};\n", self.compile_expression(el))
+    }
+
+    /// The map analogue of [`compile_collection_for`] — appends each produced
+    /// `[key, value]` pair to `target`. Handles for-each and C-style forms.
+    fn compile_map_collection_for(&self, target: &str, f: &IndexMap<String, Expression>) -> String {
+        if let Some(iterable) = f.get("iterable") {
+            let variable = self
+                .string_field(f, "variable")
+                .unwrap_or_else(|| "item".to_string());
+            let var_ident = crate::sanitize_ident(&variable);
+            let iterable_code = self.compile_expression(iterable);
+            self.push_scope();
+            self.bind_local(&variable);
+            let body = f
+                .get("body")
+                .map(|e| self.compile_map_collection_element(target, e))
+                .unwrap_or_default();
+            self.pop_scope();
+            return format!(
+                "for __item in ball_iterate({iterable_code}) {{\nlet {var_ident} = __item;\n{body}}}\n"
+            );
+        }
+        self.push_scope();
+        let init_code = f
+            .get("init")
+            .map(|e| self.compile_for_init(e))
+            .unwrap_or_default();
+        let condition_code = match f.get("condition") {
+            Some(condition) => format!("ball_truthy({})", self.compile_expression(condition)),
+            None => "true".to_string(),
+        };
+        let body = f
+            .get("body")
+            .map(|e| self.compile_map_collection_element(target, e))
+            .unwrap_or_default();
+        let update_code = f
+            .get("update")
+            .map(|e| self.compile_expression(e))
+            .unwrap_or_default();
+        self.pop_scope();
+        format!(
+            "{{\n{init_code}let mut __ball_cfor_first = true;\nloop {{\n\
+             if __ball_cfor_first {{ __ball_cfor_first = false; }} else {{ {update_code}; }}\n\
+             if !{condition_code} {{ break; }}\n{body}}}\n}}\n"
         )
     }
 

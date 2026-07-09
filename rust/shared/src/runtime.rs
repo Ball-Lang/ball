@@ -625,6 +625,40 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             .get(field)
             .or_else(|| proto_getter_alias(field).and_then(|alias| message.get(alias)))
             .unwrap_or(BallValue::Null),
+        // Number getters accessed as a bare field (`n.isEven`, `d.isNegative`,
+        // `n.sign`, …). The engine's own field-access dispatch reads these off a
+        // *raw* number (`object.value.isNegative` after unwrapping a
+        // `BallDouble`/`BallInt`), so a raw `Int`/`Double` must answer them
+        // instead of falling to the non-message panic (#39/#300, fixture 317).
+        BallValue::Int(i) => match field {
+            "isNegative" => BallValue::Bool(i < 0),
+            "isEven" => BallValue::Bool(i % 2 == 0),
+            "isOdd" => BallValue::Bool(i % 2 != 0),
+            "sign" => BallValue::Int(i.signum()),
+            "isFinite" => BallValue::Bool(true),
+            "isInfinite" => BallValue::Bool(false),
+            "isNaN" => BallValue::Bool(false),
+            other => panic!("ball-compiler runtime: field access '{other}' on an int"),
+        },
+        BallValue::Double(d) => match field {
+            // Dart's `double.isNegative` is the sign bit — `-0.0` is negative.
+            "isNegative" => BallValue::Bool(d.is_sign_negative()),
+            "isFinite" => BallValue::Bool(d.is_finite()),
+            "isInfinite" => BallValue::Bool(d.is_infinite()),
+            "isNaN" => BallValue::Bool(d.is_nan()),
+            // Dart's `double.sign`: 1.0 / -1.0 / the value itself for ±0.0, NaN
+            // for NaN.
+            "sign" => BallValue::Double(if d.is_nan() {
+                f64::NAN
+            } else if d > 0.0 {
+                1.0
+            } else if d < 0.0 {
+                -1.0
+            } else {
+                d
+            }),
+            other => panic!("ball-compiler runtime: field access '{other}' on a double"),
+        },
         other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
     }
 }
@@ -835,7 +869,10 @@ pub fn ball_iterate(value: BallValue) -> Vec<BallValue> {
         // see a real `[]`), rather than throwing.
         BallValue::Null => Vec::new(),
         // `bytes` iterates as its byte ints (a `List<int>` — #39/#300).
-        BallValue::Bytes(bytes) => bytes.into_iter().map(|b| BallValue::Int(b as i64)).collect(),
+        BallValue::Bytes(bytes) => bytes
+            .into_iter()
+            .map(|b| BallValue::Int(b as i64))
+            .collect(),
         other => panic!("ball-compiler runtime: '{other:?}' is not iterable"),
     }
 }
@@ -1392,7 +1429,10 @@ fn as_list(value: BallValue) -> Vec<BallValue> {
         // `bytes` is a `List<int>` in Dart — a bytes literal or `utf8.encode`
         // result flows through list ops (`.toList()`/`for-in`/indexing) as its
         // byte ints (#39/#300, fixtures 190/191/399).
-        BallValue::Bytes(bytes) => bytes.into_iter().map(|b| BallValue::Int(b as i64)).collect(),
+        BallValue::Bytes(bytes) => bytes
+            .into_iter()
+            .map(|b| BallValue::Int(b as i64))
+            .collect(),
         other => panic!("ball-compiler runtime: expected a list, got {other:?}"),
     }
 }
@@ -1400,9 +1440,10 @@ fn as_list(value: BallValue) -> Vec<BallValue> {
 pub fn ball_list_get(list: BallValue, index: BallValue) -> BallValue {
     let items = as_list(list);
     let i = as_index(&index);
-    items.get(i).cloned().unwrap_or_else(|| {
-        ball_throw_typed("RangeError", format!("list index {i} out of range"))
-    })
+    items
+        .get(i)
+        .cloned()
+        .unwrap_or_else(|| ball_throw_typed("RangeError", format!("list index {i} out of range")))
 }
 
 pub fn ball_list_length(list: BallValue) -> BallValue {
@@ -2867,6 +2908,29 @@ mod dartsdk {
     /// `int.parse(s)` / `num.parse(s)` / `double.parse(s)` — the throwing form
     /// (Dart raises `FormatException` on a bad source; this fails loud).
     pub fn parse(input: BallValue) -> BallValue {
+        // `DateTime.parse(str)` routes here too (its `self` is the "DateTime"
+        // type marker). It returns a DateTime message, not a number — the
+        // engine's `parse_timestamp` reads `.millisecondsSinceEpoch` off it
+        // (#39/#300, fixture 188).
+        if matches!(&m_get(&input, "self"), BallValue::String(s) if s == "DateTime") {
+            let arg = m_get(&input, "arg0");
+            let src = as_str(&arg);
+            return match iso8601_millis_from_utc(src) {
+                Some(ms) => {
+                    let fields = BallMap::new();
+                    fields.insert("millisecondsSinceEpoch".to_string(), BallValue::Int(ms));
+                    fields.insert(
+                        "microsecondsSinceEpoch".to_string(),
+                        BallValue::Int(ms.saturating_mul(1000)),
+                    );
+                    BallValue::Map(fields)
+                }
+                None => ball_throw_typed(
+                    "FormatException",
+                    format!("cannot parse '{src}' as DateTime"),
+                ),
+            };
+        }
         let result = tryParse(input.clone());
         if result == BallValue::Null {
             let source = m_get(&input, "arg0");
@@ -3299,6 +3363,59 @@ mod dartsdk {
         let month = if mp < 10 { mp + 3 } else { mp - 9 };
         let year = if month <= 2 { year + 1 } else { year };
         format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
+    }
+
+    /// Days since 1970-01-01 for a civil (year, month, day) — the exact inverse
+    /// of the civil-from-days conversion in [`iso8601_utc_from_millis`] (Howard
+    /// Hinnant's algorithm).
+    fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+        let y = if m <= 2 { y - 1 } else { y };
+        let era = (if y >= 0 { y } else { y - 399 }) / 400;
+        let yoe = y - era * 400;
+        let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        era * 146_097 + doe - 719_468
+    }
+
+    /// `DateTime.parse` for the canonical UTC ISO-8601 form the engine's
+    /// `format_timestamp` emits (`"YYYY-MM-DDTHH:MM:SS[.fff][Z]"`, `T` or space
+    /// separator) → epoch milliseconds. The inverse of [`iso8601_utc_from_millis`]
+    /// (#39/#300, fixture 188). A trailing `Z`/offset is treated as UTC (the
+    /// value model is epoch-based). Returns `None` on a malformed string.
+    fn iso8601_millis_from_utc(s: &str) -> Option<i64> {
+        let s = s.trim();
+        let bytes = s.as_bytes();
+        if s.len() < 19 {
+            return None;
+        }
+        let field = |a: usize, b: usize| -> Option<i64> { s.get(a..b)?.parse().ok() };
+        if bytes[4] != b'-' || bytes[7] != b'-' || (bytes[10] != b'T' && bytes[10] != b' ') {
+            return None;
+        }
+        if bytes[13] != b':' || bytes[16] != b':' {
+            return None;
+        }
+        let year = field(0, 4)?;
+        let month = field(5, 7)?;
+        let day = field(8, 10)?;
+        let hour = field(11, 13)?;
+        let minute = field(14, 16)?;
+        let second = field(17, 19)?;
+        let mut millis = 0i64;
+        if bytes.get(19) == Some(&b'.') {
+            let frac_start = 20;
+            let mut frac_end = frac_start;
+            while frac_end < bytes.len() && bytes[frac_end].is_ascii_digit() {
+                frac_end += 1;
+            }
+            let mut ms_str = s[frac_start..frac_end].to_string();
+            while ms_str.len() < 3 {
+                ms_str.push('0');
+            }
+            millis = ms_str.get(..3)?.parse().ok()?;
+        }
+        let days = days_from_civil(year, month, day);
+        Some(days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1000 + millis)
     }
 
     // ── dart:math free functions (`dart_math::*`) ────────────

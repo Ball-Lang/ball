@@ -3,7 +3,6 @@
 
 #include "compiler.h"
 #include "ball_ir.h"
-#include <google/protobuf/util/json_util.h>
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -67,108 +66,165 @@ static int tests_failed = 0;
 // Helpers
 // ================================================================
 
-ball::v1::Expression lit_int(int64_t val) {
-    ball::v1::Expression expr;
-    expr.mutable_literal()->set_int_value(val);
-    return expr;
+// #18 Stage 5: the compiler consumes protobuf-free ball::ir, so these builders
+// construct programs as proto3-JSON (nlohmann::json) directly — no libprotobuf,
+// no proto/json bridge. Each helper emits the exact JSON shape the
+// encoder produces and `ball::ir::parseProgram` reads.
+using json = ball::ir::json;
+
+json lit_int(int64_t val) {
+    json j;
+    j["literal"]["intValue"] = std::to_string(val);  // proto3-JSON int64 is a string
+    return j;
 }
 
-ball::v1::Expression lit_double(double val) {
-    ball::v1::Expression expr;
-    expr.mutable_literal()->set_double_value(val);
-    return expr;
+json lit_double(double val) {
+    json j;
+    j["literal"]["doubleValue"] = val;
+    return j;
 }
 
-ball::v1::Expression lit_string(const std::string& val) {
-    ball::v1::Expression expr;
-    expr.mutable_literal()->set_string_value(val);
-    return expr;
+json lit_string(const std::string& val) {
+    json j;
+    j["literal"]["stringValue"] = val;
+    return j;
 }
 
-ball::v1::Expression lit_bool(bool val) {
-    ball::v1::Expression expr;
-    expr.mutable_literal()->set_bool_value(val);
-    return expr;
+json lit_bool(bool val) {
+    json j;
+    j["literal"]["boolValue"] = val;
+    return j;
 }
 
-ball::v1::Expression ref(const std::string& name) {
-    ball::v1::Expression expr;
-    expr.mutable_reference()->set_name(name);
-    return expr;
+json ref(const std::string& name) {
+    json j;
+    j["reference"]["name"] = name;
+    return j;
 }
 
-ball::v1::Expression call(const std::string& module,
-                           const std::string& function,
-                           ball::v1::Expression input) {
-    ball::v1::Expression expr;
-    auto* c = expr.mutable_call();
-    c->set_module(module);
-    c->set_function(function);
-    *c->mutable_input() = std::move(input);
-    return expr;
+json call(const std::string& module, const std::string& function,
+          json input = json(nullptr)) {
+    json j;
+    j["call"]["module"] = module;
+    j["call"]["function"] = function;
+    if (!input.is_null()) j["call"]["input"] = std::move(input);
+    return j;
 }
 
-ball::v1::Expression make_msg(const std::string& type_name,
-                               std::vector<std::pair<std::string, ball::v1::Expression>> fields) {
-    ball::v1::Expression expr;
-    auto* mc = expr.mutable_message_creation();
-    mc->set_type_name(type_name);
-    for (auto& [name, value] : fields) {
-        auto* f = mc->add_fields();
-        f->set_name(name);
-        *f->mutable_value() = std::move(value);
+json make_msg(const std::string& type_name,
+              std::vector<std::pair<std::string, json>> fields) {
+    json j;
+    j["messageCreation"]["typeName"] = type_name;
+    if (!fields.empty()) {
+        json arr = json::array();
+        for (auto& [name, value] : fields) {
+            json f;
+            f["name"] = name;
+            f["value"] = std::move(value);
+            arr.push_back(std::move(f));
+        }
+        j["messageCreation"]["fields"] = std::move(arr);
     }
-    return expr;
+    return j;
 }
 
-ball::v1::Expression std_call(const std::string& function,
-                               ball::v1::Expression input) {
-    ball::v1::Expression expr;
-    auto* c = expr.mutable_call();
-    c->set_module("std");
-    c->set_function(function);
-    *c->mutable_input() = std::move(input);
-    return expr;
+json std_call(const std::string& function, json input) {
+    return call("std", function, std::move(input));
 }
 
-ball::v1::Expression std_binary(const std::string& function,
-                                 ball::v1::Expression left,
-                                 ball::v1::Expression right) {
+json std_binary(const std::string& function, json left, json right) {
     return std_call(function, make_msg("BinaryInput", {
         {"left", std::move(left)},
         {"right", std::move(right)}
     }));
 }
 
-ball::v1::Expression std_unary(const std::string& fn,
-                                ball::v1::Expression value) {
+json std_unary(const std::string& fn, json value) {
     return std_call(fn, make_msg("UnaryInput", {
         {"value", std::move(value)}
     }));
 }
 
-ball::v1::Expression print_call(ball::v1::Expression msg) {
+json print_call(json msg) {
     return std_call("print", make_msg("PrintInput", {
         {"message", std::move(msg)}
     }));
 }
 
-ball::v1::Program build_program(ball::v1::Expression body) {
-    ball::v1::Program program;
-    auto* mod = program.add_modules();
-    mod->set_name("main");
-    auto* func = mod->add_functions();
-    func->set_name("main");
-    *func->mutable_body() = std::move(body);
-    program.set_entry_module("main");
-    program.set_entry_function("main");
+// A statement wrapping an expression: {"expression": <expr>}.
+json stmt_expr(json e) {
+    json s;
+    s["expression"] = std::move(e);
+    return s;
+}
+
+// A `let` statement: {"let": {"name": name, "value": <expr>}}.
+json stmt_let(const std::string& name, json value) {
+    json s;
+    s["let"]["name"] = name;
+    if (!value.is_null()) s["let"]["value"] = std::move(value);
+    return s;
+}
+
+// A block expression: {"block": {"statements": [...], "result": <expr>}}.
+json block(std::vector<json> statements, json result = json(nullptr)) {
+    json j;
+    json blk = json::object();
+    if (!statements.empty()) {
+        json arr = json::array();
+        for (auto& s : statements) arr.push_back(std::move(s));
+        blk["statements"] = std::move(arr);
+    }
+    if (!result.is_null()) blk["result"] = std::move(result);
+    j["block"] = std::move(blk);
+    return j;
+}
+
+// A field access: {"fieldAccess": {"object": <expr>, "field": name}}.
+json field_access(json object, const std::string& field) {
+    json j;
+    j["fieldAccess"]["field"] = field;
+    if (!object.is_null()) j["fieldAccess"]["object"] = std::move(object);
+    return j;
+}
+
+// A list literal: {"literal": {"listValue": {"elements": [...]}}}.
+json lit_list(std::vector<json> elems) {
+    json j;
+    json lv = json::object();
+    if (!elems.empty()) {
+        json arr = json::array();
+        for (auto& e : elems) arr.push_back(std::move(e));
+        lv["elements"] = std::move(arr);
+    }
+    j["literal"]["listValue"] = std::move(lv);
+    return j;
+}
+
+// A lambda expression: {"lambda": {"name": "", "body": <expr>}}.
+json lambda_expr(json body) {
+    json j;
+    j["lambda"]["name"] = "";
+    j["lambda"]["body"] = std::move(body);
+    return j;
+}
+
+json build_program(json body) {
+    json program;
+    json mod;
+    mod["name"] = "main";
+    json func;
+    func["name"] = "main";
+    func["body"] = std::move(body);
+    mod["functions"].push_back(std::move(func));
+    program["modules"].push_back(std::move(mod));
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
     return program;
 }
 
-std::string compile_program(const ball::v1::Program& prog) {
-    std::string js;
-    google::protobuf::util::MessageToJsonString(prog, &js);
-    CppCompiler compiler(ball::ir::parseProgramString(js));
+std::string compile_program(const json& prog) {
+    CppCompiler compiler(ball::ir::parseProgram(prog));
     return compiler.compile();
 }
 
@@ -321,28 +377,19 @@ TEST(compile_ball_map_set_positional) {
 
 TEST(compile_if_statement) {
     // Use a block with if as a statement (triggers compile_statement path)
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    *blk->add_statements()->mutable_expression() =
-        std_call("if", make_msg("IfInput", {
+    auto prog = build_program(block(
+        {stmt_expr(std_call("if", make_msg("IfInput", {
             {"condition", lit_bool(true)},
             {"then", print_call(lit_string("yes"))},
             {"else", print_call(lit_string("no"))}
-        }));
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+        })))},
+        lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "if");
 }
 
 TEST(compile_for_loop) {
-    ball::v1::Expression init;
-    auto* init_blk = init.mutable_block();
-    auto* let = init_blk->add_statements()->mutable_let();
-    let->set_name("i");
-    *let->mutable_value() = lit_int(0);
-    *init_blk->mutable_result() = lit_int(0);
+    auto init = block({stmt_let("i", lit_int(0))}, lit_int(0));
 
     auto prog = build_program(
         std_call("for", make_msg("ForInput", {
@@ -373,32 +420,18 @@ TEST(compile_while_loop) {
 // ================================================================
 
 TEST(compile_switch_with_cases) {
-    ball::v1::Expression cases_list;
-    auto* list = cases_list.mutable_literal()->mutable_list_value();
-
-    *list->add_elements() = make_msg("", {
-        {"value", lit_int(1)},
-        {"body", print_call(lit_string("one"))}
-    });
-    *list->add_elements() = make_msg("", {
-        {"value", lit_int(2)},
-        {"body", print_call(lit_string("two"))}
-    });
-    *list->add_elements() = make_msg("", {
-        {"is_default", lit_bool(true)},
-        {"body", print_call(lit_string("other"))}
+    auto cases_list = lit_list({
+        make_msg("", {{"value", lit_int(1)}, {"body", print_call(lit_string("one"))}}),
+        make_msg("", {{"value", lit_int(2)}, {"body", print_call(lit_string("two"))}}),
+        make_msg("", {{"is_default", lit_bool(true)}, {"body", print_call(lit_string("other"))}}),
     });
 
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    *blk->add_statements()->mutable_expression() =
-        std_call("switch", make_msg("SwitchInput", {
+    auto prog = build_program(block(
+        {stmt_expr(std_call("switch", make_msg("SwitchInput", {
             {"subject", ref("x")},
             {"cases", std::move(cases_list)}
-        }));
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+        })))},
+        lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "__switch_subj");
     ASSERT_CONTAINS(out, "if (");
@@ -410,23 +443,19 @@ TEST(compile_switch_with_cases) {
 // ================================================================
 
 TEST(compile_try_catch) {
-    ball::v1::Expression catches_list;
-    auto* list = catches_list.mutable_literal()->mutable_list_value();
-    *list->add_elements() = make_msg("", {
-        {"variable", lit_string("e")},
-        {"body", print_call(lit_string("caught"))}
+    auto catches_list = lit_list({
+        make_msg("", {
+            {"variable", lit_string("e")},
+            {"body", print_call(lit_string("caught"))}
+        })
     });
 
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    *blk->add_statements()->mutable_expression() =
-        std_call("try", make_msg("TryInput", {
+    auto prog = build_program(block(
+        {stmt_expr(std_call("try", make_msg("TryInput", {
             {"body", print_call(lit_string("try body"))},
             {"catches", std::move(catches_list)}
-        }));
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+        })))},
+        lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "try");
     ASSERT_CONTAINS(out, "catch");
@@ -434,24 +463,20 @@ TEST(compile_try_catch) {
 }
 
 TEST(compile_try_catch_finally) {
-    ball::v1::Expression catches_list;
-    auto* list = catches_list.mutable_literal()->mutable_list_value();
-    *list->add_elements() = make_msg("", {
-        {"variable", lit_string("e")},
-        {"body", print_call(lit_string("caught"))}
+    auto catches_list = lit_list({
+        make_msg("", {
+            {"variable", lit_string("e")},
+            {"body", print_call(lit_string("caught"))}
+        })
     });
 
-    ball::v1::Expression body;
-    auto* blk2 = body.mutable_block();
-    *blk2->add_statements()->mutable_expression() =
-        std_call("try", make_msg("TryInput", {
+    auto prog = build_program(block(
+        {stmt_expr(std_call("try", make_msg("TryInput", {
             {"body", print_call(lit_string("try body"))},
             {"catches", std::move(catches_list)},
             {"finally", print_call(lit_string("cleanup"))}
-        }));
-    *blk2->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+        })))},
+        lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "try");
     ASSERT_CONTAINS(out, "catch");
@@ -464,14 +489,9 @@ TEST(compile_try_catch_finally) {
 // ================================================================
 
 TEST(compile_reference) {
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    auto* let_x = blk->add_statements()->mutable_let();
-    let_x->set_name("x");
-    *let_x->mutable_value() = lit_int(42);
-    *blk->mutable_result() = print_call(std_unary("to_string", ref("x")));
-
-    auto prog = build_program(std::move(body));
+    auto prog = build_program(block(
+        {stmt_let("x", lit_int(42))},
+        print_call(std_unary("to_string", ref("x")))));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "x");
     ASSERT_CONTAINS(out, "42");
@@ -482,18 +502,9 @@ TEST(compile_reference) {
 // ================================================================
 
 TEST(compile_block_with_let) {
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    auto* let_a = blk->add_statements()->mutable_let();
-    let_a->set_name("a");
-    *let_a->mutable_value() = lit_int(10);
-    auto* let_b = blk->add_statements()->mutable_let();
-    let_b->set_name("b");
-    *let_b->mutable_value() = lit_int(20);
-    *blk->mutable_result() = print_call(
-        std_unary("to_string", std_binary("add", ref("a"), ref("b"))));
-
-    auto prog = build_program(std::move(body));
+    auto prog = build_program(block(
+        {stmt_let("a", lit_int(10)), stmt_let("b", lit_int(20))},
+        print_call(std_unary("to_string", std_binary("add", ref("a"), ref("b"))))));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "auto a");
     ASSERT_CONTAINS(out, "auto b");
@@ -504,10 +515,7 @@ TEST(compile_block_with_let) {
 // ================================================================
 
 TEST(compile_field_access) {
-    ball::v1::Expression access;
-    auto* fa = access.mutable_field_access();
-    *fa->mutable_object() = ref("point");
-    fa->set_field("x");
+    auto access = field_access(ref("point"), "x");
 
     auto prog = build_program(print_call(std_unary("to_string", std::move(access))));
     auto out = compile_program(prog);
@@ -607,21 +615,21 @@ TEST(compile_not) {
 // ================================================================
 
 TEST(compile_user_function) {
-    ball::v1::Program program;
-    auto* mod = program.add_modules();
-    mod->set_name("main");
-
-    auto* helper = mod->add_functions();
-    helper->set_name("double_it");
-    *helper->mutable_body() = std_binary("multiply", ref("input"), lit_int(2));
-
-    auto* main_fn = mod->add_functions();
-    main_fn->set_name("main");
-    *main_fn->mutable_body() =
+    json program;
+    json mod;
+    mod["name"] = "main";
+    json helper;
+    helper["name"] = "double_it";
+    helper["body"] = std_binary("multiply", ref("input"), lit_int(2));
+    mod["functions"].push_back(std::move(helper));
+    json main_fn;
+    main_fn["name"] = "main";
+    main_fn["body"] =
         print_call(std_unary("to_string", call("main", "double_it", lit_int(21))));
-
-    program.set_entry_module("main");
-    program.set_entry_function("main");
+    mod["functions"].push_back(std::move(main_fn));
+    program["modules"].push_back(std::move(mod));
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
 
     auto out = compile_program(program);
     ASSERT_CONTAINS(out, "double_it");
@@ -633,20 +641,14 @@ TEST(compile_user_function) {
 
 TEST(compile_break) {
     // Build a while loop with break inside as a statement
-    ball::v1::Expression inner_body;
-    auto* inner_blk = inner_body.mutable_block();
-    *inner_blk->add_statements()->mutable_expression() =
-        std_call("break", lit_int(0));
-    *inner_blk->mutable_result() = lit_int(0);
+    auto inner_body = block({stmt_expr(std_call("break", lit_int(0)))}, lit_int(0));
 
-    ball::v1::Expression outer;
-    auto* outer_blk = outer.mutable_block();
-    *outer_blk->add_statements()->mutable_expression() =
-        std_call("while", make_msg("WhileInput", {
+    auto outer = block(
+        {stmt_expr(std_call("while", make_msg("WhileInput", {
             {"condition", lit_bool(true)},
             {"body", std::move(inner_body)}
-        }));
-    *outer_blk->mutable_result() = lit_int(0);
+        })))},
+        lit_int(0));
 
     auto prog = build_program(std::move(outer));
     auto out = compile_program(prog);
@@ -654,20 +656,14 @@ TEST(compile_break) {
 }
 
 TEST(compile_continue) {
-    ball::v1::Expression inner_body;
-    auto* inner_blk = inner_body.mutable_block();
-    *inner_blk->add_statements()->mutable_expression() =
-        std_call("continue", lit_int(0));
-    *inner_blk->mutable_result() = lit_int(0);
+    auto inner_body = block({stmt_expr(std_call("continue", lit_int(0)))}, lit_int(0));
 
-    ball::v1::Expression outer;
-    auto* outer_blk = outer.mutable_block();
-    *outer_blk->add_statements()->mutable_expression() =
-        std_call("while", make_msg("WhileInput", {
+    auto outer = block(
+        {stmt_expr(std_call("while", make_msg("WhileInput", {
             {"condition", lit_bool(false)},
             {"body", std::move(inner_body)}
-        }));
-    *outer_blk->mutable_result() = lit_int(0);
+        })))},
+        lit_int(0));
 
     auto prog = build_program(std::move(outer));
     auto out = compile_program(prog);
@@ -715,34 +711,38 @@ TEST(compile_std_concurrency_mutex_lock) {
 }
 
 TEST(compile_conversion_operator_method) {
-    ball::v1::Program program;
-    auto* mod = program.add_modules();
-    mod->set_name("main");
+    json program;
+    json mod;
+    mod["name"] = "main";
 
-    // Type definition: class NumBox {}
-    auto* td = mod->add_type_defs();
-    td->set_name("NumBox");
-    td->mutable_descriptor_()->set_name("NumBox");
-    (*td->mutable_metadata()->mutable_fields())["kind"].set_string_value("class");
+    // Type definition: class NumBox {} (metadata is a plain proto3-JSON Struct)
+    json td;
+    td["name"] = "NumBox";
+    td["descriptor"]["name"] = "NumBox";
+    td["metadata"]["kind"] = "class";
+    mod["typeDefs"].push_back(std::move(td));
 
     // Conversion operator: operator int()
-    auto* conv = mod->add_functions();
-    conv->set_name("NumBox.operator_int");
-    conv->set_output_type("int");
-    conv->set_is_base(false);
-    (*conv->mutable_metadata()->mutable_fields())["kind"].set_string_value("operator");
-    (*conv->mutable_metadata()->mutable_fields())["is_operator"].set_bool_value(true);
-    (*conv->mutable_metadata()->mutable_fields())["is_conversion_operator"].set_bool_value(true);
-    (*conv->mutable_metadata()->mutable_fields())["conversion_type"].set_string_value("int");
-    *conv->mutable_body() = lit_int(7);
+    json conv;
+    conv["name"] = "NumBox.operator_int";
+    conv["outputType"] = "int";
+    conv["isBase"] = false;
+    conv["metadata"]["kind"] = "operator";
+    conv["metadata"]["is_operator"] = true;
+    conv["metadata"]["is_conversion_operator"] = true;
+    conv["metadata"]["conversion_type"] = "int";
+    conv["body"] = lit_int(7);
+    mod["functions"].push_back(std::move(conv));
 
     // Entry function.
-    auto* main_fn = mod->add_functions();
-    main_fn->set_name("main");
-    *main_fn->mutable_body() = lit_int(0);
+    json main_fn;
+    main_fn["name"] = "main";
+    main_fn["body"] = lit_int(0);
+    mod["functions"].push_back(std::move(main_fn));
 
-    program.set_entry_module("main");
-    program.set_entry_function("main");
+    program["modules"].push_back(std::move(mod));
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
 
     auto out = compile_program(program);
     ASSERT_CONTAINS(out, "operator int64_t(");
@@ -751,11 +751,9 @@ TEST(compile_conversion_operator_method) {
 TEST(compile_labeled_break_emits_goto) {
     // labeled(outer) { for (...) { break outer; } }
     // Must compile to: for (...) { goto __ball_break_outer; } __ball_break_outer:;
-    ball::v1::Expression for_body;
-    auto* for_blk = for_body.mutable_block();
-    *for_blk->add_statements()->mutable_expression() =
-        std_call("break", make_msg("", {{"label", lit_string("outer")}}));
-    *for_blk->mutable_result() = lit_int(0);
+    auto for_body = block(
+        {stmt_expr(std_call("break", make_msg("", {{"label", lit_string("outer")}})))},
+        lit_int(0));
 
     auto for_call = std_call("for", make_msg("ForInput", {
         {"init", lit_int(0)},
@@ -769,23 +767,17 @@ TEST(compile_labeled_break_emits_goto) {
         {"body", std::move(for_call)}
     }));
 
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    *blk->add_statements()->mutable_expression() = std::move(labeled_call);
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+    auto prog = build_program(block(
+        {stmt_expr(std::move(labeled_call))}, lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "goto __ball_break_outer");
     ASSERT_CONTAINS(out, "__ball_break_outer:;");
 }
 
 TEST(compile_labeled_continue_emits_goto) {
-    ball::v1::Expression for_body;
-    auto* for_blk = for_body.mutable_block();
-    *for_blk->add_statements()->mutable_expression() =
-        std_call("continue", make_msg("", {{"label", lit_string("loop")}}));
-    *for_blk->mutable_result() = lit_int(0);
+    auto for_body = block(
+        {stmt_expr(std_call("continue", make_msg("", {{"label", lit_string("loop")}})))},
+        lit_int(0));
 
     auto while_call = std_call("while", make_msg("WhileInput", {
         {"condition", lit_bool(true)},
@@ -797,12 +789,8 @@ TEST(compile_labeled_continue_emits_goto) {
         {"body", std::move(while_call)}
     }));
 
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    *blk->add_statements()->mutable_expression() = std::move(labeled_call);
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+    auto prog = build_program(block(
+        {stmt_expr(std::move(labeled_call))}, lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "goto __ball_continue_loop");
     ASSERT_CONTAINS(out, "__ball_continue_loop:;");
@@ -816,11 +804,9 @@ TEST(for_in_expression_with_return_fails_loud) {
     // SILENTLY DROPPED the loop body — emitting an empty IIFE so any program
     // hitting this shape computed the wrong result with no error. The fix emits
     // a loud runtime throw instead (fail-loud invariant), NOT the old no-op stub.
-    ball::v1::Expression for_body;
-    auto* for_blk = for_body.mutable_block();
-    *for_blk->add_statements()->mutable_expression() =
-        std_call("return", make_msg("", {{"value", lit_int(5)}}));
-    *for_blk->mutable_result() = lit_int(0);
+    auto for_body = block(
+        {stmt_expr(std_call("return", make_msg("", {{"value", lit_int(5)}})))},
+        lit_int(0));
 
     auto for_call = std_call("for", make_msg("ForInput", {
         {"init", lit_int(0)},
@@ -830,14 +816,8 @@ TEST(for_in_expression_with_return_fails_loud) {
     }));
 
     // Bind the loop to a local, forcing the loop into expression (value) context.
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    auto* let = blk->add_statements()->mutable_let();
-    let->set_name("x");
-    *let->mutable_value() = std::move(for_call);
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+    auto prog = build_program(block(
+        {stmt_let("x", std::move(for_call))}, lit_int(0)));
     auto out = compile_program(prog);
     // Fail-loud: our specific runtime-throw message, and NOT the old silent-drop
     // empty-IIFE stub comment.
@@ -847,25 +827,17 @@ TEST(for_in_expression_with_return_fails_loud) {
 
 TEST(while_in_expression_with_return_fails_loud) {
     // The `while` analog of for_in_expression_with_return_fails_loud.
-    ball::v1::Expression while_body;
-    auto* while_blk = while_body.mutable_block();
-    *while_blk->add_statements()->mutable_expression() =
-        std_call("return", make_msg("", {{"value", lit_int(7)}}));
-    *while_blk->mutable_result() = lit_int(0);
+    auto while_body = block(
+        {stmt_expr(std_call("return", make_msg("", {{"value", lit_int(7)}})))},
+        lit_int(0));
 
     auto while_call = std_call("while", make_msg("WhileInput", {
         {"condition", lit_bool(true)},
         {"body", std::move(while_body)}
     }));
 
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    auto* let = blk->add_statements()->mutable_let();
-    let->set_name("y");
-    *let->mutable_value() = std::move(while_call);
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+    auto prog = build_program(block(
+        {stmt_let("y", std::move(while_call))}, lit_int(0)));
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "while-loop used in expression (value) position");
 }
@@ -875,36 +847,29 @@ TEST(compile_try_catch_typed_dispatches_by_type) {
     //   1. Wrap the body in try
     //   2. Have a BallException catch with if/else dispatch on type_name
     //   3. Have a std::exception catch that runs the untyped body (not `throw;`)
-    ball::v1::Expression catches_list;
-    auto* list = catches_list.mutable_literal()->mutable_list_value();
-    auto typed1 = make_msg("", {
-        {"type", lit_string("NotFound")},
-        {"variable", lit_string("e")},
-        {"body", print_call(lit_string("not-found"))}
+    auto catches_list = lit_list({
+        make_msg("", {
+            {"type", lit_string("NotFound")},
+            {"variable", lit_string("e")},
+            {"body", print_call(lit_string("not-found"))}
+        }),
+        make_msg("", {
+            {"type", lit_string("ParseError")},
+            {"variable", lit_string("e")},
+            {"body", print_call(lit_string("parse-error"))}
+        }),
+        make_msg("", {
+            {"variable", lit_string("e")},
+            {"body", print_call(lit_string("fallback"))}
+        }),
     });
-    auto typed2 = make_msg("", {
-        {"type", lit_string("ParseError")},
-        {"variable", lit_string("e")},
-        {"body", print_call(lit_string("parse-error"))}
-    });
-    auto untyped = make_msg("", {
-        {"variable", lit_string("e")},
-        {"body", print_call(lit_string("fallback"))}
-    });
-    *list->add_elements() = std::move(typed1);
-    *list->add_elements() = std::move(typed2);
-    *list->add_elements() = std::move(untyped);
 
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-    *blk->add_statements()->mutable_expression() =
-        std_call("try", make_msg("TryInput", {
+    auto prog = build_program(block(
+        {stmt_expr(std_call("try", make_msg("TryInput", {
             {"body", print_call(lit_string("try body"))},
             {"catches", std::move(catches_list)}
-        }));
-    *blk->mutable_result() = lit_int(0);
-
-    auto prog = build_program(std::move(body));
+        })))},
+        lit_int(0)));
     auto out = compile_program(prog);
     // BallException catch emitted (requires the preamble too).
     ASSERT_CONTAINS(out, "struct BallException");
@@ -966,24 +931,13 @@ TEST(compile_base64_encode_decode_roundtrip) {
 // Tests — Collection elements (issue #55): C-style comprehension + spread
 // ================================================================
 
-// Build a list literal Expression from a vector of element expressions.
-static ball::v1::Expression lit_list(std::vector<ball::v1::Expression> elems) {
-    ball::v1::Expression expr;
-    auto* lv = expr.mutable_literal()->mutable_list_value();
-    for (auto& e : elems) *lv->add_elements() = std::move(e);
-    return expr;
-}
-
 // `[for (var i = 0; i < 3; i++) i * i]` — a C-style collection_for inside a
 // list literal. Before the fix the C++ compiler only handled the for-EACH form
 // (it read an `iterable` field that doesn't exist here), so the loop body was
 // dropped and the list compiled empty.
 TEST(compile_collection_for_cstyle_list) {
     // init: block { var i = 0; }
-    ball::v1::Expression init;
-    auto* let = init.mutable_block()->add_statements()->mutable_let();
-    let->set_name("i");
-    *let->mutable_value() = lit_int(0);
+    auto init = block({stmt_let("i", lit_int(0))});
 
     auto cfor = std_call("collection_for", make_msg("", {
         {"init", std::move(init)},
@@ -1036,14 +990,9 @@ TEST(compile_list_null_spread_guards_null) {
 // (driven by the same `compute_boxed_vars` pre-pass) still dereferenced every
 // read of `i` as `(*i)` — a hard compile error (`operator*` on an int64_t).
 TEST(compile_collection_for_cstyle_boxes_captured_loop_var) {
-    ball::v1::Expression init;
-    auto* let_i = init.mutable_block()->add_statements()->mutable_let();
-    let_i->set_name("i");
-    *let_i->mutable_value() = lit_int(0);
+    auto init = block({stmt_let("i", lit_int(0))});
 
-    ball::v1::Expression body_lambda;
-    body_lambda.mutable_lambda()->set_name("");
-    *body_lambda.mutable_lambda()->mutable_body() = ref("i");
+    auto body_lambda = lambda_expr(ref("i"));
 
     auto cfor = std_call("collection_for", make_msg("", {
         {"init", std::move(init)},
@@ -1052,12 +1001,8 @@ TEST(compile_collection_for_cstyle_boxes_captured_loop_var) {
         {"body", std::move(body_lambda)},
     }));
 
-    ball::v1::Expression main_body;
-    auto* let_fns = main_body.mutable_block()->add_statements()->mutable_let();
-    let_fns->set_name("fns");
-    *let_fns->mutable_value() = lit_list({std::move(cfor)});
-
-    auto prog = build_program(std::move(main_body));
+    auto prog = build_program(block(
+        {stmt_let("fns", lit_list({std::move(cfor)}))}));
     auto out = compile_program(prog);
     // The init cell is boxed...
     ASSERT_CONTAINS(out, "std::make_shared<BallDyn>(BallDyn(static_cast<int64_t>(0)))");
@@ -1075,22 +1020,23 @@ TEST(compile_collection_for_cstyle_boxes_captured_loop_var) {
 
 // Registers an all-base module named `name` (e.g. "std_memory") so
 // `base_modules_` picks it up and the memory runtime preamble is emitted.
-static void add_base_module(ball::v1::Program& prog, const std::string& name) {
-    auto* mod = prog.add_modules();
-    mod->set_name(name);
-    auto* fn = mod->add_functions();
-    fn->set_name("__marker__");
-    fn->set_is_base(true);
+static void add_base_module(json& prog, const std::string& name) {
+    json mod;
+    mod["name"] = name;
+    json fn;
+    fn["name"] = "__marker__";
+    fn["isBase"] = true;
+    mod["functions"].push_back(std::move(fn));
+    prog["modules"].push_back(std::move(mod));
 }
 
-ball::v1::Expression mem_call(const std::string& function,
-                               const std::string& type_name,
-                               std::vector<std::pair<std::string, ball::v1::Expression>> fields) {
+json mem_call(const std::string& function, const std::string& type_name,
+              std::vector<std::pair<std::string, json>> fields) {
     return call("std_memory", function, make_msg(type_name, std::move(fields)));
 }
 
 TEST(compile_std_memory_preamble_declares_runtime_arrays) {
-    ball::v1::Program prog = build_program(
+    json prog = build_program(
         mem_call("memory_alloc", "AllocInput", {{"size", lit_int(4)}}));
     add_base_module(prog, "std_memory");
     auto out = compile_program(prog);
@@ -1102,7 +1048,7 @@ TEST(compile_std_memory_preamble_declares_runtime_arrays) {
 }
 
 TEST(compile_std_memory_alloc_free_realloc) {
-    ball::v1::Program prog = build_program(mem_call(
+    json prog = build_program(mem_call(
         "memory_realloc", "ReallocInput",
         {{"address", ref("a")}, {"new_size", lit_int(8)}}));
     add_base_module(prog, "std_memory");
@@ -1115,7 +1061,7 @@ TEST(compile_std_memory_alloc_free_realloc) {
 }
 
 TEST(compile_std_memory_typed_read_write) {
-    ball::v1::Program prog = build_program(mem_call(
+    json prog = build_program(mem_call(
         "memory_write_i32", "MemWriteInput",
         {{"address", lit_int(0)}, {"value", lit_int(42)}}));
     add_base_module(prog, "std_memory");
@@ -1126,7 +1072,7 @@ TEST(compile_std_memory_typed_read_write) {
 }
 
 TEST(compile_std_memory_bulk_and_ptr_ops) {
-    ball::v1::Program prog = build_program(mem_call(
+    json prog = build_program(mem_call(
         "memory_copy", "MemCopyInput",
         {{"dest", lit_int(0)}, {"src", lit_int(4)}, {"size", lit_int(4)}}));
     add_base_module(prog, "std_memory");
@@ -1139,7 +1085,7 @@ TEST(compile_std_memory_bulk_and_ptr_ops) {
 }
 
 TEST(compile_std_memory_stack_frame_and_sizeof) {
-    ball::v1::Program prog = build_program(mem_call(
+    json prog = build_program(mem_call(
         "stack_alloc", "StackAllocInput", {{"size", lit_int(16)}}));
     add_base_module(prog, "std_memory");
     auto out = compile_program(prog);
@@ -1154,7 +1100,7 @@ TEST(compile_std_memory_stack_frame_and_sizeof) {
 // bytes the downward-growing stack occupies). Flagged in the PR #169 review:
 // these were fail-loud gaps while Dart and TS both implement them.
 TEST(compile_std_memory_introspection) {
-    ball::v1::Program prog =
+    json prog =
         build_program(mem_call("memory_heap_size", "Empty", {}));
     add_base_module(prog, "std_memory");
     auto out = compile_program(prog);
@@ -1174,7 +1120,7 @@ TEST(compile_std_memory_introspection) {
 // compile time (a static_assert naming the function) — never silently emit
 // an undefined-identifier call like `_ball_address_of(...)`.
 TEST(compile_std_memory_unimplemented_fails_loud_at_compile_time) {
-    ball::v1::Program prog = build_program(
+    json prog = build_program(
         mem_call("address_of", "AddressOfInput", {{"value", lit_int(1)}}));
     add_base_module(prog, "std_memory");
     auto out = compile_program(prog);
@@ -1192,10 +1138,8 @@ TEST(compile_std_memory_unimplemented_fails_loud_at_compile_time) {
 // Build a Set-literal Expression: std.set_create({elements: [...]}) — mirrors
 // the encoder's IR shape for `{1, 2, 3}` (same `elements` field the list
 // literal `[...]` splice path reads via lit_list() above).
-static ball::v1::Expression set_lit(std::vector<ball::v1::Expression> elems) {
-    ball::v1::Expression elements_expr;
-    auto* lv = elements_expr.mutable_literal()->mutable_list_value();
-    for (auto& e : elems) *lv->add_elements() = std::move(e);
+static json set_lit(std::vector<json> elems) {
+    json elements_expr = lit_list(std::move(elems));
     return std_call("set_create", make_msg("", {{"elements", std::move(elements_expr)}}));
 }
 
@@ -1397,8 +1341,8 @@ TEST(compile_std_fs_file_read_bytes) {
 TEST(compile_std_fs_file_write_bytes) {
     // issue #319: previously fell to the default no-op comment, silently
     // dropping every byte written.
-    ball::v1::Expression bytes;
-    bytes.mutable_literal()->set_bytes_value(std::string("\x01\x00\x02", 3));
+    json bytes;
+    bytes["literal"]["bytesValue"] = "AQAC";  // base64 of bytes {0x01, 0x00, 0x02}
     auto prog = build_program(call("std_fs", "file_write_bytes", make_msg("", {
         {"path", lit_string("a.bin")}, {"content", std::move(bytes)}
     })));

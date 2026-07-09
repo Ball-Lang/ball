@@ -6,36 +6,30 @@
 // test_ball_ir.cpp only round-trips descriptors PASS-THROUGH (parse → opaque
 // `json` → re-emit); it never CONSTRUCTS one, so P4 had zero coverage.
 //
-// Correctness bar (from the #18 P4 spec): the JSON the hand-rolled builder
-// emits must parse via `JsonStringToMessage` into a `DescriptorProto` IDENTICAL
-// to the one the current protobuf path builds (the descriptor that
-// `MessageToJsonString(preserve_proto_field_names=true)` would serialize in
-// CppEncoder::encode_class_decl). This test builds the oracle descriptor with
-// an INDEPENDENT expected-type table (mirroring map_cpp_type_to_proto), builds
-// the same descriptor via P4, parses the P4 JSON back through protobuf, and
-// asserts proto equality — for every TYPE_* and for the enum path.
+// #18 Stage 5 — the google oracle retires with libprotobuf. This test used to
+// build the "expected" DescriptorProto with libprotobuf's builders, parse the
+// P4 JSON via JsonStringToMessage, and compare via MessageDifferencer. That
+// google-equivalence oracle is now replaced by GOLDEN proto3-JSON: the expected
+// shape is authored directly from the P4 spec + an INDEPENDENT C++-type→proto-
+// type table (below), and the P4 output is asserted equal to it via nlohmann
+// JSON equality. No regression value is lost — the golden pins exactly the
+// bytes the oracle would have produced, without linking google.
 //
-// This test DOES link libprotobuf: it is the ORACLE. ball_ir.h itself stays
-// protobuf-free; only the verification oracle here needs Google's runtime.
+// Correctness bar (from the #18 P4 spec): the JSON the hand-rolled builder emits
+// must equal the golden DescriptorProto proto3-JSON (snake_case keys, enum
+// NAME-strings for `type`/`label`, bare-number `number`, `type_name` on every
+// field). ball_ir.h itself stays protobuf-free; this test now does too.
 
 #include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <google/protobuf/descriptor.pb.h>
-#include <google/protobuf/util/json_util.h>
-#include <google/protobuf/util/message_differencer.h>
-
 #include "ball_ir.h"
 
 namespace {
 
-using google::protobuf::DescriptorProto;
-using google::protobuf::EnumDescriptorProto;
-using google::protobuf::FieldDescriptorProto;
-using google::protobuf::util::JsonStringToMessage;
-using google::protobuf::util::MessageDifferencer;
+using ball::ir::json;
 
 int g_failures = 0;
 
@@ -48,97 +42,72 @@ void check(bool cond, const std::string& msg) {
 
 // The independent oracle for section 2 of the P4 spec: every C++ type spelling
 // map_cpp_type_to_proto (encoder.cpp:1376-1401) recognizes, paired with the
-// FieldDescriptorProto::Type it must map to. Encoded here by hand (NOT by
-// calling the encoder) so P4's mapCppTypeToProtoTypeName is checked against an
-// independent source of truth.
+// FieldDescriptorProto::Type NAME-STRING it must map to. Encoded here by hand
+// (NOT by calling the encoder) so P4's mapCppTypeToProtoTypeName is checked
+// against an independent source of truth.
 struct TypeCase {
   std::string cppType;
-  FieldDescriptorProto::Type expected;
+  std::string expected;  // proto enum NAME-string, e.g. "TYPE_INT32"
 };
 
 const std::vector<TypeCase>& typeCases() {
   static const std::vector<TypeCase> cases = {
-      {"int", FieldDescriptorProto::TYPE_INT32},
-      {"int32_t", FieldDescriptorProto::TYPE_INT32},
-      {"int32", FieldDescriptorProto::TYPE_INT32},
-      {"long", FieldDescriptorProto::TYPE_INT64},
-      {"int64_t", FieldDescriptorProto::TYPE_INT64},
-      {"long long", FieldDescriptorProto::TYPE_INT64},
-      {"unsigned int", FieldDescriptorProto::TYPE_UINT32},
-      {"uint32_t", FieldDescriptorProto::TYPE_UINT32},
-      {"unsigned long", FieldDescriptorProto::TYPE_UINT64},
-      {"uint64_t", FieldDescriptorProto::TYPE_UINT64},
-      {"float", FieldDescriptorProto::TYPE_FLOAT},
-      {"double", FieldDescriptorProto::TYPE_DOUBLE},
-      {"bool", FieldDescriptorProto::TYPE_BOOL},
-      {"char", FieldDescriptorProto::TYPE_STRING},
-      {"char *", FieldDescriptorProto::TYPE_STRING},
-      {"std::string", FieldDescriptorProto::TYPE_STRING},
-      {"string", FieldDescriptorProto::TYPE_STRING},
-      {"void", FieldDescriptorProto::TYPE_BYTES},
-      {"void *", FieldDescriptorProto::TYPE_BYTES},
+      {"int", "TYPE_INT32"},
+      {"int32_t", "TYPE_INT32"},
+      {"int32", "TYPE_INT32"},
+      {"long", "TYPE_INT64"},
+      {"int64_t", "TYPE_INT64"},
+      {"long long", "TYPE_INT64"},
+      {"unsigned int", "TYPE_UINT32"},
+      {"uint32_t", "TYPE_UINT32"},
+      {"unsigned long", "TYPE_UINT64"},
+      {"uint64_t", "TYPE_UINT64"},
+      {"float", "TYPE_FLOAT"},
+      {"double", "TYPE_DOUBLE"},
+      {"bool", "TYPE_BOOL"},
+      {"char", "TYPE_STRING"},
+      {"char *", "TYPE_STRING"},
+      {"std::string", "TYPE_STRING"},
+      {"string", "TYPE_STRING"},
+      {"void", "TYPE_BYTES"},
+      {"void *", "TYPE_BYTES"},
       // Fallback: anything unrecognized → TYPE_MESSAGE.
-      {"MyClass", FieldDescriptorProto::TYPE_MESSAGE},
-      {"std::vector<int>", FieldDescriptorProto::TYPE_MESSAGE},
+      {"MyClass", "TYPE_MESSAGE"},
+      {"std::vector<int>", "TYPE_MESSAGE"},
       // `const ` prefix is stripped before matching; type_name keeps the raw
-      // spelling (verified below via oracle set_type_name(cppType)).
-      {"const int", FieldDescriptorProto::TYPE_INT32},
-      {"const std::string", FieldDescriptorProto::TYPE_STRING},
+      // spelling.
+      {"const int", "TYPE_INT32"},
+      {"const std::string", "TYPE_STRING"},
   };
   return cases;
 }
 
-// Adds a field to `d` exactly the way encode_class_decl does (encoder.cpp:
-// 213-218): name, number, type (from the oracle table), raw type_name,
-// LABEL_OPTIONAL.
-void addOracleField(DescriptorProto* d, const std::string& name, int number,
-                    const TypeCase& tc) {
-  auto* f = d->add_field();
-  f->set_name(name);
-  f->set_number(number);
-  f->set_type(tc.expected);
-  f->set_type_name(tc.cppType);
-  f->set_label(FieldDescriptorProto::LABEL_OPTIONAL);
-}
-
-// Parses a P4-built JSON descriptor back into a DescriptorProto. Fails loud on
-// a parse error (a bad enum name-string / wrong number type would throw here —
-// exactly what the loader would do in production).
-bool parseP4Descriptor(const ball::ir::json& j, DescriptorProto* out,
-                       const std::string& ctx) {
-  const std::string text = j.dump();
-  auto status = JsonStringToMessage(text, out);
-  if (!status.ok()) {
-    check(false, ctx + ": JsonStringToMessage failed: " +
-                     std::string(status.message()) + "  json=" + text);
-    return false;
-  }
-  return true;
+// The golden proto3-JSON a single field must serialize to (mirrors
+// encode_class_decl: name, number, label, type, raw type_name).
+json goldenField(const std::string& name, int number, const TypeCase& tc) {
+  json f = json::object();
+  f["name"] = name;
+  f["number"] = number;
+  f["label"] = "LABEL_OPTIONAL";
+  f["type"] = tc.expected;
+  f["type_name"] = tc.cppType;
+  return f;
 }
 
 // ── Test 1: every TYPE_* individually ───────────────────────────────────────
-// For each C++ type spelling, build a single-field descriptor via P4 and via
-// the oracle, and assert the parsed protos are identical. This is the direct
-// "for each TYPE_*" assertion the P4 spec asks for.
 void testEachType() {
   for (const auto& tc : typeCases()) {
-    DescriptorProto oracle;
-    oracle.set_name("Msg");
-    addOracleField(&oracle, "f", 1, tc);
-
     ball::ir::descriptor_build::FieldSpec fs;
     fs.name = "f";
     fs.number = 1;
     fs.cppType = tc.cppType;
-    ball::ir::json j =
-        ball::ir::descriptor_build::buildDescriptorProto("Msg", {fs});
+    json j = ball::ir::descriptor_build::buildDescriptorProto("Msg", {fs});
 
-    // Spec gotcha checks on the RAW JSON (before it is parsed away):
+    // Spec gotcha checks on the RAW JSON:
     //  - snake_case `type_name`, never `typeName`.
-    //  - `type` is the enum NAME-STRING, never an int.
+    //  - `type`/`label` are enum NAME-STRINGS, never ints.
     //  - `number` is a bare JSON number, never a string.
-    //  - `type_name` present on EVERY field incl. scalars, = raw C++ type.
-    const ball::ir::json& fj = j.at("field").at(0);
+    const json& fj = j.at("field").at(0);
     check(fj.contains("type_name"), tc.cppType + ": missing snake_case type_name");
     check(!fj.contains("typeName"),
           tc.cppType + ": leaked camelCase typeName key");
@@ -151,35 +120,29 @@ void testEachType() {
     check(fj.at("label").get<std::string>() == "LABEL_OPTIONAL",
           tc.cppType + ": label must be LABEL_OPTIONAL name-string");
 
-    DescriptorProto p4;
-    if (!parseP4Descriptor(j, &p4, tc.cppType)) continue;
+    // The mapped `type` must be the oracle's expected NAME-string.
+    check(fj.at("type").get<std::string>() == tc.expected,
+          tc.cppType + ": mapped to wrong proto type (" +
+              fj.at("type").get<std::string>() + " != " + tc.expected + ")");
 
-    // The parsed field's type must be the oracle's expected mapping.
-    check(p4.field_size() == 1, tc.cppType + ": expected exactly one field");
-    if (p4.field_size() == 1) {
-      check(p4.field(0).type() == tc.expected,
-            tc.cppType + ": mapped to wrong FieldDescriptorProto::Type (" +
-                FieldDescriptorProto::Type_Name(p4.field(0).type()) +
-                " != " + FieldDescriptorProto::Type_Name(tc.expected) + ")");
-    }
-
-    // Full proto equality vs the protobuf-builder path.
-    check(MessageDifferencer::Equals(oracle, p4),
-          tc.cppType + ": P4 DescriptorProto != protobuf-path DescriptorProto");
+    // Full golden equality (order-independent nlohmann object compare).
+    json golden = json::object();
+    golden["name"] = "Msg";
+    golden["field"] = json::array({goldenField("f", 1, tc)});
+    check(j == golden,
+          tc.cppType + ": P4 descriptor JSON != golden\n    got:    " + j.dump() +
+              "\n    golden: " + golden.dump());
   }
 }
 
 // ── Test 2: a multi-field descriptor (mirrors encode_class_decl end-to-end) ──
-// Build a single message carrying one field per type case (numbers 1..N, just
-// like the encoder's field_number++), then compare P4 vs oracle wholesale.
 void testCompositeDescriptor() {
-  DescriptorProto oracle;
-  oracle.set_name("Composite");
+  json goldenFields = json::array();
   std::vector<ball::ir::descriptor_build::FieldSpec> specs;
   int number = 1;
   for (const auto& tc : typeCases()) {
     const std::string fname = "field" + std::to_string(number);
-    addOracleField(&oracle, fname, number, tc);
+    goldenFields.push_back(goldenField(fname, number, tc));
     ball::ir::descriptor_build::FieldSpec fs;
     fs.name = fname;
     fs.number = number;
@@ -188,66 +151,51 @@ void testCompositeDescriptor() {
     ++number;
   }
 
-  ball::ir::json j =
-      ball::ir::descriptor_build::buildDescriptorProto("Composite", specs);
-  DescriptorProto p4;
-  if (parseP4Descriptor(j, &p4, "composite")) {
-    check(MessageDifferencer::Equals(oracle, p4),
-          "composite: P4 DescriptorProto != protobuf-path DescriptorProto");
-  }
+  json j = ball::ir::descriptor_build::buildDescriptorProto("Composite", specs);
+  json golden = json::object();
+  golden["name"] = "Composite";
+  golden["field"] = std::move(goldenFields);
+  check(j == golden, "composite: P4 descriptor JSON != golden");
 }
 
 // ── Test 3: an empty-field descriptor omits the `field` key ─────────────────
 void testEmptyDescriptor() {
-  DescriptorProto oracle;
-  oracle.set_name("Empty");
-  ball::ir::json j =
-      ball::ir::descriptor_build::buildDescriptorProto("Empty", {});
+  json j = ball::ir::descriptor_build::buildDescriptorProto("Empty", {});
   check(!j.contains("field"),
         "empty: `field` key must be omitted when there are no fields");
-  DescriptorProto p4;
-  if (parseP4Descriptor(j, &p4, "empty")) {
-    check(MessageDifferencer::Equals(oracle, p4),
-          "empty: P4 DescriptorProto != protobuf-path DescriptorProto");
-  }
+  json golden = json::object();
+  golden["name"] = "Empty";
+  check(j == golden, "empty: P4 descriptor JSON != golden");
 }
 
 // ── Test 4: enum descriptor (mirrors encode_enum_decl) ──────────────────────
 // Enum values carry `number` verbatim including the default 0 (proto2 explicit
-// presence — the encoder always calls set_number). Build via P4 vs oracle and
-// compare.
+// presence — the encoder always calls set_number).
 void testEnumDescriptor() {
-  EnumDescriptorProto oracle;
-  oracle.set_name("Color");
   const std::vector<std::pair<std::string, int>> values = {
       {"RED", 0}, {"GREEN", 1}, {"BLUE", 2}, {"YELLOW", 3}};
   std::vector<ball::ir::descriptor_build::EnumValueSpec> specs;
+  json goldenValues = json::array();
   for (const auto& [name, num] : values) {
-    auto* v = oracle.add_value();
-    v->set_name(name);
-    v->set_number(num);
     specs.push_back({name, num});
+    json v = json::object();
+    v["name"] = name;
+    v["number"] = num;
+    goldenValues.push_back(std::move(v));
   }
 
-  ball::ir::json j =
-      ball::ir::descriptor_build::buildEnumDescriptorProto("Color", specs);
+  json j = ball::ir::descriptor_build::buildEnumDescriptorProto("Color", specs);
 
   // The default-0 value MUST still carry an explicit "number": 0.
-  const ball::ir::json& v0 = j.at("value").at(0);
+  const json& v0 = j.at("value").at(0);
   check(v0.contains("number") && v0.at("number").is_number_integer(),
         "enum: value 0 must carry an explicit bare-number `number`: 0");
   check(v0.at("number").get<int>() == 0, "enum: value 0 number must be 0");
 
-  EnumDescriptorProto p4;
-  const std::string text = j.dump();
-  auto status = JsonStringToMessage(text, &p4);
-  if (!status.ok()) {
-    check(false, "enum: JsonStringToMessage failed: " +
-                     std::string(status.message()) + "  json=" + text);
-    return;
-  }
-  check(MessageDifferencer::Equals(oracle, p4),
-        "enum: P4 EnumDescriptorProto != protobuf-path EnumDescriptorProto");
+  json golden = json::object();
+  golden["name"] = "Color";
+  golden["value"] = std::move(goldenValues);
+  check(j == golden, "enum: P4 enum descriptor JSON != golden");
 }
 
 }  // namespace

@@ -18,9 +18,6 @@
 #include <string>
 #include <vector>
 
-#include <google/protobuf/util/json_util.h>
-
-#include "ball_file.h"
 #include "ball_ir.h"
 
 #ifndef BALL_SNAPSHOT_DIR

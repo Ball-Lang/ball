@@ -5,9 +5,9 @@
 // compiler). This validates that the compiled engine can correctly
 // interpret Ball programs.
 //
-// Architecture:
-//   1. Parse .ball.json → ball::v1::Program (protobuf)
-//   2. Convert protobuf → BallDyn map tree (the representation engine_rt expects)
+// Architecture (#18 Stage 5 — libprotobuf-free):
+//   1. Parse .ball.json (proto3-JSON) via nlohmann/json
+//   2. Convert JSON → BallDyn map tree (the representation engine_rt expects)
 //   3. Construct BallEngine, run, capture stdout
 //   4. Compare against .expected_output.txt
 
@@ -18,16 +18,14 @@
 #include "../../dart/self_host/lib/engine_rt.cpp"
 #endif
 
-// Now include protobuf headers for JSON parsing of Ball programs.
-// These are separate from the engine_rt runtime types.
-#include "ball/v1/ball.pb.h"
-#include "ball_file.h"
-#include "google/protobuf/util/json_util.h"
-#include "google/protobuf/descriptor.h"
-#include "google/protobuf/reflection.h"
-#include "google/protobuf/struct.pb.h"
+// #18 Stage 5: no libprotobuf. Ball programs are parsed straight from
+// proto3-JSON (nlohmann/json) into the BallDyn map tree the engine expects —
+// the same tree the former google-reflection converter produced.
+#include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <chrono>
 #ifdef _WIN32
 // Neutralize the windows.h GetMessage macro so it cannot clash with protobuf's
@@ -45,210 +43,135 @@
 namespace fs = std::filesystem;
 
 // ============================================================
-// Protobuf → BallDyn (std::any map tree) converter
+// proto3-JSON -> BallDyn (std::any map tree) converter (#18 Stage 5)
 // ============================================================
 //
-// Recursively converts a protobuf Message into nested
-// std::map<std::string, std::any> structures that the self-hosted
-// BallEngine can traverse with BallDyn field access.
+// Reproduces the exact tree the former google-reflection `proto_msg_to_any`
+// built, but straight from the fixture's proto3-JSON via nlohmann/json (no
+// libprotobuf). Contract, mirroring the reflection path the compiled engine
+// was validated against:
+//   - object            -> BallMap (recursing per key); `metadata` (a
+//                          google.protobuf.Struct) -> the Struct wire shape
+//                          {fields: {k: {stringValue|numberValue|...}}}
+//   - array             -> BallList
+//   - Literal.intValue  -> int64  (proto3-JSON encodes int64 as a string)
+//   - Literal.doubleValue -> double (incl. "NaN"/"Infinity"/"-Infinity")
+//   - Literal.bytesValue -> BallList<int64> (base64-decoded, like protobuf's
+//                          bytes -> List<int>, issue #266)
+//   - other number      -> int64 if integral, else double
+//   - the "@type" envelope key is skipped
+// All 324 conformance fixtures are canonical camelCase proto3-JSON (verified),
+// so keys pass through verbatim — matching FieldDescriptor::json_name().
 
-static std::any proto_struct_to_any(const google::protobuf::Struct& s);
-static std::any proto_value_obj_to_any(const google::protobuf::Value& v);
+static std::any json_to_any(const nlohmann::json& j, const std::string& key);
 
-static std::any proto_struct_to_any(const google::protobuf::Struct& s) {
-    // Produce protobuf-style Struct: {fields: {key1: value_obj1, key2: value_obj2}}
+static double parse_double_special(const std::string& sv) {
+    if (sv == "NaN") return std::nan("");
+    if (sv == "Infinity") return std::numeric_limits<double>::infinity();
+    if (sv == "-Infinity") return -std::numeric_limits<double>::infinity();
+    return std::stod(sv);
+}
+
+// base64 (proto3-JSON bytes) -> BallList of int64 byte values.
+static std::any base64_to_bytelist(const std::string& b64) {
+    static const std::string T =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    BallList out;
+    int val = 0, bits = -8;
+    for (char c : b64) {
+        if (c == '=' || c == '\n' || c == '\r' || c == ' ') continue;
+        auto pos = T.find(c);
+        if (pos == std::string::npos) continue;
+        val = (val << 6) | static_cast<int>(pos);
+        bits += 6;
+        if (bits >= 0) {
+            out.push_back(std::any(static_cast<int64_t>((val >> bits) & 0xFF)));
+            bits -= 8;
+        }
+    }
+    return std::any(out);
+}
+
+// A single google.protobuf.Value (inside a Struct) -> the wire-shape wrapper
+// the engine's ball_which_kind() dispatches on.
+static std::any json_struct_value(const nlohmann::json& v) {
+    BallMap result;
+    if (v.is_null()) {
+        result["nullValue"] = std::any(static_cast<int64_t>(0));
+    } else if (v.is_boolean()) {
+        result["boolValue"] = std::any(v.get<bool>());
+    } else if (v.is_number()) {
+        result["numberValue"] = std::any(v.get<double>());
+    } else if (v.is_string()) {
+        result["stringValue"] = std::any(v.get<std::string>());
+    } else if (v.is_array()) {
+        BallList list;
+        for (const auto& el : v) list.push_back(json_struct_value(el));
+        BallMap inner;
+        inner["values"] = std::any(list);
+        result["listValue"] = std::any(inner);
+    } else if (v.is_object()) {
+        BallMap fields;
+        for (auto it = v.begin(); it != v.end(); ++it) {
+            fields[it.key()] = json_struct_value(it.value());
+        }
+        BallMap inner;
+        inner["fields"] = std::any(fields);
+        result["structValue"] = std::any(inner);
+    }
+    return std::any(result);
+}
+
+// A google.protobuf.Struct (a `metadata` object) -> {fields: {k: value_obj}}.
+static std::any json_struct(const nlohmann::json& obj) {
     BallMap fields;
-    for (auto& [key, val] : s.fields()) {
-        fields[key] = proto_value_obj_to_any(val);
+    for (auto it = obj.begin(); it != obj.end(); ++it) {
+        fields[it.key()] = json_struct_value(it.value());
     }
     BallMap result;
     result["fields"] = std::any(fields);
     return std::any(result);
 }
 
-static std::any proto_value_obj_to_any(const google::protobuf::Value& v) {
-    // Produce protobuf-style Value objects that the self-hosted engine expects.
-    // The engine checks ball_which_kind() which looks for keys like "stringValue",
-    // "numberValue", "boolValue", "listValue", "structValue", "nullValue".
-    using VK = google::protobuf::Value::KindCase;
-    switch (v.kind_case()) {
-        case VK::kNullValue: {
-            BallMap result;
-            result["nullValue"] = std::any(int64_t(0));
-            return std::any(result);
-        }
-        case VK::kNumberValue: {
-            BallMap result;
-            result["numberValue"] = std::any(v.number_value());
-            return std::any(result);
-        }
-        case VK::kStringValue: {
-            BallMap result;
-            result["stringValue"] = std::any(v.string_value());
-            return std::any(result);
-        }
-        case VK::kBoolValue: {
-            BallMap result;
-            result["boolValue"] = std::any(v.bool_value());
-            return std::any(result);
-        }
-        case VK::kStructValue: {
-            BallMap result;
-            result["structValue"] = proto_struct_to_any(v.struct_value());
-            return std::any(result);
-        }
-        case VK::kListValue: {
-            BallList list;
-            for (auto& el : v.list_value().values()) {
-                list.push_back(proto_value_obj_to_any(el));
-            }
-            BallMap inner;
-            inner["values"] = std::any(list);
-            BallMap result;
-            result["listValue"] = std::any(inner);
-            return std::any(result);
-        }
-        default:
-            return std::any{};
+static std::any json_to_any(const nlohmann::json& j, const std::string& key) {
+    if (j.is_null()) return std::any{};
+    if (j.is_boolean()) return std::any(j.get<bool>());
+    if (j.is_string()) {
+        const std::string& sv = j.get_ref<const nlohmann::json::string_t&>();
+        if (key == "intValue" || key == "int_value")
+            return std::any(static_cast<int64_t>(std::stoll(sv)));
+        if (key == "doubleValue" || key == "double_value")
+            return std::any(parse_double_special(sv));
+        if (key == "bytesValue" || key == "bytes_value")
+            return base64_to_bytelist(sv);
+        return std::any(sv);
     }
+    if (j.is_number_float()) return std::any(j.get<double>());
+    if (j.is_number()) {  // integer / unsigned
+        if (key == "doubleValue" || key == "double_value")
+            return std::any(static_cast<double>(j.get<int64_t>()));
+        return std::any(static_cast<int64_t>(j.get<int64_t>()));
+    }
+    if (j.is_array()) {
+        BallList list;
+        for (const auto& el : j) list.push_back(json_to_any(el, key));
+        return std::any(list);
+    }
+    if (j.is_object()) {
+        if (key == "metadata") return json_struct(j);
+        BallMap m;
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            if (it.key() == "@type") continue;  // strip the Any envelope key
+            m[it.key()] = json_to_any(it.value(), it.key());
+        }
+        return std::any(m);
+    }
+    return std::any{};
 }
 
-static std::any proto_msg_to_any(const google::protobuf::Message& msg) {
-    BallMap result;
-    auto desc = msg.GetDescriptor();
-    auto ref = msg.GetReflection();
-
-    for (int i = 0; i < desc->field_count(); i++) {
-        auto field = desc->field(i);
-        std::string key(field->json_name());
-
-        if (field->is_repeated()) {
-            int count = ref->FieldSize(msg, field);
-            if (count == 0) continue;
-            BallList list;
-            for (int j = 0; j < count; j++) {
-                switch (field->type()) {
-                    case google::protobuf::FieldDescriptor::TYPE_MESSAGE:
-                        list.push_back(proto_msg_to_any(ref->GetRepeatedMessage(msg, field, j)));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_STRING:
-                        list.push_back(std::any(ref->GetRepeatedString(msg, field, j)));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_INT32:
-                        list.push_back(std::any(static_cast<int64_t>(ref->GetRepeatedInt32(msg, field, j))));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_INT64:
-                        list.push_back(std::any(ref->GetRepeatedInt64(msg, field, j)));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_BOOL:
-                        list.push_back(std::any(ref->GetRepeatedBool(msg, field, j)));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_DOUBLE:
-                        list.push_back(std::any(ref->GetRepeatedDouble(msg, field, j)));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_ENUM:
-                        list.push_back(std::any(static_cast<int64_t>(ref->GetRepeatedEnumValue(msg, field, j))));
-                        break;
-                    case google::protobuf::FieldDescriptor::TYPE_BYTES: {
-                        // Repeated `bytes` — each element is itself a byte list
-                        // (mirrors the singular TYPE_BYTES handling / issue #266).
-                        auto v = ref->GetRepeatedString(msg, field, j);
-                        BallList bytes;
-                        bytes.reserve(v.size());
-                        for (unsigned char c : v) {
-                            bytes.push_back(std::any(static_cast<int64_t>(c)));
-                        }
-                        list.push_back(std::any(bytes));
-                        break;
-                    }
-                    default:
-                        list.push_back(std::any{});
-                        break;
-                }
-            }
-            result[key] = std::any(list);
-        } else if (field->type() == google::protobuf::FieldDescriptor::TYPE_MESSAGE) {
-            if (!ref->HasField(msg, field)) continue;
-            auto& sub = ref->GetMessage(msg, field);
-            if (field->message_type()->full_name() == "google.protobuf.Struct") {
-                auto& structMsg = dynamic_cast<const google::protobuf::Struct&>(sub);
-                result[key] = proto_struct_to_any(structMsg);
-            } else {
-                result[key] = proto_msg_to_any(sub);
-            }
-        } else {
-            // For oneof fields, always store if the field is set (even zero/false/empty values)
-            bool is_oneof = field->containing_oneof() != nullptr;
-            bool force_store = is_oneof && ref->HasField(msg, field);
-            switch (field->type()) {
-                case google::protobuf::FieldDescriptor::TYPE_STRING: {
-                    auto v = ref->GetString(msg, field);
-                    if (!v.empty() || force_store) result[key] = std::any(v);
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_INT32: {
-                    if (!ref->HasField(msg, field)) break;
-                    auto v = ref->GetInt32(msg, field);
-                    result[key] = std::any(static_cast<int64_t>(v));
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_INT64: {
-                    if (!ref->HasField(msg, field)) break;
-                    auto v = ref->GetInt64(msg, field);
-                    result[key] = std::any(v);
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_BOOL: {
-                    auto v = ref->GetBool(msg, field);
-                    if (v || force_store) result[key] = std::any(v);
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_DOUBLE: {
-                    auto v = ref->GetDouble(msg, field);
-                    if (v != 0.0 || force_store) result[key] = std::any(v);
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_FLOAT: {
-                    auto v = ref->GetFloat(msg, field);
-                    if (v != 0.0f || force_store) result[key] = std::any(static_cast<double>(v));
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_ENUM: {
-                    if (!ref->HasField(msg, field)) break;
-                    auto v = ref->GetEnumValue(msg, field);
-                    result[key] = std::any(static_cast<int64_t>(v));
-                    break;
-                }
-                case google::protobuf::FieldDescriptor::TYPE_BYTES: {
-                    // A `bytes` field (e.g. Literal.bytesValue) must materialize
-                    // as a Ball list of ints [0, 1, 127, 255, 65] — the same
-                    // shape the Dart reference engine sees (protobuf decodes
-                    // `bytes` to a `List<int>`, and engine_eval.dart does
-                    // `lit.bytesValue.toList()`). protoc has already base64-
-                    // decoded the proto3-JSON value into raw bytes here, so
-                    // expand those bytes into a BallList<int64>. Storing the raw
-                    // std::string instead left `.toList()` yielding null, so a
-                    // bytes literal evaluated to null and `.length` on it threw
-                    // "Cannot access field length on null" (issue #266 — the C++
-                    // analog of the TS protoWrap fix in #244).
-                    auto v = ref->GetString(msg, field);
-                    if (!v.empty() || force_store) {
-                        BallList bytes;
-                        bytes.reserve(v.size());
-                        for (unsigned char c : v) {
-                            bytes.push_back(std::any(static_cast<int64_t>(c)));
-                        }
-                        result[key] = std::any(bytes);
-                    }
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-    }
-
-    return std::any(result);
+// Convert a whole Program/Module proto3-JSON object into the engine's map tree.
+static std::any program_json_to_any(const nlohmann::json& j) {
+    return json_to_any(j, "");
 }
 
 // ============================================================
@@ -304,18 +227,15 @@ static const std::map<std::string, HostKnob>& host_knobs() {
 
 static bool run_one(const fs::path& program_path, const fs::path& expected_path,
                     const std::string& test_name, std::string& failure_msg) {
-    // Parse the self-describing Any envelope -> Program protobuf.
+    // Parse the self-describing proto3-JSON Any envelope -> BallDyn map tree.
     auto json = read_file_str(program_path);
-    ball::v1::Program program;
+    std::any programAny;
     try {
-        program = ball::DecodeProgram(program_path.string(), json);
-    } catch (const ball::BallFileFormatException& e) {
+        programAny = program_json_to_any(nlohmann::json::parse(json));
+    } catch (const std::exception& e) {
         failure_msg = std::string("ball file decode failed: ") + e.what();
         return false;
     }
-
-    // Convert protobuf -> BallDyn map tree
-    auto programAny = proto_msg_to_any(program);
 
     // Capture stdout via a shared string buffer (thread-safe, no cout redirect)
     auto captured = std::make_shared<std::string>();
@@ -575,8 +495,7 @@ static bool run_fs_dir_selfhost(std::string& failure_msg) {
     bool ran = false;
     try {
         // Mirror run_one's engine construction (the well-exercised corpus path).
-        ball::v1::Program program = ball::DecodeProgram("std_fs_dir", kProgram);
-        auto programAny = proto_msg_to_any(program);
+        auto programAny = program_json_to_any(nlohmann::json::parse(kProgram));
         auto cap = std::make_shared<std::string>();
 
         BallEngine engine;
@@ -784,8 +703,7 @@ static bool run_fs_write_selfhost(std::string& failure_msg) {
     std::string run_err;
     bool ran = false;
     try {
-        ball::v1::Program program = ball::DecodeProgram("std_fs_write", kProgram);
-        auto programAny = proto_msg_to_any(program);
+        auto programAny = program_json_to_any(nlohmann::json::parse(kProgram));
         auto cap = std::make_shared<std::string>();
 
         BallEngine engine;

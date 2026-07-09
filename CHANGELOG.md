@@ -1,3 +1,10 @@
+## [1.19.1](https://github.com/Ball-Lang/ball/compare/v1.19.0...v1.19.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **ts-compiler:** lower continue-to-labelled-switch-case (goto-via-switch) ([#345](https://github.com/Ball-Lang/ball/issues/345)) ([f2e49bc](https://github.com/Ball-Lang/ball/commit/f2e49bc718b630684f5b46e8cbef132555f94a78)), closes [320/#337](https://github.com/Ball-Lang/ball/issues/337)
+
 # [1.19.0](https://github.com/Ball-Lang/ball/compare/v1.18.1...v1.19.0) (2026-07-09)
 
 

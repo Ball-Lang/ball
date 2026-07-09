@@ -37,24 +37,11 @@ target_include_directories(test_ball_file PRIVATE
 )
 target_link_libraries(test_ball_file ball_shared)
 
-# #18 Stage 3 — byte-equivalence harness for the ball_protobuf binary path.
-# Only built when the cutover is enabled (BALL_USE_BALL_PROTOBUF=ON, which also
-# adds ball_rt_decode.cpp to ball_shared and defines the macro so ball_file.h's
-# binary path routes through ball_protobuf_rt). Loads every conformance fixture
-# through BOTH decoders (google Any/Program vs ball_protobuf descriptor-driven
-# unmarshal→re-marshal) and asserts the Programs are MessageDifferencer-equal.
-if(BALL_USE_BALL_PROTOBUF)
-    add_executable(test_ball_rt_equivalence test_ball_rt_equivalence.cpp)
-    target_include_directories(test_ball_rt_equivalence PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
-    )
-    target_link_libraries(test_ball_rt_equivalence ball_shared)
-    target_compile_definitions(test_ball_rt_equivalence PRIVATE
-        BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
-    )
-    add_test(NAME ball_rt_equivalence COMMAND test_ball_rt_equivalence)
-    set_tests_properties(ball_rt_equivalence PROPERTIES LABELS "ball_protobuf_rt")
-endif()
+# #18 Stage 5: the byte-equivalence harness (test_ball_rt_equivalence) retired
+# WITH the google path — its whole purpose was to prove ball_protobuf's binary
+# decode matched google's, which is inherently a google-oracle comparison. Its
+# regression value (the rt binary path decodes correctly) is preserved by
+# test_ball_file's golden Any-wire vectors, which pin the rt path without google.
 
 # BallDyn / BallOrderedMap / ball_emit_runtime.h runtime tests — the
 # compiled-program runtime (issue #63). Neither header is reachable from
@@ -169,19 +156,15 @@ set_target_properties(test_ball_ir PROPERTIES
 )
 
 # P4 descriptor-WRITE builder test (#18) — exercises ball_ir.h's hand-rolled
-# DescriptorProto/EnumDescriptorProto JSON construction. UNLIKE test_ball_ir
-# (deliberately protobuf-free), this test DOES link libprotobuf: it is the
-# ORACLE. It builds descriptors via P4, parses them back with
-# JsonStringToMessage, and asserts proto equality against the protobuf-builder
-# path (google::protobuf::util::MessageDifferencer). ball_shared brings in
-# protobuf::libprotobuf (PUBLIC) — descriptor.pb.h, json_util, and
-# message_differencer all live there.
+# DescriptorProto/EnumDescriptorProto JSON construction. #18 Stage 5: the google
+# oracle retired with libprotobuf — the test now pins P4's output against GOLDEN
+# proto3-JSON (authored from the spec + an independent type table) via nlohmann
+# equality, so it links only nlohmann/json (NOT ball_shared / libprotobuf).
 add_executable(test_ball_ir_descriptor test_ball_ir_descriptor.cpp)
 target_include_directories(test_ball_ir_descriptor PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
 )
 target_link_libraries(test_ball_ir_descriptor PRIVATE
-    ball_shared
     nlohmann_json::nlohmann_json
 )
 set_target_properties(test_ball_ir_descriptor PROPERTIES

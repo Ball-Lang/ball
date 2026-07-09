@@ -27,11 +27,12 @@ plugins:
   - remote: buf.build/protocolbuffers/java:v35.1
     out: java/shared/gen
 
-  # cpp is pinned to v34.1 (not latest) to match cpp/CMakeLists' FetchContent
-  # protobuf v34.1 runtime — 35.1 gencode + 34.1 runtime is a hard #error
-  # (issue #333; the real fix is #18's protobuf cutover).
-  - remote: buf.build/protocolbuffers/cpp:v34.1
-    out: cpp/shared/gen
+  # #18 Stage 5 (closes #330/#333): the C++ target is libprotobuf-free — it no
+  # longer consumes generated `ball.pb.{h,cc}`, so there is no cpp plugin here
+  # (and no checked-in cpp/shared/gen/). This eliminates the gencode↔runtime
+  # version skew that broke buf-less local C++ builds. C++ loads Ball programs
+  # via the protobuf-free `ball::ir` (nlohmann/json) and Ball's own compiled
+  # protobuf runtime; see cpp/shared/AGENTS.md.
 
   - remote: buf.build/protocolbuffers/csharp:v35.1
     out: csharp/shared/gen

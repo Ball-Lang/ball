@@ -246,11 +246,9 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # NOTE: deliberately do NOT install a system protobuf. The checked-in
-      # generated code in cpp/shared/gen/ targets the pinned protobuf
-      # BALL_PROTOBUF_TAG (v34.1) and requires headers (runtime_version.h)
-      # absent from Ubuntu apt's older libprotobuf-dev. CMake FetchContents the
-      # matching version (same as ci.yml's C++ build).
+      # #18 Stage 5: the C++ build is libprotobuf-free — no protobuf to install
+      # or FetchContent. The only external dep is nlohmann/json, which CMake
+      # FetchContents when it isn't found on the system (same as ci.yml's build).
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23

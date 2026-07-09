@@ -363,9 +363,11 @@ jobs:
   cpp:
     name: C++ (${{ matrix.os }})
     needs: changes
-    # C++ is build-isolated (FetchContents its own protobuf; does not build from
-    # dart/ or ts/). Skip the whole 3-OS matrix — incl. the ~40-min Windows
-    # build — when nothing under cpp/ (or proto/, or this workflow) changed.
+    # C++ is build-isolated (does not build from dart/ or ts/). #18 Stage 5: it
+    # no longer FetchContents Google protobuf — the build is now libprotobuf-free
+    # (nlohmann/json only), so configure + build are dramatically faster. Skip
+    # the whole 3-OS matrix when nothing under cpp/ (or proto/, or this workflow)
+    # changed.
     if: ${{ needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
     strategy:
       fail-fast: false
@@ -380,9 +382,10 @@ jobs:
         with:
           setup_only: true
 
-      # Compiler cache so the FetchContent protobuf+abseil build (the dominant
-      # cost) is reused across runs. ccache on Linux/macOS, sccache on Windows
-      # (MSVC). Manages its own GitHub Actions cache save/restore.
+      # Compiler cache to speed rebuilds. #18 Stage 5 removed the FetchContent
+      # protobuf+abseil build (the former dominant cost), but ccache still helps
+      # the heavy ball_protobuf_rt.h TU + the compiler's ~12k-line TU. ccache on
+      # Linux/macOS, sccache on Windows (MSVC).
       - name: ccache
         uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
         with:
@@ -417,24 +420,6 @@ jobs:
 
       - name: Run tests
         run: ctest --test-dir cpp/build --output-on-failure -C Release
-
-      # #18 Stage 3 proof (Linux only): the default cpp/build above stays google
-      # end-to-end (zero risk). This SEPARATE option-ON build dir routes
-      # ball_file.h's binary path through Ball's own compiled protobuf runtime
-      # (BALL_USE_BALL_PROTOBUF) and runs the byte-equivalence harness — every
-      # conformance fixture decoded through BOTH the google Any/Program parser
-      # and ball_protobuf's descriptor-driven unmarshal→re-marshal must yield a
-      # MessageDifferencer-equal Program. It reuses the ccache-warmed protobuf
-      # objects from the build above, so it only recompiles ball_shared + the
-      # harness (negligible next to the FetchContent protobuf build already paid).
-      - name: "#18 Stage 3 — ball_protobuf binary-path byte-equivalence"
-        if: runner.os == 'Linux'
-        run: |
-          cmake -S cpp -B cpp/build-rt -DCMAKE_BUILD_TYPE=Release \
-            -DBALL_USE_BALL_PROTOBUF=ON \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build cpp/build-rt --target test_ball_rt_equivalence --config Release -j 2
-          ctest --test-dir cpp/build-rt -R ball_rt_equivalence --output-on-failure -C Release
 
   # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
@@ -482,8 +467,12 @@ jobs:
       # Builds only the conformance_test_runner target (protobuf + abseil +
       # conformance harness). It statically links the TestAllTypes* descriptors,
       # so we need not feed it our .proto — it already knows the message types.
+      # #18 Stage 5: the default ball build no longer FetchContents protobuf, so
+      # building the upstream conformance_test_runner is now gated behind the
+      # opt-in BALL_BUILD_UPSTREAM_CONFORMANCE option (which FetchContents
+      # protobuf with protobuf_BUILD_CONFORMANCE=ON — see cpp/CMakeLists.txt).
       - name: Configure CMake (conformance runner)
-        run: cmake -S cpp -B cpp/build-conformance -G Ninja -Dprotobuf_BUILD_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+        run: cmake -S cpp -B cpp/build-conformance -G Ninja -DBALL_BUILD_UPSTREAM_CONFORMANCE=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       # Bounded parallelism (-j 2): an unbounded `-j` spawns dozens of protobuf's
       # huge translation units at once (command_line_interface.cc etc.) and

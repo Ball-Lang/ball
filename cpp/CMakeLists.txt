@@ -17,6 +17,35 @@ enable_testing()
 option(BALL_BUILD_PROTOBUF_RT
     "Build ball_protobuf_rt.h + its smoke driver as a standalone proof target (#18 canary)" OFF)
 
+# ── #18 carve-out: upstream protobuf conformance runner (opt-in) ──────────────
+# Stage 5 made the default ball build libprotobuf-free. The Dart `ball_protobuf`
+# package's upstream-conformance harness, however, still drives Ball's own
+# codecs through the REAL protobuf `conformance_test_runner` (a C++ binary built
+# from the protobuf source tree). Building THAT one binary needs a protobuf
+# source, so it is FetchContent'd ONLY behind this opt-in option (default OFF) —
+# the normal ball build (compiler/encoder/engine/tests) never fetches protobuf.
+# The `editions-conformance-upstream` CI job turns it on. This exercises
+# ball_protobuf-the-Dart-package, NOT the C++ ball target. See
+# dart/ball_protobuf/conformance/README.md.
+option(BALL_BUILD_UPSTREAM_CONFORMANCE
+    "FetchContent protobuf + build its conformance_test_runner (opt-in, #18 carve-out)" OFF)
+if(BALL_BUILD_UPSTREAM_CONFORMANCE)
+    include(FetchContent)
+    set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(protobuf_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(protobuf_INSTALL OFF CACHE BOOL "" FORCE)
+    set(protobuf_ABSL_PROVIDER "module" CACHE STRING "" FORCE)
+    set(protobuf_BUILD_CONFORMANCE ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        protobuf
+        GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+        GIT_TAG        v34.1
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(protobuf)
+    message(STATUS "#18 carve-out: upstream protobuf conformance_test_runner ENABLED")
+endif()
+
 # ── Buf CLI targets (lint, breaking, format) ──────────────────
 # These are available when buf is on PATH; silently skipped otherwise.
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

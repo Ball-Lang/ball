@@ -1158,30 +1158,38 @@ impl<'a> Compiler<'a> {
                         None => "BallValue::Null".to_string(),
                     };
                     self.bind_local(&let_binding.name);
-                    // A cascade var is reassigned by its mutating method calls,
-                    // so it is always `mut`.
-                    let mutated = cascade_var.as_deref() == Some(name.as_str())
-                        || self.rest_mutates_var(
-                            &block.statements[index + 1..],
-                            block.result.as_deref(),
-                            &let_binding.name,
-                        );
+                    // `mut` only when the rest of the block actually reassigns
+                    // this binding (e.g. an `assign`-wrapped mutating cascade
+                    // method `..clear()`/`..addAll()` whose target is a simple
+                    // var). A cascade var is no longer blanket-reassigned to each
+                    // op's result (see the cascade-op handling above), so a
+                    // cascade whose ops only mutate the shared backing in place
+                    // (`..remove()`) needs no `mut`.
+                    let mutated = self.rest_mutates_var(
+                        &block.statements[index + 1..],
+                        block.result.as_deref(),
+                        &let_binding.name,
+                    );
                     let keyword = if mutated { "let mut" } else { "let" };
                     out.push_str(&format!("{keyword} {name} = {value};\n"));
                 }
                 Some(Stmt::Expression(expression)) => {
                     let compiled = self.compile_expression(expression);
-                    // Inside a cascade, a method call *on the cascade var*
-                    // reassigns it (value-semantic mutation persistence).
-                    match &cascade_var {
-                        Some(cv) if is_method_call_on(expression, cv) => {
-                            out.push_str(&format!("{cv} = {compiled};\n"));
-                        }
-                        _ => {
-                            out.push_str(&compiled);
-                            out.push_str(";\n");
-                        }
-                    }
+                    // A cascade operation is evaluated purely for its side
+                    // effect: Dart's `x..m()` always evaluates to the *receiver*
+                    // `x`, discarding `m()`'s return. With reference-semantic
+                    // collections (the #39/#300 List/Map reshape) a mutating
+                    // method (`..clear()`/`..addAll()`/`..sort()`/`..remove()`)
+                    // mutates the shared backing in place, so the cascade var
+                    // must NOT be reassigned to the call's result. The former
+                    // `cv = <call>` (a value-semantic-era workaround) corrupted
+                    // `cv` for any method that returns something other than the
+                    // receiver — e.g. `Map.from(x)..remove('self')`, where
+                    // `remove` returns the *removed value*, so `argInput` became
+                    // the removed object and `List.generate`'s generator read
+                    // back `Null` ("generator is not callable", #39/#300).
+                    out.push_str(&compiled);
+                    out.push_str(";\n");
                 }
                 None => {}
             }
@@ -1440,31 +1448,6 @@ fn cascade_let_var(statement: &ball_shared::proto::ball::v1::Statement) -> Optio
         }
         _ => None,
     }
-}
-
-/// Whether `expr` is a **method call whose receiver is the cascade var** — a
-/// `call` whose packed input carries a `self` field referencing `cascade_var`
-/// (`clear({self: __cascade_self__})` / `addAll({self: __cascade_self__, arg0:
-/// f})`). Such a call reassigns the cascade var (value-semantic mutation);
-/// an index/field `assign` on the cascade var packs `target`/`value` (no
-/// `self`) and is therefore excluded — it already mutates in place. Issue #300.
-fn is_method_call_on(expr: &Expression, cascade_var: &str) -> bool {
-    let Some(Expr::Call(call)) = &expr.expr else {
-        return false;
-    };
-    let Some(Expression {
-        expr: Some(Expr::MessageCreation(mc)),
-    }) = call.input.as_deref()
-    else {
-        return false;
-    };
-    mc.fields.iter().any(|field| {
-        field.name == "self"
-            && matches!(
-                field.value.as_ref().and_then(|v| v.expr.as_ref()),
-                Some(Expr::Reference(reference)) if sanitize_ident(&reference.name) == cascade_var
-            )
-    })
 }
 
 fn sanitize_ident(name: &str) -> String {

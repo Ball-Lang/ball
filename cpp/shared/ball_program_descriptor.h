@@ -95,7 +95,7 @@ inline const std::map<std::string, BallDyn>& _registry() {
     _push(r, "ball.v1.FieldValuePair", "name", 1, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.FieldValuePair", "value", 2, "TYPE_MESSAGE", "LABEL_OPTIONAL", false, "ball.v1.Expression", nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.FileSource", "path", 1, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
-    _push(r, "ball.v1.FileSource", "encoding", 2, "TYPE_ENUM", "LABEL_OPTIONAL", false, "ball.v1.ModuleEncoding", nullptr, false, nullptr, nullptr);
+    _push(r, "ball.v1.FileSource", "encoding", 2, "TYPE_ENUM", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.FunctionCall", "module", 1, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.FunctionCall", "function", 2, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.FunctionCall", "input", 3, "TYPE_MESSAGE", "LABEL_OPTIONAL", false, "ball.v1.Expression", nullptr, false, nullptr, nullptr);
@@ -110,9 +110,9 @@ inline const std::map<std::string, BallDyn>& _registry() {
     _push(r, "ball.v1.GitSource", "url", 1, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.GitSource", "ref", 2, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.GitSource", "path", 3, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
-    _push(r, "ball.v1.GitSource", "encoding", 4, "TYPE_ENUM", "LABEL_OPTIONAL", false, "ball.v1.ModuleEncoding", nullptr, false, nullptr, nullptr);
+    _push(r, "ball.v1.GitSource", "encoding", 4, "TYPE_ENUM", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.HttpSource", "url", 1, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
-    _push(r, "ball.v1.HttpSource", "encoding", 2, "TYPE_ENUM", "LABEL_OPTIONAL", false, "ball.v1.ModuleEncoding", nullptr, false, nullptr, nullptr);
+    _push(r, "ball.v1.HttpSource", "encoding", 2, "TYPE_ENUM", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.HttpSource", "headers", 3, "TYPE_MESSAGE", "LABEL_REPEATED", true, nullptr, nullptr, true, "TYPE_STRING", "TYPE_STRING");
     _push(r, "ball.v1.InlineSource", "proto_bytes", 1, "TYPE_BYTES", "LABEL_OPTIONAL", false, nullptr, "content", false, nullptr, nullptr);
     _push(r, "ball.v1.InlineSource", "json", 2, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, "content", false, nullptr, nullptr);
@@ -158,11 +158,11 @@ inline const std::map<std::string, BallDyn>& _registry() {
     _push(r, "ball.v1.Program", "entry_function", 5, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.Program", "metadata", 6, "TYPE_BYTES", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.Reference", "name", 1, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
-    _push(r, "ball.v1.RegistrySource", "registry", 1, "TYPE_ENUM", "LABEL_OPTIONAL", false, "ball.v1.Registry", nullptr, false, nullptr, nullptr);
+    _push(r, "ball.v1.RegistrySource", "registry", 1, "TYPE_ENUM", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.RegistrySource", "package", 2, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.RegistrySource", "version", 3, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.RegistrySource", "module_path", 4, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
-    _push(r, "ball.v1.RegistrySource", "encoding", 5, "TYPE_ENUM", "LABEL_OPTIONAL", false, "ball.v1.ModuleEncoding", nullptr, false, nullptr, nullptr);
+    _push(r, "ball.v1.RegistrySource", "encoding", 5, "TYPE_ENUM", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.RegistrySource", "registry_url", 6, "TYPE_STRING", "LABEL_OPTIONAL", false, nullptr, nullptr, false, nullptr, nullptr);
     _push(r, "ball.v1.Statement", "let", 1, "TYPE_MESSAGE", "LABEL_OPTIONAL", false, "ball.v1.LetBinding", "stmt", false, nullptr, nullptr);
     _push(r, "ball.v1.Statement", "expression", 2, "TYPE_MESSAGE", "LABEL_OPTIONAL", false, "ball.v1.Expression", "stmt", false, nullptr, nullptr);

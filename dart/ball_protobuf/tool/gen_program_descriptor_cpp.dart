@@ -186,7 +186,7 @@ void _emitHeader(
   );
   for (final fqn in ordered) {
     for (final field in registry[fqn]!) {
-      b.writeln(_emitPush(fqn, field));
+      b.writeln(_emitPush(fqn, field, reachable));
     }
   }
   b.writeln('    return r;');
@@ -208,7 +208,11 @@ void _emitHeader(
   b.writeln('}  // namespace ball_protobuf');
 }
 
-String _emitPush(String msgFqn, Map<String, Object?> field) {
+String _emitPush(
+  String msgFqn,
+  Map<String, Object?> field,
+  Set<String> reachable,
+) {
   final name = field['name'] as String;
   final number = field['number'] as int;
   var type = field['type'] as String;
@@ -226,13 +230,22 @@ String _emitPush(String msgFqn, Map<String, Object?> field) {
     valueType = field['valueType'] as String;
     // Ball has only map<string,string> (HttpSource.headers); a message-valued
     // map would need refType — none exist in ball.v1, so none is emitted.
-  } else if (typeName != null && typeName.startsWith(_ballPrefix)) {
-    refType = typeName; // recursive ball message reference.
+  } else if (typeName != null &&
+      typeName.startsWith(_ballPrefix) &&
+      reachable.contains(typeName)) {
+    // Recursive ball MESSAGE reference. Guarded by `reachable` (the emitted
+    // registry keys): a ball.v1 ENUM (Registry, ModuleEncoding) also carries a
+    // ball.v1.* typeName but is NOT a message — emitting it as refType made
+    // `r.at("ball.v1.Registry")` throw std::out_of_range at static init.
+    refType = typeName;
   } else if (typeName != null && typeName.startsWith('google.protobuf.')) {
     // Opaque passthrough: message/group => bytes (wire-identical), so no
     // descriptor.proto / struct.proto closure is needed.
     type = 'TYPE_BYTES';
   }
+  // Anything else (TYPE_ENUM with a non-registry typeName, plain scalars) is
+  // emitted as-is: the binary codec treats an enum as a varint int32, which
+  // round-trips the wire value without needing enumValues/enumNames.
 
   String cstr(String? s) => s == null ? 'nullptr' : '"${_esc(s)}"';
   return '    _push(r, "$msgFqn", "${_esc(name)}", $number, "$type", '
@@ -247,10 +260,13 @@ List<int> _loadFds(String repoRoot, String? explicit) {
     return File(explicit).readAsBytesSync();
   }
   // Build a FileDescriptorSet from the repo's protos via buf (host tool).
+  // Scope buf to the proto/ module (proto/buf.yaml): an unscoped `buf build`
+  // at the repo root also scans FetchContent'd third-party protos under
+  // cpp/build*/_deps/protobuf-src/** and fails on their unstable editions.
   final tmp = File('${Directory.systemTemp.path}/ball_program_fds_$pid.binpb');
   final result = Process.runSync(
     'buf',
-    ['build', '-o', tmp.path],
+    ['build', 'proto', '-o', tmp.path],
     workingDirectory: repoRoot,
     runInShell: true,
   );

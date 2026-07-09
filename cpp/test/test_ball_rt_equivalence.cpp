@@ -29,6 +29,7 @@
 #include <google/protobuf/any.pb.h>
 #include <google/protobuf/util/message_differencer.h>
 
+#include "absl/synchronization/mutex.h"
 #include "ball_file.h"
 
 namespace fs = std::filesystem;
@@ -109,6 +110,12 @@ Result check_fixture(const fs::path& path) {
 }  // namespace
 
 int main() {
+    // Disable abseil mutex deadlock detection — protobuf v34.1's internal
+    // descriptor pool initialization triggers a false-positive cycle (#25;
+    // same established workaround as test_e2e.cpp). The long-term fix is this
+    // very epic (#18): dropping Google protobuf removes abseil entirely.
+    absl::SetMutexDeadlockDetectionMode(absl::OnDeadlockCycle::kIgnore);
+
     const fs::path dir(BALL_CONFORMANCE_DIR);
     std::vector<fs::path> fixtures;
     for (const auto& entry : fs::directory_iterator(dir)) {

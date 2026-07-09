@@ -605,8 +605,21 @@ extension BallEngineControlFlow on BallEngine {
         final resolved = qualEnumVals[enumValue];
         final resolvedMap = _cfAsMap(resolved);
         if (subjectMap != null && resolvedMap != null) {
+          // The `&&`'s right operand is provably unreachable: for the left
+          // operand to be true, `subjectMap['__type__']` must equal
+          // `resolvedMap['__type__']` (`qualifiedEnumType`, e.g.
+          // `"main:Color"`) — but that means `subjectMap`'s OWN bare type
+          // (stripped of its module prefix) already equals `enumType`
+          // (`"Color"`), which the EARLIER direct-comparison check
+          // (`bareType == enumType && subjectMap['name'] == enumValue`,
+          // above) would have already matched and returned from — so
+          // control can never reach this line with a true left operand.
+          // See `engine_wave7_coverage_test.dart`'s "module-qualified enum
+          // fallback" test, which proves the surrounding lines ARE reached
+          // (via a deliberately mismatched subject, so the left operand is
+          // false and short-circuits before this line evaluates).
           return subjectMap['__type__'] == resolvedMap['__type__'] &&
-              subjectMap['name'] == resolvedMap['name'];
+              subjectMap['name'] == resolvedMap['name']; // coverage:ignore-line
         }
       }
     }
@@ -1644,7 +1657,14 @@ extension BallEngineControlFlow on BallEngine {
     Object? input,
   ) async {
     final inputMap = _cfAsMap(input);
-    final args = inputMap ?? <String, Object?>{};
+    // Defensive: both call sites (`engine_eval.dart`'s instance-method
+    // dispatch and this file's own Set-method default fallback) only ever
+    // reach here with `input` already established as map-shaped — the
+    // encoder's calling convention for a built-in instance method always
+    // wraps the call as `msg([field('self', ...), field('arg0', ...), ...])`
+    // (see this file's own header comment), so `_cfAsMap(input)` is never
+    // null in practice.
+    final args = inputMap ?? <String, Object?>{}; // coverage:ignore-line
     final arg0 = args['arg0'] ?? args['value'];
 
     // Track whether self was originally a BallList so we can wrap list

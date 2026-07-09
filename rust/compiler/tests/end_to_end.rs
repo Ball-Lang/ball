@@ -1102,6 +1102,22 @@ fn switch_dispatches_to_the_matching_case() {
     assert_program_prints("switch", &program, "two");
 }
 
+/// `tests/conformance/400_switch_continue_label.ball.json` — Dart's
+/// goto-via-switch: labelled cases where `continue <caseLabel>;` jumps to
+/// that case's body with **no subject re-check** (issue #346, porting
+/// `ts/compiler/src/compiler.ts`'s `emitGotoSwitchStmt` — see
+/// `base_call.rs::compile_switch_goto`). One program (`walk`) exercises all
+/// four control paths: `walk(0)` falls through `continue one` then
+/// `continue two` to reach case 2's body (`"zero,one,two"`), `walk(1)`
+/// starts mid-chain via case 1's own label (`"one,two"`), `walk(2)` hits its
+/// own `break` immediately (`"two"`), and `walk(9)` matches nothing and
+/// reaches `default` (`"other"`).
+#[test]
+fn switch_continue_label_conformance_fixture_compiles_and_runs() {
+    let (program, expected) = load_conformance_fixture("400_switch_continue_label");
+    assert_program_prints("switch_continue_label", &program, &expected);
+}
+
 /// `try`/`throw` — `throw` panics with the `BallValue` payload
 /// (`std::panic::panic_any`); `try` catches it via `catch_unwind` and binds
 /// the recovered value to the `catch` clause's variable.

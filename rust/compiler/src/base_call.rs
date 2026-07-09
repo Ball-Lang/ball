@@ -55,12 +55,20 @@
 //! only until #38's typed parameter destructuring), `rethrow` (needs
 //! "current exception in scope" context threading through `try`/`catch`),
 //! `yield`/`await` (generators/async are a different control-flow model —
-//! not attempted here), `goto` (no Rust equivalent without a state-machine
-//! transform), and all of `std_memory` (linear-memory/pointer model, not
-//! yet designed for this target). `try`/`switch` are implemented at a
-//! deliberately minimal level (single untaken-catch-type dispatch / no
-//! fall-through) — see [`Compiler::compile_try`]/[`Compiler::compile_switch`]'s
-//! own doc comments for the exact limitation.
+//! not attempted here), the standalone `goto` base function (no Rust
+//! equivalent without a state-machine transform — distinct from a labelled
+//! `switch`'s `continue <label>`, which *is* modeled, see below), and all of
+//! `std_memory` (linear-memory/pointer model, not yet designed for this
+//! target). `try` dispatches only its first `catches` clause (no
+//! exception-type matching yet); a *plain* (unlabelled) `switch` compiles to
+//! an if-chain whose `break` isn't specially scoped to the switch; a
+//! *labelled* `switch` (Dart's goto-via-switch — issue #346) compiles to a
+//! state-machine `loop` instead — see
+//! [`Compiler::compile_try`]/[`Compiler::compile_switch`]/
+//! [`Compiler::compile_switch_goto`]'s own doc comments for the exact shape
+//! and limitations of each.
+use std::collections::HashMap;
+
 use indexmap::IndexMap;
 
 use ball_shared::extract_fields;
@@ -70,7 +78,16 @@ use ball_shared::proto::ball::v1::{
     Expression, FieldValuePair, FunctionCall, ListLiteral, MessageCreation,
 };
 
-use crate::Compiler;
+use crate::{Compiler, SwitchLabelCtx};
+
+/// [`Compiler::parse_switch_goto_cases`]'s return shape: `(arms, default
+/// body, label → arm index)` — each arm is `(match-value conditions, RAW
+/// case body)`. See that method's doc comment.
+type ParsedSwitchGotoCases = (
+    Vec<(Vec<String>, Expression)>,
+    Option<Expression>,
+    HashMap<String, usize>,
+);
 
 impl Compiler<'_> {
     /// `call` — the shared entry point for both node types folded under
@@ -1242,8 +1259,19 @@ impl Compiler<'_> {
         }
     }
 
+    /// `continue([label])`. A non-empty `label` naming a case of an
+    /// *enclosing* goto-via-switch (`switch(...) { one: case 1: ...
+    /// continue('one') ... }`, issue #346) is a goto: jump straight to that
+    /// case's arm with no subject re-check — see
+    /// [`Compiler::resolve_switch_goto`]/`compile_switch_goto`. Any other
+    /// label targets an enclosing labelled loop (unchanged, below).
     fn compile_continue(&self, fields: &IndexMap<String, Expression>) -> String {
         let label = self.string_field(fields, "label").filter(|l| !l.is_empty());
+        if let Some(label) = &label {
+            if let Some(goto) = self.resolve_switch_goto(label) {
+                return goto;
+            }
+        }
         if self.break_needs_flow() {
             match label {
                 Some(label) => format!(
@@ -1461,6 +1489,18 @@ impl Compiler<'_> {
     /// to "exit the switch" — Rust's `break`/`continue` only make sense inside a
     /// real loop, and this if-chain isn't one. Not exercised by the corpus (the
     /// engine's switches all `return`/fall through, never bare-`break`).
+    ///
+    /// **Labelled cases (issue #346):** a case carrying a `label` field
+    /// (`one: case 1: ...`) is Dart's *goto-via-switch* — a
+    /// `continue('one')` anywhere in the switch jumps straight to that
+    /// case's body with no subject re-check. That shape doesn't fit this
+    /// if-chain (a bare Rust `continue`/`break` inside it targets whatever
+    /// loop *encloses* the switch, not the switch itself), so any switch with
+    /// at least one labelled case is routed to
+    /// [`Compiler::compile_switch_goto`]'s state-machine lowering instead —
+    /// ported from `ts/compiler/src/compiler.ts`'s `emitGotoSwitchStmt`. A
+    /// switch with **no** labelled cases (the overwhelming common case) is
+    /// unaffected: it still compiles through this if-chain, byte-for-byte.
     fn compile_switch(&self, call: &FunctionCall) -> String {
         let f = extract_fields(call);
         let subject_code = self.field_or_null(&f, "subject");
@@ -1468,6 +1508,13 @@ impl Compiler<'_> {
             .get("cases")
             .map(literal_list_elements)
             .unwrap_or_default();
+
+        if cases
+            .iter()
+            .any(|case| self.switch_case_label(case).is_some())
+        {
+            return self.compile_switch_goto(subject_code, &cases);
+        }
 
         let mut arms: Vec<(Vec<String>, String)> = Vec::new();
         let mut default_body: Option<String> = None;
@@ -1525,15 +1572,7 @@ impl Compiler<'_> {
                 // A case matches if the subject equals **any** of its values
                 // (a `LogicalOrPattern` — `case 'a' || 'b':` — contributes
                 // several; a plain value contributes one).
-                let condition = values
-                    .iter()
-                    .map(|value_code| {
-                        format!(
-                            "ball_equals(__switch_subject.clone(), {value_code}) == BallValue::Bool(true)"
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" || ");
+                let condition = switch_values_condition(values);
                 out.push_str(&format!("if {condition} {{\n{body_code}\n}}"));
             }
             out.push_str(&format!(
@@ -1543,6 +1582,187 @@ impl Compiler<'_> {
         }
         out.push_str("\n}");
         out
+    }
+
+    /// A `SwitchCase`'s own non-empty `label` field, if any — the marker of
+    /// a goto-via-switch case (`continue('label')` can jump straight to it,
+    /// skipping the subject re-check; see [`Compiler::compile_switch_goto`]).
+    /// `None` for a plain case.
+    fn switch_case_label(&self, case: &Expression) -> Option<String> {
+        let Some(Expr::MessageCreation(mc)) = &case.expr else {
+            return None;
+        };
+        let cf = self.message_creation_fields(mc);
+        self.string_field(&cf, "label").filter(|l| !l.is_empty())
+    }
+
+    /// Lower a goto-via-switch (a Ball `switch` with one or more labelled
+    /// cases — Dart's `continue('label')` inside a `switch`) to a
+    /// state-machine `loop` + `match`, mirroring
+    /// `ts/compiler/src/compiler.ts`'s `emitGotoSwitchStmt` (itself a port of
+    /// the reference `dart/engine`'s two-phase `_evalLazySwitch`): phase 1
+    /// matches the subject to pick the entry arm (default only if nothing
+    /// matched); phase 2 dispatches on a `state` variable inside a labelled
+    /// `loop`, where `continue('label')` (see
+    /// [`Compiler::compile_continue`]/[`crate::Compiler::resolve_switch_goto`])
+    /// re-enters at the labelled arm with **no** subject re-check, and a
+    /// body that falls off its arm (or hits a plain `break`) exits the loop.
+    ///
+    /// Unlike the JS/TS port, Rust's `match` does not intercept a bare
+    /// `break` the way a JS `switch` does (only `loop`/`while`/`for` are
+    /// `break` targets in Rust) — an unlabeled `break` written directly in a
+    /// case body already targets this state-machine `loop` by Rust's own
+    /// "nearest enclosing loop" rule, so — unlike TS's `switchLabelStack`
+    /// depth bookkeeping for `break` — nothing special is needed to route it
+    /// there; [`Compiler::compile_break`] is untouched. Only `continue
+    /// <label>` needs the registered-label lookup, since it *is* the goto.
+    ///
+    /// This switch's own dispatch loop is pushed as a real
+    /// [`crate::FlowScope::Loop`] (like every other loop in this compiler) so
+    /// a `break`/`continue`/`return` inside a `try` nested in a case body
+    /// still escapes correctly via `BallFlow` and re-lands here (issue
+    /// #300's mechanism, extended to this new loop shape).
+    ///
+    /// The dispatch `loop` itself never yields a value (every exit —
+    /// `break '<loop_label>;` at each arm's end, the exhaustiveness catch-all,
+    /// *and* a case body's own plain `break;` compiled verbatim by
+    /// [`Compiler::compile_break`] — must agree on one type, and a bare
+    /// `break;` is always `()`-typed); the switch's own value (discarded
+    /// anyway — Dart's labelled-case `continue` only ever appears in
+    /// *statement*-position switches, never a value-producing `switch_expr`)
+    /// is simply `BallValue::Null` once the loop exits.
+    ///
+    /// Fixture: `tests/conformance/400_switch_continue_label.ball.json`
+    /// (issue #346); `rust/compiler/tests/end_to_end.rs`'s
+    /// `switch_continue_label_conformance_fixture_compiles_and_runs`
+    /// compiles and runs it with real `rustc`.
+    fn compile_switch_goto(&self, subject_code: String, cases: &[Expression]) -> String {
+        let (arms, default_body, label_to_arm) = self.parse_switch_goto_cases(cases);
+        let uid = self.next_switch_uid();
+        let loop_label = format!("swl{uid}");
+        let state_var = format!("__swst{uid}");
+        let default_index = arms.len();
+
+        let mut out =
+            format!("{{\nlet __switch_subject = {subject_code};\nlet mut {state_var}: i64 = -1;\n");
+
+        // Phase 1 — entry-arm selection (non-default arms, in source order);
+        // default only if nothing else matched.
+        for (index, (values, _)) in arms.iter().enumerate() {
+            let cond = switch_values_condition(values);
+            let kw = if index == 0 { "if" } else { "else if" };
+            out.push_str(&format!("{kw} {cond} {{ {state_var} = {index}; }}\n"));
+        }
+        if default_body.is_some() {
+            out.push_str(&format!(
+                "if {state_var} == -1 {{ {state_var} = {default_index}; }}\n"
+            ));
+        }
+
+        // Phase 2 — dispatch from the entry arm, honoring goto/break. A
+        // `state` still < 0 (nothing matched, no default) skips the loop
+        // entirely rather than needing a synthetic no-op arm.
+        out.push_str(&format!(
+            "if {state_var} < 0 {{\nBallValue::Null\n}} else {{\n'{loop_label}: loop {{\nmatch {state_var} {{\n"
+        ));
+
+        let flow_floor = self.flow_scopes.borrow().len();
+        self.push_flow_scope(crate::FlowScope::Loop);
+        self.push_switch_label_scope(SwitchLabelCtx {
+            loop_label: loop_label.clone(),
+            state_var: state_var.clone(),
+            label_to_arm,
+            flow_floor,
+        });
+        for (index, (_, body)) in arms.iter().enumerate() {
+            let body_code = self.compile_expression(body);
+            out.push_str(&format!(
+                "{index} => {{\n{body_code};\nbreak '{loop_label};\n}}\n"
+            ));
+        }
+        if let Some(default_body) = &default_body {
+            let body_code = self.compile_expression(default_body);
+            out.push_str(&format!(
+                "{default_index} => {{\n{body_code};\nbreak '{loop_label};\n}}\n"
+            ));
+        }
+        self.pop_switch_label_scope();
+        self.pop_flow_scope();
+
+        // `match`'s exhaustiveness on a plain `i64` requires this arm even
+        // though it is unreachable by construction: phase 1 only ever
+        // assigns an in-range index, and every `continue <label>` jump
+        // target came from `label_to_arm`, itself built from these same arm
+        // indices.
+        out.push_str(&format!("_ => break '{loop_label},\n"));
+        out.push_str("}\n}\nBallValue::Null\n}\n}\n");
+        out
+    }
+
+    /// Parse a labelled switch's `cases[]` into arms — `(match-value
+    /// conditions, RAW case body)` pairs — plus the default body (if any)
+    /// and a `label → arm index` map (issue #346's registered-goto-target
+    /// table; see [`crate::SwitchLabelCtx`]). Mirrors `parseSwitchCases` in
+    /// `ts/compiler/src/compiler.ts`, including its fall-through-absorption
+    /// rule (a body-less case's match values — and any label on it — carry
+    /// forward onto the next case that *does* have a real body) and its
+    /// default-arm-index convention (`arms.len()` — one past the last real
+    /// case, computed only once every case has been scanned, so a case that
+    /// happens to follow `default` in the source still counts).
+    ///
+    /// Each arm's body is returned **uncompiled** (a cloned [`Expression`],
+    /// not a compiled Rust string) — [`Compiler::compile_switch_goto`] only
+    /// compiles it after registering `label → arm index` via
+    /// [`Compiler::push_switch_label_scope`], so a `continue <label>;`
+    /// *inside* one arm's body can resolve a label defined by a *later* arm
+    /// (e.g. `case 0`'s body may `continue('one')` to a `case 1` that
+    /// hasn't been scanned yet when `case 0`'s text is written).
+    fn parse_switch_goto_cases(&self, cases: &[Expression]) -> ParsedSwitchGotoCases {
+        let mut arms: Vec<(Vec<String>, Expression)> = Vec::new();
+        let mut default_body: Option<Expression> = None;
+        // Match values of body-less (fall-through) cases, carried forward
+        // until the next case that supplies a real body absorbs them.
+        let mut pending_values: Vec<String> = Vec::new();
+        // Labels waiting to be bound to the arm that absorbs them.
+        let mut pending_labels: Vec<String> = Vec::new();
+        let mut default_labels: Vec<String> = Vec::new();
+        let mut label_to_arm: HashMap<String, usize> = HashMap::new();
+
+        for case in cases {
+            let Some(Expr::MessageCreation(mc)) = &case.expr else {
+                continue;
+            };
+            let cf = self.message_creation_fields(mc);
+            let is_default = self.bool_field(&cf, "is_default");
+            if let Some(label) = self.string_field(&cf, "label").filter(|l| !l.is_empty()) {
+                pending_labels.push(label);
+            }
+            let body = cf.get("body").filter(|b| !is_empty_switch_body(b)).cloned();
+
+            if is_default {
+                default_body = body;
+                default_labels.append(&mut pending_labels);
+                continue;
+            }
+            pending_values.extend(self.switch_case_match_values(&cf));
+            let Some(body) = body else {
+                // Fall-through: keep accumulating match values and labels;
+                // they carry forward onto the next real-bodied case.
+                continue;
+            };
+            let arm_index = arms.len();
+            for label in pending_labels.drain(..) {
+                label_to_arm.insert(label, arm_index);
+            }
+            arms.push((std::mem::take(&mut pending_values), body));
+        }
+        if default_body.is_some() {
+            let default_index = arms.len();
+            for label in default_labels {
+                label_to_arm.insert(label, default_index);
+            }
+        }
+        (arms, default_body, label_to_arm)
     }
 
     /// A `SwitchCase`'s comparison expression: prefer the plain `value`
@@ -1982,4 +2202,20 @@ fn is_empty_switch_body(expr: &Expression) -> bool {
         Some(Expr::Literal(literal)) => literal.value.is_none(),
         _ => false,
     }
+}
+
+/// The Rust boolean condition matching a switch arm's compiled value(s)
+/// against `__switch_subject` — a case matches if the subject equals **any**
+/// of its values (a `LogicalOrPattern` — `case 'a' || 'b':` — contributes
+/// several; a plain value contributes one). Shared by the if/else-chain
+/// ([`Compiler::compile_switch`]) and goto-switch
+/// ([`Compiler::compile_switch_goto`]) lowerings.
+fn switch_values_condition(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value_code| {
+            format!("ball_equals(__switch_subject.clone(), {value_code}) == BallValue::Bool(true)")
+        })
+        .collect::<Vec<_>>()
+        .join(" || ")
 }

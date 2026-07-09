@@ -61,7 +61,7 @@ static ball::ir::Module load_module_ir(const std::string& path,
         auto kind = ball::DecodeBallFile(path, content, prog, mod);
         if (kind != ball::BallFileKind::kModule)
             throw ball::BallFileFormatException(
-                "library mode expects a Module, got a Program");
+                "Library mode expects a Module (got a Program)");
         std::string js;
         google::protobuf::util::JsonPrintOptions opt;
         auto st = google::protobuf::util::MessageToJsonString(mod, &js, opt);
@@ -73,7 +73,7 @@ static ball::ir::Module load_module_ir(const std::string& path,
     // JSON module file: {"@type": ".../ball.v1.Module", <fields>}.
     if (content.find("/ball.v1.Program") != std::string::npos)
         throw ball::BallFileFormatException(
-            "library mode expects a Module, got a Program");
+            "Library mode expects a Module (got a Program)");
     return ball::ir::parseModule(nlohmann::json::parse(content));
 }
 

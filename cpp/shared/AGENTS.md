@@ -200,16 +200,40 @@ google stays the sole binary decoder unless you opt in.
   whose REBOUND value is subsequently read (e.g. `marshal`'s returned
   `buffer`); through an alias it loses data — see `.claude/rules/dart.md`.
 
-**Deferred — Stage 4 (drop google entirely):**
-- The compiler (`compiler/`) and encoder (`encoder/`) still consume the
-  generated `ball::v1::` protobuf types throughout their ~600 KB emission code
-  (accessor calls like `.functions()`, `.has_body()`). Migrating them to the
-  `ball::ir` field-access shape (and swapping `main.cpp`'s `ball_file.h`
-  `DecodeProgram` for `ball::ir::parseProgramString`, plus dropping the
-  ball_protobuf→google `ParseFromString` bridge in the Stage-3 binary path for a
-  direct map→IR handoff) is the remaining work. Only after that can
-  `target_link_libraries(ball_shared … protobuf::libprotobuf)` and the
-  FetchContent block above be removed (closing #25's abseil deadlock).
+**Stage 4 — compiler migrated to `ball::ir` (LANDED):**
+- The **encoder** (`encoder/`) was already protobuf-free (builds `ball::ir`
+  straight from the Clang AST; links only nlohmann/json, not `ball_shared`).
+- The **compiler** (`compiler/compiler.cpp` + `compiler.h` + `main.cpp`) now
+  consumes `ball::ir` throughout — ~430 accessor sites migrated off the
+  generated `ball::v1::` types (`.expr_case()`→`.kind`, `.call()`→`*call`,
+  `.functions()`→`.functions`, `.has_body()`→`body != nullptr`, …). Metadata
+  reads moved from `google.protobuf.Struct`/`Value` to `nlohmann::json`;
+  `DescriptorProto`/`EnumDescriptorProto` reads to opaque proto3-JSON. `main.cpp`
+  loads `.ball.json` directly via `ball::ir::parseProgramString` (no
+  libprotobuf); library/binary paths bridge through ir. The `CppCompiler` ctor
+  takes `ir::Program` by value + moves (ir is move-only). Verified: the compiler
+  emits **byte-identical** output (snapshot tests) — the read-path refactor is
+  semantics-preserving.
+- google protobuf is **still linked** (transitively via `ball_shared`): the
+  compiler no longer *uses* `ball::v1::` types, but `ball_file.h`'s binary
+  bridge, `ball_shared.cpp`'s std-module builders, and the oracle tests still do.
+
+**Remaining for FetchContent removal (Stage 5 — drop google entirely):**
+Only after these last google consumers migrate can
+`target_link_libraries(ball_shared … protobuf::libprotobuf)` + the FetchContent
+block be removed (closing #25's abseil deadlock, #330/#333's gencode skew):
+- `ball_file.h` — `.ball.json` JSON path (`JsonStringToMessage`) and the binary
+  `Any`/`Program` decode both use `ball::v1::` + libprotobuf. The binary path can
+  route through the Stage-3 ball_protobuf rt decode, but must produce `ball::ir`
+  directly (map→IR) instead of re-marshaling to bytes for `ParseFromString`.
+- `ball_shared.cpp` — the `build_std*_module` descriptor builders return
+  `ball::v1::Module` protos (consumed by `test_shared` and the self-host engine
+  harness); they'd need to emit `ball::ir` or move behind the option.
+- Oracle/bridge tests that deliberately link libprotobuf: `test_shared`,
+  `test_ball_file`, `test_ball_ir_descriptor` (the descriptor-write oracle), plus
+  the `MessageToJsonString` bridges added in `test_compiler`/`test_e2e`/`main.cpp`.
+- The self-host engine harness (`test_selfhost_conformance`) links `ball_shared`
+  (google) for its std builders.
 
 ## Dependencies
 - Internal: generated protos in `gen/`.

@@ -929,9 +929,19 @@ impl Compiler<'_> {
             let Some(name) = meta_string_value(param_struct, "name") else {
                 continue;
             };
-            if name.is_empty() || name == "self" {
+            if name.is_empty() {
                 continue;
             }
+            // A parameter literally named `self` is a REAL declared parameter
+            // (only the engine's `_dispatchBuiltinInstanceMethod(self, method,
+            // input)` has one), NOT the implicit receiver — the receiver is
+            // never listed in `metadata.params`. It must therefore be bound
+            // positionally (below), so DON'T skip it here; skipping it shifted
+            // every following parameter by one slot (`method`←arg0=receiver,
+            // `input`←arg1=method-name), which is why set/StringBuffer/`num`
+            // instance-method dispatch fell through to "not found" (#39/#300).
+            // A static/free member never declares a `self` param, so this only
+            // affects that one instance method.
             let is_named = meta_bool_value(param_struct, "is_named")
                 || meta_bool_value(param_struct, "is_required_named")
                 || meta_bool_value(param_struct, "is_optional_named");
@@ -986,7 +996,20 @@ impl Compiler<'_> {
             } else {
                 let positional_key = format!("arg{positional_index}");
                 positional_index += 1;
-                format!("ball_arg_get(input.clone(), {name:?}, {positional_key:?})")
+                if name == "self" {
+                    // The `self` KEY is the reserved receiver slot (`input["self"]`
+                    // holds the injected `this` — [`Compiler::method_prologue`]),
+                    // so a parameter named `self` must bind straight from its
+                    // positional `arg{i}` slot; `ball_arg_get`'s name-preference
+                    // would otherwise hand back the receiver instead of the
+                    // argument. The emitted `let self_ = …` shadows the receiver
+                    // `self_`, so the body's `self` references resolve to the
+                    // argument while implicit-`this` sub-calls keep using the
+                    // separate `__self_recv` (#39/#300).
+                    format!("ball_field_get(input.clone(), {positional_key:?})")
+                } else {
+                    format!("ball_arg_get(input.clone(), {name:?}, {positional_key:?})")
+                }
             };
             self.bind_local(name);
             let binding = format!(

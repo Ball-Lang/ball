@@ -11,7 +11,12 @@ All C++ test executables: compiler unit tests, encoder unit tests, self-hosted e
 | `test_compiler.cpp` | Compiler unit tests — verifies emitted C++ snippets via `ASSERT_CONTAINS` |
 | `test_encoder.cpp` | Encoder tests — hand-crafted minimal ASTs, clang-shaped ASTs, and committed real clang AST fixtures under `tests/fixtures/cpp_ast/` |
 | `test_selfhost_conformance.cpp` | Self-hosted engine conformance — runs every `tests/conformance/*.ball.json` through the compiled engine_rt; returns non-zero on any failure |
-| `test_ball_ir.cpp` | Tests for the protobuf-free `ball::ir` representation |
+| `test_ball_ir.cpp` | Tests for the protobuf-free `ball::ir` representation — round-trips the whole conformance corpus through `parseProgramString`/`toJson` |
+| `test_ball_ir_descriptor.cpp` | Dedicated coverage for `ball_ir.h`'s hand-rolled `DescriptorProto`/`EnumDescriptorProto` JSON builder (#18 P4) — the only test binary that links libprotobuf as an oracle to verify it |
+| `test_ball_file.cpp` | Direct unit coverage for `ball_file.h`'s self-describing `google.protobuf.Any` envelope reader, including its malformed/wrong-kind error branches |
+| `test_ball_dyn.cpp` | Direct unit coverage for the compiled-program runtime (`ball_dyn.h`/`ball_emit_runtime.h`): `BallDyn`, `BallOrderedMap`, `BallStringBuffer`, and the `File`/`Directory` std_fs backing — none of this is exercised by test_compiler/test_encoder/test_shared (those drive the compiler/encoder, not the emitted-program runtime) |
+| `test_shared.cpp` | Covers `ball_shared.cpp`'s std-module descriptor builders and the `ball_shared.h` value-conversion helpers (`to_int`/`to_string`/`values_equal`/etc.) that compiler-emitted code calls |
+| `test_cli.cpp` | Subprocess-invokes the real `ball_cpp_compile`/`ball_cpp_encode` executables — the only coverage for `cpp/{compiler,encoder}/src/main.cpp` |
 | `test_e2e.cpp` | End-to-end compile+run tests |
 | `test_snapshot.cpp` | Snapshot tests; set `BALL_UPDATE_SNAPSHOTS=1` to rewrite baselines |
 | `scope_probe.cpp` | Debugging utility for scope/variable resolution in the engine; not a test binary |

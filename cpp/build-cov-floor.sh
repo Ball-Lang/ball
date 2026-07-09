@@ -55,6 +55,40 @@
 # number and must not be raised toward it without BALL_COV_FULL=1 becoming
 # the default measurement mode.
 #
+# Re-measured 2026-07-09 (issue #63, cov-cpp lane) via `lcov --summary` on
+# freshly-extracted per-target tracefiles, again WITHOUT test_e2e — this
+# round's WSL box OOM'd and briefly took the whole VM's `wsl.exe` bridge down
+# when BALL_COV_FULL=1 was attempted (test_e2e's nested per-fixture cmake+g++
+# builds are memory-hungry; see build-cov-build.sh's own BALL_COV_JOBS
+# comment), so no fresh CI-comparable compiler.cpp number was obtained this
+# round either — don't read anything into compiler's delta below beyond "more
+# of the default (non-e2e) surface is now exercised."
+#             lines            functions
+#   compiler   39.9% -> 43.1%   — (65.0%, 104/160)  (the jump is almost
+#                                  entirely from wiring test_ball_ir_descriptor
+#                                  into build-cov-build.sh/run.sh's target
+#                                  lists — it existed as a real ctest target
+#                                  since #18 P4 but neither script had ever
+#                                  built or run it, so its coverage of
+#                                  ball_ir.h's descriptor-JSON builder sat
+#                                  invisible to every local measurement)
+#   encoder    86.1% -> 89.1%   97.2% (70/72)        (drift from unrelated work;
+#                                                      not this lane's target)
+#   shared     80.3% -> 80.9%   97.2% (311/320)
+#   ball_emit_runtime.h  59.8% -> 64.8% (400 lines), 89.3% (56 fns)  — direct
+#     unit coverage added for the File/Directory std_fs filesystem-runtime
+#     backing (writeAsStringSync x3 overloads/writeAsBytesSync/
+#     readAsBytesSync/existsSync/deleteSync/listSync/createSync/
+#     _ball_file_mode_is_append): real (non-stub) implementations landed by
+#     #310/#318 with ZERO coverage in any instrumented build (local or CI) —
+#     their only prior exercise was test_selfhost_conformance.cpp, which
+#     needs the gitignored, CI-only-generated engine_rt.cpp and is skipped
+#     entirely whenever that isn't present (see test_ball_dyn.cpp's own
+#     "File / Directory runtime" section header comment for the full
+#     writeup). ball_dyn.h unchanged (72.5% -> 72.7%, noise) — its own File/
+#     Directory glue (BallDyn-overload ctors/writeAsStringSync) is thin
+#     enough that the new tests barely move its needle.
+#
 # Set a few points below the measured value to absorb local/CI variance;
 # RAISE as more tests land (mirrors the Dart ratchet's philosophy in
 # tools/coverage_dart.dart, without needing a Dart toolchain here).
@@ -62,9 +96,9 @@ set -uo pipefail
 cd "$(dirname "$0")"
 
 declare -A FLOORS=(
-  [compiler]=35
-  [encoder]=83
-  [shared]=70
+  [compiler]=40
+  [encoder]=86
+  [shared]=77
 )
 
 fail=0

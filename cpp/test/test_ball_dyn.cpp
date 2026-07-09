@@ -37,6 +37,8 @@
 #include <chrono>
 #include <random>
 #include <limits>
+#include <filesystem>
+#include <atomic>
 
 using namespace std::string_literals;
 
@@ -877,6 +879,207 @@ TEST(stringbuffer_write_family_accumulates_through_aliases) {
     ASSERT_EQ(static_cast<std::string>(sb), std::string("ab\nCxy"));
     ball_strbuf_clear(sb);
     ASSERT_EQ(static_cast<std::string>(alias), std::string(""));  // clear is visible via the alias too
+}
+
+// ================================================================
+// File / Directory runtime -- ball_emit_runtime.h's std_fs backing (#310).
+//
+// These do REAL filesystem work but are called ONLY by the self-hosted
+// engine's compiled std_fs handlers (engine_std.dart -> File(...)/
+// Directory(...) calls) -- see the "std_fs directory ops" / "Real byte
+// write" comments above their definitions in ball_emit_runtime.h. The only
+// consumer is test_selfhost_conformance.cpp, which requires the gitignored,
+// regenerated-only-in-CI dart/self_host/lib/engine_rt(.cpp), so this whole
+// cluster (readAsStringSync/writeAsStringSync x2 overloads/readAsBytesSync/
+// writeAsBytesSync/existsSync/deleteSync/listSync/createSync/
+// _ball_file_mode_is_append, plus the File/Directory BallDyn constructors)
+// is compiled into every instrumented test binary but never EXECUTED by any
+// of them -- 0% coverage both locally and in CI's coverage job (neither
+// regenerates engine_rt). Direct coverage closes that gap the same way
+// test_ball_dyn.cpp already does for the rest of this header.
+// ================================================================
+
+namespace fs = std::filesystem;
+
+// Unique per-test scratch path under the OS temp dir; not removed by the
+// helper itself (individual tests clean up what they create).
+static fs::path ball_dyn_test_temp_path(const std::string& stem) {
+    static std::atomic<int> counter{0};
+    return fs::temp_directory_path() /
+           ("ball_dyn_test_" + stem + "_" + std::to_string(counter++));
+}
+
+TEST(file_mode_is_append_classifies_every_mode_value) {
+    ASSERT_TRUE(!_ball_file_mode_is_append(std::any{}));  // no mode -> write
+    ASSERT_TRUE(!_ball_file_mode_is_append(std::any(std::string("write"))));
+    ASSERT_TRUE(!_ball_file_mode_is_append(std::any(std::string("read"))));
+    ASSERT_TRUE(_ball_file_mode_is_append(std::any(std::string("append"))));
+
+    bool threw = false;
+    try {
+        _ball_file_mode_is_append(std::any(std::string("bogus")));
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        std::string msg = e.what();
+        ASSERT_TRUE(msg.find("unsupported FileMode value") != std::string::npos);
+    }
+    ASSERT_TRUE(threw);
+}
+
+TEST(file_write_read_string_roundtrips_and_truncates_by_default) {
+    fs::path p = ball_dyn_test_temp_path("write_str.txt");
+    File f(p.string());
+    writeAsStringSync(f, std::string("hello"));
+    ASSERT_EQ(readAsStringSync(f), std::string("hello"));
+    // Default (no mode) truncates -- overwrites, does not append.
+    writeAsStringSync(f, std::string("bye"));
+    ASSERT_EQ(readAsStringSync(f), std::string("bye"));
+    fs::remove(p);
+}
+
+TEST(file_write_string_append_mode_extends_existing_content) {
+    fs::path p = ball_dyn_test_temp_path("append_str.txt");
+    File f(p.string());
+    writeAsStringSync(f, std::string("a"));
+    writeAsStringSync(f, std::string("b"), std::any(std::string("append")));
+    ASSERT_EQ(readAsStringSync(f), std::string("ab"));
+    fs::remove(p);
+}
+
+TEST(file_write_string_any_overload_stringifies_content) {
+    fs::path p = ball_dyn_test_temp_path("write_any.txt");
+    File f(p.string());
+    writeAsStringSync(f, std::any((int64_t)42));
+    ASSERT_EQ(readAsStringSync(f), std::string("42"));
+    writeAsStringSync(f, std::any(std::string("x")), std::any(std::string("append")));
+    ASSERT_EQ(readAsStringSync(f), std::string("42x"));
+    fs::remove(p);
+}
+
+TEST(file_write_string_balldyn_overload_stringifies_content) {
+    fs::path p = ball_dyn_test_temp_path("write_balldyn.txt");
+    File f(p.string());
+    writeAsStringSync(f, BallDyn(std::string("dyn")));
+    ASSERT_EQ(readAsStringSync(f), std::string("dyn"));
+    writeAsStringSync(f, BallDyn((int64_t)7), std::any(std::string("append")));
+    ASSERT_EQ(readAsStringSync(f), std::string("dyn7"));
+    fs::remove(p);
+}
+
+TEST(file_write_read_bytes_roundtrips) {
+    fs::path p = ball_dyn_test_temp_path("write_bytes.bin");
+    File f(p.string());
+    std::vector<std::any> bytes{std::any((int64_t)0), std::any((int64_t)255),
+                                 std::any((int64_t)65)};  // \0 \xFF 'A'
+    writeAsBytesSync(f, std::any(bytes));
+    auto read_back = readAsBytesSync(f);
+    ASSERT_TRUE(read_back.size() == 3);
+    ASSERT_EQ(std::any_cast<int64_t>(read_back[0]), (int64_t)0);
+    ASSERT_EQ(std::any_cast<int64_t>(read_back[1]), (int64_t)255);
+    ASSERT_EQ(std::any_cast<int64_t>(read_back[2]), (int64_t)65);
+    // Second write truncates rather than appends.
+    writeAsBytesSync(f, std::any(std::vector<std::any>{std::any((int64_t)1)}));
+    ASSERT_TRUE(readAsBytesSync(f).size() == 1);
+    fs::remove(p);
+}
+
+TEST(file_write_bytes_rejects_non_integer_element) {
+    fs::path p = ball_dyn_test_temp_path("write_bytes_bad.bin");
+    File f(p.string());
+    std::vector<std::any> bad{std::any(std::string("not-a-byte"))};
+    bool threw = false;
+    try {
+        writeAsBytesSync(f, std::any(bad));
+    } catch (const std::runtime_error& e) {
+        threw = true;
+        std::string msg = e.what();
+        ASSERT_TRUE(msg.find("non-integer byte element") != std::string::npos);
+    }
+    ASSERT_TRUE(threw);
+    fs::remove(p);  // the throw happens mid-loop; file may or may not exist
+}
+
+TEST(file_exists_and_delete_sync) {
+    fs::path p = ball_dyn_test_temp_path("exists.txt");
+    File f(p.string());
+    ASSERT_TRUE(!existsSync(f));
+    writeAsStringSync(f, std::string("x"));
+    ASSERT_TRUE(existsSync(f));
+    deleteSync(f);
+    ASSERT_TRUE(!existsSync(f));
+}
+
+TEST(file_constructors_from_string_any_and_balldyn) {
+    File a(std::string("plain_path"));
+    ASSERT_EQ(a.path, std::string("plain_path"));
+    File b(std::any(std::string("any_path")));
+    ASSERT_EQ(b.path, std::string("any_path"));
+    File c(BallDyn(std::string("dyn_path")));
+    ASSERT_EQ(c.path, std::string("dyn_path"));
+}
+
+TEST(directory_create_list_exists_recursive) {
+    fs::path root = ball_dyn_test_temp_path("dir_root");
+    fs::path nested = root / "a" / "b";
+    Directory nested_dir(nested.string());
+
+    ASSERT_TRUE(!existsSync(nested_dir));
+    createSync(nested_dir, /*recursive=*/true);  // creates missing parents
+    ASSERT_TRUE(existsSync(nested_dir));
+
+    // Populate with two files, then list.
+    {
+        std::ofstream(nested / "one.txt") << "1";
+        std::ofstream(nested / "two.txt") << "2";
+    }
+    auto entries = listSync(nested_dir);
+    ASSERT_TRUE(entries.size() == 2);
+    bool saw_one = false, saw_two = false;
+    for (const auto& e : entries) {
+        const auto& m = std::any_cast<const std::map<std::string, std::any>&>(e);
+        std::string path = std::any_cast<std::string>(m.at("path"));
+        if (path.find("one.txt") != std::string::npos) saw_one = true;
+        if (path.find("two.txt") != std::string::npos) saw_two = true;
+    }
+    ASSERT_TRUE(saw_one);
+    ASSERT_TRUE(saw_two);
+
+    fs::remove_all(root);
+}
+
+TEST(directory_create_non_recursive_leaf_only) {
+    fs::path root = ball_dyn_test_temp_path("dir_leaf_root");
+    Directory root_dir(root.string());
+    createSync(root_dir, /*recursive=*/false);  // parent (temp dir) exists
+    ASSERT_TRUE(existsSync(root_dir));
+    fs::remove_all(root);
+}
+
+TEST(directory_create_non_recursive_throws_when_parent_missing) {
+    fs::path missing_parent = ball_dyn_test_temp_path("dir_missing_parent");
+    Directory child((missing_parent / "child").string());
+    bool threw = false;
+    try {
+        createSync(child, /*recursive=*/false);
+    } catch (const std::filesystem::filesystem_error&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+    ASSERT_TRUE(!existsSync(child));
+}
+
+TEST(directory_exists_false_for_missing_path) {
+    Directory d(ball_dyn_test_temp_path("does_not_exist").string());
+    ASSERT_TRUE(!existsSync(d));
+}
+
+TEST(directory_constructors_from_string_any_and_balldyn) {
+    Directory a(std::string("plain_dir"));
+    ASSERT_EQ(a.path, std::string("plain_dir"));
+    Directory b(std::any(std::string("any_dir")));
+    ASSERT_EQ(b.path, std::string("any_dir"));
+    Directory c(BallDyn(std::string("dyn_dir")));
+    ASSERT_EQ(c.path, std::string("dyn_dir"));
 }
 
 // ================================================================

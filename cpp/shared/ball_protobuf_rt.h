@@ -60,6 +60,11 @@ using namespace std::string_literals;
 // std::to_chars float overload.
 #include <cstdlib>
 #include <charconv>
+// std_fs directory ops (Directory listSync/createSync/existsSync below) do
+// real filesystem work via std::filesystem. emit_includes() does not emit
+// <filesystem>, and it is not reliably pulled in transitively, so include it
+// here (the include guard makes double-inclusion harmless).
+#include <filesystem>
 
 // Minimal Ball exception type used by `throw` / `try` to preserve
 // typed-catch semantics. Derives from std::exception so untyped
@@ -440,6 +445,16 @@ struct _BallRefDeref {
     static inline ObjMapFn _obj_map_fn = nullptr;
     static const std::map<std::string, std::any>* obj_map(const std::any& v) {
         return _obj_map_fn ? _obj_map_fn(v) : nullptr;
+    }
+    // Portable ordered-set backing list (issue #174): a Ball `Set` value is
+    // the one-key `{'__ball_set__': [...]}` map (see ball_is_ball_set in
+    // ball_dyn.h). This extracts the WRAPPED list from that shape, or
+    // nullptr if `v` isn't it. Registered by ball_dyn.h; null (no-op) in
+    // contexts that don't compile it.
+    using SetListFn = const std::vector<std::any>* (*)(const std::any&);
+    static inline SetListFn _set_list_fn = nullptr;
+    static const std::vector<std::any>* set_list(const std::any& v) {
+        return _set_list_fn ? _set_list_fn(v) : nullptr;
     }
 };
 
@@ -1089,6 +1104,9 @@ inline std::vector<std::any> ball_to_list(const std::any& raw) {
         return std::any_cast<std::vector<std::any>>(v);
     if (const std::vector<std::any>* lp = _BallRefDeref::list(v))
         return *lp;
+    // Portable ordered-set value (issue #174): unwrap to its backing list.
+    if (const std::vector<std::any>* sp = _BallRefDeref::set_list(v))
+        return *sp;
     if (v.type() == typeid(std::vector<std::string>)) {
         auto& sv = std::any_cast<const std::vector<std::string>&>(v);
         std::vector<std::any> r;
@@ -1556,6 +1574,43 @@ inline int64_t _ball_parse_timestamp(const std::string& iso) {
     return static_cast<int64_t>(t) * 1000 + frac;
 }
 
+// Current-UTC-instant `std::tm` shared by the year/month/day/hour/minute/
+// second component getters below. Matches the Dart engine's
+// `DateTime.now().toUtc()` (dart/engine/lib/engine_std.dart) — each getter
+// takes the current wall-clock instant, not a caller-supplied timestamp
+// (see std_time.year/month/.../second's "current UTC time" descriptions in
+// dart/shared/lib/std_time.dart). Uses <chrono>, brought in by the
+// compiler's emit_includes() before this header is spliced.
+inline std::tm _ball_now_utc_tm() {
+    std::time_t t = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+    std::tm g{};
+#if defined(_WIN32)
+    gmtime_s(&g, &t);
+#else
+    gmtime_r(&t, &g);
+#endif
+    return g;
+}
+inline int64_t _ball_time_year() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_year) + 1900;
+}
+inline int64_t _ball_time_month() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_mon) + 1;
+}
+inline int64_t _ball_time_day() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_mday);
+}
+inline int64_t _ball_time_hour() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_hour);
+}
+inline int64_t _ball_time_minute() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_min);
+}
+inline int64_t _ball_time_second() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_sec);
+}
+
 // ── utf8 / base64 codec stubs ──
 // Dart uses `utf8.encode(s)` / `utf8.decode(bytes)` and
 // `base64.encode(bytes)` / `base64.decode(s)`.
@@ -1700,6 +1755,26 @@ inline std::map<std::string, std::any> io_FileMode = {
     {"read", std::any(std::string("read"))},
 };
 
+// Determine whether a `writeAsStringSync`/`writeAsBytesSync` FileMode arg
+// requests append semantics. The self-hosted engine's `_stdFileAppend`
+// (engine_std.dart) compiles `File(path).writeAsStringSync(content, mode:
+// FileMode.append)` — through the generic method-call fallback in
+// compile_method_call — into `writeAsStringSync(File(path), content,
+// io_FileMode["append"s])`, so `mode` materializes as a std::any wrapping
+// the string "append"/"write"/"read". `file_write`'s 2-arg call passes no
+// third argument at all (defaults to an empty std::any), meaning
+// truncate/write. Any other value fails loud instead of silently guessing
+// truncate-vs-append (issue #310).
+inline bool _ball_file_mode_is_append(const std::any& mode) {
+    const std::any& v = _BallDynUnwrapper::unwrap(mode);
+    if (!v.has_value()) return false;  // no mode arg supplied -> write/truncate
+    std::string s = ball_to_string(v);
+    if (s == "append") return true;
+    if (s == "write" || s == "read") return false;
+    throw std::runtime_error(
+        "writeAsStringSync: unsupported FileMode value: " + s);
+}
+
 // ── File I/O stubs ──
 // The self-hosted engine calls `File(path)`, `readAsStringSync(file)`,
 // `writeAsStringSync(file, content)`, etc. Provide stubs.
@@ -1714,12 +1789,14 @@ inline std::string readAsStringSync(const File& f) {
     return std::string((std::istreambuf_iterator<char>(ifs)),
                         std::istreambuf_iterator<char>());
 }
-inline void writeAsStringSync(const File& f, const std::string& content, const std::any& = {}) {
-    std::ofstream ofs(f.path);
+inline void writeAsStringSync(const File& f, const std::string& content, const std::any& mode = {}) {
+    auto flags = std::ios::out | (_ball_file_mode_is_append(mode) ? std::ios::app : std::ios::trunc);
+    std::ofstream ofs(f.path, flags);
     ofs << content;
 }
-inline void writeAsStringSync(const File& f, const std::any& content, const std::any& = {}) {
-    std::ofstream ofs(f.path);
+inline void writeAsStringSync(const File& f, const std::any& content, const std::any& mode = {}) {
+    auto flags = std::ios::out | (_ball_file_mode_is_append(mode) ? std::ios::app : std::ios::trunc);
+    std::ofstream ofs(f.path, flags);
     ofs << ball_to_string(content);
 }
 inline std::vector<std::any> readAsBytesSync(const File& f) {
@@ -1729,17 +1806,45 @@ inline std::vector<std::any> readAsBytesSync(const File& f) {
     while (ifs.get(c)) result.push_back(std::any(static_cast<int64_t>(static_cast<unsigned char>(c))));
     return result;
 }
-inline void writeAsBytesSync(const File& f, const std::any&) {
-    // Stub — byte write not fully implemented
+// Real byte write: `content` arrives as a Ball List<int> — either a bare
+// std::vector<std::any> or a wrapped/ref-deref'd list (ball_to_list handles
+// both) — each element an int64_t byte value 0-255, the same shape
+// readAsBytesSync produces and a `bytes` literal materializes to (see
+// TYPE_BYTES handling in test_selfhost_conformance.cpp's proto_msg_to_any).
+// The prior stub wrote nothing, silently dropping every byte written via
+// `std_fs.file_write_bytes` (fail-loud-invariant violation, issue #310).
+inline void writeAsBytesSync(const File& f, const std::any& content) {
+    std::vector<std::any> bytes = ball_to_list(content);
+    std::ofstream ofs(f.path, std::ios::binary | std::ios::trunc);
+    for (const auto& raw : bytes) {
+        const std::any& v = _BallDynUnwrapper::unwrap(raw);
+        int64_t byteVal;
+        if (v.type() == typeid(int64_t)) byteVal = std::any_cast<int64_t>(v);
+        else if (v.type() == typeid(int)) byteVal = static_cast<int64_t>(std::any_cast<int>(v));
+        else throw std::runtime_error(
+            "writeAsBytesSync: non-integer byte element in content list");
+        ofs.put(static_cast<char>(static_cast<unsigned char>(byteVal & 0xff)));
+    }
 }
 inline bool existsSync(const File& f) {
     std::ifstream ifs(f.path);
     return ifs.good();
 }
 // BallDyn overload in ball_dyn.h
-inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& = {});
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& mode = {});
 
-// ── Directory stubs ──
+// ── Directory operations ──
+// Mirror Dart's dart:io Directory API. The self-hosted engine's std_fs
+// handlers (engine_std.dart) call these as:
+//   io.Directory(path).listSync().map((e) => e.path).toList()   // dir_list
+//   io.Directory(path).createSync(recursive: true)              // dir_create
+//   io.Directory(path).existsSync()                             // dir_exists
+// These MUST do real filesystem work: returning {}/false silently degraded
+// dir_list to [] and dir_exists to false (a fail-loud-invariant violation —
+// the program computed wrong results with no error). Semantics match the
+// compiler's direct-compile std_fs emission (compile_fs_call in compiler.cpp):
+// dir_list → directory_iterator entry paths, dir_create → create_directories
+// (recursive), dir_exists → is_directory.
 struct Directory {
     std::string path;
     Directory(const std::string& p) : path(p) {}
@@ -1747,15 +1852,34 @@ struct Directory {
     Directory(const BallDyn& p);  // defined in ball_dyn.h
 };
 inline std::vector<std::any> listSync(const Directory& d) {
+    // Dart's listSync() yields FileSystemEntity objects; the engine then
+    // reads `.path` on each. Field access `e.path` compiles to
+    // `static_cast<BallDyn>(e)["path"s]`, so each element must be a map
+    // carrying a "path" key (a directory-entry view). Like Dart's listSync
+    // (and the direct-compile path), a missing/non-dir path throws.
     std::vector<std::any> result;
-    // Stub: directory listing not implemented
+    for (const auto& entry : std::filesystem::directory_iterator(d.path)) {
+        std::map<std::string, std::any> e;
+        e["path"] = std::any(entry.path().string());
+        result.push_back(std::any(e));
+    }
     return result;
 }
 inline void createSync(const Directory& d, bool recursive = false) {
-    // Stub: directory creation not implemented
+    // recursive:true (the engine's dir_create) creates missing parents, like
+    // Dart's createSync(recursive: true); recursive:false creates only the leaf
+    // and throws if a parent is missing (Dart createSync() parity).
+    if (recursive) {
+        std::filesystem::create_directories(d.path);
+    } else {
+        std::filesystem::create_directory(d.path);
+    }
 }
 inline bool existsSync(const Directory& d) {
-    return false;
+    // Dart existsSync() is false for a missing path; the error_code overload of
+    // is_directory returns false (no throw) for not-found instead of raising.
+    std::error_code ec;
+    return std::filesystem::is_directory(d.path, ec);
 }
 
 inline void deleteSync(const File& f) {
@@ -2688,6 +2812,14 @@ using BallUserRef = std::shared_ptr<std::any>;
 // compare equal to null/empty BallDyn() returned by void builtin methods.
 struct BallDispatchNotFound {};
 
+// Forward declaration: Dart-style stringify for an ordered map, recognizing
+// the portable ordered-set tag (see ball_is_ball_set) and rendering it as a
+// Set literal (`{a, b, c}`) instead of the generic `{key: value}` map shape.
+// Defined below (after BallListRef / ball_to_string(any) are visible) —
+// shared by BallDyn::operator std::string() and the _ball_to_string_ext hook
+// used for bare std::any elements nested inside lists/maps (issue #174).
+inline std::string _ball_ordered_map_to_string(const BallOrderedMap& omp);
+
 class BallDyn {
 public:
     std::any _val;
@@ -2853,6 +2985,51 @@ public:
             return std::any_cast<const BallOrderedMapRef&>(_val).get();
         if (_val.type() == typeid(BallOrderedMap))
             return &std::any_cast<const BallOrderedMap&>(_val);
+        return nullptr;
+    }
+
+    // ── Portable ordered-set backing-list accessor (issue #174) ──
+    // A Ball `Set` value compiled by the direct-compile C++ path is the
+    // portable one-key `{'__ball_set__': [...]}` map (mirrors the Dart/self-
+    // hosted engine representation from issue #68 — see ball_is_ball_set
+    // below). Every list-shaped BallDyn operation (size/empty/push_back/
+    // iteration/indexing) must also recognize this shape and operate on the
+    // WRAPPED list, or a Set silently behaves like a 1-entry map. Returns
+    // nullptr for anything that isn't exactly that shape.
+    // The backing list is stored two ways depending on who built the Set:
+    //   • direct-compile (`ball_make_set`): a BallListRef (shared_ptr<BallList>)
+    //     stored directly as the map value; and
+    //   • the self-host: engine.dart's `_ballSetOf` builds the list as a
+    //     `<Object?>[]` literal, which compiles to a plain BallList, wrapped in
+    //     a BallDyn (`__m[tag] = std::any(BallDyn(BallList))`).
+    // Accept BOTH (unwrapping any BallDyn layers first) so `is Set`/size/
+    // rendering/iteration work on every path — otherwise self-host Sets were
+    // invisible to `ball_is_ball_set`, and `{1,2} is Map` was true / nested
+    // Sets mis-rendered (issue #174 self-host leg).
+    BallList* _setBackingList() {
+        BallOrderedMap* omp = _orderedMapPtr();
+        if (!omp || omp->size() != 1) return nullptr;
+        auto it = omp->find("__ball_set__");
+        if (it == omp->end()) return nullptr;
+        std::any* raw = &it->second;
+        while (raw->type() == typeid(BallDyn)) raw = &std::any_cast<BallDyn&>(*raw)._val;
+        if (raw->type() == typeid(BallListRef))
+            return std::any_cast<BallListRef&>(*raw).get();
+        if (raw->type() == typeid(BallList)) return &std::any_cast<BallList&>(*raw);
+        return nullptr;
+    }
+    const BallList* _setBackingList() const {
+        const BallOrderedMap* omp = _orderedMapPtr();
+        if (!omp || omp->size() != 1) return nullptr;
+        auto it = omp->find("__ball_set__");
+        if (it == omp->end()) return nullptr;
+        const std::any* raw = &it->second;
+        while (raw->type() == typeid(BallDyn))
+            raw = &std::any_cast<const BallDyn&>(*raw)._val;
+        if (raw->type() == typeid(BallListRef))
+            return std::any_cast<const BallListRef&>(*raw).get();
+        if (raw->type() == typeid(BallList))
+            return &std::any_cast<const BallList&>(*raw);
         return nullptr;
     }
 
@@ -3024,16 +3201,7 @@ public:
             return out;
         }
         if (const BallOrderedMap* omp = _orderedMapPtr()) {
-            std::string out = "{";
-            bool first = true;
-            for (const auto& [k, v] : omp->entries_) {
-                if (k.find("__") == 0 || k == "type_args") continue;
-                if (!first) out += ", ";
-                out += k + ": " + ball_to_string(v);
-                first = false;
-            }
-            out += "}";
-            return out;
+            return _ball_ordered_map_to_string(*omp);
         }
         if (_val.type() == typeid(BallStringBuffer))
             return *std::any_cast<const BallStringBuffer&>(_val).buf;
@@ -3083,8 +3251,16 @@ public:
             return BallDyn();
         }
         if (_val.type() == typeid(BallMap)) {
-            auto& m = const_cast<BallMap&>(std::any_cast<const BallMap&>(_val));
-            return BallDyn(m[key]);
+            // find(), NOT operator[] — this is a READ (per this method's own
+            // doc comment above: "for mutation use set()"). std::map::
+            // operator[] auto-vivifies a missing key (inserts a default
+            // std::any{}), silently growing the map on a mere read — issue
+            // #233, caught by .values()'s internal "values"-key probe
+            // corrupting a plain BallMap that lacked one.
+            auto& m = std::any_cast<const BallMap&>(_val);
+            auto it = m.find(key);
+            if (it == m.end()) return BallDyn();
+            return BallDyn(it->second);
         }
         if (const BallOrderedMap* omp = _orderedMapPtr()) {
             auto it = omp->index_.find(key);
@@ -3092,8 +3268,11 @@ public:
             return BallDyn(omp->entries_[it->second].second);
         }
         if (_val.type() == typeid(BallUMap)) {
-            auto& m = const_cast<BallUMap&>(std::any_cast<const BallUMap&>(_val));
-            return BallDyn(m[key]);
+            // Same find()-not-operator[] fix as the BallMap branch above.
+            auto& m = std::any_cast<const BallUMap&>(_val);
+            auto it = m.find(key);
+            if (it == m.end()) return BallDyn();
+            return BallDyn(it->second);
         }
         return BallDyn();
     }
@@ -3119,6 +3298,19 @@ public:
                 "RangeError (index): Index out of range: index should be less than " +
                     std::to_string(v.size()) + ": " + std::to_string(idx));
         }
+        // Portable ordered-set value: positional access into the wrapped list.
+        // Dart's Set has no `operator[]`, but several runtime set-op helpers
+        // (set_add/set_contains's own manual scans) index by position and rely
+        // on this — issue #174.
+        if (const BallList* svp = _setBackingList()) {
+            const auto& v = *svp;
+            if (idx >= 0 && static_cast<size_t>(idx) < v.size())
+                return BallDyn(v[idx]);
+            throw BallException(
+                "RangeError",
+                "RangeError (index): Index out of range: index should be less than " +
+                    std::to_string(v.size()) + ": " + std::to_string(idx));
+        }
         if (_val.type() == typeid(std::vector<std::string>)) {
             auto& v = std::any_cast<const std::vector<std::string>&>(_val);
             if (idx >= 0 && static_cast<size_t>(idx) < v.size())
@@ -3130,7 +3322,16 @@ public:
             if (idx >= 0 && static_cast<size_t>(idx) < s.size())
                 return BallDyn(std::string(1, s[idx]));
         }
-        return BallDyn();
+        // A map read with an INTEGER key (Dart `Map<int, V>[k]`): every map WRITE
+        // (`ball_set`) and membership test (`count` / `containsKey`, which route
+        // an int key through `static_cast<std::string>(BallDyn(key))`) key maps
+        // by the STRINGIFIED form, so an int-keyed map read must look up the same
+        // string. Without this, `Map<int, int>` reads returned null and poisoned
+        // the surrounding arithmetic (int-keyed memoization — fixture 95).
+        // Delegate to the string operator[], which dispatches every map shape
+        // (BallObject / BallMap / BallOrderedMap / BallUMap / BallScope); for a
+        // non-map receiver it returns null, matching the previous fall-through.
+        return (*this)[static_cast<std::string>(BallDyn(idx))];
     }
 
     // Mutation: set a field in the underlying map/list.
@@ -3305,6 +3506,9 @@ public:
         if (const BallList* vp = _listPtr()) return vp->empty();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->empty();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).empty();
+        // Portable ordered-set value: report the WRAPPED list's emptiness, not
+        // the map's own key count (always 1) — issue #174.
+        if (const BallList* svp = _setBackingList()) return svp->empty();
         if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->empty();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).empty();
         return false;
@@ -3315,13 +3519,25 @@ public:
         if (const BallList* vp = _listPtr()) return vp->size();
         if (_val.type() == typeid(BallScope)) return std::any_cast<const BallScope&>(_val)->size();
         if (_val.type() == typeid(BallMap)) return std::any_cast<const BallMap&>(_val).size();
+        // Portable ordered-set value: report the WRAPPED list's element count,
+        // not the map's own key count (always 1) — issue #174.
+        if (const BallList* svp = _setBackingList()) return svp->size();
         if (const BallOrderedMap* omp = _orderedMapPtr()) return omp->size();
         if (_val.type() == typeid(BallUMap)) return std::any_cast<const BallUMap&>(_val).size();
         return 0;
     }
 
     void push_back(const BallDyn& v) {
-        if (BallList* vp = _listPtr()) vp->push_back(v._val);
+        if (BallList* vp = _listPtr()) { vp->push_back(v._val); return; }
+        // Set.add semantics: dedup-insert into the wrapped list, preserving
+        // insertion order (issue #174). A duplicate is a silent no-op, exactly
+        // like list_push's caller-visible mutation for a genuine List.
+        if (BallList* svp = _setBackingList()) {
+            for (const auto& x : *svp) {
+                if (BallDyn(x) == v) return;
+            }
+            svp->push_back(v._val);
+        }
     }
 
     BallDyn front() const {
@@ -3351,7 +3567,9 @@ public:
             std::any_cast<BallUMap&>(_val).erase(key);
     }
     void push_back(const std::any& val) {
-        if (BallList* vp = _listPtr()) vp->push_back(val);
+        // Delegate to the BallDyn overload so Set.add dedup (issue #174)
+        // applies uniformly regardless of which overload the caller used.
+        push_back(BallDyn(val));
     }
     void pop_back() {
         if (BallList* vp = _listPtr()) {
@@ -3751,6 +3969,15 @@ public:
             }
             return -1;
         }
+        // Portable ordered-set value: search the wrapped list (issue #174).
+        if (const BallList* svp = _setBackingList()) {
+            const auto& v = *svp;
+            for (size_t i = 0; i < v.size(); i++) {
+                BallDyn el(v[i]);
+                if (el == needle) return static_cast<int64_t>(i);
+            }
+            return -1;
+        }
         if (_val.type() == typeid(std::string) && needle._val.type() == typeid(std::string)) {
             auto& s = std::any_cast<const std::string&>(_val);
             auto& n = std::any_cast<const std::string&>(needle._val);
@@ -3770,11 +3997,15 @@ public:
     };
     Iterator begin() const {
         if (const BallList* vp = _listPtr()) return {vp, 0};
+        // Portable ordered-set value: `for (final x in someSet)` iterates the
+        // wrapped list in insertion order (issue #174).
+        if (const BallList* svp = _setBackingList()) return {svp, 0};
         static BallList empty;
         return {&empty, 0};
     }
     Iterator end() const {
         if (const BallList* vp = _listPtr()) return {vp, vp->size()};
+        if (const BallList* svp = _setBackingList()) return {svp, svp->size()};
         static BallList empty;
         return {&empty, 0};
     }
@@ -3818,7 +4049,7 @@ public:
         return *this;
     }
 
-    // BallGenerator.values / protobuf ListValue.values — access the values list.
+    // BallGenerator.values / protobuf ListValue.values / Map.values.
     BallDyn values() const {
         // BallGenerator: return a copy of the accumulated values list.
         if (_val.type() == typeid(BallGenerator)) {
@@ -3829,7 +4060,28 @@ public:
         if (v.has_value()) return v;
         // If this IS a list, return self.
         if (_isList()) return *this;
-        return BallDyn();
+        // A real Map (but NOT a portable Set, which is the one-key
+        // `{'__ball_set__': [...]}` marker map) — return its values in insertion
+        // order. Previously this fell through to `return BallDyn()`, so
+        // `m.values.toList()` on a real Map yielded null instead of the values
+        // list (issue #202). Inlined rather than calling ball_map_values (which
+        // is declared later in this header).
+        if (const BallOrderedMap* omp = _orderedMapPtr()) {
+            if (_setBackingList() == nullptr) {
+                std::vector<std::any> r;
+                for (const auto& [k, val] : omp->entries_) r.push_back(val);
+                return BallDyn(BallList(r));
+            }
+        } else if (_val.type() == typeid(BallMap)) {
+            std::vector<std::any> r;
+            for (const auto& [k, val] : std::any_cast<const BallMap&>(_val))
+                r.push_back(val);
+            return BallDyn(BallList(r));
+        }
+        // Non-Map, non-list, non-generator receiver (a Set, null, or a scalar):
+        // `.values` is invalid — fail loud instead of silently returning null
+        // (issue #202, mirroring the `.keys`/ball_map_keys fix in #197).
+        throw BallException("TypeError", "Cannot access .values on a non-Map");
     }
 
     bool has(const BallDyn& key) const;
@@ -4581,8 +4833,9 @@ inline bool identical(const std::any& a, const std::any& b) {
 // File/Directory constructors from BallDyn
 inline File::File(const BallDyn& p) : path(ball_to_string(p)) {}
 inline Directory::Directory(const BallDyn& p) : path(ball_to_string(p)) {}
-inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any&) {
-    std::ofstream ofs(f.path);
+inline void writeAsStringSync(const File& f, const BallDyn& content, const std::any& mode) {
+    auto flags = std::ios::out | (_ball_file_mode_is_append(mode) ? std::ios::app : std::ios::trunc);
+    std::ofstream ofs(f.path, flags);
     ofs << ball_to_string(content);
 }
 
@@ -4684,47 +4937,110 @@ inline std::vector<std::any> decode(const Base64Codec& c, const BallDyn& s) {
     return c.decode(static_cast<std::string>(s));
 }
 
-// ── ball_to_set(BallDyn) ──
-inline BallDyn ball_to_set(const BallDyn& d) {
-    if (const BallList* lp = d._listPtr()) {
-        return BallDyn(ball_to_set(*lp));
+// Definition of the forward-declared Dart-style ordered-map stringify
+// (declared just before `class BallDyn`). Recognizes the portable ordered-
+// set tag and renders `{a, b, c}` (Dart Set literal) instead of the generic
+// `{key: value}` map shape — issue #174.
+inline std::string _ball_ordered_map_to_string(const BallOrderedMap& omp) {
+    if (omp.size() == 1) {
+        auto it = omp.find("__ball_set__");
+        if (it != omp.end()) {
+            const std::any& raw = it->second;
+            const BallList* items = nullptr;
+            if (raw.type() == typeid(BallListRef)) items = std::any_cast<const BallListRef&>(raw).get();
+            else if (raw.type() == typeid(BallList)) items = &std::any_cast<const BallList&>(raw);
+            std::string out = "{";
+            bool first = true;
+            if (items) {
+                for (const auto& v : *items) {
+                    if (!first) out += ", ";
+                    out += ball_to_string(v);
+                    first = false;
+                }
+            }
+            out += "}";
+            return out;
+        }
     }
-    return d;
+    std::string out = "{";
+    bool first = true;
+    for (const auto& [k, v] : omp.entries_) {
+        if (k.find("__") == 0 || k == "type_args") continue;
+        if (!first) out += ", ";
+        out += k + ": " + ball_to_string(v);
+        first = false;
+    }
+    out += "}";
+    return out;
 }
 
-// ── Set operations on BallDyn ──
+// Build the portable ordered-set value from [items], deduping by BallDyn
+// equality while preserving first-seen (insertion) order — the Set-literal
+// construction semantics (`{1, 2, 3}`, `{3, 1, 2, 1, 3}` -> `{3, 1, 2}`) for
+// the direct-compile C++ path (issue #174). Mirrors `_ballSetOf` in the Dart
+// reference engine (dart/engine/lib/engine_std.dart) and its self-hosted
+// compiled equivalent.
+inline BallDyn ball_make_set(const BallList& items) {
+    BallList deduped;
+    for (const auto& item : items) {
+        BallDyn e(item);
+        bool found = false;
+        for (const auto& x : deduped) {
+            if (BallDyn(x) == e) { found = true; break; }
+        }
+        if (!found) deduped.push_back(item);
+    }
+    BallOrderedMap m;
+    m["__ball_set__"] = std::any(BallListRef(std::make_shared<BallList>(std::move(deduped))));
+    return BallDyn(std::move(m));
+}
+
+// Extract the elements of a BallDyn list OR the portable ordered-set value
+// as a plain BallList snapshot — the common receiver-normalization step for
+// Set.of/from and the algebraic set ops below (issue #174).
+inline BallList _ball_set_or_list_elements(const BallDyn& v) {
+    if (const BallList* lp = v._listPtr()) return *lp;
+    if (const BallList* lp = v._setBackingList()) return *lp;
+    return BallList{};
+}
+
+// ── ball_to_set(BallDyn) ──
+inline BallDyn ball_to_set(const BallDyn& d) {
+    return ball_make_set(_ball_set_or_list_elements(d));
+}
+
+// ── Set operations on BallDyn. Both operands may be a List or the portable
+// ordered-set value; the RESULT is always a proper tagged Set (Dart-style
+// `{...}` print, not a raw `[...]` list) — issue #174. ──
 inline BallDyn union_(const BallDyn& a, const BallDyn& b) {
-    BallList sa, sb;
-    if (const BallList* lp = a._listPtr()) sa = *lp;
-    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList sa = _ball_set_or_list_elements(a);
+    BallList sb = _ball_set_or_list_elements(b);
     for (auto& e : sb) {
         bool found = false;
         for (auto& x : sa) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
         if (!found) sa.push_back(e);
     }
-    return BallDyn(sa);
+    return ball_make_set(sa);
 }
 inline BallDyn intersection(const BallDyn& a, const BallDyn& b) {
-    BallList sa, sb;
-    if (const BallList* lp = a._listPtr()) sa = *lp;
-    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList sa = _ball_set_or_list_elements(a);
+    BallList sb = _ball_set_or_list_elements(b);
     BallList result;
     for (auto& e : sa) {
         for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { result.push_back(e); break; } }
     }
-    return BallDyn(result);
+    return ball_make_set(result);
 }
 inline BallDyn difference(const BallDyn& a, const BallDyn& b) {
-    BallList sa, sb;
-    if (const BallList* lp = a._listPtr()) sa = *lp;
-    if (const BallList* lp = b._listPtr()) sb = *lp;
+    BallList sa = _ball_set_or_list_elements(a);
+    BallList sb = _ball_set_or_list_elements(b);
     BallList result;
     for (auto& e : sa) {
         bool found = false;
         for (auto& x : sb) { if (ball_to_string(x) == ball_to_string(e)) { found = true; break; } }
         if (!found) result.push_back(e);
     }
-    return BallDyn(result);
+    return ball_make_set(result);
 }
 
 // ── fromCharCode / toIso8601String BallDyn overloads ──
@@ -4837,16 +5153,10 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
     _ball_to_string_ext = [](const std::any& v) -> std::string {
         const BallOrderedMap* omp = _ballAnyOrderedMapPtr(v);
         if (!omp) return "";
-        std::string out = "{";
-        bool first = true;
-        for (const auto& [k, val] : omp->entries_) {
-            if (k.rfind("__", 0) == 0 || k == "type_args") continue;
-            if (!first) out += ", ";
-            out += k + ": " + ball_to_string(val);
-            first = false;
-        }
-        out += "}";
-        return out;
+        // Shared with BallDyn::operator std::string() so a Set nested inside a
+        // List/Map (a bare std::any element, not a BallDyn) ALSO renders
+        // Dart-style (`{a, b, c}`), not as the generic map shape — issue #174.
+        return _ball_ordered_map_to_string(*omp);
     };
     _ball_json_encode_ext_fn = [](const std::any& u) -> std::string {
         const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
@@ -4897,6 +5207,25 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
         if (val_type == "bool") return first_val.type() == typeid(bool);
         return ball_object_type_matches(first_val, val_type);
     };
+    // Portable ordered-set backing-list extraction (issue #174), for
+    // ball_emit_runtime.h helpers (e.g. ball_to_list) that operate on a bare
+    // std::any before BallDyn is visible. Mirrors BallDyn::_setBackingList().
+    _BallRefDeref::_set_list_fn = [](const std::any& v) -> const std::vector<std::any>* {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(v);
+        if (!omp || omp->size() != 1) return nullptr;
+        auto it = omp->find("__ball_set__");
+        if (it == omp->end()) return nullptr;
+        // Accept both backings (see BallDyn::_setBackingList): a BallListRef
+        // (direct-compile) or a BallDyn-wrapped plain BallList (self-host).
+        const std::any* raw = &it->second;
+        while (raw->type() == typeid(BallDyn))
+            raw = &std::any_cast<const BallDyn&>(*raw)._val;
+        if (raw->type() == typeid(BallListRef))
+            return std::any_cast<const BallListRef&>(*raw).get();
+        if (raw->type() == typeid(BallList))
+            return &std::any_cast<const BallList&>(*raw);
+        return nullptr;
+    };
     return true;
 }();
 
@@ -4917,9 +5246,17 @@ inline bool ball_is_map_dyn(const BallDyn& v) {
 // previously had no `Set` branch and fell through to `ball_object_type_matches`
 // (a `__type__`-field check a portable set map never has), so `x is Set` on a
 // directly-compiled C++ Ball program always evaluated false (issue #68).
+//
+// Delegates to `_setBackingList()` rather than re-deriving the one-key-map
+// shape via `ball_length(v) == 1`/`containsKey` (issue #174): once
+// `BallDyn::size()` started reporting the WRAPPED list's element count for a
+// portable set (so `.length` on a Set works), `ball_length(v)` no longer
+// reflects the OUTER map's key count, and this check silently broke for
+// every set with != 1 elements (`{1,2,3,4,5} is Set` -> false, `is Map` ->
+// true — exactly backwards). `_setBackingList()` inspects the raw
+// `BallOrderedMap` directly and is immune to that dispatch.
 inline bool ball_is_ball_set(const BallDyn& v) {
-    return ball_is_map_dyn(v) && ball_length(v) == 1 &&
-           v.containsKey(std::string("__ball_set__"));
+    return v._setBackingList() != nullptr;
 }
 
 // Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).
@@ -4954,34 +5291,49 @@ inline BallDyn ball_map_entries(const BallDyn& v) {
 }
 inline BallDyn ball_map_keys(const BallDyn& v) {
     std::vector<std::any> r;
+    bool matched = false;
     try {
         auto a0 = static_cast<std::any>(v);
         const std::any& a = _BallDynUnwrapper::unwrap(a0);
         if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            matched = true;
             for (const auto& [k, val] : omp->entries_) r.push_back(std::any(k));
         } else {
             const BallMap* mp = nullptr;
             if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
             else { mp = _ball_object_base_map(a); }
-            if (mp) { for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
+            if (mp) { matched = true; for (const auto& [k, val] : *mp) r.push_back(std::any(k)); }
         }
-    } catch (...) {}
+    } catch (...) {
+        // Defensive: a malformed value handle can throw during unwrap/detection;
+        // `matched` stays false and we fall through to the fail-loud throw below.
+    }
+    // Fail loud on a non-Map receiver instead of silently returning [] — the
+    // Dart/TS/C++-self-host engines throw for `.keys` on a non-Map, and silent
+    // degradation is the class of bug that hid issue #55 (issue #197). Thrown
+    // AFTER the try so the defensive `catch(...)` above doesn't swallow it.
+    if (!matched) throw BallException("TypeError", "map_keys: expected Map");
     return BallDyn(BallList(r));
 }
 inline BallDyn ball_map_values(const BallDyn& v) {
     std::vector<std::any> r;
+    bool matched = false;
     try {
         auto a0 = static_cast<std::any>(v);
         const std::any& a = _BallDynUnwrapper::unwrap(a0);
         if (const BallOrderedMap* omp = _ballAnyOrderedMapPtr(a)) {
+            matched = true;
             for (const auto& [k, val] : omp->entries_) r.push_back(val);
         } else {
             const BallMap* mp = nullptr;
             if (a.type() == typeid(BallMap)) { mp = &std::any_cast<const BallMap&>(a); }
             else { mp = _ball_object_base_map(a); }
-            if (mp) { for (const auto& [k, val] : *mp) r.push_back(val); }
+            if (mp) { matched = true; for (const auto& [k, val] : *mp) r.push_back(val); }
         }
-    } catch (...) {}
+    } catch (...) {
+        // Defensive: see ball_map_keys — unmatched input falls through to throw.
+    }
+    if (!matched) throw BallException("TypeError", "map_values: expected Map");
     return BallDyn(BallList(r));
 }
 
@@ -5087,6 +5439,7 @@ inline std::string whichValue(const BallDyn& o) {
   if (_bd_has(o,"doubleValue")) return "doubleValue";
   if (_bd_has(o,"stringValue")) return "stringValue";
   if (_bd_has(o,"boolValue")) return "boolValue";
+  if (_bd_has(o,"bytesValue")) return "bytesValue";
   if (_bd_has(o,"listValue")) return "listValue";
   return "notSet";
 }
@@ -5407,7 +5760,12 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
     auto pos = s.find(needle);
     return pos != std::string::npos ? static_cast<int64_t>(pos) : -1LL;
   }
-  if (const BallList* lp = container._listPtr()) {
+  // A portable ordered-set value (issue #174) has no _listPtr(); fall back to
+  // its backing list so `.contains()`/`.indexOf()` (list_contains/
+  // list_index_of) work on a Set the same as on a List.
+  const BallList* lp = container._listPtr();
+  if (!lp) lp = container._setBackingList();
+  if (lp) {
     const auto& list = *lp;
     for (size_t i = 0; i < list.size(); i++) {
       if (ball_to_string(BallDyn(list[i])) == ball_to_string(element)) return static_cast<int64_t>(i);
@@ -5419,6 +5777,10 @@ inline int64_t ball_index_of(const BallDyn& container, const BallDyn& element) {
 
 inline BallDyn ball_list_copy(const BallDyn& v) {
   if (const BallList* lp = v._listPtr()) return BallDyn(BallList(*lp));
+  // Set.toList() / Set.of(...) copy: a portable ordered-set value has no
+  // _listPtr(); return a genuine (untagged) list snapshot of its elements —
+  // issue #174.
+  if (const BallList* svp = v._setBackingList()) return BallDyn(BallList(*svp));
   return v;
 }
 inline BallDyn ball_map_copy(const BallDyn& v) {
@@ -5467,6 +5829,8 @@ inline BallDyn ball_call_method(const BallDyn& recv, const std::string& name,
   }
   return BallDyn();
 }
+
+// === BALL EMITTED PROGRAM ===
 
 namespace ball_protobuf {
 
@@ -5704,7 +6068,7 @@ const auto _wtI32 = static_cast<int64_t>(5);
 const auto unknownFieldsKey = "$unknown"s;
 inline auto _ballinit__wktWrappers() { return [&]() { BallOrderedMap __m; __m[ball_to_string("google.protobuf.DoubleValue"s)] = std::any("TYPE_DOUBLE"s); __m[ball_to_string("google.protobuf.FloatValue"s)] = std::any("TYPE_FLOAT"s); __m[ball_to_string("google.protobuf.Int64Value"s)] = std::any("TYPE_INT64"s); __m[ball_to_string("google.protobuf.UInt64Value"s)] = std::any("TYPE_UINT64"s); __m[ball_to_string("google.protobuf.Int32Value"s)] = std::any("TYPE_INT32"s); __m[ball_to_string("google.protobuf.UInt32Value"s)] = std::any("TYPE_UINT32"s); __m[ball_to_string("google.protobuf.BoolValue"s)] = std::any("TYPE_BOOL"s); __m[ball_to_string("google.protobuf.StringValue"s)] = std::any("TYPE_STRING"s); __m[ball_to_string("google.protobuf.BytesValue"s)] = std::any("TYPE_BYTES"s); return __m; }(); }
 const auto _wktWrappers = _ballinit__wktWrappers();
-inline auto _ballinit__wktStructural() { return [&]() -> BallDyn { BallList __r; __r.push_back(std::any(BallDyn("google.protobuf.Timestamp"s))); __r.push_back(std::any(BallDyn("google.protobuf.Duration"s))); __r.push_back(std::any(BallDyn("google.protobuf.FieldMask"s))); __r.push_back(std::any(BallDyn("google.protobuf.Struct"s))); __r.push_back(std::any(BallDyn("google.protobuf.Value"s))); __r.push_back(std::any(BallDyn("google.protobuf.ListValue"s))); return BallDyn(__r); }(); }
+inline auto _ballinit__wktStructural() { return [&]() -> BallDyn { BallList __r; __r.push_back(std::any(BallDyn("google.protobuf.Timestamp"s))); __r.push_back(std::any(BallDyn("google.protobuf.Duration"s))); __r.push_back(std::any(BallDyn("google.protobuf.FieldMask"s))); __r.push_back(std::any(BallDyn("google.protobuf.Struct"s))); __r.push_back(std::any(BallDyn("google.protobuf.Value"s))); __r.push_back(std::any(BallDyn("google.protobuf.ListValue"s))); return ball_make_set(__r); }(); }
 const auto _wktStructural = _ballinit__wktStructural();
 auto anyTypeResolver = 0;
 const auto fieldPresenceImplicit = "IMPLICIT"s;
@@ -5953,7 +6317,9 @@ BallDyn makeBuffer() {
 
 BallDyn encodeBytes(BallDyn buffer, BallDyn data) {
     encodeVarint(buffer, ball_length(data));
-    ball_assign(buffer, ball_concat(buffer,data));
+    for (auto b : BallDyn(data)) {
+        ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,b));
+    }
     return buffer;
     return BallDyn();
 }
@@ -6169,7 +6535,10 @@ BallDyn encodeFloatField(BallDyn buffer, int64_t fieldNumber, double value) {
         return BallDyn(buffer);
     }
     encodeTag(buffer, fieldNumber, static_cast<int64_t>(5));
-    ball_assign(buffer, ball_concat(buffer,_encodeFloatBytes(value)));
+    auto bytes = BallDyn(_encodeFloatBytes(value));
+    for (auto b : BallDyn(bytes)) {
+        ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,b));
+    }
     return buffer;
     return BallDyn();
 }
@@ -6179,7 +6548,10 @@ BallDyn encodeDoubleField(BallDyn buffer, int64_t fieldNumber, double value) {
         return BallDyn(buffer);
     }
     encodeTag(buffer, fieldNumber, static_cast<int64_t>(1));
-    ball_assign(buffer, ball_concat(buffer,_encodeDoubleBytes(value)));
+    auto bytes = BallDyn(_encodeDoubleBytes(value));
+    for (auto b : BallDyn(bytes)) {
+        ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,b));
+    }
     return buffer;
     return BallDyn();
 }
@@ -6346,7 +6718,9 @@ BallDyn wireTypeForFieldType(std::string type) {
 
 BallDyn encodeGroupField(BallDyn buffer, int64_t fieldNumber, BallDyn body) {
     encodeTag(buffer, fieldNumber, _wtSGroup);
-    ball_assign(buffer, ball_concat(buffer,body));
+    for (auto b : BallDyn(body)) {
+        ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,b));
+    }
     encodeTag(buffer, fieldNumber, _wtEGroup);
     return buffer;
     return BallDyn();
@@ -6364,7 +6738,7 @@ BallDyn marshal(BallDyn message, BallDyn descriptor) {
         if (!BallDyn(value).has_value()) {
             continue;
         }
-        if (((((label == "LABEL_REPEATED"s) && (type == "TYPE_MESSAGE"s)) && ball_is_map_dyn(BallDyn(value))) && (static_cast<BallDyn>(field)["mapEntry"s] == true))) {
+        if (((((label == "LABEL_REPEATED"s) && (type == "TYPE_MESSAGE"s)) && (ball_is_map_dyn(BallDyn(value)) && !ball_is_ball_set(BallDyn(value)))) && (static_cast<BallDyn>(field)["mapEntry"s] == true))) {
             auto keyType = BallDyn((BallDyn(static_cast<BallDyn>(field)["keyType"s]).has_value() ? BallDyn(static_cast<BallDyn>(field)["keyType"s]) : BallDyn("TYPE_STRING"s)));
             auto valueType = BallDyn((BallDyn(static_cast<BallDyn>(field)["valueType"s]).has_value() ? BallDyn(static_cast<BallDyn>(field)["valueType"s]) : BallDyn("TYPE_STRING"s)));
             auto valueDescriptor = BallDyn(static_cast<BallDyn>(field)["messageDescriptor"s]);
@@ -6426,7 +6800,7 @@ BallDyn marshal(BallDyn message, BallDyn descriptor) {
             continue;
         }
         auto msgDescriptor = BallDyn(static_cast<BallDyn>(field)["messageDescriptor"s]);
-        marshalField(buffer, fieldNumber, type, value, (BallDyn(static_cast<BallDyn>(field)["oneof"s]).has_value() || (BallDyn(features).has_value() && hasExplicitPresence(features))), (BallDyn(features).has_value() && isDelimited(features)), msgDescriptor);
+        marshalField(buffer, fieldNumber, type, value, false, (BallDyn(static_cast<BallDyn>(field)["oneof"s]).has_value() || (BallDyn(features).has_value() && hasExplicitPresence(features))), (BallDyn(features).has_value() && isDelimited(features)), msgDescriptor);
     }
     auto unknown = BallDyn(static_cast<BallDyn>(message)[unknownFieldsKey]);
     if (ball_is_typed_list(unknown, "int"s)) {
@@ -6601,10 +6975,14 @@ BallDyn _writeScalarForced(BallDyn buffer, int64_t fieldNumber, std::string type
     auto wt = BallDyn(wireTypeForFieldType(type));
     encodeTag(buffer, fieldNumber, wt);
     if ((wt == _wtI32)) {
-        ball_assign(buffer, ball_concat(buffer,std::vector<int64_t>{static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0)}));
+        for (auto b : BallDyn(std::vector<int64_t>{static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0)})) {
+            ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,b));
+        }
     } else {
         if ((wt == _wtI64)) {
-            ball_assign(buffer, ball_concat(buffer,std::vector<int64_t>{static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0)}));
+            for (auto b : BallDyn(std::vector<int64_t>{static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0), static_cast<int64_t>(0)})) {
+                ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,b));
+            }
         } else {
             ball_assign(buffer, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(buffer,static_cast<int64_t>(0)));
         }
@@ -6714,7 +7092,7 @@ BallDyn marshalMapField(BallDyn buffer, int64_t fieldNumber, BallDyn mapValue, s
         auto key = BallDyn(_coerceMapKey(static_cast<BallDyn>(entry)["key"s], keyType));
         marshalField(entryBuffer, static_cast<int64_t>(1), keyType, key, true);
         if (BallDyn(static_cast<BallDyn>(entry)["value"s]).has_value()) {
-            marshalField(entryBuffer, static_cast<int64_t>(2), valueType, static_cast<BallDyn>(entry)["value"s], true, valueDescriptor);
+            marshalField(entryBuffer, static_cast<int64_t>(2), valueType, static_cast<BallDyn>(entry)["value"s], true, false, false, valueDescriptor);
         }
         encodeTag(buffer, fieldNumber, _wtLen);
         encodeBytes(buffer, entryBuffer);
@@ -6831,28 +7209,28 @@ BallDyn unmarshalFieldValue(BallDyn bytes, int64_t offset, int64_t wireType, std
             {
                 auto __switch_subj = BallDyn(fieldType);
                 if (BallDyn(__switch_subj) == ball_to_dyn("int32"s)) {
-                    return ball_assign(value, decodeAsInt32(rawVarint));
+                    ball_assign(value, decodeAsInt32(rawVarint));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("uint32"s)) {
-                    return ball_assign(value, decodeAsUint32(rawVarint));
+                    ball_assign(value, decodeAsUint32(rawVarint));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("sint32"s)) {
-                    return ball_assign(value, decodeAsSint32(rawVarint));
+                    ball_assign(value, decodeAsSint32(rawVarint));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("sint64"s)) {
-                    return ball_assign(value, decodeAsSint64(rawVarint));
+                    ball_assign(value, decodeAsSint64(rawVarint));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("bool"s)) {
-                    return ball_assign(value, decodeAsBool(rawVarint));
+                    ball_assign(value, decodeAsBool(rawVarint));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("enum"s)) {
-                    return ball_assign(value, decodeAsInt32(rawVarint));
+                    ball_assign(value, decodeAsInt32(rawVarint));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("uint64"s) || BallDyn(__switch_subj) == ball_to_dyn("int64"s)) {
-                    return ball_assign(value, rawVarint);
+                    ball_assign(value, rawVarint);
                 }
                 else {
-                    return ball_assign(value, rawVarint);
+                    ball_assign(value, rawVarint);
                 }
             }
             return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return __m; }());
@@ -6878,16 +7256,16 @@ BallDyn unmarshalFieldValue(BallDyn bytes, int64_t offset, int64_t wireType, std
             {
                 auto __switch_subj = BallDyn(fieldType);
                 if (BallDyn(__switch_subj) == ball_to_dyn("string"s)) {
-                    return ball_assign(value, decodeStringValue(data));
+                    ball_assign(value, decodeStringValue(data));
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("bytes"s)) {
-                    return ball_assign(value, data);
+                    ball_assign(value, data);
                 }
                 else if (BallDyn(__switch_subj) == ball_to_dyn("message"s)) {
-                    return ball_assign(value, data);
+                    ball_assign(value, data);
                 }
                 else {
-                    return ball_assign(value, data);
+                    ball_assign(value, data);
                 }
             }
             return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(totalBytesRead); return __m; }());
@@ -7107,7 +7485,7 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
                 ball_assign(entryValue, unmarshal(entryValue, valueDescriptor));
             }
             auto existingMap = BallDyn(static_cast<BallDyn>(message)[fieldName]);
-            if (ball_is_map_dyn(BallDyn(existingMap))) {
+            if ((ball_is_map_dyn(BallDyn(existingMap)) && !ball_is_ball_set(BallDyn(existingMap)))) {
                 (ball_set(existingMap, std::string(ball_to_string(BallDyn(entryKey))), std::any(entryValue)), entryValue);
             } else {
                 (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any([&]() { BallOrderedMap __m; __m[ball_to_string(entryKey)] = std::any(entryValue); return __m; }())), [&]() { BallOrderedMap __m; __m[ball_to_string(entryKey)] = std::any(entryValue); return __m; }());
@@ -7213,7 +7591,7 @@ BallDyn _routeClosedEnumToUnknown(std::string fieldType, BallDyn features, BallD
 BallDyn _enumValuesOf(BallDyn fieldDesc) {
     auto& input = fieldDesc;
     auto raw = BallDyn(static_cast<BallDyn>(fieldDesc)["enumValues"s]);
-    if (ball_is_map_dyn(BallDyn(raw))) {
+    if ((ball_is_map_dyn(BallDyn(raw)) && !ball_is_ball_set(BallDyn(raw)))) {
         return BallDyn(ball_list_copy(ball_map_keys(BallDyn(raw))));
     }
     if (ball_is_list(raw)) {
@@ -7267,7 +7645,7 @@ BallDyn _decodePackedValues(BallDyn data, std::string fieldType) {
             }
         }
         else if (BallDyn(__switch_subj) == ball_to_dyn("uint64"s) || BallDyn(__switch_subj) == ball_to_dyn("int64"s)) {
-            return ball_assign(values, ball_concat(values,decodePackedVarints(data)));
+            ball_assign(values, ball_concat(values,decodePackedVarints(data)));
         }
         else if (BallDyn(__switch_subj) == ball_to_dyn("bool"s)) {
             auto raw = BallDyn(decodePackedVarints(data));
@@ -7490,8 +7868,8 @@ BallDyn isWellKnownJsonType(std::string typeName) {
 BallDyn wktToJson(std::string typeName, BallDyn value, BallDyn features, BallDyn resolver) {
     auto wrapped = BallDyn(static_cast<BallDyn>(_wktWrappers)[typeName]);
     if (BallDyn(wrapped).has_value()) {
-        auto v = BallDyn([&]() -> BallDyn {if (ball_is_map_dyn(BallDyn(value))) {return BallDyn(static_cast<BallDyn>(value)["value"s]);} return BallDyn();}());
-        return BallDyn(fieldToJson((BallDyn(v).has_value() ? BallDyn(v) : BallDyn(_scalarZero(wrapped))), wrapped, features));
+        auto v = BallDyn([&]() -> BallDyn {if ((ball_is_map_dyn(BallDyn(value)) && !ball_is_ball_set(BallDyn(value)))) {return BallDyn(static_cast<BallDyn>(value)["value"s]);} return BallDyn();}());
+        return BallDyn(fieldToJson((BallDyn(v).has_value() ? BallDyn(v) : BallDyn(_scalarZero(wrapped))), wrapped, BallDyn(), BallDyn(), BallDyn(), features));
     }
     {
         auto __switch_subj = BallDyn(typeName);
@@ -7528,7 +7906,7 @@ BallDyn wktFromJson(std::string typeName, BallDyn json, BallDyn features, BallDy
         if (!BallDyn(json).has_value()) {
             return BallDyn([&]() { BallOrderedMap __m; return __m; }());
         }
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(fieldFromJson(json, wrapped, features)); return __m; }());
+        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(fieldFromJson(json, wrapped, BallDyn(), BallDyn(), BallDyn(), BallDyn(), features)); return __m; }());
     }
     {
         auto __switch_subj = BallDyn(typeName);
@@ -7682,7 +8060,7 @@ BallDyn _structMsgToJson(BallDyn s) {
     auto& input = s;
     auto fields = BallDyn(static_cast<BallDyn>(s)["fields"s]);
     auto out = BallDyn([&]() { BallOrderedMap __m; return __m; }());
-    if (ball_is_map_dyn(BallDyn(fields))) {
+    if ((ball_is_map_dyn(BallDyn(fields)) && !ball_is_ball_set(BallDyn(fields)))) {
         for (auto e : BallDyn(ball_map_entries(BallDyn(fields)))) {
             (ball_set(out, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(_valueMsgToJson(_asWktMap(static_cast<BallDyn>(e)["value"s])))), _valueMsgToJson(_asWktMap(static_cast<BallDyn>(e)["value"s])));
         }
@@ -7712,7 +8090,7 @@ BallDyn _valueMsgFromJson(BallDyn j) {
     if (ball_is_string(j)) {
         return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("string_value"s)] = std::any(j); return __m; }());
     }
-    if (ball_is_map_dyn(BallDyn(j))) {
+    if ((ball_is_map_dyn(BallDyn(j)) && !ball_is_ball_set(BallDyn(j)))) {
         return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("struct_value"s)] = std::any(_structMsgFromJson(j)); return __m; }());
     }
     if (ball_is_list(j)) {
@@ -7724,7 +8102,7 @@ BallDyn _valueMsgFromJson(BallDyn j) {
 
 BallDyn _structMsgFromJson(BallDyn j) {
     auto& input = j;
-    if (!(ball_is_map_dyn(BallDyn(j)))) {
+    if (!((ball_is_map_dyn(BallDyn(j)) && !ball_is_ball_set(BallDyn(j))))) {
         throw BallException("FormatException"s, "FormatException"s, std::map<std::string, std::string>{{"message"s, "Struct must be a JSON object"s}});
     }
     auto fields = BallDyn([&]() { BallOrderedMap __m; return __m; }());
@@ -7757,7 +8135,7 @@ BallDyn _anyTypeName(std::string typeUrl) {
 }
 
 BallDyn _anyToJson(BallDyn value, BallDyn features, BallDyn resolver) {
-    if (!(ball_is_map_dyn(BallDyn(value)))) {
+    if (!((ball_is_map_dyn(BallDyn(value)) && !ball_is_ball_set(BallDyn(value))))) {
         return BallDyn(value);
     }
     auto url = BallDyn(static_cast<BallDyn>(value)["type_url"s]);
@@ -7785,7 +8163,7 @@ BallDyn _anyToJson(BallDyn value, BallDyn features, BallDyn resolver) {
 }
 
 BallDyn _anyFromJson(BallDyn json, BallDyn resolver) {
-    if (!(ball_is_map_dyn(BallDyn(json)))) {
+    if (!((ball_is_map_dyn(BallDyn(json)) && !ball_is_ball_set(BallDyn(json))))) {
         throw BallException("FormatException"s, "FormatException"s, std::map<std::string, std::string>{{"message"s, "Any must be a JSON object"s}});
     }
     if (json.empty()) {
@@ -7979,7 +8357,7 @@ BallDyn fieldFromJson(BallDyn jsonValue, std::string type, BallDyn typeName, Bal
                 return BallDyn(wktFromJson(typeName, jsonValue, features, resolver));
             }
             if (BallDyn(messageDescriptor).has_value()) {
-                if (!(ball_is_map_dyn(BallDyn(jsonValue)))) {
+                if (!((ball_is_map_dyn(BallDyn(jsonValue)) && !ball_is_ball_set(BallDyn(jsonValue))))) {
                     throw _ball_make_exception("FormatException"s, ("Expected a JSON object for a message field, "s + ("got "s + ball_to_string(ball_runtime_type_name(BallDyn(jsonValue))))));
                 }
                 auto stringMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
@@ -8084,7 +8462,7 @@ BallDyn marshalJson(BallDyn message, BallDyn descriptor) {
 
 BallDyn unmarshalJson(std::string jsonString, BallDyn descriptor) {
     auto jsonMap = BallDyn(_ball_json_decode(jsonString));
-    if (!(ball_is_map_dyn(BallDyn(jsonMap)))) {
+    if (!((ball_is_map_dyn(BallDyn(jsonMap)) && !ball_is_ball_set(BallDyn(jsonMap))))) {
         throw _ball_make_exception("FormatException"s, ("Expected a JSON object at top level, got "s + ball_to_string(ball_runtime_type_name(BallDyn(jsonMap)))));
     }
     auto stringMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
@@ -8101,7 +8479,7 @@ BallDyn messageToJson(BallDyn message, BallDyn descriptor, BallDyn anyTypeResolv
 }
 
 BallDyn messageFromJson(BallDyn json, BallDyn descriptor, BallDyn anyTypeResolver) {
-    if (!(ball_is_map_dyn(BallDyn(json)))) {
+    if (!((ball_is_map_dyn(BallDyn(json)) && !ball_is_ball_set(BallDyn(json))))) {
         throw _ball_make_exception("FormatException"s, ("Expected a JSON object at top level, got "s + ball_to_string(ball_runtime_type_name(BallDyn(json)))));
     }
     auto stringMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
@@ -8124,7 +8502,7 @@ BallDyn _marshalToMap(BallDyn message, BallDyn descriptor, BallDyn resolver) {
         auto features = BallDyn(static_cast<BallDyn>(field)["features"s]);
         auto camelName = BallDyn((BallDyn(static_cast<BallDyn>(field)["jsonName"s]).has_value() ? BallDyn(static_cast<BallDyn>(field)["jsonName"s]) : BallDyn(toCamelCase(name))));
         if (isMap) {
-            if ((!BallDyn(value).has_value() || (ball_is_map_dyn(BallDyn(value)) && value.empty()))) {
+            if ((!BallDyn(value).has_value() || ((ball_is_map_dyn(BallDyn(value)) && !ball_is_ball_set(BallDyn(value))) && value.empty()))) {
                 continue;
             }
             auto mapValue = BallDyn(value);
@@ -8187,7 +8565,7 @@ BallDyn _buildFieldLookup(BallDyn descriptor) {
 BallDyn _unmarshalFromMap(BallDyn jsonMap, BallDyn descriptor, BallDyn resolver) {
     auto lookup = BallDyn(_buildFieldLookup(descriptor));
     auto result = BallDyn([&]() { BallOrderedMap __m; return __m; }());
-    auto seenOneofs = BallDyn([&]() -> BallDyn { BallList __r; return BallDyn(__r); }());
+    auto seenOneofs = BallDyn([&]() -> BallDyn { BallList __r; return ball_make_set(__r); }());
     for (auto entry : BallDyn(ball_map_entries(BallDyn(jsonMap)))) {
         auto jsonKey = BallDyn(static_cast<BallDyn>(entry)["key"s]);
         auto jsonValue = BallDyn(static_cast<BallDyn>(entry)["value"s]);
@@ -8209,7 +8587,7 @@ BallDyn _unmarshalFromMap(BallDyn jsonMap, BallDyn descriptor, BallDyn resolver)
         auto enumNames = BallDyn(static_cast<BallDyn>(field)["enumNames"s]);
         auto features = BallDyn(static_cast<BallDyn>(field)["features"s]);
         if (isMap) {
-            if (ball_is_map_dyn(BallDyn(jsonValue))) {
+            if ((ball_is_map_dyn(BallDyn(jsonValue)) && !ball_is_ball_set(BallDyn(jsonValue)))) {
                 auto valueType = BallDyn((BallDyn(static_cast<BallDyn>(field)["valueType"s]).has_value() ? BallDyn(static_cast<BallDyn>(field)["valueType"s]) : BallDyn("TYPE_STRING"s)));
                 auto valueTypeName = BallDyn(static_cast<BallDyn>(field)["valueTypeName"s]);
                 auto dartMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());

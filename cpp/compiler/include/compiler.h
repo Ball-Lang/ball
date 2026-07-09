@@ -81,6 +81,12 @@ private:
 
     // Lookup tables
     std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_;
+    // Same functions, keyed by their emitted (sanitized) C++ name, so a call
+    // site — which only knows the bare function name, not the owning module —
+    // can recover the callee's declared parameters to align named/optional
+    // arguments to positional C++ slots (see compile_call). Sanitized names are
+    // unique in a valid program (a collision would be a C++ redefinition).
+    std::unordered_map<std::string, const ball::v1::FunctionDefinition*> functions_by_cpp_name_;
     std::unordered_set<std::string> base_modules_;
 
     // Output state
@@ -355,6 +361,13 @@ private:
     // Bridge: compile expression to CppExpr for method chaining
     CppExpr expr(const ball::v1::Expression& e) { return CppExpr(compile_expr(e)); }
     std::string compile_call(const ball::v1::FunctionCall& call);
+    // Emit the comma-separated C++ argument list for a call to the user
+    // function emitted as `cpp_name`, aligning named/optional IR arguments to
+    // the callee's declared positional parameters (fills skipped optional
+    // params with their declared defaults). Falls back to appearance order when
+    // the callee is unknown or a field does not map cleanly.
+    std::string compile_call_arguments(const std::string& cpp_name,
+                                       const ball::v1::MessageCreation& msg);
     std::string compile_literal(const ball::v1::Literal& lit);
     // Escape a raw string for safe embedding inside a C++ string literal.
     static std::string cpp_escape_string(const std::string& s);

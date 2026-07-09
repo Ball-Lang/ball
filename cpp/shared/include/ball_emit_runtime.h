@@ -1542,6 +1542,43 @@ inline int64_t _ball_parse_timestamp(const std::string& iso) {
     return static_cast<int64_t>(t) * 1000 + frac;
 }
 
+// Current-UTC-instant `std::tm` shared by the year/month/day/hour/minute/
+// second component getters below. Matches the Dart engine's
+// `DateTime.now().toUtc()` (dart/engine/lib/engine_std.dart) — each getter
+// takes the current wall-clock instant, not a caller-supplied timestamp
+// (see std_time.year/month/.../second's "current UTC time" descriptions in
+// dart/shared/lib/std_time.dart). Uses <chrono>, brought in by the
+// compiler's emit_includes() before this header is spliced.
+inline std::tm _ball_now_utc_tm() {
+    std::time_t t = std::chrono::system_clock::to_time_t(
+        std::chrono::system_clock::now());
+    std::tm g{};
+#if defined(_WIN32)
+    gmtime_s(&g, &t);
+#else
+    gmtime_r(&t, &g);
+#endif
+    return g;
+}
+inline int64_t _ball_time_year() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_year) + 1900;
+}
+inline int64_t _ball_time_month() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_mon) + 1;
+}
+inline int64_t _ball_time_day() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_mday);
+}
+inline int64_t _ball_time_hour() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_hour);
+}
+inline int64_t _ball_time_minute() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_min);
+}
+inline int64_t _ball_time_second() {
+    return static_cast<int64_t>(_ball_now_utc_tm().tm_sec);
+}
+
 // ── utf8 / base64 codec stubs ──
 // Dart uses `utf8.encode(s)` / `utf8.decode(bytes)` and
 // `base64.encode(bytes)` / `base64.decode(s)`.

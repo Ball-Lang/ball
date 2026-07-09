@@ -15,8 +15,10 @@
 #include "absl/synchronization/mutex.h"
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -417,6 +419,142 @@ static ball::v1::Program fs_build_append_program(const std::string& path) {
     return fs_build_program(std::move(body));
 }
 
+// ================================================================
+// std_time direct-compile e2e coverage (issue #328)
+// ================================================================
+//
+// year/month/day/hour/minute/second are 0-arg getters that read the current
+// UTC instant (see dart/shared/lib/std_time.dart's "current UTC time"
+// descriptions and dart/engine/lib/engine_std.dart's reference impl,
+// `DateTime.now().toUtc().<field>`) -- unlike format_timestamp/
+// parse_timestamp there is no timestamp field to pin, so this program can't
+// be diffed against a precomputed fixed string the way the std_fs #319
+// programs are. Instead, run_and_check_time_components re-derives a UTC
+// epoch instant from the six reported components (via timegm/_mkgmtime) and
+// checks it lands within a few seconds of a wall-clock reference the test
+// harness samples itself right after the subprocess returns -- catching
+// wrong-field/off-by-one/local-vs-UTC bugs (which would put the derived
+// instant hours/days off) without flaking on build-time variance.
+static ball::v1::Program time_build_components_program() {
+    ball::v1::Expression body;
+    auto* blk = body.mutable_block();
+    // fs_print's compiled form already wraps the message in ball_to_string
+    // (see compile_std_call's "print" case), so each component call is
+    // printed directly -- no separate to_string wrapper needed.
+    for (const char* fn : {"year", "month", "day", "hour", "minute", "second"}) {
+        *blk->add_statements()->mutable_expression() =
+            fs_print(fs_call("std_time", fn, fs_msg({})));
+    }
+    *blk->mutable_result() = fs_lit_int(0);
+    return fs_build_program(std::move(body));
+}
+
+static bool run_and_check_time_components(const std::string& name,
+                                          const fs::path& build_dir,
+                                          std::string& failure_msg) {
+    auto exe_path = locate_binary(build_dir, name);
+    if (exe_path.empty()) {
+        failure_msg = "built binary not found for " + name;
+        return false;
+    }
+    std::string run_cmd = cmd_wrap(quote(exe_path.string()));
+    std::string run_output;
+    int run_rc = run_capture(run_cmd, run_output);
+    // Sample our own UTC "now" immediately after the subprocess returns --
+    // the closest deterministic reference point available (there is no
+    // timestamp input to pin).
+    std::time_t ref_t =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    if (run_rc != 0) {
+        failure_msg = "binary exited rc=" + std::to_string(run_rc) +
+                      ", output: " + run_output;
+        return false;
+    }
+
+    std::istringstream iss(run_output);
+    std::vector<int64_t> vals;
+    std::string line;
+    while (std::getline(iss, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (line.empty()) continue;
+        try {
+            vals.push_back(std::stoll(line));
+        } catch (...) {
+            failure_msg = "non-integer output line: '" + line + "'";
+            return false;
+        }
+    }
+    if (vals.size() != 6) {
+        failure_msg = "expected 6 output lines (year,month,day,hour,minute,"
+                      "second), got " + std::to_string(vals.size()) + ": " +
+                      run_output;
+        return false;
+    }
+    int64_t year = vals[0], month = vals[1], day = vals[2],
+             hour = vals[3], minute = vals[4], second = vals[5];
+
+    if (month < 1 || month > 12) {
+        failure_msg = "month out of range: " + std::to_string(month);
+        return false;
+    }
+    if (day < 1 || day > 31) {
+        failure_msg = "day out of range: " + std::to_string(day);
+        return false;
+    }
+    if (hour < 0 || hour > 23) {
+        failure_msg = "hour out of range: " + std::to_string(hour);
+        return false;
+    }
+    if (minute < 0 || minute > 59) {
+        failure_msg = "minute out of range: " + std::to_string(minute);
+        return false;
+    }
+    if (second < 0 || second > 59) {
+        failure_msg = "second out of range: " + std::to_string(second);
+        return false;
+    }
+
+    std::tm actual_tm{};
+    actual_tm.tm_year = static_cast<int>(year - 1900);
+    actual_tm.tm_mon = static_cast<int>(month - 1);
+    actual_tm.tm_mday = static_cast<int>(day);
+    actual_tm.tm_hour = static_cast<int>(hour);
+    actual_tm.tm_min = static_cast<int>(minute);
+    actual_tm.tm_sec = static_cast<int>(second);
+#if defined(_WIN32)
+    std::time_t actual_t = _mkgmtime(&actual_tm);
+#else
+    std::time_t actual_t = timegm(&actual_tm);
+#endif
+    if (actual_t == static_cast<std::time_t>(-1)) {
+        failure_msg = "reported components do not form a valid UTC "
+                      "date/time: " + run_output;
+        return false;
+    }
+
+    int64_t delta_secs = static_cast<int64_t>(ref_t) - static_cast<int64_t>(actual_t);
+    // The subprocess samples "now" strictly before our post-run reference
+    // sample, so delta should be a small non-negative number of seconds
+    // (allow a little slack for clock granularity / scheduling jitter on
+    // slow CI machines). Anything hours/days/months off means a real
+    // field-mapping or UTC/local bug.
+    constexpr int64_t kMinDeltaSecs = -5;
+    constexpr int64_t kMaxDeltaSecs = 120;
+    if (delta_secs < kMinDeltaSecs || delta_secs > kMaxDeltaSecs) {
+        failure_msg = "component-derived instant is " +
+                      std::to_string(delta_secs) +
+                      "s away from the reference UTC 'now' sample "
+                      "(year=" + std::to_string(year) +
+                      " month=" + std::to_string(month) +
+                      " day=" + std::to_string(day) +
+                      " hour=" + std::to_string(hour) +
+                      " minute=" + std::to_string(minute) +
+                      " second=" + std::to_string(second) + ")";
+        return false;
+    }
+    return true;
+}
+
 struct InlineExpectation {
     std::string name;
     std::string expected_stdout;
@@ -800,6 +938,29 @@ int main() {
                               fs_programs, fs_expectations, tests_run, tests_failed);
     }
 
+    // Step 1c: build the std_time direct-compile e2e program (issue #328).
+    // Shares the fs_programs build vector (so it rides the single CMake
+    // pass below) but is validated separately in step 3c below since its
+    // output can't be diffed against a fixed expected string -- see
+    // run_and_check_time_components.
+    const std::string kTimeProgramName = "328_std_time_components";
+    bool time_program_built = false;
+    {
+        Program p;
+        p.name = kTimeProgramName;
+        try {
+            ball::CppCompiler compiler(time_build_components_program());
+            p.cpp_source = compiler.compile();
+            time_program_built = true;
+        } catch (const std::exception& e) {
+            tests_run++;
+            tests_failed++;
+            std::cout << "  " << p.name << "... FAIL (compile threw: "
+                      << e.what() << ")\n";
+        }
+        if (time_program_built) fs_programs.push_back(std::move(p));
+    }
+
     if (programs.empty() && fs_programs.empty()) {
         std::cout << "\nNo programs to test.\n";
         return tests_failed > 0 ? 1 : 0;
@@ -838,6 +999,21 @@ int main() {
         std::cout << "  " << exp.name << "... ";
         std::string failure_msg;
         if (run_and_check_inline(exp, build_dir, failure_msg)) {
+            std::cout << "PASS\n";
+            tests_passed++;
+        } else {
+            std::cout << "FAIL\n" << failure_msg << "\n";
+            tests_failed++;
+        }
+    }
+
+    // Step 3c: run the inline std_time components binary and validate its
+    // output against a wall-clock UTC reference (issue #328).
+    if (time_program_built) {
+        tests_run++;
+        std::cout << "  " << kTimeProgramName << "... ";
+        std::string failure_msg;
+        if (run_and_check_time_components(kTimeProgramName, build_dir, failure_msg)) {
             std::cout << "PASS\n";
             tests_passed++;
         } else {

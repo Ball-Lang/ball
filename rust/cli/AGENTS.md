@@ -89,5 +89,6 @@ on `ball-shared`, reusing the workspace `target/` dir — the same harness
   out of scope for issue #41.
 - `check` does not attempt to run the program — only `ball-compiler`-shaped structural
   validation, plus an opt-in `--compile` dry-run. It never drives `ball-engine`.
-- No CI job wires this crate up yet (`.github/workflows/ci.yml` — tracked by #44, a separate
-  issue).
+- The `rust` job in `.github/workflows/ci.yml` builds/tests this crate as part of the workspace
+  `cargo build --workspace`/`cargo test --workspace` steps (#44 closed); there is no dedicated
+  CLI-only CI step beyond that.

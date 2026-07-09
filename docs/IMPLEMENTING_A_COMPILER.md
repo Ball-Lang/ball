@@ -546,10 +546,11 @@ patterns above as the constraint set:
   declared how this compiler handles `std.spawn`" instead of only surfacing
   a runtime crash.
 
-## Cross-Target Gap Analysis (Rust/Go/Python/Java/C#)
+## Cross-Target Gap Analysis (Go/Python/Java/C#)
 
-Tracked in [#132](https://github.com/Ball-Lang/ball/issues/132). This section
-is the durable analysis; **for current pass/fail state, read
+The original analysis (formerly covering Rust too) was tracked in
+[#132](https://github.com/Ball-Lang/ball/issues/132) (closed — Rust graduated
+out of this section, see below). **For current pass/fail state, read
 `.github/workflows/ci.yml` and `<lang>/AGENTS.md`, not the prose below** — CI
 is the only thing that can't silently drift out of date.
 
@@ -561,43 +562,42 @@ is the only thing that can't silently drift out of date.
 | Python | Yes (`python/shared/gen`, `protocolbuffers/python`) | No | No | No | None |
 | Java   | Yes (`java/shared/gen`, `protocolbuffers/java`) | No | No | No | None |
 | C#     | Yes (`csharp/shared/gen`, `protocolbuffers/csharp`) | No | No | No | None |
-| Rust   | No — not in `buf.gen.yaml` | No | No | No | None |
 
 Go/Python/Java/C# are all at the identical starting line: `buf generate`
 produces bindings into `<lang>/shared/gen/`, and each `<lang>/AGENTS.md`
 explicitly says so ("proto bindings only; no compiler, encoder, or engine
 exists yet"). None has a `<lang>/` job in `ci.yml` or
-`conformance-matrix.yml`. Rust (epic #32) has no directory, no
-`buf.gen.yaml` entry, and no bindings at all — it is one phase further back
-than the other four.
+`conformance-matrix.yml`. None of the four is closer to "done" than another
+in any dimension that matters for the project's definition of done (compile
+**and** encode **and** run the conformance corpus) — this is a four-way tie
+at the bottom of the maturity ladder, not a ranked list.
 
-None of the five is closer to "done" than another in any dimension that
-matters for the project's definition of done (compile **and** encode **and**
-run the conformance corpus) — this is a five-way tie at the bottom of the
-maturity ladder, not a ranked list.
+**Rust (epic #32) has graduated out of this tie.** It went from "no directory,
+no `buf.gen.yaml` entry" to a complete pipeline — compiler, encoder, a
+self-hosted engine running the whole conformance corpus at Dart parity, a
+`ball` CLI, and full CI/conformance-matrix gating (#32/#39/#40/#41/#44/#300 all
+closed) — see `rust/AGENTS.md` for the authoritative status. It is now in the
+same maturity tier as Dart/TS/C++, not this table.
 
 ### Prioritized Action Items
 
 Ordered by "unblocks the most future work per unit of effort," not by
 target:
 
-1. **Add `buf.gen.yaml` entry + `rust/` scaffold for Rust** (Phase 1 of
-   `new-ball-language`) — the one action item that is strictly a
-   prerequisite for Rust ever leaving last place; the other four targets
-   already have this.
-2. **Build the capability-declaration matrix (Legal/Expand/LibCall/Custom)
-   for the three existing compilers (Dart/C++/TS)** before starting a fourth
-   — validates the model from pattern #1 against real, working compilers
-   first, and gives every subsequent target a checklist instead of a
-   from-scratch design exercise. Cheapest to do now, most valuable the
-   moment a fifth compiler starts.
-3. **Add `std.string_char_at_codepoint`** (see "String Indexing Convention"
-   above) — small, self-contained, and specifically unblocks Rust/Go/C++
-   from inheriting UTF-16 code-unit indexing they'd otherwise have to
-   emulate. Needs `std.json` + Dart/TS/C++ engine and compiler + a
-   conformance fixture (all three existing engines, per the standard
-   feature workflow) — do this on a host that can build/test the C++ leg.
-4. **Pick the first non-Rust target to bootstrap using the
+1. **Build the capability-declaration matrix (Legal/Expand/LibCall/Custom)
+   for the existing compilers (Dart/C++/TS/Rust)** before starting a fifth
+   — validates the model from pattern #1 (Multi-Target Compiler Patterns,
+   above) against real, working compilers first, and gives every subsequent
+   target a checklist instead of a from-scratch design exercise. Cheapest to
+   do now, most valuable the moment a fifth compiler starts.
+2. **Add `std.string_char_at_codepoint`** (see "String Indexing Convention"
+   above) — small, self-contained, and specifically unblocks Go/C++ (and
+   already-bootstrapped Rust) from inheriting UTF-16 code-unit indexing
+   they'd otherwise have to emulate. Needs `std.json` + Dart/TS/C++ engine
+   and compiler + a conformance fixture (all three existing engines, per the
+   standard feature workflow) — do this on a host that can build/test the
+   C++ leg.
+3. **Pick the first target to bootstrap from Go/Python/Java/C# using the
    `ball-lang-bootstrapper` agent / `new-ball-language` skill.** Go and C#
    are the strongest early candidates: Go's error-return model and
    package-per-file output are already scoped above, and C#'s reified
@@ -605,9 +605,12 @@ target:
    design surface, per the Reified Generics table above) — either is lower
    design-risk than Python (duck typing / no static reified-generics
    equivalent) or Java (erasure + checked-exceptions modeling).
-5. **Design Rust's error-model and `std_ownership` scope during Rust's own
-   Phase 2–4**, not before — per "Per-Target Strategies" above, this is
-   deliberately deferred until real fixtures are compiling.
+4. **Design each new target's error-model and any target-specific module
+   scope (e.g. an ownership module) during that target's own Phase 2–4**,
+   not before — per "Per-Target Strategies" above, this is deliberately
+   deferred until real fixtures are compiling. Rust's own self-hosted engine
+   shipped without needing a `std_ownership` module (see `rust/AGENTS.md`) —
+   evidence for keeping this deferred rather than pre-designed.
 
 ---
 

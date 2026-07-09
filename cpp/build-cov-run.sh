@@ -35,6 +35,10 @@ echo "=== running test_ball_ir ==="
 ./build-cov/test/test_ball_ir
 echo "test_ball_ir exit=$?"
 
+echo "=== running test_ball_ir_descriptor ==="
+./build-cov/test/test_ball_ir_descriptor
+echo "test_ball_ir_descriptor exit=$?"
+
 echo "=== running test_snapshot ==="
 ./build-cov/test/test_snapshot
 echo "test_snapshot exit=$?"

@@ -17,7 +17,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 JOBS="${BALL_COV_JOBS:-4}"
 TARGETS=(test_compiler test_shared test_ball_file test_encoder test_snapshot
-         test_ball_ir test_ball_dyn scope_probe test_cli)
+         test_ball_ir test_ball_ir_descriptor test_ball_dyn scope_probe test_cli)
 if [ "${BALL_COV_FULL:-0}" = "1" ]; then
   TARGETS+=(test_e2e)
 fi

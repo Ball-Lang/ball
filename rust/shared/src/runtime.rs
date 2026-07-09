@@ -452,6 +452,24 @@ pub fn ball_to_string(value: BallValue) -> BallValue {
         if msg.type_name == "main:StringBuffer" {
             return BallValue::String(dartsdk::string_buffer_text(&value));
         }
+        // The engine's value-wrapper classes (`BallInt`/`BallDouble`/
+        // `BallString`/`BallBool`, `dart/engine/lib/ball_value.dart`) tag a
+        // primitive by wrapping it in a `{value: …}` message; each `toString()`
+        // returns the *wrapped* primitive's text (e.g. `BallDouble(0.0)` →
+        // "0.0", never "{value: 0.0}"). The compiled print/interpolation path
+        // reaches this runtime helper directly (not the engine's own
+        // `_ballToString`), so unwrap here to the inner value's rendering —
+        // otherwise a bare wrapper (a `double` field/literal printed unchanged,
+        // never routed through arithmetic that yields a native `Double`) dumps
+        // the raw message shape (#39/#300 — 104/341 `{value: 0.0}` vs `0.0`).
+        if matches!(
+            msg.type_name.as_str(),
+            "main:BallInt" | "main:BallDouble" | "main:BallString" | "main:BallBool"
+        ) {
+            if let Some(inner) = msg.get("value") {
+                return ball_to_string(inner);
+            }
+        }
     }
     BallValue::String(value.to_string())
 }

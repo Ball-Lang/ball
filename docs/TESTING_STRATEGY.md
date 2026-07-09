@@ -131,16 +131,16 @@ number lies.** The Dart tool `tools/coverage_dart.dart`:
   `engine_roundtrip.dart`, `compiled_engine.ts`, `engine_rt.cpp`) and pure
   barrel/`export` directives (no instrumentable lines).
 
-**The bar is 100%; honest product coverage is now ~93.1%** (all 9 Dart
+**The bar is 100%; honest product coverage is now ~98.55%** (all 9 Dart
 packages' `lib/`; `bin/` entry-point tooling excluded — see `coverage_dart.dart`).
-Dedicated suites drove the workspace from ~64% to ~93%. Per-package (see the
-authoritative comment in `.github/workflows/coverage.yml`): `compiler` 99.8%,
-`ball_protobuf_gen` 98.5%, `ball_protobuf` 98%, `resolver` 96%, `shared` 95%,
-`encoder` 93%, `ball_rpc` 93%, `cli` 93%, `engine` 84% (the remaining engine gap
-is cross-engine-only code exercised by the conformance matrix, not the Dart
-engine's own suite). The floor in `coverage.yml` is currently **91** and locks in
-non-regression; raise it toward 100% one PR at a time. **Line coverage is the
-*secondary* metric** — the
+Dedicated suites drove the workspace from ~64% to ~98.55%. Per-package (see the
+authoritative comment in `.github/workflows/coverage.yml`): `ball_protobuf`
+100%, `ball_rpc` 100%, `resolver` 100%, `shared` 100%, `compiler` 99.97%,
+`ball_protobuf_gen` 98.92%, `engine` 98.84%, `encoder` 96.06%, `cli` 92.31%
+(cli's remaining gap is a documented deliberate exclusion — see
+`coverage.yml` — plus network-tagged paths). The floor in `coverage.yml` is
+currently **98** and locks in non-regression; raise it toward 100% one PR at
+a time. **Line coverage is the *secondary* metric** — the
 primary behavioral guarantee against the #55 class is the construct-completeness
 gate (§2). TS (`c8 --all`) and C++ (`gcov`/`lcov --initial`) are measured the
 same way (all packages, never-executed files at 0%); their **behavioral**

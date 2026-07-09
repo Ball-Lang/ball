@@ -1515,6 +1515,80 @@ TEST(compile_std_time_parse_timestamp) {
     ASSERT_CONTAINS(out, "_ball_parse_timestamp(");
 }
 
+// DateTime component getters (issue #328): year/month/day/hour/minute/second
+// previously fell through compile_time_call's default case and spliced a
+// bare `/* std_time.<fn> */` comment in wherever a value was expected —
+// invalid C++ that only surfaced as a confusing error at the *generated
+// program's* compile step. Each must now emit a call to its
+// ball_emit_runtime.h `_ball_time_*` helper (current-UTC-instant component
+// getters, matching the Dart engine's `DateTime.now().toUtc().<field>`).
+
+TEST(compile_std_time_year) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "year", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_time_year()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.year */");
+}
+
+TEST(compile_std_time_month) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "month", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_time_month()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.month */");
+}
+
+TEST(compile_std_time_day) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "day", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_time_day()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.day */");
+}
+
+TEST(compile_std_time_hour) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "hour", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_time_hour()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.hour */");
+}
+
+TEST(compile_std_time_minute) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "minute", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_time_minute()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.minute */");
+}
+
+TEST(compile_std_time_second) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "second", make_msg("", {})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_time_second()");
+    ASSERT_NOT_CONTAINS(out, "/* std_time.second */");
+}
+
+TEST(compile_std_time_unknown_fn_throws_at_compile_time) {
+    // issue #328: the default case for an unimplemented std_time.* function
+    // must fail loud (compile-time throw), not silently emit a no-op
+    // comment spliced in as an expression.
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std_time", "totally_unimplemented_fn", make_msg("", {})))));
+    bool threw = false;
+    try {
+        compile_program(prog);
+    } catch (const std::exception& e) {
+        threw = true;
+        std::string msg = e.what();
+        ASSERT_CONTAINS(msg, "std_time.totally_unimplemented_fn");
+        ASSERT_CONTAINS(msg, "not implemented in C++ direct compile");
+    }
+    ASSERT_TRUE(threw);
+}
+
 // ================================================================
 // Tests — cpp_std dispatch (compile_cpp_std_call): pointer ops, casts,
 // smart pointers, preprocessor, RAII helpers.

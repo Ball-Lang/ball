@@ -437,8 +437,16 @@ Map<String, Object?> unmarshal(
       } else {
         offset += skipField(bytes, offset, wireType);
       }
+      // Append per-item (NOT unknown.addAll(...)): addAll encodes to the
+      // NON-mutating list_concat and, through an alias of the list stored in
+      // [message], the rebound result is discarded on compiled targets
+      // (C++/TS) — the captured unknown bytes were silently lost. Per-item
+      // .add is the in-place list_push (same trap as wire_bytes.dart /
+      // .claude/rules/dart.md).
       final unknown = (message[unknownFieldsKey] ??= <int>[]) as List<int>;
-      unknown.addAll(bytes.sublist(fieldStart, offset));
+      for (final b in bytes.sublist(fieldStart, offset)) {
+        unknown.add(b);
+      }
       continue;
     }
 
@@ -580,10 +588,19 @@ Map<String, Object?> unmarshal(
         keptValues = decodedValues;
       }
 
-      // Append to existing list or create new one.
+      // Append to existing list or create new one. Append per-item (NOT
+      // existing.addAll(keptValues)): addAll encodes to the NON-mutating
+      // list_concat and, through an alias of the list stored in [message], the
+      // rebound result is discarded on compiled targets (C++/TS) — every
+      // repeated wire occurrence after the first was silently dropped (#18
+      // Stage-3 byte-equivalence harness caught it: only functions[0] of each
+      // module survived). Per-item .add is the in-place list_push (same trap
+      // as wire_bytes.dart / .claude/rules/dart.md).
       final existing = message[fieldName];
       if (existing is List) {
-        existing.addAll(keptValues);
+        for (final v in keptValues) {
+          existing.add(v);
+        }
       } else {
         message[fieldName] = List<Object?>.from(keptValues);
       }

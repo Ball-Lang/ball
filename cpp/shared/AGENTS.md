@@ -139,22 +139,77 @@ loading.
   `marshal`→`unmarshal` round-trip in `ball_protobuf_rt_smoke.cpp` (CTest
   `protobuf_rt_smoke`, CI-enabled on Linux).
 
-**Deferred (full cutover):**
+**Stage 3 — binary-path cutover (LANDED, behind a default-OFF option):**
+`.ball.pb`/`.ball.bin` loading can now route through Ball's OWN compiled
+protobuf runtime instead of google's `Any`/`Program` parser, gated by the
+default-OFF CMake option `BALL_USE_BALL_PROTOBUF` (`cmake -S cpp -B build
+-DBALL_USE_BALL_PROTOBUF=ON`). The default build is byte-for-byte unchanged —
+google stays the sole binary decoder unless you opt in.
+- **Runtime descriptor** (`cpp/shared/ball_program_descriptor.h`, GENERATED):
+  `dart/ball_protobuf/tool/gen_program_descriptor_cpp.dart` runs the existing
+  `descriptor_bridge.dart` `buildRegistry` over ball.proto's `FileDescriptorSet`
+  (via `buf build`), prunes to the reachable `ball.v1.*` messages, and emits a
+  `BallDyn` descriptor the `ball_protobuf_rt.h` codecs consume. Two design keys:
+  (1) **opaque passthrough** — every `google.protobuf.*` field (the `Struct
+  metadata` bags, `TypeDefinition.descriptor`/`Module.enums`
+  `DescriptorProto`/`EnumDescriptorProto`) is emitted as a `TYPE_BYTES` field; a
+  message and a bytes field are byte-identical on the wire, so the payload
+  round-trips VERBATIM and no descriptor.proto/struct.proto closure (nor its
+  proto2 presence / closed-enum / WKT-JSON fidelity) is needed; (2) **recursion
+  via shared lists** — `ball.v1.Expression` is deeply self-recursive, expressed
+  by the `shared_ptr`-backed `BallList` (`BallListRef`): copying a message's
+  descriptor `BallDyn` into a field's `messageDescriptor` shares the SAME
+  underlying vector, so a two-phase build (empty list per FQN, then fill) mirrors
+  the Dart registry's shared-reference cycles. Regenerate with
+  `dart run dart/ball_protobuf/tool/gen_program_descriptor_cpp.dart`.
+- **`google.protobuf.Any` envelope decode + payload round-trip**
+  (`ball_rt_decode.cpp`): `ball::rt::DecodeAnyPayload` unmarshals the Any
+  (`type_url` #1 / `value` #2) AND its Program/Module payload with the runtime
+  descriptors, then RE-MARSHALS to bare wire bytes. All `ball_protobuf`
+  global-`BallDyn` usage is confined to this ONE TU; the public seam
+  (`ball_rt_decode.h`) is pure `std::string`, so `ball_file.h`'s google
+  `ball::v1::` types and ball_protobuf's `BallDyn` never meet in one TU (they
+  each define a `BallDyn`). `ball_file.h::DecodeBallFileBinary` gains a
+  `#ifdef BALL_USE_BALL_PROTOBUF` branch that calls it, then hands the
+  re-marshaled bytes to google's `ParseFromString` (a Stage-4 bridge — google
+  parses bytes it did not itself serialize; Stage 4 replaces that final
+  materialization with `ball::ir`).
+- **Byte-equivalence harness** (`cpp/test/test_ball_rt_equivalence.cpp`, CTest
+  `ball_rt_equivalence`, built only when the option is ON): loads EVERY
+  `tests/conformance/*.ball.json` through both decoders (google JSON→Program as
+  ground truth, then google `Any`-serialize → ball_protobuf binary decode) and
+  asserts `MessageDifferencer::Equals`. Prints `Results: N passed, M failed, T
+  total` and fails on any mismatch — **324/324 pass** (WSL g++ 14.2, Release).
+  It needs the same `absl::SetMutexDeadlockDetectionMode(kIgnore)` workaround
+  as `test_e2e.cpp` (#25's v34.1 false positive — heavy google-side use trips
+  it). CI proof: a Linux-only `ci.yml` step (`#18 Stage 3 — …byte-equivalence`)
+  configures a SEPARATE `cpp/build-rt` with the option ON, reusing the
+  ccache-warmed protobuf, so the default job's build stays google-only.
+- **The harness immediately caught a REAL runtime bug** (a third instance of
+  the `addAll` trap, sibling of PR #331's marshal-side fix):
+  `dart/ball_protobuf/lib/unmarshal.dart` accumulated repeated wire occurrences
+  through an ALIAS of the list stored in the message
+  (`existing.addAll(keptValues)`, and the same for the `$unknown` byte
+  capture). `addAll` encodes to the NON-mutating `list_concat` whose rebound
+  result only updates the local — on compiled targets every repeated element
+  after the first was silently dropped (each decoded module kept `functions[0]`
+  only). Dart's in-place `addAll` masked it; the smoke canary only had singular
+  fields. **Fixed at source** with per-item `.add` loops (in-place
+  `list_push`); `ball_protobuf.{json,bin}` and `ball_protobuf_rt.h`
+  regenerated. Rule of thumb: `x.addAll(y)` is safe only when `x` is a local
+  whose REBOUND value is subsequently read (e.g. `marshal`'s returned
+  `buffer`); through an alias it loses data — see `.claude/rules/dart.md`.
+
+**Deferred — Stage 4 (drop google entirely):**
 - The compiler (`compiler/`) and encoder (`encoder/`) still consume the
   generated `ball::v1::` protobuf types throughout their ~600 KB emission code
   (accessor calls like `.functions()`, `.has_body()`). Migrating them to the
   `ball::ir` field-access shape (and swapping `main.cpp`'s `ball_file.h`
-  `DecodeProgram` for `ball::ir::parseProgramString`) is the remaining work.
-  Only after that can `target_link_libraries(ball_shared … protobuf::libprotobuf)`
-  and the FetchContent block above be removed. The binary `.ball.pb`/`.ball.bin`
-  path (Google `Any` wire decode in `ball_file.h`) also needs a protobuf-free
-  replacement (candidate: `ball_protobuf_rt.h`'s wire codecs, now round-trip
-  verified) before the pin drops. That binary-path cutover additionally needs a
-  runtime descriptor for `ball.v1.Program` (the `unmarshal` API is
-  descriptor-driven — generate it from ball.proto's FileDescriptorProto via
-  `dart/ball_protobuf/tool/descriptor_bridge.dart`) plus `google.protobuf.Any`
-  envelope decoding and a byte-equivalence harness against the google-protobuf
-  loader on real fixtures, behind a default-OFF CMake option.
+  `DecodeProgram` for `ball::ir::parseProgramString`, plus dropping the
+  ball_protobuf→google `ParseFromString` bridge in the Stage-3 binary path for a
+  direct map→IR handoff) is the remaining work. Only after that can
+  `target_link_libraries(ball_shared … protobuf::libprotobuf)` and the
+  FetchContent block above be removed (closing #25's abseil deadlock).
 
 ## Dependencies
 - Internal: generated protos in `gen/`.

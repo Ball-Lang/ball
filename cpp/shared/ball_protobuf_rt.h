@@ -7425,7 +7425,9 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
                 (offset += skipField(bytes, offset, wireType));
             }
             auto unknown = BallDyn((((BallDyn(static_cast<BallDyn>(message)[unknownFieldsKey]).has_value()) ? BallDyn(static_cast<BallDyn>(message)[unknownFieldsKey]) : (static_cast<BallDyn>(message)[unknownFieldsKey] = std::vector<std::any>{}))));
-            ball_assign(unknown, ball_concat(unknown,ball_sublist(bytes, fieldStart, offset)));
+            for (auto b : BallDyn(ball_sublist(bytes, fieldStart, offset))) {
+                ball_assign(unknown, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(unknown,b));
+            }
             continue;
         }
         auto fieldName = BallDyn(static_cast<BallDyn>(fieldDesc)["name"s]);
@@ -7520,7 +7522,9 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
                 }
                 auto existing = BallDyn(static_cast<BallDyn>(message)[fieldName]);
                 if (ball_is_list(existing)) {
-                    ball_assign(existing, ball_concat(existing,keptValues));
+                    for (auto v : BallDyn(keptValues)) {
+                        ball_assign(existing, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(existing,v));
+                    }
                 } else {
                     (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(ball_list_copy(keptValues))), ball_list_copy(keptValues));
                 }

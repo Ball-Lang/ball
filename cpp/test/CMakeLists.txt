@@ -37,6 +37,25 @@ target_include_directories(test_ball_file PRIVATE
 )
 target_link_libraries(test_ball_file ball_shared)
 
+# #18 Stage 3 — byte-equivalence harness for the ball_protobuf binary path.
+# Only built when the cutover is enabled (BALL_USE_BALL_PROTOBUF=ON, which also
+# adds ball_rt_decode.cpp to ball_shared and defines the macro so ball_file.h's
+# binary path routes through ball_protobuf_rt). Loads every conformance fixture
+# through BOTH decoders (google Any/Program vs ball_protobuf descriptor-driven
+# unmarshal→re-marshal) and asserts the Programs are MessageDifferencer-equal.
+if(BALL_USE_BALL_PROTOBUF)
+    add_executable(test_ball_rt_equivalence test_ball_rt_equivalence.cpp)
+    target_include_directories(test_ball_rt_equivalence PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+    )
+    target_link_libraries(test_ball_rt_equivalence ball_shared)
+    target_compile_definitions(test_ball_rt_equivalence PRIVATE
+        BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+    )
+    add_test(NAME ball_rt_equivalence COMMAND test_ball_rt_equivalence)
+    set_tests_properties(ball_rt_equivalence PROPERTIES LABELS "ball_protobuf_rt")
+endif()
+
 # BallDyn / BallOrderedMap / ball_emit_runtime.h runtime tests — the
 # compiled-program runtime (issue #63). Neither header is reachable from
 # test_compiler/test_encoder/test_shared (those drive the compiler/encoder,

@@ -39,6 +39,15 @@
 
 #include "ball/v1/ball.pb.h"
 
+// #18 Stage 3 — optional descriptor-driven binary decode via Ball's own
+// protobuf runtime (default OFF). When BALL_USE_BALL_PROTOBUF is defined the
+// `.ball.pb`/`.ball.bin` wire path routes through ball_protobuf_rt instead of
+// google's Any/Program parser. Only the pure-`std` seam is pulled in here; the
+// ball_protobuf `BallDyn` universe stays confined to ball_rt_decode.cpp.
+#ifdef BALL_USE_BALL_PROTOBUF
+#include "ball_rt_decode.h"
+#endif
+
 namespace ball {
 
 inline constexpr const char* kTypeUrlPrefix = "type.googleapis.com";
@@ -243,6 +252,33 @@ inline std::string read_file_bytes(const std::string& path) {
 inline BallFileKind DecodeBallFileBinary(const std::string& bytes,
                                          ball::v1::Program& out_program,
                                          ball::v1::Module& out_module) {
+#ifdef BALL_USE_BALL_PROTOBUF
+    // #18 Stage 3: unmarshal the Any envelope + payload with ball_protobuf's
+    // descriptor-driven codecs, re-marshal to bare Program/Module wire bytes,
+    // then let google materialize the typed message (a Stage-4 bridge — google
+    // parses bytes it did not itself serialize). The default (else) path keeps
+    // google end-to-end.
+    bool is_program = false;
+    std::string payload;
+    try {
+        payload = ball::rt::DecodeAnyPayload(bytes, is_program);
+    } catch (const std::exception& e) {
+        throw BallFileFormatException(
+            std::string("ball_protobuf binary decode failed: ") + e.what());
+    }
+    if (is_program) {
+        if (!out_program.ParseFromString(payload)) {
+            throw BallFileFormatException(
+                "failed to re-parse ball_protobuf-decoded Program bytes");
+        }
+        return BallFileKind::kProgram;
+    }
+    if (!out_module.ParseFromString(payload)) {
+        throw BallFileFormatException(
+            "failed to re-parse ball_protobuf-decoded Module bytes");
+    }
+    return BallFileKind::kModule;
+#else
     google::protobuf::Any any;
     google::protobuf::io::ArrayInputStream raw(
         bytes.data(), static_cast<int>(bytes.size()));
@@ -270,6 +306,7 @@ inline BallFileKind DecodeBallFileBinary(const std::string& bytes,
     }
     throw BallFileFormatException(
         "unknown ball file type URL: \"" + any.type_url() + "\"");
+#endif  // BALL_USE_BALL_PROTOBUF
 }
 
 // ── JSON decode ──────────────────────────────────────────────────────────

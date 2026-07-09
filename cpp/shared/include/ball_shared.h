@@ -36,9 +36,11 @@ using namespace std::string_literals;
 #include "ball_emit_runtime.h"
 #include "ball_ordered_map_impl.h"
 
-#include "ball/v1/ball.pb.h"
-#include "google/protobuf/descriptor.pb.h"
-#include "google/protobuf/struct.pb.h"
+// #18 Stage 5 — ball_shared is now libprotobuf-free. The std-module builders
+// return the protobuf-free `ball::ir::Module` (loaded/serialized via
+// nlohmann/json), and the Struct→BallMap helpers operate on plain
+// `nlohmann::json` metadata objects instead of `google.protobuf.Struct`.
+#include "ball_ir.h"
 
 namespace ball {
 
@@ -336,26 +338,31 @@ inline std::pair<BallValue, BallValue> extract_binary(const BallValue& input) {
 }
 
 // ================================================================
-// Struct ↔ map helpers (google.protobuf.Struct)
+// Struct ↔ map helpers (metadata is a plain nlohmann::json object —
+// the proto3-JSON form of a google.protobuf.Struct)
 // ================================================================
 
-BallMap struct_to_map(const google::protobuf::Struct& s);
-BallValue value_proto_to_ball(const google::protobuf::Value& v);
+// Convert a metadata object (proto3-JSON Struct: a plain JSON object) to a
+// BallMap. Mirrors the former google.protobuf.Struct → BallMap converter.
+BallMap struct_to_map(const ball::ir::json& s);
+// Convert a single proto3-JSON metadata value (JSON scalar/array/object) to a
+// BallValue. Mirrors the former google.protobuf.Value → BallValue converter.
+BallValue value_proto_to_ball(const ball::ir::json& v);
 
 // ================================================================
 // std module builders
 // ================================================================
 
 // Build the universal std base module
-ball::v1::Module build_std_module();
+ball::ir::Module build_std_module();
 
 // Build the std_memory base module
-ball::v1::Module build_std_memory_module();
+ball::ir::Module build_std_memory_module();
 
 // Build the std_collections base module
-ball::v1::Module build_std_collections_module();
+ball::ir::Module build_std_collections_module();
 
 // Build the std_io base module
-ball::v1::Module build_std_io_module();
+ball::ir::Module build_std_io_module();
 
 }  // namespace ball

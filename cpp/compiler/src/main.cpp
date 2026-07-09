@@ -1,10 +1,10 @@
 // ball::CppCompiler CLI — reads a .ball.json or .ball.pb program and emits C++ source.
 //
-// #18: the compiler consumes the protobuf-free `ball::ir` IR. `.ball.json` is
-// parsed directly via ball::ir (no libprotobuf). Binary `.ball.pb`/`.ball.bin`
-// is decoded with google's Any/Program reader and re-serialized to proto3-JSON,
-// then handed to ball::ir — a thin bridge kept only for the binary wire format;
-// the compiler proper never sees a `ball::v1::` type.
+// #18 Stage 5: the compiler is fully libprotobuf-free. `.ball.json` parses
+// directly via ball::ir (nlohmann/json). Binary `.ball.pb`/`.ball.bin` is
+// decoded by Ball's OWN compiled protobuf runtime (via ball_file.h's
+// `ball::DecodeProgram`/`DecodeBallFile`, which return `ball::ir` directly) —
+// google's Any/Program reader is gone entirely.
 
 #include <cstdlib>
 #include <exception>
@@ -12,7 +12,6 @@
 #include <iostream>
 #include <sstream>
 
-#include <google/protobuf/util/json_util.h>
 #include <nlohmann/json.hpp>
 
 #include "ball_file.h"
@@ -35,19 +34,12 @@ static void suppress_windows_crash_dialogs() {
 static void suppress_windows_crash_dialogs() {}
 #endif
 
-// Decode a ball-file's content into a protobuf-free ir::Program.
-// JSON path is pure ball::ir; binary path bridges through google once.
+// Decode a ball-file's content into a protobuf-free ir::Program. Both the JSON
+// and binary paths route through ball_file.h, which is now libprotobuf-free.
 static ball::ir::Program load_program_ir(const std::string& path,
                                          const std::string& content) {
     if (ball::detail::is_binary_path(path)) {
-        ball::v1::Program p = ball::DecodeProgram(path, content);
-        std::string js;
-        google::protobuf::util::JsonPrintOptions opt;
-        auto st = google::protobuf::util::MessageToJsonString(p, &js, opt);
-        if (!st.ok())
-            throw ball::BallFileFormatException(
-                "failed to re-serialize Program to JSON");
-        return ball::ir::parseProgramString(js);
+        return ball::DecodeProgram(path, content);
     }
     return ball::ir::parseProgramString(content);
 }
@@ -56,19 +48,13 @@ static ball::ir::Program load_program_ir(const std::string& path,
 static ball::ir::Module load_module_ir(const std::string& path,
                                        const std::string& content) {
     if (ball::detail::is_binary_path(path)) {
-        ball::v1::Program prog;
-        ball::v1::Module mod;
+        ball::ir::Program prog;
+        ball::ir::Module mod;
         auto kind = ball::DecodeBallFile(path, content, prog, mod);
         if (kind != ball::BallFileKind::kModule)
             throw ball::BallFileFormatException(
                 "Library mode expects a Module (got a Program)");
-        std::string js;
-        google::protobuf::util::JsonPrintOptions opt;
-        auto st = google::protobuf::util::MessageToJsonString(mod, &js, opt);
-        if (!st.ok())
-            throw ball::BallFileFormatException(
-                "failed to re-serialize Module to JSON");
-        return ball::ir::parseModule(nlohmann::json::parse(js));
+        return mod;
     }
     // JSON module file: {"@type": ".../ball.v1.Module", <fields>}.
     if (content.find("/ball.v1.Program") != std::string::npos)

@@ -2,98 +2,101 @@
 
 namespace ball {
 
+using ball::ir::json;
+
 // ================================================================
-// Struct ↔ map conversion
+// Struct ↔ map conversion (metadata is a plain proto3-JSON object)
 // ================================================================
 
-BallValue value_proto_to_ball(const google::protobuf::Value& v) {
-    switch (v.kind_case()) {
-        case google::protobuf::Value::kNullValue:
-            return {};
-        case google::protobuf::Value::kNumberValue:
-            return v.number_value();
-        case google::protobuf::Value::kStringValue:
-            return v.string_value();
-        case google::protobuf::Value::kBoolValue:
-            return v.bool_value();
-        case google::protobuf::Value::kListValue: {
-            BallList list;
-            for (const auto& elem : v.list_value().values()) {
-                list.push_back(value_proto_to_ball(elem));
-            }
-            return list;
-        }
-        case google::protobuf::Value::kStructValue:
-            return struct_to_map(v.struct_value());
-        default:
-            return {};
+BallValue value_proto_to_ball(const json& v) {
+    if (v.is_null()) return {};
+    if (v.is_boolean()) return v.get<bool>();
+    if (v.is_number()) return v.get<double>();
+    if (v.is_string()) return v.get<std::string>();
+    if (v.is_array()) {
+        BallList list;
+        for (const auto& elem : v) list.push_back(value_proto_to_ball(elem));
+        return list;
     }
+    if (v.is_object()) return struct_to_map(v);
+    return {};
 }
 
-BallMap struct_to_map(const google::protobuf::Struct& s) {
+BallMap struct_to_map(const json& s) {
     BallMap result;
-    for (const auto& [key, val] : s.fields()) {
+    if (!s.is_object()) return result;
+    for (const auto& [key, val] : s.items()) {
         result[key] = value_proto_to_ball(val);
     }
     return result;
 }
 
 // ================================================================
-// Proto builder helpers (private)
+// ir::Module builder helpers (private)
 // ================================================================
+//
+// #18 Stage 5: the std-module descriptor builders return protobuf-free
+// `ball::ir` structures. Type descriptors are hand-rolled as proto3-JSON
+// (nlohmann::json) — the same opaque representation `ball::ir::TypeDefinition`
+// carries and `ball_ir.h`'s loader/serializer round-trip.
 
 namespace {
 
-using google::protobuf::DescriptorProto;
-using google::protobuf::FieldDescriptorProto;
-
-FieldDescriptorProto* add_field(
-    DescriptorProto* type,
-    const std::string& name,
-    int number,
-    FieldDescriptorProto::Type field_type,
-    const std::string& type_name = ""
-) {
-    auto* f = type->add_field();
-    f->set_name(name);
-    f->set_number(number);
-    f->set_type(field_type);
-    f->set_label(FieldDescriptorProto::LABEL_OPTIONAL);
-    if (!type_name.empty()) f->set_type_name(type_name);
+// A field of a message descriptor: proto3-JSON FieldDescriptorProto shape
+// (name / number / label / type / type_name). Field types use the proto enum
+// NAME-STRING (proto3-JSON convention), matching what protoc-gen would emit.
+json make_field(const std::string& name, int number, const char* type,
+                const std::string& type_name = "") {
+    json f = json::object();
+    f["name"] = name;
+    f["number"] = number;
+    f["label"] = "LABEL_OPTIONAL";
+    f["type"] = type;
+    if (!type_name.empty()) f["type_name"] = type_name;
     return f;
 }
 
-DescriptorProto* make_type(
+// Build a DescriptorProto (message type) as proto3-JSON: {name, field:[...]}.
+json make_type(
     const std::string& name,
-    std::vector<std::tuple<std::string, int, FieldDescriptorProto::Type, std::string>> fields
-) {
-    auto* type = new DescriptorProto();
-    type->set_name(name);
-    for (const auto& [fname, fnum, ftype, ftname] : fields) {
-        add_field(type, fname, fnum, ftype, ftname);
+    std::vector<std::tuple<std::string, int, const char*, std::string>> fields) {
+    json t = json::object();
+    t["name"] = name;
+    if (!fields.empty()) {
+        json arr = json::array();
+        for (const auto& [fname, fnum, ftype, ftname] : fields) {
+            arr.push_back(make_field(fname, fnum, ftype, ftname));
+        }
+        t["field"] = std::move(arr);
     }
-    return type;
+    return t;
 }
 
-ball::v1::FunctionDefinition make_fn(
-    const std::string& name,
-    const std::string& input_type,
-    const std::string& output_type,
-    const std::string& description
-) {
-    ball::v1::FunctionDefinition fn;
-    fn.set_name(name);
-    fn.set_input_type(input_type);
-    fn.set_output_type(output_type);
-    fn.set_description(description);
-    fn.set_is_base(true);
+ball::ir::FunctionDefinition make_fn(const std::string& name,
+                                     const std::string& input_type,
+                                     const std::string& output_type,
+                                     const std::string& description) {
+    ball::ir::FunctionDefinition fn;
+    fn.name = name;
+    fn.inputType = input_type;
+    fn.outputType = output_type;
+    fn.description = description;
+    fn.isBase = true;
     return fn;
 }
 
-const auto EXPR = FieldDescriptorProto::TYPE_MESSAGE;
-const auto STRING = FieldDescriptorProto::TYPE_STRING;
-const auto BOOL = FieldDescriptorProto::TYPE_BOOL;
-const auto INT = FieldDescriptorProto::TYPE_INT64;
+// Append a TypeDefinition (name + descriptor json) to a module.
+void add_type_def(ball::ir::Module& mod, json descriptor) {
+    ball::ir::TypeDefinition td;
+    td.name = descriptor.value("name", std::string{});
+    td.descriptor = std::move(descriptor);
+    mod.typeDefs.push_back(std::move(td));
+}
+
+const char* const EXPR = "TYPE_MESSAGE";
+const char* const STRING = "TYPE_STRING";
+const char* const BOOL = "TYPE_BOOL";
+const char* const INT = "TYPE_INT64";
 const std::string EXPR_TYPE = ".ball.v1.Expression";
 
 }  // namespace
@@ -102,17 +105,13 @@ const std::string EXPR_TYPE = ".ball.v1.Expression";
 // build_std_module
 // ================================================================
 
-ball::v1::Module build_std_module() {
-    ball::v1::Module mod;
-    mod.set_name("std");
-    mod.set_description("Universal standard library base module.");
+ball::ir::Module build_std_module() {
+    ball::ir::Module mod;
+    mod.name = "std";
+    mod.description = "Universal standard library base module.";
 
     // Types
-    auto add_type = [&](DescriptorProto* t) {
-        auto* td = mod.add_type_defs();
-        td->set_name(t->name());
-        td->set_allocated_descriptor_(t);
-    };
+    auto add_type = [&](json t) { add_type_def(mod, std::move(t)); };
 
     add_type(make_type("BinaryInput", {{"left", 1, EXPR, EXPR_TYPE}, {"right", 2, EXPR, EXPR_TYPE}}));
     add_type(make_type("UnaryInput", {{"value", 1, EXPR, EXPR_TYPE}}));
@@ -141,7 +140,7 @@ ball::v1::Module build_std_module() {
 
     // Functions
     auto add_fn = [&](const std::string& name, const std::string& it, const std::string& ot, const std::string& desc) {
-        *mod.add_functions() = make_fn(name, it, ot, desc);
+        mod.functions.push_back(make_fn(name, it, ot, desc));
     };
 
     // I/O
@@ -282,18 +281,14 @@ ball::v1::Module build_std_module() {
 // build_std_memory_module
 // ================================================================
 
-ball::v1::Module build_std_memory_module() {
-    ball::v1::Module mod;
-    mod.set_name("std_memory");
-    mod.set_description("Linear memory simulation module.");
+ball::ir::Module build_std_memory_module() {
+    ball::ir::Module mod;
+    mod.name = "std_memory";
+    mod.description = "Linear memory simulation module.";
 
-    auto add_type = [&](DescriptorProto* t) {
-        auto* td = mod.add_type_defs();
-        td->set_name(t->name());
-        td->set_allocated_descriptor_(t);
-    };
+    auto add_type = [&](json t) { add_type_def(mod, std::move(t)); };
     auto add_fn = [&](const std::string& name, const std::string& it, const std::string& ot, const std::string& desc) {
-        *mod.add_functions() = make_fn(name, it, ot, desc);
+        mod.functions.push_back(make_fn(name, it, ot, desc));
     };
 
     add_type(make_type("AllocInput", {{"size", 1, INT, ""}}));
@@ -356,13 +351,13 @@ ball::v1::Module build_std_memory_module() {
 // build_std_collections_module
 // ================================================================
 
-ball::v1::Module build_std_collections_module() {
-    ball::v1::Module mod;
-    mod.set_name("std_collections");
-    mod.set_description("Collection operations (list, map).");
+ball::ir::Module build_std_collections_module() {
+    ball::ir::Module mod;
+    mod.name = "std_collections";
+    mod.description = "Collection operations (list, map).";
 
     auto add_fn = [&](const std::string& name, const std::string& it, const std::string& ot, const std::string& desc) {
-        *mod.add_functions() = make_fn(name, it, ot, desc);
+        mod.functions.push_back(make_fn(name, it, ot, desc));
     };
 
     add_fn("list_push", "BinaryInput", "", "Append to list");
@@ -401,13 +396,13 @@ ball::v1::Module build_std_collections_module() {
 // build_std_io_module
 // ================================================================
 
-ball::v1::Module build_std_io_module() {
-    ball::v1::Module mod;
-    mod.set_name("std_io");
-    mod.set_description("I/O, process control, time, randomness, environment.");
+ball::ir::Module build_std_io_module() {
+    ball::ir::Module mod;
+    mod.name = "std_io";
+    mod.description = "I/O, process control, time, randomness, environment.";
 
     auto add_fn = [&](const std::string& name, const std::string& it, const std::string& ot, const std::string& desc) {
-        *mod.add_functions() = make_fn(name, it, ot, desc);
+        mod.functions.push_back(make_fn(name, it, ot, desc));
     };
 
     add_fn("print_error", "PrintInput", "", "Print to stderr");

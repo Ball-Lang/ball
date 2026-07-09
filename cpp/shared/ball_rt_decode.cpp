@@ -95,5 +95,39 @@ std::string DecodeAnyPayload(const std::string& any_bytes, bool& out_is_program)
     return bufferToBytes(re_marshaled);
 }
 
+std::string DecodeAnyPayloadJson(const std::string& any_bytes,
+                                 bool& out_is_program) {
+    // 1. Decode the google.protobuf.Any envelope via ball_protobuf.
+    BallDyn any = ball_protobuf::unmarshal(bytesToBuffer(any_bytes), anyDescriptor());
+    BallDyn type_url_dyn = any["type_url"s];
+    const std::string type_url =
+        type_url_dyn.has_value() ? static_cast<std::string>(type_url_dyn)
+                                 : std::string();
+
+    // 2. Pick the payload descriptor from the type URL.
+    BallDyn payload_descriptor;
+    if (ends_with(type_url, "/ball.v1.Program")) {
+        out_is_program = true;
+        payload_descriptor = ball_protobuf::descriptor::programDescriptor();
+    } else if (ends_with(type_url, "/ball.v1.Module")) {
+        out_is_program = false;
+        payload_descriptor = ball_protobuf::descriptor::moduleDescriptor();
+    } else {
+        throw std::runtime_error(
+            "ball_protobuf DecodeAnyPayloadJson: unknown Any type_url \"" +
+            type_url + "\"");
+    }
+
+    // 3. Descriptor-driven unmarshal, then serialize to proto3-JSON via
+    //    ball_protobuf's own JSON codec (WKT-aware). The opaque
+    //    google.protobuf.* fields serialize as base64 strings (they are
+    //    TYPE_BYTES in the runtime descriptor); ball_file.h strips those.
+    BallDyn value_buf = any["value"s];  // list-of-int payload bytes (may be empty)
+    BallDyn message = ball_protobuf::unmarshal(value_buf, payload_descriptor);
+    BallDyn json_dyn = ball_protobuf::marshalJson(message, payload_descriptor);
+    return json_dyn.has_value() ? static_cast<std::string>(json_dyn)
+                                : std::string("{}");
+}
+
 }  // namespace rt
 }  // namespace ball

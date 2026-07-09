@@ -22,9 +22,15 @@
 //   `.ball.pb` / `.ball.bin`  → binary serialized google.protobuf.Any
 //   anything else             → proto3-JSON Any envelope
 //
-// Header-only so it can be used by tooling that does not link nlohmann/json
-// (e.g. the compiler) — the JSON `@type` is extracted with a minimal scanner,
-// then the remaining JSON is handed to protobuf's own JsonStringToMessage.
+// #18 Stage 5 — the final flip: libprotobuf is GONE. The loader now produces
+// the protobuf-free `ball::ir` IR end-to-end:
+//   - JSON form: the `@type` is extracted with a minimal (google-free) scanner
+//     to discriminate Program vs Module, then the whole proto3-JSON object is
+//     parsed straight into `ball::ir` via nlohmann/json.
+//   - Binary form (`.ball.pb`/`.ball.bin`): decoded to proto3-JSON by Ball's
+//     OWN compiled protobuf runtime (`ball::rt::DecodeAnyPayloadJson`, confined
+//     to ball_rt_decode.cpp so its `BallDyn` universe never leaks here), then
+//     parsed into `ball::ir` — no libprotobuf anywhere.
 
 #include <cstdint>
 #include <fstream>
@@ -32,21 +38,8 @@
 #include <stdexcept>
 #include <string>
 
-#include <google/protobuf/any.pb.h>
-#include <google/protobuf/io/coded_stream.h>
-#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
-#include <google/protobuf/util/json_util.h>
-
-#include "ball/v1/ball.pb.h"
-
-// #18 Stage 3 — optional descriptor-driven binary decode via Ball's own
-// protobuf runtime (default OFF). When BALL_USE_BALL_PROTOBUF is defined the
-// `.ball.pb`/`.ball.bin` wire path routes through ball_protobuf_rt instead of
-// google's Any/Program parser. Only the pure-`std` seam is pulled in here; the
-// ball_protobuf `BallDyn` universe stays confined to ball_rt_decode.cpp.
-#ifdef BALL_USE_BALL_PROTOBUF
-#include "ball_rt_decode.h"
-#endif
+#include "ball_ir.h"        // ball::ir::Program/Module + proto3-JSON loader (nlohmann only)
+#include "ball_rt_decode.h"  // google-free binary Any → proto3-JSON (links from ball_shared)
 
 namespace ball {
 
@@ -243,101 +236,95 @@ inline std::string read_file_bytes(const std::string& path) {
     return buffer.str();
 }
 
+// Strips the cosmetic base64 remnants of opaque `google.protobuf.*` payloads
+// left by the binary path's proto3-JSON serialization. The runtime protobuf
+// descriptor carries `Struct metadata` and `DescriptorProto`/
+// `EnumDescriptorProto` fields as opaque TYPE_BYTES (a message and a bytes
+// field are byte-identical on the wire), so `marshalJson` emits them as base64
+// strings (or arrays of base64 strings for the repeated `enums`). Metadata is
+// cosmetic (Core Invariant 2) and proto3-JSON is the canonical full-fidelity
+// input, so we drop these remnants rather than mis-parse a base64 string as a
+// structured field. Recurses through the whole tree (metadata appears on every
+// definition-like node).
+inline void strip_opaque_wkt(ball::ir::json& j) {
+    if (j.is_object()) {
+        for (auto it = j.begin(); it != j.end();) {
+            const std::string& k = it.key();
+            ball::ir::json& v = it.value();
+            if ((k == "metadata" || k == "descriptor") && v.is_string()) {
+                it = j.erase(it);
+                continue;
+            }
+            if (k == "enums" && v.is_array() && !v.empty() && v.front().is_string()) {
+                it = j.erase(it);
+                continue;
+            }
+            strip_opaque_wkt(v);
+            ++it;
+        }
+    } else if (j.is_array()) {
+        for (auto& e : j) strip_opaque_wkt(e);
+    }
+}
+
 }  // namespace detail
 
 // ── Binary decode ────────────────────────────────────────────────────────
 
 // Parses a binary ball file (serialized google.protobuf.Any) and returns its
-// kind. Unpacks the payload into `out_program` or `out_module` accordingly.
+// kind. Fills `out_program` or `out_module` accordingly. Fully libprotobuf-free:
+// Ball's own compiled protobuf runtime decodes the Any → proto3-JSON, which is
+// parsed straight into `ball::ir`.
 inline BallFileKind DecodeBallFileBinary(const std::string& bytes,
-                                         ball::v1::Program& out_program,
-                                         ball::v1::Module& out_module) {
-#ifdef BALL_USE_BALL_PROTOBUF
-    // #18 Stage 3: unmarshal the Any envelope + payload with ball_protobuf's
-    // descriptor-driven codecs, re-marshal to bare Program/Module wire bytes,
-    // then let google materialize the typed message (a Stage-4 bridge — google
-    // parses bytes it did not itself serialize). The default (else) path keeps
-    // google end-to-end.
+                                         ball::ir::Program& out_program,
+                                         ball::ir::Module& out_module) {
     bool is_program = false;
-    std::string payload;
+    std::string js;
     try {
-        payload = ball::rt::DecodeAnyPayload(bytes, is_program);
+        js = ball::rt::DecodeAnyPayloadJson(bytes, is_program);
     } catch (const std::exception& e) {
         throw BallFileFormatException(
             std::string("ball_protobuf binary decode failed: ") + e.what());
     }
+    ball::ir::json j;
+    try {
+        j = ball::ir::json::parse(js);
+    } catch (const std::exception& e) {
+        throw BallFileFormatException(
+            std::string("ball_protobuf produced invalid JSON: ") + e.what());
+    }
+    detail::strip_opaque_wkt(j);
     if (is_program) {
-        if (!out_program.ParseFromString(payload)) {
-            throw BallFileFormatException(
-                "failed to re-parse ball_protobuf-decoded Program bytes");
-        }
+        out_program = ball::ir::parseProgram(j);
         return BallFileKind::kProgram;
     }
-    if (!out_module.ParseFromString(payload)) {
-        throw BallFileFormatException(
-            "failed to re-parse ball_protobuf-decoded Module bytes");
-    }
+    out_module = ball::ir::parseModule(j);
     return BallFileKind::kModule;
-#else
-    google::protobuf::Any any;
-    google::protobuf::io::ArrayInputStream raw(
-        bytes.data(), static_cast<int>(bytes.size()));
-    google::protobuf::io::CodedInputStream coded(&raw);
-    coded.SetRecursionLimit(10000);
-    if (!any.ParseFromCodedStream(&coded)) {
-        throw BallFileFormatException(
-            "failed to parse binary google.protobuf.Any envelope");
-    }
-    if (detail::is_program_url(any.type_url())) {
-        if (!any.UnpackTo(&out_program)) {
-            throw BallFileFormatException(
-                "failed to unpack Program from Any (type_url=\"" +
-                any.type_url() + "\")");
-        }
-        return BallFileKind::kProgram;
-    }
-    if (detail::is_module_url(any.type_url())) {
-        if (!any.UnpackTo(&out_module)) {
-            throw BallFileFormatException(
-                "failed to unpack Module from Any (type_url=\"" +
-                any.type_url() + "\")");
-        }
-        return BallFileKind::kModule;
-    }
-    throw BallFileFormatException(
-        "unknown ball file type URL: \"" + any.type_url() + "\"");
-#endif  // BALL_USE_BALL_PROTOBUF
 }
 
 // ── JSON decode ──────────────────────────────────────────────────────────
 
 // Parses a proto3-JSON ball file (an Any envelope with an "@type" field) and
-// returns its kind. Fills `out_program` or `out_module` accordingly.
+// returns its kind. Fills `out_program` or `out_module` accordingly. The
+// google-free `@type` scanner discriminates Program vs Module; the whole
+// proto3-JSON object is then parsed into `ball::ir` via nlohmann/json (which
+// ignores the unrecognized `@type` key).
 inline BallFileKind DecodeBallFileJson(const std::string& json,
-                                       ball::v1::Program& out_program,
-                                       ball::v1::Module& out_module) {
+                                       ball::ir::Program& out_program,
+                                       ball::ir::Module& out_module) {
     std::string type_url;
-    std::string body = detail::extract_type_url_and_strip(json, type_url);
-
-    google::protobuf::util::JsonParseOptions opts;
-    opts.ignore_unknown_fields = true;
+    // Reuse the strict scanner purely for @type extraction/validation (its
+    // error messages — "must be an object", "missing \"@type\"", "malformed
+    // \"@type\" member", …). The returned stripped body is unused: ball::ir
+    // parses the original object and simply skips @type.
+    (void)detail::extract_type_url_and_strip(json, type_url);
 
     if (detail::is_program_url(type_url)) {
-        auto status =
-            google::protobuf::util::JsonStringToMessage(body, &out_program, opts);
-        if (!status.ok()) {
-            throw BallFileFormatException(
-                "failed to parse Program JSON: " + std::string(status.message()));
-        }
+        out_program = ball::ir::parseProgramString(json);
         return BallFileKind::kProgram;
     }
     if (detail::is_module_url(type_url)) {
-        auto status =
-            google::protobuf::util::JsonStringToMessage(body, &out_module, opts);
-        if (!status.ok()) {
-            throw BallFileFormatException(
-                "failed to parse Module JSON: " + std::string(status.message()));
-        }
+        out_module = ball::ir::parseModule(ball::ir::json::parse(json));
         return BallFileKind::kModule;
     }
     throw BallFileFormatException("unknown ball file @type: \"" + type_url + "\"");
@@ -350,8 +337,8 @@ inline BallFileKind DecodeBallFileJson(const std::string& json,
 // discrimination comes from the Any envelope.
 inline BallFileKind DecodeBallFile(const std::string& path,
                                    const std::string& content,
-                                   ball::v1::Program& out_program,
-                                   ball::v1::Module& out_module) {
+                                   ball::ir::Program& out_program,
+                                   ball::ir::Module& out_module) {
     if (detail::is_binary_path(path)) {
         return DecodeBallFileBinary(content, out_program, out_module);
     }
@@ -362,10 +349,10 @@ inline BallFileKind DecodeBallFile(const std::string& path,
 
 // Loads a ball file from `path` and returns its Program, or throws if the
 // file is a Module (or not a valid envelope).
-inline ball::v1::Program LoadProgram(const std::string& path) {
+inline ball::ir::Program LoadProgram(const std::string& path) {
     std::string content = detail::read_file_bytes(path);
-    ball::v1::Program program;
-    ball::v1::Module module;
+    ball::ir::Program program;
+    ball::ir::Module module;
     if (DecodeBallFile(path, content, program, module) !=
         BallFileKind::kProgram) {
         throw BallFileFormatException(
@@ -376,10 +363,10 @@ inline ball::v1::Program LoadProgram(const std::string& path) {
 
 // Loads a ball file from `path` and returns its Module, or throws if the file
 // is a Program (or not a valid envelope).
-inline ball::v1::Module LoadModule(const std::string& path) {
+inline ball::ir::Module LoadModule(const std::string& path) {
     std::string content = detail::read_file_bytes(path);
-    ball::v1::Program program;
-    ball::v1::Module module;
+    ball::ir::Program program;
+    ball::ir::Module module;
     if (DecodeBallFile(path, content, program, module) !=
         BallFileKind::kModule) {
         throw BallFileFormatException(
@@ -390,10 +377,10 @@ inline ball::v1::Module LoadModule(const std::string& path) {
 
 // Decodes a Program directly from in-memory ball-file content, throwing if it
 // wraps a Module. `path` drives only binary-vs-JSON detection.
-inline ball::v1::Program DecodeProgram(const std::string& path,
+inline ball::ir::Program DecodeProgram(const std::string& path,
                                        const std::string& content) {
-    ball::v1::Program program;
-    ball::v1::Module module;
+    ball::ir::Program program;
+    ball::ir::Module module;
     if (DecodeBallFile(path, content, program, module) !=
         BallFileKind::kProgram) {
         throw BallFileFormatException(

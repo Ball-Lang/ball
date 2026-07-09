@@ -31,5 +31,23 @@ namespace rt {
 // serialize); Stage 4 replaces that final materialization with `ball::ir`.
 std::string DecodeAnyPayload(const std::string& any_bytes, bool& out_is_program);
 
+// #18 Stage 5 — the final flip. Decodes a serialized `google.protobuf.Any`
+// wrapping a `ball.v1.Program`/`ball.v1.Module` and returns its payload as a
+// proto3-JSON string, using ONLY `ball_protobuf`'s descriptor-driven codecs
+// (no libprotobuf). The caller (`ball_file.h`) parses the JSON straight into
+// `ball::ir` — so the `.ball.pb`/`.ball.bin` binary path is now end-to-end
+// libprotobuf-free.
+//
+// The full semantic tree (expression trees, signatures, module structure) is
+// emitted with exact proto3-JSON fidelity. The opaque `google.protobuf.*`
+// payloads (`Struct metadata`, `DescriptorProto`/`EnumDescriptorProto`) are
+// carried as opaque bytes by the runtime descriptor, so `marshalJson` emits
+// them as base64 strings; `ball_file.h` strips those cosmetic base64 remnants
+// (metadata is cosmetic per Ball's Core Invariant 2, and proto3-JSON — not the
+// binary form — is the canonical full-fidelity input). `out_is_program` is set
+// true for a Program payload, false for a Module.
+std::string DecodeAnyPayloadJson(const std::string& any_bytes,
+                                 bool& out_is_program);
+
 }  // namespace rt
 }  // namespace ball

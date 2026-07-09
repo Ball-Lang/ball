@@ -43,6 +43,34 @@ inline std::vector<std::string> meta_param_types(const json& meta) {
     }
     return types;
 }
+// Decode a proto3-JSON `bytes` value (base64) to raw bytes. ball::ir keeps
+// Literal.bytesValue as the raw base64 string (unlike google's
+// JsonStringToMessage, which auto-decoded it), so the compiler must decode it
+// itself. Accepts standard and URL-safe alphabets; ignores whitespace/padding.
+inline std::string base64_decode(const std::string& in) {
+    static const std::string chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int T[256];
+    for (int i = 0; i < 256; ++i) T[i] = -1;
+    for (int i = 0; i < 64; ++i) T[static_cast<unsigned char>(chars[i])] = i;
+    T[static_cast<unsigned char>('-')] = 62;  // URL-safe '+'
+    T[static_cast<unsigned char>('_')] = 63;  // URL-safe '/'
+    std::string out;
+    int val = 0, valb = -8;
+    for (unsigned char c : in) {
+        if (c == '=') break;
+        int d = T[c];
+        if (d == -1) continue;  // skip whitespace/newlines
+        val = (val << 6) + d;
+        valb += 6;
+        if (valb >= 0) {
+            out.push_back(static_cast<char>((val >> valb) & 0xFF));
+            valb -= 8;
+        }
+    }
+    return out;
+}
+
 // Deep-clone an ir Expression (unique_ptr members make it move-only) via the
 // round-trip-tested toJson/parseExpression path — used where the old code
 // copied a protobuf Expression (`*x.mutable_expression() = *e`).
@@ -1161,10 +1189,9 @@ std::string CppCompiler::compile_literal(const ball::ir::Literal& lit) {
             return result;
         }
         case ball::ir::LiteralKind::Bytes: {
-            // protobuf's JSON parser (JsonStringToMessage, used to load the
-            // program) already base64-DECODES a `bytes` field into raw bytes
-            // stored in this std::string — no decoding needed here, just emit
-            // each byte's value in the initializer list. Emitted as
+            // ball::ir keeps `bytesValue` as the raw proto3-JSON base64 string
+            // (unlike google's JsonStringToMessage, which auto-decoded it), so
+            // decode it here before emitting each byte's value. Emitted as
             // std::vector<int64_t> (matching Dart, whose bytes literal also
             // evaluates to a List<int>), NOT std::vector<uint8_t> — BallDyn
             // has no constructor for the latter, so index()/length() (which
@@ -1172,9 +1199,10 @@ std::string CppCompiler::compile_literal(const ball::ir::Literal& lit) {
             // silently misbehave. (issue #244: this case previously discarded
             // the value entirely, always emitting an empty vector regardless
             // of the source bytes.)
+            std::string decoded = base64_decode(lit.bytesValue);
             std::string result = "std::vector<int64_t>{";
             bool first = true;
-            for (unsigned char b : lit.bytesValue) {
+            for (unsigned char b : decoded) {
                 if (!first) result += ", ";
                 result += std::to_string(static_cast<int>(b));
                 first = false;

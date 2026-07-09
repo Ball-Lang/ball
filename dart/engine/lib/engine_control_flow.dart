@@ -341,67 +341,101 @@ extension BallEngineControlFlow on BallEngine {
         cases.literal.whichValue() != Literal_Value.listValue) {
       return null;
     }
-    Expression? defaultBody;
-    var matched = false;
-    for (final caseExpr in cases.literal.listValue.elements) {
-      if (caseExpr.whichExpr() != Expression_Expr.messageCreation) continue;
+    final elements = cases.literal.listValue.elements;
+
+    // Pre-parse each case's fields once. Record `label → case index` so that a
+    // `continue <label>` targeting a labelled case can jump to it directly
+    // (Dart's goto-via-switch: `case 0: continue loop; loop: case 1: ...`),
+    // and record the default case's index (default runs only when nothing else
+    // matches, but is still reachable by fall-through / goto).
+    final caseFieldsList = <Map<String, Expression>>[];
+    final labelToIndex = <String, int>{};
+    var defaultIndex = -1;
+    for (var i = 0; i < elements.length; i++) {
+      final caseExpr = elements[i];
       final cf = <String, Expression>{};
-      for (final f in caseExpr.messageCreation.fields) {
-        cf[f.name] = f.value;
+      if (caseExpr.whichExpr() == Expression_Expr.messageCreation) {
+        for (final f in caseExpr.messageCreation.fields) {
+          cf[f.name] = f.value;
+        }
+      }
+      caseFieldsList.add(cf);
+      final label = _stringFieldVal(cf, 'label');
+      if (label != null && label.isNotEmpty) {
+        labelToIndex[label] = i;
       }
       if (_caseIsDefault(cf)) {
-        defaultBody = cf['body'];
+        defaultIndex = i;
+      }
+    }
+
+    // Phase 1 — pick the entry case by matching the subject. The default is
+    // skipped here (it is the fallback below), and an empty/malformed case
+    // never matches (its pattern/value fields are absent).
+    var index = -1;
+    var bodyScope = scope;
+    for (var i = 0; i < caseFieldsList.length; i++) {
+      final cf = caseFieldsList[i];
+      if (_caseIsDefault(cf)) continue;
+      final bindings = <String, Object?>{};
+      final matched = await _matchesSwitchCasePattern(
+        subjectVal,
+        cf,
+        bindings,
+        scope,
+      );
+      if (!matched) continue;
+      final matchScope = _scopeWithPatternBindings(scope, bindings);
+      final guard = cf['guard'];
+      if (guard != null && !_toBool(await _evalExpression(guard, matchScope))) {
         continue;
       }
+      index = i;
+      bodyScope = matchScope;
+      break;
+    }
 
-      var bodyScope = scope;
-      if (!matched) {
-        final bindings = <String, Object?>{};
-        matched = await _matchesSwitchCasePattern(
-          subjectVal,
-          cf,
-          bindings,
-          scope,
-        );
-        if (matched) {
-          bodyScope = _scopeWithPatternBindings(scope, bindings);
-          final guard = cf['guard'];
-          if (guard != null &&
-              !_toBool(await _evalExpression(guard, bodyScope))) {
-            matched = false;
+    // No case matched → fall back to the default (if any).
+    if (index == -1) {
+      if (defaultIndex == -1) return null;
+      index = defaultIndex;
+      bodyScope = scope;
+    }
+
+    // Phase 2 — execute from `index`, honoring:
+    //  - empty-body fall-through (`case 0: case 1: body`),
+    //  - an unlabeled `break` (ends the switch),
+    //  - `continue <label>` targeting a labelled case in THIS switch: transfer
+    //    control to that case's body with NO subject re-check (goto-via-switch;
+    //    the target's pattern bindings are not re-bound). A labelled signal for
+    //    an OUTER loop is NOT ours — it propagates out unchanged.
+    while (index >= 0 && index < caseFieldsList.length) {
+      final cf = caseFieldsList[index];
+      final body = cf['body'];
+      // Empty / missing body → fall through to the next case.
+      if (body == null ||
+          (body.whichExpr() == Expression_Expr.block &&
+              body.block.statements.isEmpty &&
+              !body.block.hasResult())) {
+        index++;
+        continue;
+      }
+      final result = await _evalExpression(body, bodyScope);
+      if (result is _FlowSignal) {
+        // Consume an unlabeled break (switch break, not loop break).
+        if (result.kind == 'break' && result.label == null) {
+          return null;
+        }
+        // goto-via-switch: a `continue <label>` naming a labelled case here.
+        final label = result.label;
+        if (result.kind == 'continue' && label != null) {
+          final targetIndex = labelToIndex[label];
+          if (targetIndex != null) {
+            index = targetIndex;
+            bodyScope = scope;
             continue;
           }
         }
-      }
-
-      // If matched, execute the body. Support fall-through: if body is empty,
-      // continue to the next case.
-      if (matched) {
-        final body = cf['body'];
-        if (body != null) {
-          // Check for empty block (fall-through).
-          if (body.whichExpr() == Expression_Expr.block &&
-              body.block.statements.isEmpty &&
-              !body.block.hasResult()) {
-            continue; // fall-through
-          }
-          final result = await _evalExpression(body, bodyScope);
-          // Consume unlabeled break (switch break, not loop break).
-          if (result is _FlowSignal &&
-              result.kind == 'break' &&
-              result.label == null) {
-            return null;
-          }
-          return result;
-        }
-      }
-    }
-    if (defaultBody != null) {
-      final result = await _evalExpression(defaultBody, scope);
-      if (result is _FlowSignal &&
-          result.kind == 'break' &&
-          result.label == null) {
-        return null;
       }
       return result;
     }

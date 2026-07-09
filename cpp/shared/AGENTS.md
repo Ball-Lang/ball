@@ -16,7 +16,7 @@ The `ball_shared` CMake library — common types, runtime helpers, and generated
 | `include/ball_ordered_map.h` / `ball_ordered_map_impl.h` | Ordered-map interface and implementation |
 | `src/ball_shared.cpp` | `ball_shared` implementation (std module builders) |
 | `ball_protobuf_rt.h` | **Generated — regenerate, don't hand-edit.** Ball's own `ball_protobuf` runtime, compiled Ball→C++ in `--library` mode (header-only, self-contained: only `<std>` headers, NO libprotobuf/abseil/nlohmann). Regenerate via `dart/compiler/tool/compile_ball_protobuf_cpp.dart`, or directly: `ball_cpp_compile dart/shared/ball_protobuf.json --library --ns ball_protobuf --out cpp/shared/ball_protobuf_rt.h`. |
-| `ball_protobuf_rt_smoke.cpp` | Hand-written smoke driver: `#include`s `ball_protobuf_rt.h` and round-trips real values through `encodeVarint`/`decodeVarint`, `encodeZigZag64`/`decodeZigZag`, and `encodeFixed32`/`decodeFixed32`. Built only behind `-DBALL_BUILD_PROTOBUF_RT=ON` (the #18 canary — see below). |
+| `ball_protobuf_rt_smoke.cpp` | Hand-written smoke driver: `#include`s `ball_protobuf_rt.h` and round-trips real values through `encodeVarint`/`decodeVarint`, `encodeZigZag64`/`decodeZigZag`, `encodeFixed32`/`decodeFixed32`, AND a full descriptor-driven `marshal`→`unmarshal` round-trip on a nested message (int32 + string + sub-message). Built only behind `-DBALL_BUILD_PROTOBUF_RT=ON` (the #18 canary — see below). |
 | `gen/ball/v1/ball.pb.h` | **Generated — NEVER edit.** Regenerate via `buf generate`. |
 | `gen/ball/v1/ball.pb.cc` | **Generated — NEVER edit.** |
 
@@ -85,7 +85,7 @@ loading.
     (`encodeVarint(buf, 300)` → `decodeVarint` → `{value: 300, bytesRead: 2}`)
     before wiring it into the smoke target.
 
-**Wire-codec portability fix (source) — regen still pending:**
+**Wire-codec portability fix (source) — regenerated and verified:**
 - `dart/ball_protobuf/lib/` used `buffer.addAll(data)` to append multi-byte
   payloads (`wire_bytes.dart` `encodeBytes`, `marshal.dart` `encodeGroupField` /
   `_writeScalarForced`, `field_fixed.dart` float/double). `addAll` encodes to the
@@ -96,46 +96,48 @@ loading.
   length prefix is written by the per-byte `encodeVarint`, but the payload is
   lost). Native Dart tests never caught it (Dart's real `addAll` is in-place);
   see `.claude/rules/dart.md`'s `addAll` trap. **Fixed at source** by appending
-  per-item (`for (final b in data) buffer.add(b);` → in-place `list_push`),
-  proven byte-exact against the compiled runtime with a standalone g++ harness,
-  and the 587-test native `ball_protobuf` suite still passes. `ball_protobuf.json`
-  is regenerated (freshness-gated).
-- **`cpp/shared/ball_protobuf_rt.h` is NOT yet regenerated** (it is a generated
-  artifact produced by the built `ball_cpp_compile`; unlike `ball_protobuf.json`
-  it has no CI freshness gate). Regenerating it locally is currently blocked:
-  building the C++ compiler pulls protobuf via FetchContent, and BOTH the pinned
-  `v34.1` (its runtime is incompatible with the checked-in `cpp/shared/gen`
-  gencode, which now carries a `PROTOBUF_VERSION == 7035001` / 35.1 guard — a
-  pre-existing skew that only bites when `buf` is off PATH so the stale gen
-  fallback is used) and `v35.1` (its `repeated_ptr_field.h` will not compile with
-  g++ 14.2 — `ABSL_ATTRIBUTE_VIEW`/`RepeatedPtrIterator` template conflict) fail
-  to build. **TODO:** regenerate on a toolchain that can build the compiler
-  (`cd dart/compiler && dart run tool/compile_ball_protobuf_cpp.dart`, or
-  `ball_cpp_compile dart/shared/ball_protobuf.json --library --ns ball_protobuf
-  --out cpp/shared/ball_protobuf_rt.h`) so the fix reaches the C++ runtime.
-- **Two further defects the current `ball_protobuf_rt.h` still exhibits** (found
-  while building a descriptor-driven canary; both need the regen above and/or a
-  compiler fix — the `-DBALL_BUILD_PROTOBUF_RT=ON` canary only covers
-  varint/zigzag/fixed32 primitives, so it does NOT catch either):
-  1. **Singular `TYPE_MESSAGE` marshaling is broken by named-arg lowering.**
-     `marshal.dart` calls `marshalField(buffer, fieldNumber, type, value,
-     explicitPresence: …, delimited: …, messageDescriptor: msgDescriptor)` —
-     omitting the earlier optional `repeated:`. The C++ compiler lowered the
-     named args into consecutive positional slots (`repeated`, `explicitPresence`,
-     `delimited`) instead of by declared-parameter position, so `messageDescriptor`
-     lands in the `delimited` slot and the real `messageDescriptor` defaults to
-     null → `marshalField` throws "TYPE_MESSAGE field N received a Map but no
-     messageDescriptor". Repeated-message fields go through a different path
-     (`marshal(item, msgDescriptor)` directly) and are unaffected. This is a
-     compiler codegen bug (named→positional arg alignment must fill skipped
-     optionals with defaults); scalar fields happen to work because the
-     mis-slotted values are all falsy.
-  2. **`unmarshal` mis-tracks offset** in the committed header: a byte-exact
-     marshal output (verified) fails to round-trip — `unmarshal` reads a field
-     tag but does not advance past the field VALUE, re-reading the value byte as
-     the next tag. Native Dart `unmarshal` passes, so this is header
-     staleness/miscompilation, not a source bug; regenerating the header should
-     clear it (re-verify with a descriptor-driven round-trip canary afterward).
+  per-item (`for (final b in data) buffer.add(b);` → in-place `list_push`)
+  in PR #331; `ball_protobuf.json` regenerated (freshness-gated).
+- **`cpp/shared/ball_protobuf_rt.h` has been regenerated** from that fixed
+  source (WSL g++ 14.2 build at the realigned FetchContent v34.1 — the #333
+  gencode/runtime skew is resolved on main, so local WSL builds work again).
+  The regenerated header marshals the canary message BYTE-PERFECTLY
+  (`08 2A 12 02 68 69 1A 02 08 07` for `{a: 42, s: 'hi', sub: {b: 7}}`).
+- **PR #331's two "rt defects" were both C++ COMPILER bugs — root-caused and
+  fixed** (regenerating alone did NOT clear them; both fixes live in
+  `cpp/compiler/src/compiler.cpp` and the header is regenerated with them):
+  1. **Named→positional argument mis-slotting** (`marshalField` throw):
+     `compile_call` emitted a user call's `messageCreation` fields in
+     APPEARANCE order. A call that skips a middle optional named parameter
+     (`marshalField(..., explicitPresence:, delimited:, messageDescriptor:)`
+     omits `repeated:`) shifted every later argument one slot left, so
+     `messageDescriptor` landed in `delimited` and the real one defaulted to
+     null → singular `TYPE_MESSAGE` marshal threw. Fixed by
+     `compile_call_arguments`: maps `argN`/named fields onto the callee's
+     declared parameter order (sanitized-name function index +
+     `metadata.params`), filling skipped optional slots with the same
+     `cpp_param_default` the emitted signature declares; falls back to
+     appearance order whenever the callee/params are unknown. Provably inert
+     for the conformance corpus and the self-host engine (neither contains any
+     `is_named` param — verified by grep before landing).
+  2. **"`unmarshal` mis-tracks offset" was really a switch-statement
+     miscompilation** (NOT header staleness as #331 hypothesized): a
+     bare-expression case body (e.g. `case 'int32': value =
+     decodeAsInt32(rawVarint);`) in a STATEMENT-position switch inside a
+     non-void function was emitted as `return ball_assign(...)` — silently
+     exiting the function with the assigned scalar instead of falling through
+     to the `return {'value': …, 'bytesRead': …}` map, so the caller read
+     `bytesRead` as 0 and re-read the tag byte as a LEN length ("declared
+     length 18 at offset 2"). Fixed in the statement-form switch's
+     `emit_case_body`: a bare-expression case body's value is DISCARDED
+     (statement semantics, matching the Dart engine); only the explicit
+     `/* return */` marker (Dart `return X;`) exits. The void-function branch
+     had already been fixed this way (self-host engine #19) — the non-void
+     branch kept the old wrap. No committed snapshot contains a
+     statement-form switch, so snapshot goldens are unaffected.
+  Both defects are now guarded by the descriptor-driven
+  `marshal`→`unmarshal` round-trip in `ball_protobuf_rt_smoke.cpp` (CTest
+  `protobuf_rt_smoke`, CI-enabled on Linux).
 
 **Deferred (full cutover):**
 - The compiler (`compiler/`) and encoder (`encoder/`) still consume the
@@ -146,8 +148,13 @@ loading.
   Only after that can `target_link_libraries(ball_shared … protobuf::libprotobuf)`
   and the FetchContent block above be removed. The binary `.ball.pb`/`.ball.bin`
   path (Google `Any` wire decode in `ball_file.h`) also needs a protobuf-free
-  replacement (candidate: `ball_protobuf_rt.h`'s wire codecs) before the pin
-  drops.
+  replacement (candidate: `ball_protobuf_rt.h`'s wire codecs, now round-trip
+  verified) before the pin drops. That binary-path cutover additionally needs a
+  runtime descriptor for `ball.v1.Program` (the `unmarshal` API is
+  descriptor-driven — generate it from ball.proto's FileDescriptorProto via
+  `dart/ball_protobuf/tool/descriptor_bridge.dart`) plus `google.protobuf.Any`
+  envelope decoding and a byte-equivalence harness against the google-protobuf
+  loader on real fixtures, behind a default-OFF CMake option.
 
 ## Dependencies
 - Internal: generated protos in `gen/`.

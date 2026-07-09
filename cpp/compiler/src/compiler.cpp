@@ -72,6 +72,9 @@ void CppCompiler::build_lookup_tables() {
         for (const auto& func : mod.functions()) {
             std::string key = mod.name() + "." + func.name();
             functions_[key] = &func;
+            // Also index by emitted C++ name so a bare-name call site can find
+            // the callee's params for named/optional-argument alignment.
+            functions_by_cpp_name_[sanitize_name(func.name())] = &func;
             // Registry of void-returning user functions, keyed by sanitized
             // bare name. Call sites consult this to avoid wrapping a void call
             // in BallDyn(...) (conformance 133). Use original_name when mangled.
@@ -3860,18 +3863,94 @@ std::string CppCompiler::compile_call(const ball::v1::FunctionCall& call) {
     std::string result = callee + "(";
     if (call.has_input()) {
         if (call.input().expr_case() == ball::v1::Expression::kMessageCreation) {
-            bool first = true;
-            for (const auto& f : call.input().message_creation().fields()) {
-                if (!first) result += ", ";
-                result += compile_expr(f.value());
-                first = false;
-            }
+            result += compile_call_arguments(func_name,
+                                             call.input().message_creation());
         } else {
             result += compile_expr(call.input());
         }
     }
     result += ")";
     return result;
+}
+
+std::string CppCompiler::compile_call_arguments(
+    const std::string& cpp_name, const ball::v1::MessageCreation& msg) {
+    const auto& fields = msg.fields();
+
+    // Plain appearance-order emission (the historical behavior, and the safe
+    // fallback whenever the callee's parameter shape is unknown/ambiguous).
+    auto positional = [&]() {
+        std::string out;
+        bool first = true;
+        for (const auto& f : fields) {
+            if (!first) out += ", ";
+            out += compile_expr(f.value());
+            first = false;
+        }
+        return out;
+    };
+
+    auto dit = functions_by_cpp_name_.find(cpp_name);
+    if (dit == functions_by_cpp_name_.end() || !dit->second->has_metadata())
+        return positional();
+
+    const auto& meta = dit->second->metadata();
+    const std::vector<std::string> pnames = extract_params(meta);
+    if (pnames.empty()) return positional();  // single-record / no-param input
+    const std::vector<ParamSpec> pspecs = extract_param_specs(meta);
+
+    // Map each input field to its declared-parameter index: `argN` is
+    // positional, everything else matches a parameter by name.
+    std::map<int, std::string> by_index;
+    for (const auto& f : fields) {
+        const std::string& fname = f.name();
+        int idx = -1;
+        if (fname.size() >= 4 && fname.compare(0, 3, "arg") == 0) {
+            int v = 0;
+            bool all_digits = true;
+            for (size_t i = 3; i < fname.size(); ++i) {
+                const char c = fname[i];
+                if (c < '0' || c > '9') { all_digits = false; break; }
+                v = v * 10 + (c - '0');
+            }
+            if (all_digits) idx = v;
+        }
+        if (idx < 0) {
+            for (size_t k = 0; k < pnames.size(); ++k)
+                if (pnames[k] == fname) { idx = static_cast<int>(k); break; }
+        }
+        // A field we cannot place (unknown name, or index past the declared
+        // params) means our assumptions don't hold — emit positionally.
+        if (idx < 0 || idx >= static_cast<int>(pnames.size()))
+            return positional();
+        by_index[idx] = compile_expr(f.value());
+    }
+    if (by_index.empty()) return positional();
+
+    // Emit slots [0 .. highest supplied], filling any earlier gap with the
+    // parameter's declared default (only legal for an OPTIONAL param — a
+    // required gap means the mapping is wrong, so fall back).
+    const int last = by_index.rbegin()->first;
+    std::string out;
+    bool first = true;
+    for (int i = 0; i <= last; ++i) {
+        std::string a;
+        auto vit = by_index.find(i);
+        if (vit != by_index.end()) {
+            a = vit->second;
+        } else if (i < static_cast<int>(pspecs.size()) && pspecs[i].optional) {
+            std::string t = pspecs[i].type.empty() ? "BallDyn"
+                                                   : map_type(pspecs[i].type);
+            if (t == "auto&&" || t == "auto" || t == "void") t = "BallDyn";
+            a = cpp_param_default(t, pspecs[i].def);
+        } else {
+            return positional();
+        }
+        if (!first) out += ", ";
+        out += a;
+        first = false;
+    }
+    return out;
 }
 
 std::string CppCompiler::compile_std_call(const std::string& fn,
@@ -7010,12 +7089,25 @@ void CppCompiler::compile_statement(const ball::v1::Statement& stmt) {
                                     emit_line(body_code + ";");
                                 }
                             } else {
+                                // Bare-expression case body in a switch
+                                // STATEMENT: its value is DISCARDED (statement
+                                // semantics — the Dart engine likewise discards
+                                // it). Only an explicit Dart `return X;` (the
+                                // `/* return */` marker) may exit the function.
+                                // Unconditionally wrapping in `return` made any
+                                // trailing assignment/call case body silently
+                                // exit the enclosing non-void function with the
+                                // assigned value — ball_protobuf's
+                                // unmarshalFieldValue returned the raw scalar
+                                // instead of its {value, bytesRead} map (#18
+                                // lane; the void branch above was already
+                                // fixed this way for self-host engine #19).
                                 auto body_code = compile_expr(*case_body);
                                 auto pos = body_code.find("/* return */ ");
                                 if (pos == 0) {
                                     emit_line("return " + body_code.substr(12) + ";");
                                 } else {
-                                    emit_line("return " + body_code + ";");
+                                    emit_line(body_code + ";");
                                 }
                             }
                         }

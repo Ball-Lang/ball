@@ -1,3 +1,10 @@
+## [1.17.1](https://github.com/Ball-Lang/ball/compare/v1.17.0...v1.17.1) (2026-07-09)
+
+
+### Bug Fixes
+
+* **ball_protobuf:** portable wire-buffer append (.add per item, not addAll) ([#18](https://github.com/Ball-Lang/ball/issues/18), [#25](https://github.com/Ball-Lang/ball/issues/25)) ([#331](https://github.com/Ball-Lang/ball/issues/331)) ([8fa610c](https://github.com/Ball-Lang/ball/commit/8fa610ced2fafb7111716759b000bd76873cca7b))
+
 # [1.17.0](https://github.com/Ball-Lang/ball/compare/v1.16.4...v1.17.0) (2026-07-09)
 
 

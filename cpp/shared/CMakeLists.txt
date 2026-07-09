@@ -109,6 +109,35 @@ target_include_directories(ball_shared PUBLIC
 
 target_link_libraries(ball_shared PUBLIC protobuf::libprotobuf)
 
+# ── #18 Stage 3: descriptor-driven binary decode via ball_protobuf (default OFF) ──
+# When ON, ball_file.h's `.ball.pb`/`.ball.bin` wire path routes through Ball's
+# own compiled protobuf runtime (`ball_protobuf_rt.h` + the generated
+# `ball_program_descriptor.h`) instead of google's Any/Program parser. The
+# entire ball_protobuf `BallDyn` universe is confined to `ball_rt_decode.cpp`
+# (pure-std interface in `ball_rt_decode.h`), so the default build is byte-for-
+# byte unchanged — google stays the sole binary decoder unless you opt in:
+#   cmake -S cpp -B build -DBALL_USE_BALL_PROTOBUF=ON
+# google's libprotobuf is still linked (Stage 4 removes it once the compiler /
+# encoder migrate off the generated `ball::v1::` accessor types).
+option(BALL_USE_BALL_PROTOBUF
+    "Route ball_file.h binary loading through ball_protobuf_rt (default OFF)" OFF)
+if(BALL_USE_BALL_PROTOBUF)
+    target_sources(ball_shared PRIVATE ball_rt_decode.cpp)
+    # ball_file.h (in include/) does `#include "ball_rt_decode.h"` under the
+    # option; that header — and ball_protobuf_rt.h / ball_program_descriptor.h —
+    # live in the shared ROOT, so put it on the PUBLIC path for all consumers.
+    target_include_directories(ball_shared PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+    # ball_protobuf_rt.h is a generated single TU (~9k lines, huge functions):
+    # give MSVC /bigobj and silence its warnings, only for this one file so the
+    # rest of ball_shared keeps its normal diagnostics.
+    set_source_files_properties(ball_rt_decode.cpp PROPERTIES COMPILE_OPTIONS
+        "$<$<CXX_COMPILER_ID:MSVC>:/W0;/bigobj>;$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>")
+    # PUBLIC so ball_file.h consumers (compiler, tests) compile the same branch
+    # and link the ball::rt::DecodeAnyPayload symbol from ball_shared.
+    target_compile_definitions(ball_shared PUBLIC BALL_USE_BALL_PROTOBUF)
+    message(STATUS "#18 Stage 3: ball_protobuf binary decode ENABLED (BALL_USE_BALL_PROTOBUF)")
+endif()
+
 # ── #18 canary: build the Ball-compiled protobuf runtime standalone ──────────
 # `ball_protobuf_rt.h` is Ball's own `ball_protobuf` runtime, compiled
 # Ball→C++ (header-only, `--library` mode) by the Ball C++ compiler

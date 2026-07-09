@@ -35,6 +35,13 @@ if(NOT TARGET nlohmann_json::nlohmann_json)
 endif()
 target_link_libraries(ball_cpp_compiler_lib PUBLIC nlohmann_json::nlohmann_json)
 
+# compiler.cpp is a ~12k-line TU; pulling nlohmann/json.hpp (heavy templates)
+# via ball_ir.h pushes MSVC past its 65535 object-section limit (C1128).
+# /bigobj PUBLIC so the CLI + the compiler-consuming test TUs (which now include
+# compiler.h -> ball_ir.h) get it too.
+target_compile_options(ball_cpp_compiler_lib PUBLIC
+    $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)
+
 add_executable(ball_cpp_compile src/main.cpp)
 target_link_libraries(ball_cpp_compile ball_cpp_compiler_lib)
 

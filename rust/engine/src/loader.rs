@@ -112,7 +112,7 @@ fn finish(dynamic: DynamicMessage) -> Result<(Program, BallValue), EngineError> 
 fn normalize_metadata(value: BallValue) -> BallValue {
     match value {
         BallValue::Map(map) => {
-            let mut out = BallMap::with_capacity(map.len());
+            let out = BallMap::with_capacity(map.len());
             for (key, val) in map {
                 if key == "metadata" {
                     if let BallValue::Map(struct_map) = val {
@@ -133,11 +133,11 @@ fn normalize_metadata(value: BallValue) -> BallValue {
 
 /// A collapsed metadata object → the raw `Struct` shape `{fields: {key: Value}}`.
 fn wrap_struct(map: BallMap) -> BallValue {
-    let mut fields = BallMap::with_capacity(map.len());
+    let fields = BallMap::with_capacity(map.len());
     for (key, val) in map {
         fields.insert(key, wrap_value(val));
     }
-    let mut out = BallMap::with_capacity(1);
+    let out = BallMap::with_capacity(1);
     out.insert("fields".to_string(), BallValue::Map(fields));
     BallValue::Map(out)
 }
@@ -146,7 +146,7 @@ fn wrap_struct(map: BallMap) -> BallValue {
 /// keyed by its kind). Numbers use `numberValue` (proto `Value` is always a
 /// double); a nested object recurses through [`wrap_struct`].
 fn wrap_value(value: BallValue) -> BallValue {
-    let mut out = BallMap::with_capacity(1);
+    let out = BallMap::with_capacity(1);
     match value {
         BallValue::Null => {
             out.insert("nullValue".to_string(), BallValue::Int(0));
@@ -165,7 +165,7 @@ fn wrap_value(value: BallValue) -> BallValue {
         }
         BallValue::List(items) => {
             let values: Vec<BallValue> = items.into_iter().map(wrap_value).collect();
-            let mut list_value = BallMap::with_capacity(1);
+            let list_value = BallMap::with_capacity(1);
             list_value.insert(
                 "values".to_string(),
                 BallValue::List(BallList::from(values)),
@@ -213,7 +213,7 @@ pub fn json_to_ball_value(value: &serde_json::Value) -> BallValue {
             BallValue::List(items.iter().map(json_to_ball_value).collect())
         }
         serde_json::Value::Object(fields) => {
-            let mut map = BallMap::with_capacity(fields.len());
+            let map = BallMap::with_capacity(fields.len());
             for (key, val) in fields {
                 map.insert(key.clone(), json_to_ball_value(val));
             }

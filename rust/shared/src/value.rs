@@ -242,14 +242,208 @@ impl fmt::Debug for BallList {
     }
 }
 
-/// A string-keyed, **insertion-ordered** map of Ball values.
+/// A string-keyed, **insertion-ordered**, **reference-semantic** map of Ball
+/// values — the runtime materialization of every Ball `map`. Equivalent to
+/// Dart's `Map` (a `LinkedHashMap`), C++'s `BallOrderedMap`, and JS's native
+/// `Map`.
 ///
-/// Every reference engine preserves insertion order for Ball's `map` type
-/// (Dart's `LinkedHashMap`-backed `Map`, C++'s `BallOrderedMap`, JS's native
-/// `Map`/object property order). `indexmap::IndexMap` gives the same
-/// guarantee in Rust: iterating a `BallMap` after building it yields entries
-/// in the order they were first inserted, even after further mutation.
-pub type BallMap = IndexMap<String, BallValue>;
+/// # Reference semantics (issues #39/#300)
+///
+/// Dart's `Map` is a **reference type**, exactly like its `List`: `var b = a;`
+/// makes `b` and `a` the *same* map, so `b['k'] = v` is observable through `a`,
+/// and passing a map to a function passes the reference (the callee's mutations
+/// persist to the caller). The self-hosted engine
+/// (`dart/self_host/engine.ball.json`) *depends* on this: `_evalLazyMapCreate`
+/// builds an empty `result` map, then threads it through
+/// `_addMapEntryExpr`/`_putMapEntryValue`/… which mutate it in place (a
+/// `result[key] = value` index-assignment), relying on the write being visible
+/// to the caller. A plain by-value `IndexMap` clone (the original `BallMap =
+/// IndexMap` alias) copied on every `.clone()`-on-read, so those writes were
+/// lost and **every non-empty map literal `{k: v, …}` evaluated empty** (the
+/// biggest remaining conformance bucket, #326 hand-off).
+///
+/// So — exactly like [`BallList`] (issues #39/#300) and [`BallMessage`] (issue
+/// #298) — the backing map lives behind an `Arc<Mutex<…>>`: cloning a
+/// [`BallMap`] (which every `BallValue` read does — the value model is
+/// `.clone()`-on-read) shares the *same* underlying map, so a mutation through
+/// any clone is visible through all of them. `indexmap::IndexMap` keeps the
+/// insertion-order guarantee (Dart's `LinkedHashMap` / JS `Map` semantics —
+/// iterating yields entries in first-insertion order, even after further
+/// mutation); `Arc<Mutex>` (not `Rc<RefCell>`) keeps `BallValue` `Send + Sync`,
+/// which `ball_throw`'s `panic_any` and [`BallFunction`]'s `Arc<dyn Fn … + Send
+/// + Sync>` require.
+///
+/// **Where copies still happen** (matching Dart exactly): a map *literal* `{…}`
+/// builds a fresh backing (the compiler emits `BallMap::new()` + inserts, or the
+/// `ball_map_create` runtime helper), and the value-semantic map helpers
+/// snapshot through [`as_map`](crate::runtime) (which returns an owned
+/// `IndexMap`) — so `Map.from`, `{...a, ...b}` spread merge, and every
+/// non-mutating `std_collections.map_*` reader copy, never alias. Only
+/// *aliasing* reads (a bare variable read, an argument pass) and the in-place
+/// mutators (`map[k] = v` via `ball_index_set`, `map_set`, `map.putIfAbsent`,
+/// `addAll`) share the backing — again mirroring Dart.
+#[derive(Clone)]
+pub struct BallMap {
+    /// The insertion-ordered entries, held behind a shared, interior-mutable
+    /// handle (see the type doc comment). Private so every access goes through
+    /// the reference-semantic accessors ([`BallMap::insert`]/[`BallMap::get`]/…)
+    /// rather than a raw map.
+    entries: Arc<Mutex<IndexMap<String, BallValue>>>,
+}
+
+impl BallMap {
+    /// An empty map owning a fresh shared backing.
+    pub fn new() -> Self {
+        BallMap {
+            entries: Arc::new(Mutex::new(IndexMap::new())),
+        }
+    }
+
+    /// An empty map (fresh shared backing) with room pre-reserved for `capacity`
+    /// entries — a capacity hint only, semantically identical to [`BallMap::new`].
+    pub fn with_capacity(capacity: usize) -> Self {
+        BallMap {
+            entries: Arc::new(Mutex::new(IndexMap::with_capacity(capacity))),
+        }
+    }
+
+    /// Build a map owning `entries` (wrapped in a fresh shared handle). Every
+    /// clone of the returned value shares this one backing map — this is the
+    /// **fresh-backing** constructor the value-semantic copy points use
+    /// (`ball_map_merge`/`ball_invoke` snapshot into an owned `IndexMap`, then
+    /// wrap it here to produce a distinct map that never aliases the source).
+    pub fn from_index_map(entries: IndexMap<String, BallValue>) -> Self {
+        BallMap {
+            entries: Arc::new(Mutex::new(entries)),
+        }
+    }
+
+    /// Lock the shared map, recovering from a poisoned mutex (a prior panic
+    /// while a — very short, no-user-code — critical section was held; the data
+    /// is still consistent, so recover rather than cascade-panic). Mirrors
+    /// [`BallList::guard`].
+    fn guard(&self) -> MutexGuard<'_, IndexMap<String, BallValue>> {
+        self.entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Read entry `key` (cloned out of the shared map), or `None` if absent.
+    pub fn get(&self, key: &str) -> Option<BallValue> {
+        self.guard().get(key).cloned()
+    }
+
+    /// Set entry `key` (visible through every clone — reference semantics),
+    /// returning the previous value if the key already existed. Takes `&self`
+    /// (not `&mut`): the interior `Mutex` provides the mutation. Overwriting an
+    /// existing key preserves its insertion position (Dart `LinkedHashMap` / JS
+    /// `Map` semantics), matching `IndexMap::insert`.
+    pub fn insert(&self, key: impl Into<String>, value: BallValue) -> Option<BallValue> {
+        self.guard().insert(key.into(), value)
+    }
+
+    /// Whether entry `key` is present.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.guard().contains_key(key)
+    }
+
+    /// Remove entry `key`, **preserving insertion order** of the rest (Dart's
+    /// `Map.remove` — `IndexMap::shift_remove`, not the order-scrambling
+    /// `swap_remove`), returning the removed value if present.
+    pub fn remove(&self, key: &str) -> Option<BallValue> {
+        self.guard().shift_remove(key)
+    }
+
+    /// Empty the map in place (Dart's `Map.clear`) — visible through every clone.
+    pub fn clear(&self) {
+        self.guard().clear();
+    }
+
+    /// Number of entries.
+    pub fn len(&self) -> usize {
+        self.guard().len()
+    }
+
+    /// Whether the map has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.guard().is_empty()
+    }
+
+    /// A snapshot **copy** of the keys, in insertion order.
+    pub fn keys(&self) -> Vec<String> {
+        self.guard().keys().cloned().collect()
+    }
+
+    /// A snapshot **copy** of the values, in insertion order.
+    pub fn values(&self) -> Vec<BallValue> {
+        self.guard().values().cloned().collect()
+    }
+
+    /// A snapshot **copy** of the entries — for iteration, `Display`, structural
+    /// equality, and every value-semantic copy point. A lock guard can't escape
+    /// the method, so callers that need to iterate take an owned copy (mirrors
+    /// [`BallList::snapshot`]). Returns a raw [`IndexMap`] so callers keep its
+    /// full read API (`iter`/`into_keys`/`into_values`/…).
+    pub fn snapshot(&self) -> IndexMap<String, BallValue> {
+        self.guard().clone()
+    }
+}
+
+impl Default for BallMap {
+    fn default() -> Self {
+        BallMap::new()
+    }
+}
+
+/// `IndexMap -> BallMap` builds a **fresh** shared backing (a distinct map —
+/// used by the value-semantic copy points, which snapshot into an owned
+/// `IndexMap` then wrap it here).
+impl From<IndexMap<String, BallValue>> for BallMap {
+    fn from(entries: IndexMap<String, BallValue>) -> Self {
+        BallMap::from_index_map(entries)
+    }
+}
+
+/// `.collect::<BallMap>()` / any `FromIterator` site builds a fresh backing (a
+/// distinct map, never aliasing).
+impl FromIterator<(String, BallValue)> for BallMap {
+    fn from_iter<I: IntoIterator<Item = (String, BallValue)>>(iter: I) -> Self {
+        BallMap::from_index_map(iter.into_iter().collect())
+    }
+}
+
+/// Iterating a `BallMap` (`for (k, v) in map`, `map.into_iter()`) walks an owned
+/// **snapshot** of the entries — the lock is released before the loop body runs,
+/// so a body that mutates the same map can't deadlock (and matches Dart, where
+/// mutating a map mid-iteration is a `ConcurrentModificationError`, not
+/// shared-mutation).
+impl IntoIterator for BallMap {
+    type Item = (String, BallValue);
+    type IntoIter = indexmap::map::IntoIter<String, BallValue>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.snapshot().into_iter()
+    }
+}
+
+/// Two maps are equal iff their entries are structurally equal — a *value*
+/// comparison over snapshots (reference identity is deliberately not used for
+/// `==`, matching Dart's `Map.==`). `IndexMap`'s own `PartialEq` is
+/// order-independent (a map equality, not a sequence equality). Snapshotting
+/// means no two locks are ever held at once (no deadlock even for `a == a`
+/// aliasing the one backing).
+impl PartialEq for BallMap {
+    fn eq(&self, other: &Self) -> bool {
+        self.snapshot() == other.snapshot()
+    }
+}
+
+/// `Debug` over an entry snapshot (the raw `Arc<Mutex<…>>` would print the
+/// lock, not the contents).
+impl fmt::Debug for BallMap {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.snapshot()).finish()
+    }
+}
 
 /// A descriptor-backed message instance — the runtime materialization of a
 /// `MessageCreation` expression once its `type_name` is a real
@@ -279,76 +473,79 @@ pub type BallMap = IndexMap<String, BallValue>;
 /// through any clone is visible through all of them. `Arc<Mutex>` (not
 /// `Rc<RefCell>`) keeps `BallValue` `Send + Sync`, which `ball_throw`'s
 /// `panic_any` and [`BallFunction`]'s `Arc<dyn Fn … + Send + Sync>` require.
-/// Primitives/`List`/`Map` keep value semantics (the by-value model other
-/// programs rely on) — only a *typed instance* is shared, matching the
-/// reference engines exactly.
+/// Primitives keep value semantics (the by-value model other programs rely on)
+/// — a *typed instance*, like a `List`/`Map`, is shared, matching the reference
+/// engines exactly.
+///
+/// # Reconciling the double-wrapping (issues #39/#300)
+///
+/// A message's fields *are* a Ball map, and now that [`BallMap`] is itself a
+/// reference-semantic `Arc<Mutex<…>>` handle, a message holds a plain
+/// [`BallMap`] directly (not the former `Arc<Mutex<BallMap>>`, which would be a
+/// redundant second layer of sharing). Cloning a `BallMessage` clones its
+/// `fields` [`BallMap`], which shares the one backing — so `this.field = x` in a
+/// method persists exactly as before, with a single `Arc<Mutex>` instead of two.
 #[derive(Clone)]
 pub struct BallMessage {
     /// The originating `TypeDefinition.name`.
     pub type_name: String,
-    /// Field name -> value, insertion-ordered like every other Ball map, held
-    /// behind a shared, interior-mutable handle (see the type doc comment).
-    /// Private so every access goes through the reference-semantic accessors
-    /// ([`BallMessage::get`]/[`BallMessage::insert`]/…) rather than a raw map.
-    fields: Arc<Mutex<BallMap>>,
+    /// Field name -> value, held in a **reference-semantic** [`BallMap`] (which
+    /// is itself the shared, interior-mutable `Arc<Mutex<…>>` handle — see the
+    /// type doc comment). Private so every access goes through the accessors
+    /// ([`BallMessage::get`]/[`BallMessage::insert`]/…).
+    fields: BallMap,
 }
 
 impl BallMessage {
-    /// Build a message instance owning `fields` (wrapped in a fresh shared
-    /// handle). Every clone of the returned value shares this one field map.
+    /// Build a message instance owning `fields`. As [`BallMap`] is itself a
+    /// shared `Arc<Mutex>` handle, every clone of the returned message shares
+    /// this one field map (reference semantics — the callers all pass a
+    /// freshly-built [`BallMap`], so no pre-existing map is aliased).
     pub fn new(type_name: impl Into<String>, fields: BallMap) -> Self {
         BallMessage {
             type_name: type_name.into(),
-            fields: Arc::new(Mutex::new(fields)),
+            fields,
         }
-    }
-
-    /// Lock the shared field map, recovering from a poisoned mutex (a prior
-    /// panic while a — very short, no-user-code — critical section was held;
-    /// the data is still consistent, so recover rather than cascade-panic).
-    fn guard(&self) -> MutexGuard<'_, BallMap> {
-        self.fields
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Read field `key` (cloned out of the shared map), or `None` if absent.
     pub fn get(&self, key: &str) -> Option<BallValue> {
-        self.guard().get(key).cloned()
+        self.fields.get(key)
     }
 
     /// Set field `key` (visible through every clone — reference semantics).
     /// Takes `&self` (not `&mut`): the interior `Mutex` provides the mutation.
     pub fn insert(&self, key: impl Into<String>, value: BallValue) {
-        self.guard().insert(key.into(), value);
+        self.fields.insert(key, value);
     }
 
     /// Whether field `key` is present.
     pub fn contains_key(&self, key: &str) -> bool {
-        self.guard().contains_key(key)
+        self.fields.contains_key(key)
     }
 
     /// Remove field `key`, preserving insertion order of the rest (Dart's
     /// `Map.remove`), returning the removed value if present.
     pub fn remove(&self, key: &str) -> Option<BallValue> {
-        self.guard().shift_remove(key)
+        self.fields.remove(key)
     }
 
     /// A snapshot **copy** of the field map — for iteration, `Display`, and
     /// structural equality (a lock guard can't escape the method, so callers
-    /// that need to iterate take an owned copy).
-    pub fn snapshot(&self) -> BallMap {
-        self.guard().clone()
+    /// that need to iterate take an owned copy). Returns a raw [`IndexMap`] so
+    /// callers keep its full read API (`iter`/`into_keys`/…).
+    pub fn snapshot(&self) -> IndexMap<String, BallValue> {
+        self.fields.snapshot()
     }
 
     /// Number of fields.
     pub fn len(&self) -> usize {
-        self.guard().len()
+        self.fields.len()
     }
 
     /// Whether the message has no fields.
     pub fn is_empty(&self) -> bool {
-        self.guard().is_empty()
+        self.fields.is_empty()
     }
 }
 
@@ -572,7 +769,7 @@ impl fmt::Display for BallValue {
                 }
                 write!(f, "]")
             }
-            BallValue::Map(map) => write_entries(f, map.iter()),
+            BallValue::Map(map) => write_entries(f, map.snapshot().iter()),
             BallValue::Function(function) => write!(f, "{function}"),
             BallValue::Message(message) => write_entries(f, message.snapshot().iter()),
         }
@@ -679,24 +876,25 @@ mod tests {
 
     #[test]
     fn ball_map_preserves_insertion_order() {
-        let mut map = BallMap::new();
-        map.insert("z".to_string(), BallValue::Int(1));
-        map.insert("a".to_string(), BallValue::Int(2));
-        map.insert("m".to_string(), BallValue::Int(3));
+        let map = BallMap::new();
+        map.insert("z", BallValue::Int(1));
+        map.insert("a", BallValue::Int(2));
+        map.insert("m", BallValue::Int(3));
 
-        let keys: Vec<&str> = map.keys().map(String::as_str).collect();
         assert_eq!(
-            keys,
-            vec!["z", "a", "m"],
+            map.keys(),
+            vec!["z".to_string(), "a".to_string(), "m".to_string()],
             "insertion order must survive a build -> iterate round trip"
         );
 
         // Overwriting an existing key must not move it to the end (matches
         // Dart's LinkedHashMap / JS Map semantics).
-        map.insert("z".to_string(), BallValue::Int(99));
-        let keys_after_overwrite: Vec<&str> = map.keys().map(String::as_str).collect();
-        assert_eq!(keys_after_overwrite, vec!["z", "a", "m"]);
-        assert_eq!(map["z"], BallValue::Int(99));
+        map.insert("z", BallValue::Int(99));
+        assert_eq!(
+            map.keys(),
+            vec!["z".to_string(), "a".to_string(), "m".to_string()]
+        );
+        assert_eq!(map.get("z"), Some(BallValue::Int(99)));
     }
 
     #[test]
@@ -727,7 +925,7 @@ mod tests {
         let list = BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]));
         assert_eq!(list.to_string(), "[1, 2]");
 
-        let mut map = BallMap::new();
+        let map = BallMap::new();
         map.insert("a".to_string(), BallValue::Int(1));
         map.insert("b".to_string(), BallValue::String("x".to_string()));
         assert_eq!(BallValue::Map(map).to_string(), "{a: 1, b: x}");
@@ -738,7 +936,7 @@ mod tests {
         let lambda = BallValue::Function(BallFunction::new("", |input| input));
         assert_eq!(lambda.to_string(), "<lambda>");
 
-        let mut fields = BallMap::new();
+        let fields = BallMap::new();
         fields.insert("x".to_string(), BallValue::Int(1));
         let message = BallValue::Message(BallMessage::new("Point", fields));
         assert_eq!(message.to_string(), "{x: 1}");
@@ -839,6 +1037,47 @@ mod tests {
     }
 
     #[test]
+    fn map_has_reference_semantics_across_clones() {
+        // Issues #39/#300: a `BallMap` clone (which every `BallValue` read does)
+        // shares the *same* backing map, so a mutation through one clone is
+        // observed through the other — the property the self-hosted engine's
+        // `_evalLazyMapCreate` relies on (it builds an empty `result` then
+        // threads it through helpers that write entries). A `snapshot()` (the
+        // copy point) does NOT share.
+        let a = BallMap::new();
+        a.insert("x", BallValue::Int(1));
+        let b = a.clone();
+        b.insert("y", BallValue::Int(2));
+        assert_eq!(a.get("y"), Some(BallValue::Int(2)));
+        a.insert("z", BallValue::Int(3));
+        assert_eq!(b.get("z"), Some(BallValue::Int(3)));
+        // Insertion order is preserved and shared across aliases.
+        assert_eq!(
+            b.keys(),
+            vec!["x".to_string(), "y".to_string(), "z".to_string()]
+        );
+        // `remove` (order-preserving shift_remove) goes through the shared backing.
+        a.remove("x");
+        assert_eq!(b.get("x"), None);
+        assert_eq!(b.keys(), vec!["y".to_string(), "z".to_string()]);
+        // A snapshot is a detached copy — mutating it never touches the source.
+        let mut detached = a.snapshot();
+        detached.insert("w".to_string(), BallValue::Int(100));
+        assert_eq!(a.len(), 2, "snapshot copy must not grow the source map");
+
+        // The `BallValue::Map` wrapper shares likewise (the shape the compiler
+        // emits: a `.clone()`d read aliases, so an insert is visible).
+        let av = BallValue::Map(a.clone());
+        let bv = av.clone();
+        if let BallValue::Map(m) = &av {
+            m.insert("k", BallValue::Int(4));
+        }
+        if let BallValue::Map(m) = &bv {
+            assert_eq!(m.get("k"), Some(BallValue::Int(4)));
+        }
+    }
+
+    #[test]
     fn message_has_reference_semantics_across_clones() {
         // Issue #298: a `BallMessage` is a class instance — cloning it (which
         // every `BallValue` read does) shares the *same* field map, so a
@@ -846,7 +1085,7 @@ mod tests {
         // property the self-hosted engine's mutable `this` relies on (a
         // method's clone of the receiver must see setup mutations, and vice
         // versa).
-        let mut fields = BallMap::new();
+        let fields = BallMap::new();
         fields.insert("_functions".to_string(), BallValue::Null);
         let a = BallMessage::new("main:BallEngine", fields);
         let b = a.clone();

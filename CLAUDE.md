@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Ball Is
 
-Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the reference implementation (compiler + encoder + engine + CLI, broadest std coverage). **TypeScript** is a full pipeline too — compiler, self-hosted engine, and encoder — all CI-gated (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`, with no `ts_std`). **C++** has a compiler, encoder (Clang AST → Ball), and self-hosted engine, with the self-host conformance passing **every** fixture; it still FetchContents upstream protobuf (#18/#25). **Rust** (epic #32) has a complete compiler (`rust/compiler/`, #36-38) and encoder (`rust/encoder/`, #42-43) with real `cargo`-executed tests, plus proto bindings and a runtime value model (`rust/shared/`, #34-35) — but the self-hosted engine is blocked on compiler gaps and feature-gated off by default (#39), and there is no CLI (#41), conformance harness (#40), or CI job yet (#44); see `rust/AGENTS.md`. **Go/Python/Java/C#** ship proto bindings only. Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
+Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the reference implementation (compiler + encoder + engine + CLI, broadest std coverage). **TypeScript** is a full pipeline too — compiler, self-hosted engine, and encoder — all CI-gated (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`, with no `ts_std`). **C++** has a compiler, encoder (Clang AST → Ball), and self-hosted engine, with the self-host conformance passing **every** fixture; it still FetchContents upstream protobuf (#18/#25). **Rust** (epic #32, closed) is now a complete pipeline too: compiler (`rust/compiler/`, #36-38), encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`, #41); all CI-gated (the `rust` job in `ci.yml` plus a `rust-engine` row in `conformance-matrix.yml`, #40/#44 closed) — see `rust/AGENTS.md`. **Go/Python/Java/C#** ship proto bindings only. Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
 
 **Every language is only "done" when it can compile AND encode AND execute the conformance corpus** — a compiler without an encoder (or vice-versa) is a half-implementation. Treat the cross-language conformance matrix (Dart/TS/C++/… × compile/encode/run) as the definition of done.
 
@@ -76,12 +76,17 @@ cd rust && cargo build --workspace
 cargo test --workspace            # ball-engine's compiled-engine driver is
                                    # feature-gated off by default (see
                                    # rust/AGENTS.md), so this stays green
+                                   # without requiring the generated,
+                                   # gitignored compiled_engine.rs
 cargo fmt --check && cargo clippy --workspace
 
-# Regenerate the Rust self-hosted engine (currently blocked — see
-# rust/engine/AGENTS.md; produces src/compiled_engine.rs, which does not yet
-# compile, so it stays behind the off-by-default `self_host` cargo feature)
+# Regenerate the Rust self-hosted engine (compiles and RUNS the whole
+# conformance corpus at Dart parity — see rust/engine/AGENTS.md; produces the
+# gitignored src/compiled_engine.rs, driven behind the off-by-default
+# `self_host` cargo feature since the generated file isn't present in a
+# fresh checkout)
 cd rust && cargo run -p ball-engine-regen
+cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored --nocapture
 
 # Proto — lint, breaking-change check, regenerate all bindings
 # NOTE: buf.yaml lives at proto/buf.yaml (not repo root), so `proto` MUST be
@@ -167,14 +172,18 @@ tool crate — see `rust/AGENTS.md` for the full status table:
 - `ball-encoder` — Rust (`syn` 2.x AST) → Ball. No `rust_std` base module — every construct
   routes through universal `std`/`std_collections`. Complete (#42-43).
 - `ball-engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as TS/C++:
-  compiles `dart/self_host/engine.ball.json` through `ball-compiler`. **Blocked** (#39): the
-  wrapper foundation (loader/scope/`ball_proto`) builds and is tested, but the generated
-  `compiled_engine.rs` does not yet compile (~414 `rustc` errors) and is feature-gated off by
-  default — see `rust/engine/AGENTS.md` for the itemized gap list.
-- `ball-cli` — placeholder only; no subcommands wired yet (#41).
+  compiles `dart/self_host/engine.ball.json` through `ball-compiler`. **Complete, at Dart
+  parity** (#39/#300 closed): the compiled engine builds and runs the whole conformance corpus
+  with Dart-identical output (`Results: 319 passed, 0 failed, 319 total`; the 4 golden-less
+  resource-limit/sandbox fixtures are documented carve-outs). Still behind the off-by-default
+  `self_host` cargo feature because `compiled_engine.rs` is a gitignored generated artifact not
+  present in a fresh checkout — see `rust/engine/AGENTS.md` for the regeneration workflow.
+- `ball-cli` — `run`/`compile`/`encode`/`check` subcommands over `ball-engine`/`ball-compiler`/
+  `ball-encoder`. Complete (#41/#304).
 
-No conformance harness (#40) or CI job (#44) exists for Rust yet. Do not describe Rust as able
-to run Ball programs until #39 lands.
+The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs`, and CI job (#44)
+is the `rust` job in `.github/workflows/ci.yml` plus the `rust-engine` row in
+`conformance-matrix.yml` — both gate on full parity.
 
 ### Standard library modules
 Eight universal modules ship in `dart/shared/lib/` (`std*.dart`): `std` (arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null_aware_access, invoke, spread, record, etc. — `dart/shared/std.json` is the canonical base-function inventory), `std_collections` (list/map/set), `std_io` (console/process/time/random), `std_memory` (linear-memory fns for C/C++ interop), `std_convert` (JSON/UTF-8/base64), `std_fs` (file/directory ops), `std_time` (clock, timestamp format/parse, duration arithmetic), and `std_concurrency` (threads, mutexes, atomics). The `dart_std`/`cpp_std`/`ts_std` modules have been eliminated — all functions now route through universal `std`.

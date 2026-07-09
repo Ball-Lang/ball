@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine to Ball IR, compile back to
 each supported language, run conformance.
 
-Last refreshed: 2026-06-18
+Last refreshed: 2026-07-09
 
 ## Pipeline
 
@@ -13,9 +13,11 @@ Last refreshed: 2026-06-18
 | 1. Encode | `dart run dart/encoder/tool/roundtrip_engine.dart` | `dart/self_host/engine.ball.pb`, `dart/self_host/lib/engine_roundtrip.dart` |
 | 2. C++ compile | `dart run dart/compiler/tool/compile_engine_cpp.dart` | `dart/self_host/lib/engine_rt.cpp` |
 | 3. TS compile | `ts/compiler` (strip `@type`, compile) | `ts/engine/src/compiled_engine.ts` |
-| 4. Conformance -- Dart roundtrip | `dart test dart/self_host/test/engine_parity_test.dart` | parity vs live engine |
-| 5. Conformance -- C++ self-host | `cmake --build cpp/build --target test_selfhost_conformance` | per-fixture pass/fail |
-| 6. Conformance -- TS self-host | `cd ts/engine && npm test` | per-fixture pass/fail |
+| 4. Rust compile | `cargo run -p ball-engine-regen` (from `dart/self_host/engine.ball.json`) | `rust/engine/src/compiled_engine.rs` |
+| 5. Conformance -- Dart roundtrip | `dart test dart/self_host/test/engine_parity_test.dart` | parity vs live engine |
+| 6. Conformance -- C++ self-host | `cmake --build cpp/build --target test_selfhost_conformance` | per-fixture pass/fail |
+| 7. Conformance -- TS self-host | `cd ts/engine && npm test` | per-fixture pass/fail |
+| 8. Conformance -- Rust self-host | `cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored` | `Results: N passed, M failed, T total` line |
 
 ## Per-language status
 
@@ -74,6 +76,19 @@ compiler) passes EVERY conformance fixture (0 fail, 0 timeout, 0 crash).
 Each fixture is its own CTest test, run in its own process, so a crash or
 hang fails only that fixture. The former OOP self-binding blockers (setter
 dispatch, virtual-dispatch scope issues) are resolved.
+
+### Rust self-host (compiled_engine.rs)
+
+The Rust self-hosted engine (`rust/engine/src/compiled_engine.rs`, compiled
+from `engine.ball.json` via `ball-compiler`) runs the whole conformance
+corpus with Dart-identical output (#39/#300 closed). It is gated behind the
+off-by-default `self_host` cargo feature because the generated file isn't
+present in a fresh checkout (mirrors C++'s gitignored `engine_rt.cpp`). The
+`rust` job in `.github/workflows/ci.yml` regenerates and runs it on every
+build, plus a `rust-engine` row in `conformance-matrix.yml`. See
+`rust/AGENTS.md` and `rust/engine/AGENTS.md` for the full pass history and
+regeneration workflow — this file intentionally does not duplicate their
+pass counts (see the CI-gated note above).
 
 ## ball_protobuf cross-target compilation
 

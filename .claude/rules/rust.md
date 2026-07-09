@@ -5,12 +5,12 @@ paths:
 
 # Rust-Specific Instructions
 
-Rust is a **prototype under active construction**, not a finished target — the compiler and
-encoder are complete and tested, but the self-hosted engine is blocked (#39), and there is no
-CLI (#41), conformance harness (#40), or CI job (#44) yet. Do not describe Rust as able to run
-Ball programs or pass conformance in any doc you touch until #39/#40 land — verify against
-`rust/AGENTS.md`'s "Self-Hosted Engine Status" section and CI (`.github/workflows/ci.yml`) before
-making claims.
+Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
+and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
+(`Results: 319 passed, 0 failed, 319 total`; the 4 golden-less resource-limit/sandbox fixtures
+are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
+maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
+self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
 
 ## Build System
 
@@ -109,20 +109,18 @@ cargo fmt --check && cargo clippy --workspace
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-compiler` into `src/compiled_engine.rs`.
-- **Status: blocked, not runnable.** 186 `rustc` errors compiling the full self-hosted engine
-  (down from ~414 → ~326). Resolved so far: oneof-discriminator enum constants, named/optional-
-  param binding, the `__no_init__` sentinel, and the whole Dart-SDK method/type-ref surface
-  (String/List/Map/Set/`num`/`int`/`double`/`RegExp`/`DateTime`/`File` — the `ball_shared::
-  runtime::dartsdk` submodule). Still blocking: `ball_proto`/`std_convert` base dispatch,
-  constructor/super-constructor inheritance, `Function.apply`/`List.indexWhere` (dynamic function
-  dispatch), and the borrow-checker-vs-dynamic-value mismatches (the bulk of the remaining count).
-  Full breakdown in `rust/engine/AGENTS.md`. The `self_host` cargo feature keeps the broken driver off by
-  default; `cargo build -p ball-engine` / `cargo test -p ball-engine` are green on the wrapper
-  foundation (`loader.rs`/`scope.rs`/`ball_proto.rs`) only.
-- Do NOT wire new callers to `BallEngine::run` expecting real execution — it currently returns
-  `EngineError::SelfHostPending` in the default (non-`self_host`-feature) build.
-- Fixes to the blocking gaps belong in `rust/compiler/` (or the Dart self-host source, then
-  regenerate) — never hand-patch `compiled_engine.rs`.
+- **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
+  whole corpus with Dart-identical output: `Results: 319 passed, 0 failed, 319 total` (the 4
+  golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
+  like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
+  generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
+  stays green on the wrapper foundation. Regenerate + run: `cargo run -p ball-engine-regen` then
+  `cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored`.
+- Fixes to engine behavior belong in `rust/compiler/` or `ball_shared::runtime` (or the Dart
+  self-host source, then regenerate) — **never** hand-patch `compiled_engine.rs`. When a fixture
+  diverges from Dart, check whether the divergence is in the compiler's emitted code (a compiler
+  fix + regen) or in a runtime helper the emitted code calls (a `ball_shared::runtime` fix, no
+  regen) — the final-24 close-out was split roughly evenly between the two.
 
 ## Generated Files — NEVER Edit
 

@@ -995,8 +995,9 @@ Future<void> _resolve(List<String> args, StringSink out, StringSink err) async {
       // Same reasoning as the git branch above: HttpSource resolves via a
       // real HTTP fetch (dart/resolver/lib/fetchers/http_fetcher.dart) in the
       // same synchronous resolve loop -- network I/O, excluded per #261.
-      // coverage:ignore-line
+      // coverage:ignore-start
       import_.http = (HttpSource()..url = spec['url'] as String);
+      // coverage:ignore-end
     } else if (spec.containsKey('path')) {
       import_.file = (FileSource()..path = spec['path'] as String);
     }

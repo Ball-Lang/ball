@@ -717,17 +717,19 @@ jobs:
         run: cd rust && cargo test --workspace
 
       # rustfmt walks every `mod` declaration unconditionally — unlike
-      # rustc/clippy it does NOT respect the `#[cfg(feature = "self_host")]`
-      # gate on `pub mod compiled_engine;` (rust/engine/src/lib.rs), so
-      # `cargo fmt --check` errors out on a fresh checkout where that
-      # gitignored, generated file (rust/.gitignore) has never been
+      # rustc/clippy it does NOT respect the `#[cfg(feature = "self_host")]`/
+      # `#[cfg(feature = "cli_core")]` gates on `pub mod compiled_engine;`
+      # (rust/engine/src/lib.rs) / `pub mod compiled_cli;` (rust/cli/src/main.rs),
+      # so `cargo fmt --check` errors out on a fresh checkout where those
+      # gitignored, generated files (rust/.gitignore) have never been
       # regenerated. A single-newline placeholder satisfies rustfmt's module
       # walk; it is already-formatted (no diff) and never affects the real
-      # default-features build/test/clippy above, which skip the module
-      # entirely via the cfg gate and never touch the file.
-      - name: Placeholder for gitignored self-hosted engine module (rustfmt needs the file to exist)
+      # default-features build/test/clippy above, which skip the modules
+      # entirely via the cfg gates and never touch the files.
+      - name: Placeholder for gitignored self-hosted modules (rustfmt needs the files to exist)
         run: |
           [ -f rust/engine/src/compiled_engine.rs ] || printf '\n' > rust/engine/src/compiled_engine.rs
+          [ -f rust/cli/src/compiled_cli.rs ] || printf '\n' > rust/cli/src/compiled_cli.rs
 
       - name: Format check
         run: cd rust && cargo fmt --check
@@ -741,7 +743,7 @@ jobs:
       # rust/engine/src/compiled_engine.rs. Regenerate both from source, then run
       # the acceptance programs under `--features self_host` and assert
       # Dart-identical output (hello_world -> "Hello, World!", fibonacci -> "55").
-      - name: Setup Dart (for engine.ball.json regeneration)
+      - name: Setup Dart (for engine.ball.json/cli.ball.json regeneration)
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
@@ -776,6 +778,25 @@ jobs:
             echo "::error::Rust self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
+
+      # ── cli-core: regenerate + golden-fixture parity gate (issue #365) ──
+      # dart/shared/lib/cli_core.dart's info/validate/tree/version verbs,
+      # compiled through ball-compiler into the gitignored
+      # rust/cli/src/compiled_cli.rs. Regenerate both from source, then build/test
+      # under `--features cli_core`: `tests/cli_core_parity.rs` compares the built
+      # `ball` binary's info/validate/tree output against the golden `.txt` files
+      # checked into rust/cli/tests/golden/cli_core/ (generated once from the Dart
+      # CLI — see that test file's module doc comment for the regen command).
+      - name: Regenerate self-hosted cli-core
+        run: |
+          cd dart && dart run compiler/tool/gen_cli_json.dart
+          cd ../rust && cargo run -p ball-cli-regen
+      - name: cli-core build + clippy + golden-parity tests
+        run: |
+          cd rust
+          cargo build -p ball-cli --features cli_core
+          cargo clippy -p ball-cli --all-targets --features cli_core -- -D warnings
+          cargo test -p ball-cli --features cli_core
 
   # ──────────────────────────────────────────────────
   # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language

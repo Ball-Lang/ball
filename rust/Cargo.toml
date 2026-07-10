@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["shared", "compiler", "encoder", "engine", "engine/tool", "cli"]
+members = ["shared", "compiler", "encoder", "engine", "engine/tool", "cli", "cli/tool"]
 
 # Phase 1a scaffold (issue #33): no Ball logic yet — just a compiling workspace
 # with the five member crates wired together via path dependencies so later

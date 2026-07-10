@@ -1,9 +1,13 @@
 //! `ball` — the Ball language CLI (Rust toolchain).
 //!
-//! Subcommands: `run`, `compile`, `encode`, `check` (issue #41), mirroring
-//! the Dart/TS CLIs' shape (`dart/cli/`, `ts/cli/`) where it applies to the
-//! Rust toolchain's current surface (no package-registry commands like
-//! `dart/cli`'s `init`/`add`/`resolve`/`publish` yet).
+//! Subcommands: `run`, `compile`, `encode`, `check` (issue #41), plus the
+//! self-hosted cli-core verbs `info`, `validate`, `tree`, `version` (issue
+//! #365 — compiled from `dart/shared/lib/cli_core.dart`, see
+//! `rust/cli/AGENTS.md`), mirroring the Dart/TS CLIs' shape (`dart/cli/`,
+//! `ts/cli/`) where it applies to the Rust toolchain's current surface (no
+//! package-registry commands like `dart/cli`'s `init`/`add`/`resolve`/
+//! `publish` yet, and no `audit` — its capability/termination analyzers
+//! don't self-host through the encoder yet; see issue #362).
 //!
 //! ## Exit codes
 //!
@@ -11,11 +15,13 @@
 //! |------|---------|
 //! | `0`  | success |
 //! | `1`  | runtime error — a Ball program ran but failed (a `throw` that escaped `main`, or the engine itself reporting an error) |
-//! | `2`  | invalid/unparseable program — bad `.ball.json`/`.ball.bin` shape, Rust source `encode` couldn't turn into a program, or a loaded program was too malformed to compile |
+//! | `2`  | invalid/unparseable program — bad `.ball.json`/`.ball.bin` shape, Rust source `encode` couldn't turn into a program, a loaded program was too malformed to compile, or `ball validate` found the program invalid |
 //! | `3`  | file-not-found / other I/O error reading input or writing `--output` |
 //!
 //! See `src/error.rs` for the exact `CliError` -> exit-code mapping.
 mod commands;
+#[cfg(feature = "cli_core")]
+mod compiled_cli;
 mod error;
 mod loader;
 mod output;
@@ -33,8 +39,8 @@ use error::CliError;
 #[command(
     name = "ball",
     version,
-    about = "Ball language CLI (Rust toolchain) — run/compile/encode/check.",
-    long_about = "Ball language CLI (Rust toolchain): run/compile/encode/check.\n\n\
+    about = "Ball language CLI (Rust toolchain) — run/compile/encode/check/info/validate/tree/version.",
+    long_about = "Ball language CLI (Rust toolchain): run/compile/encode/check/info/validate/tree/version.\n\n\
         NOTE on `run`: it drives the self-hosted engine, built in via \
         `ball-cli`'s `self_host` Cargo feature (off by default — see \
         rust/cli/Cargo.toml). Without that feature every program honestly \
@@ -43,7 +49,12 @@ use error::CliError;
         rust/engine/src/compiled_engine.rs — see rust/engine/AGENTS.md), the \
         engine currently executes simple acceptance programs (hello_world, \
         recursive fibonacci); anything beyond that surfaces the engine's own \
-        error rather than pretending to succeed."
+        error rather than pretending to succeed.\n\n\
+        NOTE on `info`/`validate`/`tree`: they drive the self-hosted cli-core, \
+        built in via `ball-cli`'s `cli_core` Cargo feature (off by default — \
+        see rust/cli/Cargo.toml). Without that feature they honestly report a \
+        runtime error instead of silently doing nothing. `version` always \
+        works regardless of this feature."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -86,6 +97,23 @@ enum Command {
         #[arg(long)]
         compile: bool,
     },
+    /// Inspect a Ball program's structure (modules, functions, type defs).
+    Info {
+        /// Path to the program: `.ball.json`/`.ball.bin`.
+        program: PathBuf,
+    },
+    /// Check a Ball program's validity (entry point, module/function shape).
+    Validate {
+        /// Path to the program: `.ball.json`/`.ball.bin`.
+        program: PathBuf,
+    },
+    /// Print a Ball program's module/import dependency tree.
+    Tree {
+        /// Path to the program: `.ball.json`/`.ball.bin`.
+        program: PathBuf,
+    },
+    /// Print the CLI's version.
+    Version,
 }
 
 fn main() {
@@ -102,6 +130,13 @@ fn main() {
             format,
         } => commands::encode::encode(&source, output.as_deref(), format),
         Command::Check { program, compile } => commands::check::check(&program, compile),
+        Command::Info { program } => commands::info::info(&program),
+        Command::Validate { program } => commands::validate::validate(&program),
+        Command::Tree { program } => commands::tree::tree(&program),
+        Command::Version => {
+            commands::version::version();
+            Ok(())
+        }
     };
 
     if let Err(err) = result {

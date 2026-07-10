@@ -131,20 +131,25 @@ number lies.** The Dart tool `tools/coverage_dart.dart`:
   `engine_roundtrip.dart`, `compiled_engine.ts`, `engine_rt.cpp`) and pure
   barrel/`export` directives (no instrumentable lines).
 
-**The bar is 100%; honest product coverage is now ~99.45%** (all 9 Dart
-packages' `lib/`; `bin/` entry-point tooling excluded — see `coverage_dart.dart`).
-Dedicated suites drove the workspace from ~64% to ~99.45%. Per-package (see the
-authoritative comment in `.github/workflows/coverage.yml`): `ball_protobuf`
-100%, `ball_rpc` 100%, `resolver` 100%, `shared` 100%, `encoder` 100%,
-`compiler` 99.97%, `ball_protobuf_gen` 99.01%, `engine` 99.17%, `cli` 92.31%
-(cli's remaining gap is a documented deliberate exclusion — see
-`coverage.yml` — plus network-tagged paths). The floor in `coverage.yml` is
-currently **99** and locks in non-regression; raise it toward 100% one PR at
-a time. **Line coverage is the *secondary* metric** — the
-primary behavioral guarantee against the #55 class is the construct-completeness
-gate (§2). TS (`c8 --all`) and C++ (`gcov`/`lcov --initial`) are measured the
-same way (all packages, never-executed files at 0%); their **behavioral**
-coverage is additionally gated by the conformance matrix.
+**The bar is 100%, and honest product coverage has reached it**: 100.00% of
+reachable lines on CI (99.99% on a local Windows run — the one delta line is
+covered by a POSIX-only test), all 9 Dart packages' `lib/`; `bin/` entry-point
+tooling excluded — see `coverage_dart.dart`. Dedicated suites drove the
+workspace from ~64% to 100%. Per-package (see the authoritative comment in
+`.github/workflows/coverage.yml`): every package at 100% (`cli` 99.80% on
+local Windows only). Residual uncovered code is **excluded per-site, never
+silently**: every `// coverage:ignore-*` marker carries an adjacent
+justification comment, in one of three categories — environmental I/O
+(network: pub.dev/git/HTTP; raw-binary stdout; the external-runner
+conformance harness), verified-unreachable defensive arms (proven per-arm via
+caller analysis), and `bin/` entry-point glue. The floor in `coverage.yml` is
+currently **99.9** and locks in non-regression. **Line coverage is the
+*secondary* metric** — the primary behavioral guarantee against the #55 class
+is the construct-completeness gate (§2). TS (`c8 --all`, plus per-package c8
+floors in each `package.json` gated by ci.yml), C++ (`gcov`/`lcov --initial`,
+floor 70) and Rust (`cargo llvm-cov`, floor 65 over authored crates) are
+measured the same way (all packages, never-executed files at 0%); their
+**behavioral** coverage is additionally gated by the conformance matrix.
 
 > A failing/ungated package suite (e.g. `ball_protobuf`, issue #75) is measured
 > but surfaced as a loud WARNING and under-counted — `coverage_dart.dart`

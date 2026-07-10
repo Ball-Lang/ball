@@ -353,6 +353,26 @@ jobs:
       - name: Coverage — cargo-llvm-cov (workspace, default features)
         run: cd rust && cargo llvm-cov --workspace --lcov --output-path ../rust.lcov
 
+      # Line-coverage ratchet for the authored rust/ crates (epic #59) —
+      # mirrors the Dart (`coverage_dart.dart --floor`) and C++ ("C++ line
+      # coverage floor") gates: the floor must never regress and is raised
+      # toward 100% as tests land. `report` reuses the profdata the step
+      # above already collected (no test rerun). Generated files are excluded
+      # from the GATE only (`gen/` proto bindings + the self-host
+      # `compiled_engine.rs`, mirroring codecov.yml's `ignore:` list and the
+      # other stacks' generated-file exclusions); the uploaded rust.lcov is
+      # unchanged — Codecov applies the same ignores server-side. Authored
+      # coverage measured 67.3% lines by this exact command (2026-07-10;
+      # Codecov flag `rust` reads 68.1% with its own accounting); floor set
+      # below it to absorb run-to-run variance. RAISE toward 100% as tests
+      # land; never lower it without justification.
+      - name: Rust line coverage floor
+        run: >
+          cd rust && cargo llvm-cov report
+          --ignore-filename-regex '(^|/)gen/|compiled_engine\.rs'
+          --fail-under-lines 65
+          --summary-only
+
       - name: Upload Rust coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:

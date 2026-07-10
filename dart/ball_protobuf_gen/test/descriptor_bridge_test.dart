@@ -7,6 +7,18 @@ library;
 
 import 'dart:io';
 
+import 'package:ball_base/ball_base.dart'
+    show
+        DescriptorProto,
+        Edition,
+        FeatureSet,
+        FeatureSet_FieldPresence,
+        FieldDescriptorProto,
+        FieldDescriptorProto_Label,
+        FieldDescriptorProto_Type,
+        FileDescriptorProto,
+        FileDescriptorSet,
+        MessageOptions;
 import 'package:ball_protobuf/ball_protobuf.dart';
 import 'package:ball_protobuf_gen/ball_protobuf_gen.dart';
 import 'package:test/test.dart';
@@ -81,6 +93,74 @@ void main() {
         expect(back['repeated_int32'], [1, 2, 3]);
       },
     );
+
+    test('a message-level FeatureSet override (editions) merges over the file '
+        'defaults', () {
+      // An EDITION_2023 file with NO file-level features.options.features
+      // override, but the message itself overrides field_presence to
+      // LEGACY_REQUIRED. This exercises `_indexMessage`'s
+      // `m.hasOptions() && m.options.hasFeatures()` true arm (bridge builds
+      // the message-level override map and merges it over the file's
+      // resolved features), distinct from the (already-covered) file-level
+      // override and the legacy proto2/proto3 paths.
+      final fds = FileDescriptorSet(
+        file: [
+          FileDescriptorProto(
+            name: 'msg_feature_override.proto',
+            package: 'msgfeat',
+            edition: Edition.EDITION_2023,
+            messageType: [
+              DescriptorProto(
+                name: 'Overridden',
+                field: [
+                  FieldDescriptorProto(
+                    name: 'value',
+                    number: 1,
+                    type: FieldDescriptorProto_Type.TYPE_INT32,
+                    label: FieldDescriptorProto_Label.LABEL_OPTIONAL,
+                  ),
+                ],
+                options: MessageOptions(
+                  features: FeatureSet(
+                    fieldPresence: FeatureSet_FieldPresence.LEGACY_REQUIRED,
+                  ),
+                ),
+              ),
+              // A sibling message with no options at all, to prove the
+              // override doesn't leak: it must inherit the plain file
+              // defaults (EXPLICIT presence for EDITION_2023).
+              DescriptorProto(
+                name: 'Plain',
+                field: [
+                  FieldDescriptorProto(
+                    name: 'value',
+                    number: 1,
+                    type: FieldDescriptorProto_Type.TYPE_INT32,
+                    label: FieldDescriptorProto_Label.LABEL_OPTIONAL,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      );
+
+      final registry = buildRegistry(fds.writeToBuffer());
+
+      final overriddenFields = registry['msgfeat.Overridden']!;
+      expect(overriddenFields, hasLength(1));
+      expect(
+        overriddenFields.single['features'],
+        containsPair('field_presence', 'LEGACY_REQUIRED'),
+      );
+
+      final plainFields = registry['msgfeat.Plain']!;
+      expect(plainFields, hasLength(1));
+      expect(
+        plainFields.single['features'],
+        containsPair('field_presence', 'EXPLICIT'),
+      );
+    });
   });
 
   group('service descriptors', () {

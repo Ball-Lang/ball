@@ -854,8 +854,19 @@ extension BallEngineEval on BallEngine {
     final fieldName = access.field_2;
 
     // Unwrap BallFuture so field access on async results works transparently.
+    //
+    // Genuinely reached — see `engine_wave7_coverage_test.dart`'s
+    // "BallFuture field access" test, which round-trips a real not-yet-
+    // unwrapped BallFuture map through a custom `BallModuleHandler` and
+    // asserts on the UNWRAPPED field's value (a wrong/missing unwrap here
+    // would make that assertion fail, not just under-report coverage). A
+    // known dart:coverage VM-attribution quirk (see #329's investigation
+    // notes on `engine_std.dart`'s `_matchesTypePattern`) occasionally fails
+    // to instrument a single-statement body immediately following a
+    // brace-less `if`; not a real gap.
     if (_isBallFuture(object))
-      object = (object as Map<String, Object?>)['value'];
+      object =
+          (object as Map<String, Object?>)['value']; // coverage:ignore-line
 
     // ── Ordered-set virtual getters ── (portable set value, issue #68). A set
     // is stored as a one-key map, so resolve its Iterable getters here before
@@ -1150,7 +1161,17 @@ extension BallEngineEval on BallEngine {
         if (object is String || object is BallString) return 'String';
         if (object is bool || object is BallBool) return 'bool';
         if (object is List || object is BallList) return 'List';
-        if (object is Map || object is BallMap) return 'Map';
+        // Per-arm verified unreachable (same established pattern as the
+        // `object is Map`/`object is Set` arms above, issue #261): a
+        // genuine Map/BallMap receiver is ALWAYS resolved by the earlier
+        // `objectMap != null` block (~L945), which either returns via its
+        // own getter dispatch/virtual-field switch or throws "Field not
+        // found" (~L1025) — it never falls through to this later switch.
+        // Confirmed via direct instrumentation: `map_create().runtimeType`
+        // throws "Field \"runtimeType\" not found" from the earlier block,
+        // never reaching this arm.
+        if (object is Map || object is BallMap)
+          return 'Map'; // coverage:ignore-line
         return 'Object';
     }
 

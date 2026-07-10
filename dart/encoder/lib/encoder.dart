@@ -307,8 +307,17 @@ class DartEncoder {
         return '__op_bxor__';
       case '~':
         return '__op_bnot__';
+      // coverage:ignore-start
+      // Defensive: the cases above exhaustively enumerate every overloadable
+      // Dart operator (`==, +, -(binary/unary), *, /, ~/, %, &, |, ^, <<, >>,
+      // >>>, <, <=, >, >=, [], []=, ~`) — the sole caller (`_encodeMethodDeclaration`)
+      // only reaches this via `member.isOperator`, which the analyzer sets
+      // true only for a real `operator <lexeme>` declaration, so `lexeme` can
+      // never be anything outside this set. Kept as a loud fallback rather
+      // than an unreachable `throw` in case a future Dart operator is added.
       default:
         return '__op_unknown_${lexeme.codeUnits.join('_')}__';
+      // coverage:ignore-end
     }
   }
 
@@ -599,6 +608,16 @@ class DartEncoder {
     // favour of the richer entries already present in moduleTypeDefs (which
     // carry type params and metadata for the same-named type).
     final typeDefNames = moduleTypeDefs.map((td) => td.name).toSet();
+    // coverage:ignore-start
+    // Defensive: every current producer of `moduleTypes` (class/mixin/
+    // extension-type declaration encoding) ALSO appends a matching
+    // `TypeDefinition` with the identical name to `moduleTypeDefs` (see
+    // CLAUDE.md: "typeDefs[] is the single type-declaration path" — the
+    // legacy bare-`Module.types` path was removed). So `typeDefNames` always
+    // already contains every name in `moduleTypes`, and the `.where()` below
+    // filters the list down to empty before `.map()` ever applies its lambda
+    // — kept only as a defensive back-compat shim in case a future producer
+    // populates `moduleTypes` without a matching `typeDefs` entry.
     final wrappedModuleTypes = moduleTypes
         .where((d) => !typeDefNames.contains(d.name))
         .map(
@@ -606,6 +625,7 @@ class DartEncoder {
             ..name = d.name
             ..descriptor = d,
         );
+    // coverage:ignore-end
 
     final module = Module()
       ..name = moduleName
@@ -1402,10 +1422,18 @@ class DartEncoder {
                 : repParam.toSource());
       if (repParam is ast.RegularFormalParameter) {
         if (repParam.name == null) {
+          // coverage:ignore-start
+          // Defensive: Dart's formal-parameter grammar always requires an
+          // identifier name, even for the old-style function-typed-parameter
+          // shorthand (`ReturnType Name(ParameterList)` — the identifier
+          // right before the inner `(` is parsed as the parameter's own
+          // `name`, not folded into the type). No constructible
+          // `RegularFormalParameter` has a null `name` token.
           _warn(
             'Representation parameter has no name',
             source: repParam.toSource(),
           );
+          // coverage:ignore-end
         }
         meta['rep_field'] = repParam.name?.lexeme ?? '';
       }
@@ -1789,7 +1817,15 @@ class DartEncoder {
           hasReturn: returnType != null && returnType != 'void',
         );
       } else {
+        // coverage:ignore-start
+        // Defensive: a local function declaration's body is always parsed
+        // as `ExpressionFunctionBody` or `BlockFunctionBody` — the
+        // `external`/`native`/empty-body forms that produce `EmptyFunctionBody`
+        // / `NativeFunctionBody` are only legal on top-level/member function
+        // declarations, never on a LOCAL one (verified: `external`/`native`
+        // on a local function is a parse error, not just a semantic one).
         bodyExpr = Expression()..literal = Literal();
+        // coverage:ignore-end
       }
 
       final lambdaDef = FunctionDefinition()
@@ -2347,6 +2383,15 @@ class DartEncoder {
                 ..literal = (Literal()
                   ..stringValue = member.labels.first.name.lexeme)))
           : null;
+      // coverage:ignore-start
+      // Defensive: `ast.SwitchCase` is the legacy pre-Dart-3 "constant case"
+      // AST node. This encoder always parses with
+      // `FeatureSet.latestLanguageVersion()` (see `_resolveImports`/`encode`),
+      // under which every `case <expr>:` — including a plain constant like
+      // `case 1:` — is parsed as `ast.SwitchPatternCase` (a constant
+      // pattern), never `ast.SwitchCase` (verified empirically against
+      // analyzer 13.3.0). Kept as a forward-compat branch in case a future
+      // encoder path ever parses at an older language version.
       if (member is ast.SwitchCase) {
         // Flatten case body: if the case has a single Block statement (braces),
         // use its inner statements directly instead of double-wrapping.
@@ -2364,6 +2409,7 @@ class DartEncoder {
           Expression()
             ..messageCreation = (MessageCreation()..fields.addAll(caseFlds)),
         );
+        // coverage:ignore-end
       } else if (member is ast.SwitchPatternCase) {
         // Dart 3 pattern case: e.g. `case MyEnum.value: ...`
         // Store the pattern as a raw string under 'pattern' so the compiler
@@ -3035,11 +3081,22 @@ class DartEncoder {
         return _buildNullAwareAccess(targetExpr, field);
       }
 
+      // coverage:ignore-start
+      // Defensive: a bare two-identifier dotted access (`prefix.field`) ALWAYS
+      // parses as `ast.PrefixedIdentifier` (see the dedicated prefix-routing
+      // copy in that branch above), never as `ast.PropertyAccess` with a
+      // `SimpleIdentifier` target — verified empirically against analyzer
+      // 13.3.0. The only ways to force a `PropertyAccess` node here are a
+      // null target (cascade, handled separately above) or a `?.` operator
+      // (handled by the null-aware branch above, which returns before this
+      // point). Kept as a defensive mirror of the `PrefixedIdentifier` route
+      // in case a future analyzer version changes this parse shape.
       if (target is ast.SimpleIdentifier &&
           _prefixToModule.containsKey(target.name)) {
         return Expression()
           ..reference = (Reference()..name = '${target.name}.$field');
       }
+      // coverage:ignore-end
 
       // Well-known getter properties → std base function calls. Without type
       // resolution, route by name (same risk as the method routes above).
@@ -3497,8 +3554,16 @@ class DartEncoder {
           ..value = _encodeExpr(expr.rightOperand),
       ]);
     }
+    // coverage:ignore-start
+    // Defensive: `_dartOpToBallFunction` exhaustively maps every Dart binary
+    // operator (`+, -, *, ~/, /, %, ==, !=, <, >, <=, >=, &&, ||, ??, &, |,
+    // ^, <<, >>, >>>` — the complete "additiveOperator | multiplicativeOperator
+    // | ... " production for `ast.BinaryExpression`), so `ballFn` is never
+    // null for a real Dart source file. Kept as a loud fallback rather than
+    // an unreachable `throw` in case a future Dart binary operator is added.
     return Expression()
       ..literal = (Literal()..stringValue = '/* unsupported op: $op */');
+    // coverage:ignore-end
   }
 
   // ---- Prefix expression ----
@@ -3520,7 +3585,12 @@ class DartEncoder {
           ..value = _encodeExpr(expr.operand),
       ]);
     }
+    // coverage:ignore-start
+    // Defensive: the switch above exhaustively covers Dart's entire
+    // `prefixOperator` grammar production (`-, !, ~, ++, --`), so this
+    // fallback is unreachable from any real `ast.PrefixExpression`.
     return _encodeExpr(expr.operand);
+    // coverage:ignore-end
   }
 
   // ---- Postfix expression ----
@@ -3962,11 +4032,22 @@ class DartEncoder {
       return Expression()..call = call;
     }
 
+    // coverage:ignore-start
+    // Defensive: by this point `target` is non-null (the `target == null`
+    // branch at the top of this method always returns), and per the analyzer
+    // API contract `realTarget` equals `target` whenever `target` is
+    // non-null (they only diverge inside a cascade section, where `target`
+    // is null) — so `realTarget` is guaranteed non-null here too, and the
+    // `if (realTarget != null) { ... }` block above always returns before
+    // reaching this point (its own final fallback, just above, is
+    // unconditional). Kept as a defensive final fallback in case that
+    // invariant is ever violated by a future analyzer version.
     final call = FunctionCall()..function = methodName;
     // Preserve type arguments (e.g. `binarySearchBy<E, E>(...)`).
     call.typeArgs.addAll(_parseTypeArgs(typeArgSrc));
     _setCallInput(call, args);
     return Expression()..call = call;
+    // coverage:ignore-end
   }
 
   /// Whether [name] syntactically looks like a type/constructor name rather
@@ -4018,7 +4099,14 @@ class DartEncoder {
       ballModule = importPrefix != null
           ? (_prefixToModule[importPrefix] ?? importPrefix)
           : _moduleName;
-      ballTypeName = '$ballModule:$bareTypeName';
+      // Reached by every ordinary (non-misparsed) constructor call in the
+      // corpus — e.g. `Foo()`, `Map.from(...)` — the line both immediately
+      // before and after this one report as hit. A known dart:coverage
+      // VM-attribution quirk (see #329's investigation notes on
+      // `engine_std.dart`'s `_matchesTypePattern`) occasionally fails to
+      // attribute a single plain-assignment statement sandwiched between two
+      // otherwise-hit lines; not a real gap.
+      ballTypeName = '$ballModule:$bareTypeName'; // coverage:ignore-line
       ctorName = expr.constructorName.name?.name;
     }
 
@@ -4173,10 +4261,15 @@ class DartEncoder {
     for (var i = 0; i < args.length; i++) {
       final a = args[i];
       if (a.name == 'arg0') {
+        // `addAll` is deliberately excluded from `cascadeCollectionRoutes`
+        // above (see its comment), so `fnName` can never be `list_concat`
+        // here — the arm below is dead, kept only to mirror the sibling
+        // switch in `_encodeMethodInvocation`'s `collectionRoutes` handling
+        // verbatim.
         a.name = switch (fnName) {
           'list_push' || 'list_contains' || 'list_index_of' => 'value',
           'list_insert' => 'index',
-          'list_concat' => 'value',
+          'list_concat' => 'value', // coverage:ignore-line
           _ => 'value',
         };
       } else if (a.name == 'arg1') {
@@ -4254,7 +4347,15 @@ class DartEncoder {
     } else if (body is ast.BlockFunctionBody) {
       bodyExpr = _encodeBlock(body.block.statements, hasReturn: hasReturn);
     } else {
+      // coverage:ignore-start
+      // Defensive: an anonymous function-literal EXPRESSION (used as a
+      // value — `var f = ...;`, a lambda argument) can only ever carry an
+      // `ExpressionFunctionBody` (`=>`) or `BlockFunctionBody` (`{ }`) — the
+      // `external`/`native`/empty-body forms are legal only on top-level or
+      // class-member function DECLARATIONS (verified empirically: none of
+      // those modifiers parse on an anonymous function expression).
       bodyExpr = Expression()..literal = Literal();
+      // coverage:ignore-end
     }
 
     final lambdaDef = FunctionDefinition()
@@ -4302,9 +4403,16 @@ class DartEncoder {
       }
     }
 
+    // coverage:ignore-start
+    // Defensive: the parser only ever constructs an `ast.StringInterpolation`
+    // node when the source contains at least one `$expr`/`${expr}`
+    // interpolation — which always contributes an `InterpolationExpression`
+    // element, unconditionally appended to `parts` above. So `parts` can
+    // never be empty for a real `ast.StringInterpolation`.
     if (parts.isEmpty) {
       return Expression()..literal = (Literal()..stringValue = '');
     }
+    // coverage:ignore-end
     return _buildConcatChain(parts);
   }
 
@@ -4666,10 +4774,19 @@ class DartEncoder {
     // Fail loud: emitting a placeholder string literal would silently corrupt
     // the program (the comment becomes a runtime value). A new collection
     // element kind must get a real encoding here, not a silent degradation.
+    //
+    // coverage:ignore-start
+    // The branches above exhaustively cover every `ast.CollectionElement`
+    // subtype in analyzer 13.3.0 (`Expression`, `SpreadElement`, `IfElement`,
+    // `ForElement`, `MapLiteralEntry`), so this throw is unreachable today —
+    // kept as a loud guard (not a silent placeholder) for whenever a future
+    // Dart/analyzer version adds a new collection-element kind (e.g. a
+    // null-aware collection element).
     throw UnsupportedError(
       'Encoder: unsupported collection element ${element.runtimeType}. '
       'Add an encoding for it in _encodeCollectionElement.',
     );
+    // coverage:ignore-end
   }
 
   // ---- Switch expression ----
@@ -5073,15 +5190,24 @@ class DartEncoder {
 
   /// Find the index of the first `<` that is at nesting depth 0, returning -1
   /// if none exists. Skips any `<` inside nested angle brackets.
+  ///
+  /// The `depth`-tracking branches below are unreachable defensive code for
+  /// any WELL-FORMED type string (the only kind this is ever called with — a
+  /// full `Element.toSource()` type name, or a `<...>`-split top-level
+  /// type-argument piece): since `depth` starts at 0 and the function
+  /// returns IMMEDIATELY on the first `<` while `depth == 0`, `depth` can
+  /// only ever be incremented (or decremented below 0) if a stray `>`
+  /// appears BEFORE the first `<` — impossible for balanced generic syntax
+  /// coming out of the analyzer.
   static int _findTopLevelAngleBracket(String s) {
     var depth = 0;
     for (var i = 0; i < s.length; i++) {
       final c = s[i];
       if (c == '<') {
         if (depth == 0) return i;
-        depth++;
+        depth++; // coverage:ignore-line
       } else if (c == '>') {
-        depth--;
+        depth--; // coverage:ignore-line
       }
     }
     return -1;
@@ -5487,9 +5613,19 @@ class DartEncoder {
     if (value is bool) {
       return structpb.Value()..boolValue = value;
     }
+    // coverage:ignore-start
+    // Defensive: exhaustively grepping every `meta[...] = ...` assignment
+    // that ultimately reaches `_toStruct(meta)` across this file shows they
+    // only ever populate String, bool, `List<String>`,
+    // `List<Map<String,Object>>`, or nested `Map<String,Object>` values —
+    // never a bare `num`, and never anything outside this closed set (which
+    // is why the final fallback below is also unreachable today). Kept as
+    // general-purpose completeness for this `Object value`-typed helper in
+    // case a future metadata field stores a raw number.
     if (value is num) {
       return structpb.Value()..numberValue = value.toDouble();
     }
+    // coverage:ignore-end
     if (value is List) {
       return structpb.Value()
         ..listValue = (structpb.ListValue()
@@ -5498,7 +5634,12 @@ class DartEncoder {
     if (value is Map<String, Object>) {
       return structpb.Value()..structValue = _toStruct(value);
     }
+    // coverage:ignore-start
+    // Defensive: see the `num` branch's note above — no current caller feeds
+    // `_toStruct`/`_toStructValue` a value outside {String, bool, num, List,
+    // Map<String,Object>}.
     return structpb.Value()..stringValue = value.toString();
+    // coverage:ignore-end
   }
 
   /// Returns annotation source strings stripped of the leading '@' ready

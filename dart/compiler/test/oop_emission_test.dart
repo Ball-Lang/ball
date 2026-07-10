@@ -260,6 +260,34 @@ void main() {
       expect(out, contains('String? d'));
     });
 
+    test('const field with initializer on a *plain* class emits const', () {
+      // The test above routes through the decorated-class path (its `doc`
+      // makes the class non-plain). A class with only field metadata — no
+      // doc/modifiers/members — is emitted by the simple-class path
+      // (`_buildSimpleClass`), whose own `is_const` branch is exercised here.
+      final out = _flat(
+        _program(
+          typeDefs: [
+            _typeDef(
+              'K',
+              fields: [(name: 'answer', type: 'TYPE_INT32')],
+              metadata: {
+                'fields': [
+                  {
+                    'name': 'answer',
+                    'type': 'int',
+                    'is_const': true,
+                    'initializer': '42',
+                  },
+                ],
+              },
+            ),
+          ],
+        ),
+      );
+      expect(out, contains('const int answer = 42'));
+    });
+
     test('non-nullable typed field without initializer becomes late', () {
       final out = _flat(
         _program(

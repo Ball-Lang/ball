@@ -1751,6 +1751,600 @@ TEST(compile_std_concurrency_atomics) {
 }
 
 // ================================================================
+// Coverage grind (issue #63): per-arm unit tests for compile_std_call
+// dispatch arms and compile_call intrinsics not reached by the
+// conformance corpus. Each drives a hand-built ball::ir shape.
+// ================================================================
+
+// null literal reference (name "null") — the is_null() detector in the
+// equals/not_equals arm treats this as a null operand.
+static json null_ref() { return ref("null"); }
+
+TEST(std_equals_left_null_emits_has_value) {
+    // is_null(left) path (right operand non-null).
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_binary("equals", null_ref(), lit_int(1)))));
+    ASSERT_CONTAINS(compile_program(prog), ".has_value()");
+    auto prog2 = build_program(print_call(std_unary("to_string",
+        std_binary("not_equals", null_ref(), lit_int(1)))));
+    ASSERT_CONTAINS(compile_program(prog2), ".has_value()");
+}
+
+TEST(std_pre_increment_index_target_read_modify_write) {
+    auto idx = call("std", "index", make_msg("", {
+        {"target", ref("a")}, {"index", lit_int(0)}}));
+    auto prog = build_program(std_call("pre_increment",
+        make_msg("", {{"value", std::move(idx)}})));
+    ASSERT_CONTAINS(compile_program(prog), "ball_set(");
+}
+
+TEST(std_post_increment_index_target_returns_old) {
+    auto idx = call("std", "index", make_msg("", {
+        {"target", ref("a")}, {"index", lit_int(1)}}));
+    auto prog = build_program(std_call("post_decrement",
+        make_msg("", {{"value", std::move(idx)}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_set(");
+    ASSERT_CONTAINS(out, "__old");
+}
+
+TEST(std_string_join_emits_reduce_lambda) {
+    auto prog = build_program(print_call(std_call("string_join", make_msg("", {
+        {"list", lit_list({lit_string("a"), lit_string("b")})},
+        {"separator", lit_string(",")}}))));
+    ASSERT_CONTAINS(compile_program(prog), "for(size_t i=0;i<v.size()");
+}
+
+TEST(std_regex_match_emits_regex_search) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_binary("regex_match", lit_string("abc"), lit_string("a.c")))));
+    ASSERT_CONTAINS(compile_program(prog), "std::regex_search");
+}
+
+TEST(std_regex_find_emits_smatch) {
+    auto prog = build_program(print_call(
+        std_binary("regex_find", lit_string("abc"), lit_string("a.c"))));
+    ASSERT_CONTAINS(compile_program(prog), "std::smatch");
+}
+
+TEST(std_regex_find_all_emits_sregex_iterator) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_binary("regex_find_all", lit_string("abc"), lit_string("a")))));
+    ASSERT_CONTAINS(compile_program(prog), "std::sregex_iterator");
+}
+
+TEST(std_regex_replace_first_only) {
+    auto prog = build_program(print_call(std_call("regex_replace", make_msg("", {
+        {"value", lit_string("aaa")}, {"from", lit_string("a")},
+        {"to", lit_string("b")}}))));
+    ASSERT_CONTAINS(compile_program(prog), "format_first_only");
+}
+
+TEST(std_regex_replace_all_no_first_only) {
+    auto prog = build_program(print_call(std_call("regex_replace_all", make_msg("", {
+        {"value", lit_string("aaa")}, {"from", lit_string("a")},
+        {"to", lit_string("b")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::regex_replace");
+    ASSERT_NOT_CONTAINS(out, "format_first_only");
+}
+
+TEST(std_string_interpolation_list_parts) {
+    auto prog = build_program(print_call(std_call("string_interpolation",
+        make_msg("", {{"parts", lit_list({lit_string("x="), lit_int(1)})}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "std::ostringstream _ss");
+    ASSERT_CONTAINS(out, "_ss<<");
+}
+
+TEST(std_string_interpolation_value_fallback) {
+    auto prog = build_program(print_call(std_call("string_interpolation",
+        make_msg("", {{"value", lit_int(7)}}))));
+    ASSERT_CONTAINS(compile_program(prog), "std::to_string(");
+}
+
+TEST(std_string_is_empty) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_call("string_is_empty", make_msg("", {{"value", lit_string("x")}})))));
+    ASSERT_CONTAINS(compile_program(prog), ".empty())");
+}
+
+TEST(std_null_coalesce_emits_has_value_ternary) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_binary("null_coalesce", ref("a"), lit_int(0)))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, ".has_value() ? BallDyn(");
+}
+
+TEST(std_as_passthrough) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_call("as", make_msg("", {{"value", lit_int(42)}})))));
+    ASSERT_CONTAINS(compile_program(prog), "42");
+}
+
+TEST(std_spread_and_null_spread_passthrough) {
+    auto prog = build_program(std_call("spread",
+        make_msg("", {{"value", lit_list({lit_int(1)})}})));
+    ASSERT_CONTAINS(compile_program(prog), "1");
+    auto prog2 = build_program(std_call("null_spread",
+        make_msg("", {{"value", lit_list({lit_int(2)})}})));
+    ASSERT_CONTAINS(compile_program(prog2), "2");
+}
+
+TEST(std_await_passthrough) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_call("await", make_msg("", {{"value", lit_int(9)}})))));
+    ASSERT_CONTAINS(compile_program(prog), "9");
+}
+
+TEST(std_yield_outside_generator_passthrough) {
+    auto prog = build_program(std_call("yield",
+        make_msg("", {{"value", lit_int(5)}})));
+    ASSERT_CONTAINS(compile_program(prog), "5");
+}
+
+TEST(std_paren_wraps) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("std", "paren", make_msg("", {{"value", lit_int(3)}})))));
+    ASSERT_CONTAINS(compile_program(prog), "(3)");
+}
+
+TEST(std_invoke_emits_call) {
+    auto prog = build_program(std_call("invoke", make_msg("", {
+        {"callee", ref("f")}, {"arg0", lit_int(1)}})));
+    ASSERT_CONTAINS(compile_program(prog), "f(");
+}
+
+TEST(std_typed_list_empty) {
+    auto prog = build_program(std_call("typed_list", make_msg("", {})));
+    ASSERT_CONTAINS(compile_program(prog), "std::vector<std::any>{}");
+}
+
+TEST(std_typed_list_with_elements) {
+    auto prog = build_program(std_call("typed_list",
+        make_msg("", {{"elements", lit_list({lit_int(1), lit_int(2)})}})));
+    ASSERT_CONTAINS(compile_program(prog), "1");
+}
+
+TEST(std_null_aware_access_field) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_call("null_aware_access", make_msg("", {
+            {"target", ref("x")}, {"field", lit_string("f")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, ".has_value() ?");
+    ASSERT_CONTAINS(out, "\"f\"s");
+}
+
+TEST(std_null_aware_call_call_method_invokes) {
+    auto prog = build_program(std_call("null_aware_call", make_msg("", {
+        {"target", ref("x")}, {"method", lit_string("call")}, {"arg0", lit_int(1)}})));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, ".has_value() ? BallDyn(");
+}
+
+TEST(std_null_aware_call_named_method) {
+    auto prog = build_program(std_call("null_aware_call", make_msg("", {
+        {"target", ref("x")}, {"method", lit_string("toUpperCase")}})));
+    ASSERT_CONTAINS(compile_program(prog), ".has_value() ? BallDyn(");
+}
+
+TEST(std_null_aware_call_callback) {
+    auto prog = build_program(std_call("null_aware_call", make_msg("", {
+        {"target", ref("x")}, {"callback", ref("cb")}})));
+    ASSERT_CONTAINS(compile_program(prog), ".has_value() ? cb(");
+}
+
+TEST(std_null_aware_cascade_returns_target) {
+    auto prog = build_program(std_call("null_aware_cascade", make_msg("", {
+        {"target", ref("obj")}})));
+    ASSERT_CONTAINS(compile_program(prog), "obj");
+}
+
+TEST(std_unknown_function_emits_marker) {
+    auto prog = build_program(std_call("totally_unknown_xyz", make_msg("", {})));
+    ASSERT_CONTAINS(compile_program(prog), "/* std.totally_unknown_xyz */");
+}
+
+TEST(std_cascade_with_sections_emits_cascade_self) {
+    auto prog = build_program(std_call("cascade", make_msg("", {
+        {"target", ref("obj")},
+        {"sections", lit_list({call("std", "index", make_msg("", {
+            {"target", ref("obj")}, {"index", lit_int(0)}}))})}})));
+    ASSERT_CONTAINS(compile_program(prog), "__cascade_self__");
+}
+
+TEST(std_cascade_non_list_sections_returns_target) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        std_call("cascade", make_msg("", {
+            {"target", ref("obj")}, {"sections", lit_int(0)}})))));
+    ASSERT_CONTAINS(compile_program(prog), "obj");
+}
+
+// ── compile_call intrinsics (module "", engine-internal helpers) ──
+
+TEST(intrinsic_ball_user_map) {
+    auto prog = build_program(call("", "_ballUserMap", json(nullptr)));
+    ASSERT_CONTAINS(compile_program(prog), "BallOrderedMap{}");
+}
+
+TEST(intrinsic_ball_new_generator) {
+    auto prog = build_program(call("", "_ballNewGenerator", json(nullptr)));
+    ASSERT_CONTAINS(compile_program(prog), "BallGenerator{}");
+}
+
+TEST(intrinsic_ball_generator_values) {
+    auto prog = build_program(call("", "_ballGeneratorValues", ref("g")));
+    ASSERT_CONTAINS(compile_program(prog), "_ballGeneratorValues(");
+}
+
+TEST(intrinsic_ball_double_to_int64) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("", "_ballDoubleToInt64", make_msg("", {{"value", lit_double(1.5)}})))));
+    ASSERT_CONTAINS(compile_program(prog), "_ballDoubleToInt64(");
+}
+
+TEST(intrinsic_ball_code_unit_at) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("", "_ballCodeUnitAt", make_msg("", {
+            {"s", lit_string("hi")}, {"index", lit_int(0)}})))));
+    ASSERT_CONTAINS(compile_program(prog), "ball_code_unit_at(");
+}
+
+TEST(intrinsic_ball_is_scalar_predicates) {
+    for (const char* fn : {"_ballIsInt", "_ballIsDouble", "_ballIsNum",
+                           "_ballIsString", "_ballIsBool", "_ballIsList"}) {
+        auto prog = build_program(print_call(std_unary("to_string",
+            call("", fn, ref("v")))));
+        auto out = compile_program(prog);
+        ASSERT_CONTAINS(out, "ball_object_type_matches(");
+    }
+}
+
+TEST(intrinsic_ball_is_map_excludes_set) {
+    auto prog = build_program(print_call(std_unary("to_string",
+        call("", "_ballIsMap", make_msg("", {{"arg0", ref("m")}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_is_map_dyn(");
+    ASSERT_CONTAINS(out, "!ball_is_ball_set(");
+}
+
+TEST(intrinsic_ball_map_values_keys) {
+    auto v = build_program(call("", "_ballMapValuesDyn", make_msg("", {{"arg0", ref("m")}})));
+    ASSERT_CONTAINS(compile_program(v), "ball_map_values(");
+    auto k = build_program(call("", "_ballMapKeysDyn", make_msg("", {{"arg0", ref("m")}})));
+    ASSERT_CONTAINS(compile_program(k), "ball_map_keys(");
+}
+
+// ── compile_collections_call positional arms (std_collections) ──
+// The corpus uses method-style (list.map(...)) which routes through
+// compile_method_call; the positional std_collections.* forms below are
+// what the self-hosted engine emits and are otherwise unexercised.
+
+static json coll(const std::string& fn, std::vector<std::pair<std::string, json>> fields) {
+    return call("std_collections", fn, make_msg("", std::move(fields)));
+}
+
+TEST(collections_list_positional_scalar_ops) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_get", {{"list", ref("a")}, {"index", lit_int(0)}}))),
+        "[static_cast<int64_t>(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_set", {{"list", ref("a")}, {"index", lit_int(0)}, {"value", lit_int(9)}}))),
+        "v.set(i,e._val)");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_length", {{"list", ref("a")}}))), ".size())");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_is_empty", {{"list", ref("a")}}))), ".empty()");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_first", {{"list", ref("a")}}))), ".front()");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_last", {{"list", ref("a")}}))), ".back()");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_single", {{"list", ref("a")}}))), "[static_cast<int64_t>(0)]");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_contains", {{"list", ref("a")}, {"value", lit_int(1)}}))), "ball_index_of(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_index_of", {{"list", ref("a")}, {"value", lit_int(1)}}))), "ball_index_of(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_reverse", {{"list", ref("a")}}))), "std::reverse(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_insert", {{"list", ref("a")}, {"index", lit_int(0)}, {"value", lit_int(9)}}))),
+        "ball_list_insert(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_remove_at", {{"list", ref("a")}, {"index", lit_int(0)}}))), "ball_list_remove_at(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_reverse", {{"list", ref("a")}}))), "_listPtr()");
+}
+
+TEST(collections_list_higher_order_ops) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_map", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "r.push_back(std::any(fn(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_foreach", {{"list", ref("a")}, {"callback", ref("cb")}}))), "ball_foreach(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_filter", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "if(_ball_pred_true(std::any(fn(e))))");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_reduce", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "Bad state: No element");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_find", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "if(_ball_pred_true(fn(__e)))return __e;");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_any", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "return true;}return false;}");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_all", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "if(!_ball_pred_true(fn(__e)))return false;");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_none", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "if(_ball_pred_true(fn(__e)))return false;");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_flat_map", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "BallDyn sub(fn(__e));");
+}
+
+TEST(collections_list_sort_natural_and_comparator) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_sort", {{"list", ref("a")}}))), "ball_natural_less(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_sort", {{"list", ref("a")}, {"compare", lambda_expr(lit_int(0))}}))),
+        "std::stable_sort(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_sort_by", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "p.set(\"left\"s,a);p.set(\"right\"s,b)");
+}
+
+TEST(collections_list_slice_take_drop_concat_zip_join) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_slice", {{"list", ref("a")}, {"value", lit_int(1)}}))), "ball_sublist(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_slice", {{"list", ref("a")}, {"start", lit_int(1)}, {"end", lit_int(3)}}))),
+        "ball_sublist(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_slice", {{"list", ref("a")}}))), "ball_sublist(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_take", {{"list", ref("a")}, {"count", lit_int(2)}}))), "std::min(n,");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_drop", {{"list", ref("a")}, {"count", lit_int(2)}}))), "ball_skip(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_to_list", {{"list", ref("a")}}))), "ball_list_copy(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_concat", {{"left", ref("a")}, {"right", ref("b")}}))), "ball_concat(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_zip", {{"left", ref("a")}, {"right", ref("b")}}))), "\"second\"s");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_join", {{"list", ref("a")}, {"separator", lit_string("-")}}))), "bool first=true");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_join", {{"list", ref("a")}}))), "std::string(\",\")");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("string_join", {{"list", ref("a")}, {"separator", lit_string("-")}}))),
+        "r+=ball_to_string(v[static_cast<int64_t>(i)]);}return r;}");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_clear", {{"list", ref("a")}}))), "ball_clear(");
+}
+
+TEST(collections_map_positional_ops) {
+    ASSERT_CONTAINS(compile_program(build_program(coll("map_create", {}))),
+        "BallDyn(BallOrderedMap{})");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_get", {{"map", ref("m")}, {"key", lit_string("k")}}))), "static_cast<BallDyn>(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_set", {{"map", ref("m")}, {"key", lit_string("k")}, {"value", lit_int(1)}}))),
+        "m.set(static_cast<std::string>(k),v._val)");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_delete", {{"map", ref("m")}, {"key", lit_string("k")}}))),
+        "m.erase(static_cast<std::string>(k))");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_contains_key", {{"map", ref("m")}, {"key", lit_string("k")}}))), ".count(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_is_empty", {{"map", ref("m")}}))), ".empty()");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_length", {{"map", ref("m")}}))), ".size())");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_keys", {{"map", ref("m")}}))), "ball_map_keys(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_values", {{"map", ref("m")}}))), "ball_map_values(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_entries", {{"map", ref("m")}}))), "ball_map_entries(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_from_entries", {{"entries", ref("e")}}))), "r.set(static_cast<std::string>");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_merge", {{"left", ref("a")}, {"right", ref("b")}}))), "ball_map_entries(b)");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_map", {{"map", ref("m")}, {"callback", ref("cb")}}))), "BallDyn res(fn(e));");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_filter", {{"map", ref("m")}, {"callback", ref("cb")}}))), "if(_ball_pred_true(fn(e)))");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_contains_value", {{"map", ref("m")}, {"value", lit_int(1)}}))), "ball_map_entries(mp)");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("map_put_if_absent", {{"map", ref("m")}, {"key", lit_string("k")}, {"value", lit_int(1)}}))),
+        "ball_map_put_if_absent(");
+}
+
+TEST(collections_set_positional_ops) {
+    ASSERT_CONTAINS(compile_program(build_program(coll("set_create", {}))),
+        "ball_make_set(BallList{})");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_add", {{"set", ref("s")}, {"value", lit_int(1)}}))), "v.push_back(e)");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_remove", {{"set", ref("s")}, {"value", lit_int(1)}}))), "_setBackingList()");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_contains", {{"set", ref("s")}, {"value", lit_int(1)}}))), "if(BallDyn(v[i])==e)return true;");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_length", {{"set", ref("s")}}))), ".size())");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_is_empty", {{"set", ref("s")}}))), ".empty()");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_to_list", {{"set", ref("s")}}))), "ball_list_copy(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_union", {{"left", ref("a")}, {"right", ref("b")}}))), "union_(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_intersection", {{"left", ref("a")}, {"right", ref("b")}}))), "intersection(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("set_difference", {{"left", ref("a")}, {"right", ref("b")}}))), "difference(");
+}
+
+TEST(collections_unknown_fn_emits_marker) {
+    ASSERT_CONTAINS(compile_program(build_program(coll("bogus_xyz", {{"list", ref("a")}}))),
+        "/* std_collections.bogus_xyz */");
+}
+
+// ── compile_method_call arms (empty module + `self` field) ──
+// The corpus routes most collection/number/string operations through the
+// positional std_collections forms, leaving compile_method_call's STL-shortcut
+// arms unexercised. Each is a method-style call `{self, arg0, arg1}`.
+
+static json mcall(const std::string& fn,
+                  std::vector<std::pair<std::string, json>> fields) {
+    return call("", fn, make_msg("", std::move(fields)));
+}
+
+TEST(method_string_pad_and_case_helpers) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("padLeft",
+        {{"self", ref("s")}, {"arg0", lit_int(5)}, {"arg1", lit_string("0")}}))),
+        "if(static_cast<int64_t>(s.size())>=w)");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("padRight",
+        {{"self", ref("s")}, {"arg0", lit_int(5)}}))), "std::string r=s; while");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("codeUnitAt",
+        {{"self", ref("s")}, {"arg0", lit_int(0)}}))), "ball_code_unit_at(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("replaceFirst",
+        {{"self", ref("s")}, {"arg0", lit_string("a")}, {"arg1", lit_string("b")}}))),
+        "s.replace(p,f.size(),t)");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("lastIndexOf",
+        {{"self", ref("s")}, {"arg0", lit_string("x")}}))), "s.rfind(p)");
+}
+
+TEST(method_number_helpers) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("toDouble", {{"self", ref("n")}}))),
+        "_ballToDouble(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("truncate", {{"self", ref("n")}}))),
+        "_ballDoubleToInt64(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("toInt", {{"self", ref("n")}}))),
+        "_ballDoubleToInt64(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("toString", {{"self", ref("n")}}))),
+        "ball_to_string(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("abs", {{"self", ref("n")}}))),
+        "std::abs(static_cast<int64_t>(_v))");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("round", {{"self", ref("n")}}))),
+        "std::round(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("ceil", {{"self", ref("n")}}))),
+        "std::ceil(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("floor", {{"self", ref("n")}}))),
+        "std::floor(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("remainder",
+        {{"self", ref("n")}, {"arg0", lit_int(3)}}))), "std::fmod(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("toStringAsFixed",
+        {{"self", ref("n")}, {"arg0", lit_int(2)}}))), "std::setprecision(d)");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("compareTo",
+        {{"self", ref("n")}, {"arg0", lit_int(3)}}))), "a < b ? -1");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("clamp",
+        {{"self", ref("n")}, {"arg0", lit_int(0)}, {"arg1", lit_int(9)}}))), "v < lo ? lo");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("gcd",
+        {{"self", ref("n")}, {"arg0", lit_int(6)}}))), "while(b){auto t=b;b=a%b;a=t;}");
+}
+
+TEST(method_proto_which_and_has_introspection) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("whichExpr", {{"self", ref("e")}}))),
+        "ball_which_expr(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("whichValue", {{"self", ref("e")}}))),
+        "ball_which_value(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("whichKind", {{"self", ref("e")}}))),
+        "ball_which_kind(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("whichSource", {{"self", ref("e")}}))),
+        "ball_which_source(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("whichStmt", {{"self", ref("e")}}))),
+        "ball_which_stmt(");
+    for (const char* fn : {"hasBody", "hasMetadata", "hasInput", "hasCall",
+                           "hasDescriptor", "hasStringValue", "hasResult"}) {
+        ASSERT_CONTAINS(compile_program(build_program(mcall(fn, {{"self", ref("e")}}))),
+            "ball_has_field(");
+    }
+    ASSERT_CONTAINS(compile_program(build_program(mcall("hasMatch",
+        {{"self", ref("re")}, {"arg0", lit_string("x")}}))), "ball_to_regex(");
+}
+
+TEST(method_dart_collection_helpers) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("toList", {{"self", ref("a")}}))),
+        "ball_to_list(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("toSet", {{"self", ref("a")}}))),
+        "ball_to_set(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("where",
+        {{"self", ref("a")}, {"arg0", ref("cb")}}))), "ball_where(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("map",
+        {{"self", ref("a")}, {"arg0", ref("cb")}}))), "ball_map(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("every",
+        {{"self", ref("a")}, {"arg0", ref("cb")}}))), "ball_every(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("addAll",
+        {{"self", ref("a")}, {"arg0", ref("b")}}))), "ball_add_all(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("putIfAbsent",
+        {{"self", ref("m")}, {"arg0", lit_string("k")}, {"arg1", lit_int(1)}}))),
+        "ball_put_if_absent(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("take",
+        {{"self", ref("a")}, {"arg0", lit_int(2)}}))), "ball_take(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("skip",
+        {{"self", ref("a")}, {"arg0", lit_int(2)}}))), "ball_skip(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("sort", {{"self", ref("a")}}))),
+        "std::sort(a.begin(), a.end())");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("sort",
+        {{"self", ref("a")}, {"arg0", ref("cmp")}}))), "std::sort(a.begin(), a.end(), cmp)");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("fromEntries",
+        {{"self", ref("a")}}))), "std::pair<std::string, BallDyn>");
+}
+
+TEST(method_regex_and_util_helpers) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("firstMatch",
+        {{"self", ref("re")}, {"arg0", lit_string("x")}}))), "ball_first_match(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("group",
+        {{"self", ref("mm")}, {"arg0", lit_int(0)}}))), "ball_group(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("allMatches",
+        {{"self", ref("re")}, {"arg0", lit_string("x")}}))), "ball_all_matches(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("tryParse",
+        {{"self", ref("t")}, {"arg0", lit_string("5")}}))), "ball_try_parse(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("unmodifiable",
+        {{"self", ref("t")}, {"arg0", ref("coll")}}))), "coll");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("bind",
+        {{"self", ref("sc")}, {"arg0", lit_string("n")}, {"arg1", lit_int(1)}}))),
+        "ball_scope_bind(");
+}
+
+TEST(method_async_passthrough_helpers) {
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        mcall("value", {{"self", lit_string("Future")}, {"arg0", lit_int(7)}}))))), "7");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("then",
+        {{"self", ref("fut")}, {"arg0", ref("cb")}}))), "(cb)(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("wait",
+        {{"self", ref("futs")}}))), "futs");
+}
+
+TEST(method_bytedata_and_functor_and_cast) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("setUint8",
+        {{"self", ref("bd")}, {"arg0", lit_int(0)}, {"arg1", lit_int(65)}}))),
+        "ball_obj_as<BallByteData>(bd).setUint8(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("getFloat64",
+        {{"self", ref("bd")}, {"arg0", lit_int(0)}}))),
+        "ball_obj_as<BallByteData>(bd).getFloat64(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("call",
+        {{"self", ref("f")}, {"arg0", lit_int(1)}}))), "f(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("cast", {{"self", ref("x")}}))),
+        "cast(x, ");
+    // Unknown method → user-function fallback `fn(self, args)`.
+    ASSERT_CONTAINS(compile_program(build_program(mcall("someUnknownMethodXyz",
+        {{"self", ref("x")}, {"arg0", lit_int(1)}}))), "someUnknownMethodXyz(");
+}
+
+TEST(method_list_of_from_copy) {
+    ASSERT_CONTAINS(compile_program(build_program(mcall("of",
+        {{"self", lit_string("List")}, {"arg0", ref("src")}}))), "ball_list_copy(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("from",
+        {{"self", lit_string("Map")}, {"arg0", ref("src")}}))), "ball_map_copy(");
+    ASSERT_CONTAINS(compile_program(build_program(mcall("filled",
+        {{"self", lit_string("List")}, {"arg0", lit_int(3)}, {"arg1", lit_int(0)}}))),
+        "std::vector<std::any>(");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

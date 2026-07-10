@@ -1,3 +1,10 @@
+# [1.21.0](https://github.com/Ball-Lang/ball/compare/v1.20.0...v1.21.0) (2026-07-10)
+
+
+### Features
+
+* **contrib:** permission-aware skills, hookify guard rails, CONTRIBUTING.md ([#358](https://github.com/Ball-Lang/ball/issues/358)) ([d0a0bd4](https://github.com/Ball-Lang/ball/commit/d0a0bd4d17ef5da917df6492b2ce1f1064f73b88)), closes [#less](https://github.com/Ball-Lang/ball/issues/less) [#5](https://github.com/Ball-Lang/ball/issues/5)
+
 # [1.20.0](https://github.com/Ball-Lang/ball/compare/v1.19.3...v1.20.0) (2026-07-10)
 
 

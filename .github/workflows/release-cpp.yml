@@ -1,0 +1,238 @@
+name: Release C++ binaries
+
+# Issue #368 (epic #361 Wave 3): build the unified `ball` CLI binary (PR #374 —
+# compile/encode/run + self-hosted info/validate/tree/version verbs) for
+# linux-x64 and macos-arm64, checksum it, and attach it to the GitHub Release
+# for the tag that was just cut.
+#
+# NOT triggered by `push: tags:` — semantic-release (release.yml) creates the
+# release + its `vX.Y.Z` tag using the default GITHUB_TOKEN, and GitHub's
+# recursion protection means events produced by GITHUB_TOKEN never trigger
+# other workflows (see release.yml's "Dispatch npm publish" step, and
+# publish-npm.yml's header comment, for the same issue already solved for
+# npm). This workflow is dispatched explicitly, pinned to the fresh tag,
+# exactly like publish-npm.yml. `release: published` is kept as a fallback
+# for a MANUALLY published release (that event is not suppressed).
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+# contents: write is required for `gh release upload` to attach assets to the
+# release this workflow was dispatched for.
+permissions:
+  contents: write
+
+# One release build per tag; a re-dispatch of the same tag replaces assets
+# (--clobber below) rather than racing a duplicate run.
+concurrency:
+  group: release-cpp-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ──────────────────────────────────────────────────
+  # Build the unified `ball` binary with EVERY verb real (compile/encode/run +
+  # the self-hosted info/validate/tree/version verbs) — the same recipe
+  # regression-gates.yml's `cpp-selfhost-tally` job uses to prove the CI
+  # binary, extended with packaging + checksumming. linux-x64 + macos-arm64
+  # per issue #368 ("macos (arm64 at minimum)"); macos-latest is Apple Silicon
+  # (confirmed via actions/runner-images — see PR body).
+  # ──────────────────────────────────────────────────
+  build:
+    name: Build ball (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: macos-latest
+            target: macos-arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+        with:
+          key: release-cpp-${{ matrix.target }}
+          max-size: 1G
+
+      - name: Install nlohmann-json (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
+
+      - name: Install nlohmann-json (macOS)
+        if: runner.os == 'macOS'
+        run: brew install nlohmann-json ninja
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Bootstrap Dart workspace
+        run: cd dart && dart pub get
+
+      # ── Self-host regen, mirroring regression-gates.yml's cpp-selfhost-tally ──
+      - name: Configure CMake (bootstrap compiler)
+        run: cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build ball_cpp_compile
+        run: cmake --build cpp/build --config Release --target ball_cpp_compile
+
+      - name: Generate engine_rt.cpp (self-hosted engine, monolithic)
+        run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+
+      - name: Generate self-hosted CLI core (cli.ball.json + cli_rt.h)
+        run: |
+          cd dart
+          dart run compiler/tool/gen_cli_json.dart
+          dart run compiler/tool/gen_cli_cpp.dart
+
+      - name: Generate CLI parity goldens (Dart-native cli_core)
+        run: cd dart && dart run cli/tool/gen_cli_parity_goldens.dart "${{ github.workspace }}/cpp/build/cli_parity_goldens"
+
+      # Reconfigure: cpp/cli/CMakeLists.txt and cpp/test/CMakeLists.txt gate
+      # the self-hosted sources behind EXISTS checks evaluated at configure
+      # time, so they must re-run now that engine_rt.cpp/cli_rt.h exist.
+      - name: Reconfigure CMake (pick up self-hosted sources)
+        run: cmake -S cpp -B cpp/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build ball + test_cli_parity
+        run: cmake --build cpp/build --config Release --target ball test_cli_parity
+
+      # ── CLI parity/smoke checks ──
+      - name: "Parity gate: compiled cli_core verbs == Dart golden"
+        run: ctest --test-dir cpp/build -C Release -R cli_parity_tests --output-on-failure --no-tests=error
+
+      - name: "Smoke: ball version"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BALL="${{ github.workspace }}/cpp/build/cli/ball"
+          "$BALL" version
+
+      - name: "Smoke: ball run (hello_world, fibonacci, conformance fixture)"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BALL="${{ github.workspace }}/cpp/build/cli/ball"
+
+          out="$("$BALL" run examples/hello_world/hello_world.ball.json)"
+          [ "$out" = "Hello, World!" ] || { echo "::error::hello_world: expected 'Hello, World!', got: $out"; exit 1; }
+
+          out="$("$BALL" run examples/fibonacci/fibonacci.ball.json)"
+          [ "$out" = "55" ] || { echo "::error::fibonacci: expected '55', got: $out"; exit 1; }
+
+          # Trailing-whitespace-insensitive comparison, matching
+          # cpp/test/full_e2e.sh's own convention (this is the exact
+          # commands-run-vs-expected_output.txt proof from PR #374's body).
+          actual="$("$BALL" run tests/conformance/100_complex_control_flow.ball.json | sed -e 's/[[:space:]]*$//')"
+          expected="$(sed -e 's/[[:space:]]*$//' tests/conformance/100_complex_control_flow.expected_output.txt)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::100_complex_control_flow: output mismatch"
+            echo "actual:"; echo "$actual"
+            echo "expected:"; echo "$expected"
+            exit 1
+          fi
+
+      - name: "Smoke: ball info/validate/tree"
+        shell: bash
+        run: |
+          set -euo pipefail
+          BALL="${{ github.workspace }}/cpp/build/cli/ball"
+          "$BALL" info tests/conformance/100_complex_control_flow.ball.json > /dev/null
+          "$BALL" validate tests/conformance/100_complex_control_flow.ball.json > /dev/null
+          "$BALL" tree tests/conformance/100_complex_control_flow.ball.json > /dev/null
+
+      # ── Package + checksum ──
+      - name: Determine release tag
+        id: ver
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if [ -z "$tag" ] || [ "$tag" = "main" ]; then
+            echo "::error::Could not determine a release tag from GITHUB_REF_NAME ('$tag'). This workflow must run against a tag ref (dispatched with --ref vX.Y.Z, or a 'release: published' event)."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Package binary
+        id: pkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ steps.ver.outputs.tag }}"
+          target="${{ matrix.target }}"
+          stage="dist/ball-${tag}-${target}"
+          mkdir -p "$stage"
+          cp cpp/build/cli/ball "$stage/ball"
+          cp LICENSE "$stage/LICENSE"
+          chmod +x "$stage/ball"
+          archive="ball-${tag}-${target}.tar.gz"
+          tar -C dist -czf "$archive" "ball-${tag}-${target}"
+          sha256sum "$archive" > "${archive}.sha256"
+          cat "${archive}.sha256"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      # Attach straight from the matrix leg (each leg's filename is unique, so
+      # concurrent uploads to the same release from linux-x64/macos-arm64
+      # never race each other). --clobber lets a re-dispatched run replace a
+      # previous attempt's assets for the same tag.
+      - name: Upload binary + checksum to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.ver.outputs.tag }}"
+          archive="${{ steps.pkg.outputs.archive }}"
+          gh release upload "$tag" "$archive" "${archive}.sha256" --clobber --repo "${{ github.repository }}"
+
+  # ──────────────────────────────────────────────────
+  # Combine each leg's sha256 sidecar into a single SHA256SUMS.txt for
+  # convenience, attached to the same release. Runs even if one matrix leg
+  # failed (`if: always()`), so a partial release still gets checksums for
+  # whichever platform(s) succeeded — the workflow run still shows red from
+  # the failed leg, this only avoids losing the checksums for the rest.
+  # ──────────────────────────────────────────────────
+  checksums:
+    name: Combined SHA256SUMS.txt
+    needs: build
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Determine release tag
+        id: ver
+        run: echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Download uploaded checksum sidecars
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p sums
+          gh release download "${{ steps.ver.outputs.tag }}" --pattern '*.sha256' --dir sums --repo "${{ github.repository }}"
+
+      - name: Combine into SHA256SUMS.txt
+        run: |
+          set -euo pipefail
+          : > SHA256SUMS.txt
+          for f in sums/*.sha256; do
+            [ -e "$f" ] || continue
+            cat "$f" >> SHA256SUMS.txt
+          done
+          cat SHA256SUMS.txt
+
+      - name: Upload SHA256SUMS.txt to the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.ver.outputs.tag }}" SHA256SUMS.txt --clobber --repo "${{ github.repository }}"

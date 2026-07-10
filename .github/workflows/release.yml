@@ -127,3 +127,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run publish-npm.yml --ref "v${{ steps.semrel.outputs.released_version }}"
+
+      # Same recursion-protection issue as npm publish above: semantic-release's
+      # @semantic-release/github plugin already created the GitHub Release +
+      # `vX.Y.Z` tag using this step's GITHUB_TOKEN, so release-cpp.yml's
+      # `release: published` trigger will never fire for it. Dispatch it
+      # explicitly, pinned to the fresh tag (issue #368).
+      - name: Dispatch C++ binary release for the new release
+        if: steps.semrel.outputs.released_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run release-cpp.yml --ref "v${{ steps.semrel.outputs.released_version }}"

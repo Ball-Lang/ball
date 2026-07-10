@@ -17,20 +17,11 @@
 namespace ball {
 namespace rt {
 
-// Decodes a serialized `google.protobuf.Any` (`type_url` + `value`) that wraps a
-// `ball.v1.Program` or `ball.v1.Module`, using ONLY `ball_protobuf`'s
-// descriptor-driven codecs (no libprotobuf). The Any envelope AND its payload
-// are unmarshaled with the runtime descriptors, then the payload message is
-// re-marshaled to canonical protobuf binary (the bare Program/Module wire bytes,
-// no Any wrapper) and returned.
-//
-// `out_is_program` is set true for a `ball.v1.Program` payload, false for a
-// `ball.v1.Module`. Throws `std::runtime_error` on an unrecognized `type_url`.
-//
-// The returned bytes are handed to google's `ParseFromString` by `ball_file.h`
-// as a Stage-4 bridge (google's binary parse of a message it did not itself
-// serialize); Stage 4 replaces that final materialization with `ball::ir`.
-std::string DecodeAnyPayload(const std::string& any_bytes, bool& out_is_program);
+// (The former `DecodeAnyPayload` — Any → payload re-marshaled to bare
+// Program/Module wire bytes, handed to google's `ParseFromString` as the
+// Stage-4 bridge — was removed with Stage 5's final flip: libprotobuf is gone,
+// so it had no callers left. `DecodeAnyPayloadJson` below is the sole binary
+// entry point.)
 
 // #18 Stage 5 — the final flip. Decodes a serialized `google.protobuf.Any`
 // wrapping a `ball.v1.Program`/`ball.v1.Module` and returns its payload as a

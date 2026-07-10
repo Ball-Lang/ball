@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -399,6 +400,159 @@ TEST(decode_program_on_module_content_throws) {
 TEST(decode_program_valid_program_content) {
     ball::ir::Program p = DecodeProgram("x.ball.json", program_json("direct"));
     ASSERT_EQ(p.name, std::string("direct"));
+}
+
+// ================================================================
+// ball_rt_decode's opaque-payload helpers — DecodeStructJsonB64 /
+// DecodeDescriptorProtoJsonB64 / DecodeEnumDescriptorProtoJsonB64 — direct
+// golden-vector coverage (issue #63). These are ball_file.h's materialization
+// seams for `Struct metadata` / `DescriptorProto descriptor` /
+// `EnumDescriptorProto enums[i]`, carried as opaque TYPE_BYTES by the runtime
+// descriptor and emitted by marshalJson as base64 strings. Before these tests,
+// their entire hand-written machinery in cpp/shared/ball_rt_decode.cpp (the
+// WKT Struct/Value/ListValue wire descriptors, the DescriptorProto/
+// EnumDescriptorProto descriptors with their proto2 explicit-presence marks,
+// and the faithful write_struct_json JSON writer) was exercised only when a
+// binary .ball.pb happened to carry metadata — i.e. never, in any instrumented
+// build. Wire bytes are hand-encoded with the same minimal golden-vector
+// encoder as the Any tests above; base64 TEXT in, JSON text out.
+// ================================================================
+
+// Standard base64 with padding — produces the TEXT form the helpers take
+// (the inverse of the runtime's own `decode(base64, …)`).
+static std::string b64_encode(const std::string& bytes) {
+    static const char* const tbl =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string out;
+    std::size_t i = 0;
+    while (i + 2 < bytes.size()) {
+        uint32_t v = (static_cast<uint8_t>(bytes[i]) << 16) |
+                     (static_cast<uint8_t>(bytes[i + 1]) << 8) |
+                     static_cast<uint8_t>(bytes[i + 2]);
+        out += tbl[(v >> 18) & 63];
+        out += tbl[(v >> 12) & 63];
+        out += tbl[(v >> 6) & 63];
+        out += tbl[v & 63];
+        i += 3;
+    }
+    if (i + 1 == bytes.size()) {
+        uint32_t v = static_cast<uint8_t>(bytes[i]) << 16;
+        out += tbl[(v >> 18) & 63];
+        out += tbl[(v >> 12) & 63];
+        out += "==";
+    } else if (i + 2 == bytes.size()) {
+        uint32_t v = (static_cast<uint8_t>(bytes[i]) << 16) |
+                     (static_cast<uint8_t>(bytes[i + 1]) << 8);
+        out += tbl[(v >> 18) & 63];
+        out += tbl[(v >> 12) & 63];
+        out += tbl[(v >> 6) & 63];
+        out += '=';
+    }
+    return out;
+}
+
+// A varint-typed field (wiretype 0): tag + varint(value).
+static std::string encode_varint_field(int field_number, uint64_t v) {
+    return encode_varint((static_cast<uint64_t>(field_number) << 3) | 0) +
+           encode_varint(v);
+}
+
+// A fixed64 double field (wiretype 1): tag + 8 little-endian IEEE-754 bytes.
+static std::string encode_double_field(int field_number, double v) {
+    std::string out =
+        encode_varint((static_cast<uint64_t>(field_number) << 3) | 1);
+    uint64_t bits = 0;
+    static_assert(sizeof(bits) == sizeof(v), "double must be 64-bit");
+    std::memcpy(&bits, &v, sizeof(bits));
+    for (int b = 0; b < 8; ++b) {
+        out.push_back(static_cast<char>((bits >> (8 * b)) & 0xFF));
+    }
+    return out;
+}
+
+// One google.protobuf.Struct `fields` map entry (field 1, message):
+// MapEntry{ key = 1 (string), value = 2 (google.protobuf.Value message) }.
+static std::string struct_entry(const std::string& key,
+                                const std::string& value_msg) {
+    return encode_len_delim(
+        1, encode_len_delim(1, key) + encode_len_delim(2, value_msg));
+}
+
+TEST(rt_decode_struct_b64_scalar_values) {
+    // {"s":"hi","d":1.5,"b":true,"n":null} — one entry per Value oneof scalar
+    // arm: string_value=3, number_value=2 (fixed64 double), bool_value=4,
+    // null_value=1 (enum, varint 0).
+    std::string s = struct_entry("s", encode_len_delim(3, "hi")) +
+                    struct_entry("d", encode_double_field(2, 1.5)) +
+                    struct_entry("b", encode_varint_field(4, 1)) +
+                    struct_entry("n", encode_varint_field(1, 0));
+    ASSERT_EQ(ball::rt::DecodeStructJsonB64(b64_encode(s)),
+              std::string(R"({"s":"hi","d":1.5,"b":true,"n":null})"));
+}
+
+TEST(rt_decode_struct_b64_nested_list_and_object) {
+    // {"l":[2.5,"x"],"o":{"k":"v"}} — the recursive arms: list_value=6
+    // (ListValue{repeated Value values=1}) and struct_value=5 (nested Struct).
+    std::string list_value_msg =
+        encode_len_delim(1, encode_double_field(2, 2.5)) +
+        encode_len_delim(1, encode_len_delim(3, "x"));
+    std::string inner_struct = struct_entry("k", encode_len_delim(3, "v"));
+    std::string s = struct_entry("l", encode_len_delim(6, list_value_msg)) +
+                    struct_entry("o", encode_len_delim(5, inner_struct));
+    ASSERT_EQ(ball::rt::DecodeStructJsonB64(b64_encode(s)),
+              std::string(R"({"l":[2.5,"x"],"o":{"k":"v"}})"));
+}
+
+TEST(rt_decode_struct_b64_empty_is_empty_object) {
+    ASSERT_EQ(ball::rt::DecodeStructJsonB64(b64_encode(std::string())),
+              std::string("{}"));
+}
+
+TEST(rt_decode_struct_b64_malformed_wire_throws) {
+    // VALID base64 of INVALID wire — a length-delimited field that claims 5
+    // payload bytes but carries 2. The rt unmarshal must reject it, not return
+    // a half-decoded Struct (same fail-loud contract binary_malformed_bytes
+    // pins for the Any path above).
+    std::string bad = encode_len_delim(1, "xx");
+    bad[1] = 0x05;  // lie about the length
+    ASSERT_THROWS_ANY(ball::rt::DecodeStructJsonB64(b64_encode(bad)));
+}
+
+TEST(rt_decode_descriptor_proto_b64) {
+    // DescriptorProto{name:"Point", field:[
+    //   {name:"x",    number:1, label:LABEL_OPTIONAL(1), type:TYPE_INT32(5)},
+    //   {name:"next", number:2, label:LABEL_OPTIONAL(1), type:TYPE_MESSAGE(11),
+    //    type_name:".Point"}]}
+    // Pins: enum value→NAME rendering (label/type), the jsonName pin that keeps
+    // `type_name` snake_case (the shape the encoder/corpus carries), and
+    // message/field key order.
+    std::string f1 = encode_len_delim(1, "x") + encode_varint_field(3, 1) +
+                     encode_varint_field(4, 1) + encode_varint_field(5, 5);
+    std::string f2 = encode_len_delim(1, "next") + encode_varint_field(3, 2) +
+                     encode_varint_field(4, 1) + encode_varint_field(5, 11) +
+                     encode_len_delim(6, ".Point");
+    std::string d = encode_len_delim(1, "Point") + encode_len_delim(2, f1) +
+                    encode_len_delim(2, f2);
+    ASSERT_EQ(
+        ball::rt::DecodeDescriptorProtoJsonB64(b64_encode(d)),
+        std::string(
+            R"({"name":"Point","field":[{"name":"x","number":1,"label":"LABEL_OPTIONAL","type":"TYPE_INT32"},{"name":"next","number":2,"label":"LABEL_OPTIONAL","type":"TYPE_MESSAGE","type_name":".Point"}]})"));
+}
+
+TEST(rt_decode_enum_descriptor_proto_b64_keeps_explicit_zero) {
+    // EnumDescriptorProto{name:"Color", value:[{RED,0},{GREEN,1}]} — RED's
+    // number:0 must SURVIVE to JSON: descriptor.proto is proto2, so the
+    // hand-written descriptor marks number with explicit presence
+    // (features.field_presence=EXPLICIT) precisely so a set-on-the-wire zero
+    // is emitted rather than dropped as a proto3 default.
+    std::string v1 = encode_len_delim(1, "RED") + encode_varint_field(2, 0);
+    std::string v2 = encode_len_delim(1, "GREEN") + encode_varint_field(2, 1);
+    std::string e = encode_len_delim(1, "Color") + encode_len_delim(2, v1) +
+                    encode_len_delim(2, v2);
+    ASSERT_EQ(
+        ball::rt::DecodeEnumDescriptorProtoJsonB64(b64_encode(e)),
+        std::string(
+            R"({"name":"Color","value":[{"name":"RED","number":0},{"name":"GREEN","number":1}]})"));
 }
 
 // ================================================================

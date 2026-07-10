@@ -290,6 +290,45 @@ target_compile_definitions(test_cli PRIVATE
 )
 add_dependencies(test_cli ball_cpp_compile ball_cpp_encode)
 
+# CLI-verb parity gate (issue #367) — the C++ mirror of
+# dart/cli/test/cli_core_parity_test.dart. Built ONLY when the self-hosted
+# cli_core header (dart/self_host/lib/cli_rt.h) has been generated
+# (dart run compiler/tool/gen_cli_cpp.dart); it links that header and asserts
+# the compiled verbs match the Dart-native goldens
+# (dart run cli/tool/gen_cli_parity_goldens.dart <dir>). Skipped otherwise, so
+# the build-isolated main cpp CI job (no Dart, no cli_rt.h) stays green.
+set(BALL_CLI_RT_HDR "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib/cli_rt.h")
+set(BALL_CLI_PARITY_AVAILABLE FALSE)
+if(EXISTS "${BALL_CLI_RT_HDR}")
+    set(BALL_CLI_PARITY_AVAILABLE TRUE)
+    # Single-source the version from the Dart CLI pubspec (matches cpp/cli).
+    set(_cli_pubspec "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/cli/pubspec.yaml")
+    set(_cli_ver "0.0.0")
+    if(EXISTS "${_cli_pubspec}")
+        file(STRINGS "${_cli_pubspec}" _vl REGEX "^version:")
+        if(_vl)
+            string(REGEX REPLACE "^version:[ \t]*" "" _cli_ver "${_vl}")
+            string(STRIP "${_cli_ver}" _cli_ver)
+        endif()
+    endif()
+    add_executable(test_cli_parity test_cli_parity.cpp)
+    target_include_directories(test_cli_parity PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib
+        ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+    )
+    target_compile_definitions(test_cli_parity PRIVATE
+        BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+        BALL_CLI_PARITY_GOLDENS="${CMAKE_BINARY_DIR}/cli_parity_goldens"
+        BALL_CLI_VERSION="${_cli_ver}"
+    )
+    target_compile_options(test_cli_parity PRIVATE
+        $<$<CXX_COMPILER_ID:MSVC>:/W0 /bigobj>
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-w>
+    )
+    set_target_properties(test_cli_parity PROPERTIES
+        CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+endif()
+
 enable_testing()
 add_test(NAME compiler_tests COMMAND test_compiler)
 add_test(NAME cli_tests COMMAND test_cli)
@@ -306,6 +345,12 @@ add_test(NAME ball_dyn_tests COMMAND test_ball_dyn)
 # never counted toward coverage). It's a real pass/fail harness (returns
 # nonzero on any FAIL) — registering it costs nothing and closes that gap.
 add_test(NAME scope_probe_tests COMMAND scope_probe)
+if(BALL_CLI_PARITY_AVAILABLE)
+    # Requires the goldens to be generated first (CI does this before ctest):
+    #   cd dart && dart run cli/tool/gen_cli_parity_goldens.dart \
+    #       "${CMAKE_BINARY_DIR}/cli_parity_goldens"
+    add_test(NAME cli_parity_tests COMMAND test_cli_parity)
+endif()
 if(BALL_SELFHOST_AVAILABLE)
     # One CTest test per conformance fixture: each runs in its OWN PROCESS
     # (CTest's native, cross-platform isolation) on the binary's main thread, so

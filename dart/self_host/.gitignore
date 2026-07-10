@@ -6,6 +6,10 @@ engine.ball.json
 engine.ball.pb
 cli.ball.json
 cli.ball.pb
+# cli_core → C++ library header + its extracted Module ball-file
+# (dart/compiler/tool/gen_cli_cpp.dart) — consumed by cpp/cli.
+cli_module.ball.json
+lib/cli_rt.h
 lib/engine_rt.ts
 lib/engine_smoke.ts
 lib/engine_rt.cpp

@@ -77,3 +77,11 @@ endif()
 
 # Tests
 add_subdirectory(test)
+
+# Unified `ball` CLI (issue #367). Added AFTER `test` so it can link the
+# multi-TU self-host engine object library (ball_selfhost_engine) when present;
+# it otherwise gates `run` on the monolithic engine_rt.cpp and its self-hosted
+# verbs on the generated cli_rt.h (both build without those artifacts, stubbing
+# the affected subcommands, so the main cpp CI job's "build all targets" stays
+# green).
+add_subdirectory(cli)

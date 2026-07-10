@@ -407,11 +407,34 @@ jobs:
       - name: Generate engine_rt.cpp
         run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
 
+      # Issue #367: the unified `ball` CLI's portable verbs (info/validate/tree/
+      # version) are the self-hosted cli_core, library-compiled to
+      # dart/self_host/lib/cli_rt.h. Generate the CLI IR + header here (Dart +
+      # ball_cpp_compile are both available) so the CMake reconfigure below picks
+      # them up and builds `ball` (with real verbs + engine_rt run) and the
+      # parity test.
+      - name: Generate self-hosted CLI core (cli.ball.json + cli_rt.h)
+        run: |
+          cd dart
+          dart run compiler/tool/gen_cli_json.dart
+          dart run compiler/tool/gen_cli_cpp.dart
+
+      - name: Generate CLI parity goldens (Dart-native cli_core)
+        run: cd dart && dart run cli/tool/gen_cli_parity_goldens.dart "${{ github.workspace }}/cpp/ci-build/cli_parity_goldens"
+
       - name: Configure CMake (enable self-host target)
         run: cmake -S cpp -B cpp/ci-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build self-host conformance binary
         run: cmake --build cpp/ci-build --config Release --target test_selfhost_conformance
+
+      # Issue #367: build the unified `ball` CLI + its verb-parity gate, then
+      # assert the compiled cli_core verbs are byte-identical to the Dart CLI.
+      - name: Build ball CLI + parity gate
+        run: cmake --build cpp/ci-build --config Release --target ball test_cli_parity
+
+      - name: Run CLI-verb parity gate (compiled cli_core == Dart golden)
+        run: ctest --test-dir cpp/ci-build -C Release -R cli_parity_tests --output-on-failure --no-tests=error
 
       - name: Run self-host conformance (per-fixture, isolated, via CTest)
         # Each conformance fixture is its own CTest test (label "selfhost"), run

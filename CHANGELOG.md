@@ -1,3 +1,10 @@
+## [1.19.3](https://github.com/Ball-Lang/ball/compare/v1.19.2...v1.19.3) (2026-07-10)
+
+
+### Bug Fixes
+
+* **cpp:** goto-via-switch state machine for labelled switch cases ([#355](https://github.com/Ball-Lang/ball/issues/355)) ([21757af](https://github.com/Ball-Lang/ball/commit/21757af7924ce018bd79aaf6929d10d28593a9ff)), closes [#352](https://github.com/Ball-Lang/ball/issues/352) [#352](https://github.com/Ball-Lang/ball/issues/352) [#345](https://github.com/Ball-Lang/ball/issues/345) [#349](https://github.com/Ball-Lang/ball/issues/349) [#352](https://github.com/Ball-Lang/ball/issues/352) [#354](https://github.com/Ball-Lang/ball/issues/354)
+
 ## [1.19.2](https://github.com/Ball-Lang/ball/compare/v1.19.1...v1.19.2) (2026-07-09)
 
 

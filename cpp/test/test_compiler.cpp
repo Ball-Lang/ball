@@ -2647,6 +2647,45 @@ TEST(cpp_escape_string_all_cases_via_cast_type_arg) {
     ASSERT_CONTAINS(out, "\\\\c");   // escaped backslash
 }
 
+// ── compile_field_access, compile_call argAt fallbacks, compile_lambda ──
+
+TEST(field_access_endian_and_map_values) {
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        field_access(ref("Endian"), "little"))))), "Endian.little");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        field_access(ref("Endian"), "big"))))), "Endian.big");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        field_access(ref("Endian"), "host"))))), "Endian.host()");
+    // `m.values.first` / `m.values.last` -> ball_map_values(...).front()/.back()
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        field_access(field_access(ref("m"), "values"), "first"))))),
+        "ball_map_values(");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        field_access(field_access(ref("m"), "values"), "last"))))), ".back()");
+}
+
+TEST(intrinsic_map_argat_bare_and_named_fallbacks) {
+    // Bare (non-MessageCreation) single-arg input hits argAt's idx==0 path.
+    ASSERT_CONTAINS(compile_program(build_program(
+        call("", "_ballMapValuesDyn", ref("m")))), "ball_map_values(BallDyn(m))");
+    // Named-only field (no argN) hits argAt's named fallback.
+    ASSERT_CONTAINS(compile_program(build_program(
+        call("", "_ballMapKeysDyn", make_msg("", {{"map", ref("m")}})))),
+        "ball_map_keys(BallDyn(m))");
+}
+
+TEST(compile_lambda_body_shapes_capture_analysis) {
+    // A lambda whose body is a field access exercises the FieldAccess arm of
+    // the capture/inner-decl traversal.
+    ASSERT_CONTAINS(compile_program(build_program(
+        lambda_expr(field_access(ref("obj"), "prop")))), "prop");
+    // A lambda whose body is a block with a let + a list literal exercises the
+    // Block-with-let and list-element traversal arms.
+    ASSERT_CONTAINS(compile_program(build_program(
+        lambda_expr(block({stmt_let("lamx", lit_int(1))},
+                          lit_list({ref("lamx"), lit_string("lamuniq")}))))), "lamuniq");
+}
+
 // ================================================================
 // Main
 // ================================================================

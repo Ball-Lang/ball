@@ -2,7 +2,7 @@
 
 # @ball-lang/cli
 
-Command-line interface for the [Ball programming language](https://github.com/ball-lang/ball). Runs Ball programs and performs static capability analysis, powered by [`@ball-lang/engine`](https://www.npmjs.com/package/@ball-lang/engine).
+Command-line interface for the [Ball programming language](https://github.com/ball-lang/ball). Runs Ball programs (`run`, powered by [`@ball-lang/engine`](https://www.npmjs.com/package/@ball-lang/engine)), inspects and validates them (`info`/`validate`/`tree`, powered by the self-hosted `cli_core.dart` verbs compiled through `@ball-lang/compiler`), and performs static capability analysis (`audit`).
 
 > Note: `@ball-lang/cli` depends on a published `@ball-lang/engine`. Keep its dependency range in `package.json` aligned with the current engine major (the engine is at 1.x) so npm can resolve a compatible engine — a stale `^0.3.0` range will not accept engine 1.x.
 
@@ -27,6 +27,34 @@ Execute a Ball program. Writes `std.print` output to stdout.
 ```bash
 ball run examples/hello_world/hello_world.ball.json
 ```
+
+### `ball info <program.ball.json>`
+
+Inspect a Ball program's structure — name, version, entry point, and a per-module breakdown (functions, type definitions, aliases, enums). Computed by the same self-hosted `cli_core.dart` verb the Dart CLI uses, compiled to TypeScript, so the output is byte-identical between the two CLIs.
+
+```bash
+ball info examples/hello_world/hello_world.ball.json
+```
+
+### `ball validate <program.ball.json>`
+
+Check a Ball program's validity (entry point resolves, no duplicate module names, every non-base function has a body or metadata). Prints `Valid: ...` on stdout and exits 0, or `Invalid: N error(s) found` on stderr and exits 1.
+
+```bash
+ball validate examples/hello_world/hello_world.ball.json
+```
+
+### `ball tree <program.ball.json>`
+
+Print the module/import tree — every module with its function count, and every `moduleImports` entry with its resolved source (`http:`, `file:`, `git:`, a registry spec, `inline`, or `ref only`).
+
+```bash
+ball tree examples/hello_world/hello_world.ball.json
+```
+
+### `ball version`
+
+Prints `ball <version>` (same as `--version`/`-v`, see below).
 
 ### `ball audit <program.ball.json>`
 
@@ -64,7 +92,7 @@ Capability categories: `pure`, `io`, `fs`, `process`, `time`, `random`, `memory`
 
 ### `ball --version`
 
-Prints the CLI version.
+Prints `ball <version>` (matches the Dart CLI's `--version`/`-v`/`version` — all three spellings dispatch to the same `cli_core.versionLine`).
 
 ### `ball --help`
 

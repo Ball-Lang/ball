@@ -57,6 +57,18 @@ echo "test_cli exit=$?"
 
 if [ "${BALL_COV_FULL:-0}" = "1" ]; then
   echo "=== running test_e2e (BALL_COV_FULL=1) ==="
+  # test_e2e shells out to a nested `cmake --build` of one mini-project with a
+  # target per conformance fixture. That inner build has NO -j flag, so it
+  # defaults to the generator's all-cores parallelism — which is exactly what
+  # OOM-crashed the shared WSL2 VM when this was first attempted (see
+  # build-cov-build.sh's BALL_COV_JOBS comment). CMAKE_BUILD_PARALLEL_LEVEL is
+  # cmake's env-var equivalent of -j and IS honored by `cmake --build`: cap the
+  # inner build at BALL_COV_JOBS (default 2 here — deliberately lower than the
+  # build default of 4, since fixture TUs embed ball_dyn.h and are compiled
+  # concurrently with this script's own memory footprint). An explicit
+  # CMAKE_BUILD_PARALLEL_LEVEL from the caller wins.
+  export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-${BALL_COV_JOBS:-2}}"
+  echo "(inner fixture builds capped at CMAKE_BUILD_PARALLEL_LEVEL=$CMAKE_BUILD_PARALLEL_LEVEL)"
   ./build-cov/test/test_e2e
   echo "test_e2e exit=$?"
 fi

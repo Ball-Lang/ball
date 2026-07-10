@@ -3,9 +3,20 @@
 # an expected_output.txt, via direct g++ (fast, per-program timeout). Prints a
 # category-tagged failure summary.
 #
-# Usage: full_e2e.sh [--compiler PATH] [--root PATH]
+# Usage: full_e2e.sh [--compiler PATH] [--root PATH] [--fixtures "STEMS"]
 #   --compiler  path to ball_cpp_compile binary (default: auto-detect)
 #   --root      repo root (default: auto-detect from script location)
+#   --fixtures  restrict the run to just these conformance fixture stems (bare
+#               names, no dir, no .ball.json extension), space- or
+#               comma-separated, e.g. --fixtures "400_switch_continue_label
+#               401_foo". Mirrors ts/compiler/test/full_e2e.ts's --fixtures=
+#               filter: used by ci.yml's per-PR gate to compile+run ONLY the
+#               fixtures a PR added/changed (a few seconds) instead of the whole
+#               ~350-fixture corpus — closing the escape class where the
+#               main-only cpp-compiled matrix leg is the only thing that would
+#               catch a PR-introduced regression (see #347). A requested stem
+#               that doesn't exist under tests/conformance/ is a HARD ERROR
+#               (fail loud, never a silent no-op). Omit to run the full corpus.
 set -u
 
 # Auto-detect repo root from script location (works in CI + local dev).
@@ -21,10 +32,14 @@ for d in "$ROOT/cpp/build/compiler" "$ROOT/cpp/build-wsl/compiler"; do
 done
 
 # CLI overrides
+FIXTURES_FILTER=""
+FILTER_ACTIVE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --compiler) COMPILER="$2"; shift 2 ;;
     --root) ROOT="$2"; shift 2 ;;
+    --fixtures) FIXTURES_FILTER="$2"; FILTER_ACTIVE=1; shift 2 ;;
+    --fixtures=*) FIXTURES_FILTER="${1#--fixtures=}"; FILTER_ACTIVE=1; shift ;;
     *) echo "Unknown arg: $1"; exit 1 ;;
   esac
 done
@@ -32,6 +47,32 @@ done
 CONF="$ROOT/tests/conformance"
 [[ -n "$COMPILER" ]] || { echo "ERROR: ball_cpp_compile not found. Build first."; exit 1; }
 [[ -x "$COMPILER" ]] || { echo "ERROR: $COMPILER is not executable."; exit 1; }
+
+# Optional --fixtures filter: resolve the requested stems to a set, failing loud
+# on any stem that has no tests/conformance/<stem>.ball.json (same hard-error
+# semantics as ts/compiler/test/full_e2e.ts — never a silent no-op). Accepts
+# space- and/or comma-separated stems.
+declare -A WANT
+if [[ $FILTER_ACTIVE -eq 1 ]]; then
+  missing=()
+  for stem in ${FIXTURES_FILTER//,/ }; do
+    [[ -z "$stem" ]] && continue
+    if [[ -f "$CONF/$stem.ball.json" ]]; then
+      WANT["$stem"]=1
+    else
+      missing+=("$stem")
+    fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "::error::--fixtures requested fixture(s) not found in $CONF: ${missing[*]}"
+    exit 1
+  fi
+  if [[ ${#WANT[@]} -eq 0 ]]; then
+    echo "::error::--fixtures was given but resolved to zero fixtures (empty argument?)"
+    exit 1
+  fi
+  echo "C++ e2e FILTERED — ${#WANT[@]} requested fixture(s): ${!WANT[*]}"
+fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
@@ -44,14 +85,25 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # this compiled path skips them, and the skip is logged loudly below (never
 # silent). Keep the list tiny + justified; delete an entry the moment the
 # compiler supports it.
-# (empty — 312_collection_for_capture was the last entry; fixed by boxing the
-# C-style collection_for's loop var, mirroring the statement-`for`'s existing
-# shared_ptr cell + per-iteration shadow. Issue #69.)
-CPP_COMPILE_CARVEOUTS=()
+# (312_collection_for_capture was fixed by boxing the C-style collection_for's
+# loop var, mirroring the statement-`for`'s existing shared_ptr cell +
+# per-iteration shadow — issue #69.)
+#
+# 400_switch_continue_label (#352): the Ball->C++ compiler lowers `switch` to an
+# if/else-if chain, which cannot express Dart's `continue <label>` (a goto into a
+# labelled case body that then falls onward with no subject re-check). It emits
+# `goto __ball_continue_<label>` with no matching label -> g++ "label used but
+# not defined". Needs the switch lowered as a goto-based state machine (the same
+# transform Rust landed in #349); the reference Dart engine, TS compiler (#345),
+# and the C++ self-host ENGINE all run this fixture — only this compiled path
+# can't yet. Delete this entry the moment #352 is fixed.
+CPP_COMPILE_CARVEOUTS=(400_switch_continue_label)
 _is_carved() { local n="$1" c; for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 
 for prog in "$CONF"/*.ball.json; do
   name="$(basename "$prog" .ball.json)"
+  # When a --fixtures filter is active, run only the requested stems.
+  if [[ $FILTER_ACTIVE -eq 1 && -z "${WANT[$name]:-}" ]]; then continue; fi
   exp="$CONF/$name.expected_output.txt"
   [[ -f "$exp" ]] || { ((skip++)); continue; }
   if _is_carved "$name"; then ((carved++)); continue; fi

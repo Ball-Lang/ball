@@ -447,6 +447,31 @@ jobs:
       - name: Run tests
         run: ctest --test-dir cpp/build --output-on-failure -C Release
 
+      # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
+      # leg (avoids tripling cost across the 3-OS matrix). The full-corpus
+      # cpp/test/full_e2e.sh sweep (Ball IR -> native C++ via ball_cpp_compile ->
+      # g++ -> run, diffed against golden output) otherwise runs ONLY on
+      # push-to-main + weekly, inside conformance-matrix.yml's cpp-compiled job —
+      # so a PR-introduced conformance regression on the compiled C++ leg could
+      # merge green and only turn red after landing on main (this is exactly how
+      # the C++ Compiled leg was red for days post-#302 before anyone noticed).
+      # ball_cpp_compile is already built by the "Build all targets" step above,
+      # so this adds only the marginal cost of compiling+running the changed
+      # fixtures with g++ (seconds to low minutes), NOT a second CMake build.
+      # `needs.changes` computed which conformance fixtures this PR added/changed
+      # vs the merge-base (or the `ALL` fail-open sentinel when it couldn't
+      # determine a diff base) — run full_e2e.sh against just those. See #347.
+      - name: "C++ compiled e2e — new/changed fixtures only (closes main-only-leg escape class)"
+        if: ${{ runner.os == 'Linux' && needs.changes.outputs.changed_fixtures != '' }}
+        run: |
+          if [ "${{ needs.changes.outputs.changed_fixtures }}" = "ALL" ]; then
+            echo "No usable diff base upstream — running the FULL full_e2e.sh sweep."
+            bash cpp/test/full_e2e.sh
+          else
+            echo "Running full_e2e.sh for changed fixtures: ${{ needs.changes.outputs.changed_fixtures }}"
+            bash cpp/test/full_e2e.sh --fixtures "${{ needs.changes.outputs.changed_fixtures }}"
+          fi
+
   # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
   # through the REAL protobuf conformance_test_runner for the proto2, proto3,

@@ -12,8 +12,8 @@ All C++ test executables: compiler unit tests, encoder unit tests, self-hosted e
 | `test_encoder.cpp` | Encoder tests — hand-crafted minimal ASTs, clang-shaped ASTs, and committed real clang AST fixtures under `tests/fixtures/cpp_ast/` |
 | `test_selfhost_conformance.cpp` | Self-hosted engine conformance — runs every `tests/conformance/*.ball.json` through the compiled engine_rt; returns non-zero on any failure |
 | `test_ball_ir.cpp` | Tests for the protobuf-free `ball::ir` representation — round-trips the whole conformance corpus through `parseProgramString`/`toJson` |
-| `test_ball_ir_descriptor.cpp` | Dedicated coverage for `ball_ir.h`'s hand-rolled `DescriptorProto`/`EnumDescriptorProto` JSON builder (#18 P4) — the only test binary that links libprotobuf as an oracle to verify it |
-| `test_ball_file.cpp` | Direct unit coverage for `ball_file.h`'s self-describing `google.protobuf.Any` envelope reader, including its malformed/wrong-kind error branches |
+| `test_ball_ir_descriptor.cpp` | Dedicated coverage for `ball_ir.h`'s hand-rolled `DescriptorProto`/`EnumDescriptorProto` JSON builder (#18 P4) — pins output against golden proto3-JSON via nlohmann equality (the libprotobuf oracle retired with #18 Stage 5) |
+| `test_ball_file.cpp` | Direct unit coverage for `ball_file.h`'s self-describing `google.protobuf.Any` envelope reader (malformed/wrong-kind error branches) plus `ball_rt_decode.cpp`'s opaque-payload helpers (`DecodeStructJsonB64`/`DecodeDescriptorProtoJsonB64`/`DecodeEnumDescriptorProtoJsonB64`) via hand-encoded golden wire vectors |
 | `test_ball_dyn.cpp` | Direct unit coverage for the compiled-program runtime (`ball_dyn.h`/`ball_emit_runtime.h`): `BallDyn`, `BallOrderedMap`, `BallStringBuffer`, and the `File`/`Directory` std_fs backing — none of this is exercised by test_compiler/test_encoder/test_shared (those drive the compiler/encoder, not the emitted-program runtime) |
 | `test_shared.cpp` | Covers `ball_shared.cpp`'s std-module descriptor builders and the `ball_shared.h` value-conversion helpers (`to_int`/`to_string`/`values_equal`/etc.) that compiler-emitted code calls |
 | `test_cli.cpp` | Subprocess-invokes the real `ball_cpp_compile`/`ball_cpp_encode` executables — the only coverage for `cpp/{compiler,encoder}/src/main.cpp` |
@@ -32,4 +32,4 @@ All C++ test executables: compiler unit tests, encoder unit tests, self-hosted e
 
 ## Dependencies
 - Internal: `ball_shared`, `compiler` (for compiler tests), `encoder` (for encoder tests), `dart/self_host/lib/engine_rt.cpp` (included directly by the conformance test).
-- External: protobuf (`google/protobuf`).
+- External: nlohmann/json (libprotobuf is gone since #18 Stage 5 — the C++ build is protobuf-free).

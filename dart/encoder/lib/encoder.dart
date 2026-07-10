@@ -3836,6 +3836,12 @@ class DartEncoder {
         'hasName': 'hasName',
         'hasModule': 'hasModule',
         'hasFunction': 'hasFunction',
+        // ModuleImport oneof-source presence checks (used by `ball tree`).
+        'hasHttp': 'hasHttp',
+        'hasFile': 'hasFile',
+        'hasGit': 'hasGit',
+        'hasRegistry': 'hasRegistry',
+        'hasInline': 'hasInline',
       };
       if (protoRoutes.containsKey(methodName)) {
         final protoFn = protoRoutes[methodName]!;

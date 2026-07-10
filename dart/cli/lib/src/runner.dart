@@ -27,6 +27,7 @@ import 'package:ball_base/ball_base.dart'
         encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/capability_analyzer.dart';
+import 'package:ball_base/cli_core.dart' as cli_core;
 import 'package:ball_base/termination_analyzer.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
@@ -36,7 +37,13 @@ import 'package:ball_engine/engine.dart';
 import 'package:ball_resolver/ball_resolver.dart';
 import 'package:yaml/yaml.dart';
 
-const _version = '0.1.0';
+import '../version.g.dart';
+
+/// The CLI version reported by `ball version`. Single-sourced from
+/// `pubspec.yaml` (issue #363) via `dart run tool/gen_version.dart`; the CI
+/// drift guard (`--check`) fails if this diverges from the published package
+/// version.
+const _version = ballCliVersion;
 
 /// Internal control-flow exception standing in for `exit(code)`. Thrown from a
 /// command, caught by [runBall], and returned as the process exit code.
@@ -109,7 +116,7 @@ Future<void> _dispatch(
     case 'version':
     case '--version':
     case '-v':
-      out.writeln('ball $_version');
+      out.writeln(cli_core.versionLine(_version));
     case 'help':
     case '--help':
     case '-h':
@@ -170,29 +177,7 @@ void _info(List<String> args, StringSink out, StringSink err) {
   }
 
   final program = _loadProgram(args[0], err);
-
-  out.writeln('Program: ${program.name} v${program.version}');
-  out.writeln('Entry:   ${program.entryModule}.${program.entryFunction}');
-  out.writeln('Modules: ${program.modules.length}');
-  out.writeln('');
-
-  for (final module in program.modules) {
-    final isBase = module.functions.every((f) => f.isBase);
-    out.writeln('  ${module.name}${isBase ? " (base)" : ""}');
-    if (module.typeDefs.isNotEmpty) {
-      out.writeln('    typeDefs:  ${module.typeDefs.length}');
-    }
-    if (module.typeAliases.isNotEmpty) {
-      out.writeln('    aliases:   ${module.typeAliases.length}');
-    }
-    if (module.enums.isNotEmpty) {
-      out.writeln('    enums:     ${module.enums.length}');
-    }
-    out.writeln('    functions: ${module.functions.length}');
-    if (module.description.isNotEmpty) {
-      out.writeln('    desc:      ${module.description}');
-    }
-  }
+  out.writeln(cli_core.infoReport(program));
 }
 
 // ── validate ─────────────────────────────────────────────
@@ -204,70 +189,11 @@ void _validate(List<String> args, StringSink out, StringSink err) {
   }
 
   final program = _loadProgram(args[0], err);
-  final errors = <String>[];
-
-  if (program.entryModule.isEmpty) {
-    errors.add('Missing entry_module');
-  }
-  if (program.entryFunction.isEmpty) {
-    errors.add('Missing entry_function');
-  }
-
-  if (program.entryModule.isNotEmpty && program.entryFunction.isNotEmpty) {
-    final entryMod = program.modules
-        .where((m) => m.name == program.entryModule)
-        .firstOrNull;
-    if (entryMod == null) {
-      errors.add('Entry module "${program.entryModule}" not found in modules');
-    } else {
-      final entryFunc = entryMod.functions
-          .where((f) => f.name == program.entryFunction)
-          .firstOrNull;
-      if (entryFunc == null) {
-        errors.add(
-          'Entry function "${program.entryFunction}" not found '
-          'in module "${program.entryModule}"',
-        );
-      }
-    }
-  }
-
-  for (var i = 0; i < program.modules.length; i++) {
-    final m = program.modules[i];
-    if (m.name.isEmpty) {
-      errors.add('Module at index $i has no name');
-    }
-  }
-
-  final moduleNames = <String>{};
-  for (final m in program.modules) {
-    if (m.name.isNotEmpty && !moduleNames.add(m.name)) {
-      errors.add('Duplicate module name: "${m.name}"');
-    }
-  }
-
-  // Check non-base functions have a body or metadata.
-  for (final m in program.modules) {
-    for (final f in m.functions) {
-      if (!f.isBase && !f.hasBody() && !f.hasMetadata()) {
-        errors.add(
-          '${m.name}.${f.name}: non-base function with no body or metadata',
-        );
-      }
-    }
-  }
-
-  if (errors.isEmpty) {
-    out.writeln('Valid: "${program.name}" v${program.version}');
-    out.writeln(
-      '  ${program.modules.length} modules, '
-      '${program.modules.fold<int>(0, (s, m) => s + m.functions.length)} functions',
-    );
+  final report = cli_core.validateReport(program);
+  if (cli_core.validateOk(program)) {
+    out.writeln(report);
   } else {
-    err.writeln('Invalid: ${errors.length} error(s) found');
-    for (final e in errors) {
-      err.writeln('  - $e');
-    }
+    err.writeln(report);
     throw const _CliExit(1);
   }
 }
@@ -570,9 +496,24 @@ void _audit(List<String> args, StringSink out, StringSink err) {
   // Audit a Program directly, or a library Module (e.g. ball_protobuf) as the
   // Module it is — together with its inline module_imports. No synthetic
   // Program is fabricated for a Module.
+  final ballFile = _loadBallFile(inputPath, err);
+
+  // Fast path: a plain `ball audit <program.ball.json>` with default options
+  // delegates to the shared `cli_core.auditReport` verb (one implementation),
+  // producing output byte-identical to the general path below.
+  if (ballFile is BallProgramFile &&
+      outputPath == null &&
+      !reachableOnly &&
+      checkTermination &&
+      !exitCode &&
+      deny.isEmpty) {
+    out.write(cli_core.auditReport(ballFile.program));
+    return;
+  }
+
   final BallCapabilityReport report;
   final TerminationReport Function() runTermination;
-  switch (_loadBallFile(inputPath, err)) {
+  switch (ballFile) {
     case BallProgramFile(:final program):
       report = analyzeCapabilities(program, reachableOnly: reachableOnly);
       runTermination = () => analyzeTermination(program);
@@ -1161,26 +1102,5 @@ void _tree(List<String> args, StringSink out, StringSink err) {
   }
 
   final program = _loadProgram(inputPath, err);
-  out.writeln('${program.name} v${program.version}');
-
-  for (final m in program.modules) {
-    final isBase = m.functions.every((f) => f.isBase) && m.functions.isNotEmpty;
-    final tag = isBase ? ' (base)' : '';
-    final fnCount = m.functions.length;
-    out.writeln('  ${m.name}$tag — $fnCount functions');
-    for (final imp in m.moduleImports) {
-      final source = imp.hasHttp()
-          ? 'http: ${imp.http.url}'
-          : imp.hasFile()
-          ? 'file: ${imp.file.path}'
-          : imp.hasGit()
-          ? 'git: ${imp.git.url}@${imp.git.ref}'
-          : imp.hasRegistry()
-          ? '${imp.registry.registry.name}: ${imp.registry.package}@${imp.registry.version}'
-          : imp.hasInline()
-          ? 'inline'
-          : 'ref only';
-      out.writeln('    → ${imp.name} ($source)');
-    }
-  }
+  out.writeln(cli_core.treeReport(program));
 }

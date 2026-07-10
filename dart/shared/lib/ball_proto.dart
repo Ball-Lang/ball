@@ -84,6 +84,12 @@ Module buildBallProtoModule() {
       'name',
       'module',
       'function',
+      // ModuleImport oneof-source presence checks (used by `ball tree`).
+      'http',
+      'file',
+      'git',
+      'registry',
+      'inline',
     ]),
 
     // ── Struct field access ──────────────────────────────────────

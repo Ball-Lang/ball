@@ -10,6 +10,8 @@ Self-hosting validation harness: the Dart engine encoded **as a Ball program**, 
 |------|-------------|
 | `engine.ball.json` | Engine self-encoded as a Ball `Program` (proto3-JSON, `Any` envelope) — **generated** |
 | `engine.ball.pb` | Binary protobuf form of the above — **generated** |
+| `cli.ball.json` | Portable CLI verbs (`dart/shared/lib/cli_core.dart`) self-encoded as a Ball `Program` — **generated** by `compiler/tool/gen_cli_json.dart` |
+| `cli.ball.pb` | Binary protobuf form of the above — **generated** |
 | `lib/engine_roundtrip.dart` | Ball→Dart compiled engine — **generated** |
 | `lib/engine_rt.cpp` / `engine_rt/` shards / `engine_rt_link.hpp` | Ball→C++ compiled engine — **generated** |
 | `lib/engine_rt.ts` / `engine_smoke.ts` | Ball→TS compiled engine + smoke — **generated** |

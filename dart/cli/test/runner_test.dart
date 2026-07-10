@@ -16,8 +16,31 @@ import 'package:ball_base/ball_base.dart'
     show encodeBallFileBinary, encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_cli/src/runner.dart';
+import 'package:ball_cli/version.g.dart';
 import 'package:ball_encoder/encoder.dart';
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
+
+/// The `version:` from the ball_cli package's `pubspec.yaml`, located by
+/// walking up from the current directory. Used to assert `ball version` and the
+/// generated [ballCliVersion] never drift from the published package (#363).
+String _pubspecVersion() {
+  var dir = Directory.current;
+  while (true) {
+    final pubspec = File('${dir.path}/pubspec.yaml');
+    if (pubspec.existsSync()) {
+      final text = pubspec.readAsStringSync();
+      if (text.contains('name: ball_cli')) {
+        return (loadYaml(text) as YamlMap)['version'].toString();
+      }
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) {
+      throw StateError('Could not locate the ball_cli pubspec.yaml');
+    }
+    dir = parent;
+  }
+}
 
 void main() {
   late Directory tmp;
@@ -91,10 +114,15 @@ void main() {
       test('$flag prints version', () async {
         final (code, out, err) = await run([flag]);
         expect(code, 0);
-        expect(out.trim(), 'ball 0.1.0');
+        // Single-sourced from pubspec.yaml (issue #363) — must never drift.
+        expect(out.trim(), 'ball ${_pubspecVersion()}');
         expect(err, isEmpty);
       });
     }
+
+    test('reported version matches pubspec.yaml (issue #363)', () {
+      expect(ballCliVersion, _pubspecVersion());
+    });
 
     test('default sinks: runBall with no out/err writes to stdout', () async {
       // Exercises the `out ??= stdout` / `err ??= stderr` defaults. `version`

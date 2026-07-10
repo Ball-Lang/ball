@@ -214,6 +214,18 @@ jobs:
       - name: Resolver tests
         run: cd dart/resolver && dart test
 
+      # The `ball` CLI version is single-sourced from pubspec.yaml (#363);
+      # fail if the generated lib/version.g.dart drifted from the package.
+      - name: CLI version drift check (#363)
+        run: cd dart/cli && dart run tool/gen_version.dart --check
+
+      # cli.ball.json (+ .pb) is a generated, gitignored artifact — like
+      # engine.ball.json — so self-encode cli_core here. The parity gate in the
+      # CLI suite below then executes the portable verbs (info/validate/tree/
+      # version) on the Ball engine and asserts byte-identical output vs native.
+      - name: Generate self-hosted cli.ball.json (parity-gate input)
+        run: cd dart && dart run compiler/tool/gen_cli_json.dart
+
       # dart/cli (depends on ball_compiler/ball_encoder/ball_engine/
       # ball_resolver, tested above). `--exclude-tags network` excludes only
       # the one test that hits the real pub.dev registry (ball_add's

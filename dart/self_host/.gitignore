@@ -4,6 +4,8 @@
 # repo doesn't balloon; CI regenerates them for validation.
 engine.ball.json
 engine.ball.pb
+cli.ball.json
+cli.ball.pb
 lib/engine_rt.ts
 lib/engine_smoke.ts
 lib/engine_rt.cpp

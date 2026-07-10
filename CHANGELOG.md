@@ -1,3 +1,10 @@
+# [1.25.0](https://github.com/Ball-Lang/ball/compare/v1.24.0...v1.25.0) (2026-07-10)
+
+
+### Features
+
+* **ts/cli:** adopt compiled cli-core for info/validate/tree/version ([#364](https://github.com/Ball-Lang/ball/issues/364)) ([#373](https://github.com/Ball-Lang/ball/issues/373)) ([add7d38](https://github.com/Ball-Lang/ball/commit/add7d383698f3ca31cf0c3c9b8695bc90d5c3037)), closes [#362](https://github.com/Ball-Lang/ball/issues/362)
+
 # [1.24.0](https://github.com/Ball-Lang/ball/compare/v1.23.0...v1.24.0) (2026-07-10)
 
 

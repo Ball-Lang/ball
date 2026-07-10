@@ -1,0 +1,138 @@
+name: Claude autonomous iterate
+
+# Scheduled autonomous /ball-iterate: once a week (plus manual dispatch with
+# a target override) Claude audits one language target and files what it
+# finds. Deliberately CONSERVATIVE scope for unattended runs:
+#   - runs the ball-iterate audit (read-only) for ONE target,
+#   - verifies existing issue references before filing anything,
+#   - files/refreshes GitHub issues for genuine findings,
+#   - may open AT MOST ONE small, bounded fix PR (checks must pass),
+#   - NEVER merges anything (contributor-tier discipline from
+#     .claude/skills/ball-iterate/SKILL.md §0 applies to bots too).
+#
+# AUTH — Max/Pro subscription tokens (no API credits), THREE accounts with
+# weekly-rotating primary + failover (no public API exposes remaining
+# subscription quota, so rotation+failover approximates "use the account
+# with limits left"). Setup (one-time, per account, run BY A HUMAN):
+#   1. `claude setup-token` while logged into that account (Pro/Max only)
+#   2. gh secret set CLAUDE_CODE_OAUTH_TOKEN_<N> --repo Ball-Lang/ball   (N = 0,1,2)
+
+on:
+  schedule:
+    - cron: "0 8 * * 2" # Weekly, Tuesday 08:00 UTC (after Monday's slow-conformance + matrix runs)
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Language target to iterate (dart|ts|cpp|rust)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+  actions: read
+
+concurrency:
+  group: claude-iterate
+  cancel-in-progress: false
+
+jobs:
+  iterate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      # Rotate target through the week number unless the dispatch chose one,
+      # and rotate the primary account the same way (offset so target and
+      # account rotations don't stay phase-locked).
+      - name: Pick target and token order
+        id: pick
+        env:
+          OVERRIDE: ${{ github.event.inputs.target }}
+        run: |
+          week=$(( 10#$(date -u +%V) ))
+          if [ -n "$OVERRIDE" ]; then
+            echo "target=$OVERRIDE" >> "$GITHUB_OUTPUT"
+          else
+            targets=(dart ts cpp rust)
+            echo "target=${targets[$(( week % 4 ))]}" >> "$GITHUB_OUTPUT"
+          fi
+          i0=$(( (week + 1) % 3 )); i1=$(( (week + 2) % 3 )); i2=$(( week % 3 ))
+          { echo "i0=$i0"; echo "i1=$i1"; echo "i2=$i2"; } >> "$GITHUB_OUTPUT"
+
+      - name: Compose prompt
+        id: prompt
+        env:
+          TARGET: ${{ steps.pick.outputs.target }}
+        run: |
+          {
+            echo "text<<BALL_EOF"
+            cat <<PROMPT
+          You are running the Ball repo's autonomous weekly iteration for the
+          "$TARGET" target, in a GitHub Actions sandbox (Linux, no WSL).
+          Binding contracts — read BOTH first:
+          .claude/skills/ball-iterate/SKILL.md and CONTRIBUTING.md.
+
+          Scope for this unattended run (a strict subset of ball-iterate):
+          1. Run the SKILL.md section-1 gap audit for $TARGET as INLINE
+             read-only analysis (files/CI configs/recent runs/issues — no
+             subagent workflows are available here, and run NO builds beyond
+             what a small fix PR needs to verify itself).
+          2. Apply section-2 staleness verification to every issue you would
+             reference (the gh CLI is authenticated here).
+          3. File or refresh GitHub issues for genuine NEW findings
+             (severity + evidence + suggested action; never duplicate an
+             open issue — search first).
+          4. Optionally open AT MOST ONE small, bounded fix PR for the single
+             highest-value small finding: failing-before test, fail loud,
+             never edit generated files (regenerate), conventional commit,
+             PR body says "advances #N" unless acceptance criteria are fully
+             met. Run the affected stack's fast test suite before pushing.
+             If nothing is safely small, file issues only.
+          5. NEVER merge anything. End by posting a run summary comment on a
+             tracking issue titled "Autonomous iterate report — $TARGET"
+             (create it if none exists), listing findings, issues filed, and
+             the PR if any.
+          PROMPT
+            echo "BALL_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Claude (primary account)
+        id: try0
+        continue-on-error: true
+        uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
+        with:
+          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i0)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          track_progress: true
+
+      - name: Claude (failover account 2)
+        id: try1
+        if: steps.try0.outcome == 'failure'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
+        with:
+          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i1)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          track_progress: true
+
+      - name: Claude (failover account 3)
+        id: try2
+        if: steps.try0.outcome == 'failure' && steps.try1.outcome == 'failure'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
+        with:
+          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i2)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
+          prompt: ${{ steps.prompt.outputs.text }}
+          track_progress: true
+
+      - name: Fail if all accounts failed
+        if: steps.try0.outcome == 'failure' && steps.try1.outcome == 'failure' && steps.try2.outcome == 'failure'
+        run: |
+          echo "::error::All three Claude accounts failed (rate limits or a real error — check the three attempts above)."
+          exit 1

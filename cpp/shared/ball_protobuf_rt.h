@@ -115,6 +115,21 @@ inline std::string ball_to_string(double d) {
     oss.precision(15);
     oss << d;
     auto s = oss.str();
+    // Dart's double.toString() is SHORTEST-ROUND-TRIP: some doubles need 16-17
+    // significant digits (π printed as 3.14159265358979 at fixed precision 15
+    // no longer parses back to π — found by the #18 stage-5 pb-vs-json engine
+    // emission diff, where Literal doubles take a decode→jsonEncode→parse trip).
+    // Keep 15 digits whenever they round-trip (output identical to before);
+    // otherwise bump precision until the text parses back to the exact bits.
+    if (std::strtod(s.c_str(), nullptr) != d) {
+        for (int prec = 16; prec <= 17; ++prec) {
+            std::ostringstream o2;
+            o2.precision(prec);
+            o2 << d;
+            s = o2.str();
+            if (std::strtod(s.c_str(), nullptr) == d) break;
+        }
+    }
     if (s.find('.') != std::string::npos) {
         while (s.size() > 1 && s.back() == '0') s.pop_back();
         if (s.back() == '.') s.push_back('0');
@@ -5572,8 +5587,10 @@ inline bool ball_is_function(BallDyn& v) { return ball_is_function(static_cast<c
 
 // ball_set with BallDyn keys: handled by wrapping key in ball_to_string() at call site
 
-// ball_set is used with comma operator for expression context:
-// (ball_set(obj, key, val), val)  — sets and returns the value
+// Expression-context assignment lowers to a single-evaluation IIFE:
+// [&]() { auto __ball_av = val; ball_set(obj, key, __ball_av); return __ball_av; }()
+// (the old comma form `(ball_set(obj, key, val), val)` evaluated val TWICE —
+// doubled side effects and exponential blowup on recursive builders)
 
 // cast helper (Dart as operator — no-op in dynamic C++)
 inline BallDyn cast(const BallDyn& v, const std::string&) { return v; }
@@ -6066,7 +6083,7 @@ const auto _wtSGroup = static_cast<int64_t>(3);
 const auto _wtEGroup = static_cast<int64_t>(4);
 const auto _wtI32 = static_cast<int64_t>(5);
 const auto unknownFieldsKey = "$unknown"s;
-inline auto _ballinit__wktWrappers() { return [&]() { BallOrderedMap __m; __m[ball_to_string("google.protobuf.DoubleValue"s)] = std::any("TYPE_DOUBLE"s); __m[ball_to_string("google.protobuf.FloatValue"s)] = std::any("TYPE_FLOAT"s); __m[ball_to_string("google.protobuf.Int64Value"s)] = std::any("TYPE_INT64"s); __m[ball_to_string("google.protobuf.UInt64Value"s)] = std::any("TYPE_UINT64"s); __m[ball_to_string("google.protobuf.Int32Value"s)] = std::any("TYPE_INT32"s); __m[ball_to_string("google.protobuf.UInt32Value"s)] = std::any("TYPE_UINT32"s); __m[ball_to_string("google.protobuf.BoolValue"s)] = std::any("TYPE_BOOL"s); __m[ball_to_string("google.protobuf.StringValue"s)] = std::any("TYPE_STRING"s); __m[ball_to_string("google.protobuf.BytesValue"s)] = std::any("TYPE_BYTES"s); return __m; }(); }
+inline auto _ballinit__wktWrappers() { return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("google.protobuf.DoubleValue"s)] = std::any("TYPE_DOUBLE"s); __m[ball_to_string("google.protobuf.FloatValue"s)] = std::any("TYPE_FLOAT"s); __m[ball_to_string("google.protobuf.Int64Value"s)] = std::any("TYPE_INT64"s); __m[ball_to_string("google.protobuf.UInt64Value"s)] = std::any("TYPE_UINT64"s); __m[ball_to_string("google.protobuf.Int32Value"s)] = std::any("TYPE_INT32"s); __m[ball_to_string("google.protobuf.UInt32Value"s)] = std::any("TYPE_UINT32"s); __m[ball_to_string("google.protobuf.BoolValue"s)] = std::any("TYPE_BOOL"s); __m[ball_to_string("google.protobuf.StringValue"s)] = std::any("TYPE_STRING"s); __m[ball_to_string("google.protobuf.BytesValue"s)] = std::any("TYPE_BYTES"s); return BallDyn(std::move(__m)); }(); }
 const auto _wktWrappers = _ballinit__wktWrappers();
 inline auto _ballinit__wktStructural() { return [&]() -> BallDyn { BallList __r; __r.push_back(std::any(BallDyn("google.protobuf.Timestamp"s))); __r.push_back(std::any(BallDyn("google.protobuf.Duration"s))); __r.push_back(std::any(BallDyn("google.protobuf.FieldMask"s))); __r.push_back(std::any(BallDyn("google.protobuf.Struct"s))); __r.push_back(std::any(BallDyn("google.protobuf.Value"s))); __r.push_back(std::any(BallDyn("google.protobuf.ListValue"s))); return ball_make_set(__r); }(); }
 const auto _wktStructural = _ballinit__wktStructural();
@@ -6199,7 +6216,7 @@ BallDyn decodeVarint(BallDyn buffer, int64_t offset) {
             throw _ball_make_exception("FormatException"s, ("Varint exceeds maximum length of 10 bytes at offset "s + ball_to_string(offset)));
         }
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(result); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(result); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -6236,7 +6253,7 @@ BallDyn decodeFixed32(BallDyn buffer, int64_t offset) {
     }
     auto value = BallDyn((((static_cast<BallDyn>(buffer)[offset] | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(1))] << static_cast<int64_t>(8))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(2))] << static_cast<int64_t>(16))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(3))] << static_cast<int64_t>(24))));
     ball_assign(value, (value & static_cast<int64_t>(4294967295)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -6258,7 +6275,7 @@ BallDyn decodeFixed64(BallDyn buffer, int64_t offset) {
         throw _ball_make_exception("RangeError"s, ((("Not enough bytes to decode fixed64 at offset "s + ball_to_string(offset)) + " "s) + (("(need 8, have "s + ball_to_string((ball_length(buffer) - offset))) + ")"s)));
     }
     auto value = BallDyn((((((((static_cast<BallDyn>(buffer)[offset] | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(1))] << static_cast<int64_t>(8))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(2))] << static_cast<int64_t>(16))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(3))] << static_cast<int64_t>(24))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(4))] << static_cast<int64_t>(32))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(5))] << static_cast<int64_t>(40))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(6))] << static_cast<int64_t>(48))) | (static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(7))] << static_cast<int64_t>(56))));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(8)); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(8)); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -6306,7 +6323,7 @@ BallDyn decodeTag(BallDyn buffer, int64_t offset) {
     if ((fieldNumber > static_cast<int64_t>(536870911))) {
         throw _ball_make_exception("FormatException"s, ((("Field number "s + ball_to_string(fieldNumber)) + " exceeds the maximum 2^29-1 at offset "s) + ball_to_string(offset)));
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("fieldNumber"s)] = std::any(fieldNumber); __m[ball_to_string("wireType"s)] = std::any(wireType); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("fieldNumber"s)] = std::any(fieldNumber); __m[ball_to_string("wireType"s)] = std::any(wireType); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -6333,7 +6350,7 @@ BallDyn decodeBytes(BallDyn buffer, int64_t offset) {
         throw _ball_make_exception("FormatException"s, ((("Length-delimited field overflows buffer at offset "s + ball_to_string(offset)) + ": "s) + ((("need "s + ball_to_string(length)) + " bytes, have "s) + ball_to_string((ball_length(buffer) - start)))));
     }
     auto data = BallDyn(ball_sublist(buffer, start, (start + length)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("data"s)] = std::any(data); __m[ball_to_string("bytesRead"s)] = std::any((varintSize + length)); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("data"s)] = std::any(data); __m[ball_to_string("bytesRead"s)] = std::any((varintSize + length)); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -6348,7 +6365,7 @@ BallDyn decodeString(BallDyn buffer, int64_t offset) {
     auto data = BallDyn(static_cast<BallDyn>(bytesResult)["data"s]);
     auto bytesRead = BallDyn(static_cast<BallDyn>(bytesResult)["bytesRead"s]);
     auto decoded = BallDyn(decode(utf8, BallDyn(data)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(decoded); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(decoded); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -6517,7 +6534,7 @@ BallDyn encodeSfixed64Field(BallDyn buffer, int64_t fieldNumber, int64_t value) 
 BallDyn _encodeFloatBytes(double value) {
     auto& input = value;
     auto bd = BallDyn(BallByteData(static_cast<int64_t>(4)));
-    ball_obj_as<BallByteData>(bd).setFloat32(static_cast<int64_t>(0), value, static_cast<BallDyn>(Endian)["little"s]);
+    ball_obj_as<BallByteData>(bd).setFloat32(static_cast<int64_t>(0), value, Endian.little);
     return std::vector<std::any>{std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(0))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(1))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(2))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(3)))};
     return BallDyn();
 }
@@ -6525,7 +6542,7 @@ BallDyn _encodeFloatBytes(double value) {
 BallDyn _encodeDoubleBytes(double value) {
     auto& input = value;
     auto bd = BallDyn(BallByteData(static_cast<int64_t>(8)));
-    ball_obj_as<BallByteData>(bd).setFloat64(static_cast<int64_t>(0), value, static_cast<BallDyn>(Endian)["little"s]);
+    ball_obj_as<BallByteData>(bd).setFloat64(static_cast<int64_t>(0), value, Endian.little);
     return std::vector<std::any>{std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(0))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(1))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(2))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(3))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(4))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(5))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(6))), std::any(ball_obj_as<BallByteData>(bd).getUint8(static_cast<int64_t>(7)))};
     return BallDyn();
 }
@@ -6565,7 +6582,7 @@ BallDyn decodeFloat(BallDyn buffer, int64_t offset) {
     ball_obj_as<BallByteData>(bd).setUint8(static_cast<int64_t>(1), static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(1))]);
     ball_obj_as<BallByteData>(bd).setUint8(static_cast<int64_t>(2), static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(2))]);
     ball_obj_as<BallByteData>(bd).setUint8(static_cast<int64_t>(3), static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(3))]);
-    return ball_obj_as<BallByteData>(bd).getFloat32(static_cast<int64_t>(0), static_cast<BallDyn>(Endian)["little"s]);
+    return ball_obj_as<BallByteData>(bd).getFloat32(static_cast<int64_t>(0), Endian.little);
     return BallDyn();
 }
 
@@ -6582,7 +6599,7 @@ BallDyn decodeDouble(BallDyn buffer, int64_t offset) {
     ball_obj_as<BallByteData>(bd).setUint8(static_cast<int64_t>(5), static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(5))]);
     ball_obj_as<BallByteData>(bd).setUint8(static_cast<int64_t>(6), static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(6))]);
     ball_obj_as<BallByteData>(bd).setUint8(static_cast<int64_t>(7), static_cast<BallDyn>(buffer)[(offset + static_cast<int64_t>(7))]);
-    return ball_obj_as<BallByteData>(bd).getFloat64(static_cast<int64_t>(0), static_cast<BallDyn>(Endian)["little"s]);
+    return ball_obj_as<BallByteData>(bd).getFloat64(static_cast<int64_t>(0), Endian.little);
     return BallDyn();
 }
 
@@ -7233,16 +7250,16 @@ BallDyn unmarshalFieldValue(BallDyn bytes, int64_t offset, int64_t wireType, std
                     ball_assign(value, rawVarint);
                 }
             }
-            return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(bytesRead); return BallDyn(std::move(__m)); }());
         }
         else if (BallDyn(__switch_subj) == ball_to_dyn(static_cast<int64_t>(1))) {
             if ((fieldType == "double"s)) {
                 auto value = BallDyn(decodeDouble(bytes, offset));
-                return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(8)); return __m; }());
+                return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(8)); return BallDyn(std::move(__m)); }());
             }
             auto result = BallDyn(decodeFixed64(bytes, offset));
             auto rawValue = BallDyn(static_cast<BallDyn>(result)["value"s]);
-            return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(rawValue); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(8)); return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(rawValue); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(8)); return BallDyn(std::move(__m)); }());
         }
         else if (BallDyn(__switch_subj) == ball_to_dyn(static_cast<int64_t>(2))) {
             auto lenResult = BallDyn(decodeVarint(bytes, offset));
@@ -7268,20 +7285,20 @@ BallDyn unmarshalFieldValue(BallDyn bytes, int64_t offset, int64_t wireType, std
                     ball_assign(value, data);
                 }
             }
-            return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(totalBytesRead); return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(totalBytesRead); return BallDyn(std::move(__m)); }());
         }
         else if (BallDyn(__switch_subj) == ball_to_dyn(static_cast<int64_t>(5))) {
             if ((fieldType == "float"s)) {
                 auto value = BallDyn(decodeFloat(bytes, offset));
-                return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return __m; }());
+                return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(value); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return BallDyn(std::move(__m)); }());
             }
             auto result = BallDyn(decodeFixed32(bytes, offset));
             auto rawValue = BallDyn(static_cast<BallDyn>(result)["value"s]);
             if ((fieldType == "sfixed32"s)) {
                 auto signed_ = BallDyn(((rawValue << static_cast<int64_t>(32)) >> static_cast<int64_t>(32)));
-                return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(signed_); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return __m; }());
+                return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(signed_); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return BallDyn(std::move(__m)); }());
             }
-            return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(rawValue); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(rawValue); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<int64_t>(4)); return BallDyn(std::move(__m)); }());
         }
         else {
             throw _ball_make_exception("FormatException"s, ((("Unknown wire type "s + ball_to_string(wireType)) + " at offset "s) + ball_to_string(offset)));
@@ -7301,10 +7318,10 @@ BallDyn unmarshalRepeated(BallDyn bytes, int64_t offset, int64_t wireType, std::
         auto data = BallDyn(ball_sublist(bytes, dataStart, (dataStart + length)));
         auto totalBytesRead = BallDyn((varintSize + length));
         auto values = BallDyn(_decodePackedValues(data, fieldType));
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(values); __m[ball_to_string("bytesRead"s)] = std::any(totalBytesRead); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(values); __m[ball_to_string("bytesRead"s)] = std::any(totalBytesRead); return BallDyn(std::move(__m)); }());
     }
     auto result = BallDyn(unmarshalFieldValue(bytes, offset, wireType, fieldType));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(std::vector<std::any>{std::any(static_cast<BallDyn>(result)["value"s])}); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<BallDyn>(result)["bytesRead"s]); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(std::vector<std::any>{std::any(static_cast<BallDyn>(result)["value"s])}); __m[ball_to_string("bytesRead"s)] = std::any(static_cast<BallDyn>(result)["bytesRead"s]); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -7345,7 +7362,7 @@ BallDyn unmarshalMapField(BallDyn entryBytes, std::string keyType, std::string v
     }
     ((BallDyn(key).has_value()) ? BallDyn(key) : (key = _mapDefaultForType(keyType)));
     ((BallDyn(value).has_value()) ? BallDyn(value) : (value = _mapDefaultForType(valueType)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("key"s)] = std::any(key); __m[ball_to_string("value"s)] = std::any(value); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("key"s)] = std::any(key); __m[ball_to_string("value"s)] = std::any(value); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -7381,12 +7398,12 @@ BallDyn _mergeMessages(BallDyn a, BallDyn b) {
         auto existing = BallDyn(static_cast<BallDyn>(out)[static_cast<BallDyn>(e)["key"s]]);
         auto incoming = BallDyn(static_cast<BallDyn>(e)["value"s]);
         if ((ball_is_typed_map(existing, "Object?"s) && ball_is_typed_map(incoming, "Object?"s))) {
-            (ball_set(out, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(e)["key"s]))), std::any(_mergeMessages(existing, incoming))), _mergeMessages(existing, incoming));
+            [&]() { auto __ball_av = _mergeMessages(existing, incoming); ball_set(out, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(e)["key"s]))), std::any(__ball_av)); return __ball_av; }();
         } else {
             if ((ball_is_list(existing) && ball_is_list(incoming))) {
-                (ball_set(out, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(e)["key"s]))), std::any([&]() -> BallDyn { BallList __r; for (auto __sp : BallDyn(existing)) { __r.push_back(std::any(BallDyn(__sp))); } for (auto __sp : BallDyn(incoming)) { __r.push_back(std::any(BallDyn(__sp))); } return BallDyn(__r); }())), [&]() -> BallDyn { BallList __r; for (auto __sp : BallDyn(existing)) { __r.push_back(std::any(BallDyn(__sp))); } for (auto __sp : BallDyn(incoming)) { __r.push_back(std::any(BallDyn(__sp))); } return BallDyn(__r); }());
+                [&]() { auto __ball_av = [&]() -> BallDyn { BallList __r; for (auto __sp : BallDyn(existing)) { __r.push_back(std::any(BallDyn(__sp))); } for (auto __sp : BallDyn(incoming)) { __r.push_back(std::any(BallDyn(__sp))); } return BallDyn(__r); }(); ball_set(out, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(e)["key"s]))), std::any(__ball_av)); return __ball_av; }();
             } else {
-                (ball_set(out, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(e)["key"s]))), std::any(incoming)), incoming);
+                [&]() { auto __ball_av = incoming; ball_set(out, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(e)["key"s]))), std::any(__ball_av)); return __ball_av; }();
             }
         }
     }
@@ -7396,7 +7413,7 @@ BallDyn _mergeMessages(BallDyn a, BallDyn b) {
 
 BallDyn _oneofGroups(BallDyn descriptor) {
     auto& input = descriptor;
-    auto groups = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto groups = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto f : BallDyn(descriptor)) {
         auto o = BallDyn(static_cast<BallDyn>(f)["oneof"s]);
         if (BallDyn(o).has_value()) {
@@ -7455,11 +7472,11 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
                 if (ball_is_list(existing)) {
                     ball_assign(existing, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(existing,decoded));
                 } else {
-                    (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(std::vector<std::any>{std::any(decoded)})), std::vector<std::any>{std::any(decoded)});
+                    [&]() { auto __ball_av = std::vector<std::any>{std::any(decoded)}; ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(__ball_av)); return __ball_av; }();
                 }
             } else {
                 auto existing = BallDyn(static_cast<BallDyn>(message)[fieldName]);
-                (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any((BallDyn((ball_is_typed_map(decoded, "Object?"s) && ball_is_typed_map(existing, "Object?"s)) ? BallDyn(_mergeMessages(existing, decoded)) : BallDyn(decoded))))), (BallDyn((ball_is_typed_map(decoded, "Object?"s) && ball_is_typed_map(existing, "Object?"s)) ? BallDyn(_mergeMessages(existing, decoded)) : BallDyn(decoded))));
+                [&]() { auto __ball_av = (BallDyn((ball_is_typed_map(decoded, "Object?"s) && ball_is_typed_map(existing, "Object?"s)) ? BallDyn(_mergeMessages(existing, decoded)) : BallDyn(decoded))); ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(__ball_av)); return __ball_av; }();
             }
             continue;
         }
@@ -7488,9 +7505,9 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
             }
             auto existingMap = BallDyn(static_cast<BallDyn>(message)[fieldName]);
             if ((ball_is_map_dyn(BallDyn(existingMap)) && !ball_is_ball_set(BallDyn(existingMap)))) {
-                (ball_set(existingMap, std::string(ball_to_string(BallDyn(entryKey))), std::any(entryValue)), entryValue);
+                [&]() { auto __ball_av = entryValue; ball_set(existingMap, std::string(ball_to_string(BallDyn(entryKey))), std::any(__ball_av)); return __ball_av; }();
             } else {
-                (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any([&]() { BallOrderedMap __m; __m[ball_to_string(entryKey)] = std::any(entryValue); return __m; }())), [&]() { BallOrderedMap __m; __m[ball_to_string(entryKey)] = std::any(entryValue); return __m; }());
+                [&]() { auto __ball_av = [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string(entryKey)] = std::any(entryValue); return BallDyn(std::move(__m)); }(); ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(__ball_av)); return __ball_av; }();
             }
         } else {
             if (isRepeated) {
@@ -7526,7 +7543,7 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
                         ball_assign(existing, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(existing,v));
                     }
                 } else {
-                    (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(ball_list_copy(keptValues))), ball_list_copy(keptValues));
+                    [&]() { auto __ball_av = ball_list_copy(keptValues); ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(__ball_av)); return __ball_av; }();
                 }
             } else {
                 auto result = BallDyn(unmarshalFieldValue(bytes, offset, wireType, fieldType));
@@ -7540,7 +7557,7 @@ BallDyn unmarshal(BallDyn bytes, BallDyn descriptor) {
                     ball_assign(value, unmarshal(value, messageDescriptor));
                 }
                 auto existing = BallDyn(static_cast<BallDyn>(message)[fieldName]);
-                (ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any((BallDyn((ball_is_typed_map(value, "Object?"s) && ball_is_typed_map(existing, "Object?"s)) ? BallDyn(_mergeMessages(existing, value)) : BallDyn(value))))), (BallDyn((ball_is_typed_map(value, "Object?"s) && ball_is_typed_map(existing, "Object?"s)) ? BallDyn(_mergeMessages(existing, value)) : BallDyn(value))));
+                [&]() { auto __ball_av = (BallDyn((ball_is_typed_map(value, "Object?"s) && ball_is_typed_map(existing, "Object?"s)) ? BallDyn(_mergeMessages(existing, value)) : BallDyn(value))); ball_set(message, std::string(ball_to_string(BallDyn(fieldName))), std::any(__ball_av)); return __ball_av; }();
             }
         }
     }
@@ -7560,7 +7577,7 @@ BallDyn _consumeGroup(BallDyn bytes, int64_t offset, int64_t groupFieldNumber) {
                 throw _ball_make_exception("FormatException"s, ((("Mismatched END_GROUP at offset "s + ball_to_string(offset)) + ": expected field "s) + ((ball_to_string(groupFieldNumber) + ", got "s) + ball_to_string(fieldNumber))));
             }
             auto body = BallDyn(ball_sublist(bytes, start, offset));
-            return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("body"s)] = std::any(body); __m[ball_to_string("bytesRead"s)] = std::any(((offset - start) + tagLen)); return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("body"s)] = std::any(body); __m[ball_to_string("bytesRead"s)] = std::any(((offset - start) + tagLen)); return BallDyn(std::move(__m)); }());
         }
         (offset += tagLen);
         if ((wireType == static_cast<int64_t>(3))) {
@@ -7821,12 +7838,12 @@ BallDyn ensureDefaults(BallDyn message, BallDyn descriptor) {
         auto label = BallDyn(static_cast<BallDyn>(field)["label"s]);
         auto isMap = BallDyn((static_cast<BallDyn>(field)["mapEntry"s] == true));
         if (isMap) {
-            (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any([&]() { BallOrderedMap __m; return __m; }())), [&]() { BallOrderedMap __m; return __m; }());
+            [&]() { auto __ball_av = [&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }(); ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
         } else {
             if ((label == "LABEL_REPEATED"s)) {
-                (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(std::vector<std::any>{})), std::vector<std::any>{});
+                [&]() { auto __ball_av = std::vector<std::any>{}; ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
             } else {
-                (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(_defaultForType(type))), _defaultForType(type));
+                [&]() { auto __ball_av = _defaultForType(type); ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
             }
         }
     }
@@ -7908,9 +7925,9 @@ BallDyn wktFromJson(std::string typeName, BallDyn json, BallDyn features, BallDy
     auto wrapped = BallDyn(static_cast<BallDyn>(_wktWrappers)[typeName]);
     if (BallDyn(wrapped).has_value()) {
         if (!BallDyn(json).has_value()) {
-            return BallDyn([&]() { BallOrderedMap __m; return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
         }
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(fieldFromJson(json, wrapped, BallDyn(), BallDyn(), BallDyn(), BallDyn(), features)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("value"s)] = std::any(fieldFromJson(json, wrapped, BallDyn(), BallDyn(), BallDyn(), BallDyn(), features)); return BallDyn(std::move(__m)); }());
     }
     {
         auto __switch_subj = BallDyn(typeName);
@@ -7952,7 +7969,7 @@ BallDyn wktFromJson(std::string typeName, BallDyn json, BallDyn features, BallDy
 
 BallDyn _asWktMap(BallDyn v) {
     auto& input = v;
-    return (BallDyn(ball_is_typed_map(v, "Object?"s) ? BallDyn(v) : BallDyn([&]() { BallOrderedMap __m; return __m; }())));
+    return (BallDyn(ball_is_typed_map(v, "Object?"s) ? BallDyn(v) : BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }())));
     return BallDyn();
 }
 
@@ -8027,12 +8044,12 @@ BallDyn _fieldMaskToJson(BallDyn v) {
 BallDyn _fieldMaskFromJson(std::string json) {
     auto& input = json;
     if (json.empty()) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("paths"s)] = std::any(std::vector<std::any>{}); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("paths"s)] = std::any(std::vector<std::any>{}); return BallDyn(std::move(__m)); }());
     }
     auto paths = BallDyn(ball_list_copy([](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++)r.push_back(std::any(fn(v[static_cast<int64_t>(i)])));return BallDyn(r);}([](const BallDyn& sv,const BallDyn& dv) -> BallDyn {auto s=ball_to_string(sv);auto d=ball_to_string(dv);BallList r;if(d.empty()){for(char c:s)r.push_back(std::any(std::string(1,c)));return BallDyn(r);}size_t p=0,f;while((f=s.find(d,p))!=std::string::npos){r.push_back(std::any(s.substr(p,f-p)));p=f+d.size();}r.push_back(std::any(s.substr(p)));return BallDyn(r);}(json,","s),[&](BallDyn seg) mutable {
         return [](const BallDyn& v, const std::string& s){std::string r;bool first=true;for(size_t i=0;i<v.size();i++){if(!first)r+=s;first=false;r+=ball_to_string(v[static_cast<int64_t>(i)]);}return r;}([](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++)r.push_back(std::any(fn(v[static_cast<int64_t>(i)])));return BallDyn(r);}([](const BallDyn& sv,const BallDyn& dv) -> BallDyn {auto s=ball_to_string(sv);auto d=ball_to_string(dv);BallList r;if(d.empty()){for(char c:s)r.push_back(std::any(std::string(1,c)));return BallDyn(r);}size_t p=0,f;while((f=s.find(d,p))!=std::string::npos){r.push_back(std::any(s.substr(p,f-p)));p=f+d.size();}r.push_back(std::any(s.substr(p)));return BallDyn(r);}(seg,"."s),BallDyn([](BallDyn __x){ return toSnakeCase(__x); })),"."s);
     })));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("paths"s)] = std::any(paths); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("paths"s)] = std::any(paths); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8063,10 +8080,10 @@ BallDyn _valueMsgToJson(BallDyn v) {
 BallDyn _structMsgToJson(BallDyn s) {
     auto& input = s;
     auto fields = BallDyn(static_cast<BallDyn>(s)["fields"s]);
-    auto out = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto out = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     if ((ball_is_map_dyn(BallDyn(fields)) && !ball_is_ball_set(BallDyn(fields)))) {
         for (auto e : BallDyn(ball_map_entries(BallDyn(fields)))) {
-            (ball_set(out, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(_valueMsgToJson(_asWktMap(static_cast<BallDyn>(e)["value"s])))), _valueMsgToJson(_asWktMap(static_cast<BallDyn>(e)["value"s])));
+            [&]() { auto __ball_av = _valueMsgToJson(_asWktMap(static_cast<BallDyn>(e)["value"s])); ball_set(out, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(__ball_av)); return __ball_av; }();
         }
     }
     return out;
@@ -8083,22 +8100,22 @@ BallDyn _listValueMsgToJson(BallDyn l) {
 BallDyn _valueMsgFromJson(BallDyn j) {
     auto& input = j;
     if (!BallDyn(j).has_value()) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("null_value"s)] = std::any(static_cast<int64_t>(0)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("null_value"s)] = std::any(static_cast<int64_t>(0)); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_bool(j)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("bool_value"s)] = std::any(j); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("bool_value"s)] = std::any(j); return BallDyn(std::move(__m)); }());
     }
     if ((ball_is_int(j) || ball_is_double(j))) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("number_value"s)] = std::any(static_cast<double>(j)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("number_value"s)] = std::any(static_cast<double>(j)); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_string(j)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("string_value"s)] = std::any(j); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("string_value"s)] = std::any(j); return BallDyn(std::move(__m)); }());
     }
     if ((ball_is_map_dyn(BallDyn(j)) && !ball_is_ball_set(BallDyn(j)))) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("struct_value"s)] = std::any(_structMsgFromJson(j)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("struct_value"s)] = std::any(_structMsgFromJson(j)); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_list(j)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("list_value"s)] = std::any(_listValueMsgFromJson(j)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("list_value"s)] = std::any(_listValueMsgFromJson(j)); return BallDyn(std::move(__m)); }());
     }
     throw _ball_make_exception("FormatException"s, (("Cannot convert "s + ball_to_string(ball_runtime_type_name(BallDyn(j)))) + " to google.protobuf.Value"s));
     return BallDyn();
@@ -8109,11 +8126,11 @@ BallDyn _structMsgFromJson(BallDyn j) {
     if (!((ball_is_map_dyn(BallDyn(j)) && !ball_is_ball_set(BallDyn(j))))) {
         throw BallException("FormatException"s, "FormatException"s, std::map<std::string, std::string>{{"message"s, "Struct must be a JSON object"s}});
     }
-    auto fields = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto fields = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto e : BallDyn(ball_map_entries(BallDyn(j)))) {
-        (ball_set(fields, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(_valueMsgFromJson(static_cast<BallDyn>(e)["value"s]))), _valueMsgFromJson(static_cast<BallDyn>(e)["value"s]));
+        [&]() { auto __ball_av = _valueMsgFromJson(static_cast<BallDyn>(e)["value"s]); ball_set(fields, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(__ball_av)); return __ball_av; }();
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("fields"s)] = std::any(fields); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("fields"s)] = std::any(fields); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8122,7 +8139,7 @@ BallDyn _listValueMsgFromJson(BallDyn j) {
     if (!(ball_is_list(j))) {
         throw BallException("FormatException"s, "FormatException"s, std::map<std::string, std::string>{{"message"s, "ListValue must be a JSON array"s}});
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(BallDyn([&]() -> BallDyn { BallList __r; for (auto e : BallDyn(j)) { __r.push_back(std::any(BallDyn(_valueMsgFromJson(e)))); } return BallDyn(__r); }())); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(BallDyn([&]() -> BallDyn { BallList __r; for (auto e : BallDyn(j)) { __r.push_back(std::any(BallDyn(_valueMsgFromJson(e)))); } return BallDyn(__r); }())); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8144,7 +8161,7 @@ BallDyn _anyToJson(BallDyn value, BallDyn features, BallDyn resolver) {
     }
     auto url = BallDyn(static_cast<BallDyn>(value)["type_url"s]);
     if ((!(ball_is_string(url)) || url.empty())) {
-        return BallDyn([&]() { BallOrderedMap __m; return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     }
     auto fqn = BallDyn(_anyTypeName(url));
     auto desc = BallDyn([&]() {
@@ -8157,12 +8174,12 @@ BallDyn _anyToJson(BallDyn value, BallDyn features, BallDyn resolver) {
     auto raw = BallDyn(static_cast<BallDyn>(value)["value"s]);
     auto msg = BallDyn(unmarshal((BallDyn(ball_is_typed_list(raw, "int"s) ? BallDyn(raw) : BallDyn(std::vector<std::any>{}))), desc));
     if ((fqn == "google.protobuf.Any"s)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(url); __m[ball_to_string("value"s)] = std::any(_anyToJson(msg, features, resolver)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(url); __m[ball_to_string("value"s)] = std::any(_anyToJson(msg, features, resolver)); return BallDyn(std::move(__m)); }());
     }
     if (isWellKnownJsonType(fqn)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(url); __m[ball_to_string("value"s)] = std::any(wktToJson(fqn, msg, features, resolver)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(url); __m[ball_to_string("value"s)] = std::any(wktToJson(fqn, msg, features, resolver)); return BallDyn(std::move(__m)); }());
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(url); for (auto __me : ball_map_entries(BallDyn(_marshalToMap(msg, desc, resolver)))) { __m[ball_to_string(__me["key"s])] = std::any(BallDyn(__me["value"s])); } return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(url); for (auto __me : ball_map_entries(BallDyn(_marshalToMap(msg, desc, resolver)))) { __m[ball_to_string(__me["key"s])] = std::any(BallDyn(__me["value"s])); } return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8171,7 +8188,7 @@ BallDyn _anyFromJson(BallDyn json, BallDyn resolver) {
         throw BallException("FormatException"s, "FormatException"s, std::map<std::string, std::string>{{"message"s, "Any must be a JSON object"s}});
     }
     if (json.empty()) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("type_url"s)] = std::any(""s); __m[ball_to_string("value"s)] = std::any(std::vector<std::any>{}); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("type_url"s)] = std::any(""s); __m[ball_to_string("value"s)] = std::any(std::vector<std::any>{}); return BallDyn(std::move(__m)); }());
     }
     auto url = BallDyn(static_cast<BallDyn>(json)["@type"s]);
     if ((!(ball_is_string(url)) || url.empty())) {
@@ -8192,17 +8209,17 @@ BallDyn _anyFromJson(BallDyn json, BallDyn resolver) {
         if (isWellKnownJsonType(fqn)) {
             ball_assign(embedded, _asWktMap(wktFromJson(fqn, static_cast<BallDyn>(json)["value"s], BallDyn(), resolver)));
         } else {
-            auto fields = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+            auto fields = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
             for (auto e : BallDyn(ball_map_entries(BallDyn(json)))) {
                 if ((static_cast<BallDyn>(e)["key"s] == "@type"s)) {
                     continue;
                 }
-                (ball_set(fields, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(static_cast<BallDyn>(e)["value"s])), static_cast<BallDyn>(e)["value"s]);
+                [&]() { auto __ball_av = static_cast<BallDyn>(e)["value"s]; ball_set(fields, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(e)["key"s])))), std::any(__ball_av)); return __ball_av; }();
             }
             ball_assign(embedded, _unmarshalFromMap(fields, desc, resolver));
         }
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("type_url"s)] = std::any(url); __m[ball_to_string("value"s)] = std::any(marshal(embedded, desc)); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("type_url"s)] = std::any(url); __m[ball_to_string("value"s)] = std::any(marshal(embedded, desc)); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8272,7 +8289,7 @@ BallDyn fieldToJson(BallDyn value, std::string type, BallDyn typeName, BallDyn e
 BallDyn fieldFromJson(BallDyn jsonValue, std::string type, BallDyn typeName, BallDyn enumValues, BallDyn enumNames, BallDyn messageDescriptor, BallDyn features, BallDyn resolver) {
     if (!BallDyn(jsonValue).has_value()) {
         if ((typeName == "google.protobuf.Value"s)) {
-            return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("null_value"s)] = std::any(static_cast<int64_t>(0)); return __m; }());
+            return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("null_value"s)] = std::any(static_cast<int64_t>(0)); return BallDyn(std::move(__m)); }());
         }
         return BallDyn(BallDyn());
     }
@@ -8364,9 +8381,9 @@ BallDyn fieldFromJson(BallDyn jsonValue, std::string type, BallDyn typeName, Bal
                 if (!((ball_is_map_dyn(BallDyn(jsonValue)) && !ball_is_ball_set(BallDyn(jsonValue))))) {
                     throw _ball_make_exception("FormatException"s, ("Expected a JSON object for a message field, "s + ("got "s + ball_to_string(ball_runtime_type_name(BallDyn(jsonValue))))));
                 }
-                auto stringMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+                auto stringMap = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
                 for (auto entry : BallDyn(ball_map_entries(BallDyn(jsonValue)))) {
-                    (ball_set(stringMap, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s])))), std::any(static_cast<BallDyn>(entry)["value"s])), static_cast<BallDyn>(entry)["value"s]);
+                    [&]() { auto __ball_av = static_cast<BallDyn>(entry)["value"s]; ball_set(stringMap, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s])))), std::any(__ball_av)); return __ball_av; }();
                 }
                 return BallDyn(_unmarshalFromMap(stringMap, messageDescriptor, resolver));
             }
@@ -8469,9 +8486,9 @@ BallDyn unmarshalJson(std::string jsonString, BallDyn descriptor) {
     if (!((ball_is_map_dyn(BallDyn(jsonMap)) && !ball_is_ball_set(BallDyn(jsonMap))))) {
         throw _ball_make_exception("FormatException"s, ("Expected a JSON object at top level, got "s + ball_to_string(ball_runtime_type_name(BallDyn(jsonMap)))));
     }
-    auto stringMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto stringMap = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto entry : BallDyn(ball_map_entries(BallDyn(jsonMap)))) {
-        (ball_set(stringMap, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s])))), std::any(static_cast<BallDyn>(entry)["value"s])), static_cast<BallDyn>(entry)["value"s]);
+        [&]() { auto __ball_av = static_cast<BallDyn>(entry)["value"s]; ball_set(stringMap, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s])))), std::any(__ball_av)); return __ball_av; }();
     }
     return _unmarshalFromMap(stringMap, descriptor);
     return BallDyn();
@@ -8486,16 +8503,16 @@ BallDyn messageFromJson(BallDyn json, BallDyn descriptor, BallDyn anyTypeResolve
     if (!((ball_is_map_dyn(BallDyn(json)) && !ball_is_ball_set(BallDyn(json))))) {
         throw _ball_make_exception("FormatException"s, ("Expected a JSON object at top level, got "s + ball_to_string(ball_runtime_type_name(BallDyn(json)))));
     }
-    auto stringMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto stringMap = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto entry : BallDyn(ball_map_entries(BallDyn(json)))) {
-        (ball_set(stringMap, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s])))), std::any(static_cast<BallDyn>(entry)["value"s])), static_cast<BallDyn>(entry)["value"s]);
+        [&]() { auto __ball_av = static_cast<BallDyn>(entry)["value"s]; ball_set(stringMap, std::string(ball_to_string(BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s])))), std::any(__ball_av)); return __ball_av; }();
     }
     return _unmarshalFromMap(stringMap, descriptor, anyTypeResolver);
     return BallDyn();
 }
 
 BallDyn _marshalToMap(BallDyn message, BallDyn descriptor, BallDyn resolver) {
-    auto result = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto result = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto field : BallDyn(descriptor)) {
         auto name = BallDyn(static_cast<BallDyn>(field)["name"s]);
         auto type = BallDyn(static_cast<BallDyn>(field)["type"s]);
@@ -8514,12 +8531,12 @@ BallDyn _marshalToMap(BallDyn message, BallDyn descriptor, BallDyn resolver) {
             auto valueTypeName = BallDyn(static_cast<BallDyn>(field)["valueTypeName"s]);
             auto msgDesc = BallDyn(static_cast<BallDyn>(field)["messageDescriptor"s]);
             auto enumVals = BallDyn(static_cast<BallDyn>(field)["enumValues"s]);
-            auto jsonMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+            auto jsonMap = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
             for (auto entry : BallDyn(ball_map_entries(BallDyn(mapValue)))) {
                 auto keyStr = BallDyn(ball_to_string(static_cast<BallDyn>(entry)["key"s]));
-                (ball_set(jsonMap, std::string(ball_to_string(BallDyn(keyStr))), std::any(fieldToJson(static_cast<BallDyn>(entry)["value"s], valueType, valueTypeName, enumVals, msgDesc, features, resolver))), fieldToJson(static_cast<BallDyn>(entry)["value"s], valueType, valueTypeName, enumVals, msgDesc, features, resolver));
+                [&]() { auto __ball_av = fieldToJson(static_cast<BallDyn>(entry)["value"s], valueType, valueTypeName, enumVals, msgDesc, features, resolver); ball_set(jsonMap, std::string(ball_to_string(BallDyn(keyStr))), std::any(__ball_av)); return __ball_av; }();
             }
-            (ball_set(result, std::string(ball_to_string(BallDyn(camelName))), std::any(jsonMap)), jsonMap);
+            [&]() { auto __ball_av = jsonMap; ball_set(result, std::string(ball_to_string(BallDyn(camelName))), std::any(__ball_av)); return __ball_av; }();
         } else {
             if ((label == "LABEL_REPEATED"s)) {
                 if ((!BallDyn(value).has_value() || (ball_is_list(value) && value.empty()))) {
@@ -8528,7 +8545,7 @@ BallDyn _marshalToMap(BallDyn message, BallDyn descriptor, BallDyn resolver) {
                 auto list = BallDyn(value);
                 auto msgDesc = BallDyn(static_cast<BallDyn>(field)["messageDescriptor"s]);
                 auto enumVals = BallDyn(static_cast<BallDyn>(field)["enumValues"s]);
-                (ball_set(result, std::string(ball_to_string(BallDyn(camelName))), std::any([&]() -> BallDyn { BallList __r; for (auto item : BallDyn(list)) { __r.push_back(std::any(BallDyn(fieldToJson(item, type, typeName, enumVals, msgDesc, features, resolver)))); } return BallDyn(__r); }())), [&]() -> BallDyn { BallList __r; for (auto item : BallDyn(list)) { __r.push_back(std::any(BallDyn(fieldToJson(item, type, typeName, enumVals, msgDesc, features, resolver)))); } return BallDyn(__r); }());
+                [&]() { auto __ball_av = [&]() -> BallDyn { BallList __r; for (auto item : BallDyn(list)) { __r.push_back(std::any(BallDyn(fieldToJson(item, type, typeName, enumVals, msgDesc, features, resolver)))); } return BallDyn(__r); }(); ball_set(result, std::string(ball_to_string(BallDyn(camelName))), std::any(__ball_av)); return __ball_av; }();
             } else {
                 auto explicitPresence = BallDyn((BallDyn(static_cast<BallDyn>(field)["oneof"s]).has_value() || (BallDyn(features).has_value() && hasExplicitPresence(features))));
                 if (explicitPresence) {
@@ -8542,7 +8559,7 @@ BallDyn _marshalToMap(BallDyn message, BallDyn descriptor, BallDyn resolver) {
                 }
                 auto msgDesc = BallDyn(static_cast<BallDyn>(field)["messageDescriptor"s]);
                 auto enumVals = BallDyn(static_cast<BallDyn>(field)["enumValues"s]);
-                (ball_set(result, std::string(ball_to_string(BallDyn(camelName))), std::any(fieldToJson(value, type, typeName, enumVals, msgDesc, features, resolver))), fieldToJson(value, type, typeName, enumVals, msgDesc, features, resolver));
+                [&]() { auto __ball_av = fieldToJson(value, type, typeName, enumVals, msgDesc, features, resolver); ball_set(result, std::string(ball_to_string(BallDyn(camelName))), std::any(__ball_av)); return __ball_av; }();
             }
         }
     }
@@ -8552,14 +8569,14 @@ BallDyn _marshalToMap(BallDyn message, BallDyn descriptor, BallDyn resolver) {
 
 BallDyn _buildFieldLookup(BallDyn descriptor) {
     auto& input = descriptor;
-    auto lookup = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto lookup = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto field : BallDyn(descriptor)) {
         auto name = BallDyn(static_cast<BallDyn>(field)["name"s]);
-        (ball_set(lookup, std::string(ball_to_string(BallDyn(name))), std::any(field)), field);
-        (ball_set(lookup, std::string(ball_to_string(BallDyn(toCamelCase(name)))), std::any(field)), field);
+        [&]() { auto __ball_av = field; ball_set(lookup, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
+        [&]() { auto __ball_av = field; ball_set(lookup, std::string(ball_to_string(BallDyn(toCamelCase(name)))), std::any(__ball_av)); return __ball_av; }();
         auto jsonName = BallDyn(static_cast<BallDyn>(field)["jsonName"s]);
         if (BallDyn(jsonName).has_value()) {
-            (ball_set(lookup, std::string(ball_to_string(BallDyn(jsonName))), std::any(field)), field);
+            [&]() { auto __ball_av = field; ball_set(lookup, std::string(ball_to_string(BallDyn(jsonName))), std::any(__ball_av)); return __ball_av; }();
         }
     }
     return lookup;
@@ -8568,7 +8585,7 @@ BallDyn _buildFieldLookup(BallDyn descriptor) {
 
 BallDyn _unmarshalFromMap(BallDyn jsonMap, BallDyn descriptor, BallDyn resolver) {
     auto lookup = BallDyn(_buildFieldLookup(descriptor));
-    auto result = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto result = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     auto seenOneofs = BallDyn([&]() -> BallDyn { BallList __r; return ball_make_set(__r); }());
     for (auto entry : BallDyn(ball_map_entries(BallDyn(jsonMap)))) {
         auto jsonKey = BallDyn(static_cast<BallDyn>(entry)["key"s]);
@@ -8594,26 +8611,26 @@ BallDyn _unmarshalFromMap(BallDyn jsonMap, BallDyn descriptor, BallDyn resolver)
             if ((ball_is_map_dyn(BallDyn(jsonValue)) && !ball_is_ball_set(BallDyn(jsonValue)))) {
                 auto valueType = BallDyn((BallDyn(static_cast<BallDyn>(field)["valueType"s]).has_value() ? BallDyn(static_cast<BallDyn>(field)["valueType"s]) : BallDyn("TYPE_STRING"s)));
                 auto valueTypeName = BallDyn(static_cast<BallDyn>(field)["valueTypeName"s]);
-                auto dartMap = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+                auto dartMap = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
                 for (auto mapEntry : BallDyn(ball_map_entries(BallDyn(jsonValue)))) {
                     auto keyStr = BallDyn(ball_to_string(static_cast<BallDyn>(mapEntry)["key"s]));
-                    (ball_set(dartMap, std::string(ball_to_string(BallDyn(keyStr))), std::any(fieldFromJson(static_cast<BallDyn>(mapEntry)["value"s], valueType, valueTypeName, enumVals, enumNames, msgDesc, features, resolver))), fieldFromJson(static_cast<BallDyn>(mapEntry)["value"s], valueType, valueTypeName, enumVals, enumNames, msgDesc, features, resolver));
+                    [&]() { auto __ball_av = fieldFromJson(static_cast<BallDyn>(mapEntry)["value"s], valueType, valueTypeName, enumVals, enumNames, msgDesc, features, resolver); ball_set(dartMap, std::string(ball_to_string(BallDyn(keyStr))), std::any(__ball_av)); return __ball_av; }();
                 }
-                (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(dartMap)), dartMap);
+                [&]() { auto __ball_av = dartMap; ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
             } else {
-                (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(jsonValue)), jsonValue);
+                [&]() { auto __ball_av = jsonValue; ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
             }
         } else {
             if ((label == "LABEL_REPEATED"s)) {
                 if (ball_is_list(jsonValue)) {
-                    (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any([&]() -> BallDyn { BallList __r; for (auto item : BallDyn(jsonValue)) { __r.push_back(std::any(BallDyn(fieldFromJson(item, type, typeName, enumVals, enumNames, msgDesc, features, resolver)))); } return BallDyn(__r); }())), [&]() -> BallDyn { BallList __r; for (auto item : BallDyn(jsonValue)) { __r.push_back(std::any(BallDyn(fieldFromJson(item, type, typeName, enumVals, enumNames, msgDesc, features, resolver)))); } return BallDyn(__r); }());
+                    [&]() { auto __ball_av = [&]() -> BallDyn { BallList __r; for (auto item : BallDyn(jsonValue)) { __r.push_back(std::any(BallDyn(fieldFromJson(item, type, typeName, enumVals, enumNames, msgDesc, features, resolver)))); } return BallDyn(__r); }(); ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
                 } else {
                     if (BallDyn(jsonValue).has_value()) {
                         throw _ball_make_exception("FormatException"s, ((("Expected a JSON array for repeated field \""s + ball_to_string(name)) + "\", "s) + ("got "s + ball_to_string(ball_runtime_type_name(BallDyn(jsonValue))))));
                     }
                 }
             } else {
-                (ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(fieldFromJson(jsonValue, type, typeName, enumVals, enumNames, msgDesc, features, resolver))), fieldFromJson(jsonValue, type, typeName, enumVals, enumNames, msgDesc, features, resolver));
+                [&]() { auto __ball_av = fieldFromJson(jsonValue, type, typeName, enumVals, enumNames, msgDesc, features, resolver); ball_set(result, std::string(ball_to_string(BallDyn(name))), std::any(__ball_av)); return __ball_av; }();
             }
         }
     }
@@ -8630,12 +8647,12 @@ BallDyn structToMap(BallDyn struct_) {
     } else {
         ball_assign(fieldMap, struct_);
     }
-    auto result = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto result = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto entry : BallDyn(ball_map_entries(BallDyn(fieldMap)))) {
         if (ball_is_typed_map(static_cast<BallDyn>(entry)["value"s], "Object?"s)) {
-            (ball_set(result, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(valueToNative(static_cast<BallDyn>(entry)["value"s]))), valueToNative(static_cast<BallDyn>(entry)["value"s]));
+            [&]() { auto __ball_av = valueToNative(static_cast<BallDyn>(entry)["value"s]); ball_set(result, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(__ball_av)); return __ball_av; }();
         } else {
-            (ball_set(result, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(static_cast<BallDyn>(entry)["value"s])), static_cast<BallDyn>(entry)["value"s]);
+            [&]() { auto __ball_av = static_cast<BallDyn>(entry)["value"s]; ball_set(result, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(__ball_av)); return __ball_av; }();
         }
     }
     return result;
@@ -8644,11 +8661,11 @@ BallDyn structToMap(BallDyn struct_) {
 
 BallDyn mapToStruct(BallDyn map) {
     auto& input = map;
-    auto fields = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto fields = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     for (auto entry : BallDyn(ball_map_entries(BallDyn(map)))) {
-        (ball_set(fields, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(nativeToValue(static_cast<BallDyn>(entry)["value"s]))), nativeToValue(static_cast<BallDyn>(entry)["value"s]));
+        [&]() { auto __ball_av = nativeToValue(static_cast<BallDyn>(entry)["value"s]); ball_set(fields, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(__ball_av)); return __ball_av; }();
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("fields"s)] = std::any(fields); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("fields"s)] = std::any(fields); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8703,24 +8720,24 @@ BallDyn valueToNative(BallDyn value) {
 BallDyn nativeToValue(BallDyn value) {
     auto& input = value;
     if (!BallDyn(value).has_value()) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("nullValue"s)] = std::any("NULL_VALUE"s); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("nullValue"s)] = std::any("NULL_VALUE"s); return BallDyn(std::move(__m)); }());
     }
     if ((ball_is_int(value) || ball_is_double(value))) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("numberValue"s)] = std::any(value); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("numberValue"s)] = std::any(value); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_string(value)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("stringValue"s)] = std::any(value); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("stringValue"s)] = std::any(value); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_bool(value)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("boolValue"s)] = std::any(value); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("boolValue"s)] = std::any(value); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_typed_map(value, "Object?"s)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("structValue"s)] = std::any(mapToStruct(value)); return __m; }());
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("structValue"s)] = std::any(mapToStruct(value)); return BallDyn(std::move(__m)); }());
     }
     if (ball_is_list(value)) {
-        return BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("listValue"s)] = std::any(BallDyn([&]() { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(ball_list_copy([](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++)r.push_back(std::any(fn(v[static_cast<int64_t>(i)])));return BallDyn(r);}(value,[&](BallDyn e) mutable {
+        return BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("listValue"s)] = std::any(BallDyn([&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("values"s)] = std::any(ball_list_copy([](const BallDyn& v, auto fn) -> BallDyn {BallList r;for(size_t i=0;i<v.size();i++)r.push_back(std::any(fn(v[static_cast<int64_t>(i)])));return BallDyn(r);}(value,[&](BallDyn e) mutable {
             return nativeToValue(e);
-        }))); return __m; }())); return __m; }());
+        }))); return BallDyn(std::move(__m)); }())); return BallDyn(std::move(__m)); }());
     }
     throw _ball_make_exception("ArgumentError"s, (("Cannot convert "s + ball_to_string(ball_runtime_type_name(BallDyn(value)))) + " to google.protobuf.Value"s));
     return BallDyn();
@@ -8767,7 +8784,7 @@ BallDyn rfc3339ToTimestamp(std::string rfc3339) {
     }
     auto dt = BallDyn(parse(DateTime, forParse));
     auto seconds = BallDyn((static_cast<BallDyn>(dt)["millisecondsSinceEpoch"s] / static_cast<int64_t>(1000)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("seconds"s)] = std::any(seconds); __m[ball_to_string("nanos"s)] = std::any(nanos); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("seconds"s)] = std::any(seconds); __m[ball_to_string("nanos"s)] = std::any(nanos); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8816,12 +8833,12 @@ BallDyn stringToDuration(std::string durationStr) {
             ball_assign(nanos, (-nanos));
         }
     }
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("seconds"s)] = std::any(seconds); __m[ball_to_string("nanos"s)] = std::any(nanos); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("seconds"s)] = std::any(seconds); __m[ball_to_string("nanos"s)] = std::any(nanos); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
 BallDyn packAny(std::string typeUrl, BallDyn message) {
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(typeUrl); for (auto __me : ball_map_entries(BallDyn(message))) { __m[ball_to_string(__me["key"s])] = std::any(BallDyn(__me["value"s])); } return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("@type"s)] = std::any(typeUrl); for (auto __me : ball_map_entries(BallDyn(message))) { __m[ball_to_string(__me["key"s])] = std::any(BallDyn(__me["value"s])); } return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8833,7 +8850,7 @@ BallDyn unpackAny(BallDyn any) {
     }
     auto message = BallDyn(ball_map_copy(any));
     message.erase("@type"s);
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("typeUrl"s)] = std::any(typeUrl); __m[ball_to_string("message"s)] = std::any(message); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("typeUrl"s)] = std::any(typeUrl); __m[ball_to_string("message"s)] = std::any(message); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -8855,34 +8872,34 @@ BallDyn featureKeys() {
 }
 
 BallDyn _defaultsTable() {
-    auto legacyFixed = BallDyn([&]() { BallOrderedMap __m; return __m; }());
-    (ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(fieldPresenceExplicit)), fieldPresenceExplicit);
-    (ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureEnumType))), std::any(enumTypeClosed)), enumTypeClosed);
-    (ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(repeatedFieldEncodingExpanded)), repeatedFieldEncodingExpanded);
-    (ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureUtf8Validation))), std::any(utf8ValidationNone)), utf8ValidationNone);
-    (ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(messageEncodingLengthPrefixed)), messageEncodingLengthPrefixed);
-    (ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureJsonFormat))), std::any(jsonFormatLegacyBestEffort)), jsonFormatLegacyBestEffort);
-    auto proto3Fixed = BallDyn([&]() { BallOrderedMap __m; return __m; }());
-    (ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(fieldPresenceImplicit)), fieldPresenceImplicit);
-    (ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureEnumType))), std::any(enumTypeOpen)), enumTypeOpen);
-    (ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(repeatedFieldEncodingPacked)), repeatedFieldEncodingPacked);
-    (ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureUtf8Validation))), std::any(utf8ValidationVerify)), utf8ValidationVerify);
-    (ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(messageEncodingLengthPrefixed)), messageEncodingLengthPrefixed);
-    (ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureJsonFormat))), std::any(jsonFormatAllow)), jsonFormatAllow);
-    auto edition2023Overridable = BallDyn([&]() { BallOrderedMap __m; return __m; }());
-    (ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(fieldPresenceExplicit)), fieldPresenceExplicit);
-    (ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureEnumType))), std::any(enumTypeOpen)), enumTypeOpen);
-    (ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(repeatedFieldEncodingPacked)), repeatedFieldEncodingPacked);
-    (ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureUtf8Validation))), std::any(utf8ValidationVerify)), utf8ValidationVerify);
-    (ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(messageEncodingLengthPrefixed)), messageEncodingLengthPrefixed);
-    (ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureJsonFormat))), std::any(jsonFormatAllow)), jsonFormatAllow);
-    auto edition2024Overridable = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto legacyFixed = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
+    [&]() { auto __ball_av = fieldPresenceExplicit; ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = enumTypeClosed; ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureEnumType))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = repeatedFieldEncodingExpanded; ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = utf8ValidationNone; ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureUtf8Validation))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = messageEncodingLengthPrefixed; ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = jsonFormatLegacyBestEffort; ball_set(legacyFixed, std::string(ball_to_string(BallDyn(featureJsonFormat))), std::any(__ball_av)); return __ball_av; }();
+    auto proto3Fixed = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
+    [&]() { auto __ball_av = fieldPresenceImplicit; ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = enumTypeOpen; ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureEnumType))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = repeatedFieldEncodingPacked; ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = utf8ValidationVerify; ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureUtf8Validation))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = messageEncodingLengthPrefixed; ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = jsonFormatAllow; ball_set(proto3Fixed, std::string(ball_to_string(BallDyn(featureJsonFormat))), std::any(__ball_av)); return __ball_av; }();
+    auto edition2023Overridable = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
+    [&]() { auto __ball_av = fieldPresenceExplicit; ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = enumTypeOpen; ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureEnumType))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = repeatedFieldEncodingPacked; ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = utf8ValidationVerify; ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureUtf8Validation))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = messageEncodingLengthPrefixed; ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = jsonFormatAllow; ball_set(edition2023Overridable, std::string(ball_to_string(BallDyn(featureJsonFormat))), std::any(__ball_av)); return __ball_av; }();
+    auto edition2024Overridable = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     _putAll(edition2024Overridable, edition2023Overridable);
     auto table = BallDyn(std::vector<std::any>{});
-    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(editionLegacy); __m[ball_to_string("overridable"s)] = std::any(BallDyn([&]() { BallOrderedMap __m; return __m; }())); __m[ball_to_string("fixed"s)] = std::any(legacyFixed); return __m; }()));
-    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(editionProto3); __m[ball_to_string("overridable"s)] = std::any(BallDyn([&]() { BallOrderedMap __m; return __m; }())); __m[ball_to_string("fixed"s)] = std::any(proto3Fixed); return __m; }()));
-    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(edition2023); __m[ball_to_string("overridable"s)] = std::any(edition2023Overridable); __m[ball_to_string("fixed"s)] = std::any(BallDyn([&]() { BallOrderedMap __m; return __m; }())); return __m; }()));
-    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(edition2024); __m[ball_to_string("overridable"s)] = std::any(edition2024Overridable); __m[ball_to_string("fixed"s)] = std::any(BallDyn([&]() { BallOrderedMap __m; return __m; }())); return __m; }()));
+    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(editionLegacy); __m[ball_to_string("overridable"s)] = std::any(BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }())); __m[ball_to_string("fixed"s)] = std::any(legacyFixed); return BallDyn(std::move(__m)); }()));
+    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(editionProto3); __m[ball_to_string("overridable"s)] = std::any(BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }())); __m[ball_to_string("fixed"s)] = std::any(proto3Fixed); return BallDyn(std::move(__m)); }()));
+    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(edition2023); __m[ball_to_string("overridable"s)] = std::any(edition2023Overridable); __m[ball_to_string("fixed"s)] = std::any(BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }())); return BallDyn(std::move(__m)); }()));
+    ball_assign(table, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(table,[&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("edition"s)] = std::any(edition2024); __m[ball_to_string("overridable"s)] = std::any(edition2024Overridable); __m[ball_to_string("fixed"s)] = std::any(BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }())); return BallDyn(std::move(__m)); }()));
     return table;
     return BallDyn();
 }
@@ -8914,7 +8931,7 @@ void validateEditionInRange(int64_t edition) {
 BallDyn baseFeaturesForEdition(int64_t edition) {
     auto& input = edition;
     auto entry = BallDyn(_defaultsEntryFor(edition));
-    auto result = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto result = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     auto overridable = BallDyn(static_cast<BallDyn>(entry)["overridable"s]);
     auto fixed = BallDyn(static_cast<BallDyn>(entry)["fixed"s]);
     _putAll(result, overridable);
@@ -8939,7 +8956,7 @@ BallDyn resolveFileFeatures(int64_t edition, BallDyn fileFeatures) {
 }
 
 BallDyn mergeFeatureSet(BallDyn base, BallDyn overrides, int64_t edition) {
-    auto result = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto result = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     _putAll(result, base);
     _applyOverrides(result, overrides, edition);
     return result;
@@ -8973,26 +8990,26 @@ BallDyn editionDefaults(std::string edition) {
 }
 
 BallDyn inferLegacyFieldFeatures(std::string label, std::string type, bool proto3Optional, BallDyn packed, int64_t edition) {
-    auto inferred = BallDyn([&]() { BallOrderedMap __m; return __m; }());
+    auto inferred = BallDyn([&]() -> BallDyn { BallOrderedMap __m; return BallDyn(std::move(__m)); }());
     if ((label == "LABEL_REQUIRED"s)) {
-        (ball_set(inferred, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(fieldPresenceLegacyRequired)), fieldPresenceLegacyRequired);
+        [&]() { auto __ball_av = fieldPresenceLegacyRequired; ball_set(inferred, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(__ball_av)); return __ball_av; }();
     } else {
         if ((((edition == editionProto3) && (label == "LABEL_OPTIONAL"s)) && (!proto3Optional))) {
-            (ball_set(inferred, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(fieldPresenceImplicit)), fieldPresenceImplicit);
+            [&]() { auto __ball_av = fieldPresenceImplicit; ball_set(inferred, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(__ball_av)); return __ball_av; }();
         } else {
             if (proto3Optional) {
-                (ball_set(inferred, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(fieldPresenceExplicit)), fieldPresenceExplicit);
+                [&]() { auto __ball_av = fieldPresenceExplicit; ball_set(inferred, std::string(ball_to_string(BallDyn(featureFieldPresence))), std::any(__ball_av)); return __ball_av; }();
             }
         }
     }
     if ((type == "TYPE_GROUP"s)) {
-        (ball_set(inferred, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(messageEncodingDelimited)), messageEncodingDelimited);
+        [&]() { auto __ball_av = messageEncodingDelimited; ball_set(inferred, std::string(ball_to_string(BallDyn(featureMessageEncoding))), std::any(__ball_av)); return __ball_av; }();
     }
     if ((packed == "true"s)) {
-        (ball_set(inferred, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(repeatedFieldEncodingPacked)), repeatedFieldEncodingPacked);
+        [&]() { auto __ball_av = repeatedFieldEncodingPacked; ball_set(inferred, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(__ball_av)); return __ball_av; }();
     } else {
         if ((packed == "false"s)) {
-            (ball_set(inferred, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(repeatedFieldEncodingExpanded)), repeatedFieldEncodingExpanded);
+            [&]() { auto __ball_av = repeatedFieldEncodingExpanded; ball_set(inferred, std::string(ball_to_string(BallDyn(featureRepeatedFieldEncoding))), std::any(__ball_av)); return __ball_av; }();
         }
     }
     return inferred;
@@ -9068,7 +9085,7 @@ BallDyn jsonFormatIsAllow(BallDyn features) {
 
 void _putAll(BallDyn dest, BallDyn src) {
     for (auto entry : BallDyn(ball_map_entries(BallDyn(src)))) {
-        (ball_set(dest, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(static_cast<BallDyn>(entry)["value"s])), static_cast<BallDyn>(entry)["value"s]);
+        [&]() { auto __ball_av = static_cast<BallDyn>(entry)["value"s]; ball_set(dest, std::string(ball_to_string(BallDyn(static_cast<BallDyn>(entry)["key"s]))), std::any(__ball_av)); return __ball_av; }();
     }
 }
 
@@ -9083,7 +9100,7 @@ void _applyOverrides(BallDyn base, BallDyn overrides, int64_t edition) {
             if (isFixedFeature(edition, key)) {
                 throw _ball_make_exception("ArgumentError"s, ((("Feature \""s + ball_to_string(key)) + "\" is not overridable at edition "s) + ball_to_string(editionToName(edition))));
             }
-            (ball_set(base, std::string(ball_to_string(BallDyn(key))), std::any(value)), value);
+            [&]() { auto __ball_av = value; ball_set(base, std::string(ball_to_string(BallDyn(key))), std::any(__ball_av)); return __ball_av; }();
         }
     }
 }
@@ -9108,13 +9125,13 @@ BallDyn grpcMakeFlags(bool compressed, bool endOfStream) {
 BallDyn grpcEncodeFrame(BallDyn messageBytes, bool compressed) {
     auto length = BallDyn(ball_length(messageBytes));
     auto frame = BallDyn(std::vector<std::any>(static_cast<size_t>(static_cast<int64_t>((_headerSize + length))), std::any(BallDyn(static_cast<int64_t>(0)))));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(0)))), std::any((BallDyn(compressed ? BallDyn(static_cast<int64_t>(1)) : BallDyn(static_cast<int64_t>(0)))))), (BallDyn(compressed ? BallDyn(static_cast<int64_t>(1)) : BallDyn(static_cast<int64_t>(0)))));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(1)))), std::any((static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(24))) & static_cast<int64_t>(255)))), (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(24))) & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(2)))), std::any((static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(16))) & static_cast<int64_t>(255)))), (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(16))) & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(3)))), std::any((static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(8))) & static_cast<int64_t>(255)))), (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(8))) & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(4)))), std::any((length & static_cast<int64_t>(255)))), (length & static_cast<int64_t>(255)));
+    [&]() { auto __ball_av = (BallDyn(compressed ? BallDyn(static_cast<int64_t>(1)) : BallDyn(static_cast<int64_t>(0)))); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(0)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(24))) & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(1)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(16))) & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(2)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(8))) & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(3)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (length & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(4)))), std::any(__ball_av)); return __ball_av; }();
     for (auto i = static_cast<int64_t>(0); (i < length); (i++)) {
-        (ball_set(frame, std::string(ball_to_string(BallDyn((_headerSize + i)))), std::any(static_cast<BallDyn>(messageBytes)[i])), static_cast<BallDyn>(messageBytes)[i]);
+        [&]() { auto __ball_av = static_cast<BallDyn>(messageBytes)[i]; ball_set(frame, std::string(ball_to_string(BallDyn((_headerSize + i)))), std::any(__ball_av)); return __ball_av; }();
     }
     return frame;
     return BallDyn();
@@ -9130,20 +9147,20 @@ BallDyn grpcDecodeFrame(BallDyn buffer, int64_t offset) {
         throw _ball_make_exception("RangeError"s, (((("Incomplete gRPC frame payload at offset "s + ball_to_string(offset)) + ": "s) + (("expected "s + ball_to_string(length)) + " bytes, "s)) + ("have "s + ball_to_string(((ball_length(buffer) - offset) - _headerSize)))));
     }
     auto messageBytes = BallDyn(ball_sublist(buffer, (offset + _headerSize), ((offset + _headerSize) + length)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("messageBytes"s)] = std::any(messageBytes); __m[ball_to_string("compressed"s)] = std::any(compressed); __m[ball_to_string("bytesRead"s)] = std::any((_headerSize + length)); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("messageBytes"s)] = std::any(messageBytes); __m[ball_to_string("compressed"s)] = std::any(compressed); __m[ball_to_string("bytesRead"s)] = std::any((_headerSize + length)); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
 BallDyn grpcEncodeFrameWithFlags(BallDyn messageBytes, int64_t flags) {
     auto length = BallDyn(ball_length(messageBytes));
     auto frame = BallDyn(std::vector<std::any>(static_cast<size_t>(static_cast<int64_t>((_headerSize + length))), std::any(BallDyn(static_cast<int64_t>(0)))));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(0)))), std::any((flags & static_cast<int64_t>(255)))), (flags & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(1)))), std::any((static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(24))) & static_cast<int64_t>(255)))), (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(24))) & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(2)))), std::any((static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(16))) & static_cast<int64_t>(255)))), (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(16))) & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(3)))), std::any((static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(8))) & static_cast<int64_t>(255)))), (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(8))) & static_cast<int64_t>(255)));
-    (ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(4)))), std::any((length & static_cast<int64_t>(255)))), (length & static_cast<int64_t>(255)));
+    [&]() { auto __ball_av = (flags & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(0)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(24))) & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(1)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(16))) & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(2)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(length)) >> static_cast<int64_t>(static_cast<int64_t>(8))) & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(3)))), std::any(__ball_av)); return __ball_av; }();
+    [&]() { auto __ball_av = (length & static_cast<int64_t>(255)); ball_set(frame, std::string(ball_to_string(BallDyn(static_cast<int64_t>(4)))), std::any(__ball_av)); return __ball_av; }();
     for (auto i = static_cast<int64_t>(0); (i < length); (i++)) {
-        (ball_set(frame, std::string(ball_to_string(BallDyn((_headerSize + i)))), std::any(static_cast<BallDyn>(messageBytes)[i])), static_cast<BallDyn>(messageBytes)[i]);
+        [&]() { auto __ball_av = static_cast<BallDyn>(messageBytes)[i]; ball_set(frame, std::string(ball_to_string(BallDyn((_headerSize + i)))), std::any(__ball_av)); return __ball_av; }();
     }
     return frame;
     return BallDyn();
@@ -9159,7 +9176,7 @@ BallDyn grpcDecodeFrameWithFlags(BallDyn buffer, int64_t offset) {
         throw _ball_make_exception("RangeError"s, (((("Incomplete gRPC frame payload at offset "s + ball_to_string(offset)) + ": "s) + (("expected "s + ball_to_string(length)) + " bytes, "s)) + ("have "s + ball_to_string(((ball_length(buffer) - offset) - _headerSize)))));
     }
     auto messageBytes = BallDyn(ball_sublist(buffer, (offset + _headerSize), ((offset + _headerSize) + length)));
-    return [&]() { BallOrderedMap __m; __m[ball_to_string("messageBytes"s)] = std::any(messageBytes); __m[ball_to_string("flags"s)] = std::any(flags); __m[ball_to_string("compressed"s)] = std::any(grpcFlagIsCompressed(flags)); __m[ball_to_string("endOfStream"s)] = std::any(grpcFlagIsEndOfStream(flags)); __m[ball_to_string("bytesRead"s)] = std::any((_headerSize + length)); return __m; }();
+    return [&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("messageBytes"s)] = std::any(messageBytes); __m[ball_to_string("flags"s)] = std::any(flags); __m[ball_to_string("compressed"s)] = std::any(grpcFlagIsCompressed(flags)); __m[ball_to_string("endOfStream"s)] = std::any(grpcFlagIsEndOfStream(flags)); __m[ball_to_string("bytesRead"s)] = std::any((_headerSize + length)); return BallDyn(std::move(__m)); }();
     return BallDyn();
 }
 
@@ -9173,7 +9190,7 @@ BallDyn grpcEncodeFrames(BallDyn messages, bool compressed) {
     for (auto msg : BallDyn(messages)) {
         auto frame = BallDyn(grpcEncodeFrame(msg, compressed));
         for (auto i = static_cast<int64_t>(0); (i < ball_length(frame)); (i++)) {
-            (ball_set(result, std::string(ball_to_string(BallDyn((pos + i)))), std::any(static_cast<BallDyn>(frame)[i])), static_cast<BallDyn>(frame)[i]);
+            [&]() { auto __ball_av = static_cast<BallDyn>(frame)[i]; ball_set(result, std::string(ball_to_string(BallDyn((pos + i)))), std::any(__ball_av)); return __ball_av; }();
         }
         (pos += ball_length(frame));
     }
@@ -9188,7 +9205,7 @@ BallDyn grpcDecodeFrames(BallDyn buffer) {
     while ((offset < ball_length(buffer))) {
         auto decoded = BallDyn(grpcDecodeFrame(buffer, offset));
         auto bytesRead = BallDyn(static_cast<BallDyn>(decoded)["bytesRead"s]);
-        ball_assign(frames, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(frames,[&]() { BallOrderedMap __m; __m[ball_to_string("messageBytes"s)] = std::any(static_cast<BallDyn>(decoded)["messageBytes"s]); __m[ball_to_string("compressed"s)] = std::any(static_cast<BallDyn>(decoded)["compressed"s]); return __m; }()));
+        ball_assign(frames, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(frames,[&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("messageBytes"s)] = std::any(static_cast<BallDyn>(decoded)["messageBytes"s]); __m[ball_to_string("compressed"s)] = std::any(static_cast<BallDyn>(decoded)["compressed"s]); return BallDyn(std::move(__m)); }()));
         (offset += bytesRead);
     }
     return frames;
@@ -9206,7 +9223,7 @@ BallDyn extractServiceMethods(BallDyn serviceDescriptor) {
         if (!(ball_is_typed_map(method, "Object?"s))) {
             continue;
         }
-        ball_assign(result, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(result,[&]() { BallOrderedMap __m; __m[ball_to_string("name"s)] = std::any((BallDyn(static_cast<BallDyn>(method)["name"s]).has_value() ? BallDyn(static_cast<BallDyn>(method)["name"s]) : BallDyn(""s))); __m[ball_to_string("inputType"s)] = std::any((BallDyn(static_cast<BallDyn>(method)["inputType"s]).has_value() ? BallDyn(static_cast<BallDyn>(method)["inputType"s]) : BallDyn(""s))); __m[ball_to_string("outputType"s)] = std::any((BallDyn(static_cast<BallDyn>(method)["outputType"s]).has_value() ? BallDyn(static_cast<BallDyn>(method)["outputType"s]) : BallDyn(""s))); __m[ball_to_string("clientStreaming"s)] = std::any((static_cast<BallDyn>(method)["clientStreaming"s] == true)); __m[ball_to_string("serverStreaming"s)] = std::any((static_cast<BallDyn>(method)["serverStreaming"s] == true)); return __m; }()));
+        ball_assign(result, [](BallDyn v, BallDyn e){v.push_back(e._val);return v;}(result,[&]() -> BallDyn { BallOrderedMap __m; __m[ball_to_string("name"s)] = std::any((BallDyn(static_cast<BallDyn>(method)["name"s]).has_value() ? BallDyn(static_cast<BallDyn>(method)["name"s]) : BallDyn(""s))); __m[ball_to_string("inputType"s)] = std::any((BallDyn(static_cast<BallDyn>(method)["inputType"s]).has_value() ? BallDyn(static_cast<BallDyn>(method)["inputType"s]) : BallDyn(""s))); __m[ball_to_string("outputType"s)] = std::any((BallDyn(static_cast<BallDyn>(method)["outputType"s]).has_value() ? BallDyn(static_cast<BallDyn>(method)["outputType"s]) : BallDyn(""s))); __m[ball_to_string("clientStreaming"s)] = std::any((static_cast<BallDyn>(method)["clientStreaming"s] == true)); __m[ball_to_string("serverStreaming"s)] = std::any((static_cast<BallDyn>(method)["serverStreaming"s] == true)); return BallDyn(std::move(__m)); }()));
     }
     return result;
     return BallDyn();

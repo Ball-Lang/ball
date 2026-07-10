@@ -9,6 +9,13 @@
 # feature), so committing it would only add churn. CI/consumers regenerate it.
 engine/src/compiled_engine.rs
 
+# Self-hosted CLI core, compiled from dart/self_host/cli.ball.json by
+# `cargo run -p ball-cli-regen` (issue #365). Git-ignored like
+# compiled_engine.rs above: it is a generated artifact behind the
+# off-by-default `cli_core` feature (rust/cli/Cargo.toml), so committing it
+# would only add churn. CI/consumers regenerate it.
+cli/src/compiled_cli.rs
+
 # Build artifact copied/generated into the worktree by the regenerator's
 # input; not part of the Rust sources.
 build_errors*.txt

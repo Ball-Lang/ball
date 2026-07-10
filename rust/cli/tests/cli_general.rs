@@ -2,14 +2,16 @@
 //! usage-error handling for a missing/unknown subcommand.
 mod common;
 
-use common::{ball, exit_code, stdout};
+use common::{ball, exit_code, stderr, stdout};
 
 #[test]
 fn help_lists_every_subcommand_and_exits_0() {
     let output = ball(&["--help"]);
     assert_eq!(exit_code(&output), 0);
     let text = stdout(&output);
-    for subcommand in ["run", "compile", "encode", "check"] {
+    for subcommand in [
+        "run", "compile", "encode", "check", "info", "validate", "tree", "version",
+    ] {
         assert!(
             text.contains(subcommand),
             "--help missing '{subcommand}':\n{text}"
@@ -22,6 +24,21 @@ fn version_prints_the_crate_version_and_exits_0() {
     let output = ball(&["--version"]);
     assert_eq!(exit_code(&output), 0);
     assert!(stdout(&output).contains(env!("CARGO_PKG_VERSION")));
+}
+
+/// `ball version` (the subcommand, issue #365) prints the same
+/// `"ball <version>"` line `dart/shared/lib/cli_core.dart`'s `versionLine`
+/// produces (see `dart/cli/lib/src/runner.dart`'s `case 'version':`) —
+/// unlike `info`/`validate`/`tree`, always available regardless of the
+/// `cli_core` feature (see `src/commands/version.rs`'s doc comment).
+#[test]
+fn version_subcommand_prints_ball_prefixed_crate_version_and_exits_0() {
+    let output = ball(&["version"]);
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        format!("ball {}\n", env!("CARGO_PKG_VERSION"))
+    );
 }
 
 #[test]

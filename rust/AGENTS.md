@@ -24,7 +24,8 @@ run-acceptance and the full conformance sweep.
 | `ball-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
 | `ball-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
 | `ball-engine-regen` | `rust/engine/tool/` | Internal helper crate: regenerates `rust/engine/src/compiled_engine.rs` | Complete, run manually |
-| `ball-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check` CLI | Complete (#41/#304) — clap subcommands, `run` behind the `self_host` feature |
+| `ball-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check`/`info`/`validate`/`tree`/`version` CLI | Complete (#41/#304, #365) — clap subcommands; `run` behind `self_host`, `info`/`validate`/`tree` behind `cli_core` (no `audit` — #362 residual) |
+| `ball-cli-regen` | `rust/cli/tool/` | Internal helper crate: regenerates `rust/cli/src/compiled_cli.rs` | Complete, run manually |
 
 The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs` — it
 prints the canonical `Results: N passed, M failed, T total` line and is run in CI
@@ -70,6 +71,12 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
   committed `compiled_engine.ts`) because it does not yet build. Regenerate with
   `cargo run -p ball-engine-regen`; never hand-patch it — fix `rust/compiler/` or the Dart
   self-host source instead.
+- `rust/cli/src/compiled_cli.rs` — the self-hosted cli-core report functions
+  (`info`/`validate`/`tree`/`version`) compiled from `dart/self_host/cli.ball.json`. **Gitignored**,
+  same reasoning as `compiled_engine.rs`. Regenerate with `cargo run -p ball-cli-regen` (which
+  itself needs `dart/self_host/cli.ball.json` — `cd dart && dart run
+  compiler/tool/gen_cli_json.dart`); never hand-patch it — fix `dart/shared/lib/cli_core.dart` or
+  `rust/compiler/` instead. See `rust/cli/AGENTS.md`.
 
 ## Key Dependencies
 

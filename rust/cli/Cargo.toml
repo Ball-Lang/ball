@@ -24,6 +24,16 @@ path = "src/main.rs"
 # actually execute programs via the self-hosted engine.
 default = []
 self_host = ["ball-engine/self_host"]
+# Off by default for the same reason as `self_host`: `src/compiled_cli.rs`
+# (the self-hosted `info`/`validate`/`tree`/`version` report functions,
+# compiled from `dart/self_host/cli.ball.json` — issue #365) is a generated,
+# gitignored file (`cargo run -p ball-cli-regen`), not present in a fresh
+# checkout. Independent of `self_host`: cli-core's compiled functions are
+# plain `Program -> String` transforms, not the interpreter — they need no
+# self-hosted engine run. Without this feature, `info`/`validate`/`tree`
+# honestly report a runtime error instead of silently doing nothing (`ball
+# version` still works — see `src/commands/version.rs`).
+cli_core = []
 
 [dependencies]
 ball-shared = { workspace = true }

@@ -19,9 +19,10 @@ self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not s
 - `rust-toolchain.toml` (`rust/rust-toolchain.toml`) pins `channel = "stable"` with `rustfmt` +
   `clippy` components — a bare `cargo` inside `rust/` auto-selects it via `rustup`.
 - Cargo workspace root is `rust/Cargo.toml` (`resolver = "3"`), members:
-  `shared`, `compiler`, `encoder`, `engine`, `engine/tool`, `cli`. Shared version/edition/
-  license/dependency versions live in `[workspace.package]` / `[workspace.dependencies]` —
-  member crates reference them with `{ workspace = true }`, never a repeated version string.
+  `shared`, `compiler`, `encoder`, `engine`, `engine/tool`, `cli`, `cli/tool`. Shared
+  version/edition/license/dependency versions live in `[workspace.package]` /
+  `[workspace.dependencies]` — member crates reference them with `{ workspace = true }`, never a
+  repeated version string.
 
 ```bash
 cd rust

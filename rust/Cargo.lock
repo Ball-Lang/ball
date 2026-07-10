@@ -88,6 +88,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ball-cli-regen"
+version = "0.1.0"
+dependencies = [
+ "ball-compiler",
+ "ball-shared",
+ "prost",
+ "prost-reflect",
+ "serde_json",
+]
+
+[[package]]
 name = "ball-compiler"
 version = "0.1.0"
 dependencies = [

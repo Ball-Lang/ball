@@ -2750,6 +2750,610 @@ TEST(compile_lambda_body_shapes_capture_analysis) {
 }
 
 // ================================================================
+// Tests — Class emission clusters (issue #63)
+// emit_struct / emit_method / compile_message_creation / compile_method_call
+// user-method dispatch, and typed constructor/field defaults. These arms are
+// only reached by class-bearing IR the numbered corpus never emits in these
+// exact shapes (interfaces/mixins/virtual-bases, named-ctor-WITH-body,
+// conversion operators, split-mode out-of-line class defs, list-literal field
+// defaults). Programs are hand-built ball::ir; every arm gets a real
+// behavioral assertion on the emitted C++.
+// ================================================================
+
+// A proto3-JSON class TypeDefinition: descriptor fields (name/PROTO_TYPE) plus a
+// cosmetic metadata Struct (kind/superclass/interfaces/mixins/fields/…).
+static json cov_class_td(const std::string& full_name,
+                         std::vector<std::pair<std::string, std::string>> fields,
+                         json metadata) {
+    auto colon = full_name.find(':');
+    std::string bare = colon == std::string::npos ? full_name
+                                                   : full_name.substr(colon + 1);
+    json d;
+    d["name"] = bare;
+    if (!fields.empty()) {
+        json arr = json::array();
+        for (auto& [n, t] : fields) {
+            json f;
+            f["name"] = n;
+            f["type"] = t;
+            arr.push_back(std::move(f));
+        }
+        d["field"] = std::move(arr);
+    }
+    json td;
+    td["name"] = full_name;
+    td["descriptor"] = std::move(d);
+    td["metadata"] = std::move(metadata);
+    return td;
+}
+
+// A class member function (constructor / method / static_field). `metadata`
+// carries kind + params + initializers; body/outputType are optional.
+static json cov_class_fn(const std::string& name, json metadata,
+                         json body = json(nullptr),
+                         const std::string& outputType = "") {
+    json f;
+    f["name"] = name;
+    f["metadata"] = std::move(metadata);
+    if (!outputType.empty()) f["outputType"] = outputType;
+    if (!body.is_null()) f["body"] = std::move(body);
+    return f;
+}
+
+// {name,[type],[is_this],[is_optional],[default]} constructor/method parameter.
+static json cov_param(const std::string& name, const std::string& type = "",
+                      bool is_this = false, bool is_optional = false,
+                      const std::string& def = "") {
+    json p;
+    p["name"] = name;
+    if (!type.empty()) p["type"] = type;
+    if (is_this) p["is_this"] = true;
+    if (is_optional) { p["is_optional"] = true; }
+    if (!def.empty()) p["default"] = def;
+    return p;
+}
+
+// Assemble a program with class TypeDefinitions + their member functions +
+// a trivial main.
+static json cov_class_program(std::vector<json> typedefs,
+                              std::vector<json> funcs) {
+    json program;
+    json mod;
+    mod["name"] = "main";
+    for (auto& t : typedefs) mod["typeDefs"].push_back(std::move(t));
+    for (auto& f : funcs) mod["functions"].push_back(std::move(f));
+    json m;
+    m["name"] = "main";
+    m["body"] = lit_int(0);
+    mod["functions"].push_back(std::move(m));
+    program["modules"].push_back(std::move(mod));
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    return program;
+}
+
+// The rich class used by both the single-TU and split-mode emit_struct tests:
+// interfaces/mixins/virtual-bases, a default ctor WITH a body + field colon-init,
+// a named ctor WITH a body, a conversion operator, a method returning the class,
+// a void method, and a method with an optional typed parameter.
+static json cov_rich_class_program() {
+    json meta;
+    meta["kind"] = "class";
+    meta["interfaces"] = json::array({"IShape"});
+    meta["mixins"] = json::array({"Mixable"});
+    meta["virtual_bases"] = json::array({"VBase"});
+    auto td = cov_class_td("main:Foo",
+                           {{"name", "TYPE_STRING"}, {"count", "TYPE_INT64"}},
+                           std::move(meta));
+
+    // default ctor with is_this params + a field colon-initializer + a body.
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] =
+        json::array({cov_param("name", "", true), cov_param("count", "", true)});
+    json init;
+    init["kind"] = "field";
+    init["name"] = "count";
+    init["value"] = "0";
+    ctor_meta["initializers"] = json::array({std::move(init)});
+    auto ctor = cov_class_fn(
+        "main:Foo.new", std::move(ctor_meta),
+        block({stmt_expr(print_call(lit_string("ctor")))}));
+
+    // named ctor WITH a body.
+    json make_meta;
+    make_meta["kind"] = "constructor";
+    make_meta["params"] = json::array({cov_param("seed")});
+    auto make_fn = cov_class_fn(
+        "main:Foo.make", std::move(make_meta),
+        block({stmt_expr(print_call(lit_string("making")))}));
+
+    // conversion operator.
+    json conv_meta;
+    conv_meta["kind"] = "operator";
+    conv_meta["is_operator"] = true;
+    conv_meta["is_conversion_operator"] = true;
+    conv_meta["conversion_type"] = "int";
+    auto conv = cov_class_fn("main:Foo.operator_int", std::move(conv_meta),
+                             lit_int(7), "int");
+
+    // method returning the user class.
+    json clone_meta;
+    clone_meta["kind"] = "method";
+    auto clone = cov_class_fn(
+        "main:Foo.clone", std::move(clone_meta),
+        make_msg("main:Foo", {{"name", ref("name")}, {"count", ref("count")}}),
+        "main:Foo");
+
+    // void method.
+    json greet_meta;
+    greet_meta["kind"] = "method";
+    auto greet = cov_class_fn("main:Foo.greet", std::move(greet_meta),
+                              block({stmt_expr(print_call(lit_string("hi")))}),
+                              "void");
+
+    // method with an optional typed parameter (default arg emission).
+    json opt_meta;
+    opt_meta["kind"] = "method";
+    opt_meta["params"] =
+        json::array({cov_param("x", "int", false, true, "5")});
+    auto opt = cov_class_fn("main:Foo.opt", std::move(opt_meta), lit_int(1), "int");
+
+    return cov_class_program(
+        {std::move(td)},
+        {std::move(ctor), std::move(make_fn), std::move(conv), std::move(clone),
+         std::move(greet), std::move(opt)});
+}
+
+TEST(emit_struct_bases_ctors_operators) {
+    auto out = compile_program(cov_rich_class_program());
+    // interfaces + mixins + virtual bases inheritance list.
+    ASSERT_CONTAINS(out, "struct Foo : public IShape, public Mixable, virtual public VBase {");
+    // default ctor: member-init from is_this params + a body.
+    ASSERT_CONTAINS(out, "Foo(auto name, auto count) : name(name), count(count) {");
+    // named ctor WITH a body → static factory returning the struct.
+    ASSERT_CONTAINS(out, "static Foo make(auto seed) {");
+    // conversion operator.
+    ASSERT_CONTAINS(out, "operator int64_t() {");
+    // void method.
+    ASSERT_CONTAINS(out, "void greet() {");
+    // optional typed param carries its default at the declaration.
+    ASSERT_CONTAINS(out, "opt(int64_t x = 5)");
+    // default-constructed struct helper is emitted because the class has a ctor.
+    ASSERT_CONTAINS(out, "Foo() = default;");
+}
+
+TEST(emit_struct_split_mode_out_of_line) {
+    // compile_split moves method/ctor bodies OUT OF LINE into shards — a path
+    // never reached by single-TU compile(). Drive the same rich class through
+    // it and assert the out-of-line class member definitions land in a shard.
+    CppCompiler compiler(ball::ir::parseProgram(cov_rich_class_program()));
+    auto tmp = covfs::temp_directory_path() / "ball_cov_class_split";
+    auto result = compiler.compile_split(tmp.string(), 2);
+    std::string all;
+    for (const auto& s : result.shard_sources) all += read_text(s);
+    ASSERT_CONTAINS(all, "Foo::Foo(auto name, auto count) {");   // split ctor body
+    ASSERT_CONTAINS(all, "Foo::operator int64_t() {");           // split conv op
+    ASSERT_CONTAINS(all, "void Foo::greet() {");                 // split void method
+    ASSERT_CONTAINS(all, "Foo Foo::clone() {");                  // split method
+}
+
+TEST(emit_struct_auto_assign_positional_ctor) {
+    // A ctor whose params are NOT is_this, with no super initializer, and whose
+    // count matches the class fields → positional auto-assign member-init list.
+    json meta;
+    meta["kind"] = "class";
+    auto td = cov_class_td("main:Bar", {{"name", "TYPE_STRING"}}, std::move(meta));
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("name")});
+    auto ctor = cov_class_fn("main:Bar.new", std::move(ctor_meta));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "Bar(auto name) : name(name) {}");
+}
+
+TEST(emit_struct_static_field_empty_map) {
+    // A static field whose body is `set_create` with a Map outputType is the
+    // encoder's empty-map literal → BallDyn(BallOrderedMap{}).
+    json meta;
+    meta["kind"] = "class";
+    auto td = cov_class_td("main:Baz", {}, std::move(meta));
+    json sf_meta;
+    sf_meta["kind"] = "static_field";
+    auto sf = cov_class_fn(
+        "main:Baz.config", std::move(sf_meta),
+        call("std_collections", "set_create", make_msg("SetCreateInput", {})),
+        "Map<String, int>");
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(sf)}));
+    ASSERT_CONTAINS(out, "static inline BallDyn config = BallDyn(BallOrderedMap{});");
+}
+
+TEST(emit_struct_superclass_maps_to_stdlib) {
+    // A superclass that map_type resolves to a C++ stdlib type (Exception →
+    // std::runtime_error, which contains "::") takes the mapped-base branch.
+    json meta;
+    meta["kind"] = "class";
+    meta["superclass"] = "Exception";
+    auto td = cov_class_td("main:MyErr", {}, std::move(meta));
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("msg", "", true)});
+    auto ctor = cov_class_fn("main:MyErr.new", std::move(ctor_meta));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "struct MyErr : public std::runtime_error {");
+}
+
+TEST(emit_struct_list_literal_field_defaults) {
+    // Class field initializers that are list literals exercise every
+    // cpp_list_literal_default arm (all-bool / all-num / all-string / mixed-
+    // nested) plus the empty-map `{}` initializer.
+    json meta;
+    meta["kind"] = "class";
+    json fields = json::array();
+    auto mkfield = [](const char* n, const char* init) {
+        json f;
+        f["name"] = n;
+        f["initializer"] = init;
+        return f;
+    };
+    fields.push_back(mkfield("flags", "[true, false, true]"));
+    fields.push_back(mkfield("nums", "[1.5, 2, 3]"));
+    fields.push_back(mkfield("names", "['a', 'b']"));
+    fields.push_back(mkfield("mixed", "[1, 'a', [2, 3]]"));
+    fields.push_back(mkfield("m", "{}"));
+    meta["fields"] = std::move(fields);
+    auto td = cov_class_td("main:Defs",
+                           {{"flags", "TYPE_STRING"}, {"nums", "TYPE_STRING"},
+                            {"names", "TYPE_STRING"}, {"mixed", "TYPE_STRING"},
+                            {"m", "TYPE_STRING"}},
+                           std::move(meta));
+    auto out = compile_program(cov_class_program({std::move(td)}, {}));
+    ASSERT_CONTAINS(out, "BallDyn(std::vector<bool>{true, false, true})");
+    ASSERT_CONTAINS(out, "BallDyn(std::vector<double>{1.5, 2.0, 3.0})");
+    ASSERT_CONTAINS(out, "BallDyn(std::vector<std::string>{std::string(\"a\"), std::string(\"b\")})");
+    ASSERT_CONTAINS(out, "BallList{std::any(BallDyn(static_cast<int64_t>(1))), std::any(BallDyn(std::string(\"a\"))), std::any(BallDyn(std::vector<int64_t>{2, 3}))}");
+    ASSERT_CONTAINS(out, "BallDyn m = BallDyn(BallOrderedMap{});");
+}
+
+TEST(emit_method_optional_typed_param_defaults) {
+    // A method with optional bool/int/double/string params exercises every
+    // cpp_param_default literal form as a C++ default argument.
+    json meta;
+    meta["kind"] = "class";
+    auto td = cov_class_td("main:Opt", {}, std::move(meta));
+    json mmeta;
+    mmeta["kind"] = "method";
+    mmeta["params"] = json::array({
+        cov_param("a", "bool", false, true, "true"),
+        cov_param("b", "int", false, true, "7"),
+        cov_param("c", "double", false, true, "1.5"),
+        cov_param("d", "String", false, true, "'hi'"),
+    });
+    auto m = cov_class_fn("main:Opt.withdefaults", std::move(mmeta), lit_int(0), "int");
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(m)}));
+    ASSERT_CONTAINS(out, "withdefaults(bool a = true, int64_t b = 7, double c = 1.5, std::string d = std::string(\"hi\"))");
+}
+
+TEST(message_creation_runtime_type_arms) {
+    // messageCreation typeName arms not reached by the numbered corpus:
+    // metadata-only transparent/factory wrappers, runtime stub types, BallObject,
+    // BallGenerator, JsonEncoder, mixed positional+named fields, and reified
+    // generics on a NON-dynamic class.
+    json lv_empty;
+    lv_empty["literal"]["listValue"] = json::object();
+    auto only_meta = [&](const std::string& tn) {
+        return make_msg(tn, {{"__type_args__", lv_empty}});
+    };
+    ASSERT_CONTAINS(compile_program(build_program(only_meta("BallList"))), "BallDyn{}");
+    ASSERT_CONTAINS(compile_program(build_program(only_meta("List.of"))), "BallList{}");
+    ASSERT_CONTAINS(compile_program(build_program(only_meta("Map.of"))), "BallMap{}");
+    ASSERT_CONTAINS(compile_program(build_program(only_meta("BallDouble"))), "BallDyn(0.0)");
+    // runtime stub type with NAMED fields → param-keyed map (not all-positional,
+    // so it reaches the stub-type arm rather than the positional-ctor arm).
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("_FlowSignal", {{"kind", lit_string("return")}, {"value", lit_int(1)}}))),
+        "__m[\"kind\"s] = std::any(\"return\"s)");
+    // BallObject → positional constructor of (typeName, superObject, fields, methods).
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("BallObject", {{"typeName", lit_string("X")}, {"fields", make_msg("", {})}}))),
+        "BallObject(\"X\"s, std::any{}, ");
+    // JsonEncoder with NO fields → JsonEncoder{} (the only_meta empty-body arm).
+    ASSERT_CONTAINS(compile_program(build_program(make_msg("JsonEncoder", {}))),
+        "JsonEncoder{}");
+    // mixed positional (argN) + named fields → designated-initializer struct.
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("Pair", {{"arg0", lit_int(1)}, {"second", lit_int(2)}}))),
+        ".second = ");
+    // reified generics on a plain (non-dynamic) type → __type__/__type_args__ map.
+    json type_args;
+    type_args["literal"]["listValue"]["elements"] = json::array({lit_string("int")});
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("PlainBox", {{"__type_args__", type_args}, {"arg0", lit_int(5)}}))),
+        "std::any(\"PlainBox\"s)");
+}
+
+TEST(method_call_collection_and_string_routes) {
+    // compile_method_call fallback routes (module "", self+argN) for list / map /
+    // string / async members — never emitted by the corpus (which uses the
+    // std_collections / std route), so each `if (fn == ...)` arm sat uncovered.
+    auto m = [](const std::string& fn, std::vector<std::pair<std::string, json>> flds) {
+        return compile_program(build_program(mcall(fn, std::move(flds))));
+    };
+    ASSERT_CONTAINS(m("add", {{"self", ref("l")}, {"arg0", lit_int(1)}}), ".push_back(");
+    ASSERT_CONTAINS(m("removeLast", {{"self", ref("l")}}), ".pop_back()");
+    ASSERT_CONTAINS(m("length", {{"self", ref("l")}}), "ball_length(");
+    ASSERT_CONTAINS(m("isEmpty", {{"self", ref("l")}}), ".empty()");
+    ASSERT_CONTAINS(m("isNotEmpty", {{"self", ref("l")}}), "!l.empty()");
+    ASSERT_CONTAINS(m("last", {{"self", ref("l")}}), ".back()");
+    ASSERT_CONTAINS(m("first", {{"self", ref("l")}}), ".front()");
+    ASSERT_CONTAINS(m("contains", {{"self", ref("s")}, {"arg0", lit_string("x")}}), "std::string::npos");
+    ASSERT_CONTAINS(m("insert", {{"self", ref("l")}, {"arg0", lit_int(0)}, {"arg1", lit_int(9)}}), ".begin() + ");
+    ASSERT_CONTAINS(m("removeAt", {{"self", ref("l")}, {"arg0", lit_int(0)}}), ".erase(");
+    ASSERT_CONTAINS(m("sublist", {{"self", ref("l")}, {"arg0", lit_int(1)}}), "v.begin()+s, v.end()");
+    ASSERT_CONTAINS(m("sublist", {{"self", ref("l")}, {"arg0", lit_int(1)}, {"arg1", lit_int(3)}}), "v.begin()+s, v.begin()+e");
+    ASSERT_CONTAINS(m("reversed", {{"self", ref("l")}}), "std::reverse(");
+    ASSERT_CONTAINS(m("join", {{"self", ref("l")}, {"arg0", lit_string(",")}}), "r+=ball_to_string(v[i]);");
+    ASSERT_CONTAINS(m("filled", {{"self", lit_string("List")}, {"arg0", lit_int(3)}, {"arg1", lit_int(0)}}), "std::vector<std::any>(");
+    ASSERT_CONTAINS(m("containsKey", {{"self", ref("mp")}, {"arg0", lit_string("k")}}), ".count(ball_to_string(BallDyn(");
+    ASSERT_CONTAINS(m("remove", {{"self", ref("mp")}, {"arg0", lit_string("k")}}), ".erase(");
+    ASSERT_CONTAINS(m("substring", {{"self", ref("s")}, {"arg0", lit_int(1)}}), "ball_string_substring(BallDyn(");
+    ASSERT_CONTAINS(m("startsWith", {{"self", ref("s")}, {"arg0", lit_string("a")}}), ", 0) == 0)");
+    ASSERT_CONTAINS(m("endsWith", {{"self", ref("s")}, {"arg0", lit_string("z")}}), "s.compare(s.size()-e.size()");
+    ASSERT_CONTAINS(m("trim", {{"self", ref("s")}}), "find_first_not_of");
+    ASSERT_CONTAINS(m("split", {{"self", ref("s")}, {"arg0", lit_string(",")}}), "r.push_back(s.substr(p));");
+    ASSERT_CONTAINS(m("replaceAll", {{"self", ref("s")}, {"arg0", lit_string("a")}, {"arg1", lit_string("b")}}), "s.replace(p,f.size(),t)");
+    ASSERT_CONTAINS(m("toLowerCase", {{"self", ref("s")}}), "::tolower");
+    ASSERT_CONTAINS(m("value", {{"self", ref("Future")}, {"arg0", lit_int(1)}}), "static_cast<int64_t>(1)");
+}
+
+// ================================================================
+// Tests — Comprehensions, library facades, user-method dispatch (issue #63)
+// compile_std_call collection_for/collection_if as expressions,
+// compile_map_collection_element, compile_collection_element, compile_library
+// class/enum/top-level-var facades, and compile_method_call super/static
+// dispatch — arms the numbered corpus never emits in these exact shapes.
+// ================================================================
+
+// std call whose input is an anonymous MessageCreation of named fields.
+static json cov_stdf(const std::string& fn,
+                     std::vector<std::pair<std::string, json>> fields) {
+    return std_call(fn, make_msg("", std::move(fields)));
+}
+// map-entry sentinel: {key, value} anonymous messageCreation.
+static json cov_entry(json k, json v) {
+    return make_msg("", {{"key", std::move(k)}, {"value", std::move(v)}});
+}
+
+TEST(compile_std_call_map_comprehension) {
+    // {for k in [1,2]: k: k} — a collection_for whose body is a key/value
+    // sentinel builds an insertion-ordered BallOrderedMap.
+    auto compr = cov_stdf("collection_for", {
+        {"variable", lit_string("k")},
+        {"iterable", lit_list({lit_int(1), lit_int(2)})},
+        {"body", cov_entry(ref("k"), ref("k"))}});
+    auto out = compile_program(build_program(compr));
+    ASSERT_CONTAINS(out, "BallOrderedMap __m;");
+    ASSERT_CONTAINS(out, "__m[ball_to_string(k)] = std::any(BallDyn(k));");
+    ASSERT_CONTAINS(out, "return BallDyn(__m);");
+}
+
+TEST(compile_map_collection_element_spread_and_nested) {
+    // Nested collection_if inside a map comprehension: then is a sentinel, else
+    // is a map spread — exercises the map spread and the map collection_if arms.
+    auto map_if = cov_stdf("collection_for", {
+        {"variable", lit_string("k")},
+        {"iterable", lit_list({lit_int(1)})},
+        {"body", cov_stdf("collection_if", {
+            {"condition", lit_bool(true)},
+            {"then", cov_entry(ref("k"), ref("k"))},
+            {"else", cov_stdf("spread", {{"value", ref("m")}})}})}});
+    auto o1 = compile_program(build_program(map_if));
+    ASSERT_CONTAINS(o1, "ball_map_entries(BallDyn(m))");
+    ASSERT_CONTAINS(o1, "_ball_pred_true(");
+
+    // Nested collection_for inside a map comprehension.
+    auto map_nested = cov_stdf("collection_for", {
+        {"variable", lit_string("i")},
+        {"iterable", lit_list({lit_int(1)})},
+        {"body", cov_stdf("collection_for", {
+            {"variable", lit_string("j")},
+            {"iterable", lit_list({lit_int(2)})},
+            {"body", cov_entry(ref("i"), ref("j"))}})}});
+    auto o2 = compile_program(build_program(map_nested));
+    ASSERT_CONTAINS(o2, "for (auto i : BallDyn(");
+    ASSERT_CONTAINS(o2, "for (auto j : BallDyn(");
+    ASSERT_CONTAINS(o2, "__m[ball_to_string(i)] = std::any(BallDyn(j));");
+}
+
+TEST(compile_collection_element_list_spread_and_if) {
+    // List comprehension whose body is a collection_if: then spreads a list,
+    // else null-spreads — exercises the list spread / null_spread / collection_if
+    // arms of compile_collection_element.
+    auto list_if = cov_stdf("collection_for", {
+        {"variable", lit_string("x")},
+        {"iterable", lit_list({lit_int(1)})},
+        {"body", cov_stdf("collection_if", {
+            {"condition", lit_bool(true)},
+            {"then", cov_stdf("spread", {{"value", ref("a")}})},
+            {"else", cov_stdf("null_spread", {{"value", ref("b")}})}})}});
+    auto out = compile_program(build_program(list_if));
+    ASSERT_CONTAINS(out, "BallList __r;");
+    ASSERT_CONTAINS(out, "__r.push_back(std::any(BallDyn(__sp)));");
+    ASSERT_CONTAINS(out, "__spv.has_value()");
+}
+
+TEST(compile_std_call_for_in_as_expression) {
+    // A `for_in` bound to a let initializer runs in expression (value) position
+    // → a side-effecting IIFE returning BallDyn().
+    auto forin = cov_stdf("for_in", {
+        {"variable", lit_string("e")},
+        {"iterable", lit_list({lit_int(1), lit_int(2)})},
+        {"body", lit_string("noop")}});
+    auto out = compile_program(build_program(
+        block({stmt_let("x", forin)}, lit_int(0))));
+    ASSERT_CONTAINS(out, "return BallDyn(); }()");
+}
+
+TEST(compile_library_class_enum_top_level_var_facade) {
+    // A library facade carrying a class (+ methods), an enum, and a top-level
+    // variable drives compile_library's enum / class-partition / top-level-var /
+    // struct-emission arms (never reached by the function-only facade tests).
+    json mod;
+    mod["name"] = "mylib";
+    json td;
+    td["name"] = "mylib:Widget";
+    td["descriptor"]["name"] = "Widget";
+    td["descriptor"]["field"] = json::array({json{{"name", "size"}, {"type", "TYPE_INT64"}}});
+    td["metadata"]["kind"] = "class";
+    mod["typeDefs"].push_back(std::move(td));
+    json en;
+    en["name"] = "mylib:Hue";
+    en["value"] = json::array({json{{"name", "red"}, {"number", 0}},
+                               json{{"name", "blue"}, {"number", 1}}});
+    mod["enums"].push_back(std::move(en));
+    json ctor;
+    ctor["name"] = "mylib:Widget.new";
+    ctor["metadata"]["kind"] = "constructor";
+    ctor["metadata"]["params"] = json::array({cov_param("size", "", true)});
+    mod["functions"].push_back(std::move(ctor));
+    json area;
+    area["name"] = "mylib:Widget.area";
+    area["metadata"]["kind"] = "method";
+    area["outputType"] = "int";
+    area["body"] = ref("size");
+    mod["functions"].push_back(std::move(area));
+    json tlv;
+    tlv["name"] = "counter";
+    tlv["metadata"]["kind"] = "top_level_variable";
+    tlv["body"] = lit_int(0);
+    mod["functions"].push_back(std::move(tlv));
+    json helper;
+    helper["name"] = "helper";
+    helper["body"] = lit_int(1);
+    mod["functions"].push_back(std::move(helper));
+
+    auto facade = ball::ir::parseModule(mod);
+    auto result = CppCompiler::compile_library(facade);
+    ASSERT_CONTAINS(result.header, "library mode");
+    ASSERT_CONTAINS(result.header, "struct Hue {");     // enum emission
+    ASSERT_CONTAINS(result.header, "struct Widget");    // class struct emission
+    ASSERT_CONTAINS(result.header, "counter");          // top-level variable
+}
+
+TEST(compile_method_call_super_and_static_dispatch) {
+    // A super call inside an overriding method → SuperClass::method(); a call
+    // whose receiver is a user class name → ClassName::method() (static dispatch).
+    json mod;
+    mod["name"] = "main";
+    auto base_td = cov_class_td("main:Base", {}, json{{"kind", "class"}});
+    auto child_td = cov_class_td("main:Child", {},
+                                 json{{"kind", "class"}, {"superclass", "Base"}});
+    auto math_td = cov_class_td("main:MathU", {}, json{{"kind", "class"}});
+    mod["typeDefs"] = json::array({base_td, child_td, math_td});
+
+    json base_greet = cov_class_fn("main:Base.greet", json{{"kind", "method"}},
+                                   lit_string("base"), "String");
+    // Child.greet body: super.greet()
+    json child_greet = cov_class_fn(
+        "main:Child.greet", json{{"kind", "method"}},
+        call("", "greet", make_msg("", {{"self", ref("super")}})), "String");
+    // MathU.square is a static method; caller invokes MathU.square(3).
+    json sq_meta;
+    sq_meta["kind"] = "method";
+    sq_meta["is_static"] = true;
+    json square = cov_class_fn("main:MathU.square", std::move(sq_meta), ref("x"), "int");
+    json caller = cov_class_fn(
+        "main:caller", json::object(),
+        call("", "square", make_msg("", {{"self", ref("MathU")}, {"arg0", lit_int(3)}})));
+    json main_fn2;
+    main_fn2["name"] = "main";
+    main_fn2["body"] = lit_int(0);
+    mod["functions"] = json::array({base_greet, child_greet, square, caller, main_fn2});
+
+    json program;
+    program["modules"] = json::array({mod});
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    auto out = compile_program(program);
+    ASSERT_CONTAINS(out, "Base::greet()");             // super dispatch
+    ASSERT_CONTAINS(out, "MathU::square(static_cast<int64_t>(3))");  // static dispatch
+}
+
+// ================================================================
+// Tests — ClassName.new, lambda param/return types, factory ctor,
+// residual message_creation / method_call arms (issue #63)
+// ================================================================
+
+TEST(compile_call_class_name_new_constructor) {
+    // `Foo.new(x)` where Foo is a user class → direct constructor call Foo(x).
+    auto td = cov_class_td("main:Foo", {{"x", "TYPE_INT64"}}, json{{"kind", "class"}});
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("x", "", true)});
+    auto ctor = cov_class_fn("main:Foo.new", std::move(ctor_meta));
+    // main body: Foo.new(5)
+    json program;
+    json mod;
+    mod["name"] = "main";
+    mod["typeDefs"] = json::array({td});
+    json m;
+    m["name"] = "main";
+    m["body"] = call("", "main:Foo.new", make_msg("", {{"arg0", lit_int(5)}}));
+    mod["functions"] = json::array({ctor, m});
+    program["modules"] = json::array({mod});
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    ASSERT_CONTAINS(compile_program(program), "Foo(static_cast<int64_t>(5))");
+}
+
+TEST(compile_lambda_input_and_output_types) {
+    // A lambda with a declared inputType (no metadata params) pins the param
+    // type; a declared outputType pins the return type.
+    json lam_in;
+    lam_in["lambda"]["name"] = "";
+    lam_in["lambda"]["inputType"] = "int";
+    lam_in["lambda"]["body"] = lit_int(0);
+    ASSERT_CONTAINS(compile_program(build_program(lam_in)), "int64_t input) mutable");
+
+    json lam_out;
+    lam_out["lambda"]["name"] = "";
+    lam_out["lambda"]["outputType"] = "int";
+    lam_out["lambda"]["body"] = lit_int(0);
+    ASSERT_CONTAINS(compile_program(build_program(lam_out)), "mutable -> int64_t {");
+}
+
+TEST(emit_struct_factory_constructor) {
+    // A constructor flagged is_factory → a static factory method returning BallDyn.
+    auto td = cov_class_td("main:Cache", {}, json{{"kind", "class"}});
+    json fac_meta;
+    fac_meta["kind"] = "constructor";
+    fac_meta["is_factory"] = "true";
+    fac_meta["params"] = json::array({cov_param("k")});
+    auto fac = cov_class_fn("main:Cache.new", std::move(fac_meta),
+                            block({}, lit_int(0)));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(fac)}));
+    ASSERT_CONTAINS(out, "static BallDyn new_(auto k) {");
+    ASSERT_CONTAINS(out, "return BallDyn();");
+}
+
+TEST(message_creation_json_decoder_and_stub_arg_map) {
+    // JsonDecoder with no fields → JsonDecoder{}.
+    ASSERT_CONTAINS(compile_program(build_program(make_msg("JsonDecoder", {}))),
+        "JsonDecoder{}");
+    // A runtime stub type with mixed positional + named fields → a keyed map
+    // (the argN keys stay literal when the type has no looked-up constructor).
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("_FlowSignal", {{"arg0", lit_string("x")}, {"named", lit_int(1)}}))),
+        "__m[\"named\"s] = std::any(static_cast<int64_t>(1))");
+}
+
+TEST(method_call_index_of_route) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        mcall("indexOf", {{"self", ref("l")}, {"arg0", lit_int(2)}}))),
+        "l.indexOf(static_cast<int64_t>(2))");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

@@ -1,3 +1,10 @@
+# [1.22.0](https://github.com/Ball-Lang/ball/compare/v1.21.0...v1.22.0) (2026-07-10)
+
+
+### Features
+
+* Claude Code plugin marketplace + /ball:convert skill (external codebase conversion) ([#360](https://github.com/Ball-Lang/ball/issues/360)) ([3c2f703](https://github.com/Ball-Lang/ball/commit/3c2f703099820fd6b504070bd983c97c349d1208))
+
 # [1.21.0](https://github.com/Ball-Lang/ball/compare/v1.20.0...v1.21.0) (2026-07-10)
 
 

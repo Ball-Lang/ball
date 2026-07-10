@@ -1513,6 +1513,20 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
     // is the schema name `field`, so map the renamed getter back to the
     // canonical JSON key. (field_2 is the only such rename in ball.proto.)
     if (field == "field_2") field = "field";
+    // ── Dart's `Endian.little` / `Endian.big` / `Endian.host` (dart:typed_data) ──
+    // Direct member access on the EndianNamespace_ runtime constant. The generic
+    // bracket path (`static_cast<BallDyn>(Endian)["little"s]`) wraps the
+    // namespace object in a std::any and returns an EMPTY BallDyn, which
+    // BallByteData's _endianFromAny then defaults to BIG-endian — so every
+    // `getFloat64(..., Endian.little)` decoded byte-REVERSED doubles (1.0 came
+    // back as 3.04e-319). Found by the #18 stage-5 pb-vs-json emission diff;
+    // invisible to the byte-equivalence harness (decode∘encode is symmetric)
+    // and to the smoke canary (no double fields).
+    if (access.object->kind == ball::ir::ExprKind::Reference &&
+        access.object->reference->name == "Endian") {
+        if (field == "little" || field == "big") return "Endian." + field;
+        if (field == "host") return "Endian.host()";
+    }
     // ── Dynamic (map-backed) user-class getter/no-arg-method access ──
     // `s.peek` / `s.size` / `s.isEmpty` where the field names a method/getter of
     // a dynamic class route through ball_call_method (program-scoped: the set
@@ -4164,8 +4178,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 }
                 if (has_setter) {
                     // Call setter: obj.field(value)
-                    // Setter return is void; the assign expression evaluates to the value.
-                    return "(" + obj + "." + sfield + "(" + val + "), " + val + ")";
+                    // Setter return is void; the assign expression evaluates to
+                    // the value. Bind the value ONCE — the old comma form
+                    // `(obj.set(VAL), VAL)` evaluated VAL twice, doubling side
+                    // effects and going exponential on recursive builders
+                    // (#18 stage 5: ball_protobuf's _marshalToMap hung the
+                    // self-host engine regen at O(2^depth)).
+                    return "[&]() { auto __ball_av = " + val + "; " + obj +
+                           "." + sfield + "(__ball_av); return __ball_av; }()";
                 }
                 // Check if this is a direct struct field on a user class.
                 bool is_plain_field = false;
@@ -4191,7 +4211,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 if (is_plain_field) {
                     return "(" + obj + "." + sfield + " = " + val + ")";
                 }
-                return "(ball_set(" + obj + ", std::string(\"" + field + "\"), std::any(" + val + ")), " + val + ")";
+                // Bind the value ONCE (see the setter branch above): the old
+                // comma form `(ball_set(obj, k, VAL), VAL)` evaluated VAL
+                // twice — doubled side effects, and O(2^depth) blowup when VAL
+                // recursively contains further assignments (the #18 stage-5
+                // ball_protobuf _marshalToMap hang).
+                return "[&]() { auto __ball_av = " + val + "; ball_set(" +
+                       obj + ", std::string(\"" + field +
+                       "\"), std::any(__ball_av)); return __ball_av; }()";
             }
             // Index expression: std.index(target, index) in the target
             if (target_expr->kind == ball::ir::ExprKind::Call &&
@@ -4200,7 +4227,10 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 target_expr->call->function == "index") {
                 auto tgt = get_message_field((*target_expr->call), "target");
                 auto idx = get_message_field((*target_expr->call), "index");
-                return "(ball_set(" + tgt + ", std::string(ball_to_string(BallDyn(" + idx + "))), std::any(" + val + ")), " + val + ")";
+                // Single-evaluation binding (see above).
+                return "[&]() { auto __ball_av = " + val + "; ball_set(" +
+                       tgt + ", std::string(ball_to_string(BallDyn(" + idx +
+                       "))), std::any(__ball_av)); return __ball_av; }()";
             }
         }
         // Compound assignment (`+=`, `-=`, …) on an index target. `target[idx]`
@@ -4223,9 +4253,12 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 std::string cur = "static_cast<BallDyn>(" + tgt + ")[" + idx + "]";
                 std::string newv =
                     "(BallDyn(" + cur + ") " + binop + " BallDyn(" + val + "))";
-                return "(ball_set(" + tgt +
-                       ", std::string(ball_to_string(BallDyn(" + idx +
-                       "))), std::any(" + newv + ")), " + newv + ")";
+                // Single-evaluation binding (see the `=` branches above): the
+                // old comma form evaluated the whole read-modify expression
+                // twice (double read + double RHS side effects).
+                return "[&]() { auto __ball_av = " + newv + "; ball_set(" +
+                       tgt + ", std::string(ball_to_string(BallDyn(" + idx +
+                       "))), std::any(__ball_av)); return __ball_av; }()";
             }
         }
         // Plain identifier (lvalue) target with `=`: use ball_assign so a
@@ -5250,7 +5283,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 // Emit an insertion-ordered, reference-semantic BallOrderedMap (NOT a
                 // key-sorted by-value std::map): map literals must preserve insertion
                 // order (Dart LinkedHashMap) and share their backing store across copies.
-                std::string result = "[&]() { BallOrderedMap __m; ";
+                // The IIFE returns BallDyn (whose BallOrderedMap ctor shared_ptr-wraps
+                // the map): returning the BARE BallOrderedMap left the literal
+                // VALUE-semantic until some consumer happened to wrap it — a literal
+                // stored into a container, read back, and mutated through the alias
+                // silently lost the mutation (Dart maps are reference types). Found by
+                // #18 stage 5: ball_protobuf's unmarshal accumulated Struct map entries
+                // through exactly such an alias, so every decoded metadata Struct kept
+                // only its first key. Applies to all four map-literal sites below.
+                std::string result = "[&]() -> BallDyn { BallOrderedMap __m; ";
                 for (const auto& f : call.input->messageCreation->fields) {
                     if (f.name == "type_args") continue;
                     if (f.name == "entry" && (f.value != nullptr) &&
@@ -5281,7 +5322,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                         result += "__m[\"" + f.name + "\"] = std::any(" + compile_expr((*f.value)) + "); ";
                     }
                 }
-                result += "return __m; }()";
+                result += "return BallDyn(std::move(__m)); }()";
                 return result;
             }
             // The Dart encoder emits an empty map literal `{}` as
@@ -5306,7 +5347,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                     // Empty / elements-pattern map literal: same insertion-ordered,
                     // reference-semantic BallOrderedMap as the entry-pattern site above.
                     std::string result =
-                        "[&]() { BallOrderedMap __m; ";
+                        "[&]() -> BallDyn { BallOrderedMap __m; ";
                     if (elements_list->kind ==
                             ball::ir::ExprKind::Literal &&
                         elements_list->literal->kind ==
@@ -5330,7 +5371,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                             }
                         }
                     }
-                    result += "return __m; }()";
+                    result += "return BallDyn(std::move(__m)); }()";
                     return result;
                 }
             }
@@ -5350,7 +5391,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                     else only_element_and_meta = false;
                 }
                 if (has_element && only_element_and_meta) {
-                    std::string result = "[&]() { BallOrderedMap __m; ";
+                    std::string result = "[&]() -> BallDyn { BallOrderedMap __m; ";
                     for (const auto& f :
                          call.input->messageCreation->fields) {
                         if (f.name == "type_args" ||
@@ -5360,7 +5401,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                             compile_map_collection_element((*f.value), "__m") +
                             " ";
                     }
-                    result += "return __m; }()";
+                    result += "return BallDyn(std::move(__m)); }()";
                     return result;
                 }
             }
@@ -5373,12 +5414,12 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             // operator[]-based lambda form (identical shape to the entry/elements
             // sites above) instead of brace-init. Keeps every map literal
             // consistently insertion-ordered and reference-semantic.
-            std::string result = "[&]() { BallOrderedMap __m; ";
+            std::string result = "[&]() -> BallDyn { BallOrderedMap __m; ";
             for (const auto& f : call.input->messageCreation->fields) {
                 if (f.name == "type_args" || f.name == "__type_args__") continue;
                 result += "__m[\"" + f.name + "\"] = std::any(" + compile_expr((*f.value)) + "); ";
             }
-            result += "return __m; }()";
+            result += "return BallDyn(std::move(__m)); }()";
             return result;
         }
         // Empty-map fallback: value-initialize an empty BallOrderedMap so the
@@ -7774,8 +7815,10 @@ inline bool ball_is_function(BallDyn& v) { return ball_is_function(static_cast<c
 
 // ball_set with BallDyn keys: handled by wrapping key in ball_to_string() at call site
 
-// ball_set is used with comma operator for expression context:
-// (ball_set(obj, key, val), val)  — sets and returns the value
+// Expression-context assignment lowers to a single-evaluation IIFE:
+// [&]() { auto __ball_av = val; ball_set(obj, key, __ball_av); return __ball_av; }()
+// (the old comma form `(ball_set(obj, key, val), val)` evaluated val TWICE —
+// doubled side effects and exponential blowup on recursive builders)
 
 // cast helper (Dart as operator — no-op in dynamic C++)
 inline BallDyn cast(const BallDyn& v, const std::string&) { return v; }
@@ -10760,9 +10803,14 @@ CompileLibraryResult CppCompiler::compile_library(
     compiler.emit_line("inline BallDyn jsonDecode(BallDyn v) { return v; }");
     compiler.emit_newline();
 
-    // Collect user modules (skip base-only and the dummy entry)
+    // Collect user modules (skip base-only and the dummy entry).
+    // NOTE: read from compiler.program_ — `program` was std::move()d into the
+    // compiler above (ir::Program is move-only; the Stage-4 ctor change), so
+    // `program.modules` here is the moved-from EMPTY vector. Iterating it
+    // emitted a gutted library header (2 functions instead of 335) with no
+    // error — the #18 stage-5 ball_protobuf_rt.h regen caught it.
     std::vector<const ball::ir::Module*> user_modules;
-    for (const auto& mod : program.modules) {
+    for (const auto& mod : compiler.program_.modules) {
         if (mod.name == "__ball_lib_entry__") continue;
         bool all_base = mod.functions.size() > 0;
         for (const auto& f : mod.functions) {

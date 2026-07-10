@@ -83,6 +83,21 @@ inline std::string ball_to_string(double d) {
     oss.precision(15);
     oss << d;
     auto s = oss.str();
+    // Dart's double.toString() is SHORTEST-ROUND-TRIP: some doubles need 16-17
+    // significant digits (π printed as 3.14159265358979 at fixed precision 15
+    // no longer parses back to π — found by the #18 stage-5 pb-vs-json engine
+    // emission diff, where Literal doubles take a decode→jsonEncode→parse trip).
+    // Keep 15 digits whenever they round-trip (output identical to before);
+    // otherwise bump precision until the text parses back to the exact bits.
+    if (std::strtod(s.c_str(), nullptr) != d) {
+        for (int prec = 16; prec <= 17; ++prec) {
+            std::ostringstream o2;
+            o2.precision(prec);
+            o2 << d;
+            s = o2.str();
+            if (std::strtod(s.c_str(), nullptr) == d) break;
+        }
+    }
     if (s.find('.') != std::string::npos) {
         while (s.size() > 1 && s.back() == '0') s.pop_back();
         if (s.back() == '.') s.push_back('0');

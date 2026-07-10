@@ -12,7 +12,6 @@
 // INCLUDE/LIB environment that a standalone cl.exe invocation lacks.
 
 #include "compiler.h"
-#include "absl/synchronization/mutex.h"
 
 #include <array>
 #include <chrono>
@@ -25,8 +24,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
-#include <google/protobuf/util/json_util.h>
 
 #include "ball_file.h"
 #include "ball_ir.h"
@@ -156,14 +153,6 @@ static bool resolve_fixture(const std::string& name, fs::path& out_program_path,
     return false;
 }
 
-// #18: bridge a ball::v1 Program (built by the test) to the ir-consuming
-// compiler via proto3-JSON.
-static ball::ir::Program to_ir(const ball::v1::Program& p) {
-    std::string js;
-    google::protobuf::util::MessageToJsonString(p, &js);
-    return ball::ir::parseProgramString(js);
-}
-
 static bool load_and_compile(const fs::path& dir, const std::string& name,
                              Program& out_prog, std::string& failure_msg) {
     fs::path program_path, expected_path;
@@ -171,7 +160,7 @@ static bool load_and_compile(const fs::path& dir, const std::string& name,
         return false;
     }
     auto json = read_file(program_path);
-    ball::v1::Program program;
+    ball::ir::Program program;
     try {
         program = ball::DecodeProgram(program_path.string(), json);
     } catch (const ball::BallFileFormatException& e) {
@@ -179,7 +168,7 @@ static bool load_and_compile(const fs::path& dir, const std::string& name,
         return false;
     }
     try {
-        ball::CppCompiler compiler(to_ir(program));
+        ball::CppCompiler compiler(std::move(program));
         out_prog.cpp_source = compiler.compile();
     } catch (const std::exception& e) {
         failure_msg = std::string("compile threw: ") + e.what();
@@ -299,66 +288,74 @@ static bool run_and_check(const Program& p, const fs::path& build_dir,
 // temp-file path and deletes it once done; expected stdout is compared
 // inline (no on-disk .expected_output.txt) to keep this self-contained.
 
-static ball::v1::Expression fs_lit_string(const std::string& v) {
-    ball::v1::Expression e;
-    e.mutable_literal()->set_string_value(v);
-    return e;
+// #18 Stage 5: build inline programs as proto3-JSON (ball::ir), no libprotobuf.
+using json = ball::ir::json;
+
+static json fs_lit_string(const std::string& v) {
+    json e; e["literal"]["stringValue"] = v; return e;
 }
 
-static ball::v1::Expression fs_lit_int(int64_t v) {
-    ball::v1::Expression e;
-    e.mutable_literal()->set_int_value(v);
-    return e;
+static json fs_lit_int(int64_t v) {
+    json e; e["literal"]["intValue"] = std::to_string(v); return e;
 }
 
-static ball::v1::Expression fs_lit_bytes(const std::string& raw) {
-    ball::v1::Expression e;
-    e.mutable_literal()->set_bytes_value(raw);
-    return e;
+// `b64` is the base64-encoded bytes (proto3-JSON bytes form).
+static json fs_lit_bytes(const std::string& b64) {
+    json e; e["literal"]["bytesValue"] = b64; return e;
 }
 
-static ball::v1::Expression fs_ref(const std::string& name) {
-    ball::v1::Expression e;
-    e.mutable_reference()->set_name(name);
-    return e;
+static json fs_ref(const std::string& name) {
+    json e; e["reference"]["name"] = name; return e;
 }
 
-static ball::v1::Expression fs_msg(
-    std::vector<std::pair<std::string, ball::v1::Expression>> fields) {
-    ball::v1::Expression e;
-    auto* mc = e.mutable_message_creation();
-    for (auto& [name, value] : fields) {
-        auto* f = mc->add_fields();
-        f->set_name(name);
-        *f->mutable_value() = std::move(value);
+static json fs_msg(std::vector<std::pair<std::string, json>> fields) {
+    json e;
+    e["messageCreation"]["typeName"] = "";
+    if (!fields.empty()) {
+        json arr = json::array();
+        for (auto& [name, value] : fields) {
+            json f; f["name"] = name; f["value"] = std::move(value);
+            arr.push_back(std::move(f));
+        }
+        e["messageCreation"]["fields"] = std::move(arr);
     }
     return e;
 }
 
-static ball::v1::Expression fs_call(const std::string& module,
-                                    const std::string& function,
-                                    ball::v1::Expression input) {
-    ball::v1::Expression e;
-    auto* c = e.mutable_call();
-    c->set_module(module);
-    c->set_function(function);
-    *c->mutable_input() = std::move(input);
+static json fs_call(const std::string& module, const std::string& function,
+                    json input) {
+    json e;
+    e["call"]["module"] = module;
+    e["call"]["function"] = function;
+    e["call"]["input"] = std::move(input);
     return e;
 }
 
-static ball::v1::Expression fs_print(ball::v1::Expression message) {
+static json fs_print(json message) {
     return fs_call("std", "print", fs_msg({{"message", std::move(message)}}));
 }
 
-static ball::v1::Program fs_build_program(ball::v1::Expression body) {
-    ball::v1::Program program;
-    auto* mod = program.add_modules();
-    mod->set_name("main");
-    auto* func = mod->add_functions();
-    func->set_name("main");
-    *func->mutable_body() = std::move(body);
-    program.set_entry_module("main");
-    program.set_entry_function("main");
+static json fs_block(std::vector<json> statements, json result) {
+    json b = json::object();
+    json arr = json::array();
+    for (auto& st : statements) arr.push_back(std::move(st));
+    b["statements"] = std::move(arr);
+    b["result"] = std::move(result);
+    json e; e["block"] = std::move(b); return e;
+}
+static json fs_stmt(json expr) { json s; s["expression"] = std::move(expr); return s; }
+static json fs_let(const std::string& name, json value) {
+    json s; s["let"]["name"] = name; s["let"]["value"] = std::move(value); return s;
+}
+
+static json fs_build_program(json body) {
+    json program;
+    json mod; mod["name"] = "main";
+    json func; func["name"] = "main"; func["body"] = std::move(body);
+    mod["functions"].push_back(std::move(func));
+    program["modules"].push_back(std::move(mod));
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
     return program;
 }
 
@@ -366,66 +363,41 @@ static ball::v1::Program fs_build_program(ball::v1::Expression body) {
 // embedded NUL byte (proves the byte path isn't string/NUL-terminator
 // based) followed by a trailing byte (proves the write/read isn't
 // truncated at the NUL).
-static ball::v1::Program fs_build_write_bytes_program(const std::string& path) {
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-
-    *blk->add_statements()->mutable_expression() =
-        fs_call("std_fs", "file_write_bytes", fs_msg({
+static json fs_build_write_bytes_program(const std::string& path) {
+    // base64 of bytes {0x48,0x65,0x00,0x21,0x0A} ("He" NUL "!" LF).
+    return fs_build_program(fs_block({
+        fs_stmt(fs_call("std_fs", "file_write_bytes", fs_msg({
             {"path", fs_lit_string(path)},
-            {"content", fs_lit_bytes(std::string("\x48\x65\x00\x21\x0A", 5))}
-        }));
-
-    auto* let_bytes = blk->add_statements()->mutable_let();
-    let_bytes->set_name("bytes");
-    *let_bytes->mutable_value() =
-        fs_call("std_fs", "file_read_bytes", fs_msg({{"path", fs_lit_string(path)}}));
-
-    // bytes[2] is the embedded NUL (0).
-    *blk->add_statements()->mutable_expression() =
-        fs_print(fs_call("std", "index", fs_msg({
+            {"content", fs_lit_bytes("SGUAIQo=")}
+        }))),
+        fs_let("bytes",
+            fs_call("std_fs", "file_read_bytes", fs_msg({{"path", fs_lit_string(path)}}))),
+        // bytes[2] is the embedded NUL (0).
+        fs_stmt(fs_print(fs_call("std", "index", fs_msg({
             {"target", fs_ref("bytes")}, {"index", fs_lit_int(2)}
-        })));
-    // bytes[4] is the trailing byte (10) written after the NUL.
-    *blk->add_statements()->mutable_expression() =
-        fs_print(fs_call("std", "index", fs_msg({
+        })))),
+        // bytes[4] is the trailing byte (10) written after the NUL.
+        fs_stmt(fs_print(fs_call("std", "index", fs_msg({
             {"target", fs_ref("bytes")}, {"index", fs_lit_int(4)}
-        })));
-
-    *blk->add_statements()->mutable_expression() =
-        fs_call("std_fs", "file_delete", fs_msg({{"path", fs_lit_string(path)}}));
-
-    *blk->mutable_result() = fs_lit_int(0);
-    return fs_build_program(std::move(body));
+        })))),
+        fs_stmt(fs_call("std_fs", "file_delete", fs_msg({{"path", fs_lit_string(path)}}))),
+    }, fs_lit_int(0)));
 }
 
 // file_write (truncate) then file_append -> file_read proves append
 // concatenates onto existing content instead of overwriting it.
-static ball::v1::Program fs_build_append_program(const std::string& path) {
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
-
-    *blk->add_statements()->mutable_expression() =
-        fs_call("std_fs", "file_write", fs_msg({
+static json fs_build_append_program(const std::string& path) {
+    return fs_build_program(fs_block({
+        fs_stmt(fs_call("std_fs", "file_write", fs_msg({
             {"path", fs_lit_string(path)}, {"content", fs_lit_string("Hello, ")}
-        }));
-    *blk->add_statements()->mutable_expression() =
-        fs_call("std_fs", "file_append", fs_msg({
+        }))),
+        fs_stmt(fs_call("std_fs", "file_append", fs_msg({
             {"path", fs_lit_string(path)}, {"content", fs_lit_string("World!")}
-        }));
-
-    auto* let_s = blk->add_statements()->mutable_let();
-    let_s->set_name("s");
-    *let_s->mutable_value() =
-        fs_call("std_fs", "file_read", fs_msg({{"path", fs_lit_string(path)}}));
-
-    *blk->add_statements()->mutable_expression() = fs_print(fs_ref("s"));
-
-    *blk->add_statements()->mutable_expression() =
-        fs_call("std_fs", "file_delete", fs_msg({{"path", fs_lit_string(path)}}));
-
-    *blk->mutable_result() = fs_lit_int(0);
-    return fs_build_program(std::move(body));
+        }))),
+        fs_let("s", fs_call("std_fs", "file_read", fs_msg({{"path", fs_lit_string(path)}}))),
+        fs_stmt(fs_print(fs_ref("s"))),
+        fs_stmt(fs_call("std_fs", "file_delete", fs_msg({{"path", fs_lit_string(path)}}))),
+    }, fs_lit_int(0)));
 }
 
 // ================================================================
@@ -444,18 +416,15 @@ static ball::v1::Program fs_build_append_program(const std::string& path) {
 // harness samples itself right after the subprocess returns -- catching
 // wrong-field/off-by-one/local-vs-UTC bugs (which would put the derived
 // instant hours/days off) without flaking on build-time variance.
-static ball::v1::Program time_build_components_program() {
-    ball::v1::Expression body;
-    auto* blk = body.mutable_block();
+static json time_build_components_program() {
     // fs_print's compiled form already wraps the message in ball_to_string
     // (see compile_std_call's "print" case), so each component call is
     // printed directly -- no separate to_string wrapper needed.
+    std::vector<json> stmts;
     for (const char* fn : {"year", "month", "day", "hour", "minute", "second"}) {
-        *blk->add_statements()->mutable_expression() =
-            fs_print(fs_call("std_time", fn, fs_msg({})));
+        stmts.push_back(fs_stmt(fs_print(fs_call("std_time", fn, fs_msg({})))));
     }
-    *blk->mutable_result() = fs_lit_int(0);
-    return fs_build_program(std::move(body));
+    return fs_build_program(fs_block(std::move(stmts), fs_lit_int(0)));
 }
 
 static bool run_and_check_time_components(const std::string& name,
@@ -574,7 +543,7 @@ struct InlineExpectation {
 // run pass. Returns false (and logs a FAIL) if compilation itself throws —
 // e.g. exactly the issue #319 regression this coverage guards against.
 static bool add_inline_fs_program(const std::string& name,
-                                  const ball::v1::Program& program,
+                                  const json& program,
                                   const std::string& expected_stdout,
                                   std::vector<Program>& programs,
                                   std::vector<InlineExpectation>& expectations,
@@ -582,7 +551,7 @@ static bool add_inline_fs_program(const std::string& name,
     Program p;
     p.name = name;
     try {
-        ball::CppCompiler compiler(to_ir(program));
+        ball::CppCompiler compiler(ball::ir::parseProgram(program));
         p.cpp_source = compiler.compile();
     } catch (const std::exception& e) {
         tests_run_ref++;
@@ -621,11 +590,8 @@ static bool run_and_check_inline(const InlineExpectation& exp, const fs::path& b
 }
 
 int main() {
-    // Disable abseil mutex deadlock detection — protobuf v34.1's internal
-    // descriptor pool initialization triggers a false-positive cycle.
-    // Long-term fix: replace Google protobuf with Ball-compiled ball_protobuf.
-    absl::SetMutexDeadlockDetectionMode(absl::OnDeadlockCycle::kIgnore);
-
+    // #18 Stage 5: libprotobuf/abseil are gone — the abseil mutex
+    // deadlock-detection workaround (#25) is no longer needed.
     std::cout << "Ball C++ End-to-End Tests\n"
               << "=========================\n"
               << "Using CMake: " << BALL_E2E_CMAKE << "\n"
@@ -958,7 +924,7 @@ int main() {
         Program p;
         p.name = kTimeProgramName;
         try {
-            ball::CppCompiler compiler(to_ir(time_build_components_program()));
+            ball::CppCompiler compiler(ball::ir::parseProgram(time_build_components_program()));
             p.cpp_source = compiler.compile();
             time_program_built = true;
         } catch (const std::exception& e) {

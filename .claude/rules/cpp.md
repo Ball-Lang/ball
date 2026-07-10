@@ -24,9 +24,8 @@ cd cpp/build && cmake .. && cmake --build .
 CMake integrates with `buf` CLI for protobuf code generation, linting, and formatting.
 
 - **`BufGenerate.cmake`** (`cpp/cmake/`) — CMake module providing `buf_generate_cpp()`, `buf_add_lint_target()`, `buf_add_breaking_target()`, `buf_add_format_target()`
-- **`buf.gen.cpp.yaml`** (`cpp/`) — C++-only generation template
 - When `buf` is on PATH: protos regenerate into the build tree when `ball.proto` changes
-- When `buf` is NOT on PATH: falls back to checked-in files in `cpp/shared/gen/`
+- #18 Stage 5: the C++ build is libprotobuf-free — there is NO C++ protobuf codegen, no `cpp/shared/gen/`, and no cpp plugin in `buf.gen.yaml`. `buf` is used only for proto lint/breaking/format.
 
 ### CMake Targets
 
@@ -41,7 +40,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
 
 ```bash
 # From repo root:
-buf generate --template cpp/buf.gen.cpp.yaml -o cpp/shared/gen proto/
+# (no C++ codegen since #18 Stage 5 — C++ is libprotobuf-free; buf is proto lint/format only)
 ```
 
 ## Architecture

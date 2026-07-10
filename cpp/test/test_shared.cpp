@@ -64,19 +64,19 @@ static int tests_failed = 0;
     } while (0)
 
 // Find a function by name in a module.
-static const ball::v1::FunctionDefinition* find_fn(
-    const ball::v1::Module& mod, const std::string& name) {
-    for (int i = 0; i < mod.functions_size(); i++) {
-        if (mod.functions(i).name() == name) return &mod.functions(i);
+static const ball::ir::FunctionDefinition* find_fn(
+    const ball::ir::Module& mod, const std::string& name) {
+    for (const auto& fn : mod.functions) {
+        if (fn.name == name) return &fn;
     }
     return nullptr;
 }
 
 // Find a type_def by name in a module.
-static const ball::v1::TypeDefinition* find_type_def(
-    const ball::v1::Module& mod, const std::string& name) {
-    for (int i = 0; i < mod.type_defs_size(); i++) {
-        if (mod.type_defs(i).name() == name) return &mod.type_defs(i);
+static const ball::ir::TypeDefinition* find_type_def(
+    const ball::ir::Module& mod, const std::string& name) {
+    for (const auto& td : mod.typeDefs) {
+        if (td.name == name) return &td;
     }
     return nullptr;
 }
@@ -87,8 +87,8 @@ static const ball::v1::TypeDefinition* find_type_def(
 
 TEST(build_std_module_has_name_and_description) {
     auto mod = build_std_module();
-    ASSERT_EQ(mod.name(), std::string("std"));
-    ASSERT_TRUE(!mod.description().empty());
+    ASSERT_EQ(mod.name, std::string("std"));
+    ASSERT_TRUE(!mod.description.empty());
 }
 
 TEST(build_std_module_declares_core_types) {
@@ -101,9 +101,10 @@ TEST(build_std_module_declares_core_types) {
 
     // BinaryInput must carry left/right message-typed fields.
     auto* bin = find_type_def(mod, "BinaryInput");
-    ASSERT_TRUE(bin->descriptor_().field_size() == 2);
-    ASSERT_EQ(bin->descriptor_().field(0).name(), std::string("left"));
-    ASSERT_EQ(bin->descriptor_().field(1).name(), std::string("right"));
+    const auto& fields = bin->descriptor.at("field");
+    ASSERT_TRUE(fields.size() == 2);
+    ASSERT_EQ(fields[0].at("name").get<std::string>(), std::string("left"));
+    ASSERT_EQ(fields[1].at("name").get<std::string>(), std::string("right"));
 }
 
 TEST(build_std_module_declares_arithmetic_and_control_flow_fns) {
@@ -114,12 +115,12 @@ TEST(build_std_module_declares_arithmetic_and_control_flow_fns) {
                               "break", "continue", "assign"}) {
         auto* fn = find_fn(mod, name);
         ASSERT_TRUE(fn != nullptr);
-        ASSERT_TRUE(fn->is_base());
-        ASSERT_TRUE(!fn->has_body());
+        ASSERT_TRUE(fn->isBase);
+        ASSERT_TRUE(fn->body == nullptr);
     }
     // Reasonably large surface — a canary against silently truncating the
     // builder (it declares 90+ base functions as of this writing).
-    ASSERT_TRUE(mod.functions_size() > 80);
+    ASSERT_TRUE(mod.functions.size() > 80);
 }
 
 TEST(build_std_module_declares_math_fns) {
@@ -136,7 +137,7 @@ TEST(build_std_module_declares_math_fns) {
 
 TEST(build_std_memory_module_has_name_and_types) {
     auto mod = build_std_memory_module();
-    ASSERT_EQ(mod.name(), std::string("std_memory"));
+    ASSERT_EQ(mod.name, std::string("std_memory"));
     ASSERT_TRUE(find_type_def(mod, "AllocInput") != nullptr);
     ASSERT_TRUE(find_type_def(mod, "MemReadInput") != nullptr);
     ASSERT_TRUE(find_type_def(mod, "PtrArithInput") != nullptr);
@@ -151,7 +152,7 @@ TEST(build_std_memory_module_declares_read_write_family) {
                               "stack_alloc", "deref", "address_of", "nullptr"}) {
         auto* fn = find_fn(mod, name);
         ASSERT_TRUE(fn != nullptr);
-        ASSERT_TRUE(fn->is_base());
+        ASSERT_TRUE(fn->isBase);
     }
 }
 
@@ -161,7 +162,7 @@ TEST(build_std_memory_module_declares_read_write_family) {
 
 TEST(build_std_collections_module_declares_list_and_map_fns) {
     auto mod = build_std_collections_module();
-    ASSERT_EQ(mod.name(), std::string("std_collections"));
+    ASSERT_EQ(mod.name, std::string("std_collections"));
     for (const char* name : {"list_push", "list_pop", "list_map", "list_filter",
                               "list_reduce", "map_get", "map_set", "map_keys",
                               "map_values", "map_merge", "string_join"}) {
@@ -175,7 +176,7 @@ TEST(build_std_collections_module_declares_list_and_map_fns) {
 
 TEST(build_std_io_module_declares_io_fns) {
     auto mod = build_std_io_module();
-    ASSERT_EQ(mod.name(), std::string("std_io"));
+    ASSERT_EQ(mod.name, std::string("std_io"));
     for (const char* name : {"print_error", "read_line", "exit", "panic",
                               "sleep_ms", "timestamp_ms", "random_int",
                               "random_double", "env_get", "args_get"}) {
@@ -188,41 +189,36 @@ TEST(build_std_io_module_declares_io_fns) {
 // ================================================================
 
 TEST(value_proto_to_ball_null_kind) {
-    google::protobuf::Value v;
-    v.set_null_value(google::protobuf::NULL_VALUE);
+    ball::ir::json v = nullptr;
     auto result = value_proto_to_ball(v);
     ASSERT_TRUE(is_null(result));
 }
 
 TEST(value_proto_to_ball_number_kind) {
-    google::protobuf::Value v;
-    v.set_number_value(3.5);
+    ball::ir::json v = 3.5;
     auto result = value_proto_to_ball(v);
     ASSERT_TRUE(is_double(result));
     ASSERT_TRUE(to_double(result) == 3.5);
 }
 
 TEST(value_proto_to_ball_string_kind) {
-    google::protobuf::Value v;
-    v.set_string_value("hello");
+    ball::ir::json v = "hello";
     auto result = value_proto_to_ball(v);
     ASSERT_TRUE(is_string(result));
     ASSERT_EQ(to_string(result), std::string("hello"));
 }
 
 TEST(value_proto_to_ball_bool_kind) {
-    google::protobuf::Value v;
-    v.set_bool_value(true);
+    ball::ir::json v = true;
     auto result = value_proto_to_ball(v);
     ASSERT_TRUE(is_bool(result));
     ASSERT_TRUE(to_bool(result));
 }
 
 TEST(value_proto_to_ball_list_kind) {
-    google::protobuf::Value v;
-    auto* list = v.mutable_list_value();
-    list->add_values()->set_number_value(1);
-    list->add_values()->set_string_value("two");
+    ball::ir::json v = ball::ir::json::array();
+    v.push_back(1);
+    v.push_back("two");
     auto result = value_proto_to_ball(v);
     ASSERT_TRUE(is_list(result));
     ASSERT_TRUE(ball_list_length(result) == 2);
@@ -233,19 +229,18 @@ TEST(value_proto_to_ball_list_kind) {
 }
 
 TEST(value_proto_to_ball_struct_kind_recurses) {
-    google::protobuf::Value v;
-    auto* s = v.mutable_struct_value();
-    (*s->mutable_fields())["nested"].set_string_value("inner");
+    ball::ir::json v = ball::ir::json::object();
+    v["nested"] = "inner";
     auto result = value_proto_to_ball(v);
     ASSERT_TRUE(is_map(result));
     ASSERT_TRUE(ball_map_contains_key(result, "nested"));
 }
 
 TEST(struct_to_map_converts_all_fields) {
-    google::protobuf::Struct s;
-    (*s.mutable_fields())["name"].set_string_value("Ball");
-    (*s.mutable_fields())["version"].set_number_value(3);
-    (*s.mutable_fields())["stable"].set_bool_value(true);
+    ball::ir::json s = ball::ir::json::object();
+    s["name"] = "Ball";
+    s["version"] = 3;
+    s["stable"] = true;
 
     // Qualified as ball::BallMap: cpp/shared/include/ball_emit_runtime.h
     // also declares a global-scope `BallMap`, and `using namespace ball;`
@@ -258,7 +253,7 @@ TEST(struct_to_map_converts_all_fields) {
 }
 
 TEST(struct_to_map_empty_struct_yields_empty_map) {
-    google::protobuf::Struct s;
+    ball::ir::json s = ball::ir::json::object();
     ball::BallMap map = struct_to_map(s);
     ASSERT_TRUE(map.empty());
 }

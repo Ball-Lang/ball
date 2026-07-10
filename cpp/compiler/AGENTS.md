@@ -3,7 +3,7 @@
 # cpp/compiler
 
 ## Purpose
-Ball → C++ code generator. Walks a `ball.v1.Program` protobuf tree and emits self-contained C++ source (single-TU or split multi-TU for the self-hosted engine).
+Ball → C++ code generator. Walks a protobuf-free `ball::ir::Program` tree (loaded via nlohmann/json — #18 Stage 4/5) and emits self-contained C++ source (single-TU or split multi-TU for the self-hosted engine).
 
 ## Key Files
 | File | Description |
@@ -23,4 +23,4 @@ Ball → C++ code generator. Walks a `ball.v1.Program` protobuf tree and emits s
 
 ## Dependencies
 - Internal: `ball_shared` (shared types + generated protos), `ball_emit_runtime.h` (runtime preamble).
-- External: protobuf (`google/protobuf`), generated `ball.pb.h` from `cpp/shared/gen/`.
+- External: nlohmann/json (via `ball_shared` → `ball_ir.h`). No libprotobuf (#18 Stage 5).

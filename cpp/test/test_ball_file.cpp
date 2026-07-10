@@ -3,52 +3,55 @@
 // Direct unit coverage for cpp/shared/include/ball_file.h — the
 // self-describing google.protobuf.Any envelope reader (BallFileFormatException
 // paths, the hand-rolled "@type" JSON scanner, binary/JSON dispatch, and the
-// Program/Module discrimination helpers). None of this is exercised by
-// test_compiler/test_encoder/test_shared (they never feed a malformed or
-// wrong-kind ball file through the loader), so its error branches sat almost
-// entirely uncovered (issue #63; Phase-1 baseline measured this file at
-// 59.73%, the largest easily-reachable gap in cpp/shared after ball_dyn.h/
-// ball_emit_runtime.h were closed by test_ball_dyn.cpp).
+// Program/Module discrimination helpers).
+//
+// #18 Stage 5: the loader is now libprotobuf-free — it returns `ball::ir`
+// Program/Module (loaded via nlohmann/json for JSON, and via Ball's OWN
+// compiled protobuf runtime for the binary `.ball.pb`/`.ball.bin` Any form).
+// The binary tests here no longer construct their `google.protobuf.Any`
+// envelopes with libprotobuf; instead they encode the Any wire bytes with a
+// minimal, self-contained protobuf encoder (the wire format is a stable spec —
+// these are golden vectors that pin the rt binary path without linking google).
 
 #include "ball_file.h"
 
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
-
-#include <google/protobuf/any.pb.h>
-#include <google/protobuf/struct.pb.h>
+#include <vector>
 
 using namespace ball;
 namespace fs = std::filesystem;
 
 // ================================================================
-// Test framework (same minimal TEST()/ASSERT_* macros as the sibling
-// cpp/test/test_*.cpp files).
+// Test framework. Unlike the sibling cpp/test/test_*.cpp files, tests are
+// DEFERRED to main() rather than run in the static-init Register constructor:
+// the binary-decode tests call into ball_protobuf's cross-TU global descriptors
+// (in ball_shared/ball_rt_decode.cpp), and running at static-init time risks the
+// static-initialization-order fiasco (those globals may not be constructed yet
+// → an empty decode). Registering a function pointer at static-init and running
+// it from main() sidesteps that entirely.
 // ================================================================
 
 static int tests_run = 0;
 static int tests_passed = 0;
 static int tests_failed = 0;
 
+using BallTestFn = void (*)();
+struct BallTestCase { const char* name; BallTestFn fn; };
+static std::vector<BallTestCase>& test_registry() {
+    static std::vector<BallTestCase> r;
+    return r;
+}
+
 #define TEST(name)                                                       \
     static void test_##name();                                          \
     struct Register_##name {                                            \
-        Register_##name() {                                             \
-            std::cout << "  " << #name << "... ";                       \
-            try {                                                       \
-                test_##name();                                          \
-                std::cout << "PASS\n";                                  \
-                tests_passed++;                                         \
-            } catch (const std::exception& e) {                        \
-                std::cout << "FAIL: " << e.what() << "\n";              \
-                tests_failed++;                                         \
-            }                                                           \
-            tests_run++;                                                \
-        }                                                                \
+        Register_##name() { test_registry().push_back({#name, test_##name}); } \
     } register_##name;                                                  \
     static void test_##name()
 
@@ -91,6 +94,22 @@ static int tests_failed = 0;
         }                                                                 \
     } while (0)
 
+// Expects `expr` to throw SOME std::exception (message text not pinned — the
+// exact error string of a malformed-wire failure is an implementation detail of
+// Ball's protobuf runtime, unlike the loader's own BallFileFormatException).
+#define ASSERT_THROWS_ANY(expr)                                           \
+    do {                                                                  \
+        bool threw = false;                                              \
+        try {                                                            \
+            (void)(expr);                                                \
+        } catch (const std::exception&) {                                \
+            threw = true;                                                \
+        }                                                                \
+        if (!threw) {                                                    \
+            throw std::runtime_error("expected an exception, none thrown"); \
+        }                                                                 \
+    } while (0)
+
 // ================================================================
 // Helpers
 // ================================================================
@@ -113,150 +132,190 @@ static std::string module_json(const std::string& name) {
            name + "\"}";
 }
 
+// ── Minimal protobuf wire encoder (golden-vector generator) ────────────────
+// Enough to build a google.protobuf.Any wrapping a {name} message. The wire
+// format is a fixed spec, so these bytes ARE the golden inputs captured from
+// the oracle — they pin ball_file.h's binary path without linking libprotobuf.
+
+static std::string encode_varint(uint64_t v) {
+    std::string out;
+    do {
+        uint8_t b = static_cast<uint8_t>(v & 0x7F);
+        v >>= 7;
+        if (v) b |= 0x80;
+        out.push_back(static_cast<char>(b));
+    } while (v);
+    return out;
+}
+
+// A length-delimited field (wiretype 2): tag + varint(len) + payload.
+static std::string encode_len_delim(int field_number, const std::string& payload) {
+    std::string out;
+    out += encode_varint((static_cast<uint64_t>(field_number) << 3) | 2);
+    out += encode_varint(payload.size());
+    out += payload;
+    return out;
+}
+
+// A ball.v1.Program/Module with only `name` set (field 1, string).
+static std::string make_named_message_bytes(const std::string& name) {
+    return encode_len_delim(1, name);
+}
+
+// A serialized google.protobuf.Any: type_url (field 1) + value bytes (field 2).
+static std::string make_any_bytes(const std::string& type_url,
+                                  const std::string& payload) {
+    return encode_len_delim(1, type_url) + encode_len_delim(2, payload);
+}
+
+static std::string program_any_bytes(const std::string& name) {
+    return make_any_bytes("type.googleapis.com/ball.v1.Program",
+                          make_named_message_bytes(name));
+}
+static std::string module_any_bytes(const std::string& name) {
+    return make_any_bytes("type.googleapis.com/ball.v1.Module",
+                          make_named_message_bytes(name));
+}
+
 // ================================================================
 // DecodeBallFileJson — the "@type" scanner's error branches.
 // ================================================================
 
 TEST(json_not_an_object_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     ASSERT_THROWS_CONTAINING(DecodeBallFileJson("123", p, m), "must be an object");
 }
 
 TEST(json_missing_type_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     ASSERT_THROWS_CONTAINING(DecodeBallFileJson("{}", p, m), "missing \"@type\"");
 }
 
 TEST(json_malformed_type_member_missing_colon_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     ASSERT_THROWS_CONTAINING(
         DecodeBallFileJson(R"({"@type" "type.googleapis.com/ball.v1.Program"})", p, m),
         "malformed \"@type\" member");
 }
 
 TEST(json_type_value_not_string_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     ASSERT_THROWS_CONTAINING(DecodeBallFileJson(R"({"@type": 123})", p, m),
                               "\"@type\" value must be a string");
 }
 
 TEST(json_unterminated_type_value_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     ASSERT_THROWS_CONTAINING(DecodeBallFileJson(R"({"@type": "abc)", p, m),
                               "unterminated");
 }
 
 TEST(json_unknown_type_url_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     ASSERT_THROWS_CONTAINING(
         DecodeBallFileJson(R"({"@type": "type.googleapis.com/some.Other", "x": 1})", p, m),
         "unknown ball file @type");
 }
 
 TEST(json_valid_program_decodes) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     auto kind = DecodeBallFileJson(program_json("hello"), p, m);
     ASSERT_TRUE(kind == BallFileKind::kProgram);
-    ASSERT_EQ(p.name(), std::string("hello"));
+    ASSERT_EQ(p.name, std::string("hello"));
 }
 
 TEST(json_valid_module_decodes) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     auto kind = DecodeBallFileJson(module_json("mymod"), p, m);
     ASSERT_TRUE(kind == BallFileKind::kModule);
-    ASSERT_EQ(m.name(), std::string("mymod"));
+    ASSERT_EQ(m.name, std::string("mymod"));
 }
 
-TEST(json_invalid_program_body_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
-    // "name" is a string field; feeding it a number fails JsonStringToMessage.
-    ASSERT_THROWS_CONTAINING(
-        DecodeBallFileJson(R"({"@type":"type.googleapis.com/ball.v1.Program","name":123})", p, m),
-        "failed to parse Program JSON");
+// #18 Stage 5: ball::ir's proto3-JSON loader is intentionally lenient about a
+// scalar field carried at the wrong JSON type (a robustness property the former
+// google JsonStringToMessage did not share) — a numeric `name` reads back as
+// the string default "" rather than throwing. (Malformed JSON — e.g. truncated
+// braces — still throws from nlohmann's parser; the @type scanner guards the
+// envelope shape.)
+TEST(json_wrong_typed_field_tolerated) {
+    ball::ir::Program p;
+    ball::ir::Module m;
+    auto kind = DecodeBallFileJson(
+        R"({"@type":"type.googleapis.com/ball.v1.Program","name":123})", p, m);
+    ASSERT_TRUE(kind == BallFileKind::kProgram);
+    ASSERT_EQ(p.name, std::string(""));
 }
 
-TEST(json_invalid_module_body_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
-    ASSERT_THROWS_CONTAINING(
-        DecodeBallFileJson(R"({"@type":"type.googleapis.com/ball.v1.Module","name":123})", p, m),
-        "failed to parse Module JSON");
+TEST(json_wrong_typed_module_field_tolerated) {
+    ball::ir::Program p;
+    ball::ir::Module m;
+    auto kind = DecodeBallFileJson(
+        R"({"@type":"type.googleapis.com/ball.v1.Module","name":123})", p, m);
+    ASSERT_TRUE(kind == BallFileKind::kModule);
+    ASSERT_EQ(m.name, std::string(""));
 }
 
 // A trailing-member @type (no comma after) exercises the "drop leading
 // comma" branch of extract_type_url_and_strip, instead of the "drop trailing
 // comma" branch every other test above hits.
 TEST(json_type_as_last_member_strips_leading_comma) {
-    ball::v1::Program p;
-    ball::v1::Module m;
+    ball::ir::Program p;
+    ball::ir::Module m;
     auto kind = DecodeBallFileJson(
         R"({"name":"trailing","@type":"type.googleapis.com/ball.v1.Program"})", p, m);
     ASSERT_TRUE(kind == BallFileKind::kProgram);
-    ASSERT_EQ(p.name(), std::string("trailing"));
+    ASSERT_EQ(p.name, std::string("trailing"));
 }
 
 // ================================================================
-// DecodeBallFileBinary — real google.protobuf.Any envelopes.
+// DecodeBallFileBinary — google.protobuf.Any envelopes decoded by Ball's own
+// compiled protobuf runtime (golden wire vectors, no libprotobuf).
 // ================================================================
 
 TEST(binary_valid_program_decodes) {
-    ball::v1::Program src;
-    src.set_name("bin_prog");
-    google::protobuf::Any any;
-    any.PackFrom(src);
-    std::string bytes;
-    ASSERT_TRUE(any.SerializeToString(&bytes));
-
-    ball::v1::Program p;
-    ball::v1::Module m;
-    auto kind = DecodeBallFileBinary(bytes, p, m);
+    ball::ir::Program p;
+    ball::ir::Module m;
+    auto kind = DecodeBallFileBinary(program_any_bytes("bin_prog"), p, m);
     ASSERT_TRUE(kind == BallFileKind::kProgram);
-    ASSERT_EQ(p.name(), std::string("bin_prog"));
+    ASSERT_EQ(p.name, std::string("bin_prog"));
 }
 
 TEST(binary_valid_module_decodes) {
-    ball::v1::Module src;
-    src.set_name("bin_mod");
-    google::protobuf::Any any;
-    any.PackFrom(src);
-    std::string bytes;
-    ASSERT_TRUE(any.SerializeToString(&bytes));
-
-    ball::v1::Program p;
-    ball::v1::Module m;
-    auto kind = DecodeBallFileBinary(bytes, p, m);
+    ball::ir::Program p;
+    ball::ir::Module m;
+    auto kind = DecodeBallFileBinary(module_any_bytes("bin_mod"), p, m);
     ASSERT_TRUE(kind == BallFileKind::kModule);
-    ASSERT_EQ(m.name(), std::string("bin_mod"));
+    ASSERT_EQ(m.name, std::string("bin_mod"));
 }
 
 TEST(binary_unknown_type_url_throws) {
-    google::protobuf::Struct unrelated;
-    google::protobuf::Any any;
-    any.PackFrom(unrelated);  // type_url ends in "/google.protobuf.Struct"
-    std::string bytes;
-    ASSERT_TRUE(any.SerializeToString(&bytes));
-
-    ball::v1::Program p;
-    ball::v1::Module m;
-    ASSERT_THROWS_CONTAINING(DecodeBallFileBinary(bytes, p, m),
-                              "unknown ball file type URL");
+    ball::ir::Program p;
+    ball::ir::Module m;
+    // An Any whose type_url is neither ball.v1.Program nor ball.v1.Module.
+    std::string bytes =
+        make_any_bytes("type.googleapis.com/google.protobuf.Struct", "");
+    ASSERT_THROWS_CONTAINING(DecodeBallFileBinary(bytes, p, m), "unknown");
 }
 
 TEST(binary_malformed_bytes_throws) {
-    ball::v1::Program p;
-    ball::v1::Module m;
-    // Not a valid serialized google.protobuf.Any at all.
-    ASSERT_THROWS_CONTAINING(DecodeBallFileBinary(std::string("\xFF\xFF\xFF\xFF\xFF", 5), p, m),
-                              "failed to parse binary google.protobuf.Any envelope");
+    ball::ir::Program p;
+    ball::ir::Module m;
+    // A well-formed Any whose Program payload is a truncated length-delimited
+    // field (field 1 declares 5 bytes but only 2 follow) — the rt unmarshal
+    // must reject it rather than silently return a half-decoded message.
+    std::string bad_payload = encode_len_delim(1, "xx");  // len 2
+    bad_payload[1] = 0x05;  // lie: claim length 5
+    std::string bytes =
+        make_any_bytes("type.googleapis.com/ball.v1.Program", bad_payload);
+    ASSERT_THROWS_ANY(DecodeBallFileBinary(bytes, p, m));
 }
 
 // ================================================================
@@ -264,23 +323,18 @@ TEST(binary_malformed_bytes_throws) {
 // ================================================================
 
 TEST(decode_ball_file_dispatches_by_extension) {
-    ball::v1::Program p1;
-    ball::v1::Module m1;
+    ball::ir::Program p1;
+    ball::ir::Module m1;
     ASSERT_TRUE(DecodeBallFile("x.ball.json", program_json("j"), p1, m1) ==
                 BallFileKind::kProgram);
 
-    ball::v1::Program src;
-    src.set_name("bp");
-    google::protobuf::Any any;
-    any.PackFrom(src);
-    std::string bytes;
-    ASSERT_TRUE(any.SerializeToString(&bytes));
-
-    ball::v1::Program p2;
-    ball::v1::Module m2;
+    std::string bytes = program_any_bytes("bp");
+    ball::ir::Program p2;
+    ball::ir::Module m2;
     ASSERT_TRUE(DecodeBallFile("x.ball.pb", bytes, p2, m2) == BallFileKind::kProgram);
-    ball::v1::Program p3;
-    ball::v1::Module m3;
+    ASSERT_EQ(p2.name, std::string("bp"));
+    ball::ir::Program p3;
+    ball::ir::Module m3;
     ASSERT_TRUE(DecodeBallFile("x.ball.bin", bytes, p3, m3) == BallFileKind::kProgram);
 }
 
@@ -290,15 +344,15 @@ TEST(decode_ball_file_dispatches_by_extension) {
 
 TEST(load_program_reads_real_file) {
     fs::path path = write_temp_file("load_program.ball.json", program_json("fromfile"));
-    ball::v1::Program p = LoadProgram(path.string());
-    ASSERT_EQ(p.name(), std::string("fromfile"));
+    ball::ir::Program p = LoadProgram(path.string());
+    ASSERT_EQ(p.name, std::string("fromfile"));
     fs::remove(path);
 }
 
 TEST(load_module_reads_real_file) {
     fs::path path = write_temp_file("load_module.ball.json", module_json("modfromfile"));
-    ball::v1::Module m = LoadModule(path.string());
-    ASSERT_EQ(m.name(), std::string("modfromfile"));
+    ball::ir::Module m = LoadModule(path.string());
+    ASSERT_EQ(m.name, std::string("modfromfile"));
     fs::remove(path);
 }
 
@@ -343,8 +397,8 @@ TEST(decode_program_on_module_content_throws) {
 }
 
 TEST(decode_program_valid_program_content) {
-    ball::v1::Program p = DecodeProgram("x.ball.json", program_json("direct"));
-    ASSERT_EQ(p.name(), std::string("direct"));
+    ball::ir::Program p = DecodeProgram("x.ball.json", program_json("direct"));
+    ASSERT_EQ(p.name, std::string("direct"));
 }
 
 // ================================================================
@@ -354,6 +408,21 @@ TEST(decode_program_valid_program_content) {
 int main() {
     std::cout << "Ball C++ ball_file.h Tests\n"
               << "==========================\n";
+
+    // Run the deferred tests AFTER static init (so ball_protobuf's cross-TU
+    // global descriptors are constructed — see the framework note above).
+    for (const auto& tc : test_registry()) {
+        std::cout << "  " << tc.name << "... ";
+        try {
+            tc.fn();
+            std::cout << "PASS\n";
+            ++tests_passed;
+        } catch (const std::exception& e) {
+            std::cout << "FAIL: " << e.what() << "\n";
+            ++tests_failed;
+        }
+        ++tests_run;
+    }
 
     std::cout << "\n==========================\n"
               << "Results: " << tests_passed << " passed, "

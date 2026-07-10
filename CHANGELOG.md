@@ -1,3 +1,10 @@
+# [1.26.0](https://github.com/Ball-Lang/ball/compare/v1.25.0...v1.26.0) (2026-07-10)
+
+
+### Features
+
+* **cpp:** [#367](https://github.com/Ball-Lang/ball/issues/367) unified `ball` CLI (engine_rt run + compile + encode + self-hosted cli-core verbs) ([#374](https://github.com/Ball-Lang/ball/issues/374)) ([73d7a63](https://github.com/Ball-Lang/ball/commit/73d7a63fc9645b91b73242b687ef498bbd26456c)), closes [#362](https://github.com/Ball-Lang/ball/issues/362) [#362](https://github.com/Ball-Lang/ball/issues/362)
+
 # [1.25.0](https://github.com/Ball-Lang/ball/compare/v1.24.0...v1.25.0) (2026-07-10)
 
 

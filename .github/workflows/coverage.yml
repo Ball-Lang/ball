@@ -287,17 +287,23 @@ jobs:
             echo "ERROR: could not parse line coverage percentage from cpp.lcov"
             exit 1
           fi
-          # Ratcheted 72 -> 83 (issue #63, 2026-07-10 grind): measured 85.7%
-          # lines (9541/11134; functions 97.1%) on the full ctest-equivalent
-          # run — test_e2e's 266-fixture corpus (each fixture's compile()) +
-          # the per-arm compile_std_call/collections/method/message_creation
-          # unit tests, the CLI-mode (compile_split/compile_module/
-          # compile_library) tests, and the emit_function engine-intrinsic
-          # tests all landed this round. Per-target on the same run: compiler
-          # 86.7% (up from 70.4%), encoder 89.1%, shared 81.7% (see
-          # cpp/build-cov-floor.sh for the per-target local ratchet +
-          # methodology). Floor set ~2.7 points under measured for CI variance.
-          floor=83
+          # Ratcheted 72 -> 83 -> 86 (issue #63, 2026-07-10 grinds). The latest
+          # #63-close grind added ~22 per-arm class/comprehension/library/method-
+          # dispatch unit tests driving hand-built ball::ir (emit_struct
+          # bases/ctors/operators/factory, split-mode out-of-line class defs,
+          # list-literal field & typed param defaults, message_creation runtime-
+          # type arms, compile_method_call collection/string/super/static routes,
+          # compile_std_call map/list comprehensions + for-in-as-expression,
+          # compile_library class/enum/top-level-var facades, ClassName.new,
+          # lambda input/output types), lifting compiler.cpp 86.7% -> 90.4%
+          # (6713/7424) and overall 85.7% -> 88.1% (9989/11336) on the
+          # CI-equivalent run (test_e2e's compile phase is reproduced locally by
+          # cpp/test/corpus_driver.cpp — same instrumented compiler.cpp coverage
+          # without the 40-min nested g++ builds; see cpp/build-cov-floor.sh for
+          # the methodology + per-target local ratchet). encoder 89.1%, shared
+          # 81.7% unchanged this round. Floor set ~2 points under measured 88.1%
+          # for CI variance.
+          floor=86
           echo "C++ overall line coverage: ${pct}% (floor: ${floor}%)"
           awk -v p="$pct" -v f="$floor" 'BEGIN {
             if (p + 0 < f) {

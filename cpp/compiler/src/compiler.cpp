@@ -2612,6 +2612,25 @@ static void _collectOrPatternValues(const ball::ir::Expression& expr,
     }
 }
 
+// Strip the compiled string literal quoting/`'…'`/enum-qualifier noise a
+// cosmetic switch-case `pattern` field carries, so a plain-value comparison
+// matches what the reference engines compare. Used by the goto-via-switch
+// lowering (compile_switch_goto_statement, issue #352). This duplicates
+// (rather than shares) compile_statement's local `normalize_pattern` lambda
+// used by the plain if/else-chain switch lowering, so a change here can
+// never alter that lowering's byte-for-byte output.
+static std::string _normalizeSwitchGotoPattern(const std::string& s) {
+    if (s.size() < 3 || s[0] != '"' || s.back() != 's' || s[s.size() - 2] != '"')
+        return s;
+    auto inner = s.substr(1, s.size() - 3);
+    if (inner.size() >= 2 && inner.front() == '\'' && inner.back() == '\'')
+        inner = inner.substr(1, inner.size() - 2);
+    auto dot = inner.rfind('.');
+    if (dot != std::string::npos && inner.find('_') < dot)
+        inner = inner.substr(dot + 1);
+    return "\"" + inner + "\"s";
+}
+
 bool CppCompiler::_isVoidUserCall(const ball::ir::Expression& e) {
     if (e.kind != ball::ir::ExprKind::Call) return false;
     const auto& call = (*e.call);
@@ -4605,7 +4624,25 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     }
     if (fn == "continue") {
         auto label = get_string_field(call, "label");
-        if (!label.empty()) return "goto __ball_continue_" + label;
+        if (!label.empty()) {
+            // Issue #352: `continue <label>` naming a case of an ACTIVE
+            // goto-via-switch (innermost first — "innermost matching switch
+            // wins", mirroring ts/compiler's switchLabelStack /
+            // rust/compiler's switch_label_stack) is a goto: jump straight to
+            // that case's arm with NO subject re-check, instead of the
+            // generic loop-label goto below (which has no matching planted
+            // label for a switch case — see compile_switch_goto_statement).
+            for (auto it = switch_label_stack_.rbegin();
+                 it != switch_label_stack_.rend(); ++it) {
+                auto found = it->label_to_arm.find(label);
+                if (found != it->label_to_arm.end()) {
+                    return "{ " + it->state_var + " = " +
+                           std::to_string(found->second) + "; goto " +
+                           it->dispatch_label + "; }";
+                }
+            }
+            return "goto __ball_continue_" + label;
+        }
         return "continue";
     }
     if (fn == "goto") {
@@ -6456,6 +6493,386 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
 // Statement compilation (emits to out_)
 // ================================================================
 
+// Emit a single `switch` case's body as a statement. Extracted (issue #352)
+// from what used to be a `compile_statement`-local lambda so it can be
+// shared verbatim by both the plain if/else-chain lowering AND the
+// goto-via-switch state machine (compile_switch_goto_statement) — the
+// bodies compile identically either way.
+void CppCompiler::compile_switch_case_body_statement(
+    const ball::ir::Expression* case_body) {
+    if (!case_body) return;
+    if (case_body->kind == ball::ir::ExprKind::Block) {
+        // The if/else-chain lowering has no C++ construct of its own to
+        // catch a Dart switch-case's trailing `break;` (encoded as a bare
+        // std.break with no label) — emitting it there would escape the
+        // *enclosing loop* (conformance 150), so it is always dropped here.
+        // The goto-via-switch lowering DOES have a real `switch (state)` to
+        // catch it (dropping it there is merely redundant, not required —
+        // its own unconditional trailing `goto <exit>` after this call
+        // already has the same effect).
+        const auto& stmts = case_body->block->statements;
+        int n = stmts.size();
+        if (n > 0) {
+            const auto& last = stmts[n - 1];
+            if ((last.expr != nullptr) &&
+                last.expr->kind ==
+                    ball::ir::ExprKind::Call &&
+                last.expr->call->function == "break" &&
+                get_string_field((*last.expr->call),
+                                 "label").empty()) {
+                n--;  // drop the trailing switch-break
+            }
+        }
+        for (int si = 0; si < n; si++) {
+            compile_statement(stmts[si]);
+        }
+        if ((case_body->block->result != nullptr)) {
+            bool res_is_throw = case_body->block->result->kind == ball::ir::ExprKind::Call &&
+                (case_body->block->result->call->function == "throw" ||
+                 case_body->block->result->call->function == "rethrow");
+            // In a VOID function the switch is a plain
+            // statement: emit the case-body result as a bare
+            // statement, not `return <expr>` (returning a
+            // value from a void function is a g++ error).
+            // (self-host engine #19)
+            if (res_is_throw || current_return_type_ == "void") {
+                emit_line(compile_expr((*case_body->block->result)) + ";");
+            } else {
+                emit_line("return " + compile_expr((*case_body->block->result)) + ";");
+            }
+        }
+    } else {
+        // A control-flow case body (`if`/`for`/`while`/...) is
+        // a STATEMENT, not a value. Emit it via
+        // compile_statement so a conditional return
+        // (`case X: if (c) return Y;`) FALLS THROUGH past the
+        // switch when its guard is false: the switch lowers to
+        // an `if (subj==X) { <body> }` chain, so a fall-through
+        // here continues to the post-switch code. Compiling it
+        // as a value — `return compile_expr(<if>)` — produced
+        // the if-EXPRESSION form
+        // `[&]{ if(c) return Y; return BallDyn(); }()`, which
+        // returns null on the else and swallows the
+        // fall-through (issue #211). The block-body path above
+        // already compiles its statements this way.
+        static const std::set<std::string> stmt_like_case_body = {
+            "if", "for", "while", "do_while", "for_each",
+            "for_in", "try", "labeled", "switch",
+        };
+        bool nonblk_is_throw = case_body->kind == ball::ir::ExprKind::Call &&
+            (case_body->call->function == "throw" ||
+             case_body->call->function == "rethrow");
+        bool is_stmt_like =
+            case_body->kind == ball::ir::ExprKind::Call &&
+            stmt_like_case_body.count(case_body->call->function) > 0;
+        if (is_stmt_like) {
+            ball::ir::Statement inner;
+            inner.kind = ball::ir::StatementKind::Expr; inner.expr = clone_expr_ptr(*case_body);
+            compile_statement(inner);
+        } else if (nonblk_is_throw) {
+            emit_line(compile_expr(*case_body) + ";");
+        } else if (current_return_type_ == "void") {
+            // Void function: emit the case body as a bare
+            // statement. An explicit Dart `return;` lowers to a
+            // `/* return */` marker — turn it into a real
+            // `return;` (early exit) rather than returning a
+            // value. (self-host engine #19)
+            auto body_code = compile_expr(*case_body);
+            auto pos = body_code.find("/* return */ ");
+            if (pos == 0) {
+                std::string val = body_code.substr(12);
+                if (!val.empty()) emit_line(val + ";");
+                emit_line("return;");
+            } else {
+                emit_line(body_code + ";");
+            }
+        } else {
+            // Bare-expression case body in a switch
+            // STATEMENT: its value is DISCARDED (statement
+            // semantics — the Dart engine likewise discards
+            // it). Only an explicit Dart `return X;` (the
+            // `/* return */` marker) may exit the function.
+            // Unconditionally wrapping in `return` made any
+            // trailing assignment/call case body silently
+            // exit the enclosing non-void function with the
+            // assigned value — ball_protobuf's
+            // unmarshalFieldValue returned the raw scalar
+            // instead of its {value, bytesRead} map (#18
+            // lane; the void branch above was already
+            // fixed this way for self-host engine #19).
+            auto body_code = compile_expr(*case_body);
+            auto pos = body_code.find("/* return */ ");
+            if (pos == 0) {
+                emit_line("return " + body_code.substr(12) + ";");
+            } else {
+                emit_line(body_code + ";");
+            }
+        }
+    }
+}
+
+// Issue #352: lower a `switch` STATEMENT with one or more labelled cases
+// (Dart's goto-via-switch — a `continue <label>` inside the switch
+// transfers control to that labelled case's body with NO subject
+// re-check, then execution proceeds from there) to a state machine,
+// mirroring the two-phase design of ts/compiler's `emitGotoSwitchStmt`
+// (#345) and rust/compiler's `compile_switch_goto` (#349), itself a port
+// of the reference dart/engine's two-phase `_evalLazySwitch`:
+//
+//   phase 1 — an if/else-if chain over the subject picks the ENTRY arm
+//   (default only if nothing matched), storing its index in a state var;
+//
+//   phase 2 — a real C++ `switch (state)` dispatches from that arm. A
+//   `continue <label>` naming one of THIS switch's case labels (resolved
+//   via `switch_label_stack_`, pushed for the duration of compiling the
+//   arm bodies — see compile_expr's `continue` handling) sets the state to
+//   that label's arm index and `goto`s back to a label planted right
+//   before the `switch (state)` statement, RE-ENTERING it with no subject
+//   re-check. An unlabeled `break` written directly in a case body is
+//   caught by the real C++ `switch` itself — no extra bookkeeping needed
+//   (unlike TS/Rust, which wrap their dispatch in a loop and must redirect
+//   a bare case-level break there); a break inside a further-nested loop
+//   within the body stays scoped to that loop by ordinary C++ lexical
+//   nesting. A body that falls off its arm exits via an unconditional
+//   trailing `goto` to the exit label appended after every arm (arms never
+//   fall through to the next case).
+//
+// A `continue <label>` used inside a `try` nested in a case body can still
+// reach these labels: unlike a Rust `catch_unwind` closure boundary, a real
+// C++ `try` block is not a jump boundary — `goto`/`break`/`continue`/`return`
+// freely LEAVE it (only jumping INTO one is restricted), so no BallFlow-style
+// escape mechanism is needed here.
+//
+// Plain (unlabelled) switches never reach this function — see the branch
+// point in compile_statement's `switch` handling — and keep compiling
+// through the existing if/else-if chain, byte-for-byte.
+void CppCompiler::compile_switch_goto_statement(
+    const ball::ir::FunctionCall& call, const std::string& subj,
+    const ball::ir::Expression* cases_expr) {
+    struct GotoArm {
+        std::string cond;
+        std::vector<std::pair<std::string, std::string>> bindings;
+        const ball::ir::Expression* body = nullptr;
+    };
+    std::vector<GotoArm> arms;
+    const ball::ir::Expression* default_body = nullptr;
+    std::unordered_map<std::string, int> label_to_arm;
+
+    // Match values of body-less (fall-through) cases, carried forward until
+    // the next case with a real body absorbs them into its condition.
+    std::vector<std::string> pending_patterns;
+    // Labels waiting to be bound to the arm that absorbs them (a label on an
+    // empty fall-through case, or on a real case, both attach when that
+    // case's arm — or the default arm — is pushed).
+    std::vector<std::string> pending_labels;
+    std::vector<std::string> default_labels;
+
+    auto push_arm = [&](GotoArm arm) {
+        int idx = static_cast<int>(arms.size());
+        for (auto& l : pending_labels) label_to_arm[l] = idx;
+        pending_labels.clear();
+        arms.push_back(std::move(arm));
+    };
+    auto attach_default = [&](const ball::ir::Expression* body) {
+        default_body = body;
+        for (auto& l : pending_labels) default_labels.push_back(l);
+        pending_labels.clear();
+    };
+
+    if (cases_expr && cases_expr->kind == ball::ir::ExprKind::Literal &&
+        cases_expr->literal->kind == ball::ir::LiteralKind::List) {
+        for (const auto& cx : cases_expr->literal->listElements) {
+            if (cx.kind != ball::ir::ExprKind::MessageCreation) continue;
+            const ball::ir::Expression* case_val = nullptr;
+            const ball::ir::Expression* case_body = nullptr;
+            const ball::ir::Expression* case_pattern_expr = nullptr;
+            const ball::ir::Expression* case_guard = nullptr;
+            bool is_default = false;
+            std::string case_label;
+            for (const auto& f : cx.messageCreation->fields) {
+                if (f.name == "value" || f.name == "pattern") case_val = &(*f.value);
+                else if (f.name == "body") case_body = &(*f.value);
+                else if (f.name == "pattern_expr") case_pattern_expr = &(*f.value);
+                else if (f.name == "guard") case_guard = &(*f.value);
+                else if (f.name == "label" && (f.value != nullptr) &&
+                         f.value->kind == ball::ir::ExprKind::Literal &&
+                         f.value->literal->kind == ball::ir::LiteralKind::String) {
+                    case_label = f.value->literal->stringValue;
+                } else if (f.name == "is_default" &&
+                           f.value->kind == ball::ir::ExprKind::Literal &&
+                           f.value->literal->boolValue) is_default = true;
+            }
+            if (!case_label.empty()) pending_labels.push_back(case_label);
+            if (case_val && !is_default) {
+                auto cv = compile_expr(*case_val);
+                if (cv == "\"_\"s" || cv == "\"default\"s") is_default = true;
+            }
+
+            // Detect empty body (fall-through): empty block with no
+            // statements and no result.
+            bool is_empty_body = false;
+            if (case_body && case_body->kind == ball::ir::ExprKind::Block &&
+                case_body->block->statements.size() == 0 &&
+                !(case_body->block->result != nullptr)) {
+                is_empty_body = true;
+            }
+            if (!case_body) is_empty_body = true;
+
+            if (is_default) {
+                attach_default(case_body);
+                continue;
+            }
+            if (is_empty_body && case_val) {
+                if (case_pattern_expr) {
+                    std::vector<const ball::ir::Expression*> vals;
+                    _collectOrPatternValues(*case_pattern_expr, vals);
+                    for (auto* v : vals) pending_patterns.push_back(compile_expr(*v));
+                } else {
+                    pending_patterns.push_back(_normalizeSwitchGotoPattern(compile_expr(*case_val)));
+                }
+                continue;
+            }
+
+            GotoArm arm;
+            bool matched = false;
+            // Try the structured pattern_expr first (typed comparison —
+            // preferred over the cosmetic `pattern`/`value` text field).
+            if (case_pattern_expr) {
+                auto structured = _compileStructuredPattern(
+                    *case_pattern_expr, "__switch_subj",
+                    [this](const ball::ir::Expression& e) { return compile_expr(e); });
+                if (structured) {
+                    std::string cond = structured->condition;
+                    // A `when` guard AND's into the match condition so a
+                    // false guard FALLS THROUGH to later arms.
+                    std::string guardClause;
+                    if (case_guard) {
+                        std::string binds;
+                        for (auto& [vn, ve] : structured->bindings) {
+                            binds += "auto " + vn + " = BallDyn(" + ve + "); ";
+                        }
+                        guardClause = " && [&]() -> bool { " + binds +
+                            "return bool(" + compile_expr(*case_guard) + "); }()";
+                    }
+                    if (cond == "true" && structured->bindings.empty() && guardClause.empty()) {
+                        // Wildcard / catch-all — treat as default.
+                        attach_default(case_body);
+                        continue;
+                    }
+                    for (auto& pp : pending_patterns) {
+                        cond += " || BallDyn(__switch_subj) == ball_to_dyn(" + pp + ")";
+                    }
+                    pending_patterns.clear();
+                    arm.cond = guardClause.empty() ? cond : ("(" + cond + ")" + guardClause);
+                    arm.bindings = structured->bindings;
+                    arm.body = case_body;
+                    matched = true;
+                }
+            }
+            // Or-pattern via pattern_expr (LogicalOrPattern / ConstPattern).
+            if (!matched && case_pattern_expr) {
+                std::vector<const ball::ir::Expression*> or_vals;
+                _collectOrPatternValues(*case_pattern_expr, or_vals);
+                if (!or_vals.empty()) {
+                    std::string cond;
+                    for (size_t oi = 0; oi < or_vals.size(); oi++) {
+                        if (oi > 0) cond += " || ";
+                        cond += "BallDyn(__switch_subj) == ball_to_dyn(" + compile_expr(*or_vals[oi]) + ")";
+                    }
+                    for (auto& pp : pending_patterns) {
+                        cond += " || BallDyn(__switch_subj) == ball_to_dyn(" + pp + ")";
+                    }
+                    pending_patterns.clear();
+                    arm.cond = cond;
+                    arm.body = case_body;
+                    matched = true;
+                }
+            }
+            if (!matched && case_val) {
+                auto cv = _normalizeSwitchGotoPattern(compile_expr(*case_val));
+                std::string cond = "BallDyn(__switch_subj) == ball_to_dyn(" + cv + ")";
+                for (auto& pp : pending_patterns) {
+                    cond += " || BallDyn(__switch_subj) == ball_to_dyn(" + pp + ")";
+                }
+                pending_patterns.clear();
+                arm.cond = cond;
+                arm.body = case_body;
+                matched = true;
+            }
+            if (!matched) continue;
+            push_arm(std::move(arm));
+        }
+    }
+
+    int default_index = static_cast<int>(arms.size());
+    if (default_body) {
+        for (auto& l : default_labels) label_to_arm[l] = default_index;
+    }
+
+    int uid = switch_goto_uid_++;
+    std::string state_var = "__swst" + std::to_string(uid);
+    std::string dispatch_label = "__ball_switch_dispatch" + std::to_string(uid);
+    std::string exit_label = "__ball_switch_exit" + std::to_string(uid);
+
+    emit_line("{");
+    indent_++;
+    emit_line("auto __switch_subj = BallDyn(" + subj + ");");
+    emit_line("int64_t " + state_var + " = -1;");
+    // Phase 1 — entry-arm selection (non-default arms, in source order);
+    // default only if nothing else matched.
+    bool first = true;
+    for (size_t i = 0; i < arms.size(); i++) {
+        emit_line(std::string(first ? "if (" : "else if (") + arms[i].cond +
+                  ") { " + state_var + " = " + std::to_string(i) + "; }");
+        first = false;
+    }
+    if (default_body) {
+        emit_line("if (" + state_var + " == -1) { " + state_var + " = " +
+                   std::to_string(default_index) + "; }");
+    }
+
+    // Register this switch's labels BEFORE compiling any arm body — an
+    // earlier arm's `continue` may target a LATER arm not yet emitted.
+    switch_label_stack_.push_back({state_var, dispatch_label, label_to_arm});
+
+    // Phase 2 — dispatch from the entry arm, honoring goto/break. `state`
+    // still < 0 (nothing matched, no default) makes the switch a no-op —
+    // no synthetic arm needed for that case.
+    emit_line(dispatch_label + ":;");
+    emit_line("switch (" + state_var + ") {");
+    indent_++;
+    for (size_t i = 0; i < arms.size(); i++) {
+        emit_line("case " + std::to_string(i) + ": {");
+        indent_++;
+        for (auto& [vn, ve] : arms[i].bindings) {
+            emit_line("auto " + vn + " = BallDyn(" + ve + ");");
+        }
+        compile_switch_case_body_statement(arms[i].body);
+        // Arms never fall through to the next case — a body that falls off
+        // the end (or hits its own bare `break;`, caught by this `switch`)
+        // exits here.
+        emit_line("goto " + exit_label + ";");
+        indent_--;
+        emit_line("}");
+    }
+    if (default_body) {
+        emit_line("case " + std::to_string(default_index) + ": {");
+        indent_++;
+        compile_switch_case_body_statement(default_body);
+        emit_line("goto " + exit_label + ";");
+        indent_--;
+        emit_line("}");
+    }
+    indent_--;
+    emit_line("}");
+
+    switch_label_stack_.pop_back();
+
+    emit_line(exit_label + ":;");
+    indent_--;
+    emit_line("}");
+}
+
 void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
     if ((stmt.let != nullptr)) {
         emit_indent();
@@ -7070,13 +7487,46 @@ void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
             if (std_like &&
                 call.function == "switch") {
                 auto subj = get_message_field(call, "subject");
+                auto* cases_expr = get_message_field_expr(call, "cases");
+                // Issue #352: a switch with one or more labelled cases
+                // (Dart's goto-via-switch — `continue <label>` transfers
+                // control to that case's body with NO subject re-check)
+                // cannot be expressed by the if/else-chain below (no
+                // matching `goto` target is ever planted for a case label —
+                // g++ would fail with "label used but not defined"). Route
+                // it to a dedicated state-machine lowering instead,
+                // mirroring ts/compiler's `emitGotoSwitchStmt` (#345) and
+                // rust/compiler's `compile_switch_goto` (#349). A switch
+                // with NO labelled cases (the overwhelming common case)
+                // falls through to the unchanged if/else chain below,
+                // byte-for-byte.
+                bool has_case_label = false;
+                if (cases_expr && cases_expr->kind == ball::ir::ExprKind::Literal &&
+                    cases_expr->literal->kind == ball::ir::LiteralKind::List) {
+                    for (const auto& cx : cases_expr->literal->listElements) {
+                        if (cx.kind != ball::ir::ExprKind::MessageCreation) continue;
+                        for (const auto& f : cx.messageCreation->fields) {
+                            if (f.name == "label" && (f.value != nullptr) &&
+                                f.value->kind == ball::ir::ExprKind::Literal &&
+                                f.value->literal->kind == ball::ir::LiteralKind::String &&
+                                !f.value->literal->stringValue.empty()) {
+                                has_case_label = true;
+                                break;
+                            }
+                        }
+                        if (has_case_label) break;
+                    }
+                }
+                if (has_case_label) {
+                    compile_switch_goto_statement(call, subj, cases_expr);
+                    return;
+                }
                 emit_line("{");
                 indent_++;
                 emit_line("auto __switch_subj = BallDyn(" + subj + ");");
                 auto compileExprLambda = [this](const ball::ir::Expression& e) -> std::string {
                     return compile_expr(e);
                 };
-                auto* cases_expr = get_message_field_expr(call, "cases");
                 bool first_case = true;
                 if (cases_expr && cases_expr->kind == ball::ir::ExprKind::Literal &&
                     cases_expr->literal->kind == ball::ir::LiteralKind::List) {
@@ -7093,113 +7543,11 @@ void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
                         return "\"" + inner + "\"s";
                     };
                     // Emit case body helper (shared between structured and legacy paths)
+                    // Shared with the goto-via-switch state machine
+                    // (compile_switch_case_body_statement, issue #352) so
+                    // both lowerings compile a case body identically.
                     auto emit_case_body = [&](const ball::ir::Expression* case_body) {
-                        if (!case_body) return;
-                        if (case_body->kind == ball::ir::ExprKind::Block) {
-                            // A switch is lowered to an if/else-if chain, so the
-                            // Dart switch-case's trailing `break;` (encoded as a
-                            // bare std.break with no label) must NOT be emitted —
-                            // a C++ `break` here would escape the *enclosing loop*,
-                            // not the (non-existent) switch (conformance 150).
-                            const auto& stmts = case_body->block->statements;
-                            int n = stmts.size();
-                            if (n > 0) {
-                                const auto& last = stmts[n - 1];
-                                if ((last.expr != nullptr) &&
-                                    last.expr->kind ==
-                                        ball::ir::ExprKind::Call &&
-                                    last.expr->call->function == "break" &&
-                                    get_string_field((*last.expr->call),
-                                                     "label").empty()) {
-                                    n--;  // drop the trailing switch-break
-                                }
-                            }
-                            for (int si = 0; si < n; si++) {
-                                compile_statement(stmts[si]);
-                            }
-                            if ((case_body->block->result != nullptr)) {
-                                bool res_is_throw = case_body->block->result->kind == ball::ir::ExprKind::Call &&
-                                    (case_body->block->result->call->function == "throw" ||
-                                     case_body->block->result->call->function == "rethrow");
-                                // In a VOID function the switch is a plain
-                                // statement: emit the case-body result as a bare
-                                // statement, not `return <expr>` (returning a
-                                // value from a void function is a g++ error).
-                                // (self-host engine #19)
-                                if (res_is_throw || current_return_type_ == "void") {
-                                    emit_line(compile_expr((*case_body->block->result)) + ";");
-                                } else {
-                                    emit_line("return " + compile_expr((*case_body->block->result)) + ";");
-                                }
-                            }
-                        } else {
-                            // A control-flow case body (`if`/`for`/`while`/...) is
-                            // a STATEMENT, not a value. Emit it via
-                            // compile_statement so a conditional return
-                            // (`case X: if (c) return Y;`) FALLS THROUGH past the
-                            // switch when its guard is false: the switch lowers to
-                            // an `if (subj==X) { <body> }` chain, so a fall-through
-                            // here continues to the post-switch code. Compiling it
-                            // as a value — `return compile_expr(<if>)` — produced
-                            // the if-EXPRESSION form
-                            // `[&]{ if(c) return Y; return BallDyn(); }()`, which
-                            // returns null on the else and swallows the
-                            // fall-through (issue #211). The block-body path above
-                            // already compiles its statements this way.
-                            static const std::set<std::string> stmt_like_case_body = {
-                                "if", "for", "while", "do_while", "for_each",
-                                "for_in", "try", "labeled", "switch",
-                            };
-                            bool nonblk_is_throw = case_body->kind == ball::ir::ExprKind::Call &&
-                                (case_body->call->function == "throw" ||
-                                 case_body->call->function == "rethrow");
-                            bool is_stmt_like =
-                                case_body->kind == ball::ir::ExprKind::Call &&
-                                stmt_like_case_body.count(case_body->call->function) > 0;
-                            if (is_stmt_like) {
-                                ball::ir::Statement inner;
-                                inner.kind = ball::ir::StatementKind::Expr; inner.expr = clone_expr_ptr(*case_body);
-                                compile_statement(inner);
-                            } else if (nonblk_is_throw) {
-                                emit_line(compile_expr(*case_body) + ";");
-                            } else if (current_return_type_ == "void") {
-                                // Void function: emit the case body as a bare
-                                // statement. An explicit Dart `return;` lowers to a
-                                // `/* return */` marker — turn it into a real
-                                // `return;` (early exit) rather than returning a
-                                // value. (self-host engine #19)
-                                auto body_code = compile_expr(*case_body);
-                                auto pos = body_code.find("/* return */ ");
-                                if (pos == 0) {
-                                    std::string val = body_code.substr(12);
-                                    if (!val.empty()) emit_line(val + ";");
-                                    emit_line("return;");
-                                } else {
-                                    emit_line(body_code + ";");
-                                }
-                            } else {
-                                // Bare-expression case body in a switch
-                                // STATEMENT: its value is DISCARDED (statement
-                                // semantics — the Dart engine likewise discards
-                                // it). Only an explicit Dart `return X;` (the
-                                // `/* return */` marker) may exit the function.
-                                // Unconditionally wrapping in `return` made any
-                                // trailing assignment/call case body silently
-                                // exit the enclosing non-void function with the
-                                // assigned value — ball_protobuf's
-                                // unmarshalFieldValue returned the raw scalar
-                                // instead of its {value, bytesRead} map (#18
-                                // lane; the void branch above was already
-                                // fixed this way for self-host engine #19).
-                                auto body_code = compile_expr(*case_body);
-                                auto pos = body_code.find("/* return */ ");
-                                if (pos == 0) {
-                                    emit_line("return " + body_code.substr(12) + ";");
-                                } else {
-                                    emit_line(body_code + ";");
-                                }
-                            }
-                        }
+                        compile_switch_case_body_statement(case_body);
                     };
                     // Collect fall-through patterns (empty body cases grouped with next non-empty case)
                     std::vector<std::string> pending_patterns;

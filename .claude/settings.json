@@ -3,5 +3,16 @@
     "allow": [
       "WebFetch(domain:pub.dev)"
     ]
+  },
+  "extraKnownMarketplaces": {
+    "ball-lang": {
+      "source": {
+        "source": "github",
+        "repo": "Ball-Lang/ball"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ball@ball-lang": true
   }
 }

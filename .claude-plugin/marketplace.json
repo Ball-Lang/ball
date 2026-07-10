@@ -1,0 +1,14 @@
+{
+  "name": "ball-lang",
+  "description": "Official Ball language plugins: cross-language codebase conversion through the Ball IR, new-target bootstrapping, and target iteration",
+  "owner": {
+    "name": "Ball Language Contributors"
+  },
+  "plugins": [
+    {
+      "name": "ball",
+      "source": "./plugins/ball",
+      "description": "Ball language toolchain skills: convert codebases between programming languages through the Ball IR, bootstrap new language targets, and iterate on existing ones"
+    }
+  ]
+}

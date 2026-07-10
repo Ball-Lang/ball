@@ -216,6 +216,7 @@ Supporting configs:
 - Agent: `.claude/agents/ball-lang-bootstrapper.md` — orchestrates the full bootstrap
 - Rule: `.claude/rules/new-language.md` — auto-activates when editing new language dirs
 - Existing skills (`ball-compiler`, `ball-encoder`, `ball-engine`) cover component internals
+- Plugin: `plugins/ball/` ships `/ball:convert` (cross-language codebase conversion, usable in ANY repo) plus `/ball:new`/`/ball:iterate` wrappers, distributed via this repo's plugin marketplace (`.claude-plugin/marketplace.json`). The canonical `/ball-new`/`/ball-iterate` contracts stay in `.claude/skills/`; keep the plugin wrappers as thin pointers, never fork the content
 
 ## Typical Feature Workflow
 

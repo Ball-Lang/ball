@@ -30,6 +30,7 @@ gh api repos/Ball-Lang/ball -q .permissions   # {"push":true,...} = maintainer; 
 
 - **`/ball-new <lang>`** (`.claude/skills/ball-new/`) — bootstrap a complete new language target (issue tree → orchestrated waves → corpus parity).
 - **`/ball-iterate <lang>`** (`.claude/skills/ball-iterate/`) — audit-then-grind an existing target (gap audit → verified backlog → bounded gated lanes).
+- **Claude Code plugin** (`plugins/ball/`, distributed via this repo's plugin marketplace `.claude-plugin/marketplace.json`): `/plugin marketplace add Ball-Lang/ball` + `/plugin install ball@ball-lang` gives **any codebase** `/ball:convert <target>[, custom instructions]` (whole-codebase language conversion through the Ball IR) plus `/ball:new` and `/ball:iterate` bootstrap wrappers that clone this repo and defer to the canonical in-repo skills. Contributors opening this repo are prompted automatically via `.claude/settings.json`.
 - Component internals: `.claude/skills/{ball-compiler,ball-encoder,ball-engine,new-ball-language}/`, per-language rules in `.claude/rules/`.
 - Guard rails: `.claude/hookify.*.local.md` rules (require the [hookify](https://github.com/anthropics/claude-code) plugin) block generated-file edits and remind PR discipline — they activate automatically for any contributor with hookify installed and are inert otherwise.
 - Cloud surfaces (Claude Code web, Claude Cowork) run in Linux sandboxes: the WSL notes in `CLAUDE.md` are for local Windows development only; on Linux just build natively. Sandboxes without `gh` follow the "No gh" tier above.

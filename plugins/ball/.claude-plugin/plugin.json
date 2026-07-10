@@ -1,0 +1,12 @@
+{
+  "name": "ball",
+  "version": "0.1.0",
+  "description": "Ball language toolchain: convert whole codebases between programming languages through the Ball IR (/ball:convert), bootstrap new language targets (/ball:new), and iterate on existing ones (/ball:iterate)",
+  "author": {
+    "name": "Ball Language Contributors"
+  },
+  "homepage": "https://github.com/Ball-Lang/ball",
+  "repository": "https://github.com/Ball-Lang/ball",
+  "license": "MIT",
+  "keywords": ["ball", "transpiler", "conversion", "migration", "compiler", "codegen"]
+}

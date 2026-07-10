@@ -100,6 +100,16 @@ buf generate proto
 # After editing dart/shared/lib/std.dart, regenerate std.json/std.bin
 cd dart/shared && dart run bin/gen_std.dart
 
+# Self-hosted CLI verbs: after editing dart/shared/lib/cli_core.dart, regenerate
+# the (gitignored) cli.ball.json + cli.ball.pb so the parity gate can run them
+# on the engine (mirrors gen_engine_json.dart). CI regenerates these too.
+cd dart && dart run compiler/tool/gen_cli_json.dart
+
+# Single-source the `ball` CLI version from pubspec.yaml (#363). Regenerate
+# lib/version.g.dart after a version bump; --check is the CI drift guard.
+cd dart/cli && dart run tool/gen_version.dart          # regenerate
+cd dart/cli && dart run tool/gen_version.dart --check  # CI drift guard
+
 # Upstream protobuf conformance for ball_protobuf (Editions) — POSIX-only
 # runner; build/run on Linux/macOS/WSL, not native Windows. See
 # dart/ball_protobuf/conformance/README.md.
@@ -116,7 +126,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `dart/shared/std.json`, `dart/shared/std.bin`. Regenerate via `buf generate proto`, `gen_std.dart`, or the TS engine regeneration command above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS engine regeneration command above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
 
 ## Architecture Big Picture
 
@@ -234,7 +244,7 @@ Supporting configs:
    (`check_encoder_completeness.dart`) or a documented carve-out, and a fixture's
    name must match its content (`check_fixture_names.dart`). See
    `docs/TESTING_STRATEGY.md`.
-7. Regenerate self-hosted engines: `cd dart && dart run compiler/tool/gen_engine_json.dart`, then `dart run compiler/tool/compile_engine_cpp.dart` (C++) and regen `compiled_engine.ts` (TS, see Build & Test). **Re-run conformance on ALL THREE engines** — a Dart-only fix is half a fix.
+7. Regenerate self-hosted engines: `cd dart && dart run compiler/tool/gen_engine_json.dart`, then `dart run compiler/tool/compile_engine_cpp.dart` (C++) and regen `compiled_engine.ts` (TS, see Build & Test). **Re-run conformance on ALL THREE engines** — a Dart-only fix is half a fix. If you touched the portable CLI verbs (`dart/shared/lib/cli_core.dart`), also regenerate the self-hosted CLI: `dart run compiler/tool/gen_cli_json.dart`, then re-run the parity gate (`cd dart/cli && dart test test/cli_core_parity_test.dart`).
 8. If new metadata keys were introduced, update `docs/METADATA_SPEC.md`.
 
 ## Examples Layout

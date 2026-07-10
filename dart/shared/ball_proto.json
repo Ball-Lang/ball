@@ -474,6 +474,81 @@
       }
     },
     {
+      "name": "hasHttp",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"http\" field is present and non-default.",
+        "field": "http"
+      }
+    },
+    {
+      "name": "hasFile",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"file\" field is present and non-default.",
+        "field": "file"
+      }
+    },
+    {
+      "name": "hasGit",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"git\" field is present and non-default.",
+        "field": "git"
+      }
+    },
+    {
+      "name": "hasRegistry",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"registry\" field is present and non-default.",
+        "field": "registry"
+      }
+    },
+    {
+      "name": "hasInline",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"inline\" field is present and non-default.",
+        "field": "inline"
+      }
+    },
+    {
       "name": "getStructField",
       "isBase": true,
       "metadata": {

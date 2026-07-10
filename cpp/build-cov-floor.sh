@@ -126,10 +126,33 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# Re-measured 2026-07-10 (issue #63 final grind). The per-arm coverage push
+# added ~130 test_compiler cases (compile_std_call / compile_collections_call /
+# compile_method_call dispatch arms, compile_message_creation typeName arms,
+# the compile_call `_ball*` engine intrinsics, emit_function's intrinsic canned
+# bodies) PLUS the CLI-mode entry points (compile_split / compile_module /
+# compile_library) driven directly — including a whole-corpus
+# compile_split+compile_module smoke over every Program fixture. That smoke
+# alone lifts the DEFAULT (no-test_e2e) build-cov-run.sh compiler number from
+# ~43% to 84.4% (it exercises emit_struct/emit_function/emit_enum/
+# emit_top_level_var on every corpus class), so this floor is no longer
+# calibrated to a bare-unit-test 40% baseline.
+#             lines (default, no e2e)   lines (CI-equivalent, +e2e/corpus)
+#   compiler   84.4% (6097/7222)         86.7% (6265/7222)
+#   encoder    89.1% (944/1059)          89.1%
+#   shared     81.7% (2332/2853)         81.7%
+#   overall    84.2%                     85.7%
+# CI-equivalent = the 266-fixture test_e2e set compiled through compile()
+# (measured locally by a build-cov/corpus_driver that calls compile() on
+# exactly that fixture list — identical instrumented compiler.cpp coverage to
+# test_e2e's compile phase, without the 40-min nested g++ builds). coverage.yml's
+# CI floor is ratcheted 72 -> 83 against the 85.7% overall. Floors below are set
+# a couple points under the DEFAULT (no-e2e) numbers so this standalone check
+# passes whether or not the caller ran the corpus/e2e pass.
 declare -A FLOORS=(
-  [compiler]=40
-  [encoder]=86
-  [shared]=79
+  [compiler]=82
+  [encoder]=88
+  [shared]=81
 )
 
 fail=0

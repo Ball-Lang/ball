@@ -14,6 +14,13 @@ target_include_directories(test_compiler PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
 )
 target_link_libraries(test_compiler ball_cpp_compiler_lib ball_shared)
+# BALL_CONFORMANCE_DIR lets the CLI-mode coverage tests (compile_split /
+# compile_module) drive real class/enum/top-level-var-bearing programs
+# loaded from the corpus — those orchestration paths are never reached by
+# the single-TU compile() the numbered-fixture e2e uses (issue #63).
+target_compile_definitions(test_compiler PRIVATE
+    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+)
 
 # Shared-library tests — the std module descriptor builders
 # (build_std_module/build_std_memory_module/build_std_collections_module/

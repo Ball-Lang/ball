@@ -1,3 +1,10 @@
+# [1.20.0](https://github.com/Ball-Lang/ball/compare/v1.19.3...v1.20.0) (2026-07-10)
+
+
+### Features
+
+* **skills:** /ball-new + /ball-iterate — binding orchestration contracts for language work ([#357](https://github.com/Ball-Lang/ball/issues/357)) ([0004f19](https://github.com/Ball-Lang/ball/commit/0004f197c438e6b9a9cbf4eb28aee3f52cb7aab6))
+
 ## [1.19.3](https://github.com/Ball-Lang/ball/compare/v1.19.2...v1.19.3) (2026-07-10)
 
 

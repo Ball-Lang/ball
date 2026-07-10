@@ -17,11 +17,21 @@ rust-version = "1.85"
 # Internal crate references, centralized here so every member Cargo.toml can
 # depend on a sibling crate via `<crate> = { workspace = true }` instead of
 # repeating a relative `path = "../..."`.
+#
+# Each carries BOTH `path` and `version`: `cargo publish` refuses a dependency
+# that has only a `path` (a path dep is unresolvable off the publishing
+# machine), so a `version` is mandatory for the crates to be publishable. The
+# `path` still wins for in-workspace builds/tests; the `version` is only
+# consulted when the crate is consumed from crates.io. Keep the version in
+# lock-step with `[workspace.package] version` above — the publish workflow
+# (.github/workflows/publish-crates.yml) publishes all five crates at the same
+# version in dependency order (shared -> compiler/encoder -> engine -> cli), so
+# each `^0.1.0` range is satisfied by the sibling published in the same run.
 [workspace.dependencies]
-ball-shared = { path = "shared" }
-ball-compiler = { path = "compiler" }
-ball-encoder = { path = "encoder" }
-ball-engine = { path = "engine" }
+ball-shared = { path = "shared", version = "0.1.0" }
+ball-compiler = { path = "compiler", version = "0.1.0" }
+ball-encoder = { path = "encoder", version = "0.1.0" }
+ball-engine = { path = "engine", version = "0.1.0" }
 
 # Protobuf runtime (issue #34): pinned to these exact versions because
 # prost-reflect's DescriptorPool/DynamicMessage are required for later

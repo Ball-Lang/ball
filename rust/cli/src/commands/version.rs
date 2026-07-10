@@ -1,5 +1,13 @@
 //! `ball version` — print the CLI's version (issue #365).
 //!
+//! VERSION POLICY (issue #366): `ball version` reports the ECOSYSTEM package
+//! version — the crates.io `ball-cli` version, i.e. the cargo workspace
+//! version via `CARGO_PKG_VERSION`. This is the deliberate cross-target
+//! decision: each CLI stays true to its own registry (crates.io for Rust,
+//! npm's semantic-release line for TypeScript, the pubspec version for Dart),
+//! rather than carrying a shared toolchain string. See rust/AGENTS.md
+//! § Publishing.
+//!
 //! Single-sourced from `Cargo.toml` (`CARGO_PKG_VERSION`, the same value
 //! `clap`'s own `--version`/`-V` flag reports via `#[command(version)]` in
 //! `main.rs`) — mirrors the Dart CLI's single-sourcing of `ball version` off

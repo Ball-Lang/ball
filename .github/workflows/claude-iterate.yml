@@ -107,7 +107,7 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
         with:
-          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i0)] }}
+          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i0)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
           prompt: ${{ steps.prompt.outputs.text }}
           track_progress: true
 
@@ -117,7 +117,7 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
         with:
-          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i1)] }}
+          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i1)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
           prompt: ${{ steps.prompt.outputs.text }}
           track_progress: true
 
@@ -127,7 +127,7 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@a6a5b60a078a0af52612aac63e05e3f95fd4ff64 # v1
         with:
-          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i2)] }}
+          anthropic_api_key: ${{ secrets[format('CLAUDE_CODE_OAUTH_TOKEN_{0}', steps.pick.outputs.i2)] || secrets.CLAUDE_CODE_OAUTH_TOKEN_0 }}
           prompt: ${{ steps.prompt.outputs.text }}
           track_progress: true
 

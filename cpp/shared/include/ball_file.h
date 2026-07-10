@@ -236,34 +236,55 @@ inline std::string read_file_bytes(const std::string& path) {
     return buffer.str();
 }
 
-// Strips the cosmetic base64 remnants of opaque `google.protobuf.*` payloads
-// left by the binary path's proto3-JSON serialization. The runtime protobuf
-// descriptor carries `Struct metadata` and `DescriptorProto`/
-// `EnumDescriptorProto` fields as opaque TYPE_BYTES (a message and a bytes
-// field are byte-identical on the wire), so `marshalJson` emits them as base64
-// strings (or arrays of base64 strings for the repeated `enums`). Metadata is
-// cosmetic (Core Invariant 2) and proto3-JSON is the canonical full-fidelity
-// input, so we drop these remnants rather than mis-parse a base64 string as a
-// structured field. Recurses through the whole tree (metadata appears on every
-// definition-like node).
-inline void strip_opaque_wkt(ball::ir::json& j) {
+// Decodes the base64 remnants of the `google.protobuf.*` payloads left by the
+// binary path's proto3-JSON serialization. The runtime protobuf descriptor
+// carries `Struct metadata` and `DescriptorProto`/`EnumDescriptorProto` fields
+// as opaque TYPE_BYTES (a message and a bytes field are byte-identical on the
+// wire), so `marshalJson` emits them as base64 strings (or arrays of base64
+// strings for the repeated `enums`). These payloads MUST materialize as their
+// real JSON shapes — the compiler READS them (class/method `kind` metadata,
+// type descriptors, enums) — so each base64 string is decoded through Ball's
+// own protobuf runtime (`ball::rt::Decode*JsonB64`, no libprotobuf) into
+// exactly the JSON the canonical `.ball.json` form carries. Recurses through
+// the whole tree (metadata appears on every definition-like node). Fails loud
+// on undecodable payloads.
+inline void decode_opaque_wkt(ball::ir::json& j) {
     if (j.is_object()) {
-        for (auto it = j.begin(); it != j.end();) {
+        for (auto it = j.begin(); it != j.end(); ++it) {
             const std::string& k = it.key();
             ball::ir::json& v = it.value();
-            if ((k == "metadata" || k == "descriptor") && v.is_string()) {
-                it = j.erase(it);
-                continue;
+            try {
+                if (k == "metadata" && v.is_string()) {
+                    v = ball::ir::json::parse(
+                        ball::rt::DecodeStructJsonB64(v.get<std::string>()));
+                    continue;
+                }
+                if (k == "descriptor" && v.is_string()) {
+                    v = ball::ir::json::parse(
+                        ball::rt::DecodeDescriptorProtoJsonB64(
+                            v.get<std::string>()));
+                    continue;
+                }
+                if (k == "enums" && v.is_array() && !v.empty() &&
+                    v.front().is_string()) {
+                    for (auto& e : v) {
+                        e = ball::ir::json::parse(
+                            ball::rt::DecodeEnumDescriptorProtoJsonB64(
+                                e.get<std::string>()));
+                    }
+                    continue;
+                }
+            } catch (const BallFileFormatException&) {
+                throw;
+            } catch (const std::exception& e) {
+                throw BallFileFormatException(
+                    "failed to decode embedded google.protobuf payload for \"" +
+                    k + "\": " + e.what());
             }
-            if (k == "enums" && v.is_array() && !v.empty() && v.front().is_string()) {
-                it = j.erase(it);
-                continue;
-            }
-            strip_opaque_wkt(v);
-            ++it;
+            decode_opaque_wkt(v);
         }
     } else if (j.is_array()) {
-        for (auto& e : j) strip_opaque_wkt(e);
+        for (auto& e : j) decode_opaque_wkt(e);
     }
 }
 
@@ -293,7 +314,7 @@ inline BallFileKind DecodeBallFileBinary(const std::string& bytes,
         throw BallFileFormatException(
             std::string("ball_protobuf produced invalid JSON: ") + e.what());
     }
-    detail::strip_opaque_wkt(j);
+    detail::decode_opaque_wkt(j);
     if (is_program) {
         out_program = ball::ir::parseProgram(j);
         return BallFileKind::kProgram;

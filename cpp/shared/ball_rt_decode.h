@@ -9,7 +9,8 @@
 // `ball_protobuf` usage is confined to `ball_rt_decode.cpp`; this header exposes
 // only a `std::string`-in / `std::string`-out interface.
 //
-// Only compiled when `BALL_USE_BALL_PROTOBUF=ON` (see cpp/shared/CMakeLists.txt).
+// #18 Stage 5: always compiled — this is the SOLE binary `.ball.pb`/`.ball.bin`
+// decoder (libprotobuf is gone).
 
 #include <string>
 
@@ -39,15 +40,28 @@ std::string DecodeAnyPayload(const std::string& any_bytes, bool& out_is_program)
 // libprotobuf-free.
 //
 // The full semantic tree (expression trees, signatures, module structure) is
-// emitted with exact proto3-JSON fidelity. The opaque `google.protobuf.*`
-// payloads (`Struct metadata`, `DescriptorProto`/`EnumDescriptorProto`) are
-// carried as opaque bytes by the runtime descriptor, so `marshalJson` emits
-// them as base64 strings; `ball_file.h` strips those cosmetic base64 remnants
-// (metadata is cosmetic per Ball's Core Invariant 2, and proto3-JSON — not the
-// binary form — is the canonical full-fidelity input). `out_is_program` is set
-// true for a Program payload, false for a Module.
+// emitted with exact proto3-JSON fidelity. The `google.protobuf.*` payloads
+// (`Struct metadata`, `DescriptorProto`/`EnumDescriptorProto`) are carried as
+// opaque bytes by the runtime descriptor, so `marshalJson` emits them as base64
+// strings; `ball_file.h` DECODES those via the three helpers below (the C++
+// compiler reads metadata/descriptors for emission, so they must materialize —
+// stripping them broke class/method emission in the self-host engine regen).
+// `out_is_program` is set true for a Program payload, false for a Module.
 std::string DecodeAnyPayloadJson(const std::string& any_bytes,
                                  bool& out_is_program);
+
+// #18 Stage 5 — decoders for the opaque `google.protobuf.*` payloads that
+// `DecodeAnyPayloadJson` leaves as base64 strings. Each takes the base64 TEXT
+// and returns the payload's proto3-JSON, decoded with hand-written wire
+// descriptors + ball_protobuf's own native WKT/JSON machinery (no libprotobuf):
+//   - `metadata`   → google.protobuf.Struct        → JSON object
+//   - `descriptor` → google.protobuf.DescriptorProto (snake_case keys,
+//                    enum NAME-strings — the shape the encoder/corpus carries)
+//   - `enums[i]`   → google.protobuf.EnumDescriptorProto
+// Throw on malformed input.
+std::string DecodeStructJsonB64(const std::string& b64);
+std::string DecodeDescriptorProtoJsonB64(const std::string& b64);
+std::string DecodeEnumDescriptorProtoJsonB64(const std::string& b64);
 
 }  // namespace rt
 }  // namespace ball

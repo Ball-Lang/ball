@@ -1,3 +1,10 @@
+# [1.29.0](https://github.com/Ball-Lang/ball/compare/v1.28.0...v1.29.0) (2026-07-10)
+
+
+### Features
+
+* **csharp:** [#379](https://github.com/Ball-Lang/ball/issues/379) Phase 2 — JSON round-trip smoke test + regen discipline ([#389](https://github.com/Ball-Lang/ball/issues/389)) ([ff8d22a](https://github.com/Ball-Lang/ball/commit/ff8d22aa98750c75b049ec091b84f1f7f016cf2e)), closes [#388](https://github.com/Ball-Lang/ball/issues/388)
+
 # [1.28.0](https://github.com/Ball-Lang/ball/compare/v1.27.0...v1.28.0) (2026-07-10)
 
 

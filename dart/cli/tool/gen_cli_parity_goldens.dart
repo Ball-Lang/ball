@@ -63,12 +63,15 @@ void main(List<String> args) {
   for (final f in fixtures) {
     final stem = f.uri.pathSegments.last.replaceAll('.ball.json', '');
     final program = decodeProgramJson(jsonDecode(f.readAsStringSync()));
-    File('${outDir.path}/$stem.info.txt')
-        .writeAsStringSync(cli_core.infoReport(program));
-    File('${outDir.path}/$stem.validate.txt')
-        .writeAsStringSync(cli_core.validateReport(program));
-    File('${outDir.path}/$stem.tree.txt')
-        .writeAsStringSync(cli_core.treeReport(program));
+    File(
+      '${outDir.path}/$stem.info.txt',
+    ).writeAsStringSync(cli_core.infoReport(program));
+    File(
+      '${outDir.path}/$stem.validate.txt',
+    ).writeAsStringSync(cli_core.validateReport(program));
+    File(
+      '${outDir.path}/$stem.tree.txt',
+    ).writeAsStringSync(cli_core.treeReport(program));
     count++;
   }
 

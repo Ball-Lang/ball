@@ -26,12 +26,12 @@
 /// `main` module as a Module ball-file) is also gitignored.
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/ball_base.dart'
     show BallProgramFile, decodeBallFileJson, encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'dart:convert';
 
 String _findRepoRoot() {
   var dir = Directory.current;
@@ -89,7 +89,9 @@ Future<void> main(List<String> args) async {
     exit(1);
   }
 
-  final decoded = decodeBallFileJson(jsonDecode(cliJsonFile.readAsStringSync()));
+  final decoded = decodeBallFileJson(
+    jsonDecode(cliJsonFile.readAsStringSync()),
+  );
   if (decoded is! BallProgramFile) {
     stderr.writeln('cli.ball.json is not a Program');
     exit(1);

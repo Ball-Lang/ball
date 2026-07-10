@@ -2558,6 +2558,95 @@ TEST(emit_function_engine_intrinsic_bodies) {
     ASSERT_CONTAINS(out, "ball_object_set_field(");
 }
 
+// ── compile_message_creation dispatch arms ──
+// A MessageCreation in expression position (not as a call input) routes
+// through compile_message_creation; its typeName-keyed arms (transparent
+// wrappers, List/Map factory copies, List.filled, _Scope, BallDouble,
+// anonymous map, function-call detection) are otherwise unexercised.
+
+TEST(message_creation_anonymous_map) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("", {{"a", lit_int(1)}, {"b", lit_int(2)}}))),
+        "std::map<std::string,std::any> __m");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("Msg1", {{"a", lit_int(1)}}))),
+        "std::map<std::string,std::any> __m");
+}
+
+TEST(message_creation_transparent_wrappers) {
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        make_msg("BallList", {{"arg0", ref("x")}}))))), "x");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("BallMap", {}))), "BallDyn{}");
+}
+
+TEST(message_creation_list_map_factory_copies) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("List.of", {{"arg0", ref("x")}}))), "ball_list_copy(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("List.from", {}))), "BallList{}");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("List.filled", {{"count", lit_int(3)}, {"value", lit_int(0)}}))),
+        "std::vector<std::any>(static_cast<size_t>");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("Map.of", {{"arg0", ref("m")}}))), "ball_map_copy(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("Map.from", {}))), "BallMap{}");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("BallDouble", {{"arg0", lit_int(5)}}))), "static_cast<double>(");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("BallDouble", {}))), "BallDyn(0.0)");
+}
+
+TEST(message_creation_scope_construction) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("_Scope", {{"arg0", ref("parent")}}))), "child(parent)");
+    ASSERT_CONTAINS(compile_program(build_program(
+        make_msg("_Scope", {}))), "child(BallDyn())");
+}
+
+TEST(message_creation_typename_is_function) {
+    // typeName matches a known user function -> emit a positional call.
+    std::vector<std::pair<std::string, json>> funcs;
+    funcs.push_back({"main", make_msg("foo", {{"arg0", lit_int(7)}})});
+    funcs.push_back({"foo", lit_int(0)});
+    ASSERT_CONTAINS(compile_program(build_program_multi(std::move(funcs))), "foo(");
+}
+
+// ── compile_call: remaining positional map intrinsics + identical ──
+TEST(intrinsic_ball_map_set_and_contains_dyn) {
+    ASSERT_CONTAINS(compile_program(build_program(
+        call("", "_ballMapSetDyn", make_msg("", {
+            {"arg0", ref("m")}, {"arg1", lit_string("k")}, {"arg2", lit_int(1)}})))),
+        "ball_set(m, std::string(ball_to_string(BallDyn(k)))");
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        call("", "_ballMapContainsKeyDyn", make_msg("", {
+            {"arg0", ref("m")}, {"arg1", lit_string("k")}})))))),
+        ".count(BallDyn(");
+}
+
+TEST(top_level_identical_emits_ball_identical) {
+    ASSERT_CONTAINS(compile_program(build_program(print_call(std_unary("to_string",
+        call("", "identical", make_msg("", {
+            {"arg0", lit_int(1)}, {"arg1", lit_int(2)}})))))),
+        "ball_identical(");
+}
+
+// ── cpp_escape_string: named + octal escape cases (reached via cast's type
+// argument, which is cpp_escape_string-quoted). ──
+TEST(cpp_escape_string_all_cases_via_cast_type_arg) {
+    json c = mcall("cast", {{"self", ref("x")}});
+    json ta;
+    // quote, backslash, newline, tab, CR, a control byte (octal branch), and
+    // printable bytes (the plain else branch).
+    ta["name"] = std::string("q\"b\\c\nd\te\rf") + '\x01' + "g";
+    c["call"]["typeArgs"].push_back(std::move(ta));
+    auto out = compile_program(build_program(std::move(c)));
+    ASSERT_CONTAINS(out, "cast(x, ");
+    ASSERT_CONTAINS(out, "\\001");   // octal escape of 0x01
+    ASSERT_CONTAINS(out, "\\\\c");   // escaped backslash
+}
+
 // ================================================================
 // Main
 // ================================================================

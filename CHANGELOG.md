@@ -1,3 +1,10 @@
+# [1.23.0](https://github.com/Ball-Lang/ball/compare/v1.22.0...v1.23.0) (2026-07-10)
+
+
+### Features
+
+* **cli:** self-hosted cli-core (cli.ball.json) + single-sourced version ([#371](https://github.com/Ball-Lang/ball/issues/371)) ([514f60d](https://github.com/Ball-Lang/ball/commit/514f60d4ff49c3725145d4d37d20435eabafb3fc)), closes [#362](https://github.com/Ball-Lang/ball/issues/362) [#362](https://github.com/Ball-Lang/ball/issues/362) [#363](https://github.com/Ball-Lang/ball/issues/363)
+
 # [1.22.0](https://github.com/Ball-Lang/ball/compare/v1.21.0...v1.22.0) (2026-07-10)
 
 

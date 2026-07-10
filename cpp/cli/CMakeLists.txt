@@ -103,3 +103,10 @@ elseif(APPLE)
 else()
     target_link_options(ball PRIVATE -Wl,-z,stacksize=268435456)
 endif()
+
+# Standard `install(TARGETS)` rule (issue #368) — lets `cmake --install` and
+# packaging tooling (the GitHub Releases workflow, a future vcpkg port) stage
+# just the `ball` binary via `cmake --build <dir> --target install`, without
+# building the cpp/test/ suite: only targets reachable from an install() rule
+# are pulled in by the generated `install` target, and `test/` registers none.
+install(TARGETS ball RUNTIME DESTINATION bin)

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "ball-lang",
+  "version-semver": "1.26.0",
+  "port-version": 0,
+  "description": "ball — the unified CLI for the Ball programming language: compile, encode, and run programs where every program is a Protocol Buffer message.",
+  "homepage": "https://github.com/Ball-Lang/ball",
+  "documentation": "https://github.com/Ball-Lang/ball/blob/main/cpp/AGENTS.md",
+  "license": "MIT",
+  "supports": "!uwp & !android & !ios",
+  "dependencies": [
+    "nlohmann-json",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

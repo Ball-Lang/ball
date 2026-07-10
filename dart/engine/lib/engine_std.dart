@@ -2519,6 +2519,17 @@ extension BallEngineStd on BallEngine {
     return actualBare == patternBare;
   }
 
+  // Verified unreachable from any valid Ball program (issue #261): the sole
+  // non-recursive caller is `_matchesTypePattern`'s `pattern is String ?
+  // pattern : _ballToStringSimple(pattern)` fallback [~2563], taken only for a
+  // NON-String pattern — but every one of `_matchesTypePattern`'s call sites
+  // passes a String type-name (the regex capture groups in `_matchStringPattern`,
+  // `pattern['type'] as String?` in the structured-pattern arms, and
+  // `_matchSwitchPattern`'s `String pattern` parameter). A non-String switch
+  // pattern instead routes through `_matchPattern`'s value-equality fallback
+  // [~2204], never here. Retained for defensive parity with the self-hosted
+  // engines; a dead-code removal candidate.
+  // coverage:ignore-start
   /// Convert a Ball value to its string representation using only primitive
   /// type checks. Does NOT invoke user-defined toString methods (no async
   /// dispatch). Safe for synchronous contexts like pattern matching.
@@ -2556,6 +2567,7 @@ extension BallEngineStd on BallEngine {
     }
     return v.toString();
   }
+  // coverage:ignore-end
 
   /// Returns true if [value] matches the type-name pattern string.
   /// Enables switch expressions with type arms like `case int: ...`.

@@ -361,7 +361,11 @@ void _encode(List<String> args, StringSink out, StringSink err) {
       // path always supplies --output and is covered above). Guard so an
       // injected text sink isn't fed raw bytes.
       if (identical(out, stdout)) {
-        stdout.add(bytes);
+        // Writing raw bytes to the real process stdout can't be unit-tested:
+        // it corrupts the test runner's own stdout capture (see the "binary to
+        // text sink" test + comment in runner_test.dart). Exercised only by
+        // the real CLI (`ball encode --format binary` with no --output).
+        stdout.add(bytes); // coverage:ignore-line
       } else {
         out.writeln('<binary: ${bytes.length} bytes>');
       }
@@ -420,8 +424,18 @@ void _roundTrip(List<String> args, StringSink out, StringSink err) {
   try {
     program = encoder.encode(originalSource, name: name);
   } catch (e) {
+    // Defensive: DartEncoder() here runs in its default non-strict mode
+    // (strict: false), and encode() is deliberately lenient — parseString
+    // uses throwIfDiagnostics: false and _buildProgram tolerates malformed
+    // ASTs (EncoderError, the encoder's only throw site, fires solely in
+    // strict mode). Verified empirically: garbage/malformed Dart source
+    // (unbalanced braces, invalid tokens, empty input) never throws here.
+    // This guards against an as-yet-unseen encoder-internal failure, not a
+    // reachable user-input shape.
+    // coverage:ignore-start
     err.writeln('Error encoding ${positional[0]}: $e');
     throw const _CliExit(1);
+    // coverage:ignore-end
   }
   if (encoder.warnings.isNotEmpty) {
     for (final w in encoder.warnings) {
@@ -616,6 +630,13 @@ void _audit(List<String> args, StringSink out, StringSink err) {
 /// site in [_build] stays a clean one-liner. Unchanged from its prior
 /// inline form (a pure relocation, not new logic).
 OnTheFlyEncoder _onTheFlyEncodeForBuild(PubClient pubClient, StringSink err) {
+  // The returned closure's body requires live network access to pub.dev (a
+  // real registry resolve + package download), same policy as the call-site
+  // block below and _onTheFlyEncodeForResolve — excluded per issue #261,
+  // matching the `--exclude-tags network` convention. The closure is only
+  // ever invoked from inside a real pub.dev resolve; it's assigned but never
+  // called by any unit test.
+  // coverage:ignore-start
   return (source, version) async {
     err.write('  encoding ${source.package}@$version... ');
     final vi = await pubClient.resolveVersion(source.package, source.version);
@@ -637,13 +658,15 @@ OnTheFlyEncoder _onTheFlyEncodeForBuild(PubClient pubClient, StringSink err) {
       }
       throw StateError('No encodable module in ${source.package}@$version');
     } finally {
-      // Best-effort temp-dir cleanup: a failure here must not mask the real
-      // encode error/result above, and a leftover temp dir is harmless.
       try {
         await pkgDir.delete(recursive: true);
-      } catch (_) {}
+      } catch (_) {
+        // Best-effort temp-dir cleanup: a failure here must not mask the real
+        // encode error/result above, and a leftover temp dir is harmless.
+      }
     }
   };
+  // coverage:ignore-end
 }
 
 Future<void> _build(List<String> args, StringSink out, StringSink err) async {
@@ -732,8 +755,17 @@ Future<void> _build(List<String> args, StringSink out, StringSink err) async {
       out.writeln(jsonOut);
     }
   } catch (e) {
+    // Defensive: ModuleResolver.resolveAll (dart/resolver/lib/resolver.dart)
+    // catches and swallows every per-import resolution failure itself
+    // ("leave the import unresolved... engines/compilers will report the
+    // missing module") and never rethrows, and encodeBallFileJson doesn't
+    // throw for any well-formed Program. No user-triggerable input reaches
+    // this catch today; it guards against a future resolver/encoder change
+    // that does throw.
+    // coverage:ignore-start
     err.writeln('Error resolving imports: $e');
     throw const _CliExit(1);
+    // coverage:ignore-end
   }
 }
 
@@ -861,6 +893,10 @@ _ParsedSpec? _parseImportSpec(String spec) {
 /// site in [_resolve] stays a clean one-liner. Unchanged from its prior
 /// inline form (a pure relocation, not new logic).
 OnTheFlyEncoder _onTheFlyEncodeForResolve(PubClient pubClient, StringSink err) {
+  // Same policy as _onTheFlyEncodeForBuild: the returned closure's body
+  // requires live network access to pub.dev, excluded per issue #261. The
+  // closure is assigned but never invoked by any unit test.
+  // coverage:ignore-start
   return (source, version) async {
     err.write('(encoding on-the-fly) ');
     // Use PubClient's API-based resolution to get the correct archive URL.
@@ -885,13 +921,15 @@ OnTheFlyEncoder _onTheFlyEncodeForResolve(PubClient pubClient, StringSink err) {
         'No encodable module found in ${source.package}@$version',
       );
     } finally {
-      // Best-effort temp-dir cleanup: a failure here must not mask the real
-      // encode error/result above, and a leftover temp dir is harmless.
       try {
         await pkgDir.delete(recursive: true);
-      } catch (_) {}
+      } catch (_) {
+        // Best-effort temp-dir cleanup: a failure here must not mask the real
+        // encode error/result above, and a leftover temp dir is harmless.
+      }
     }
   };
+  // coverage:ignore-end
 }
 
 Future<void> _resolve(List<String> args, StringSink out, StringSink err) async {
@@ -940,12 +978,26 @@ Future<void> _resolve(List<String> args, StringSink out, StringSink err) async {
         ..registry = _parseRegistry(regName)
         ..registryUrl = regUrl);
     } else if (spec.containsKey('git')) {
+      // Building the ModuleImport here is pure local YAML parsing, but this
+      // branch can't be unit-tested in isolation: the resolve loop below
+      // unconditionally calls `resolver.resolve(import_)` on every entry in
+      // `imports` in the same synchronous run, and a GitSource resolves via
+      // a real `git clone` subprocess (dart/resolver/lib/fetchers/git_fetcher.dart)
+      // -- genuine network I/O, same policy as the on-the-fly pub.dev
+      // encoders above (issue #261).
+      // coverage:ignore-start
       final git = spec['git'] as YamlMap;
       import_.git = (GitSource()
         ..url = (git['url'] as String? ?? '')
         ..ref = (git['ref'] as String? ?? 'main'));
+      // coverage:ignore-end
     } else if (spec.containsKey('url')) {
+      // Same reasoning as the git branch above: HttpSource resolves via a
+      // real HTTP fetch (dart/resolver/lib/fetchers/http_fetcher.dart) in the
+      // same synchronous resolve loop -- network I/O, excluded per #261.
+      // coverage:ignore-start
       import_.http = (HttpSource()..url = spec['url'] as String);
+      // coverage:ignore-end
     } else if (spec.containsKey('path')) {
       import_.file = (FileSource()..path = spec['path'] as String);
     }

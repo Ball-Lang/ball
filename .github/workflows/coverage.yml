@@ -65,41 +65,31 @@ jobs:
       # count as 0%, never dropped) and fails if overall line coverage drops
       # below the floor. RAISE the floor toward 100% as tests are added (see
       # docs/TESTING_STRATEGY.md); never lower it without justification.
-      # Honest PRODUCT coverage measured ~99.45% (all 9 packages' lib/; bin/
-      # entry-point tooling excluded — see coverage_dart.dart). Per-package:
-      # ball_protobuf 100%, ball_rpc 100%, resolver 100%, shared 100%,
-      # encoder 100% (#61 dart-wave7 — was 96.06%; closed by
-      # encoder_wave7_coverage_test.dart plus per-arm `coverage:ignore`
-      # justifications for provably-unreachable defensive branches),
-      # compiler 99.97%, ball_protobuf_gen 99.01%, engine 99.17% (#61 —
-      # was 83%; closed by dedicated e2e BallEngine tests, see
-      # engine_wave5_*/engine_wave6_/engine_wave7_coverage_test.dart),
-      # cli 92.31%. The remaining engine gap is verified per-branch as
-      # genuinely unreachable from any Ball-syntax program (e.g.
-      # cross-engine-only wrapper-unwrap arms a Ball try/catch can never
-      # produce, or std-dispatch branches already shadowed by an earlier
-      # type narrowing) — not a coverage shortcut. cli's remaining gap is
-      # the documented `identical(out, stdout)` raw-binary-to-real-stdout
-      # branch (deliberately not unit-tested — it corrupts the test
-      # process's own stdout capture, see runner_test.dart) plus the
-      # network-tagged pub.dev download paths.
-      # Dedicated suites drove the workspace from ~64% → ~99.45%.
-      # Floor set below it to absorb local↔CI variance (CI counts ≥ local);
-      # RAISE toward 100% as tests land.
+      # Honest PRODUCT coverage: 99.99% local / 100.00% on CI (all 9
+      # packages' lib/; bin/ entry-point tooling excluded — see
+      # coverage_dart.dart). Per-package (#61 close-out wave): ball_protobuf
+      # 100%, ball_protobuf_gen 100%, ball_rpc 100%, compiler 100%,
+      # encoder 100%, engine 100%, resolver 100%, shared 100%, cli 99.80%
+      # local / 100% CI. Every excluded line carries a per-site
+      # `// coverage:ignore` justification in-source (three categories:
+      # environmental I/O — network/raw-stdout/external-runner harness;
+      # verified-unreachable defensive arms, proven per-arm via caller
+      # analysis; and `bin/` entry-point glue excluded wholesale). The one
+      # local-only gap (cli runner.dart 'Error reading file') is covered on
+      # CI by a POSIX chmod test that must skip on Windows — the variance
+      # direction is CI ≥ local by construction.
+      # Dedicated suites drove the workspace from ~64% → 100%.
       - name: Dart line coverage ratchet (all packages)
-        # Ratcheted 98 -> 99 after #61 dart-wave7 (encoder.dart 96.06% ->
-        # 100% via encoder_wave7_coverage_test.dart's real-Dart-syntax
-        # probes for cascade/prefix/tag-catch/pattern/shadowing/type-arg
-        # edge cases, plus ~30 per-arm `coverage:ignore` justifications for
-        # branches proven unreachable via analyzer-grammar exhaustiveness
-        # or API-contract reasoning; ball_protobuf_gen's descriptor_bridge.dart
-        # message-level FeatureSet override arm; engine_control_flow.dart
-        # reaching 100% and engine_eval.dart 98.71% -> ~99% via
-        # engine_wave7_coverage_test.dart) took the workspace to ~99.45%.
-        # Kept below the actual to preserve the local<->CI variance margin
-        # (local undercounts when the Windows-only cli-suite gotcha trips).
-        # Remaining per-arm triage: #261.
-        run: dart run tools/coverage_dart.dart --floor 99
+        # Ratcheted 99 -> 99.9 after the #61 close-out wave (engine
+        # 99.17% -> 100% via engine_wave8_coverage_test.dart's
+        # BallModuleHandler-driven dispatch-arm tests; compiler 99.97% ->
+        # 100% via the plain-class const-field test; ball_protobuf_gen
+        # 99.01% -> 100% via dart_emitter_wave7_coverage_test.dart;
+        # cli 92.31% -> 100%-of-reachable via 4 new runner tests + per-site
+        # network/stdout exclusions). Floor kept a margin below the local
+        # 99.99% so an unrelated platform skip can't flap the gate; CI
+        # measures 100.00%.
+        run: dart run tools/coverage_dart.dart --floor 99.9
 
       - name: Upload Dart coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -352,6 +342,26 @@ jobs:
       # foundation, ball-cli).
       - name: Coverage — cargo-llvm-cov (workspace, default features)
         run: cd rust && cargo llvm-cov --workspace --lcov --output-path ../rust.lcov
+
+      # Line-coverage ratchet for the authored rust/ crates (epic #59) —
+      # mirrors the Dart (`coverage_dart.dart --floor`) and C++ ("C++ line
+      # coverage floor") gates: the floor must never regress and is raised
+      # toward 100% as tests land. `report` reuses the profdata the step
+      # above already collected (no test rerun). Generated files are excluded
+      # from the GATE only (`gen/` proto bindings + the self-host
+      # `compiled_engine.rs`, mirroring codecov.yml's `ignore:` list and the
+      # other stacks' generated-file exclusions); the uploaded rust.lcov is
+      # unchanged — Codecov applies the same ignores server-side. Authored
+      # coverage measured 67.3% lines by this exact command (2026-07-10;
+      # Codecov flag `rust` reads 68.1% with its own accounting); floor set
+      # below it to absorb run-to-run variance. RAISE toward 100% as tests
+      # land; never lower it without justification.
+      - name: Rust line coverage floor
+        run: >
+          cd rust && cargo llvm-cov report
+          --ignore-filename-regex '(^|/)gen/|compiled_engine\.rs'
+          --fail-under-lines 65
+          --summary-only
 
       - name: Upload Rust coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

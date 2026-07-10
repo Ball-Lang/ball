@@ -158,6 +158,32 @@ void main() {
       expect(err, contains('File not found'));
     });
 
+    test(
+      'unreadable file returns 1 (Error reading file)',
+      () async {
+        // Exercises _loadProgram's readAsStringSync() catch, distinct from
+        // the "missing file" (existsSync false) branch above: the file
+        // exists but a permission failure makes the read itself throw.
+        // POSIX-only (chmod semantics); Windows has no equivalent portable
+        // way to make an owned, existing file unreadable, so this is skipped
+        // there rather than faked -- it still runs for real on CI (Linux).
+        final path = p('locked.ball.json');
+        File(path).writeAsStringSync('{}');
+        await Process.run('chmod', ['000', path]);
+        try {
+          final (code, _, err) = await run(['info', path]);
+          expect(code, 1);
+          expect(err, contains('Error reading file'));
+        } finally {
+          // Restore permissions so tearDown can delete the temp dir.
+          await Process.run('chmod', ['700', path]);
+        }
+      },
+      skip: Platform.isWindows
+          ? 'chmod-based unreadable-file simulation is POSIX-only'
+          : false,
+    );
+
     test('invalid JSON returns 1', () async {
       final path = p('bad.ball.json');
       File(path).writeAsStringSync('{ not valid json ');
@@ -733,6 +759,76 @@ void main() {
         Directory.current = saved;
       }
     });
+
+    test(
+      'program with a local file import resolves to stdout (no --output)',
+      () async {
+        // Same resolvable-file-import setup as above, but omitting --output
+        // exercises the `out.writeln(jsonOut)` success branch instead of the
+        // File(outputPath).writeAsStringSync branch.
+        final prog = encodeProgram('void main(){print(1);}');
+        prog.modules
+            .firstWhere((m) => m.name == 'main')
+            .moduleImports
+            .add(
+              ModuleImport()
+                ..name = 'dep'
+                ..file = (FileSource()..path = './dep.ball.bin'),
+            );
+        final dep = Module()
+          ..name = 'dep'
+          ..functions.add(
+            FunctionDefinition()
+              ..name = 'noop'
+              ..isBase = true,
+          );
+        final saved = Directory.current;
+        Directory.current = tmp;
+        try {
+          File(
+            'withimport.ball.json',
+          ).writeAsStringSync(jsonEncode(encodeBallFileJson(prog)));
+          File('dep.ball.bin').writeAsBytesSync(encodeBallFileBinary(dep));
+          final (code, out, err) = await run(['build', 'withimport.ball.json']);
+          expect(code, 0);
+          expect(err, isNot(contains('Resolved program written to')));
+          expect(out, contains('ball.v1.Program'));
+        } finally {
+          Directory.current = saved;
+        }
+      },
+    );
+
+    test('unresolvable file import leaves it unresolved (resolveAll swallows '
+        'per-import failures) instead of failing the command', () async {
+      // ModuleResolver.resolveAll (dart/resolver/lib/resolver.dart) catches
+      // and swallows every per-import resolution failure ("leave the
+      // import unresolved... engines/compilers will report the missing
+      // module") -- it never rethrows. So `ball build` still exits 0 with
+      // the unresolved import left in place; there is no user-triggerable
+      // path to _build's own `catch (e)` (see the ignore annotation there).
+      final prog = encodeProgram('void main(){print(1);}');
+      prog.modules
+          .firstWhere((m) => m.name == 'main')
+          .moduleImports
+          .add(
+            ModuleImport()
+              ..name = 'dep'
+              ..file = (FileSource()..path = './missing_dep.ball.bin'),
+          );
+      final saved = Directory.current;
+      Directory.current = tmp;
+      try {
+        File(
+          'withbadimport.ball.json',
+        ).writeAsStringSync(jsonEncode(encodeBallFileJson(prog)));
+        final (code, out, _) = await run(['build', 'withbadimport.ball.json']);
+        expect(code, 0);
+        expect(out, contains('missing_dep.ball.bin'));
+      } finally {
+        Directory.current = saved;
+      }
+    });
   });
 
   // ── tree ─────────────────────────────────────────────────────────────────────
@@ -904,6 +1000,27 @@ void main() {
       expect(code, 0);
       expect(err, contains('No dependencies declared'));
     });
+
+    test(
+      'resolve with only non-map dep specs finds nothing resolvable',
+      () async {
+        // `dependencies:` is non-empty (so it skips the "No dependencies
+        // declared" branch above) but every entry is a bare scalar rather
+        // than a map, so the entry-building loop's `spec is! YamlMap` guard
+        // skips all of them, leaving `imports` empty -- the distinct "No
+        // resolvable dependencies found" branch.
+        File('${projDir.path}/ball.yaml').writeAsStringSync('''
+name: t
+version: 0.1.0
+dependencies:
+  foo: just-a-scalar
+  bar: another-scalar
+''');
+        final (code, _, err) = await run(['resolve']);
+        expect(code, 0);
+        expect(err, contains('No resolvable dependencies found.'));
+      },
+    );
 
     test(
       'resolve fails fast over local/unsupported deps and writes lockfile',

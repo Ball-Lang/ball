@@ -249,9 +249,16 @@ extension BallEngineInvocation on BallEngine {
       if (isGenFunc && generator != null) {
         generator.completed = true;
         final genFromScope = scope.lookup('__generator__');
+        // Per-arm verified unreachable on the Dart reference engine (issue
+        // #261): `__generator__` is bound to the live `BallGenerator` created
+        // at [188-189] and no valid Ball program rebinds it — so
+        // `scope.lookup('__generator__')` is always that same `BallGenerator`
+        // (the true arm). The `generator.values` fallback exists only for the
+        // self-hosted engine compiled to C++/TS, where the scope handle is a
+        // `BallDyn` wrapper rather than a native Dart `BallGenerator`.
         final values = genFromScope is BallGenerator
             ? _ballGeneratorValues(genFromScope)
-            : generator.values;
+            : generator.values; // coverage:ignore-line
         if (isAsyncStar) {
           // async* → BallFuture of list
           return _ballFuture(values);

@@ -1,3 +1,10 @@
+# [1.27.0](https://github.com/Ball-Lang/ball/compare/v1.26.0...v1.27.0) (2026-07-10)
+
+
+### Features
+
+* **cpp:** [#368](https://github.com/Ball-Lang/ball/issues/368) C++ distribution — GitHub Releases binaries + staged vcpkg port ([#376](https://github.com/Ball-Lang/ball/issues/376)) ([ff4d328](https://github.com/Ball-Lang/ball/commit/ff4d328a8d89f0059f1addd685647eaaab702c7f)), closes [#361](https://github.com/Ball-Lang/ball/issues/361) [#367](https://github.com/Ball-Lang/ball/issues/367) [#374](https://github.com/Ball-Lang/ball/issues/374)
+
 # [1.26.0](https://github.com/Ball-Lang/ball/compare/v1.25.0...v1.26.0) (2026-07-10)
 
 

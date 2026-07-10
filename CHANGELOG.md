@@ -1,3 +1,10 @@
+# [1.30.0](https://github.com/Ball-Lang/ball/compare/v1.29.0...v1.30.0) (2026-07-10)
+
+
+### Features
+
+* **csharp:** [#380](https://github.com/Ball-Lang/ball/issues/380) runtime value model + std module builders + base-op helpers ([#390](https://github.com/Ball-Lang/ball/issues/390)) ([4ee8ae9](https://github.com/Ball-Lang/ball/commit/4ee8ae98ad7ba22c684178188a1d69ead76ed782)), closes [#377](https://github.com/Ball-Lang/ball/issues/377) [#377](https://github.com/Ball-Lang/ball/issues/377)
+
 # [1.29.0](https://github.com/Ball-Lang/ball/compare/v1.28.0...v1.29.0) (2026-07-10)
 
 

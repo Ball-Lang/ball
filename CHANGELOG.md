@@ -1,3 +1,10 @@
+# [1.28.0](https://github.com/Ball-Lang/ball/compare/v1.27.0...v1.28.0) (2026-07-10)
+
+
+### Features
+
+* **csharp:** [#378](https://github.com/Ball-Lang/ball/issues/378) Phase 1 — directory scaffold + package manifests ([#388](https://github.com/Ball-Lang/ball/issues/388)) ([1cc1b23](https://github.com/Ball-Lang/ball/commit/1cc1b235ce15cb3d8b67db7ad5c7f27e05cbcfa9))
+
 # [1.27.0](https://github.com/Ball-Lang/ball/compare/v1.26.0...v1.27.0) (2026-07-10)
 
 

@@ -287,15 +287,17 @@ jobs:
             echo "ERROR: could not parse line coverage percentage from cpp.lcov"
             exit 1
           fi
-          # Ratcheted 70 -> 72 (issue #63, 2026-07-10): measured 75.1% lines
-          # (8360/11134; functions 93.8%) on the full ctest-equivalent run
-          # (test_e2e's 269-fixture corpus included — BALL_COV_FULL=1 locally)
-          # AFTER excluding the flip's generated artifacts above and lifting
-          # hand-written ball_rt_decode.cpp from 15.7% to 98.4% with real
-          # golden-wire-vector tests. Per-target on the same run: compiler
-          # 70.4%, encoder 89.1%, shared 81.7% (see cpp/build-cov-floor.sh
-          # for the per-target local ratchet + methodology).
-          floor=72
+          # Ratcheted 72 -> 83 (issue #63, 2026-07-10 grind): measured 85.7%
+          # lines (9541/11134; functions 97.1%) on the full ctest-equivalent
+          # run — test_e2e's 266-fixture corpus (each fixture's compile()) +
+          # the per-arm compile_std_call/collections/method/message_creation
+          # unit tests, the CLI-mode (compile_split/compile_module/
+          # compile_library) tests, and the emit_function engine-intrinsic
+          # tests all landed this round. Per-target on the same run: compiler
+          # 86.7% (up from 70.4%), encoder 89.1%, shared 81.7% (see
+          # cpp/build-cov-floor.sh for the per-target local ratchet +
+          # methodology). Floor set ~2.7 points under measured for CI variance.
+          floor=83
           echo "C++ overall line coverage: ${pct}% (floor: ${floor}%)"
           awk -v p="$pct" -v f="$floor" 'BEGIN {
             if (p + 0 < f) {

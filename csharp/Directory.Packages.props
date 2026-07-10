@@ -1,0 +1,28 @@
+<Project>
+
+  <!--
+    Central Package Management (CPM): every csproj under csharp/ references
+    packages by name only (no Version attribute); the version is resolved
+    here so all five packages and their test projects stay pinned to the
+    same set, mirroring how rust/Cargo.toml centralizes [workspace.dependencies].
+  -->
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Protobuf runtime consumed by csharp/shared/gen/Ball.cs (buf plugin
+         buf.build/protocolbuffers/csharp:v35.1 — pin the matching Google.Protobuf
+         runtime line so generated code and runtime stay in sync). -->
+    <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
+
+    <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
+         self-executing test apps bridged to `dotnet test` via the VSTest
+         adapter (xunit.runner.visualstudio). -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+  </ItemGroup>
+
+</Project>

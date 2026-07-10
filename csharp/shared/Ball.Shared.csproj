@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    csharp/shared: protobuf bindings (gen/, never hand-edited — see
+    ../buf.gen.yaml) plus the shared runtime types added in issue #380
+    (BallValue/BallList/BallMap/BallFunction). Phase 1 (#378) wires up just
+    the generated bindings; test/ is excluded from this project's own
+    compile items because it holds a sibling test project (see test/).
+  -->
+
+  <ItemGroup>
+    <Compile Remove="test/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+  </ItemGroup>
+
+</Project>

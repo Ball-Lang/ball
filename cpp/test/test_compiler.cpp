@@ -3,8 +3,12 @@
 
 #include "compiler.h"
 #include "ball_ir.h"
+#include "ball_file.h"
 #include <cassert>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -2342,6 +2346,216 @@ TEST(method_list_of_from_copy) {
     ASSERT_CONTAINS(compile_program(build_program(mcall("filled",
         {{"self", lit_string("List")}, {"arg0", lit_int(3)}, {"arg1", lit_int(0)}}))),
         "std::vector<std::any>(");
+}
+
+// ── CLI-mode entry points: compile_split / compile_module / compile_library ──
+// Never reached by the single-TU compile() the numbered e2e corpus uses; the
+// CLI drives them for multi-TU (self-host engine_rt) and library output.
+
+namespace covfs = std::filesystem;
+
+static covfs::path conformance_dir() { return covfs::path(BALL_CONFORMANCE_DIR); }
+
+static std::string read_text(const covfs::path& p) {
+    std::ifstream f(p, std::ios::binary);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+TEST(compile_split_focused_class_program) {
+    auto prog = ball::LoadProgram(
+        (conformance_dir() / "101_simple_class.ball.json").string());
+    CppCompiler compiler(std::move(prog));
+    auto tmp = covfs::temp_directory_path() / "ball_cov_split_focused";
+    auto result = compiler.compile_split(tmp.string(), 3);
+    ASSERT_TRUE(result.num_shards == 3);
+    ASSERT_TRUE(result.shard_sources.size() == 3);
+    ASSERT_TRUE(covfs::exists(result.common_header));
+    auto common = read_text(result.common_header);
+    ASSERT_CONTAINS(common, "multi-TU");
+    ASSERT_CONTAINS(common, "namespace ball_rt");
+    // Every emitted shard #includes the shared header.
+    for (const auto& shard : result.shard_sources) {
+        ASSERT_TRUE(covfs::exists(shard));
+        ASSERT_CONTAINS(read_text(shard), "engine_rt_common.hpp");
+    }
+    // The link/consumer header is also written.
+    ASSERT_TRUE(covfs::exists((tmp / "engine_rt_link.hpp").string()));
+}
+
+TEST(compile_split_clamps_shard_count) {
+    auto prog = ball::LoadProgram(
+        (conformance_dir() / "100_complex_control_flow.ball.json").string());
+    CppCompiler compiler(std::move(prog));
+    auto tmp = covfs::temp_directory_path() / "ball_cov_split_clamp";
+    auto result = compiler.compile_split(tmp.string(), 0);
+    ASSERT_TRUE(result.num_shards == 1);
+    ASSERT_TRUE(result.shard_sources.size() == 1);
+}
+
+TEST(compile_module_focused_and_missing) {
+    auto prog = ball::LoadProgram(
+        (conformance_dir() / "100_complex_control_flow.ball.json").string());
+    std::string entry_mod = prog.entryModule;
+    CppCompiler compiler(std::move(prog));
+    auto src = compiler.compile_module(entry_mod);
+    ASSERT_CONTAINS(src, "// Module: " + entry_mod);
+    ASSERT_CONTAINS(src, "#include");
+    bool threw = false;
+    try {
+        compiler.compile_module("__no_such_module__");
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    ASSERT_TRUE(threw);
+}
+
+// Drive compile_split + compile_module across the whole corpus so their
+// class/enum/top-level-var/standalone orchestration branches (never reached
+// by single-TU compile()) are all exercised. Tolerant per-fixture (some
+// corpus entries are Module files or use shapes the split path rejects);
+// asserts a high success floor so a real regression still trips it.
+TEST(compile_split_and_module_corpus_smoke) {
+    int split_ok = 0, module_ok = 0, programs = 0;
+    auto tmp = covfs::temp_directory_path() / "ball_cov_split_smoke";
+    for (const auto& e : covfs::directory_iterator(conformance_dir())) {
+        auto p = e.path();
+        auto s = p.string();
+        if (s.size() < 10 || s.compare(s.size() - 10, 10, ".ball.json") != 0)
+            continue;
+        ball::ir::Program prog;
+        try {
+            prog = ball::LoadProgram(s);
+        } catch (const std::exception&) {
+            continue;  // Module file / non-Program envelope — skip.
+        }
+        programs++;
+        std::string entry_mod = prog.entryModule;
+        CppCompiler compiler(std::move(prog));
+        try {
+            compiler.compile_split(tmp.string(), 2);
+            split_ok++;
+        } catch (const std::exception&) {
+            // Tolerated: a few corpus shapes the multi-TU path rejects; the
+            // success-floor assert below still catches a real regression.
+        }
+        try {
+            auto m = compiler.compile_module(entry_mod);
+            if (!m.empty()) module_ok++;
+        } catch (const std::exception&) {
+            // Tolerated per-fixture (see above); floor-asserted below.
+        }
+    }
+    // The corpus is large and overwhelmingly Program envelopes; require the
+    // bulk to round-trip through both CLI paths.
+    ASSERT_TRUE(programs > 200);
+    ASSERT_TRUE(split_ok > 200);
+    ASSERT_TRUE(module_ok > 200);
+}
+
+TEST(compile_library_from_facade_with_user_function) {
+    // A Module facade carrying a non-base user function (has_user_content path).
+    json mod;
+    mod["name"] = "mylib";
+    json fn;
+    fn["name"] = "answer";
+    fn["body"] = lit_int(42);
+    mod["functions"].push_back(std::move(fn));
+    auto facade = ball::ir::parseModule(mod);
+    auto result = CppCompiler::compile_library(facade);
+    ASSERT_TRUE(result.ns == "mylib");
+    ASSERT_CONTAINS(result.header, "namespace mylib");
+    ASSERT_CONTAINS(result.header, "library mode");
+    ASSERT_CONTAINS(result.header, "BigInt_t");
+    // Header-only library mode: emitted function bodies live in the header,
+    // result.source is deliberately empty.
+    ASSERT_CONTAINS(result.header, "answer");
+    ASSERT_TRUE(result.source.empty());
+}
+
+TEST(compile_library_from_facade_with_inline_import_and_ns_override) {
+    // A facade whose moduleImports embed an inline sub-module (InlineSource.json).
+    json sub;
+    sub["name"] = "submod";
+    json subfn;
+    subfn["name"] = "greet";
+    subfn["body"] = lit_string("hi");
+    sub["functions"].push_back(std::move(subfn));
+
+    json facade_json;
+    facade_json["name"] = "outer";
+    // A proto3-JSON ModuleImport with the `inline` source-oneof variant
+    // selected (oneof fields are flattened to the object top level).
+    json imp;
+    imp["inline"]["json"] = sub.dump();
+    facade_json["moduleImports"].push_back(std::move(imp));
+    auto facade = ball::ir::parseModule(facade_json);
+    auto result = CppCompiler::compile_library(facade, "custom_ns");
+    ASSERT_TRUE(result.ns == "custom_ns");
+    ASSERT_CONTAINS(result.header, "namespace custom_ns");
+    ASSERT_CONTAINS(result.header, "greet");
+}
+
+// ── emit_function engine-intrinsic canned bodies ──
+// emit_function emits hard-coded bodies for functions whose name matches an
+// engine runtime intrinsic (_ballUserMap, _ballIs*, _ballMap*, _ballNum*,
+// ballObjectSetField, ...). Only the self-hosted engine defines these; the
+// numbered corpus never does, so the arms sit uncovered. Declaring user
+// functions with those names drives every arm.
+
+static json build_program_multi(std::vector<std::pair<std::string, json>> funcs) {
+    json program;
+    json mod;
+    mod["name"] = "main";
+    for (auto& [nm, body] : funcs) {
+        json f;
+        f["name"] = nm;
+        f["body"] = std::move(body);
+        mod["functions"].push_back(std::move(f));
+    }
+    program["modules"].push_back(std::move(mod));
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    return program;
+}
+
+TEST(emit_function_engine_intrinsic_bodies) {
+    std::vector<std::pair<std::string, json>> funcs;
+    funcs.push_back({"main", print_call(lit_string("x"))});
+    for (const char* nm : {
+        "_ballUserMap", "_ballNewGenerator", "_ballGeneratorValues",
+        "_ballDoubleToInt64", "_ballCodeUnitAt", "_ballIsInt", "_ballIsDouble",
+        "_ballIsNum", "_ballIsString", "_ballIsBool", "_ballIsList", "_ballIsMap",
+        "_ballRuntimeTypeName", "_ballToDouble", "_ballMapValues",
+        "_ballMapValuesDyn", "_ballMapContainsKeyDyn", "_ballMapSetDyn",
+        "_ballMapKeysDyn", "_ballNumIsNaN", "_ballNumIsFinite",
+        "_ballNumIsInfinite", "ballObjectSetField"}) {
+        funcs.push_back({nm, lit_int(0)});
+    }
+    auto out = compile_program(build_program_multi(std::move(funcs)));
+    ASSERT_CONTAINS(out, "_ballUserMap() {");
+    ASSERT_CONTAINS(out, "return BallDyn(BallGenerator{});");
+    ASSERT_CONTAINS(out, "std::any_cast<const BallGenerator&>");
+    ASSERT_CONTAINS(out, "ball_double_to_int64(static_cast<double>(value))");
+    ASSERT_CONTAINS(out, "ball_code_unit_at(s, static_cast<int64_t>(index))");
+    ASSERT_CONTAINS(out, "_ballIsInt(BallDyn v) {");
+    ASSERT_CONTAINS(out, "_ballIsDouble(BallDyn v) {");
+    ASSERT_CONTAINS(out, "_ballIsNum(BallDyn v) {");
+    ASSERT_CONTAINS(out, "_ballIsString(BallDyn v) {");
+    ASSERT_CONTAINS(out, "_ballIsBool(BallDyn v) {");
+    ASSERT_CONTAINS(out, "_ballIsList(BallDyn v) {");
+    ASSERT_CONTAINS(out, "!ball_is_ball_set(v));");
+    ASSERT_CONTAINS(out, "ball_runtime_type_name(value)");
+    ASSERT_CONTAINS(out, "if (ball_is_double(value)) return value;");
+    ASSERT_CONTAINS(out, "_ballMapValues(BallDyn map) {");
+    ASSERT_CONTAINS(out, "map.count(BallDyn(key)) > 0");
+    ASSERT_CONTAINS(out, "ball_set(map, std::string(ball_to_string(BallDyn(key)))");
+    ASSERT_CONTAINS(out, "ball_list_copy(ball_map_keys(map))");
+    ASSERT_CONTAINS(out, "std::isnan(static_cast<double>(v))");
+    ASSERT_CONTAINS(out, "std::isfinite(static_cast<double>(v))");
+    ASSERT_CONTAINS(out, "std::isinf(static_cast<double>(v))");
+    ASSERT_CONTAINS(out, "ball_object_set_field(");
 }
 
 // ================================================================

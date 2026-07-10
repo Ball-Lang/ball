@@ -16,8 +16,13 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 JOBS="${BALL_COV_JOBS:-4}"
+# corpus_driver (issue #63): compiles every e2e fixture through compile() with
+# NO nested per-fixture g++ builds — CI-equivalent instrumented compiler.cpp
+# coverage in ~11s, so the DEFAULT (no-BALL_COV_FULL) build now measures the
+# real compiler.cpp dispatch surface, not just test_compiler's unit cases.
 TARGETS=(test_compiler test_shared test_ball_file test_encoder test_snapshot
-         test_ball_ir test_ball_ir_descriptor test_ball_dyn scope_probe test_cli)
+         test_ball_ir test_ball_ir_descriptor test_ball_dyn scope_probe test_cli
+         corpus_driver)
 if [ "${BALL_COV_FULL:-0}" = "1" ]; then
   TARGETS+=(test_e2e)
 fi

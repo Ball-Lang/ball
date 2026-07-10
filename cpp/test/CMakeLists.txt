@@ -22,6 +22,22 @@ target_compile_definitions(test_compiler PRIVATE
     BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
 )
 
+# Coverage-only corpus driver (issue #63) — compiles every e2e fixture through
+# CppCompiler::compile() with NO nested per-fixture g++ builds, giving
+# CI-equivalent instrumented compiler.cpp coverage in ~11s. EXCLUDE_FROM_ALL so
+# the default `cmake --build` and CI's ctest never touch it; build-cov-build.sh
+# names it explicitly.
+add_executable(corpus_driver EXCLUDE_FROM_ALL corpus_driver.cpp)
+target_include_directories(corpus_driver PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../compiler/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
+)
+target_link_libraries(corpus_driver ball_cpp_compiler_lib ball_shared)
+target_compile_definitions(corpus_driver PRIVATE
+    BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
+    BALL_GENERATED_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures/dart/_generated"
+)
+
 # Shared-library tests — the std module descriptor builders
 # (build_std_module/build_std_memory_module/build_std_collections_module/
 # build_std_io_module) and the Struct<->BallMap conversion helpers in

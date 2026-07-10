@@ -55,6 +55,13 @@ echo "=== running test_cli ==="
 ./build-cov/test/test_cli
 echo "test_cli exit=$?"
 
+# corpus_driver (issue #63): CI-equivalent compiler.cpp coverage (compiles the
+# whole e2e fixture set through compile(), no nested g++ builds). This is what
+# makes the DEFAULT run's compiler.cpp number match CI without BALL_COV_FULL.
+echo "=== running corpus_driver ==="
+./build-cov/test/corpus_driver
+echo "corpus_driver exit=$?"
+
 if [ "${BALL_COV_FULL:-0}" = "1" ]; then
   echo "=== running test_e2e (BALL_COV_FULL=1) ==="
   # test_e2e shells out to a nested `cmake --build` of one mini-project with a

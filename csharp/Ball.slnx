@@ -1,0 +1,32 @@
+<Solution>
+  <Folder Name="/cli/">
+    <Project Path="cli/Ball.Cli.csproj" />
+  </Folder>
+  <Folder Name="/cli/test/">
+    <Project Path="cli/test/Ball.Cli.Tests.csproj" />
+  </Folder>
+  <Folder Name="/compiler/">
+    <Project Path="compiler/Ball.Compiler.csproj" />
+  </Folder>
+  <Folder Name="/compiler/test/">
+    <Project Path="compiler/test/Ball.Compiler.Tests.csproj" />
+  </Folder>
+  <Folder Name="/encoder/">
+    <Project Path="encoder/Ball.Encoder.csproj" />
+  </Folder>
+  <Folder Name="/encoder/test/">
+    <Project Path="encoder/test/Ball.Encoder.Tests.csproj" />
+  </Folder>
+  <Folder Name="/engine/">
+    <Project Path="engine/Ball.Engine.csproj" />
+  </Folder>
+  <Folder Name="/engine/test/">
+    <Project Path="engine/test/Ball.Engine.Tests.csproj" />
+  </Folder>
+  <Folder Name="/shared/">
+    <Project Path="shared/Ball.Shared.csproj" />
+  </Folder>
+  <Folder Name="/shared/test/">
+    <Project Path="shared/test/Ball.Shared.Tests.csproj" />
+  </Folder>
+</Solution>

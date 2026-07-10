@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    csharp/cli: `ball run`/`compile`/`encode`/`check` entry point (issue
+    #385). Phase 1 (#378) wires the executable to all four sibling packages
+    to prove the dependency graph resolves; test/ is excluded from this
+    project's own compile items because it holds a sibling test project
+    (see test/).
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Ball.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="test/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../shared/Ball.Shared.csproj" />
+    <ProjectReference Include="../compiler/Ball.Compiler.csproj" />
+    <ProjectReference Include="../encoder/Ball.Encoder.csproj" />
+    <ProjectReference Include="../engine/Ball.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

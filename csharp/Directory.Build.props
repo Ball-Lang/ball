@@ -1,0 +1,18 @@
+<Project>
+
+  <!--
+    Shared MSBuild settings for every C# project under csharp/. Individual
+    .csproj files should not repeat TargetFramework/Nullable/ImplicitUsings —
+    set overrides here so all five packages (shared/compiler/encoder/engine/cli)
+    and their test projects stay in lock-step.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

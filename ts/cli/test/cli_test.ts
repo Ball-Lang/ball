@@ -64,20 +64,30 @@ console.log('==============\n');
 
 console.log('Meta:');
 
-test('--version prints the version from package.json', () => {
+test('--version prints "ball <version>" (cli_core.versionLine, matching the Dart CLI)', () => {
   const pkg = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'));
   const r = runCli(['--version']);
   assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
   assert(
-    r.stdout.trim() === String(pkg.version),
-    `expected ${pkg.version}, got ${r.stdout.trim()}`,
+    r.stdout.trim() === `ball ${pkg.version}`,
+    `expected "ball ${pkg.version}", got ${r.stdout.trim()}`,
   );
 });
 
 test('-v is a --version alias', () => {
   const r = runCli(['-v']);
   assert(r.status === 0, `exit ${r.status}`);
-  assert(r.stdout.trim().length > 0, 'empty output');
+  assert(r.stdout.trim().startsWith('ball '), `expected "ball <version>", got ${r.stdout.trim()}`);
+});
+
+test('version (bare command) prints the same "ball <version>" text as --version', () => {
+  const r = runCli(['version']);
+  assert(r.status === 0, `exit ${r.status}`);
+  const versionFlag = runCli(['--version']);
+  assert(
+    r.stdout === versionFlag.stdout,
+    `expected 'version' and '--version' to match: ${JSON.stringify(r.stdout)} vs ${JSON.stringify(versionFlag.stdout)}`,
+  );
 });
 
 test('--help prints usage', () => {
@@ -259,6 +269,134 @@ test('run on a ball file with an unrecognized @type reports an "Invalid ball fil
     assert(r.stderr.includes('Invalid ball file'), `missing "Invalid ball file" in stderr:\n${r.stderr}`);
   } finally {
     rmSync(badTypePath, { force: true });
+  }
+});
+
+// ── info / validate / tree ────────────────────────────────────────────────
+//
+// All three delegate their report text to the compiled cli-core (issue #364)
+// — `dart/self_host/cli.ball.json` compiled through `@ball-lang/compiler`,
+// wrapped by `src/cli_core.ts`. The parity gate (`cli_core_parity_test.ts`)
+// proves the computed report bytes match the native Dart CLI; these tests
+// exercise the CLI-level argv wiring (usage errors, exit codes, streams).
+
+console.log('\ninfo/validate/tree:');
+
+if (existsSync(fib)) {
+  test('info on a fixture reports its structure', () => {
+    const r = runCli(['info', fib]);
+    assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+    assert(r.stdout.includes('Program:'), 'missing "Program:" header');
+    assert(r.stdout.includes('Entry:'), 'missing "Entry:" line');
+    assert(r.stdout.includes('Modules:'), 'missing "Modules:" line');
+  });
+
+  test('validate on a valid fixture reports Valid: and exits 0', () => {
+    const r = runCli(['validate', fib]);
+    assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+    assert(r.stdout.trim().startsWith('Valid:'), `expected "Valid:" prefix, got: ${r.stdout}`);
+  });
+
+  test('tree on a fixture prints the module tree', () => {
+    const r = runCli(['tree', fib]);
+    assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+    assert(r.stdout.includes('main'), 'missing "main" module');
+  });
+}
+
+test('info without path errors out', () => {
+  const r = runCli(['info']);
+  assert(r.status === 1, `expected exit 1, got ${r.status}`);
+  assert(r.stderr.includes('requires a program path'), 'missing error message');
+});
+
+test('validate without path errors out', () => {
+  const r = runCli(['validate']);
+  assert(r.status === 1, `expected exit 1, got ${r.status}`);
+  assert(r.stderr.includes('requires a program path'), 'missing error message');
+});
+
+test('tree without path errors out', () => {
+  const r = runCli(['tree']);
+  assert(r.status === 1, `expected exit 1, got ${r.status}`);
+  assert(r.stderr.includes('requires a program path'), 'missing error message');
+});
+
+// A Program with no entry_module/entry_function — validationErrors() must
+// report both, and the CLI must route the "Invalid:" report to STDERR with
+// exit 1 (the invalid-path branch of cmdValidate, never reached by the
+// valid-fixture test above).
+const invalidProgram = {
+  name: 'incomplete',
+  version: '1.0.0',
+  entryModule: '',
+  entryFunction: '',
+  modules: [],
+};
+
+test('validate on an invalid program reports Invalid: on stderr and exits 1', () => {
+  const invalidPath = join(tmpdir(), `ball-cli-invalid-${process.pid}.ball.json`);
+  writeFileSync(invalidPath, JSON.stringify(invalidProgram));
+  try {
+    const r = runCli(['validate', invalidPath]);
+    assert(r.status === 1, `expected exit 1, got ${r.status}`);
+    assert(r.stderr.trim().startsWith('Invalid:'), `expected "Invalid:" on stderr, got: ${r.stderr}`);
+    assert(r.stderr.includes('Missing entry_module'), 'missing entry_module error');
+    assert(r.stderr.includes('Missing entry_function'), 'missing entry_function error');
+    assert(!r.stdout.includes('Invalid:'), 'invalid report leaked onto stdout');
+  } finally {
+    rmSync(invalidPath, { force: true });
+  }
+});
+
+// A ModuleImport with every `source` oneof variant set (http/file/git/
+// registry/inline) plus a ref-only import (no source) — exercises every
+// branch of cli_core.dart's `_importSource` (compiled into `compiled_cli.ts`
+// and normalized by `cli_core.ts`'s `normalizeModuleImport`), including the
+// RegistrySource.registry enum-name access that previously crashed with
+// "hasHttp is not defined" (a real @ball-lang/compiler preamble gap fixed
+// alongside this issue — see ts/compiler/src/preamble.ts).
+const treeImportsProgram = {
+  name: 'synth',
+  version: '1.0.0',
+  entryModule: 'main',
+  entryFunction: 'main',
+  modules: [
+    {
+      name: 'main',
+      functions: [{ name: 'main', body: { literal: { intValue: 0 } } }],
+      moduleImports: [
+        { name: 'reg_imp', registry: { package: 'foo', version: '^1.0.0', registry: 'REGISTRY_PUB' } },
+        { name: 'http_imp', http: { url: 'https://example.com/x.ball.bin' } },
+        { name: 'file_imp', file: { path: './local.ball.bin' } },
+        { name: 'git_imp', git: { url: 'https://example.com/repo.git', ref: 'v1.0.0' } },
+        { name: 'inline_imp', inline: { json: '{}' } },
+        { name: 'ref_only_imp' },
+      ],
+    },
+  ],
+};
+
+test('tree renders every ModuleImport source kind (matches the Dart CLI byte-for-byte)', () => {
+  const treePath = join(tmpdir(), `ball-cli-tree-imports-${process.pid}.ball.json`);
+  writeFileSync(treePath, JSON.stringify(treeImportsProgram));
+  try {
+    const r = runCli(['tree', treePath]);
+    assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+    const expected = [
+      'synth v1.0.0',
+      '  main — 1 functions',
+      '    → reg_imp (REGISTRY_PUB: foo@^1.0.0)',
+      '    → http_imp (http: https://example.com/x.ball.bin)',
+      '    → file_imp (file: ./local.ball.bin)',
+      '    → git_imp (git: https://example.com/repo.git@v1.0.0)',
+      '    → inline_imp (inline)',
+      '    → ref_only_imp (ref only)',
+      '',
+    ].join('\n');
+    assert(r.stdout === expected, `output mismatch\nexpected:\n${expected}\nactual:\n${r.stdout}`);
+  } finally {
+    rmSync(treePath, { force: true });
   }
 });
 

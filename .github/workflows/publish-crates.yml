@@ -1,0 +1,151 @@
+name: Publish crates.io
+
+# Publishes the Rust workspace (ball-shared, ball-compiler, ball-encoder,
+# ball-engine, ball-cli) to crates.io. TAG-GATED: merging a PR never publishes
+# anything — a release only happens when a `rust-crates/vX.Y.Z` tag is pushed.
+#
+# The tag namespace uses a `/` on purpose: GitHub Actions tag filters treat `*`
+# as "any char except `/`", so `rust-crates/v0.1.0` does NOT match the Dart
+# publish workflow's `*-v[0-9]+.[0-9]+.[0-9]+*` filter (release-publish.yml) —
+# the two release channels never cross-fire. (Filter-pattern semantics:
+# https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet)
+#
+# Auth is crates.io Trusted Publishing (OIDC) via rust-lang/crates-io-auth-action
+# (https://github.com/rust-lang/crates-io-auth-action), with a CARGO_REGISTRY_TOKEN
+# secret fallback. crates.io only lets a Trusted Publisher be configured AFTER a
+# crate's first publish (RFC 3691), so the FIRST release of each new crate name
+# must use the token fallback; configure trusted publishing afterwards. See
+# rust/AGENTS.md § Publishing for the exact maintainer setup.
+
+on:
+  push:
+    tags:
+      - 'rust-crates/v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC token exchange for crates.io trusted publishing
+  contents: read
+
+jobs:
+  publish:
+    name: Publish Rust workspace to crates.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # rustup ships preinstalled on GitHub-hosted runners; `rustup show` reads
+      # rust/rust-toolchain.toml (channel = stable + rustfmt/clippy).
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: |
+          rustup show
+          rustup component add rustfmt clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      # Dart regenerates dart/self_host/{engine,cli}.ball.json — the self-host
+      # sources the gitignored compiled_engine.rs / compiled_cli.rs are compiled
+      # from. Same reason ci.yml's rust job bootstraps Dart.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      # Regenerate the self-host sources, then compile them into the gitignored
+      # rust/engine/src/compiled_engine.rs and rust/cli/src/compiled_cli.rs. The
+      # published crates ship these via each crate's `include` field (specifying
+      # `include` disables cargo's default gitignore-based file discovery, so a
+      # gitignored file listed by the glob is packaged — Cargo reference:
+      # https://doc.rust-lang.org/cargo/reference/manifest.html#the-exclude-and-include-fields).
+      - name: Regenerate self-host sources (engine + cli-core)
+        run: |
+          dart pub get
+          cd dart
+          dart run compiler/tool/gen_engine_json.dart
+          dart run compiler/tool/gen_cli_json.dart
+          cd ../rust
+          cargo run -p ball-engine-regen
+          cargo run -p ball-cli-regen
+
+      # ── Pre-publish gate: self-hosted engine must run at full Dart parity ──
+      # This is the publish bar (issue #366) — never ship a crate whose `ball
+      # run` is broken. Mirrors the conformance gate in ci.yml's rust job.
+      - name: Self-host run acceptance
+        run: cd rust && cargo test -p ball-engine --features self_host --test self_host_run
+
+      - name: "Self-host conformance sweep (must be full parity)"
+        run: |
+          cd rust
+          set +e
+          output=$(cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored --nocapture 2>&1)
+          exit_code=$?
+          echo "$output"
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          echo ""
+          echo "=== Rust Self-Host ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+            echo "::error::Rust self-host conformance is not at full parity — refusing to publish"
+            exit 1
+          fi
+
+      - name: cli-core golden parity
+        run: cd rust && cargo test -p ball-cli --features cli_core
+
+      # ── Publish-time feature shape ──
+      # The committed defaults are OFF (so a fresh-checkout `cargo build
+      # --workspace` is green without the dart+regen dance). For the PUBLISHED
+      # crates, flip the defaults ON so `cargo install ball-cli` yields a working
+      # `ball run` (self-hosted engine) + info/validate/tree (cli-core) with no
+      # `--features` flag. The generated files are already present (regen step
+      # above) and ship via the `include` fields.
+      # No `$` anchor on the sed pattern: it would fail to match on a CRLF
+      # checkout (a trailing `\r` sits between `]` and the line end). The
+      # `default = []` line has nothing after `[]` but the EOL, so an
+      # unanchored match is exact and preserves whatever line ending is present.
+      # The `grep -q` assertions fail the job loudly if either flip didn't land.
+      - name: Enable release default features (published crates)
+        working-directory: rust
+        run: |
+          sed -i 's/^default = \[\]/default = ["self_host"]/' engine/Cargo.toml
+          sed -i 's/^default = \[\]/default = ["self_host", "cli_core"]/' cli/Cargo.toml
+          echo "engine: $(grep '^default' engine/Cargo.toml)"
+          echo "cli:    $(grep '^default' cli/Cargo.toml)"
+          grep -q '^default = \["self_host"\]' engine/Cargo.toml || { echo "::error::ball-engine default-feature flip failed"; exit 1; }
+          grep -q '^default = \["self_host", "cli_core"\]' cli/Cargo.toml || { echo "::error::ball-cli default-feature flip failed"; exit 1; }
+
+      # ── Auth: crates.io Trusted Publishing (OIDC) with token fallback ──
+      # Exchanges the GitHub OIDC token for a short-lived (30-min) crates.io
+      # token, exposed as steps.auth.outputs.token; auto-revoked in the post
+      # step. `continue-on-error` so that on the FIRST-EVER publish of a crate
+      # (before a Trusted Publisher can be configured — RFC 3691) the job falls
+      # back to the CARGO_REGISTRY_TOKEN secret instead of hard-failing here.
+      - name: crates.io trusted publishing token (OIDC)
+        id: auth
+        continue-on-error: true
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      # Publish all publishable crates in ONE command. cargo computes the
+      # dependency-DAG publish order itself — ball-shared -> ball-compiler /
+      # ball-encoder -> ball-engine -> ball-cli — and waits for each crate to be
+      # index-available before publishing its dependents, avoiding the crates.io
+      # index-propagation race that hand-ordered per-crate publishes hit. The
+      # two `publish = false` tool crates (ball-engine-regen, ball-cli-regen) are
+      # skipped automatically. `--allow-dirty` is required because the regen +
+      # feature-flip steps above modify the working tree (the regenerated,
+      # gitignored compiled_*.rs and the default-feature edits are exactly what
+      # we want in the tarball).
+      #
+      # Token resolution: the OIDC token when trusted publishing is configured,
+      # else the CARGO_REGISTRY_TOKEN secret fallback.
+      - name: Publish workspace to crates.io
+        working-directory: rust
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --workspace --allow-dirty

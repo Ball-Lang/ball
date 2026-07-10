@@ -7,6 +7,13 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+# `src/compiled_cli.rs` is gitignored (rust/.gitignore) — a generated artifact
+# from `cargo run -p ball-cli-regen`. Same reasoning as ball-engine's
+# `include`: specifying `include` disables gitignore-based file discovery, so
+# the glob ships `src/compiled_cli.rs` (needed by the `cli_core` build) in the
+# packaged crate. The publish workflow regenerates it before packaging.
+include = ["src/**/*.rs", "Cargo.toml"]
+
 [[bin]]
 name = "ball"
 path = "src/main.rs"
@@ -22,6 +29,15 @@ path = "src/main.rs"
 # error, never silently swallowed — see `src/commands/run.rs`). Build with
 # `--features self_host` (after regenerating `compiled_engine.rs`) to
 # actually execute programs via the self-hosted engine.
+#
+# PUBLISHED CRATE: the release workflow (.github/workflows/publish-crates.yml)
+# flips this to `default = ["self_host", "cli_core"]` *after* regenerating the
+# compiled files and *before* `cargo package`, so `cargo install ball-cli`
+# yields a working `ball run` (self-hosted engine) plus info/validate/tree
+# (cli-core) out of the box — no `--features` flag required. The generated
+# files ship in the tarball via the `include` field above. The flip is
+# publish-time only; the committed default stays off so the repo's
+# fresh-checkout `cargo build --workspace` is green.
 default = []
 self_host = ["ball-engine/self_host"]
 # Off by default for the same reason as `self_host`: `src/compiled_cli.rs`

@@ -37,6 +37,27 @@ struct CompileLibraryResult {
     std::string ns;           // namespace name used
 };
 
+// A registered goto-via-switch's label -> arm-index map, scoped for the
+// duration of compiling that switch's arm bodies (issue #352 — the C++ port
+// of ts/compiler's `switchLabelStack` / rust/compiler's `SwitchLabelCtx`).
+// Looked up by CppCompiler::compile_expr's `continue <label>` handling to
+// lower a `continue <label>;` naming one of these cases to a state-variable
+// jump instead of the generic `goto __ball_continue_<label>` (which has no
+// matching planted label for a switch case). See
+// CppCompiler::compile_switch_goto_statement.
+struct CppSwitchLabelCtx {
+    // The `i64` local holding the currently-dispatched arm index.
+    std::string state_var;
+    // The label planted immediately before this switch's own dispatch
+    // `switch (state_var) { ... }` — `continue <label>` re-enters it via
+    // `state_var = idx; goto dispatch_label;`, re-running the dispatch with
+    // no subject re-check.
+    std::string dispatch_label;
+    // Case label name -> its arm's index. The default arm, if any, is index
+    // `arms.size()` — one past the last real case.
+    std::unordered_map<std::string, int> label_to_arm;
+};
+
 class CppCompiler {
 public:
     explicit CppCompiler(ball::ir::Program program);
@@ -98,6 +119,15 @@ private:
     // emission so it can plant `__ball_break_<label>` / `__ball_continue_<label>`
     // goto targets around/inside its body.
     std::string pending_label_;
+
+    // Stack of ACTIVE goto-via-switch label scopes (issue #352), innermost
+    // last — "innermost matching switch wins" when a `continue <label>`
+    // resolves. See CppSwitchLabelCtx / compile_switch_goto_statement.
+    std::vector<CppSwitchLabelCtx> switch_label_stack_;
+    // Monotonic counter for unique goto-via-switch names (`__swstN` /
+    // `__ball_switch_dispatchN` / `__ball_switch_exitN`), distinct per
+    // switch (including nested ones).
+    int switch_goto_uid_ = 0;
 
     // Variables currently bound to a `BallException&` inside a catch
     // block. Field access on these compiles to `.fields.at("X")` so
@@ -387,6 +417,20 @@ private:
 
     // Statement compilation — emits directly
     void compile_statement(const ball::ir::Statement& stmt);
+
+    // Emit a single `switch` case's body as a statement (return/throw/void
+    // handling, and dropping a trailing unlabeled `break;` — see the
+    // definition). Shared by the plain if/else-chain lowering (compile_statement's
+    // `switch` branch) and the goto-via-switch state machine below, so both
+    // lowerings compile a case body identically.
+    void compile_switch_case_body_statement(const ball::ir::Expression* case_body);
+    // Lower a `switch` STATEMENT with one or more labelled cases (Dart's
+    // goto-via-switch — `continue <label>` transferring control to that
+    // case's body with NO subject re-check) to a state machine. See the
+    // definition for the full two-phase design. Issue #352.
+    void compile_switch_goto_statement(const ball::ir::FunctionCall& call,
+                                        const std::string& subj,
+                                        const ball::ir::Expression* cases_expr);
 
     // std function compilation
     std::string compile_std_call(const std::string& function,

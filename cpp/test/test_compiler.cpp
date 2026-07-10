@@ -439,6 +439,69 @@ TEST(compile_switch_with_cases) {
 }
 
 // ================================================================
+// Tests — Switch goto-via-switch (labelled cases, issue #352)
+// ================================================================
+
+// A switch with a labelled case routes to the state-machine lowering
+// (compile_switch_goto_statement) instead of the if/else chain: a
+// `continue('one')` inside case 0's body targeting the labelled case
+// `one` resolves to a state-variable jump back to the dispatch label —
+// NOT the generic (unplanted) `goto __ball_continue_<label>` the if/else
+// chain would emit (the root cause of #352 — g++ rejected that as
+// "label used but not defined").
+TEST(compile_switch_goto_labelled_case_is_state_machine) {
+    auto cases_list = lit_list({
+        make_msg("", {
+            {"value", lit_int(0)},
+            {"body", block({stmt_expr(std_call("continue",
+                make_msg("", {{"label", lit_string("one")}})))})}
+        }),
+        make_msg("", {
+            {"label", lit_string("one")},
+            {"value", lit_int(1)},
+            {"body", block({stmt_expr(std_call("break", make_msg("", {})))})}
+        }),
+    });
+
+    auto prog = build_program(block(
+        {stmt_expr(std_call("switch", make_msg("SwitchInput", {
+            {"subject", ref("x")},
+            {"cases", std::move(cases_list)}
+        })))},
+        lit_int(0)));
+    auto out = compile_program(prog);
+
+    ASSERT_CONTAINS(out, "__switch_subj");
+    ASSERT_CONTAINS(out, "__ball_switch_dispatch0");
+    ASSERT_CONTAINS(out, "__ball_switch_exit0");
+    ASSERT_CONTAINS(out, "switch (__swst0)");
+    // `continue('one')` -> jump to arm 1 (the case labelled "one"), no
+    // subject re-check.
+    ASSERT_CONTAINS(out, "__swst0 = 1; goto __ball_switch_dispatch0;");
+    ASSERT_NOT_CONTAINS(out, "goto __ball_continue_one");
+}
+
+// A switch with NO labelled case must keep compiling through the existing
+// if/else-if chain — zero output change for the overwhelmingly common
+// (unlabelled) case.
+TEST(compile_switch_without_labels_stays_if_else_chain) {
+    auto cases_list = lit_list({
+        make_msg("", {{"value", lit_int(1)}, {"body", print_call(lit_string("one"))}}),
+        make_msg("", {{"is_default", lit_bool(true)}, {"body", print_call(lit_string("other"))}}),
+    });
+    auto prog = build_program(block(
+        {stmt_expr(std_call("switch", make_msg("SwitchInput", {
+            {"subject", ref("x")},
+            {"cases", std::move(cases_list)}
+        })))},
+        lit_int(0)));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "__switch_subj");
+    ASSERT_CONTAINS(out, "if (");
+    ASSERT_NOT_CONTAINS(out, "__ball_switch_dispatch");
+}
+
+// ================================================================
 // Tests — Try-catch compilation (was simplified)
 // ================================================================
 

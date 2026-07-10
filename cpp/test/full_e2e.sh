@@ -87,17 +87,9 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # compiler supports it.
 # (312_collection_for_capture was fixed by boxing the C-style collection_for's
 # loop var, mirroring the statement-`for`'s existing shared_ptr cell +
-# per-iteration shadow — issue #69.)
-#
-# 400_switch_continue_label (#352): the Ball->C++ compiler lowers `switch` to an
-# if/else-if chain, which cannot express Dart's `continue <label>` (a goto into a
-# labelled case body that then falls onward with no subject re-check). It emits
-# `goto __ball_continue_<label>` with no matching label -> g++ "label used but
-# not defined". Needs the switch lowered as a goto-based state machine (the same
-# transform Rust landed in #349); the reference Dart engine, TS compiler (#345),
-# and the C++ self-host ENGINE all run this fixture — only this compiled path
-# can't yet. Delete this entry the moment #352 is fixed.
-CPP_COMPILE_CARVEOUTS=(400_switch_continue_label)
+# per-iteration shadow — issue #69. 400_switch_continue_label was fixed by
+# lowering a labelled-case `switch` to a goto-based state machine — issue #352.)
+CPP_COMPILE_CARVEOUTS=()
 _is_carved() { local n="$1" c; for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 
 for prog in "$CONF"/*.ball.json; do

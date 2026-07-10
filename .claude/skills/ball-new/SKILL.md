@@ -9,6 +9,17 @@ Orchestration contract for adding a language. The phase *content* lives in the p
 
 ## Output contract (produce these, in this order)
 
+### 0. Permission discovery (adapt the whole flow to what the user CAN do)
+Run `gh auth status`, then `gh api repos/<owner>/<repo> -q .permissions` (returns e.g. `{"admin":…,"push":…}`; absent/error ⇒ no write access). Pick the tier and follow it throughout:
+
+| Tier | Detected by | Issue tree | Branches/PRs | Merging |
+|---|---|---|---|---|
+| maintainer | `push: true` | create issues directly | branches on origin | merge on verified green |
+| contributor | authed, no `push` | try `gh issue create`; on 403, commit the issue tree as `docs/plans/<lang>-bootstrap.md` in the PR | `gh repo fork --remote` → PRs from the fork | NEVER merge — end at "PR open + checks green + review requested" |
+| no gh / sandboxed | `gh` missing or unauthenticated | issue tree as the plan doc above | local branches + tell the user which branches to push/PR | never |
+
+Cloud/Cowork sessions may be sandboxed without `gh` or WSL — everything below still applies except platform notes marked *local Windows only*.
+
 ### 1. Recon (read-only, ~10 tool calls)
 Verify `<lang>/` current state (usually proto bindings only — confirm against CLAUDE.md's status paragraph and `ls <lang>/`), confirm no existing epic (`gh issue list --search "<lang>"`), read the reference implementations named in the playbook's Phase 0, and check ci.yml/conformance-matrix.yml for the per-language job template to mirror. Toolchain facts (setup actions, package-manager conventions) are verified against current docs at issue-authoring time — never asserted from memory.
 
@@ -46,7 +57,7 @@ Phases without a table row default to **sonnet** (scaffold, bindings, docs); a p
 The epic closes ONLY when `<lang>` can **compile AND encode AND execute** the conformance corpus (CLAUDE.md's bar), each phase issue closed by a merged PR that satisfied its acceptance criteria.
 
 ## Lane protocol (paste into every lane brief)
-- Protected worktree: `git worktree add /d/packages/ball-wt-<slug> -b <branch> origin/main` + empty anchor commit + **push before work starts**.
+- Protected worktree: `git worktree add /d/packages/ball-wt-<slug> -b <branch> origin/main` + empty anchor commit + **push before work starts** (contributor tier: branch from origin/main but push/PR via the fork remote from §0).
 - Commit incrementally, only BUILDING+GREEN states. Push with retries. One PR per phase, `--base main`; body `fixes #<phase-issue>` only when acceptance criteria are fully met, else `advances #<n>` with precise status.
 - STOP-and-report beats thrashing; never hand-edit generated files (regenerate); fail loud on unhandled shapes.
 - Do not stop to wait on background builds — run long steps foreground with bounded until-loops (stalled lanes need orchestrator babysitting).

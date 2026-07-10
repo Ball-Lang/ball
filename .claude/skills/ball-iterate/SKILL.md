@@ -9,6 +9,9 @@ Orchestration contract for improving a mature target. Language internals live in
 
 ## Output contract (produce these, in this order)
 
+### 0. Permission discovery
+Same tiers and detection as **ball-new** §0 (`gh auth status` + `gh api repos/<owner>/<repo> -q .permissions`): maintainers merge on verified green; contributors fork + PR and end lanes at "checks green + review requested" (never merge); gh-less/sandboxed sessions keep the backlog as a committed plan doc and hand branch names to the user. Apply the tier consistently to every lane below.
+
 ### 1. Gap-audit Workflow (read-only map → synthesis)
 Launch a Workflow with one **sonnet** map cell per dimension below (no builds — analyze files/CI/issues only; use semantic codebase search where the session provides it), then one **opus** synthesis returning a ranked backlog (`rank, title, severity, effort, existing_issue, action, parallelizable`):
 

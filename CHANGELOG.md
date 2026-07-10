@@ -1,3 +1,10 @@
+# [1.24.0](https://github.com/Ball-Lang/ball/compare/v1.23.0...v1.24.0) (2026-07-10)
+
+
+### Features
+
+* **rust:** [#365](https://github.com/Ball-Lang/ball/issues/365) cli-core adoption — info/validate/tree/version subcommands ([#372](https://github.com/Ball-Lang/ball/issues/372)) ([725e217](https://github.com/Ball-Lang/ball/commit/725e217b82cc6ec554d871f1f25de1771d10ed5c)), closes [#362](https://github.com/Ball-Lang/ball/issues/362)
+
 # [1.23.0](https://github.com/Ball-Lang/ball/compare/v1.22.0...v1.23.0) (2026-07-10)
 
 

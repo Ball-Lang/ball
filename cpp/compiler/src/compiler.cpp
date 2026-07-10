@@ -731,7 +731,8 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
         ball_type == "Statement" || ball_type == "Literal" ||
         ball_type == "Reference" || ball_type == "FieldAccess" ||
         ball_type == "MessageCreation" || ball_type == "FieldValuePair" ||
-        ball_type == "LetBinding" || ball_type == "TypeDefinition")
+        ball_type == "LetBinding" || ball_type == "TypeDefinition" ||
+        ball_type == "ModuleImport")
         return "BallDyn";
 
     // Engine internal types
@@ -8011,6 +8012,11 @@ inline bool hasListValue(const BallDyn& o) { return _bd_has(o,"listValue"); }
 inline bool hasCall(const BallDyn& o) { return _bd_has(o,"call"); }
 inline bool hasObject(const BallDyn& o) { return _bd_has(o,"object"); }
 inline bool hasValue(const BallDyn& o) { return _bd_has(o,"value"); }
+inline bool hasHttp(const BallDyn& o) { return _bd_has(o,"http"); }
+inline bool hasFile(const BallDyn& o) { return _bd_has(o,"file"); }
+inline bool hasGit(const BallDyn& o) { return _bd_has(o,"git"); }
+inline bool hasRegistry(const BallDyn& o) { return _bd_has(o,"registry"); }
+inline bool hasInline(const BallDyn& o) { return _bd_has(o,"inline"); }
 inline bool hasNullValue(const BallDyn&) { return false; }
 inline bool hasStructValue(const BallDyn& o) { return _bd_has(o,"structValue"); }
 inline bool hasMatch(const BallDyn&) { return false; }

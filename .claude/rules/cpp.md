@@ -9,9 +9,10 @@ paths:
 
 - C++20 standard required (set in cpp/CMakeLists.txt:4)
 - CMake build system — root at `cpp/CMakeLists.txt`
-- Primary targets: `ball_shared`, `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder) — plus library targets and test executables (see the `CMakeLists.txt` files)
+- Primary targets: `ball_shared`, `ball_cpp_compile` (compiler), `ball_cpp_encode` (encoder), `ball` (unified CLI — `cpp/cli/`, issue #367) — plus library targets and test executables (see the `CMakeLists.txt` files)
 - Self-hosted engine: `dart/self_host/lib/engine_rt.cpp` (generated from Dart engine via Ball compiler)
 - Self-host conformance: `test_selfhost_conformance` target
+- Unified `ball` CLI (`cpp/cli/`): subcommands `compile`/`encode` (reuse the compiler/encoder libs), `run` (self-hosted `engine_rt`), and `info`/`validate`/`tree`/`version` (self-hosted `cli_core`, library-compiled to the generated `dart/self_host/lib/cli_rt.h` via `gen_cli_cpp.dart`). Verbs/run gate on their generated artifacts (stubbed when absent, so the build-isolated main cpp CI job still builds `ball`). Parity gate: `test_cli_parity` (see `cpp/cli/AGENTS.md`).
 - Encoder requires nlohmann/json (FetchContent from GitHub if not installed)
 - Stack sizes: compiler 128MB, encoder 256MB (for deep protobuf ASTs)
 

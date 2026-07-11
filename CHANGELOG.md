@@ -1,3 +1,10 @@
+# [1.40.0](https://github.com/Ball-Lang/ball/compare/v1.39.0...v1.40.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — first-class callback invoke (Function.apply + list fold) ([#408](https://github.com/Ball-Lang/ball/issues/408)) ([7966707](https://github.com/Ball-Lang/ball/commit/7966707952014b9700634295a05b9357aa55ae49))
+
 # [1.39.0](https://github.com/Ball-Lang/ball/compare/v1.38.0...v1.39.0) (2026-07-11)
 
 

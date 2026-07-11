@@ -276,4 +276,52 @@ public class BallRuntimeTests
         var ex = Assert.Throws<BallRuntimeException>(() => BallRuntime.UnsupportedBaseCall("std", "mystery"));
         Assert.Contains("std.mystery", ex.Message);
     }
+
+    // ── Round 13: Dart-catchable runtime errors surface as catchable, matchable throws ──
+
+    [Fact]
+    public void MathAbsWrapsAtLongMinValueLikeDart()
+    {
+        // Dart's two's-complement (-9223372036854775808).abs() wraps back to itself
+        // (its magnitude is unrepresentable); .NET Math.Abs(long) throws OverflowException.
+        Assert.Equal(BallValue.Int(long.MinValue), BallRuntime.MathAbs(BallValue.Int(long.MinValue)));
+        Assert.Equal(BallValue.Int(5), BallRuntime.MathAbs(BallValue.Int(-5)));
+        Assert.Equal(BallValue.Int(long.MaxValue), BallRuntime.MathAbs(BallValue.Int(long.MaxValue)));
+        Assert.Equal(BallValue.Double(2.5), BallRuntime.MathAbs(BallValue.Double(-2.5)));
+    }
+
+    [Fact]
+    public void TypedThrowPayloadReportsRuntimeTypeSoOnTypeCatchMatches()
+    {
+        // The self-hosted engine's compiled try binds `e = throw.Payload` and matches
+        // `on FormatException catch` via `e.runtimeType == catchType`. A bare string
+        // payload would report runtimeType "String" and never match — the payload must
+        // be a message whose type name IS the exception type.
+        var thrown = Assert.Throws<BallThrow>(() => BallRuntime.StringToInt(BallValue.Str("not a number")));
+        Assert.Equal("FormatException", thrown.TypeName);
+        Assert.Equal(BallValue.Str("FormatException"), BallRuntime.FieldGet(thrown.Payload, "runtimeType"));
+        // Must NOT be mistaken for an engine-level BallException (a different match path).
+        Assert.Equal(BallValue.Bool(false), BallRuntime.IsType(thrown.Payload, "BallException"));
+        // The clean message stays on Exception.Message for an uncaught throw's loud report.
+        Assert.Contains("not a number", thrown.Message);
+    }
+
+    [Fact]
+    public void ListGetOutOfRangeThrowsCatchableRangeError()
+    {
+        var list = new BallList(new BallValue[] { BallValue.Int(10) });
+        Assert.Equal(BallValue.Int(10), BallRuntime.ListGet(list, BallValue.Int(0)));
+
+        // Out-of-range surfaces as a catchable BallThrow (RangeError), not a native
+        // .NET ArgumentOutOfRangeException the compiled `catch (BallThrow)` never sees.
+        var over = Assert.Throws<BallThrow>(() => BallRuntime.ListGet(list, BallValue.Int(1)));
+        Assert.Equal("RangeError", over.TypeName);
+        Assert.Equal(BallValue.Str("RangeError"), BallRuntime.FieldGet(over.Payload, "runtimeType"));
+
+        var negative = Assert.Throws<BallThrow>(() => BallRuntime.ListGet(list, BallValue.Int(-1)));
+        Assert.Equal("RangeError", negative.TypeName);
+
+        var empty = Assert.Throws<BallThrow>(() => BallRuntime.ListGet(new BallList(), BallValue.Int(0)));
+        Assert.Equal("RangeError", empty.TypeName);
+    }
 }

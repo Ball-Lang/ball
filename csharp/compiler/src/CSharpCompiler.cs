@@ -56,6 +56,16 @@ public sealed partial class CSharpCompiler
     private readonly HashSet<string> _baseModules = new(StringComparer.Ordinal);
     private readonly HashSet<string> _userModuleNames = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Import-only "stub" modules — declared in the program but carrying no
+    /// functions, types, or enums (e.g. <c>dart.math</c>/<c>dart.io</c>/
+    /// <c>protobuf</c>, the external libraries the self-host source imports). A
+    /// call into one is an unimplemented external base function; route it to a
+    /// fail-loud <see cref="BallRuntime.UnsupportedBaseCall"/> rather than an
+    /// empty phantom class (which would not compile).
+    /// </summary>
+    private readonly HashSet<string> _stubModules = new(StringComparer.Ordinal);
+
     /// <summary>Sanitized names of every callable top-level function / method short name (direct-call targets).</summary>
     private readonly HashSet<string> _callableNames = new(StringComparer.Ordinal);
 
@@ -67,6 +77,23 @@ public sealed partial class CSharpCompiler
 
     /// <summary>Lexical scope stack of sanitized local binding names (parameters, <c>let</c>s, loop/catch variables).</summary>
     private readonly List<HashSet<string>> _localScopes = new();
+
+    /// <summary>
+    /// Stack of synthesized C# parameter names for the enclosing
+    /// function/method/lambda scopes. Every Ball function's single parameter is
+    /// <c>reference("input")</c> (invariant #1); the emitted C# parameter can NOT
+    /// literally be <c>input</c>, because (a) a Ball function may itself declare
+    /// a parameter/field named <c>input</c> (e.g. the engine's
+    /// <c>_callFunction(module, function, input)</c>) — colliding with the C#
+    /// parameter — and (b) C# forbids a nested lambda from re-declaring a
+    /// parameter named <c>input</c> that an enclosing scope already uses (unlike
+    /// Dart, which allows shadowing). Each scope therefore gets a unique
+    /// <c>__in{n}</c> name, and <see cref="CompileReference"/> resolves
+    /// <c>"input"</c> to the innermost one.
+    /// </summary>
+    private readonly List<string> _inputNames = new();
+
+    private int _inputCounter;
 
     private string _currentModule;
 
@@ -82,6 +109,10 @@ public sealed partial class CSharpCompiler
             if (allBase)
             {
                 _baseModules.Add(module.Name);
+            }
+            else if (module.Functions.Count == 0 && module.TypeDefs.Count == 0 && module.Enums.Count == 0)
+            {
+                _stubModules.Add(module.Name);
             }
         }
 
@@ -164,7 +195,9 @@ public sealed partial class CSharpCompiler
         // Every other user module → its own nested static class.
         foreach (var module in _program.Modules)
         {
-            if (module.Name == _entryModule || _baseModules.Contains(module.Name))
+            if (module.Name == _entryModule
+                || _baseModules.Contains(module.Name)
+                || _stubModules.Contains(module.Name))
             {
                 continue;
             }
@@ -174,6 +207,10 @@ public sealed partial class CSharpCompiler
             sb.Append(body);
             sb.Append("}\n");
         }
+
+        // The synthesized oneof-discriminator constants (Expression_Expr, …) the
+        // engine's AST dispatch reads — top-level so every module sees them.
+        sb.Append(CompileOneofDiscriminators());
 
         return sb.ToString();
     }
@@ -204,15 +241,21 @@ public sealed partial class CSharpCompiler
     private string CompileFunction(FunctionDefinition func)
     {
         var name = Naming.Sanitize(func.Name);
+        var inName = PushInput();
         var body = EmitFunctionBody(func);
-        return $"    public static BallValue {name}(BallValue input)\n    {body}\n";
+        PopInput();
+        return $"    public static BallValue {name}(BallValue {inName})\n    {body}\n";
     }
 
-    /// <summary>Emit a function/method/lambda body as a braced statement block ending in a <c>return</c>.</summary>
+    /// <summary>
+    /// Emit a function/method/lambda body as a braced statement block ending in
+    /// a <c>return</c>. The caller must have opened the input scope
+    /// (<see cref="PushInput"/>) so <see cref="CurrentInput"/> is this body's
+    /// parameter.
+    /// </summary>
     private string EmitFunctionBody(FunctionDefinition func)
     {
         PushScope();
-        BindLocal("input");
         var sb = new StringBuilder("{\n");
         sb.Append(ParamPrologue(func));
 
@@ -252,14 +295,14 @@ public sealed partial class CSharpCompiler
         if (names.Count == 1)
         {
             BindLocal(names[0]);
-            sb.Append($"var {Naming.Sanitize(names[0])} = input;\n");
+            sb.Append($"var {Naming.Sanitize(names[0])} = {CurrentInput};\n");
         }
         else
         {
             foreach (var name in names)
             {
                 BindLocal(name);
-                sb.Append($"var {Naming.Sanitize(name)} = BallRuntime.FieldGet(input, {Naming.StringLiteral(name)});\n");
+                sb.Append($"var {Naming.Sanitize(name)} = BallRuntime.FieldGet({CurrentInput}, {Naming.StringLiteral(name)});\n");
             }
         }
 
@@ -418,7 +461,7 @@ public sealed partial class CSharpCompiler
     {
         if (reference.Name == "input")
         {
-            return "input";
+            return CurrentInput;
         }
 
         // The encoders' shared sentinel for an uninitialized late/nullable
@@ -426,6 +469,14 @@ public sealed partial class CSharpCompiler
         if (reference.Name == "__no_init__")
         {
             return "BallValue.Null";
+        }
+
+        // A oneof-discriminator constant (Expression_Expr.call, …) — proto
+        // codegen's synthesized enums, referenced by the engine's dispatch but
+        // carrying no EnumDescriptorProto; resolve to the emitted namespace.
+        if (!IsLocal(reference.Name) && OneofDiscriminators.ContainsKey(reference.Name))
+        {
+            return $"BallOneofs.{Naming.Sanitize(reference.Name)}";
         }
 
         var name = Naming.Sanitize(reference.Name);
@@ -493,9 +544,11 @@ public sealed partial class CSharpCompiler
     /// </summary>
     private string CompileLambda(FunctionDefinition lambda)
     {
+        var inName = PushInput();
         var body = EmitFunctionBody(lambda);
+        PopInput();
         var label = lambda.Name;
-        return $"(BallValue)new BallFunction({Naming.StringLiteral(label)}, (BallValue input) =>\n{body})";
+        return $"(BallValue)new BallFunction({Naming.StringLiteral(label)}, (BallValue {inName}) =>\n{body})";
     }
 
     /// <summary>
@@ -510,6 +563,14 @@ public sealed partial class CSharpCompiler
         if (_baseModules.Contains(call.Module))
         {
             return CompileBaseCall(call);
+        }
+
+        // A call into an import-only stub module (dart.math/dart.io/…) is an
+        // unimplemented external base function — fail loud rather than emit a
+        // reference to a phantom class member.
+        if (_stubModules.Contains(call.Module))
+        {
+            return Unsupported(call);
         }
 
         var input = call.Input is null ? "BallValue.Null" : CompileExpression(call.Input);
@@ -542,6 +603,19 @@ public sealed partial class CSharpCompiler
     private void PushScope() => _localScopes.Add(new HashSet<string>(StringComparer.Ordinal));
 
     private void PopScope() => _localScopes.RemoveAt(_localScopes.Count - 1);
+
+    /// <summary>The innermost synthesized input parameter name (see <see cref="_inputNames"/>).</summary>
+    private string CurrentInput => _inputNames.Count > 0 ? _inputNames[^1] : "input";
+
+    /// <summary>Begin a new function/method/lambda input scope, returning its unique C# parameter name.</summary>
+    private string PushInput()
+    {
+        var name = "__in" + _inputCounter++;
+        _inputNames.Add(name);
+        return name;
+    }
+
+    private void PopInput() => _inputNames.RemoveAt(_inputNames.Count - 1);
 
     private void BindLocal(string name)
     {

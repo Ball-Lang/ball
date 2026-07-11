@@ -90,6 +90,8 @@ public sealed partial class CSharpCompiler
                 return CompileCollectionsCall(call);
             case "std_io":
                 return CompileIoCall(call);
+            case "ball_proto":
+                return CompileBallProtoCall(call);
         }
 
         // Lazy constructs and those needing the raw call (nested exprs) skip
@@ -694,6 +696,97 @@ public sealed partial class CSharpCompiler
             _ => Unsupported(call),
         };
     }
+
+    // ════════════════════════════════════════════════════════════
+    // ball_proto — protobuf-compat AST access patterns (issue #383)
+    // ════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Route a <c>ball_proto.&lt;fn&gt;</c> base call to its native
+    /// <see cref="BallProto"/> implementation — the AST-inspection functions the
+    /// self-hosted engine reads every target program through (oneof
+    /// discriminators, presence checks, safe field/Struct access, proto3
+    /// defaults). Mirrors <c>rust/compiler/src/base_call.rs</c>'s
+    /// <c>compile_ball_proto_call</c>. The single <c>obj</c> argument arrives as
+    /// a <c>MessageCreation</c> field named <c>obj</c> (invariant #1's named-arg
+    /// convention), so it is read via <see cref="Fields.Extract"/> like every
+    /// other base call.
+    /// </summary>
+    private string CompileBallProtoCall(FunctionCall call)
+    {
+        var f = Fields.Extract(call);
+        string Obj() => FieldOrNull(f, "obj");
+
+        switch (call.Function)
+        {
+            // Oneof discriminators.
+            case "whichExpr":
+                return $"BallProto.WhichExpr({Obj()})";
+            case "whichValue":
+                return $"BallProto.WhichValue({Obj()})";
+            case "whichStmt":
+                return $"BallProto.WhichStmt({Obj()})";
+            case "whichKind":
+                return $"BallProto.WhichKind({Obj()})";
+            case "whichSource":
+                return $"BallProto.WhichSource({Obj()})";
+
+            // Safe field access.
+            case "getField":
+                return $"BallProto.GetField({Obj()}, {FieldOrNull(f, "name")})";
+            case "getFieldOr":
+                return $"BallProto.GetFieldOr({Obj()}, {FieldOrNull(f, "name")}, {FieldOrNull(f, "defaultValue")})";
+            case "setField":
+                return $"BallProto.SetField({Obj()}, {FieldOrNull(f, "name")}, {FieldOrNull(f, "value")})";
+
+            // Struct field access.
+            case "getStructField":
+                return $"BallProto.GetStructField({FieldOrNull(f, "struct")}, {FieldOrNull(f, "key")})";
+            case "getStringField":
+                return $"BallProto.GetStringField({FieldOrNull(f, "struct")}, {FieldOrNull(f, "key")})";
+            case "getBoolField":
+                return $"BallProto.GetBoolField({FieldOrNull(f, "struct")}, {FieldOrNull(f, "key")})";
+            case "getListField":
+                return $"BallProto.GetListField({FieldOrNull(f, "struct")}, {FieldOrNull(f, "key")})";
+            case "getNumberField":
+                return $"BallProto.GetNumberField({FieldOrNull(f, "struct")}, {FieldOrNull(f, "key")})";
+            case "getStructFieldKeys":
+                return $"BallProto.GetStructFieldKeys({FieldOrNull(f, "struct")})";
+
+            // Proto3 defaults.
+            case "ensureDefaults":
+                return $"BallProto.EnsureDefaults({Obj()}, {FieldOrNull(f, "messageType")})";
+            case "defaultString":
+                return "BallProto.DefaultString()";
+            case "defaultList":
+                return "BallProto.DefaultList()";
+            case "defaultBool":
+                return "BallProto.DefaultBool()";
+            case "defaultInt":
+                return "BallProto.DefaultInt()";
+
+            // Case-name validators — the engine reads them back as the name.
+            case "exprCase":
+                return $"BallProto.ExprCase({FieldOrNull(f, "name")})";
+            case "literalCase":
+                return $"BallProto.LiteralCase({FieldOrNull(f, "name")})";
+            case "stmtCase":
+                return $"BallProto.StmtCase({FieldOrNull(f, "name")})";
+        }
+
+        // Presence checks: `has<Field>(obj)` → whether the named field is set.
+        if (call.Function.StartsWith("has", StringComparison.Ordinal) && call.Function.Length > 3)
+        {
+            var field = LowerFirst(call.Function[3..]);
+            return $"BallProto.HasField({Obj()}, {Naming.StringLiteral(field)})";
+        }
+
+        return Unsupported(call);
+    }
+
+    /// <summary>Lowercase the first character of <paramref name="s"/> (<c>"Body"</c> → <c>"body"</c>).</summary>
+    private static string LowerFirst(string s) =>
+        s.Length == 0 ? s : char.ToLowerInvariant(s[0]) + s[1..];
 
     // ════════════════════════════════════════════════════════════
     // Message-list helpers (switch cases / try catches)

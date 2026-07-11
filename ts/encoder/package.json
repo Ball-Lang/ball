@@ -1,6 +1,6 @@
 {
   "name": "@ball-lang/encoder",
-  "version": "1.49.1",
+  "version": "1.50.0",
   "description": "TypeScript → Ball encoder. Parses TypeScript source and produces Ball IR (protobuf Program).",
   "type": "module",
   "main": "dist/index.js",

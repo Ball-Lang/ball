@@ -1,3 +1,10 @@
+# [1.50.0](https://github.com/Ball-Lang/ball/compare/v1.49.1...v1.50.0) (2026-07-11)
+
+
+### Features
+
+* **go:** [#426](https://github.com/Ball-Lang/ball/issues/426) Phase 3 — Go → Ball encoder (parser walk → universal std, round-trip verified) ([#431](https://github.com/Ball-Lang/ball/issues/431)) ([5517abb](https://github.com/Ball-Lang/ball/commit/5517abb4f8de936dffd91cc919db3cd7a664a9ec)), closes [#4](https://github.com/Ball-Lang/ball/issues/4) [#1](https://github.com/Ball-Lang/ball/issues/1) [#55](https://github.com/Ball-Lang/ball/issues/55)
+
 ## [1.49.1](https://github.com/Ball-Lang/ball/compare/v1.49.0...v1.49.1) (2026-07-11)
 
 

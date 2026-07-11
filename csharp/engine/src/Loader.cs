@@ -29,6 +29,19 @@ namespace Ball.Engine;
 /// </summary>
 public static class Loader
 {
+    // A Ball program's expression tree nests as deep as the source it was
+    // encoded from — deeply-nested control flow / try-catch / labeled loops push
+    // well past System.Text.Json's default 64-level read cap and
+    // Google.Protobuf's default 100-level JsonParser recursion limit (fixtures
+    // 127/146/148/256/280 exceeded both). Lift both to a generous ceiling; the
+    // conformance corpus's deepest program is only ~1-2 hundred levels, and the
+    // giant self-host engine program itself loads via the binary .pb path, never
+    // this JSON path. (The .NET default is 64; System.Text.Json caps MaxDepth at
+    // no more than the runtime allows for its own stack safety.)
+    private const int MaxJsonDepth = 512;
+
+    private static readonly JsonDocumentOptions DocOptions = new() { MaxDepth = MaxJsonDepth };
+
     /// <summary>
     /// Parse a proto3-JSON <c>.ball.json</c> program (stripping the cosmetic
     /// <c>@type</c> Any envelope) into a typed <see cref="Program"/> plus its
@@ -49,7 +62,7 @@ public static class Loader
         Program program;
         try
         {
-            var parser = new JsonParser(JsonParser.Settings.Default.WithIgnoreUnknownFields(true));
+            var parser = new JsonParser(new JsonParser.Settings(MaxJsonDepth).WithIgnoreUnknownFields(true));
             program = parser.Parse<Program>(body);
         }
         catch (InvalidProtocolBufferException e)
@@ -84,7 +97,7 @@ public static class Loader
     /// <summary>Strip the top-level <c>@type</c> Any-envelope key, returning the remaining JSON body.</summary>
     private static string StripTypeEnvelope(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        using var doc = JsonDocument.Parse(json, DocOptions);
         if (doc.RootElement.ValueKind != JsonValueKind.Object)
         {
             return json;
@@ -124,7 +137,7 @@ public static class Loader
     {
         var formatter = new JsonFormatter(JsonFormatter.Settings.Default.WithFormatDefaultValues(true));
         var json = formatter.Format(program);
-        using var doc = JsonDocument.Parse(json);
+        using var doc = JsonDocument.Parse(json, DocOptions);
         return NormalizeMetadata(JsonToBallValue(doc.RootElement));
     }
 

@@ -709,8 +709,20 @@ public sealed partial class CSharpCompiler
             case Expression.ExprOneofCase.Reference:
                 // Resolve through the (possibly renamed) local so an assignment
                 // targets the same C# identifier the reference reads.
-                var varName = LocalName(target.Reference.Name) ?? Naming.Sanitize(target.Reference.Name);
-                return new LValue(LValueKind.Var, varName, string.Empty);
+                if (LocalName(target.Reference.Name) is { } boundLocal)
+                {
+                    return new LValue(LValueKind.Var, boundLocal, string.Empty);
+                }
+
+                // A reassigned ("volatile") instance field with no shadowing local
+                // is written LIVE through the receiver (FieldSet), so the rebind is
+                // observed across method/closure boundaries mid-run (issue #383).
+                if (_inInstanceMethod && _selfRecvName is { } selfWrite && _volatileFields.Contains(target.Reference.Name))
+                {
+                    return new LValue(LValueKind.Field, selfWrite, target.Reference.Name);
+                }
+
+                return new LValue(LValueKind.Var, Naming.Sanitize(target.Reference.Name), string.Empty);
             case Expression.ExprOneofCase.FieldAccess:
                 var fa = target.FieldAccess;
                 var obj = fa.Object is null ? "BallValue.Null" : CompileExpression(fa.Object);

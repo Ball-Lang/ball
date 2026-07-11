@@ -81,6 +81,24 @@ public sealed partial class CSharpCompiler
     /// <summary>The C# local holding the current receiver, for implicit-<c>this</c> injection (survives a same-named <c>self</c> parameter shadowing).</summary>
     private string? _selfRecvName;
 
+    /// <summary>
+    /// Instance fields of the current method's owner that are <em>reassigned</em>
+    /// (a bare <c>field = x</c> rebind) somewhere in the class, and so must be read
+    /// and written <em>live</em> through <c>self</c> rather than via a method-entry
+    /// alias snapshot. The entry-alias optimization (read each field into a local
+    /// once, at method entry) is a read-time snapshot: sound for read-only or
+    /// mutate-through-a-shared-backing fields, but wrong for a field that is
+    /// rebound and observed across method/closure boundaries mid-run — e.g. the
+    /// engine's <c>_activeException</c>, set by <c>_evalLazyTry</c>'s catch handler
+    /// and read by the separate <c>rethrow</c> dispatch closure (issue #383). For
+    /// a volatile field, references compile to <c>FieldGet(self, name)</c> and
+    /// assignments to <c>FieldSet(self, name, …)</c>, matching Dart's implicit-this.
+    /// </summary>
+    private HashSet<string> _volatileFields = new(StringComparer.Ordinal);
+
+    /// <summary>Per-owner cache of <see cref="_volatileFields"/> (keyed by the owner <see cref="TypeDefinition.Name"/>).</summary>
+    private readonly Dictionary<string, HashSet<string>> _volatileFieldsByOwner = new(StringComparer.Ordinal);
+
     /// <summary>Class members (constructors/methods) grouped by their owner <see cref="TypeDefinition.Name"/>.</summary>
     private readonly Dictionary<string, List<FunctionDefinition>> _classMembersByOwner = new(StringComparer.Ordinal);
 
@@ -534,6 +552,16 @@ public sealed partial class CSharpCompiler
         if (LocalName(reference.Name) is { } local)
         {
             return local;
+        }
+
+        // A reassigned ("volatile") instance field is read LIVE through the
+        // receiver — it is deliberately not aliased into a method-entry local (a
+        // stale snapshot), so a rebind by one method/closure is observed by
+        // another mid-run (issue #383 — `rethrow` reads `_activeException` set by
+        // the catch handler). Non-volatile fields keep their fast alias local.
+        if (_inInstanceMethod && _selfRecvName is { } selfRead && _volatileFields.Contains(reference.Name))
+        {
+            return $"BallRuntime.FieldGet({selfRead}, {Naming.StringLiteral(reference.Name)})";
         }
 
         // A oneof-discriminator constant (Expression_Expr.call, …) — proto

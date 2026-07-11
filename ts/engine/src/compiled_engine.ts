@@ -633,11 +633,28 @@ function hasMetadata(obj: any): boolean { return _has(obj, 'metadata'); }
 function hasBody(obj: any): boolean { return _has(obj, 'body'); }
 function hasInput(obj: any): boolean { return _has(obj, 'input'); }
 function hasDescriptor(obj: any): boolean { return _has(obj, 'descriptor'); }
+// ModuleImport.source oneof (issue #364 — cli_core.dart's _importSource
+// reads these via hasHttp()/hasFile()/hasGit()/hasRegistry()/hasInline()
+// instead of whichSource(), since the self-hosted engine represents proto
+// oneof-case enums as maps and can't self-host a whichSource() ==
+// ModuleImport_Source.x comparison — see cli_core.dart's _importSource doc).
+function hasHttp(obj: any): boolean { return _has(obj, 'http'); }
+function hasFile(obj: any): boolean { return _has(obj, 'file'); }
+function hasGit(obj: any): boolean { return _has(obj, 'git'); }
+function hasRegistry(obj: any): boolean { return _has(obj, 'registry'); }
+function hasInline(obj: any): boolean { return _has(obj, 'inline'); }
 function hasStringValue(obj: any): boolean { return _has(obj, 'stringValue'); }
 function hasBoolValue(obj: any): boolean { return _has(obj, 'boolValue'); }
 function hasNumberValue(obj: any): boolean { return _has(obj, 'numberValue'); }
 function hasResult(obj: any): boolean { return _has(obj, 'result'); }
 function hasCall(obj: any): boolean { return _has(obj, 'call'); }
+// Statement oneof presence (let, expression) + FieldAccess object presence,
+// issue 362. The self-hosted ball audit analyzers and engine.dart read these
+// via hasLet, hasExpression, hasObject; they route to ball_proto and compile to
+// free calls, so they need top-level definitions here (mirrors hasHttp etc.).
+function hasLet(obj: any): boolean { return _has(obj, 'let'); }
+function hasExpression(obj: any): boolean { return _has(obj, 'expression'); }
+function hasObject(obj: any): boolean { return _has(obj, 'object'); }
 function hasListValue(obj: any): boolean { return _has(obj, 'listValue'); }
 function hasNullValue(obj: any): boolean { return _has(obj, 'nullValue'); }
 function hasStructValue(obj: any): boolean { return _has(obj, 'structValue'); }
@@ -1712,7 +1729,7 @@ export class BallEngine {
         }
         else if ((__sw === Expression_Expr.fieldAccess)) {
           let access = current.expr.fieldAccess;
-          if (access.hasObject()) {
+          if (hasObject(access)) {
             stack = (stack.push({ expr: access.object, depth: __ball_add(depth, 1) }), stack);
           }
         }

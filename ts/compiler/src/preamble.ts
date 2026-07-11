@@ -661,6 +661,13 @@ function hasBoolValue(obj: any): boolean { return _has(obj, 'boolValue'); }
 function hasNumberValue(obj: any): boolean { return _has(obj, 'numberValue'); }
 function hasResult(obj: any): boolean { return _has(obj, 'result'); }
 function hasCall(obj: any): boolean { return _has(obj, 'call'); }
+// Statement oneof presence (let, expression) + FieldAccess object presence,
+// issue 362. The self-hosted ball audit analyzers and engine.dart read these
+// via hasLet, hasExpression, hasObject; they route to ball_proto and compile to
+// free calls, so they need top-level definitions here (mirrors hasHttp etc.).
+function hasLet(obj: any): boolean { return _has(obj, 'let'); }
+function hasExpression(obj: any): boolean { return _has(obj, 'expression'); }
+function hasObject(obj: any): boolean { return _has(obj, 'object'); }
 function hasListValue(obj: any): boolean { return _has(obj, 'listValue'); }
 function hasNullValue(obj: any): boolean { return _has(obj, 'nullValue'); }
 function hasStructValue(obj: any): boolean { return _has(obj, 'structValue'); }

@@ -46,6 +46,10 @@ jobs:
       cpp: ${{ steps.f.outputs.cpp }}
       rust: ${{ steps.f.outputs.rust }}
       infra: ${{ steps.f.outputs.infra }}
+      # A self-hosted Dart source (dart/engine/lib/** or the cli_core.dart
+      # library) changed — already folded into cpp/rust below (#416). Exposed
+      # for observability/debugging; no downstream job consumes it directly.
+      self_host: ${{ steps.f.outputs.self_host }}
       # New/changed conformance fixture stems (space-separated, no dir, no
       # extension) — see the fixture_status computation below.
       changed_fixtures: ${{ steps.f.outputs.changed_fixtures }}
@@ -70,7 +74,7 @@ jobs:
             # changed_fixtures=ALL is the fail-open sentinel for the fixture
             # filter too — the typescript job runs the FULL full_e2e.ts sweep
             # rather than skip it, since we cannot compute what changed.
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "infra=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "infra=true"; echo "self_host=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot (merge-base) diff: ONLY this branch's own changes, never
@@ -91,6 +95,29 @@ jobs:
           # can never silently skip a check (fail-safe by construction).
           infra=false
           if grep -qvE '^(dart/|ts/|cpp/|rust/)' <<< "$files"; then infra=true; fi
+
+          # self_host = the diff touches a Dart source that CROSS-COMPILES into
+          # the C++ AND Rust self-hosted artifacts, even though it lives under
+          # dart/ (so it would otherwise flip only dart=true):
+          #   * dart/engine/lib/**  -> engine_rt.cpp / compiled_engine.rs — the
+          #     self-hosted ENGINE (engine.dart + its part files), encoded by
+          #     compile_engine_cpp.dart and gen_engine_json.dart(+ball-engine-regen).
+          #   * dart/shared/lib/cli_core.dart + its parts (capability_analyzer,
+          #     capability_table, termination_analyzer) -> cli_rt.h / compiled_cli.rs
+          #     — the self-hosted CLI core, encoded by gen_cli_cpp.dart and
+          #     gen_cli_json.dart(+ball-cli-regen).
+          # These artifacts are REGENERATED from these Dart sources at CI build
+          # time, so a Dart-only edit to them changes what the C++/Rust jobs
+          # compile and run — yet, mapped by top-level dir alone, sets only
+          # dart=true and SKIPS the cpp/rust self-host jobs. That exact blind
+          # spot let a C++ self-host break slip through PR CI in #398 (and forced
+          # #413's manual verification lane). OR self_host into cpp/rust below so
+          # those jobs run whenever the self-host sources change. (dart/compiler,
+          # dart/encoder, dart/cli are the Dart-target toolchain, not self-host
+          # program inputs, so they are NOT here — the C++/Rust targets use their
+          # OWN compilers for the Ball->native step.) See #416.
+          self_host=false
+          if m '^dart/engine/lib/|^dart/shared/lib/(cli_core|capability_analyzer|capability_table|termination_analyzer)\.dart$'; then self_host=true; fi
 
           # New/changed conformance fixtures (never deleted) under
           # tests/conformance/*.ball.json, as bare fixture stems (no dir, no
@@ -113,9 +140,13 @@ jobs:
           {
             out dart '^dart/'
             out ts   '^ts/'
-            out cpp  '^cpp/'
-            out rust '^rust/'
+            # cpp/rust run on their own dir changes OR any self-host Dart source
+            # change (self_host above — #416): those sources cross-compile into
+            # the C++/Rust self-host artifacts even though they live under dart/.
+            if m '^cpp/'  || [ "$self_host" = true ]; then echo "cpp=true";  else echo "cpp=false";  fi
+            if m '^rust/' || [ "$self_host" = true ]; then echo "rust=true"; else echo "rust=false"; fi
             echo "infra=$infra"
+            echo "self_host=$self_host"
             echo "changed_fixtures=$changed_fixtures"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"

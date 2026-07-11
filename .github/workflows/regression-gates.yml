@@ -67,6 +67,10 @@ jobs:
       ts: ${{ steps.f.outputs.ts }}
       cpp: ${{ steps.f.outputs.cpp }}
       infra: ${{ steps.f.outputs.infra }}
+      # A self-hosted Dart source (dart/engine/lib/** or the cli_core.dart
+      # library) changed — already folded into cpp below (#416). Exposed for
+      # observability; the cpp-selfhost-tally job gates on cpp, not this.
+      self_host: ${{ steps.f.outputs.self_host }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -84,7 +88,7 @@ jobs:
           zero="0000000000000000000000000000000000000000"
           if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
             echo "No usable diff base ('$base') — failing OPEN: run every stack."
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "infra=true"; } >> "$GITHUB_OUTPUT"
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "infra=true"; echo "self_host=true"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot (merge-base) diff: ONLY this branch's own changes, never
@@ -97,11 +101,32 @@ jobs:
           out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
           infra=false
           if grep -qvE '^(dart/|ts/|cpp/)' <<< "$files"; then infra=true; fi
+          # self_host = the diff touches a Dart source that CROSS-COMPILES into
+          # the C++ self-hosted artifacts the cpp-selfhost-tally job regenerates
+          # and runs, even though it lives under dart/ (so it would otherwise
+          # flip only dart=true):
+          #   * dart/engine/lib/**  -> engine_rt.cpp (compile_engine_cpp.dart) —
+          #     the self-hosted ENGINE the per-fixture tally executes.
+          #   * dart/shared/lib/cli_core.dart + its parts (capability_analyzer,
+          #     capability_table, termination_analyzer) -> cli_rt.h
+          #     (gen_cli_cpp.dart) — the self-hosted CLI verbs the parity gate
+          #     asserts byte-identical to the Dart CLI.
+          # Mapped by top-level dir alone, an edit to these sets only dart=true
+          # and SKIPS this cpp tally — the exact blind spot that let a C++
+          # self-host break slip through PR CI in #398 (and forced #413's manual
+          # verification lane). OR self_host into cpp below. (dart/compiler,
+          # dart/encoder, dart/cli are Dart-target tooling, not self-host program
+          # inputs — C++ uses its OWN compiler for the Ball->native step.) See #416.
+          self_host=false
+          if m '^dart/engine/lib/|^dart/shared/lib/(cli_core|capability_analyzer|capability_table|termination_analyzer)\.dart$'; then self_host=true; fi
           {
             out dart '^dart/'
             out ts   '^ts/'
-            out cpp  '^cpp/'
+            # cpp runs on its own dir changes OR any self-host Dart source change
+            # (self_host above — #416).
+            if m '^cpp/' || [ "$self_host" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
             echo "infra=$infra"
+            echo "self_host=$self_host"
           } >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 

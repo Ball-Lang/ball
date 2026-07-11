@@ -1,3 +1,10 @@
+## [1.34.1](https://github.com/Ball-Lang/ball/compare/v1.34.0...v1.34.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **csharp:** dedupe Microsoft.CodeAnalysis.CSharp CPM pin (5.6.0 + 4.14.0 → 5.6.0) ([#395](https://github.com/Ball-Lang/ball/issues/395)) ([764a159](https://github.com/Ball-Lang/ball/commit/764a159f541f76fe8b4274a7710f00f8cc94367b)), closes [#391](https://github.com/Ball-Lang/ball/issues/391) [#392](https://github.com/Ball-Lang/ball/issues/392)
+
 # [1.34.0](https://github.com/Ball-Lang/ball/compare/v1.33.0...v1.34.0) (2026-07-11)
 
 

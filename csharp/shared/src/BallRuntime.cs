@@ -78,8 +78,21 @@ public static partial class BallRuntime
     private static BallList AsList(BallValue value) => value switch
     {
         BallList l => l,
+        BallBytes b => BytesToIntList(b),
         _ => throw new BallRuntimeException($"expected a list, got {TypeName(value)}"),
     };
+
+    /// <summary>
+    /// A proto <c>bytes</c> field is a Dart <c>Uint8List</c> — i.e. a
+    /// <c>List&lt;int&gt;</c> of unsigned byte values — so the engine's list/iterate
+    /// surface must view a <see cref="BallBytes"/> as one (indexing, <c>.length</c>,
+    /// iteration, and <c>.toList()</c>; the self-hosted engine's own
+    /// <c>_evalLiteral</c> does <c>lit.bytesValue.toList()</c>). Read-only: a fresh
+    /// list, mirroring Dart, where a fixed-length <c>Uint8List</c> supports reads and
+    /// index-set but not structural growth.
+    /// </summary>
+    private static BallList BytesToIntList(BallBytes bytes) =>
+        new BallList(bytes.Value.Select(b => BallValue.Int(b)));
 
     private static BallMap AsMap(BallValue value) => value switch
     {
@@ -149,6 +162,17 @@ public static partial class BallRuntime
 
     /// <summary>Raise a catchable Ball <c>throw value</c>.</summary>
     public static BallValue Throw(BallValue value) => throw new BallThrow(value);
+
+    /// <summary>
+    /// The stack-trace value bound by a two-variable <c>catch (e, stackTrace)</c>
+    /// clause — the C# analog of Dart's caught <c>StackTrace</c>. Dart's
+    /// <c>catch</c> always supplies a non-empty trace; the CLR populates
+    /// <see cref="Exception.StackTrace"/> at the catch site, so this is a non-empty
+    /// <see cref="BallString"/> the caught program can <c>.toString()</c>/measure
+    /// (with a defensive fall back to the exception's string form).
+    /// </summary>
+    public static BallValue CaughtStackTrace(Exception ex) =>
+        BallValue.Str(string.IsNullOrEmpty(ex.StackTrace) ? ex.ToString() : ex.StackTrace);
 
     // ════════════════════════════════════════════════════════════
     // Arithmetic
@@ -618,20 +642,25 @@ public static partial class BallRuntime
     }
 
     /// <summary>
-    /// <c>list + other</c> — a new list (neither operand mutated). Polymorphic:
-    /// the syntactic encoder routes a map spread/merge (<c>{...a, ...b}</c>) here
-    /// too, so two maps merge into a fresh map (right wins on key clash).
+    /// <c>list.addAll(other)</c> / list <c>+</c> — the syntactic encoder cannot
+    /// tell a List/Set/Map receiver apart, so it funnels every <c>.addAll</c>
+    /// through this op (encoded as <c>x = list_concat(x, other)</c>). A
+    /// <b>Map</b> receiver merges <paramref name="other"/>'s entries <b>in place</b>
+    /// and returns the same map (right wins on key clash) — Dart's
+    /// <c>Map.addAll</c> mutates, so a caller sharing the map reference must see
+    /// the merge (the self-hosted engine's pattern binder relies on this: a
+    /// <c>logical_and</c>/<c>logical_or</c> pattern merges its sub-bindings back
+    /// into the shared <c>bindings</c> map via <c>.addAll</c>; a fresh-map copy
+    /// silently dropped them — issue #383, conformance 258). Mirrors Rust's
+    /// <c>ball_list_concat</c>. A map literal spread (<c>{...a, ...b}</c>) does
+    /// NOT reach here — it compiles to <c>map_create</c>/<c>MapSpread</c>. A
+    /// List/Set receiver concatenates into a fresh list (the reassignment keeps
+    /// same-scope callers correct; conformance 386).
     /// </summary>
     public static BallValue ListConcat(BallValue list, BallValue other)
     {
-        if (list is BallMap or BallMessage && other is BallMap or BallMessage)
+        if (list is BallMap map && other is BallMap or BallMessage)
         {
-            var map = new BallMap();
-            foreach (var (key, value) in MapLikeEntries(list))
-            {
-                map.Set(key, value);
-            }
-
             foreach (var (key, value) in MapLikeEntries(other))
             {
                 map.Set(key, value);
@@ -640,9 +669,25 @@ public static partial class BallRuntime
             return map;
         }
 
-        var merged = AsList(list).Snapshot();
-        merged.AddRange(AsList(other).Snapshot());
-        return new BallList(merged);
+        if (list is BallMessage && other is BallMap or BallMessage)
+        {
+            var merged = new BallMap();
+            foreach (var (key, value) in MapLikeEntries(list))
+            {
+                merged.Set(key, value);
+            }
+
+            foreach (var (key, value) in MapLikeEntries(other))
+            {
+                merged.Set(key, value);
+            }
+
+            return merged;
+        }
+
+        var items = AsList(list).Snapshot();
+        items.AddRange(AsList(other).Snapshot());
+        return new BallList(items);
     }
 
     /// <summary><c>list.sublist(start, end)</c> — <paramref name="end"/> exclusive; null ⇒ to the end.</summary>

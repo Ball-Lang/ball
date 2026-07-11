@@ -754,11 +754,21 @@ public sealed partial class CSharpCompiler
         {
             var cf = MessageCreationFields(catches[0]);
             var variable = StringField(cf, "variable");
+            var stackVariable = StringField(cf, "stack_trace");
             PushScope();
             sb.Append("catch (BallThrow __ballEx)\n{\n");
             if (!string.IsNullOrEmpty(variable))
             {
                 sb.Append($"var {BindLocal(variable)} = __ballEx.Payload;\n");
+            }
+
+            // A two-variable `catch (e, stackTrace)` binds the caught trace too —
+            // the C# analog of Dart's StackTrace (the CLR-populated one on the
+            // caught BallThrow), so a reference to it inside the body resolves
+            // instead of falling through to an UnresolvedReference (issue #383).
+            if (!string.IsNullOrEmpty(stackVariable))
+            {
+                sb.Append($"var {BindLocal(stackVariable)} = BallRuntime.CaughtStackTrace(__ballEx);\n");
             }
 
             sb.Append(cf.TryGetValue("body", out var cb) ? EmitStatementUnwrapped(cb) : ";");

@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–5 complete + Phase 6 self-host engine RUNS hello_world + fibonacci — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine)
+# C# (Phases 1–5 complete + Phase 6 self-host engine runs the WHOLE conformance corpus at Dart parity — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine)
 
 ## Purpose
 
@@ -517,13 +517,29 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   (`95`/`391`). All now route through a `BallRuntime.MapKey` helper that stringifies a non-string
   key via its display form (int `5` → `"5"`, whole double → `"5.0"`) — mirrors
   `rust/shared/src/runtime.rs`'s `index_key` exactly (+2, `95`/`391`).
-- **Remaining failures (8):** `convert` (`185`) and `DateTime.fromMillisecondsSinceEpoch` (`188`)
-  scalar-method singletons, int-boundary `abs` overflow (`230` — .NET checked negation throws on
-  `long.MinValue` where Dart wraps), logical-and pattern binding (`258`), catchable
-  `int.parse`/index-range errors surfacing loud (`275`/`199`), bytes-literal-to-list (`399`), and
-  the `stackTrace` catch binding (`300`). The proper gated harness is #384; the acceptance tests
-  are `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build;
-  run with `dotnet test -p:SelfHost=true`).
+- **Catchable errors + JSON/DateTime built-ins (Rounds 13–14):** the sweep climbed **312 → 317 /
+  320** (0 regressions). Round 13 (PR #417) surfaced Dart-catchable runtime errors — int-boundary
+  `abs` wrapping (`230`), a typed `BallThrow` payload that is a `BallMessage` whose type name IS the
+  exception type so `on FormatException`/`on RangeError` match (`275`/`199`). Round 14 (PR #419)
+  implemented the `std_convert` JSON codec + `std_time` DateTime built-ins reached via `CallMethod`,
+  and fixed a **map-literal comprehension splice** compiler gap (`CompileMapCreate` now splices
+  `element` spread/collection_if/collection_for entries, the map analog of the Round-9 list splice)
+  (`185`/`188`).
+- **Full corpus parity (Round 15, this PR):** the informal `tests/conformance/*.ball.json` sweep is
+  now at **320 passed / 320** (0 failed, 0 timeouts) — the compiled engine runs the WHOLE golden
+  corpus at Dart parity (the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs,
+  as for every other self-host target). Three bounded root-cause categories closed the last residuals,
+  each in `Ball.Shared`/`csharp/compiler` (never the generated file): (a) **bytes as `List<int>`** —
+  a proto `bytes` field is a Dart `Uint8List`, so `AsList`/`SpreadIter` now view a `BallBytes` as an
+  int list (`lit.bytesValue.toList()`, indexing, iteration; `399`); (b) the **two-variable
+  `catch (e, stackTrace)` binding** — the compiler now binds the catch clause's `stack_trace`
+  variable to `BallRuntime.CaughtStackTrace(__ballEx)` instead of leaving it an `UnresolvedReference`
+  (`300`); (c) **`Map.addAll` merges in place** — `list_concat` on two maps now mutates the receiver
+  and returns it (mirrors Rust's `ball_list_concat`), so a `logical_and`/`logical_or` pattern merging
+  its sub-bindings back through the shared `bindings` map is observed by the caller instead of dropped
+  into a fresh copy (`258`). The gated acceptance tests are `csharp/engine/test/SelfHostRunTests.cs`
+  (SELF_HOST-gated: `hello_world`+`fibonacci` golden plus a byte-exact `[Theory]` over `399`/`300`/
+  `258`); the full corpus harness is #384.
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -568,16 +584,19 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   foundation** — the regen tool, the `Loader`/`BallEngine`/`BallProto` foundation with real tests,
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
   **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
-  **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
-  informal corpus sweep is at 312/320 with no hangs after the Rounds 8–12 bounded-category grind
-  (Round 5: RegExp surface, core-collection copy/fill constructors, universal `toString` fallback;
-  Round 6: the double-value-representation gap; Round 7: live reassigned-instance-field
-  read/write through `self` + loader JSON depth-cap lift; Round 8: first-class `Function.apply`/
-  `fold` callbacks; Round 9: list-literal spread splice; Rounds 10–11: IEEE double equality +
-  `num.remainder`/`toInt` + byte-exact `toStringAs*` formatting; Round 12: non-string map-key
-  coercion — see "Self-hosted engine" above and #383). The
-  `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
-  comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
+  **RUNS the WHOLE conformance corpus at Dart parity**: the informal `tests/conformance/*.ball.json`
+  sweep is at **320 passed / 320** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact golden;
+  the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs) after the Rounds 5–15
+  bounded-category grind (Round 5: RegExp surface, core-collection copy/fill constructors, universal
+  `toString` fallback; Round 6: the double-value-representation gap; Round 7: live
+  reassigned-instance-field read/write through `self` + loader JSON depth-cap lift; Round 8:
+  first-class `Function.apply`/`fold` callbacks; Round 9: list-literal spread splice; Rounds 10–11:
+  IEEE double equality + `num.remainder`/`toInt` + byte-exact `toStringAs*` formatting; Round 12:
+  non-string map-key coercion; Round 13: Dart-catchable runtime errors; Round 14: JSON/DateTime
+  built-ins + map-comprehension splice; Round 15: bytes-as-`List<int>`, two-variable
+  `catch (e, stackTrace)`, in-place `Map.addAll` merge — see "Self-hosted engine" above and #383).
+  The `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
+  comment for the blocked-by graph (#384 conformance harness, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds
   lists/maps/messages with the reference-vs-value-semantics copy rules above — do not re-derive
   operator semantics as emitted text. Fixes to compiled-program behavior belong in the compiler

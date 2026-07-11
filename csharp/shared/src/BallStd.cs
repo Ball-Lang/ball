@@ -578,6 +578,7 @@ public static partial class BallRuntime
     public static IEnumerable<BallValue> SpreadIter(BallValue value) => value switch
     {
         BallList list => list.Snapshot(),
+        BallBytes bytes => AsList(bytes).Snapshot(),
         BallMap map when map.Get("__ball_set__") is BallList setItems => setItems.Snapshot(),
         BallMessage msg when msg.Get("__ball_set__") is BallList msgSetItems => msgSetItems.Snapshot(),
         BallNull => Array.Empty<BallValue>(),

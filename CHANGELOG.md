@@ -1,3 +1,19 @@
+# [1.43.0](https://github.com/Ball-Lang/ball/compare/v1.42.0...v1.43.0) (2026-07-11)
+
+
+### Bug Fixes
+
+* **#402:** audit categorizes by resolved base-fn identity — close the call.module spoofing bypass ([#413](https://github.com/Ball-Lang/ball/issues/413)) ([7b637cb](https://github.com/Ball-Lang/ball/commit/7b637cbf7d848631957b9290ab33462bde0a721d))
+* **ci:** unblock the release pipeline (dart analyze warning) + make PR analyze strict ([#418](https://github.com/Ball-Lang/ball/issues/418)) ([f8a9e7d](https://github.com/Ball-Lang/ball/commit/f8a9e7d1fe5207ca8ca1e7ac3389f8e199da08fe))
+
+
+### Features
+
+* **cli:** self-host cli_core.auditReport (advances [#362](https://github.com/Ball-Lang/ball/issues/362)) ([#398](https://github.com/Ball-Lang/ball/issues/398)) ([6b82490](https://github.com/Ball-Lang/ball/commit/6b824906168008242cfbceb2c595a37b8204eb82)), closes [#55](https://github.com/Ball-Lang/ball/issues/55) [#364](https://github.com/Ball-Lang/ball/issues/364)
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — byte-exact num.toStringAsFixed/Exponential/Precision ([#411](https://github.com/Ball-Lang/ball/issues/411)) ([1bbc2f9](https://github.com/Ball-Lang/ball/commit/1bbc2f976e44c53052b6972e6b613207b592983e))
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — stringify non-string map keys ([#414](https://github.com/Ball-Lang/ball/issues/414)) ([6fb71cd](https://github.com/Ball-Lang/ball/commit/6fb71cd1635e973d6da824aa48645dab823b26f1))
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — surface Dart-catchable runtime errors (312 → 315) ([#417](https://github.com/Ball-Lang/ball/issues/417)) ([a7122b7](https://github.com/Ball-Lang/ball/commit/a7122b784ed60211708d6fb7a01fe7cce4b28c5c))
+
 # [1.42.0](https://github.com/Ball-Lang/ball/compare/v1.41.0...v1.42.0) (2026-07-11)
 
 

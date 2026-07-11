@@ -8,7 +8,7 @@
     {
       "name": "ball",
       "source": "./plugins/ball",
-      "description": "Ball language toolchain skills: convert codebases between programming languages through the Ball IR, bootstrap new language targets, and iterate on existing ones"
+      "description": "Ball language toolchain skills: convert codebases between programming languages through the Ball IR, safely embed the Ball engine for dynamic code delivery, bootstrap new language targets, and iterate on existing ones"
     }
   ]
 }

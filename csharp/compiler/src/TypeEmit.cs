@@ -245,12 +245,12 @@ public sealed partial class CSharpCompiler
         var inName = PushInput();
         PushScope();
         var sb = new StringBuilder($"    private static BallValue {implName}(BallValue {inName})\n    {{\n");
-        sb.Append($"        var self = BallRuntime.FieldGet({inName}, \"self\");\n");
-        BindLocal("self");
+        var selfName = BindLocal("self");
+        sb.Append($"        var {selfName} = BallRuntime.FieldGet({inName}, \"self\");\n");
 
         // A declared parameter shadows a same-named field inside the method body
-        // (Dart semantics); C# forbids re-declaring the name, so skip the field
-        // alias when a parameter (or the receiver `self`) already claims it.
+        // (Dart semantics); the field alias would be dead, so skip it when a
+        // parameter (or the receiver `self`) already claims that name.
         var paramNames = ParamNames(member);
         var shadowed = new HashSet<string>(paramNames, StringComparer.Ordinal) { "self" };
 
@@ -263,8 +263,7 @@ public sealed partial class CSharpCompiler
                     continue;
                 }
 
-                sb.Append($"        var {Naming.Sanitize(field.Name)} = BallRuntime.FieldGet(self, {Naming.StringLiteral(field.Name)});\n");
-                BindLocal(field.Name);
+                sb.Append($"        var {BindLocal(field.Name)} = BallRuntime.FieldGet({selfName}, {Naming.StringLiteral(field.Name)});\n");
             }
         }
 
@@ -275,8 +274,7 @@ public sealed partial class CSharpCompiler
                 continue;
             }
 
-            sb.Append($"        var {Naming.Sanitize(param)} = BallRuntime.FieldGet({inName}, {Naming.StringLiteral(param)});\n");
-            BindLocal(param);
+            sb.Append($"        var {BindLocal(param)} = BallRuntime.FieldGet({inName}, {Naming.StringLiteral(param)});\n");
         }
 
         if (member.Body is null)

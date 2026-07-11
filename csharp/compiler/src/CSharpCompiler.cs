@@ -75,8 +75,21 @@ public sealed partial class CSharpCompiler
     /// <summary>Every user <see cref="TypeDefinition"/> keyed by short name (for constructor-argument remapping).</summary>
     private readonly Dictionary<string, TypeDefinition> _typeDefsByShortName = new(StringComparer.Ordinal);
 
-    /// <summary>Lexical scope stack of sanitized local binding names (parameters, <c>let</c>s, loop/catch variables).</summary>
-    private readonly List<HashSet<string>> _localScopes = new();
+    /// <summary>
+    /// Lexical scope stack. Each frame maps a Ball local's sanitized name to the
+    /// C# identifier it is actually emitted as. They usually match, but when a
+    /// binding would shadow a name already visible in an enclosing scope — legal
+    /// in Dart, a CS0136/CS0128 error in C# — it is emitted under a unique alias
+    /// and references resolve through this map (see <see cref="BindLocal"/> /
+    /// <see cref="LocalName"/>).
+    /// </summary>
+    private readonly List<Dictionary<string, string>> _localScopes = new();
+
+    /// <summary>Monotonic counter for globally-unique local aliases (<c>name__L0</c>, …).</summary>
+    private int _shadowCounter;
+
+    /// <summary>Monotonic counter for compiler-internal temporaries emitted into a block (e.g. a switch subject).</summary>
+    private int _tempCounter;
 
     /// <summary>
     /// Stack of synthesized C# parameter names for the enclosing
@@ -294,15 +307,13 @@ public sealed partial class CSharpCompiler
         var sb = new StringBuilder();
         if (names.Count == 1)
         {
-            BindLocal(names[0]);
-            sb.Append($"var {Naming.Sanitize(names[0])} = {CurrentInput};\n");
+            sb.Append($"var {BindLocal(names[0])} = {CurrentInput};\n");
         }
         else
         {
             foreach (var name in names)
             {
-                BindLocal(name);
-                sb.Append($"var {Naming.Sanitize(name)} = BallRuntime.FieldGet({CurrentInput}, {Naming.StringLiteral(name)});\n");
+                sb.Append($"var {BindLocal(name)} = BallRuntime.FieldGet({CurrentInput}, {Naming.StringLiteral(name)});\n");
             }
         }
 
@@ -330,9 +341,10 @@ public sealed partial class CSharpCompiler
             {
                 case Statement.StmtOneofCase.Let:
                     var let = statement.Let;
+                    // Compile the initializer BEFORE binding the name so a
+                    // `let x = <expr using outer x>` resolves to the outer binding.
                     var value = let.Value is null ? "BallValue.Null" : CompileExpression(let.Value);
-                    sb.Append($"var {Naming.Sanitize(let.Name)} = {value};\n");
-                    BindLocal(let.Name);
+                    sb.Append($"var {BindLocal(let.Name)} = {value};\n");
                     break;
                 case Statement.StmtOneofCase.Expression:
                     sb.Append(EmitStatement(statement.Expression));
@@ -471,22 +483,61 @@ public sealed partial class CSharpCompiler
             return "BallValue.Null";
         }
 
+        // A bound local resolves first (it shadows a namesake type/callable/
+        // discriminator), through its possibly-renamed emitted identifier.
+        if (LocalName(reference.Name) is { } local)
+        {
+            return local;
+        }
+
         // A oneof-discriminator constant (Expression_Expr.call, …) — proto
         // codegen's synthesized enums, referenced by the engine's dispatch but
         // carrying no EnumDescriptorProto; resolve to the emitted namespace.
-        if (!IsLocal(reference.Name) && OneofDiscriminators.ContainsKey(reference.Name))
+        if (OneofDiscriminators.ContainsKey(reference.Name))
         {
             return $"BallOneofs.{Naming.Sanitize(reference.Name)}";
         }
 
+        // A bare reference to a Dart core type name (num/int/DateTime/…), used as
+        // a static-method receiver (int.tryParse) or a type argument — emit a
+        // TypeLiteral marker so it is a valid dispatchable value. Guarded against
+        // a user type of the same short name.
+        if (BuiltinTypeNames.Contains(reference.Name)
+            && !_typeDefsByShortName.ContainsKey(reference.Name))
+        {
+            return $"BallRuntime.TypeLiteral({Naming.StringLiteral(reference.Name)})";
+        }
+
         var name = Naming.Sanitize(reference.Name);
-        if (!IsLocal(reference.Name) && _callableNames.Contains(name))
+        if (_callableNames.Contains(name))
         {
             return $"new BallFunction({Naming.StringLiteral(reference.Name)}, {name})";
         }
 
-        return name;
+        // A name that is none of the above resolves to nothing the compiler can
+        // emit — an inherited field / superclass member on a class whose parent
+        // is a base type (e.g. `entries` on `BallObject extends BallMap`), a
+        // stub-module enum constant (`io_FileMode`), or a second catch binding
+        // (`stackTrace`). These are documented Round-3 gaps (#383); emit a
+        // fail-loud marker rather than an undefined identifier, so the self-host
+        // engine COMPILES (the base corpus never reaches these paths) and the
+        // gap surfaces loudly, never as a silently-wrong value.
+        return $"BallRuntime.UnresolvedReference({Naming.StringLiteral(reference.Name)})";
     }
+
+    /// <summary>
+    /// Dart core type names that can appear as a bare <c>reference</c> — the
+    /// receiver of a static call (<c>int.tryParse</c>, <c>List.filled</c>) or a
+    /// type argument. Emitted as a <see cref="BallRuntime.TypeLiteral"/> marker.
+    /// A user type of the same short name (in <c>_typeDefsByShortName</c>) is
+    /// excluded at the use site.
+    /// </summary>
+    private static readonly HashSet<string> BuiltinTypeNames = new(StringComparer.Ordinal)
+    {
+        "int", "double", "num", "String", "bool", "List", "Map", "Set", "Function",
+        "Object", "DateTime", "Duration", "RegExp", "Iterable", "StringBuffer", "BigInt",
+        "Uri", "Type", "Symbol", "Pattern", "Match", "Comparable", "Stopwatch",
+    };
 
     /// <summary><c>field_access</c> — <c>object.field</c> against a dynamic (message/map) receiver.</summary>
     private string CompileFieldAccess(FieldAccess fieldAccess)
@@ -577,9 +628,19 @@ public sealed partial class CSharpCompiler
         var name = Naming.Sanitize(call.Function);
         var prefix = ResolveUserCallPrefix(call.Module);
 
-        if (prefix.Length == 0 && IsLocal(call.Function))
+        if (prefix.Length == 0 && LocalName(call.Function) is { } localCallee)
         {
-            return $"BallRuntime.CallFunction({name}, {input})";
+            return $"BallRuntime.CallFunction({localCallee}, {input})";
+        }
+
+        // A same-module call whose callee is neither a known user function nor a
+        // local function value is a built-in method call on a core type
+        // (`x.group(1)`, `int.tryParse(s)`, `list.addAll(y)`) that the encoder
+        // lowered to `call{module:"", function:<method>, input:{self, arg0, …}}`.
+        // There is no static receiver type, so dispatch it dynamically at runtime.
+        if (prefix.Length == 0 && !_callableNames.Contains(name))
+        {
+            return $"BallRuntime.CallMethod({Naming.StringLiteral(call.Function)}, {input})";
         }
 
         return $"{prefix}{name}({input})";
@@ -600,7 +661,7 @@ public sealed partial class CSharpCompiler
     // Scope tracking + metadata helpers
     // ════════════════════════════════════════════════════════════
 
-    private void PushScope() => _localScopes.Add(new HashSet<string>(StringComparer.Ordinal));
+    private void PushScope() => _localScopes.Add(new Dictionary<string, string>(StringComparer.Ordinal));
 
     private void PopScope() => _localScopes.RemoveAt(_localScopes.Count - 1);
 
@@ -617,19 +678,44 @@ public sealed partial class CSharpCompiler
 
     private void PopInput() => _inputNames.RemoveAt(_inputNames.Count - 1);
 
-    private void BindLocal(string name)
-    {
-        if (_localScopes.Count > 0)
-        {
-            _localScopes[^1].Add(Naming.Sanitize(name));
-        }
-    }
-
-    private bool IsLocal(string name)
+    /// <summary>
+    /// Bind a Ball local in the current scope and return the C# identifier to
+    /// emit for it — <b>always a unique</b> <c>{name}__L{n}</c> alias. Dart allows
+    /// a binding to shadow a namesake in an enclosing scope; C# does not (CS0136),
+    /// and — because C# block scoping ignores declaration order — a local at a
+    /// method's top level even conflicts with a namesake in a nested block that
+    /// textually precedes it. Making every binding globally unique sidesteps the
+    /// whole family; references resolve through <see cref="LocalName"/>, so the
+    /// alias is invisible to the Ball program's semantics.
+    /// </summary>
+    private string BindLocal(string name)
     {
         var sanitized = Naming.Sanitize(name);
-        return _localScopes.Any(frame => frame.Contains(sanitized));
+        var emitted = $"{sanitized}__L{_shadowCounter++}";
+        if (_localScopes.Count > 0)
+        {
+            _localScopes[^1][sanitized] = emitted;
+        }
+
+        return emitted;
     }
+
+    /// <summary>The C# identifier a Ball local resolves to (innermost scope first), or <c>null</c> if unbound.</summary>
+    private string? LocalName(string name)
+    {
+        var sanitized = Naming.Sanitize(name);
+        for (var i = _localScopes.Count - 1; i >= 0; i--)
+        {
+            if (_localScopes[i].TryGetValue(sanitized, out var emitted))
+            {
+                return emitted;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsLocal(string name) => LocalName(name) is not null;
 
     /// <summary>The declared parameter names of <paramref name="func"/> from its <c>metadata.params</c> bag.</summary>
     private static List<string> ParamNames(FunctionDefinition func)

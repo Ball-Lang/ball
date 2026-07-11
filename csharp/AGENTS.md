@@ -407,11 +407,24 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   `whichExpr`/…, presence `hasBody`/…, `getField`/`setField`/Struct access/defaults). The compiler
   dispatches `ball_proto.*` base calls there (`BaseCall.cs`'s `CompileBallProtoCall`). Unit-tested
   against real fixture IR shapes in `csharp/engine/test/BallProtoTests.cs`.
-- **Self-host status:** the first compile produced 474 `csc` errors; the Round-1 grind (unique
-  per-scope input names, oneof-discriminator constants, stub-library-module fail-loud routing)
-  took it to **174**. Remaining categories (unimplemented base-function runtime surface —
-  `regex_*`/`math_*`/`std_io`/`std_fs` + the bare-name Dart-core method calls; general nested
-  binding rename beyond `input`) are the Round-2+ backlog. Track it on #383, not this prose.
+- **Self-host status:** `CompiledEngine.cs` **COMPILES** under `-p:SelfHost=true` (0 `csc`
+  errors). The first compile produced 474; Round 1 (unique per-scope input names,
+  oneof-discriminator constants, stub-library-module fail-loud routing) took it to 174, and
+  Round 2 to **0** via: dynamic built-in-method dispatch (`BallRuntime.CallMethod` — `x.group(1)`/
+  `list.addAll(y)`/`int.tryParse(s)`/set algebra, the ~130 empty-module `{self, arg0, …}` calls)
+  + type-literal markers (`BallRuntime.TypeLiteral`, for bare `int`/`num`/`DateTime` receivers);
+  globally-unique local aliases in `BindLocal` (all `let`/param/field-alias/loop/catch bindings,
+  since C# forbids the nested-scope shadowing Dart allows — even a top-level binding conflicts
+  with a namesake in a textually-earlier nested block); and a fail-loud `UnresolvedReference`
+  fallback for the last handful (an inherited field on a base-type superclass like `entries` on
+  `BallObject extends BallMap`, a stub-module enum `io_FileMode`, a second catch binding
+  `stackTrace`).
+- **Running is NOT yet wired:** `BallEngine.Run` still reports `SelfHostPendingException`. The
+  compiled engine's `run` reads `self._functions`/`_types`/`_globalScope`/… — state a **body-
+  carrying constructor** (`BallEngine.new`) builds, which the compiler still skips (a Phase-4
+  documented gap). Emitting constructor bodies (+ `super` chains, inherited-field binding) is the
+  next milestone to make the corpus actually run — the analog of Rust's post-compile "run
+  blocker". Track it on #383, not this prose.
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -446,8 +459,9 @@ dotnet build csharp/engine/Ball.Engine.csproj -p:SelfHost=true      # compile th
   — 77 xunit tests, zero `csharp_std` modules, verified against the Dart reference engine (#382;
   see "Encoder" above). **Phase 6 (#383) is in progress: the self-hosted engine wrapper
   foundation** — the regen tool, the `Loader`/`BallEngine`/`BallProto` foundation with real tests,
-  and the first-compile category grind (474 → 174 `csc` errors) — **has landed; the generated
-  `CompiledEngine.cs` does not yet fully compile** (see "Self-hosted engine" above and #383). The
+  and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
+  **0 — it now COMPILES** under `-p:SelfHost=true` (see "Self-hosted engine" above and #383).
+  Running it still needs body-carrying constructor emission (the documented run blocker). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

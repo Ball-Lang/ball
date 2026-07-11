@@ -26,7 +26,7 @@ namespace Ball.Shared;
 /// (<c>list_map</c>/<c>list_reduce</c>/…), <c>regex_*</c>, the <c>math_*</c>
 /// transcendental family, <c>std_io</c>, and all of <c>std_memory</c>.</para>
 /// </summary>
-public static class BallRuntime
+public static partial class BallRuntime
 {
     // ════════════════════════════════════════════════════════════
     // Internal coercion helpers
@@ -108,6 +108,17 @@ public static class BallRuntime
     public static BallValue UnsupportedBaseCall(string module, string function) =>
         throw new BallRuntimeException(
             $"base function '{module}.{function}' is not implemented by the C# target yet");
+
+    /// <summary>
+    /// Fallback for a reference the compiler cannot resolve to any emitted symbol
+    /// — an inherited field from a base-type superclass, a stub-module enum
+    /// constant, or a second catch binding (documented Round-3 self-host gaps,
+    /// issue #383). Fails loud so the gap can never surface as a silently-wrong
+    /// value; the base corpus never reaches these paths.
+    /// </summary>
+    public static BallValue UnresolvedReference(string name) =>
+        throw new BallRuntimeException(
+            $"reference '{name}' could not be resolved by the C# self-host compiler yet (issue #383)");
 
     /// <summary>
     /// Invoke a first-class function value with <paramref name="input"/>

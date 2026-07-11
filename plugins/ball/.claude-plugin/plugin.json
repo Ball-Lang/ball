@@ -1,6 +1,6 @@
 {
   "name": "ball",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Ball language toolchain: convert whole codebases between programming languages through the Ball IR (/ball:convert), safely embed the Ball engine for dynamic code delivery (/ball:embed), bootstrap new language targets (/ball:new), and iterate on existing ones (/ball:iterate)",
   "author": {
     "name": "Ball Language Contributors"

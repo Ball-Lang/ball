@@ -45,34 +45,54 @@ BallEngine(
 
 ```dart
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:ball_base/ball_base.dart' show decodeBallFileJson, BallProgramFile;
 import 'package:ball_base/capability_analyzer.dart';
 import 'package:ball_base/termination_analyzer.dart';
 import 'package:ball_engine/engine.dart';
+// e.g. package:cryptography or package:pinenacl for the signature primitive.
 
-// Take the RAW received bytes, not a pre-decoded String.
-Future<Object?> runUntrusted(List<int> rawBytes) async {
-  // 0. Size-gate the RAW bytes BEFORE decoding. (String.length counts UTF-16
+// Take the RAW received bytes, not a pre-decoded String. `signature` is a
+// detached signature over EXACTLY those bytes.
+Future<Object?> runUntrusted(Uint8List rawBytes, Uint8List signature) async {
+  // 0. AUTHENTICITY FIRST — verify the signature over the EXACT raw bytes,
+  //    before any decode/audit/execute. Ball never authenticates payloads;
+  //    sandboxing bounds what a program DOES, not whether it is the one your
+  //    server sent (a compromised CDN/cache or a replayed, revoked version is
+  //    still structurally valid + audited + sandboxed). `trustedPublicKey` is
+  //    pinned in the app; verify the same bytes you will decode below.
+  if (!verifyEd25519(rawBytes, signature, trustedPublicKey)) {
+    throw StateError('signature verification failed — rejecting payload');
+  }
+
+  // 1. Size-gate the RAW bytes BEFORE decoding. (String.length counts UTF-16
   //    code units — a CJK payload is ~3x its char count in real bytes and would
   //    slip a String-length check after the expensive UTF-8 decode already ran.)
   if (rawBytes.length > 512 * 1024) throw StateError('program too large');
 
-  // 1. Decode ONCE. Audit and run THIS object (no re-decode → no TOCTOU).
+  // 2. Decode ONCE. Audit and run THIS object (no re-decode → no TOCTOU).
   final file = decodeBallFileJson(jsonDecode(utf8.decode(rawBytes)));
   if (file is! BallProgramFile) throw StateError('expected a Program');
   final program = file.program;
 
-  // 2. Audit — provably-complete over KNOWN base functions only.
+  // 3. Audit — provably-complete over KNOWN base functions only.
   //    reachableOnly:false → audit EVERY function, including unreached branches
   //    (strict pre-filter; audit-and-policy.md explains the trade-off).
+  //    {fs,process,memory,concurrency} is the security-critical core. For a
+  //    PURE computation (a rules engine returning a decision, no console output)
+  //    widen to {fs,process,memory,concurrency,io,time,random} — the canonical
+  //    pure-decision deny-set; permit `io` back only if the program legitimately
+  //    prints, `time`/`random` only if it genuinely needs a clock/RNG.
   final report = analyzeCapabilities(program, reachableOnly: false);
   final violations = checkPolicy(report, deny: {'fs', 'process', 'memory', 'concurrency'});
   if (violations.isNotEmpty) throw StateError('policy violation: ${violations.join(', ')}');
   final term = analyzeTermination(program);
   if (term.hasErrors) throw StateError('termination risk');
 
-  // 2b. The audit is BLIND to custom/unknown isBase modules and to module_imports.
-  //     Enforce your own allowlist + reject imports here (runnable, not a comment).
+  // 3b. The audit still can't see custom/unknown isBase-module DECLARATIONS or
+  //     module_imports (the #402 fix only closes call-site module *spoofing* of
+  //     real base fns). Enforce your own allowlist + reject imports here
+  //     (runnable, not a comment).
   const allowedModules = {
     'std', 'std_collections', 'std_convert',   // pure std you permit
     'ui',                                       // your own vetted handler(s)
@@ -88,7 +108,7 @@ Future<Object?> runUntrusted(List<int> rawBytes) async {
     }
   }
 
-  // 3. Execute locked down. Wrap the CONSTRUCTOR too — maxProgramSizeBytes/maxModules
+  // 4. Execute locked down. Wrap the CONSTRUCTOR too — maxProgramSizeBytes/maxModules
   //    validate in the constructor and throw synchronously (engine.dart:229/247).
   //    On Dart, subset() IS wired in via moduleHandlers → a real run-time allowlist.
   try {
@@ -113,6 +133,66 @@ Future<Object?> runUntrusted(List<int> rawBytes) async {
   }
 }
 ```
+
+### Rules engine: verify → audit → structured decision (one combined flow)
+
+`runUntrusted` above ends in `run()` (entry-function return / injected stdout). A rules engine wants a *structured decision from a named function*, so use `callFunction` instead of `run()` — same gate, different last line. This is the end-to-end shape the "server sends dynamic instructions" scenario needs; do not stop at the `run()` snippet and improvise.
+
+```dart
+/// Returns the business decision, or throws if the payload is rejected.
+/// `context` is the structured input, e.g. {'cartTotal': 142.50, 'tier': 'gold'}.
+Future<Map<String, Object?>> evaluateRule(
+  Uint8List rawBytes,
+  Uint8List signature,
+  Map<String, Object?> context,
+) async {
+  // Steps 0–3 are IDENTICAL to runUntrusted: verify signature over the exact
+  // bytes → size-gate → decode ONCE → audit. Use the PURE-decision deny-set,
+  // since a rules engine should be deterministic (no io/time/random):
+  if (!verifyEd25519(rawBytes, signature, trustedPublicKey)) {
+    throw StateError('signature verification failed');
+  }
+  if (rawBytes.length > 512 * 1024) throw StateError('program too large');
+  final file = decodeBallFileJson(jsonDecode(utf8.decode(rawBytes)));
+  if (file is! BallProgramFile) throw StateError('expected a Program');
+  final program = file.program;
+
+  final report = analyzeCapabilities(program, reachableOnly: false);
+  final violations = checkPolicy(
+    report,
+    deny: {'fs', 'process', 'memory', 'concurrency', 'io', 'time', 'random'},
+  );
+  if (violations.isNotEmpty) throw StateError('policy violation: $violations');
+  if (analyzeTermination(program).hasErrors) throw StateError('termination risk');
+  // ... + the same module_imports reject + isBase-allowlist walk as runUntrusted ...
+
+  try {
+    final std = StdModuleHandler.subset({'greater_than', 'and', 'equals', 'if'});
+    final engine = BallEngine(
+      program,
+      sandbox: true,
+      timeoutMs: 1000,
+      maxMemoryBytes: 8 * 1024 * 1024,
+      maxRecursionDepth: 100,
+      maxExpressionDepth: 100,
+      maxModules: 2,
+      maxProgramSizeBytes: 512 * 1024,
+      moduleHandlers: [std],       // ONLY the pure std subset the rule needs
+      stdout: (_) {},              // a pure rule has no reason to print
+      stderr: (_) {},
+    );
+    // callFunction(module, function, input) → the structured decision channel.
+    // A fresh engine per evaluation — never reuse one across requests.
+    final decision =
+        await engine.callFunction('rules', 'evaluate', context);
+    return (decision as Map).cast<String, Object?>();  // e.g. {'discount': 0.1}
+  } on BallRuntimeError catch (e) {
+    throw StateError('engine rejected program: $e');
+  }
+}
+```
+
+The `rules` module here holds ordinary (non-`isBase`) interpreted functions, so it does **not** go in your isBase-allowlist (that walk gates only `isBase` declarations). Do not add it there "defensively" — that only tempts a later, unnecessary native handler under the same name.
 
 ### Executing a delivered library `Module` (no entry point)
 
@@ -141,6 +221,71 @@ await engine.run();
 
 If the client drives the UI loop itself, skip the entry point and invoke vetted functions directly with `callFunction(untrustedModule.name, 'render', input)` on an engine constructed around a minimal wrapper `Program`.
 
+### Authoring the content: producing `ui.text(...)` calls (server side)
+
+The receive/audit/execute half above assumes a program that already contains calls into your `ui` module. Two things a first reader gets stuck on: the `ui` module must be **declared** in the program (so your isBase-allowlist walk can see it), and the calls into it must be **produced somehow**. The **source encoders (`ball_encoder` / `@ball-lang/encoder`) can't do this** — they route every construct through universal `std`/`std_collections` and have no convention that emits a call to a custom `ui` module. So author custom-module programs with the **proto builders**, not the source encoder.
+
+```dart
+// SERVER side. Build the Program with package:ball_base proto types.
+import 'package:ball_base/ball_base.dart';   // Program, Module, FunctionDefinition,
+                                              // Expression, FunctionCall, Literal, etc.
+
+Expression _str(String s) => Expression(literal: Literal(stringValue: s));
+Expression _uiCall(String fn, List<FieldValuePair> args) => Expression(
+      call: FunctionCall(
+        module: 'ui',
+        function: fn,
+        input: Expression(messageCreation: MessageCreation(fields: args)),
+      ),
+    );
+
+final program = Program(
+  name: 'home_screen',
+  entryModule: 'app',
+  entryFunction: 'render',
+  modules: [
+    // The vetted `ui` module: isBase stubs, NO body — your allowlist walk keys
+    // off exactly these declarations, and your UiModuleHandler implements them.
+    Module(name: 'ui', functions: [
+      FunctionDefinition(name: 'text', isBase: true),
+      FunctionDefinition(name: 'button', isBase: true),
+      FunctionDefinition(name: 'column', isBase: true),
+    ]),
+    // The interpreted content: a `render` body that calls into `ui`.
+    Module(name: 'app', functions: [
+      FunctionDefinition(
+        name: 'render',
+        body: _uiCall('column', [
+          FieldValuePair(
+            name: 'children',
+            value: Expression(literal: Literal(listValue: ListLiteral(elements: [
+              _uiCall('text', [FieldValuePair(name: 'value', value: _str('Hello'))]),
+              _uiCall('button', [
+                FieldValuePair(name: 'label', value: _str('Tap me')),
+                // Event handler = a {module, function} NAME PAIR, not a closure.
+                FieldValuePair(
+                  name: 'onTap',
+                  value: Expression(messageCreation: MessageCreation(fields: [
+                    FieldValuePair(name: 'module', value: _str('app')),
+                    FieldValuePair(name: 'function', value: _str('onTap')),
+                  ])),
+                ),
+              ]),
+            ]))),
+          ),
+        ]),
+      ),
+      FunctionDefinition(name: 'onTap', body: _str('tapped')),
+    ]),
+  ],
+);
+// Serialize for transport: program.writeToBuffer() (.ball.bin) or
+// program.toProto3Json() (.ball.json). In TS, build the same shape with
+// create(ProgramSchema, {...}) / fromJson from @ball-lang/shared.
+```
+
+The wire shape (proto3-JSON) of a single call is exactly what the audit walks — `{"call": {"module": "ui", "function": "text", "input": {"messageCreation": {"fields": [{"name": "value", "value": {"literal": {"stringValue": "Hello"}}}]}}}}`. On the client, your isBase-allowlist walk permits `{'std', 'ui'}`, the audit reports `ui.*` calls as pure (a custom module — hence the walk is mandatory), and `UiModuleHandler` renders them. Keep that handler **rendering-only** (no `ui.open_url`/`ui.http_get`) and treat every string it receives as **untrusted** (escape it; native widget, never a WebView) — the audit can never see inside a custom module, so its safety is entirely your handler's discipline.
+
 ### `BallModuleHandler` — the vetted-surface seam (`dart/engine/lib/engine_types.dart:403`)
 
 ```dart
@@ -163,6 +308,25 @@ final decision = await engine.callFunction('rules', 'evaluate', {
   'cartTotal': 42.0, 'tier': 'gold',            // structured context IN
 });
 // decision is a Ball value (Map/List/scalar) OUT — e.g. {'discount': 0.1}
+```
+
+### Bound host-side dispatch for long-lived UI loops
+
+`timeoutMs`/`maxRecursionDepth`/`maxMemoryBytes` bound **one** `run()`/`callFunction()`. For a dynamic-UI screen the host calls `callFunction` on every tap/re-render, and nothing in the engine bounds *that* cadence — a handler that always signals "re-render" livelocks your app while each individual call finishes well under `timeoutMs`. Add a host-level budget:
+
+```dart
+int _rerendersThisSecond = 0;
+DateTime _windowStart = DateTime.now();
+
+Future<void> dispatch(BallEngine engine, String module, String function, Object? input) async {
+  final now = DateTime.now();
+  if (now.difference(_windowStart) > const Duration(seconds: 1)) {
+    _windowStart = now;
+    _rerendersThisSecond = 0;
+  }
+  if (++_rerendersThisSecond > 30) return;   // drop, don't crash
+  await engine.callFunction(module, function, input);
+}
 ```
 
 ### In-process audit (Dart only)
@@ -199,22 +363,51 @@ class BallEngine {
 
 ### Full gated flow (the TS equivalent of `runUntrusted` — do not ship the bare constructor)
 
-Because TS has **no** in-process capability library and **no** run-time std allowlist, your gate is: size-check → parse → your own module-allowlist walk + reject imports → construct (in try/catch) → run.
+Because TS has **no** run-time std allowlist and **no** in-process capability library, your gate is: verify signature → size-check → parse → subprocess `ball audit` **on the same bytes** + your own module-allowlist walk + reject imports → construct (in try/catch) → run.
 
 ```ts
 import { BallEngine } from '@ball-lang/engine';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
-async function runUntrusted(rawBytes: Uint8Array): Promise<string[]> {
-  // 0. Size-gate the RAW bytes before decoding.
+// Windows-safe: invoke the real JS entry via `node`. Do NOT spawn the
+// extensionless node_modules/.bin/ball shim — it throws ENOENT under
+// child_process without shell:true on Windows. This is also the only stable
+// programmatic entry (the exports map is "."-only).
+const BALL_ENTRY = require.resolve('@ball-lang/cli/dist/index.js');
+
+async function runUntrusted(rawBytes: Uint8Array, signature: Uint8Array): Promise<string[]> {
+  // 0. AUTHENTICITY FIRST — verify the signature over the EXACT raw bytes.
+  if (!verifyEd25519(rawBytes, signature, TRUSTED_PUBLIC_KEY)) {
+    throw new Error('signature verification failed');
+  }
+
+  // 1. Size-gate the RAW bytes before decoding.
   if (rawBytes.byteLength > 512 * 1024) throw new Error('program too large');
 
-  // 1. Decode once; audit and run THIS object.
+  // 2. Decode once; audit and run THIS object.
   const text = new TextDecoder().decode(rawBytes);
   const parsed = JSON.parse(text);
   const program = parsed?.['@type'] ? stripAtType(parsed) : parsed;   // unwrap Any envelope if present
 
-  // 2. Own allowlist walk (the ONLY structural gate on TS). Proto field names:
-  //    program.modules[].name / .functions[].isBase / .moduleImports (camelCased).
+  // 3a. Subprocess audit on the SAME bytes (TOCTOU-safe): write once, audit that
+  //     file. The self-hosted CLI (#362) categorizes call-level module spoofing
+  //     of base fns since #402, so `--deny concurrency` now catches a spoofed
+  //     {module:"harmless", function:"mutex_create"}. TS `--deny` returns exit 1
+  //     directly (no --exit-code flag); execFileSync throws on a non-zero exit.
+  const tmp = `./tmp_audit_${randomUUID()}.ball.json`;
+  writeFileSync(tmp, rawBytes);
+  try {
+    execFileSync(process.execPath,
+      [BALL_ENTRY, 'audit', tmp, '--deny', 'fs,process,memory,concurrency'],
+      { stdio: 'pipe' });
+  } finally {
+    unlinkSync(tmp);
+  }
+
+  // 3b. Own allowlist walk (still needed — audit is blind to custom isBase-module
+  //     DECLARATIONS and to module_imports). Proto field names are camelCased.
   const allowed = new Set(['std', 'std_collections', 'std_convert', 'ui']);
   for (const m of program.modules ?? []) {
     if ((m.moduleImports ?? []).length > 0) throw new Error(`module "${m.name}" declares imports`);
@@ -222,9 +415,8 @@ async function runUntrusted(rawBytes: Uint8Array): Promise<string[]> {
       if (f.isBase && !allowed.has(m.name)) throw new Error(`isBase ${m.name}.${f.name} not allowlisted`);
     }
   }
-  // (Optionally ALSO shell out to `ball audit` — see the subprocess recipe below.)
 
-  // 3. Construct in try/catch (maxProgramSizeBytes/maxModules throw from the CTOR,
+  // 4. Construct in try/catch (maxProgramSizeBytes/maxModules throw from the CTOR,
   //    not run() — an oversized payload otherwise crashes the process).
   let engine: BallEngine;
   try {
@@ -246,9 +438,9 @@ async function runUntrusted(rawBytes: Uint8Array): Promise<string[]> {
 
 ### Gaps to design around (verified, current)
 
-- **No run-time std restriction, and no custom modules.** `new BallEngine(...)` always constructs a fresh, full `StdModuleHandler` internally (`ts/engine/src/index.ts:83`) and passes a hard-coded handler list (`[methodHandler, stdHandler]`, `:114`). `BallEngineOptions` has no `moduleHandlers` field and there is **no injection point** — a `StdModuleHandler.subset({...})` you construct is *never wired in*, so it does nothing (verified: `std_concurrency.mutex_create` runs fine under `sandbox:true` with an ignored `subset({'print'})` sitting next to it). Consequence: on TS every implemented `std_*` function stays reachable at run time; `sandbox:true` still blocks `std_fs.*` + `std_io.exit`/`panic`/`env_get`, but nothing trims `std_concurrency` or the rest. **Your audit/allowlist walk is the only thing keeping those out — it is not optional.** Treat custom-native-module dynamic UI (`ui.render`) as a Dart-only story until this lands.
-- **No in-process audit library.** `@ball-lang/cli`'s package `exports` map exposes only the CLI entrypoint; `capability_analyzer.js` ships in the tarball but importing it fails with `ERR_PACKAGE_PATH_NOT_EXPORTED`. Audit by (a) your own `program.modules[]` walk above, and/or (b) spawning the CLI as a subprocess.
-- **Subprocess audit is file-based and `ball` is not on PATH.** `ball audit` has **no stdin mode** (`ball audit -` / `/dev/stdin` both fail "File not found"), so you must pass a file — and after `npm install @ball-lang/cli` the binary is `node_modules/.bin/ball` (a Windows-shell-dependent shim), not a global `ball`. Portable invocation: `npx ball audit <file>` or spawn `node_modules/.bin/ball` by explicit path. **To preserve "audit the exact bytes you execute" (TOCTOU):** write the received bytes to one temp file, `ball audit` *that* file, and load *that same file* into the engine — never audit a serialization you re-derive.
+- **No run-time std restriction, and no custom modules.** `new BallEngine(...)` always constructs a fresh, full `StdModuleHandler` internally (`ts/engine/src/index.ts:83`) and passes a hard-coded handler list (`[methodHandler, stdHandler]`, `:114`). `BallEngineOptions` has no `moduleHandlers` field and there is **no injection point** — a `StdModuleHandler.subset({...})` you construct is *never wired in*, so it does nothing (verified: `std_concurrency.mutex_create` runs fine under `sandbox:true` with an ignored `subset({'print'})` sitting next to it). Consequence: on TS every implemented `std_*` function stays reachable at run time; `sandbox:true` still blocks `std_fs.*` + `std_io.exit`/`panic`/`env_get`, but nothing trims `std_concurrency` or the rest. **Your audit is the only thing keeping those out — it is not optional.** As of #402 the audit *is* a real call-site capability gate (it denies a base call even under a spoofed `call.module`), so a passing `--deny concurrency` audit is now meaningful on TS — but because the run-time surface stays full, keep the audit mandatory and minimal-input, and treat custom-native-module dynamic UI (`ui.render`) as a Dart-only story until run-time registration lands.
+- **The audit is now self-hosted, but there is still no importable in-process library.** Since #362/#398 the TS `audit` command compiles from the same `cli_core.dart` into `compiled_cli.ts` (the old hand-ported `capability_analyzer.ts`/`capability_table.ts` are gone), so it inherits the #402 spoofing fix and runs termination analysis in its default text report — byte-identical to the Dart CLI's default. But `@ball-lang/cli`'s package `exports` map is still `"."`-only, so you **cannot** `import` its analyzer from your app (it fails `ERR_PACKAGE_PATH_NOT_EXPORTED`). Audit by (a) your own `program.modules[]` walk above, and/or (b) spawning the CLI as a subprocess.
+- **Subprocess audit is file-based; invoke it via `node`, not the `.bin/ball` shim.** `ball audit` has **no stdin mode** (`ball audit -` / `/dev/stdin` both fail "File not found"), so you must pass a file. After `npm install @ball-lang/cli` the binary is `node_modules/.bin/ball` — an **extensionless POSIX shim that throws `ENOENT`** under `child_process` (`execFileSync`/`spawnSync`) without `shell: true` on Windows. The portable, verified invocation is `execFileSync(process.execPath, [require.resolve('@ball-lang/cli/dist/index.js'), 'audit', file, '--deny', …])` (see the snippet above); `npx ball audit <file>` works only from a real shell, not the `execFileSync` shape a server uses. Flags: `--deny <csv>` (returns exit 1 on violation — there is **no** `--exit-code` flag), `--reachable-only`, `--output <path>`, `--json`. **To preserve "audit the exact bytes you execute" (TOCTOU):** write the received bytes to one temp file, audit *that* file, and load *that same file* into the engine — never audit a serialization you re-derive.
 
 ---
 

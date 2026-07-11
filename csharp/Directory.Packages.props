@@ -16,12 +16,16 @@
          runtime line so generated code and runtime stay in sync). -->
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
 
-    <!-- Roslyn C# syntax API for csharp/encoder (issue #382): official AST
-         parser (CSharpSyntaxTree.ParseText), syntax-only (no semantic model
-         required initially) — mirrors the Dart encoder's `parseString`
-         approach. Verified latest stable on nuget.org 2026-07-11: the
+    <!-- Roslyn C# syntax API, shared by csharp/encoder (issue #382 — official
+         AST parser, CSharpSyntaxTree.ParseText, syntax-only, mirroring the
+         Dart encoder's `parseString` approach) AND the compiler-lane test
+         suite (issue #381 — compiles the emitted C# in-memory to assert on
+         real stdout). Verified latest stable on nuget.org 2026-07-11: the
          `api.nuget.org/v3-flatcontainer/microsoft.codeanalysis.csharp/index.json`
-         version list's last entry is "5.6.0" (no `-preview`/`-beta` suffix). -->
+         version list's last entry is "5.6.0" (no `-preview`/`-beta` suffix).
+         Exactly ONE PackageVersion for this id may exist — the Wave-C lanes
+         each added their own pin and the git auto-merge kept both, leaving
+         resolution to NuGet's silent duplicate handling. -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
 
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
@@ -31,11 +35,6 @@
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
-
-    <!-- Roslyn — the compiler-lane test suite (#381) compiles the emitted C#
-         in-memory and executes it, so it can assert on real stdout (the C#
-         analog of the Rust encoder/compiler tests invoking `rustc`/`cargo`). -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
 </Project>

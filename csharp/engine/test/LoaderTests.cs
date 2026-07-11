@@ -111,10 +111,12 @@ public sealed class LoaderTests
         Assert.Throws<EngineException>(() => BallEngine.FromJson("{ not valid"));
     }
 
+#if !SELF_HOST
     [Fact]
     public void Run_reports_self_host_pending_in_the_default_build()
     {
         var engine = BallEngine.FromJson(Hello);
         Assert.Throws<SelfHostPendingException>(() => engine.Run());
     }
+#endif
 }

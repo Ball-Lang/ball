@@ -52,8 +52,10 @@ public sealed partial class CSharpCompiler
             case "do_while":
                 return CompileDoWhileStatement(call);
             case "switch":
-            case "switch_expr":
                 return CompileSwitchStatement(call);
+            // `switch_expr` is expression-valued (it yields a case's result), so
+            // it is never a plain statement — it falls through to the expression
+            // path (a discarded `_ = <Run(...)>`).
             case "try":
                 return CompileTryStatement(call);
             case "return":
@@ -92,6 +94,8 @@ public sealed partial class CSharpCompiler
                 return CompileIoCall(call);
             case "ball_proto":
                 return CompileBallProtoCall(call);
+            case "std_convert":
+                return CompileConvertCall(call);
         }
 
         // Lazy constructs and those needing the raw call (nested exprs) skip
@@ -106,13 +110,14 @@ public sealed partial class CSharpCompiler
                 return CompileNullCoalesce(call);
             case "if":
                 return CompileIfExpression(call);
+            case "switch_expr":
+                return CompileSwitchExpression(call);
             case "for":
             case "for_in":
             case "for_each":
             case "while":
             case "do_while":
             case "switch":
-            case "switch_expr":
             case "try":
             case "return":
             case "break":
@@ -193,6 +198,74 @@ public sealed partial class CSharpCompiler
             "string_repeat" => Compile2("StringRepeat", f, "value", "count", "left", "right"),
             "string_pad_left" => Tri("StringPadLeft", f, "value", "width", "padding"),
             "string_pad_right" => Tri("StringPadRight", f, "value", "width", "padding"),
+            "string_code_unit_at" => Compile2("StringCodeUnitAt", f, "value", "index", "value", "index"),
+            "string_runes" => Un("StringRunes", f),
+            // Collection / record / invoke construction
+            "typed_list" => f.ContainsKey("elements") ? FieldOrNull(f, "elements") : "(BallValue)new BallList()",
+            "set_create" => $"BallRuntime.SetCreate({FieldAliasOrNull(f, new[] { "elements", "list", "set" })})",
+            "map_create" => CompileMapCreate(call),
+            "record" => call.Input is null ? "(BallValue)new BallMap()" : CompileExpression(call.Input),
+            "invoke" => $"BallRuntime.Invoke({(call.Input is null ? "BallValue.Null" : CompileExpression(call.Input))})",
+            // Identity leaves
+            "paren" or "await" => FieldOrNull(f, "value"),
+            "spread" or "null_spread" => FieldOrNull(f, "value"),
+            "null_aware_index" => $"BallRuntime.IndexGet({FieldOrNull(f, "target")}, {FieldOrNull(f, "index")})",
+            // Type operations
+            "is" => $"BallRuntime.IsType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
+            "is_not" => $"BallRuntime.IsNotType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
+            "as" => $"BallRuntime.AsType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
+            // Math
+            "math_abs" => Un("MathAbs", f),
+            "math_floor" => Un("MathFloor", f),
+            "math_ceil" => Un("MathCeil", f),
+            "math_round" => Un("MathRound", f),
+            "math_trunc" => Un("MathTrunc", f),
+            "math_sign" => Un("MathSign", f),
+            "math_is_finite" => Un("MathIsFinite", f),
+            "math_is_infinite" => Un("MathIsInfinite", f),
+            "math_gcd" => Bin("MathGcd", f),
+            "math_clamp" => Tri("MathClamp", f, "value", "min", "max"),
+            "ceil_to_double" => Un("CeilToDouble", f),
+            "floor_to_double" => Un("FloorToDouble", f),
+            "round_to_double" => Un("RoundToDouble", f),
+            "truncate_to_double" => Un("TruncateToDouble", f),
+            "to_string_as_fixed" => Compile2("ToStringAsFixed", f, "value", "digits", "value", "digits"),
+            "to_string_as_precision" => Compile2("ToStringAsPrecision", f, "value", "precision", "value", "precision"),
+            "to_string_as_exponential" => $"BallRuntime.ToStringAsExponential({FieldOrNull(f, "value")}, {FieldOrNull(f, "digits")})",
+            _ => Unsupported(call),
+        };
+    }
+
+    /// <summary><c>map_create</c> — build a map from the input's <c>entry</c> fields (each a <c>{key, value}</c> message).</summary>
+    private string CompileMapCreate(FunctionCall call)
+    {
+        var pairs = new List<string>();
+        if (call.Input is { ExprCase: Expression.ExprOneofCase.MessageCreation } input)
+        {
+            foreach (var field in input.MessageCreation.Fields)
+            {
+                if (field.Name == "entry" && field.Value is { ExprCase: Expression.ExprOneofCase.MessageCreation } entry)
+                {
+                    var ef = MessageCreationFields(entry.MessageCreation);
+                    pairs.Add($"(BallValue)new BallList(new BallValue[] {{ {FieldOrNull(ef, "key")}, {FieldOrNull(ef, "value")} }})");
+                }
+            }
+        }
+
+        var list = pairs.Count == 0 ? "new BallList()" : $"new BallList(new BallValue[] {{ {string.Join(", ", pairs)} }})";
+        return $"BallRuntime.MapCreate((BallValue){list})";
+    }
+
+    /// <summary><c>std_convert</c> — UTF-8 / base64 codecs.</summary>
+    private string CompileConvertCall(FunctionCall call)
+    {
+        var f = Fields.Extract(call);
+        return call.Function switch
+        {
+            "utf8_encode" => Un("Utf8Encode", f),
+            "utf8_decode" => Un("Utf8Decode", f),
+            "base64_encode" => Un("Base64Encode", f),
+            "base64_decode" => Un("Base64Decode", f),
             _ => Unsupported(call),
         };
     }
@@ -429,9 +502,9 @@ public sealed partial class CSharpCompiler
                 continue;
             }
 
-            var value = FieldOrNull(cf, "value");
+            var condition = CompileCaseCondition(subjVar, cf);
             var body = cf.TryGetValue("body", out var b) ? EmitStatementUnwrapped(b) : ";";
-            sb.Append($"{(first ? "if" : "else if")} (BallValue.ValueEquals({subjVar}, {value}))\n{{\n{body}\n}}\n");
+            sb.Append($"{(first ? "if" : "else if")} ({condition})\n{{\n{body}\n}}\n");
             first = false;
         }
 
@@ -444,6 +517,90 @@ public sealed partial class CSharpCompiler
 
         sb.Append("}\nwhile (false);");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// <c>switch_expr(subject, cases)</c> in value position — a <c>Run</c> IIFE
+    /// that <c>return</c>s the first matching case's body value (a Dart switch
+    /// <em>expression</em>). Cases carry a <c>pattern</c> (the constant to match)
+    /// and a <c>body</c> (the result expression); the default case (<c>is_default</c>)
+    /// is the trailing fallback.
+    /// </summary>
+    private string CompileSwitchExpression(FunctionCall call)
+    {
+        var f = Fields.Extract(call);
+        var subject = FieldOrNull(f, "subject");
+        var cases = MessageList(f, "cases");
+        var subjVar = $"__subj{_tempCounter++}";
+        var sb = new StringBuilder($"Run(() =>\n{{\nvar {subjVar} = {subject};\n");
+        MessageCreation? defaultCase = null;
+        foreach (var caseMc in cases)
+        {
+            var cf = MessageCreationFields(caseMc);
+            if (BoolField(cf, "is_default"))
+            {
+                defaultCase = caseMc;
+                continue;
+            }
+
+            var condition = CompileCaseCondition(subjVar, cf);
+            var body = cf.TryGetValue("body", out var b) ? CompileExpression(b) : "BallValue.Null";
+            sb.Append($"if ({condition}) return {body};\n");
+        }
+
+        if (defaultCase is not null)
+        {
+            var cf = MessageCreationFields(defaultCase);
+            sb.Append($"return {(cf.TryGetValue("body", out var db) ? CompileExpression(db) : "BallValue.Null")};\n");
+        }
+        else
+        {
+            sb.Append("return BallValue.Null;\n");
+        }
+
+        sb.Append("})");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// A C# boolean match condition for a switch case over <paramref name="subjVar"/>.
+    /// Prefers the semantic <c>pattern_expr</c> (a Dart-3 structured pattern —
+    /// <c>WildcardPattern</c>/<c>LogicalOrPattern</c>/<c>ConstPattern</c>) over
+    /// the cosmetic source-text <c>pattern</c> (which the encoder stores as a raw
+    /// string like <c>"'std' || 'std_collections'"</c> that would never match).
+    /// </summary>
+    private string CompileCaseCondition(string subjVar, OrderedDictionary<string, Expression> cf)
+    {
+        if (cf.TryGetValue("pattern_expr", out var patternExpr))
+        {
+            return CompileSwitchPattern(subjVar, patternExpr);
+        }
+
+        return $"BallValue.ValueEquals({subjVar}, {FieldAliasOrNull(cf, new[] { "pattern", "value" })})";
+    }
+
+    /// <summary>Compile a Dart-3 structured pattern into a C# boolean match condition over <paramref name="subjVar"/>.</summary>
+    private string CompileSwitchPattern(string subjVar, Expression patternExpr)
+    {
+        if (patternExpr.ExprCase == Expression.ExprOneofCase.MessageCreation)
+        {
+            var mc = patternExpr.MessageCreation;
+            var fields = MessageCreationFields(mc);
+            switch (Naming.TypeShortName(mc.TypeName))
+            {
+                case "WildcardPattern":
+                    return "true";
+                case "LogicalOrPattern":
+                    return $"({CompileSwitchPattern(subjVar, fields["left"])} || {CompileSwitchPattern(subjVar, fields["right"])})";
+                case "LogicalAndPattern":
+                    return $"({CompileSwitchPattern(subjVar, fields["left"])} && {CompileSwitchPattern(subjVar, fields["right"])})";
+                case "ConstPattern":
+                    return $"BallValue.ValueEquals({subjVar}, {(fields.TryGetValue("value", out var cv) ? CompileExpression(cv) : "BallValue.Null")})";
+            }
+        }
+
+        // An unstructured / unrecognized pattern: compare the subject to its value.
+        return $"BallValue.ValueEquals({subjVar}, {CompileExpression(patternExpr)})";
     }
 
     /// <summary>
@@ -687,6 +844,16 @@ public sealed partial class CSharpCompiler
             "set_union" => $"BallRuntime.SetUnion({FieldOrNull(f, "left")}, {FieldOrNull(f, "right")})",
             "set_intersection" => $"BallRuntime.SetIntersection({FieldOrNull(f, "left")}, {FieldOrNull(f, "right")})",
             "set_difference" => $"BallRuntime.SetDifference({FieldOrNull(f, "left")}, {FieldOrNull(f, "right")})",
+            // Higher-order (a callback/comparator in the `value` field)
+            "list_map" => $"BallRuntime.ListMap({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
+            "list_filter" => $"BallRuntime.ListFilter({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
+            "list_all" => $"BallRuntime.ListAll({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
+            "list_any" => $"BallRuntime.ListAny({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
+            "list_sort" => $"BallRuntime.ListSort({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
+            "list_join" => $"BallRuntime.ListJoin({FieldOrNull(f, "list")}, {FieldOrNull(f, "separator")})",
+            "list_to_list" => $"BallRuntime.ListToList({FieldOrNull(f, "list")})",
+            "map_contains_value" => $"BallRuntime.MapContainsValue({FieldOrNull(f, "map")}, {FieldOrNull(f, "value")})",
+            "map_put_if_absent" => $"BallRuntime.MapPutIfAbsent({FieldOrNull(f, "map")}, {FieldOrNull(f, "key")}, {FieldOrNull(f, "value")})",
             _ => Unsupported(call),
         };
     }

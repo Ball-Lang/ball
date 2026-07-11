@@ -69,6 +69,18 @@ public sealed partial class CSharpCompiler
     /// <summary>Sanitized names of every callable top-level function / method short name (direct-call targets).</summary>
     private readonly HashSet<string> _callableNames = new(StringComparer.Ordinal);
 
+    /// <summary>Sanitized short names of every instance method — the implicit-<c>this</c> injection targets (issue #383).</summary>
+    private readonly HashSet<string> _instanceMethodNames = new(StringComparer.Ordinal);
+
+    /// <summary>Sanitized names of top-level variables/getters (a bare reference invokes the nullary getter, not a function-value tear-off).</summary>
+    private readonly HashSet<string> _topLevelVars = new(StringComparer.Ordinal);
+
+    /// <summary>Whether the body currently being compiled is an instance method/constructor (so a bare <c>this.method()</c> call injects the receiver).</summary>
+    private bool _inInstanceMethod;
+
+    /// <summary>The C# local holding the current receiver, for implicit-<c>this</c> injection (survives a same-named <c>self</c> parameter shadowing).</summary>
+    private string? _selfRecvName;
+
     /// <summary>Class members (constructors/methods) grouped by their owner <see cref="TypeDefinition.Name"/>.</summary>
     private readonly Dictionary<string, List<FunctionDefinition>> _classMembersByOwner = new(StringComparer.Ordinal);
 
@@ -155,13 +167,27 @@ public sealed partial class CSharpCompiler
                     _classMembersByOwner.TryAdd(member.Owner, new List<FunctionDefinition>());
                     _classMembersByOwner[member.Owner].Add(func);
                     _callableNames.Add(Naming.Sanitize(member.Member));
+
+                    // An instance method (not a constructor, not static) is an
+                    // implicit-`this` injection target: a bare call to it from
+                    // inside an instance method injects the receiver.
+                    if (MetaString(func.Metadata, "kind") != "constructor" && !MetaBool(func.Metadata, "is_static"))
+                    {
+                        _instanceMethodNames.Add(Naming.Sanitize(member.Member));
+                    }
                 }
                 else
                 {
                     _callableNames.Add(Naming.Sanitize(func.Name));
+                    if (MetaString(func.Metadata, "kind") == "top_level_variable")
+                    {
+                        _topLevelVars.Add(Naming.Sanitize(func.Name));
+                    }
                 }
             }
         }
+
+        IndexConstructors();
     }
 
     /// <summary>Compile <paramref name="program"/> into a complete C# source file.</summary>
@@ -392,9 +418,12 @@ public sealed partial class CSharpCompiler
                     }
                 }
 
-                // A value-yielding call (arithmetic, print, a user call) is a
-                // valid C# expression statement on its own.
-                return CompileExpression(expr) + ";";
+                // A value-yielding call in statement position, discarded. `_ = `
+                // makes it a valid statement for every shape — a plain call
+                // (`print(x)`) would be legal alone, but an identity-leaf base
+                // call (`await`/`paren`/`spread`) reduces to a bare value (a
+                // reference/literal) that is not a legal C# statement (CS0201).
+                return "_ = " + CompileExpression(expr) + ";";
             case Expression.ExprOneofCase.None:
                 return ";";
             default:
@@ -509,6 +538,28 @@ public sealed partial class CSharpCompiler
         }
 
         var name = Naming.Sanitize(reference.Name);
+
+        // A bare reference to a top-level variable/getter is a getter invocation
+        // (read its value), not a function-value tear-off — `value.length *
+        // _ballStringCodeUnitBytes` reads the constant, not the fn.
+        if (_topLevelVars.Contains(name))
+        {
+            return $"{name}(BallValue.Null)";
+        }
+
+        // A bare reference to an instance method from inside an instance method
+        // body is a BOUND method tear-off (`{'print': _stdPrint}` in the engine's
+        // _buildStdDispatch) — Dart binds `this`. The dispatcher reads its
+        // receiver from the input's `self`, so the tear-off must weave the
+        // enclosing receiver into whatever argument the value is later called with
+        // (issue #383) — otherwise the handler runs with no receiver and its
+        // `this.stdout(...)` goes nowhere.
+        if (_inInstanceMethod && _instanceMethodNames.Contains(name))
+        {
+            var self = _selfRecvName ?? "self";
+            return $"(BallValue)new BallFunction({Naming.StringLiteral(reference.Name)}, (BallValue __arg) => {name}(BallRuntime.Arg0WithSelf(__arg, {self})))";
+        }
+
         if (_callableNames.Contains(name))
         {
             return $"new BallFunction({Naming.StringLiteral(reference.Name)}, {name})";
@@ -555,7 +606,10 @@ public sealed partial class CSharpCompiler
     /// </summary>
     private string CompileMessageCreation(MessageCreation mc)
     {
+        // Remap each positional argN field to the constructor's real parameter
+        // (== field) name, in declaration order.
         var ctorParams = ConstructorParamNames(mc.TypeName);
+        var explicitFields = new HashSet<string>(StringComparer.Ordinal);
         var entries = new List<string>();
         for (var i = 0; i < mc.Fields.Count; i++)
         {
@@ -566,8 +620,28 @@ public sealed partial class CSharpCompiler
                 fieldName = ctorParams[i];
             }
 
+            explicitFields.Add(fieldName);
             var value = field.Value is null ? "BallValue.Null" : CompileExpression(field.Value);
             entries.Add($"[{Naming.StringLiteral(fieldName)}] = {value}");
+        }
+
+        // A type with a body-carrying constructor MUST be built by invoking that
+        // constructor — otherwise its body (lookup-table building, entry refresh)
+        // never runs and the instance is half-built (issue #383). The constructor
+        // itself seeds field defaults, runs the body, and writes fields back.
+        if (BodyConstructorImpl(mc.TypeName) is { } implName)
+        {
+            var inputMap = entries.Count == 0 ? "new BallMap()" : $"new BallMap {{ {string.Join(", ", entries)} }}";
+            return $"{implName}((BallValue){inputMap})";
+        }
+
+        // A bodyless (or absent) constructor builds an inline field map; add the
+        // field-level default for every instance field the call does not itself
+        // set (`_Scope(parent)` still gets its `_bindings = {}`, `entries = {}`).
+        if (mc.TypeName.Length != 0
+            && _typeDefsByShortName.TryGetValue(Naming.TypeShortName(mc.TypeName), out var td))
+        {
+            entries.AddRange(FieldDefaultEntries(td, explicitFields, new HashSet<string>(StringComparer.Ordinal)));
         }
 
         var mapExpr = entries.Count == 0
@@ -643,8 +717,35 @@ public sealed partial class CSharpCompiler
             return $"BallRuntime.CallMethod({Naming.StringLiteral(call.Function)}, {input})";
         }
 
+        // Implicit-`this` injection (issue #383): a bare `this.method(args)` call
+        // to an instance-method dispatcher from inside an instance method body has
+        // its receiver injected (the encoder packs only the arguments). A
+        // multi-argument `{arg0, arg1}` message or a zero-argument call merges
+        // `self` in; a single positional argument is wrapped as `{self, arg0}`. An
+        // explicit `obj.method(args)` (input already carries `self`) is untouched.
+        if (prefix.Length == 0
+            && _inInstanceMethod
+            && _instanceMethodNames.Contains(name)
+            && !CallInputHasExplicitSelf(call))
+        {
+            var self = _selfRecvName ?? LocalName("self") ?? "self";
+            return CallInputIsArgMessage(call) || call.Input is null
+                ? $"{name}(BallRuntime.WithSelf({input}, {self}))"
+                : $"{name}(BallRuntime.Arg0WithSelf({input}, {self}))";
+        }
+
         return $"{prefix}{name}({input})";
     }
+
+    /// <summary>Whether <paramref name="call"/>'s input is a <c>MessageCreation</c> already carrying an explicit <c>self</c> field (an <c>obj.method(...)</c> call).</summary>
+    private static bool CallInputHasExplicitSelf(FunctionCall call) =>
+        call.Input is { ExprCase: Expression.ExprOneofCase.MessageCreation } input
+        && input.MessageCreation.Fields.Any(f => f.Name == "self");
+
+    /// <summary>Whether <paramref name="call"/>'s input is the encoder's multi-argument message (an anonymous, empty-<c>type_name</c> <c>MessageCreation</c>).</summary>
+    private static bool CallInputIsArgMessage(FunctionCall call) =>
+        call.Input is { ExprCase: Expression.ExprOneofCase.MessageCreation } input
+        && input.MessageCreation.TypeName.Length == 0;
 
     /// <summary>The <c>&lt;Class&gt;.</c> qualifier for a cross-module user call (empty for a same-module call).</summary>
     private string ResolveUserCallPrefix(string module)

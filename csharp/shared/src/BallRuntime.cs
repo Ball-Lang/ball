@@ -387,7 +387,17 @@ public static partial class BallRuntime
     public static BallValue StringLength(BallValue value) => BallValue.Int(AsStr(value).Length);
 
     /// <summary><c>value.isEmpty</c>.</summary>
-    public static BallValue StringIsEmpty(BallValue value) => BallValue.Bool(AsStr(value).Length == 0);
+    // Polymorphic like Dart's `.isEmpty`: the syntactic encoder routes every
+    // `.isEmpty` (on a String, List, Map, or Set) to `string_is_empty`, so this
+    // must accept any collection, not just a String.
+    public static BallValue StringIsEmpty(BallValue value) => value switch
+    {
+        BallString s => BallValue.Bool(s.Value.Length == 0),
+        BallList l => BallValue.Bool(l.IsEmpty),
+        BallMap m => BallValue.Bool(m.IsEmpty),
+        BallBytes b => BallValue.Bool(b.Value.Length == 0),
+        _ => throw new BallRuntimeException($"isEmpty expects a string/collection, got {TypeName(value)}"),
+    };
 
     /// <summary><c>left.contains(right)</c>.</summary>
     public static BallValue StringContains(BallValue left, BallValue right) =>
@@ -521,13 +531,13 @@ public static partial class BallRuntime
         return l.IsEmpty ? throw new BallRuntimeException("last on an empty list") : l.Get(l.Count - 1);
     }
 
-    /// <summary><c>list.contains(value)</c>.</summary>
+    /// <summary><c>list.contains(value)</c> — polymorphic: the syntactic encoder routes a String <c>.contains</c> here too.</summary>
     public static BallValue ListContains(BallValue list, BallValue value) =>
-        BallValue.Bool(AsList(list).Contains(value));
+        list is BallString ? StringContains(list, value) : BallValue.Bool(AsList(list).Contains(value));
 
-    /// <summary><c>list.indexOf(value)</c>.</summary>
+    /// <summary><c>list.indexOf(value)</c> — polymorphic: a String <c>.indexOf</c> is routed here by the syntactic encoder.</summary>
     public static BallValue ListIndexOf(BallValue list, BallValue value) =>
-        BallValue.Int(AsList(list).IndexOf(value));
+        list is BallString ? StringIndexOf(list, value) : BallValue.Int(AsList(list).IndexOf(value));
 
     /// <summary><c>list.reversed.toList()</c> — a new list (source untouched).</summary>
     public static BallValue ListReverse(BallValue list)
@@ -537,9 +547,29 @@ public static partial class BallRuntime
         return new BallList(copy);
     }
 
-    /// <summary><c>list + other</c> — a new list (neither operand mutated).</summary>
+    /// <summary>
+    /// <c>list + other</c> — a new list (neither operand mutated). Polymorphic:
+    /// the syntactic encoder routes a map spread/merge (<c>{...a, ...b}</c>) here
+    /// too, so two maps merge into a fresh map (right wins on key clash).
+    /// </summary>
     public static BallValue ListConcat(BallValue list, BallValue other)
     {
+        if (list is BallMap or BallMessage && other is BallMap or BallMessage)
+        {
+            var map = new BallMap();
+            foreach (var (key, value) in MapLikeEntries(list))
+            {
+                map.Set(key, value);
+            }
+
+            foreach (var (key, value) in MapLikeEntries(other))
+            {
+                map.Set(key, value);
+            }
+
+            return map;
+        }
+
         var merged = AsList(list).Snapshot();
         merged.AddRange(AsList(other).Snapshot());
         return new BallList(merged);
@@ -763,15 +793,145 @@ public static partial class BallRuntime
     // ════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// <c>object.field</c> — read a field of a <see cref="BallMessage"/> or a
-    /// key of a <see cref="BallMap"/>. An absent field/key reads as
-    /// <c>null</c> (Dart's auto-vivifying getter / <c>map[key]</c>).
+    /// <c>object.field</c> — read a field of a <see cref="BallMessage"/> / key of
+    /// a <see cref="BallMap"/>, or a <b>virtual property</b> the self-hosted
+    /// engine reads as a bare field access rather than a <c>std_collections</c>
+    /// call (<c>.length</c>/<c>.isEmpty</c>/<c>.entries</c>/<c>.keys</c> on
+    /// collections, <c>.isEven</c>/<c>.sign</c> on numbers, <c>.runtimeType</c>).
+    /// A real map/message key wins over a namesake virtual property; a
+    /// Dart-protobuf renamed getter (<c>.field_2</c>/<c>.descriptor_</c>) falls
+    /// back to its original proto3-JSON key. Mirrors Rust's <c>ball_field_get</c>.
     /// </summary>
-    public static BallValue FieldGet(BallValue obj, string field) => obj switch
+    public static BallValue FieldGet(BallValue obj, string field)
     {
-        BallMessage m => m.Get(field) ?? BallValue.Null,
-        BallMap map => map.Get(field) ?? BallValue.Null,
-        _ => throw new BallRuntimeException($"no field '{field}' on {TypeName(obj)}"),
+        if (field == "runtimeType")
+        {
+            return BallValue.Str(RuntimeTypeName(obj));
+        }
+
+        // Fast path: `.length` on a List/String/Bytes. Map/Message resolve length
+        // as a virtual property below, after the real-key lookup (a key literally
+        // named "length" must not be shadowed).
+        if (field == "length")
+        {
+            switch (obj)
+            {
+                case BallList fl:
+                    return BallValue.Int(fl.Count);
+                case BallString fs:
+                    return BallValue.Int(fs.Value.Length);
+                case BallBytes fb:
+                    return BallValue.Int(fb.Value.Length);
+            }
+        }
+
+        switch (obj)
+        {
+            case BallMessage m:
+                return m.Get(field)
+                    ?? (ProtoGetterAlias(field) is { } ma ? m.Get(ma) : null)
+                    ?? BallValue.Null;
+            case BallMap map:
+                if (map.Get(field) is { } existing)
+                {
+                    return existing;
+                }
+
+                if (ProtoGetterAlias(field) is { } alias && map.Get(alias) is { } aliased)
+                {
+                    return aliased;
+                }
+
+                return field switch
+                {
+                    "length" => BallValue.Int(map.Count),
+                    "entries" => MapEntries(map),
+                    "keys" => new BallList(map.Keys.Select(BallValue.Str)),
+                    "values" => new BallList(map.Values),
+                    "isEmpty" => BallValue.Bool(map.IsEmpty),
+                    "isNotEmpty" => BallValue.Bool(!map.IsEmpty),
+                    _ => BallValue.Null,
+                };
+            case BallList list:
+                return field switch
+                {
+                    "isEmpty" => BallValue.Bool(list.IsEmpty),
+                    "isNotEmpty" => BallValue.Bool(!list.IsEmpty),
+                    "first" => list.Count > 0 ? list.Get(0) : BallValue.Null,
+                    "last" => list.Count > 0 ? list.Get(list.Count - 1) : BallValue.Null,
+                    _ => throw new BallRuntimeException($"field access '{field}' on a list"),
+                };
+            case BallString str:
+                return field switch
+                {
+                    "isEmpty" => BallValue.Bool(str.Value.Length == 0),
+                    "isNotEmpty" => BallValue.Bool(str.Value.Length != 0),
+                    _ => throw new BallRuntimeException($"field access '{field}' on a string"),
+                };
+            case BallInt i:
+                return field switch
+                {
+                    "isNegative" => BallValue.Bool(i.Value < 0),
+                    "isEven" => BallValue.Bool(i.Value % 2 == 0),
+                    "isOdd" => BallValue.Bool(i.Value % 2 != 0),
+                    "sign" => BallValue.Int(Math.Sign(i.Value)),
+                    "isFinite" => BallValue.Bool(true),
+                    "isInfinite" => BallValue.Bool(false),
+                    "isNaN" => BallValue.Bool(false),
+                    _ => throw new BallRuntimeException($"field access '{field}' on an int"),
+                };
+            case BallDouble d:
+                return field switch
+                {
+                    "isNegative" => BallValue.Bool(double.IsNegative(d.Value)),
+                    "isFinite" => BallValue.Bool(double.IsFinite(d.Value)),
+                    "isInfinite" => BallValue.Bool(double.IsInfinity(d.Value)),
+                    "isNaN" => BallValue.Bool(double.IsNaN(d.Value)),
+                    "sign" => BallValue.Double(double.IsNaN(d.Value) ? double.NaN : d.Value > 0 ? 1.0 : d.Value < 0 ? -1.0 : d.Value),
+                    _ => throw new BallRuntimeException($"field access '{field}' on a double"),
+                };
+            default:
+                throw new BallRuntimeException($"no field '{field}' on {TypeName(obj)}");
+        }
+    }
+
+    /// <summary>Dart's <c>.runtimeType</c> surfaced as the value's type-name string (a message reports its own short type name).</summary>
+    private static string RuntimeTypeName(BallValue value) => value switch
+    {
+        BallNull => "Null",
+        BallBool => "bool",
+        BallInt => "int",
+        BallDouble => "double",
+        BallString => "String",
+        BallBytes => "List<int>",
+        BallList => "List",
+        BallMap => "Map",
+        BallFunction => "Function",
+        BallMessage m => m.TypeName.Contains(':') ? m.TypeName[(m.TypeName.LastIndexOf(':') + 1)..] : m.TypeName,
+        _ => value.GetType().Name,
+    };
+
+    /// <summary>A <c>Map.entries</c> view — a list of <c>{key, value}</c> maps (Dart's <c>MapEntry</c> shape the engine iterates).</summary>
+    private static BallValue MapEntries(BallMap map)
+    {
+        var list = new BallList();
+        foreach (var (key, value) in map.Entries())
+        {
+            var entry = new BallMap();
+            entry.Set("key", BallValue.Str(key));
+            entry.Set("value", value);
+            list.Add(entry);
+        }
+
+        return list;
+    }
+
+    /// <summary>The original proto3-JSON key for a Dart-protobuf renamed getter (<c>field_2</c> → <c>field</c>, <c>descriptor_</c> → <c>descriptor</c>), or <c>null</c>.</summary>
+    private static string? ProtoGetterAlias(string field) => field switch
+    {
+        "field_2" => "field",
+        "descriptor_" => "descriptor",
+        _ => null,
     };
 
     /// <summary>

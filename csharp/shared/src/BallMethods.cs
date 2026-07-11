@@ -50,6 +50,55 @@ public static partial class BallRuntime
         input is BallMap m ? m.Get(key) ?? BallValue.Null : BallValue.Null;
 
     /// <summary>
+    /// Read a declared parameter from a call input by name, falling back to its
+    /// positional <c>arg{i}</c> slot (invariant #1's "one input" packing) — the
+    /// method/constructor param-binding convention. Mirrors Rust's
+    /// <c>ball_arg_get</c>.
+    /// </summary>
+    public static BallValue ArgGet(BallValue input, string namedKey, string positionalKey) => input switch
+    {
+        BallMap m => m.Get(namedKey) ?? m.Get(positionalKey) ?? BallValue.Null,
+        BallMessage msg => msg.Get(namedKey) ?? msg.Get(positionalKey) ?? BallValue.Null,
+        _ => BallValue.Null,
+    };
+
+    /// <summary>
+    /// Implicit-<c>this</c> injection (issue #383): weave the enclosing receiver
+    /// into a <c>this.method(args)</c> call's input so the instance-method
+    /// dispatcher finds a receiver. A multi-argument <c>{arg0, arg1}</c> message
+    /// (or a zero-argument <c>Null</c>) gets <c>self</c> merged in; a single
+    /// positional argument is wrapped as <c>{self, arg0}</c> (see
+    /// <see cref="Arg0WithSelf"/>). Mirrors Rust's <c>ball_with_self</c>.
+    /// </summary>
+    public static BallValue WithSelf(BallValue input, BallValue self)
+    {
+        switch (input)
+        {
+            case BallMap map:
+                map.Set("self", self);
+                return map;
+            case BallMessage message:
+                message.Set("self", self);
+                return message;
+            case BallNull:
+                var fresh = new BallMap();
+                fresh.Set("self", self);
+                return fresh;
+            default:
+                return input;
+        }
+    }
+
+    /// <summary>Implicit-<c>this</c> injection for a single positional argument — wrap it as <c>{self, arg0}</c> (Rust's <c>ball_arg0_with_self</c>).</summary>
+    public static BallValue Arg0WithSelf(BallValue arg, BallValue self)
+    {
+        var map = new BallMap();
+        map.Set("self", self);
+        map.Set("arg0", arg);
+        return map;
+    }
+
+    /// <summary>
     /// Dispatch a built-in method call <c><paramref name="method"/>(…)</c> on the
     /// receiver carried in <paramref name="input"/>'s <c>self</c> field, with
     /// arguments <c>arg0</c>/<c>arg1</c>/… The compiler routes here for a call
@@ -92,6 +141,14 @@ public static partial class BallRuntime
             // ── Top-level Dart core functions ──
             "identical" => BallValue.Bool(MethodIdentical(a0, a1)),
 
+            // ── DateTime (static) ──
+            "now" => MethodDateTimeNow(),
+
+            // A proto presence getter (`binding.hasValue()`) called as a method —
+            // route to the ball_proto presence check on the named field.
+            _ when method.StartsWith("has", StringComparison.Ordinal) && method.Length > 3
+                => BallProto.HasField(self, char.ToLowerInvariant(method[3]) + method[4..]),
+
             _ => UnsupportedMethod(method, self),
         };
     }
@@ -114,9 +171,16 @@ public static partial class BallRuntime
 
                 return BallValue.Null;
             case BallMap map:
-                foreach (var (key, value) in AsMap(other).Entries())
+                foreach (var (key, value) in MapLikeEntries(other))
                 {
                     map.Set(key, value);
+                }
+
+                return BallValue.Null;
+            case BallMessage message:
+                foreach (var (key, value) in MapLikeEntries(other))
+                {
+                    message.Set(key, value);
                 }
 
                 return BallValue.Null;
@@ -124,6 +188,14 @@ public static partial class BallRuntime
                 return UnsupportedMethod("addAll", self);
         }
     }
+
+    /// <summary>The entries of a map-like value (a <see cref="BallMap"/> or a <see cref="BallMessage"/>) — for merging.</summary>
+    private static IEnumerable<KeyValuePair<string, BallValue>> MapLikeEntries(BallValue value) => value switch
+    {
+        BallMap m => m.Entries(),
+        BallMessage msg => msg.Fields.Entries(),
+        _ => throw new BallRuntimeException($"expected a map, got {TypeName(value)}"),
+    };
 
     private static BallValue MethodClear(BallValue self)
     {
@@ -244,6 +316,16 @@ public static partial class BallRuntime
             BallMap map => map.Snapshot(),
             _ => throw new BallRuntimeException($"unmodifiable on unsupported source {TypeName(source)} (type {typeName})"),
         };
+    }
+
+    /// <summary><c>DateTime.now()</c> — a message exposing <c>millisecondsSinceEpoch</c>/<c>microsecondsSinceEpoch</c> (what the engine reads for profiling/timeouts).</summary>
+    private static BallValue MethodDateTimeNow()
+    {
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var fields = new BallMap();
+        fields.Set("millisecondsSinceEpoch", BallValue.Int(nowMs));
+        fields.Set("microsecondsSinceEpoch", BallValue.Int(nowMs * 1000));
+        return new BallMessage("DateTime", fields);
     }
 
     private static bool MethodIdentical(BallValue a, BallValue b)

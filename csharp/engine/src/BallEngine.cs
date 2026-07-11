@@ -69,10 +69,100 @@ public sealed class BallEngine
     /// program view, and the <c>ball_proto</c> access patterns this wrapper
     /// provides are still exercised (see the engine test suite).</para>
     /// </summary>
-    public IReadOnlyList<string> Run() =>
+    public IReadOnlyList<string> Run()
+    {
+#if SELF_HOST
+        return RunSelfHosted();
+#else
         throw new SelfHostPendingException(
-            "the compiled self-hosted engine (CompiledEngine.cs) does not yet compile through " +
-            "the Ball -> C# compiler (issue #383); the loader + ball_proto foundation is in place.");
+            "the compiled self-hosted engine driver is off in the default build (issue #383); " +
+            "build with -p:SelfHost=true to include the generated CompiledEngine.cs and driver.");
+#endif
+    }
+
+#if SELF_HOST
+    /// <summary>
+    /// Drive the compiled self-hosted engine (issue #383): build its 16-field
+    /// constructor input (the program view, an stdout callback capturing into a
+    /// shared buffer, permissive limits, and a StdModuleHandler), construct the
+    /// <c>BallEngine</c> instance via its compiled constructor, then call the
+    /// compiled <c>run</c>. Mirrors <c>rust/engine/src/lib.rs</c>'s
+    /// <c>run_self_hosted</c>. Runs on a large-stack thread — the self-hosted
+    /// engine is a deep tree-walker whose compiled methods each carry a very large
+    /// frame (hundreds of field-alias locals), so even a modestly recursive target
+    /// (<c>fibonacci(10)</c>) overflows the default stack.
+    /// </summary>
+    private IReadOnlyList<string> RunSelfHosted()
+    {
+        var output = new List<string>();
+        Exception? failure = null;
+
+        var worker = new System.Threading.Thread(
+            () =>
+            {
+                try
+                {
+                    var stdout = new BallFunction("stdout", message =>
+                    {
+                        output.Add(message.ToString() ?? string.Empty);
+                        return BallValue.Null;
+                    });
+
+                    // The compiled StdModuleHandler — the module handler the engine
+                    // consults for every std/std_collections/… base call. Built here
+                    // with its field-level defaults (the constructor's
+                    // `moduleHandlers ?? [StdModuleHandler()]` default is a cosmetic
+                    // initializer the compiler does not evaluate).
+                    var stdFields = new BallMap();
+                    stdFields.Set("_dispatch", new BallMap());
+                    stdFields.Set("_composedDispatch", new BallMap());
+                    stdFields.Set("_tombstones", new BallList());
+                    stdFields.Set("_allowlist", BallValue.Null);
+                    var stdHandler = (BallValue)new BallMessage("main:StdModuleHandler", stdFields);
+
+                    var ctorInput = new BallMap();
+                    ctorInput.Set("program", ProgramValue);
+                    ctorInput.Set("stdout", stdout);
+                    ctorInput.Set("stderr", BallValue.Null);
+                    ctorInput.Set("stdinReader", BallValue.Null);
+                    ctorInput.Set("envGet", BallValue.Null);
+                    ctorInput.Set("args", new BallList());
+                    ctorInput.Set("enableProfiling", BallValue.Bool(false));
+                    ctorInput.Set("maxRecursionDepth", BallValue.Int(100_000));
+                    ctorInput.Set("timeoutMs", BallValue.Null);
+                    ctorInput.Set("maxMemoryBytes", BallValue.Null);
+                    ctorInput.Set("maxModules", BallValue.Int(1_000_000));
+                    ctorInput.Set("maxExpressionDepth", BallValue.Int(1_000_000));
+                    ctorInput.Set("maxProgramSizeBytes", BallValue.Null);
+                    ctorInput.Set("sandbox", BallValue.Bool(false));
+                    ctorInput.Set("moduleHandlers", new BallList(new[] { stdHandler }));
+                    ctorInput.Set("resolver", BallValue.Null);
+
+                    var engine = BallProgram.BallEngine__new((BallValue)ctorInput);
+                    var runInput = new BallMap();
+                    runInput.Set("self", engine);
+                    BallProgram.run((BallValue)runInput);
+                }
+                catch (Exception e)
+                {
+                    failure = e;
+                }
+            },
+            256 * 1024 * 1024);
+
+        worker.Start();
+        worker.Join();
+
+        if (failure is not null)
+        {
+            var frames = failure.StackTrace?.Split('\n').Take(6);
+            throw new EngineException(
+                $"self-hosted engine did not complete: {failure.Message}\n{string.Join("\n", frames ?? Array.Empty<string>())}");
+        }
+
+        return output;
+    }
+#endif
 }
 
 /// <summary>A failure loading a Ball program (bad JSON, wrong shape, or undecodable binary).</summary>

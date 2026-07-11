@@ -1,3 +1,10 @@
+# [1.48.0](https://github.com/Ball-Lang/ball/compare/v1.47.0...v1.48.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#385](https://github.com/Ball-Lang/ball/issues/385) ball CLI — run/compile/encode/check + self-hosted info/validate/tree/version ([#425](https://github.com/Ball-Lang/ball/issues/425)) ([309f809](https://github.com/Ball-Lang/ball/commit/309f8098a00417d1dd85ed23a1bb5897da61d082)), closes [#377](https://github.com/Ball-Lang/ball/issues/377) [#361](https://github.com/Ball-Lang/ball/issues/361)
+
 # [1.47.0](https://github.com/Ball-Lang/ball/compare/v1.46.0...v1.47.0) (2026-07-11)
 
 

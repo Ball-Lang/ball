@@ -66,16 +66,19 @@ List<Object?> _analyzeTerminationCore(Map ctx) {
   return warnings;
 }
 
-/// Format a termination warning [List] as human-readable text.
+/// Format a termination warning [List] as human-readable text. Built from a
+/// line list joined with `\n` plus a trailing newline (reproducing
+/// `StringBuffer.writeln`) so it self-hosts on the StringBuffer-less compiled
+/// TS/C++/Rust CLIs.
 String formatTerminationReport(List warnings) {
-  final buf = StringBuffer();
-  buf.writeln('Termination Analysis');
-  buf.writeln('============================================================');
-  buf.writeln('');
+  final lines = <String>[];
+  lines.add('Termination Analysis');
+  lines.add('============================================================');
+  lines.add('');
 
   if (warnings.isEmpty) {
-    buf.writeln('No issues found.');
-    return buf.toString();
+    lines.add('No issues found.');
+    return '${lines.join('\n')}\n';
   }
 
   // Group by category, preserving first-seen order.
@@ -93,13 +96,13 @@ String formatTerminationReport(List warnings) {
 
   for (final cat in categoryOrder) {
     final dynamic bucket = byCategory[cat];
-    buf.writeln('${_categoryLabel(cat)} (${bucket.length}):');
+    lines.add('${_categoryLabel(cat)} (${bucket.length}):');
     for (final w in bucket) {
       final sev = w['severity'];
       final icon = sev == 'error' ? '✖' : (sev == 'warning' ? '⚠' : 'ℹ');
-      buf.writeln('  $icon ${w['location']}: ${w['message']}');
+      lines.add('  $icon ${w['location']}: ${w['message']}');
     }
-    buf.writeln('');
+    lines.add('');
   }
 
   var errors = 0;
@@ -111,9 +114,9 @@ String formatTerminationReport(List warnings) {
     if (sev == 'warning') warns++;
     if (sev == 'info') infos++;
   }
-  buf.writeln('Total: $errors error(s), $warns warning(s), $infos info(s)');
+  lines.add('Total: $errors error(s), $warns warning(s), $infos info(s)');
 
-  return buf.toString();
+  return '${lines.join('\n')}\n';
 }
 
 String _categoryLabel(String category) {
@@ -379,10 +382,10 @@ void _checkWhileLoop(Map ctx) {
   final String kind = ctx['kind'];
   final location = '$moduleName.$fnName';
   if (!call.hasInput()) return;
-  final input = call.input;
-  if (!input.hasMessageCreation()) return;
+  final callInput = call.input;
+  if (!callInput.hasMessageCreation()) return;
 
-  final fields = input.messageCreation.fields;
+  final fields = callInput.messageCreation.fields;
   final condition = _getFieldValue({'fields': fields, 'name': 'condition'});
   final body = _getFieldValue({'fields': fields, 'name': 'body'});
   if (condition == null || body == null) return;
@@ -427,10 +430,10 @@ void _checkForLoop(Map ctx) {
   final List warnings = ctx['warnings'];
   final location = '$moduleName.$fnName';
   if (!call.hasInput()) return;
-  final input = call.input;
-  if (!input.hasMessageCreation()) return;
+  final callInput = call.input;
+  if (!callInput.hasMessageCreation()) return;
 
-  final fields = input.messageCreation.fields;
+  final fields = callInput.messageCreation.fields;
   final update = _getFieldValue({'fields': fields, 'name': 'update'});
   final body = _getFieldValue({'fields': fields, 'name': 'body'});
 
@@ -570,14 +573,14 @@ bool _exprContainsConditionalReturn(dynamic expr) {
     final call = expr.call;
     final module = call.module.isEmpty ? 'std' : call.module;
     if (module == 'std' && call.function == 'if' && call.hasInput()) {
-      final input = call.input;
-      if (input.hasMessageCreation()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
         final thenBranch = _getFieldValue({
-          'fields': input.messageCreation.fields,
+          'fields': callInput.messageCreation.fields,
           'name': 'then',
         });
         final elseBranch = _getFieldValue({
-          'fields': input.messageCreation.fields,
+          'fields': callInput.messageCreation.fields,
           'name': 'else',
         });
         if (thenBranch != null && _exprContainsReturn(thenBranch)) return true;
@@ -855,10 +858,10 @@ void _collectDefinedLabels(Map ctx) {
     final call = expr.call;
     final module = call.module.isEmpty ? 'std' : call.module;
     if (module == 'std' && call.function == 'label' && call.hasInput()) {
-      final input = call.input;
-      if (input.hasMessageCreation()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
         final name = _getStringFieldValue({
-          'fields': input.messageCreation.fields,
+          'fields': callInput.messageCreation.fields,
           'name': 'name',
         });
         if (name != null && name.isNotEmpty) {
@@ -908,10 +911,10 @@ void _collectLabelUsages(Map ctx) {
     if (module == 'std' &&
         (call.function == 'break' || call.function == 'continue') &&
         call.hasInput()) {
-      final input = call.input;
-      if (input.hasMessageCreation()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
         final label = _getStringFieldValue({
-          'fields': input.messageCreation.fields,
+          'fields': callInput.messageCreation.fields,
           'name': 'label',
         });
         if (label != null && label.isNotEmpty) {
@@ -1047,10 +1050,10 @@ void _collectMutatedVars(Map ctx) {
     final call = expr.call;
     final module = call.module.isEmpty ? 'std' : call.module;
     if (module == 'std' && call.function == 'assign' && call.hasInput()) {
-      final input = call.input;
-      if (input.hasMessageCreation()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
         final target = _getFieldValue({
-          'fields': input.messageCreation.fields,
+          'fields': callInput.messageCreation.fields,
           'name': 'target',
         });
         if (target != null && target.hasReference()) {

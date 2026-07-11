@@ -483,23 +483,25 @@ Map<String, Object?> _buildReportFromFunctions(
 }
 
 /// Format a capability report [Map] as human-readable text (byte-identical to
-/// the legacy proto-report renderer).
+/// the legacy proto-report renderer). Built from a line list joined with `\n`
+/// plus a trailing newline — reproducing `StringBuffer.writeln` semantics — so
+/// it self-hosts on the compiled TS/C++/Rust CLIs (which have no StringBuffer).
 String formatCapabilityReport(Map report) {
-  final buf = StringBuffer();
-  buf.writeln(
+  final lines = <String>[];
+  lines.add(
     'Ball Capability Audit: ${report['programName']} v${report['programVersion']}',
   );
-  buf.writeln('============================================================');
-  buf.writeln('');
+  lines.add('============================================================');
+  lines.add('');
 
-  buf.writeln('Capabilities:');
+  lines.add('Capabilities:');
   final List capabilities = report['capabilities'];
   for (final entry in capabilities) {
     final icon = entry['riskLevel'] == 'none' ? '✓' : '⚠';
     final List callSites = entry['callSites'];
     final siteCount = callSites.length;
     if (siteCount == 0) {
-      buf.writeln('  $icon ${entry['capability']} (pure computation)');
+      lines.add('  $icon ${entry['capability']} (pure computation)');
     } else {
       final siteStrs = <String>[];
       for (final s in callSites) {
@@ -508,7 +510,7 @@ String formatCapabilityReport(Map report) {
         );
       }
       final sites = siteStrs.join(', ');
-      buf.writeln(
+      lines.add(
         '  $icon ${entry['capability']} ($siteCount call sites: $sites)',
       );
     }
@@ -525,10 +527,10 @@ String formatCapabilityReport(Map report) {
   if (s['usesConcurrency'] == false) absent.add('concurrency');
   if (s['usesRandom'] == false) absent.add('random');
   if (absent.isNotEmpty) {
-    buf.writeln('  ✗ NONE: ${absent.join(', ')}');
+    lines.add('  ✗ NONE: ${absent.join(', ')}');
   }
 
-  buf.writeln('');
+  lines.add('');
   final isPure = s['isPure'] == true;
   final controlsProcess = s['controlsProcess'] == true;
   final usesMemory = s['usesMemory'] == true;
@@ -546,13 +548,13 @@ String formatCapabilityReport(Map report) {
   } else {
     risk = 'LOW RISK';
   }
-  buf.writeln('Summary: $risk');
-  buf.writeln(
+  lines.add('Summary: $risk');
+  lines.add(
     '  ${s['totalFunctions']} functions: ${s['pureFunctions']} pure, ${s['effectfulFunctions']} effectful',
   );
 
-  buf.writeln('');
-  buf.writeln('Per-function breakdown:');
+  lines.add('');
+  lines.add('Per-function breakdown:');
   final List functions = report['functions'];
   for (final fn in functions) {
     final List fnCaps = fn['capabilities'];
@@ -561,10 +563,10 @@ String formatCapabilityReport(Map report) {
       if (c != 'pure') nonPure.add(c);
     }
     final label = nonPure.isEmpty ? 'pure' : nonPure.join(', ');
-    buf.writeln('  ${fn['module']}.${fn['function']} → $label');
+    lines.add('  ${fn['module']}.${fn['function']} → $label');
   }
 
-  return buf.toString();
+  return '${lines.join('\n')}\n';
 }
 
 /// Check a report [Map] against a [deny] list of capability names. Returns the

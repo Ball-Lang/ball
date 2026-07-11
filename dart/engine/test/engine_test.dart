@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ball_base/ball_base.dart' show BallMap, decodeProgramJson;
+import 'package:ball_base/ball_base.dart' show decodeProgramJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_encoder/encoder.dart' show DartEncoder;
 import 'package:ball_engine/engine.dart';

@@ -327,8 +327,19 @@ async function cmdAudit(args: ParsedArgs): Promise<number> {
   const asJson = args.flags['json'] === true;
   if (asJson) {
     process.stdout.write(JSON.stringify(report, null, 2) + '\n');
-  } else {
+  } else if (reachableOnly) {
+    // Scoped text report: the capability report over the reachable closure
+    // only (auditReport always analyzes the whole program, so it can't render
+    // the `--reachable-only` view).
     process.stdout.write(cliCore.formatCapabilityReport(report));
+  } else {
+    // Default `ball audit <path>`: the full self-hosted report — capability
+    // analysis PLUS termination analysis — byte-identical to the native Dart
+    // CLI's default fast path (`cli_core.auditReport`), which the subprocess
+    // parity gate (test/cli_core_parity.test.ts) locks. Emitting only the
+    // capability report here silently dropped the self-hosted termination
+    // section the native CLI includes.
+    process.stdout.write(cliCore.auditReport(program));
   }
 
   if (denySet.size > 0) {

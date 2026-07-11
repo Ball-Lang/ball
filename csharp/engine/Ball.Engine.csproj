@@ -21,9 +21,11 @@
 
   <ItemGroup>
     <Compile Remove="test/**/*.cs" />
-    <!-- tool/ is a sibling console project (the regenerator); exclude it from
+    <!-- tool/ and conformance/ are sibling console projects (the regenerator
+         and the Phase-7 conformance harness, issue #384); exclude them from
          this project's own compile items. -->
     <Compile Remove="tool/**/*.cs" />
+    <Compile Remove="conformance/**/*.cs" />
     <!-- Generated self-hosted engine: off by default; included only for the
          SelfHost build so the default build never depends on it. -->
     <Compile Remove="src/CompiledEngine.cs" />

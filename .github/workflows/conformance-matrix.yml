@@ -74,7 +74,12 @@ jobs:
           echo "=== Dart Engine ==="
           echo "Results: $passed passed, $failed failed, $total total"
 
-          exit $exit_code
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+            echo "::error::Dart Engine conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -125,7 +130,12 @@ jobs:
           echo "=== TS Self-Hosted Engine ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
 
-          exit $exit_code
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+            echo "::error::TS Self-Hosted Engine conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -176,7 +186,12 @@ jobs:
           echo "=== TS Compiled Engine ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
 
-          exit $exit_code
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+            echo "::error::TS Compiled Engine conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -229,7 +244,12 @@ jobs:
           echo "=== TS Compiled (Direct) ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
 
-          exit $exit_code
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+            echo "::error::TS Compiled (Direct) conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -286,7 +306,12 @@ jobs:
           echo "=== C++ Compiled ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
 
-          exit $exit_code
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+            echo "::error::C++ Compiled conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -351,7 +376,12 @@ jobs:
           echo "=== Rust Self-Hosted Engine ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
 
-          exit $exit_code
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+            echo "::error::Rust Self-Hosted Engine conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -397,7 +427,12 @@ jobs:
   #         echo "=== <Lang> Engine ==="
   #         echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
   #
-  #         exit $exit_code
+  #         # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+  #         if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ]; then
+  #           echo "::error::<Lang> Engine conformance failed (exit=$exit_code, failed=${failed:-0})"
+  #           exit 1
+  #         fi
+  #         exit 0
   #
   #   outputs:
   #     passed: ${{ steps.conformance.outputs.passed }}
@@ -473,7 +508,8 @@ jobs:
 
           echo "╚══════════════════════════════╩════════╩════════╩════════╩════════╝"
 
-          # Fail the summary if any engine job failed
+          # Fail the summary if any engine job did not succeed (primary gate).
+          summary_failed=0
           if [ "${{ needs.dart-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-engine.result }}" != "success" ] || \
              [ "${{ needs.ts-compiled-engine.result }}" != "success" ] || \
@@ -481,7 +517,34 @@ jobs:
              [ "${{ needs.cpp-compiled.result }}" != "success" ] || \
              [ "${{ needs.rust-engine.result }}" != "success" ]; then
             echo ""
-            echo "One or more engines failed conformance. See individual job logs above."
+            echo "One or more engine jobs did not succeed. See individual job logs above."
+            summary_failed=1
+          fi
+
+          # Defense-in-depth (F-CM-1): also fail if any engine reported a
+          # non-zero parsed failure count, even if its job reported success —
+          # the parsed counts must gate, not merely decorate the matrix.
+          for entry in \
+            "Dart Engine:${{ needs.dart-engine.outputs.failed }}" \
+            "TS Self-Hosted Engine:${{ needs.ts-engine.outputs.failed }}" \
+            "TS Compiled Engine:${{ needs.ts-compiled-engine.outputs.failed }}" \
+            "TS Compiled (Direct):${{ needs.ts-compiled-direct.outputs.failed }}" \
+            "C++ Compiled:${{ needs.cpp-compiled.outputs.failed }}" \
+            "Rust Self-Hosted Engine:${{ needs.rust-engine.outputs.failed }}"; do
+            name="${entry%%:*}"
+            count="${entry##*:}"
+            # Normalize empty/non-numeric (e.g. a skipped job) to 0 so the
+            # comparison can never fail spuriously.
+            case "$count" in
+              '' | *[!0-9]*) count=0 ;;
+            esac
+            if [ "$count" -gt 0 ]; then
+              echo "::error::$name reported $count conformance failure(s)"
+              summary_failed=1
+            fi
+          done
+
+          if [ "$summary_failed" -ne 0 ]; then
             exit 1
           fi
 

@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–5 complete + Phase 6 self-host grind in progress — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + engine wrapper foundation)
+# C# (Phases 1–5 complete + Phase 6 self-host engine RUNS hello_world + fibonacci — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine)
 
 ## Purpose
 
@@ -432,9 +432,26 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   aliases `field_2`→`field`; `CallMethod` built-in dispatch incl. `has*` proto getters and
   `DateTime.now`; math/collections/convert). The engine runs through construction, lookup-table
   building, module-handler `print` dispatch, and deep into expression evaluation.
-- **Remaining (Round 4):** a bounded runtime-shape grind (the analog of Rust's "final-24") — a
-  handful of `BallRuntime` polymorphism/null-handling mismatches still stop `hello_world`/
-  `fibonacci` short of golden output. The acceptance tests are `csharp/engine/test/SelfHostRunTests.cs`
+- **Runs the reference programs (Round 4):** `hello_world` **and** `fibonacci` now produce
+  **byte-exact golden output** through the compiled engine — `SelfHostRunTests` passes under
+  `-p:SelfHost=true`. Round 4 landed the seven root-cause fixes that unblocked execution: (1)
+  null-aware index-set `target?[index] = value` short-circuits instead of eagerly dereferencing
+  (`BaseCall.cs`); (2) multi-parameter functions/lambdas bind name-**or**-positionally
+  (`ParamPrologue` uses `ArgGet`, so a first-class `op(a, b)` invoke resolves); (3)
+  `reference("input")` resolves through a declared `input` local (an instance method's extracted
+  argument, not the raw `{self, arg0}` wrapper); (4) `BallObject extends BallMap` is modelled as
+  `is BallMap` so map-shaped paths (`_stdAsMap` → `.entries`) fire; (5) the engine's own
+  `BallMap`/`BallList` value-model wrappers store their backing under `entries`/`items`, and (6)
+  `LinkedHashMap()`/`HashMap()` lower to a native `BallMap` (not an opaque message); (7) — the
+  keystone — **Dart switch-statement fall-through** (a bare `case 'a': case 'b': <stmt>`) now ORs
+  the empty-body labels into the shared body, instead of dropping it; this silently broke every
+  `++`/`--` (a four-label fall-through case), hanging every counter loop.
+- **Conformance baseline (informal sweep):** driving the whole `tests/conformance/*.ball.json`
+  corpus through `BallEngine.Run` gives **199 passed / 324** (0 timeouts). The remaining failures
+  are dominated (~55%) by the dynamic built-in-method surface (`BallRuntime.CallMethod` /
+  `MethodRemove` on `Message`/`List` receivers — e.g. `.remove`, `.tag`, `.name`, `.remainder`),
+  then null-operand numeric ops and a handful of `toString`/method-resolution gaps. The proper
+  gated harness is #384; the acceptance tests are `csharp/engine/test/SelfHostRunTests.cs`
   (SELF_HOST-gated, excluded from the default build; run with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
@@ -455,9 +472,17 @@ dotnet test csharp/Ball.slnx
 dotnet format csharp/Ball.slnx --verify-no-changes   # run `dotnet format` (no flag) to fix
 dotnet run --project csharp/cli/Ball.Cli.csproj       # prints the Phase 1 wiring banner
 
-# Self-hosted engine (issue #383): regenerate, then measure the self-host compile
-dotnet run --project csharp/engine/tool/Ball.Engine.Regen.csproj   # writes CompiledEngine.cs
+# Self-hosted engine (issue #383): regenerate, build, and run the acceptance tests.
+# The regen tool prefers dart/self_host/engine.ball.pb (binary Any envelope). In a
+# fresh checkout that gitignored artifact is absent AND the JSON fallback exceeds
+# System.Text.Json's depth limit, so materialize the .pb first:
+#   cd dart && dart run compiler/tool/compile_engine_cpp.dart   # writes engine.ball.pb
+#   (the trailing C++ emit step errors when ball_cpp_compile is absent — harmless;
+#    the .pb is written before it. `gen_engine_json.dart` only writes the .json.)
+dotnet run --project csharp/engine/tool/Ball.Engine.Regen.csproj    # writes CompiledEngine.cs
 dotnet build csharp/engine/Ball.Engine.csproj -p:SelfHost=true      # compile the generated engine
+dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
+  --filter "FullyQualifiedName~SelfHostRunTests"   # hello_world + fibonacci golden
 ```
 
 ## For AI Agents
@@ -471,8 +496,9 @@ dotnet build csharp/engine/Ball.Engine.csproj -p:SelfHost=true      # compile th
   see "Encoder" above). **Phase 6 (#383) is in progress: the self-hosted engine wrapper
   foundation** — the regen tool, the `Loader`/`BallEngine`/`BallProto` foundation with real tests,
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
-  **0 — it now COMPILES** under `-p:SelfHost=true` (see "Self-hosted engine" above and #383).
-  Running it still needs body-carrying constructor emission (the documented run blocker). The
+  **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
+  **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
+  informal corpus sweep is at 199/324 with no hangs (see "Self-hosted engine" above and #383). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

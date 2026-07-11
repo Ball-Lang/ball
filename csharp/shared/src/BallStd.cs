@@ -66,6 +66,10 @@ public static partial class BallRuntime
     /// <summary><c>value as Type</c> — a permissive cast (identity in the dynamic value model; <c>null</c> passes a nullable target).</summary>
     public static BallValue AsType(BallValue value, string typeName) => value;
 
+    /// <summary>The unqualified type name (the part after the last <c>:</c> module qualifier), e.g. <c>main:BallObject → BallObject</c>.</summary>
+    private static string ShortTypeName(string typeName) =>
+        typeName.Contains(':') ? typeName[(typeName.LastIndexOf(':') + 1)..] : typeName;
+
     private static bool IsOfType(BallValue value, string typeName)
     {
         var t = typeName.Trim();
@@ -94,9 +98,15 @@ public static partial class BallRuntime
             "Function" => value is BallFunction,
             "Null" => value is BallNull,
             "Object" or "dynamic" => value is not BallNull,
+            // The engine's `BallObject extends BallMap` — the universal object
+            // wrapper for a typeDef-backed instance is a `BallMessage("…BallObject")`
+            // that IS-A `BallMap` in the reference engine (its `entries` field is the
+            // inherited map backing). `is BallMap` must therefore hold for it, so
+            // map-shaped engine paths (e.g. `_stdAsMap` → `v.entries`) fire.
+            "BallMap" => (value is BallMessage bm && ShortTypeName(bm.TypeName) is "BallMap" or "BallObject"),
             _ => value is BallMessage m
                  && (m.TypeName == baseName
-                     || (m.TypeName.Contains(':') ? m.TypeName[(m.TypeName.LastIndexOf(':') + 1)..] : m.TypeName) == baseName),
+                     || ShortTypeName(m.TypeName) == baseName),
         };
     }
 

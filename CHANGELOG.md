@@ -1,3 +1,10 @@
+## [1.49.1](https://github.com/Ball-Lang/ball/compare/v1.49.0...v1.49.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **csharp:** [#386](https://github.com/Ball-Lang/ball/issues/386) Phase 9 — CI/CD (ci.yml job + conformance-matrix row + coverage + dependabot) ([#428](https://github.com/Ball-Lang/ball/issues/428)) ([6a62fe4](https://github.com/Ball-Lang/ball/commit/6a62fe4ca7fecc030b3dff87780e1208621c2949))
+
 # [1.49.0](https://github.com/Ball-Lang/ball/compare/v1.48.0...v1.49.0) (2026-07-11)
 
 

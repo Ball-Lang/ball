@@ -1,3 +1,10 @@
+# [1.36.0](https://github.com/Ball-Lang/ball/compare/v1.35.1...v1.36.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host engine runs hello_world + fibonacci (switch fall-through + runtime-shape fixes) ([#401](https://github.com/Ball-Lang/ball/issues/401)) ([b23e9b1](https://github.com/Ball-Lang/ball/commit/b23e9b1eb40fbbddcf999192bfc0e701b7c1819d))
+
 ## [1.35.1](https://github.com/Ball-Lang/ball/compare/v1.35.0...v1.35.1) (2026-07-11)
 
 

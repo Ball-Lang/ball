@@ -9,7 +9,8 @@ Ball is a programming language where code is structured protobuf messages. The p
 - **TypeScript** — a full pipeline, all CI-gated: compiler, self-hosted engine (passes the conformance corpus), encoder (TS→Ball; 100+ round-trip tests; routes through universal `std`, no `ts_std`), CLI.
 - **C++** — compiler, encoder (Clang JSON AST → Ball), self-hosted engine; the self-host conformance passes **every** fixture (no skip-list). Still FetchContents upstream protobuf v34.1 (#18/#25).
 - **Rust** (epic #32, closed) — a complete pipeline: compiler (`rust/compiler/`, #36-38) and encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`; #41/#304 closed). Conformance harness (#40) and CI job (#44) both closed — see `rust/AGENTS.md`.
-- **Proto bindings only** for Go, Python, Java, C#.
+- **C#** (epic #377) — proto bindings + runtime value model (`csharp/shared/`, #379-380) and a Roslyn C#→Ball encoder (`csharp/encoder/`, #382, syntax-only, verified against the Dart reference engine); compiler/self-hosted engine/CLI still pending — see `csharp/AGENTS.md`.
+- **Proto bindings only** for Go, Python, Java.
 
 Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS, C++, and Rust all have full compiler+encoder+engine pipelines gated in CI.
 

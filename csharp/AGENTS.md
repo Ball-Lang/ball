@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–3 — bindings wired + runtime value model landed; compiler/encoder/engine still scaffold)
+# C# (Phases 1–3, 5 landed — bindings + runtime value model + Roslyn encoder; compiler/engine still scaffold)
 
 ## Purpose
 
@@ -10,9 +10,12 @@ plus one xunit test project per package, all under a single solution. Phase 2 (#
 buf-generated protobuf bindings in `shared/gen/` consumable: pins the `Google.Protobuf` runtime
 to the gencode's plugin version and adds binary + JSON round-trip smoke tests (see "Proto
 bindings" below). **Phase 3 (#380) added the runtime value model + std module builders + the
-base-op helper layer to `shared/`** (see "Runtime value model" below). The
-`compiler`/`encoder`/`engine`/`cli` packages are still Phase-1 placeholders — see the phase
-table in the epic #377 tracking comment.
+base-op helper layer to `shared/`** (see "Runtime value model" below). **Phase 5 (#382) added
+the C# → Ball encoder to `encoder/`** (via Roslyn, syntax-only — see "Encoder" below). The
+`compiler`/`engine`/`cli` packages are still Phase-1 placeholders — see the phase table in the
+epic #377 tracking comment (`compiler` — #381 — is Wave C's other, independent half; `encoder`
+does not depend on it, and was verified end-to-end against the DART reference engine instead,
+since no C# engine exists yet).
 
 ## Layout
 
@@ -40,8 +43,17 @@ csharp/
     src/PackageInfo.cs     # Phase 1 placeholder; real Ball -> C# compiler lands in #381
     test/
   encoder/
-    src/PackageInfo.cs     # Phase 1 placeholder; real C# -> Ball encoder (Roslyn) lands in #382
-    test/
+    src/CSharpEncoder.cs   # #382: Encode(source) -> Program; std accumulation; entry point
+    src/Encoder.cs         # #382: pre-pass declaration collection + core expression dispatch
+    src/Statements.cs      # #382: block/local (LetBinding) encoding
+    src/ControlFlow.cs     # #382: if/for/foreach/while/do-while/switch/try -> LAZY std calls
+    src/Types.cs           # #382: class/struct/record -> TypeDefinition; object creation
+    src/Methods.cs         # #382: invocation/member-access dispatch, interpolation, lambdas
+    src/Builders.cs        # #382: Expression/Statement/metadata builder toolbox
+    src/EncoderException.cs # #382: fail-loud exception type (never a silent drop)
+    test/                  # Ball.Encoder.Tests — 77 tests: one file per construct family +
+                            # a std-accumulation/zero-csharp_std suite + proof-program tests
+                            # (hello_world/fibonacci/factorial)
   engine/
     src/PackageInfo.cs     # Phase 1 placeholder; self-hosted engine wrapper lands in #383
     test/
@@ -234,6 +246,73 @@ optional type name for `on Type catch`). **Scope:** deferred to Phase 4 (fall ba
 (`list_map`/`list_reduce`/…), `regex_*`, the `math_*` transcendental family, `std_io`, and all of
 `std_memory`.
 
+## Encoder (issue #382)
+
+`csharp/encoder/` encodes C# source into a Ball `Program` via **Roslyn**
+(`Microsoft.CodeAnalysis.CSharp`, pinned in `Directory.Packages.props` — verified latest stable
+on nuget.org at lane time: `5.6.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line). Parsing is
+**syntax-only** (`CSharpSyntaxTree.ParseText`, no `CSharpCompilation`/semantic model) — the same
+discipline as `dart/encoder/lib/encoder.dart`'s `parseString` approach (see
+`.claude/rules/dart.md`'s "syntactic-encoder gotchas": dispatch is by *syntax and name
+heuristics*, never by static type, since none is available). **Hard invariant: there is no
+`csharp_std` base module** — every construct routes through `std`/`std_collections`, verified by
+a CI-checkable xunit assertion (`StdModuleAccumulationTests`).
+
+### The "one input" convention — this encoder's key departure from `rust/encoder`
+
+`rust/encoder` packs 2+-parameter functions into `field_access(reference("input"), name)` to
+work around its *compiled-Rust-closure* compile target. This encoder targets the tree-walking
+reference engine directly instead, and **verified against `dart/engine/lib/engine_invocation.dart`
+that the engine binds every declared parameter — 1 or many — directly under its own real name**
+whenever `FunctionDefinition.metadata.params` lists it (`_extractParams`/`_callFunction`): this is
+engine-level behavior, not merely compiler-cosmetic metadata. So every function/method/lambda
+this encoder emits, of any arity, references each parameter via a plain `reference(name)`
+throughout its body — no positional `arg0`/`arg1` packing needed for a *known* (same-file)
+callee. Lambdas are true closures on the reference engine (`_evalLambda` captures `scope.child()`),
+so a nested lambda referencing an enclosing function's parameters by name resolves correctly with
+no special-casing needed.
+
+Instance methods use the engine's separate, **unconditional** `self` convention (verified in
+`_callFunction`/`_evalCall`): a method call's `input` carries a `"self"` field with the receiver,
+and the engine binds `self` into scope — and flattens the receiver's own fields into scope too —
+whenever that key is present, independent of `metadata.params`. This encoder lists only a
+method's own (non-`self`) parameters in `metadata.params`, and always addresses a field via
+explicit `field_access(reference("self"), field)` (never a bare name) — mirrors
+`dart/compiler/lib/compiler.dart`'s own `reference("self")`/`this` convention exactly. An
+instance method compiles to `"main:Owner.Method"` (dot-split by the engine's
+`_registerFunctionDispatchTables` to build its runtime-type dispatch table); a static method
+compiles to a plain top-level function `"Owner_Method"` (underscore, to avoid colliding with the
+dot-based instance convention) — **except** a method literally named `Main`, always the bare
+entry-point name `"Main"` regardless of which class declares it.
+
+### Construction is field-mapping only
+
+`new Foo(a, b)` / `new Foo { X = 1 }` never interprets a constructor **body** — only the
+constructor's (or a C# 12 primary constructor's) parameter list is consulted to map positional
+args onto field names; a class may declare at most one constructor. `List<T>`/`HashSet<T>`/…
+construction becomes a Ball list literal; `Dictionary<K,V>` has no native Ball map literal (see
+`proto/ball/v1/ball.proto`'s `Literal` oneof — no map case), so it routes through
+`std_collections.map_from_entries` instead. A `*Exception`-named unknown type (no same-file class
+declaration) is assumed to be a BCL exception and becomes an anonymous `{Message: ...}` — Ball's
+`throw`/`try`/`catch` model is value-based, needing no exception type hierarchy.
+
+### Documented gaps (fail loud, never silently dropped)
+
+Target-typed `new(...)` (no semantic model to resolve the implied type); `enum` declarations;
+`goto`/switch pattern-matching labels/catch exception filters; chained `?.` beyond one level;
+multiple constructors per class; local functions; sized array allocation without an initializer;
+interpolation alignment/format specifiers (`{x,5:F2}`). A few method names are inherently
+ambiguous without a semantic model and bias toward one route (documented in `Methods.cs`'s module
+doc comment): `.Contains`/`.IndexOf` → string ops; `.Remove` → `map_delete`.
+
+### Proof (verified 2026-07-11 against the DART reference engine — no C# engine exists yet, #383)
+
+Encoded `hello_world`/`fibonacci`/`factorial`/a fields+methods+object-initializer class program/
+a control-flow-heavy program (foreach/while/switch/try-catch-finally/lambda/null-conditional) and
+ran each `.ball.json` via `dart run dart/cli/bin/ball.dart run <file>` from the repo root — every
+output matched real C# semantics exactly (fib(0..9), 1!..10!, `p.SumCoords()`, etc.). This is the
+encoder's actual ground truth, independent of the not-yet-built C# compiler/engine.
+
 ## Generated Files — NEVER Edit
 
 - `csharp/shared/gen/` — protobuf bindings (`buf generate`, plugin
@@ -255,13 +334,17 @@ dotnet run --project csharp/cli/Ball.Cli.csproj       # prints the Phase 1 wirin
   buf-generated bindings against a version-pinned `Google.Protobuf` runtime with binary AND JSON
   round-trip smoke tests and verified byte-identical regen discipline (#379, documented above);
   plus the runtime value model + std module builders + base-op helper layer with real tests
-  (#380; see "Runtime value model" above). The `compiler`/`encoder`/`engine`/`cli` packages are
-  still Phase-1 placeholders with smoke tests only — see the phase table in the epic #377
-  tracking comment for the blocked-by graph (#381 compiler, #382 encoder, #383 self-hosted
-  engine, #384 conformance, #385 CLI, #386 CI, #387 docs).
+  (#380; see "Runtime value model" above). **Phase 5 (#382) landed the Roslyn C# → Ball encoder**
+  in `encoder/` — 77 xunit tests, zero `csharp_std` modules, verified against the Dart reference
+  engine (see "Encoder" above). The `compiler`/`engine`/`cli` packages are still Phase-1
+  placeholders with smoke tests only — see the phase table in the epic #377 tracking comment for
+  the blocked-by graph (#381 compiler, #383 self-hosted engine, #384 conformance, #385 CLI,
+  #386 CI, #387 docs).
 - The Phase-4 compiler (#381) must emit calls into `BallRuntime.*` for base-function dispatch and
   build lists/maps/messages with the reference-vs-value-semantics copy rules above — do not
   re-derive operator semantics as emitted text.
+- Once the Phase-4 compiler (#381) lands, re-verify the encoder's proof programs compile+run
+  through the C# pipeline too (today's proof is Dart-engine-only, since no C# engine exists).
 - Follow `.claude/skills/new-ball-language/SKILL.md` for the remaining phases.
 - Central Package Management is on (`Directory.Packages.props`) — add new package versions there,
   not per-project `Version=` attributes.

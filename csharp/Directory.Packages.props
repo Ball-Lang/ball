@@ -16,6 +16,14 @@
          runtime line so generated code and runtime stay in sync). -->
     <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
 
+    <!-- Roslyn C# syntax API for csharp/encoder (issue #382): official AST
+         parser (CSharpSyntaxTree.ParseText), syntax-only (no semantic model
+         required initially) — mirrors the Dart encoder's `parseString`
+         approach. Verified latest stable on nuget.org 2026-07-11: the
+         `api.nuget.org/v3-flatcontainer/microsoft.codeanalysis.csharp/index.json`
+         version list's last entry is "5.6.0" (no `-preview`/`-beta` suffix). -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
          self-executing test apps bridged to `dotnet test` via the VSTest
          adapter (xunit.runner.visualstudio). -->

@@ -249,7 +249,16 @@ public sealed partial class CSharpCompiler
             sb.Append($"        if (__t == {Naming.StringLiteral(owner)} || __t == {Naming.StringLiteral(shortOwner)}) return {impl}(input);\n");
         }
 
-        sb.Append($"        throw new BallRuntimeException($\"no method '{shortMember}' for {{__t}}\");\n");
+        // `toString` is Dart's universal `Object.toString()` — every value has it.
+        // A receiver that matches no user override (a core value, or a user object
+        // whose class declares no `toString`) falls back to the runtime's canonical
+        // string form, which mirrors the reference engine (user objects are maps →
+        // `{k: v}`, core values → their natural string). Without this, the engine's
+        // own value-stringify (`result.toString()` on an interpreted method's
+        // String result, and its final `v.toString()` fallback) throws.
+        sb.Append(shortMember == "toString"
+            ? "        return BallRuntime.ToStringValue(__self);\n"
+            : $"        throw new BallRuntimeException($\"no method '{shortMember}' for {{__t}}\");\n");
         sb.Append("    }\n");
         return sb.ToString();
     }

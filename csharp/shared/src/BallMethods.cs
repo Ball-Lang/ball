@@ -138,6 +138,12 @@ public static partial class BallRuntime
             "unmodifiable" => MethodUnmodifiable(self, a0),
             "fromCharCode" => StringFromCharCode(a0),
 
+            // ── Regular expressions (RegExp receiver → Match, then Match.group) ──
+            "firstMatch" => RegexFirstMatch(self, a0),
+            "hasMatch" => RegexHasMatch(self, a0),
+            "allMatches" => RegexAllMatches(self, a0),
+            "group" => MatchGroup(self, a0),
+
             // ── Top-level Dart core functions ──
             "identical" => BallValue.Bool(MethodIdentical(a0, a1)),
 
@@ -233,6 +239,39 @@ public static partial class BallRuntime
             default:
                 return UnsupportedMethod("remove", self);
         }
+    }
+
+    // ── Core-collection copy/fill constructors (Map.from / List.of / List.filled) ──
+
+    /// <summary><c>Map.from(source)</c> / <c>Map.of(source)</c> — a fresh insertion-ordered copy of a map-like value.</summary>
+    public static BallValue MapCopy(BallValue source) => source switch
+    {
+        BallMap m => m.Snapshot(),
+        BallMessage msg => msg.Fields.Snapshot(),
+        BallNull => new BallMap(),
+        _ => throw new BallRuntimeException($"Map.from/of expected a map, got {TypeName(source)}"),
+    };
+
+    /// <summary><c>List.from(source)</c> / <c>List.of(source)</c> — a fresh copy of a list-like value (a set is a list).</summary>
+    public static BallValue ListCopy(BallValue source) => source switch
+    {
+        BallList l => new BallList(l.Snapshot()),
+        BallMessage msg when msg.Get("items") is BallList items => new BallList(items.Snapshot()),
+        BallNull => new BallList(),
+        _ => throw new BallRuntimeException($"List.from/of expected an iterable, got {TypeName(source)}"),
+    };
+
+    /// <summary><c>List.filled(count, fill)</c> — a new list of <paramref name="count"/> copies of <paramref name="fill"/> (Dart shares the one fill reference).</summary>
+    public static BallValue ListFilled(BallValue count, BallValue fill)
+    {
+        var n = AsIndex(count);
+        var list = new BallList();
+        for (var i = 0; i < n; i++)
+        {
+            list.Add(fill);
+        }
+
+        return list;
     }
 
     private static BallValue MethodSetAll(BallValue self, BallValue index, BallValue values)

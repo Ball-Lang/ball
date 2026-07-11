@@ -34,12 +34,24 @@ public sealed class BallThrow : Exception
         TypeName = null;
     }
 
-    /// <summary>Throw a typed Ball exception (e.g. <c>FormatException</c>) with a message.</summary>
+    /// <summary>
+    /// Throw a typed Ball exception (e.g. <c>FormatException</c> from
+    /// <c>int.parse</c>, <c>RangeError</c> from an out-of-range index) with a
+    /// message. The self-hosted engine's <c>try</c> (compiled <c>_evalLazyTry</c>)
+    /// binds the catch variable to this <see cref="Payload"/> and type-matches an
+    /// <c>on &lt;Type&gt; catch</c> by the payload's <c>.runtimeType</c> — the same
+    /// path the reference engine uses for a native Dart runtime error. So the
+    /// payload is a <see cref="BallMessage"/> whose type name IS the exception
+    /// type, making <c>payload.runtimeType == typeName</c> hold (a bare
+    /// <see cref="BallValue.Str"/> would report <c>runtimeType == "String"</c> and
+    /// never match). The clean message is still on <see cref="Exception.Message"/>
+    /// for an uncaught throw's loud report.
+    /// </summary>
     public BallThrow(string typeName, string message)
         : base(message)
     {
         TypeName = typeName;
-        Payload = BallValue.Str(message);
+        Payload = new BallMessage(typeName, new BallMap { ["message"] = BallValue.Str(message) });
     }
 
     /// <summary>The thrown Ball value.</summary>

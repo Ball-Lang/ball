@@ -549,8 +549,37 @@ public static partial class BallRuntime
     // List — read
     // ════════════════════════════════════════════════════════════
 
-    /// <summary><c>list[index]</c>.</summary>
-    public static BallValue ListGet(BallValue list, BallValue index) => AsList(list).Get(AsIndex(index));
+    /// <summary>
+    /// <c>list[index]</c>. An out-of-range index throws a <b>catchable</b>
+    /// <see cref="BallThrow"/> of type <c>RangeError</c> — Dart surfaces this to
+    /// user code as <c>on RangeError catch</c>, so it must reach the self-hosted
+    /// engine's <c>try</c> as a <see cref="BallThrow"/>, not a loud native .NET
+    /// <see cref="ArgumentOutOfRangeException"/> (which the compiled
+    /// <c>catch (BallThrow)</c> never sees and which escapes to the top).
+    /// </summary>
+    public static BallValue ListGet(BallValue list, BallValue index)
+    {
+        var l = AsList(list);
+
+        // A negative or too-large integer index is a Dart RangeError (catchable);
+        // a non-integer index is a malformed program shape (loud, via AsIndex).
+        if (index is BallInt bi)
+        {
+            var i = bi.Value;
+            if (i < 0 || i >= l.Count)
+            {
+                throw new BallThrow(
+                    "RangeError",
+                    l.Count == 0
+                        ? $"RangeError (index): Invalid value: Valid value range is empty: {i}"
+                        : $"RangeError (index): Invalid value: Not in inclusive range 0..{l.Count - 1}: {i}");
+            }
+
+            return l.Get((int)i);
+        }
+
+        return l.Get(AsIndex(index));
+    }
 
     /// <summary><c>list.length</c>.</summary>
     public static BallValue ListLength(BallValue list) => BallValue.Int(AsList(list).Count);

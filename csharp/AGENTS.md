@@ -492,13 +492,24 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   (`_volatileFields` / `VolatileFieldsOf` in `csharp/compiler`) (+16: all rethrow chaining, the
   `MathUtils`/`.greet`/`.name`/`.tag`/named-constructor OOP dispatch, and the nested-function
   captures).
-- **Remaining failures (Round 7 residual):** `Function.apply`/`fold` higher-order callbacks (~7:
-  `85`/`203`/`223`/`224`/`229`/`124`/`264`), set operations (`118`/`129`/`350`/`392`), NaN/
-  infinity/number-getter diffs (`214`/`215`/`263`/`317`), `toStringAsFixed`/exponential-precision
-  rounding (`316`/`357`), `remainder`/`toInt`/`convert` singleton methods (`320`/`188`/`185`),
-  logical-and pattern binding (`258`), int-boundary `abs` overflow (`230`), empty map/set literal
-  key coercion (`391`/`95`), bytes-literal-to-list (`399`), and the `stackTrace` catch binding
-  (`300`). The proper gated harness is #384; the acceptance tests are
+- **First-class callback invoke + list-literal spread splice (Rounds 8–9):** the sweep climbed
+  **291 → 303 / 320** (0 regressions; `hello_world`+`fibonacci` still byte-exact golden). Round 8
+  (PR #408) implemented the `Function.apply`/`Iterable.fold` higher-order callbacks the engine
+  invokes on its own runtime values (`Ball.Shared` `CallMethod`). Round 9 fixed the largest
+  remaining bounded category — **list-literal spread/comprehension elements were never spliced**:
+  `CompileListLiteral` emitted every element (including a `std.spread`/`collection_if`/
+  `collection_for` call) as one nested value, so the engine's own `_ballSetOf([...items, v])` /
+  `list_concat` / `set_union` produced a nested `{[...], v}` instead of appending — silently
+  breaking every internal `set.add`/`list.addAll`/set-algebra path (`118`/`129`/`350`/`386`/`392`).
+  The compiler now builds a spread-containing literal imperatively, splicing via
+  `BallRuntime.SpreadIter` (mirrors `ball-compiler`'s `compile_list_literal` and the reference
+  engines' `_addCollectionElement`).
+- **Remaining failures (17):** `remainder`/`toInt`/`convert` scalar-method singletons (`320`/`188`/
+  `185`), NaN/infinity/number-getter diffs (`214`/`215`/`263`/`317`), `toStringAsFixed`/
+  exponential-precision rounding (`316`/`357`), logical-and pattern binding (`258`), int-boundary
+  `abs` overflow (`230`), non-string (int) map-key coercion (`391`/`95`), bytes-literal-to-list
+  (`399`), catchable `int.parse`/index-range errors surfacing loud (`275`/`199`), and the
+  `stackTrace` catch binding (`300`). The proper gated harness is #384; the acceptance tests are
   `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build; run
   with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/

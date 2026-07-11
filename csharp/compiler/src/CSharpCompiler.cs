@@ -507,7 +507,18 @@ public sealed partial class CSharpCompiler
         return $"Bytes(new byte[] {{ {items} }})";
     }
 
-    /// <summary>A list literal builds a fresh reference-semantic backing (a distinct list per evaluation).</summary>
+    /// <summary>
+    /// A list literal builds a fresh reference-semantic backing (a distinct list
+    /// per evaluation). The common case — every element a plain value — is a
+    /// direct <c>new BallList(new[]{…})</c>. When any element is a spread
+    /// (<c>...x</c>/<c>...?x</c>), <c>collection_if</c>, or <c>collection_for</c>,
+    /// the literal is built imperatively so those elements <b>splice</b> their
+    /// contents instead of nesting as a single element. The missing splice made
+    /// the self-hosted engine's own <c>_ballSetOf([...items, v])</c> produce
+    /// <c>{[...], v}</c> — breaking every internal set/list append. Mirrors
+    /// <c>ball-compiler</c>'s <c>compile_list_literal</c> and the reference
+    /// engines' <c>_addCollectionElement</c>.
+    /// </summary>
     private string CompileListLiteral(ListLiteral list)
     {
         if (list.Elements.Count == 0)
@@ -515,8 +526,112 @@ public sealed partial class CSharpCompiler
             return "(BallValue)new BallList()";
         }
 
-        var items = string.Join(", ", list.Elements.Select(CompileExpression));
-        return $"(BallValue)new BallList(new BallValue[] {{ {items} }})";
+        if (!list.Elements.Any(el => CollectionElementKind(el) is not null))
+        {
+            var items = string.Join(", ", list.Elements.Select(CompileExpression));
+            return $"(BallValue)new BallList(new BallValue[] {{ {items} }})";
+        }
+
+        var litVar = $"__lit{_tempCounter++}";
+        var sb = new System.Text.StringBuilder($"Run(() =>\n{{\nvar {litVar} = new BallList();\n");
+        foreach (var el in list.Elements)
+        {
+            sb.Append(CompileCollectionElement(litVar, el));
+        }
+
+        sb.Append($"return (BallValue){litVar};\n}})");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// If <paramref name="el"/> is a list-literal element that must be spliced
+    /// rather than pushed as one value — a <c>std.spread</c>/<c>null_spread</c>,
+    /// a <c>std.collection_if</c>, or a <c>std.collection_for</c> — return its
+    /// function name; otherwise <c>null</c> (a plain element).
+    /// </summary>
+    private static string? CollectionElementKind(Expression el) =>
+        el.ExprCase == Expression.ExprOneofCase.Call
+        && el.Call.Module == "std"
+        && el.Call.Function is "spread" or "null_spread" or "collection_if" or "collection_for"
+            ? el.Call.Function
+            : null;
+
+    /// <summary>
+    /// Emit code appending one list-literal element to <paramref name="target"/>
+    /// (a <see cref="BallList"/> local). A plain element is added; a spread
+    /// splices via <c>BallRuntime.SpreadIter</c>; a <c>collection_if</c>
+    /// conditionally emits its then/else element; a <c>collection_for</c> loops.
+    /// Nested element forms recurse (<c>[if (c) ...x]</c> composes).
+    /// </summary>
+    private string CompileCollectionElement(string target, Expression el)
+    {
+        var kind = CollectionElementKind(el);
+        if (kind is null)
+        {
+            return $"{target}.Add({CompileExpression(el)});\n";
+        }
+
+        var f = Fields.Extract(el.Call);
+        var uid = _tempCounter++;
+        switch (kind)
+        {
+            case "spread":
+                return $"foreach (var __sp{uid} in BallRuntime.SpreadIter({FieldOrNull(f, "value")})) {{ {target}.Add(__sp{uid}); }}\n";
+            case "null_spread":
+                return $"{{ var __sp{uid} = {FieldOrNull(f, "value")}; if (__sp{uid} is not BallNull) {{ foreach (var __e{uid} in BallRuntime.SpreadIter(__sp{uid})) {{ {target}.Add(__e{uid}); }} }} }}\n";
+            case "collection_if":
+                {
+                    var cond = f.TryGetValue("condition", out var c)
+                        ? $"BallRuntime.Truthy({CompileExpression(c)})"
+                        : "false";
+                    var then = f.TryGetValue("then", out var t) ? CompileCollectionElement(target, t) : string.Empty;
+                    if (f.TryGetValue("else", out var e))
+                    {
+                        var els = CompileCollectionElement(target, e);
+                        return $"if ({cond})\n{{\n{then}}}\nelse\n{{\n{els}}}\n";
+                    }
+
+                    return $"if ({cond})\n{{\n{then}}}\n";
+                }
+
+            case "collection_for":
+                return CompileCollectionFor(target, f);
+            default:
+                throw new InvalidOperationException($"unexpected collection element kind: {kind}");
+        }
+    }
+
+    /// <summary>
+    /// Compile a <c>collection_for</c> list-literal element, appending each
+    /// produced value to <paramref name="target"/>. Handles both encoder shapes:
+    /// for-each (<c>variable</c>+<c>iterable</c>+<c>body</c>) and C-style
+    /// (<c>init</c>;<c>condition</c>;<c>update</c>;<c>body</c>), each in a fresh
+    /// lexical scope so the loop variable resolves as a value.
+    /// </summary>
+    private string CompileCollectionFor(string target, OrderedDictionary<string, Expression> f)
+    {
+        if (f.TryGetValue("iterable", out var iterable))
+        {
+            var variable = StringField(f, "variable") ?? "item";
+            PushScope();
+            var loopVar = BindLocal(variable);
+            var body = f.TryGetValue("body", out var forBody)
+                ? CompileCollectionElement(target, forBody)
+                : string.Empty;
+            PopScope();
+            return $"foreach (var {loopVar} in BallRuntime.Iterate({CompileExpression(iterable)}))\n{{\n{body}}}\n";
+        }
+
+        PushScope();
+        var cfid = _tempCounter++;
+        var init = f.TryGetValue("init", out var initExpr) ? $"var __cfInit{cfid} = {CompileExpression(initExpr)};\n" : string.Empty;
+        var cond = f.TryGetValue("condition", out var condExpr)
+            ? $"BallRuntime.Truthy({CompileExpression(condExpr)})"
+            : "true";
+        var bodyC = f.TryGetValue("body", out var cBody) ? CompileCollectionElement(target, cBody) : string.Empty;
+        var update = f.TryGetValue("update", out var updExpr) ? $"{CompileExpression(updExpr)};\n" : string.Empty;
+        PopScope();
+        return $"{{\n{init}while ({cond})\n{{\n{bodyC}{update}}}\n}}\n";
     }
 
     /// <summary>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    csharp/engine/tool: regenerates csharp/engine/src/CompiledEngine.cs from the
+    self-hosted Ball engine (dart/self_host/engine.ball.pb) by compiling it
+    through the Phase-4 Ball -> C# compiler (issue #383). The C# analog of the
+    Rust `ball-engine-regen` crate (rust/engine/tool): a DELIBERATELY SEPARATE
+    project — not a target inside Ball.Engine — so it can be built and run even
+    when the generated CompiledEngine.cs does not compile (a broken generated
+    file must never make the regenerator itself un-buildable).
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../compiler/Ball.Compiler.csproj" />
+    <ProjectReference Include="../../shared/Ball.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

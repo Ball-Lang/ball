@@ -30,6 +30,49 @@ namespace Ball.Compiler;
 /// </summary>
 public sealed partial class CSharpCompiler
 {
+    /// <summary>
+    /// The oneof-discriminator "enums" the Dart protobuf codegen synthesizes for
+    /// each <c>oneof</c> (<c>Expression.expr</c> → <c>Expression_Expr</c>, …).
+    /// They carry no <c>EnumDescriptorProto</c> in any <c>Module.enums[]</c>, so
+    /// the normal type path never emits them — yet the engine's dispatch reads
+    /// them (<c>whichExpr() == Expression_Expr.call</c>). Each member resolves to
+    /// the case-name <b>string</b> the matching <c>ball_proto</c> discriminator
+    /// returns, so a <c>field_access</c> <c>Expression_Expr.call</c> lowers to
+    /// <c>FieldGet(BallOneofs.Expression_Expr, "call")</c> = <c>"call"</c>.
+    /// Mirrors <c>rust/compiler/src/type_emit.rs</c>'s
+    /// <c>ONEOF_DISCRIMINATOR_ENUMS</c> and the TS <c>preamble.ts</c> constants.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> OneofDiscriminators = new(StringComparer.Ordinal)
+    {
+        ["Expression_Expr"] = new[] { "call", "literal", "reference", "fieldAccess", "messageCreation", "block", "lambda", "notSet" },
+        ["Literal_Value"] = new[] { "intValue", "doubleValue", "stringValue", "boolValue", "bytesValue", "listValue", "notSet" },
+        ["Statement_Stmt"] = new[] { "let", "expression", "notSet" },
+        ["ModuleImport_Source"] = new[] { "http", "file", "git", "registry", "inline", "notSet" },
+        // Keyed by the IR reference name (a dot the Dart protobuf codegen keeps —
+        // `structpb.Value_Kind`); Naming.Sanitize maps it to the emitted C#
+        // identifier `structpb_Value_Kind`.
+        ["structpb.Value_Kind"] = new[] { "nullValue", "numberValue", "stringValue", "boolValue", "structValue", "listValue", "notSet" },
+    };
+
+    /// <summary>
+    /// Emit the <see cref="OneofDiscriminators"/> namespace as a top-level
+    /// static class <c>BallOneofs</c> whose members are the case-name strings, so
+    /// every module's emitted code can read <c>BallOneofs.Expression_Expr</c>.
+    /// </summary>
+    private static string CompileOneofDiscriminators()
+    {
+        var sb = new StringBuilder();
+        sb.Append("\ninternal static class BallOneofs\n{\n");
+        foreach (var (enumName, members) in OneofDiscriminators)
+        {
+            var entries = string.Join(", ", members.Select(m => $"[{Naming.StringLiteral(m)}] = Str({Naming.StringLiteral(m)})"));
+            sb.Append($"    public static readonly BallValue {Naming.Sanitize(enumName)} = (BallValue)new BallMessage({Naming.StringLiteral(enumName)}, new BallMap {{ {entries} }});\n");
+        }
+
+        sb.Append("}\n");
+        return sb.ToString();
+    }
+
     /// <summary>Emit every type declaration in <paramref name="module"/> plus its class-member methods.</summary>
     private string CompileModuleTypes(Module module)
     {
@@ -199,17 +242,23 @@ public sealed partial class CSharpCompiler
     /// </summary>
     private string CompileMethodImpl(string implName, TypeDefinition ownerTd, FunctionDefinition member)
     {
+        var inName = PushInput();
         PushScope();
-        BindLocal("input");
-        var sb = new StringBuilder($"    private static BallValue {implName}(BallValue input)\n    {{\n");
-        sb.Append("        var self = BallRuntime.FieldGet(input, \"self\");\n");
+        var sb = new StringBuilder($"    private static BallValue {implName}(BallValue {inName})\n    {{\n");
+        sb.Append($"        var self = BallRuntime.FieldGet({inName}, \"self\");\n");
         BindLocal("self");
+
+        // A declared parameter shadows a same-named field inside the method body
+        // (Dart semantics); C# forbids re-declaring the name, so skip the field
+        // alias when a parameter (or the receiver `self`) already claims it.
+        var paramNames = ParamNames(member);
+        var shadowed = new HashSet<string>(paramNames, StringComparer.Ordinal) { "self" };
 
         if (ownerTd.Descriptor_ is not null)
         {
             foreach (var field in ownerTd.Descriptor_.Field)
             {
-                if (string.IsNullOrEmpty(field.Name))
+                if (string.IsNullOrEmpty(field.Name) || shadowed.Contains(field.Name))
                 {
                     continue;
                 }
@@ -219,9 +268,14 @@ public sealed partial class CSharpCompiler
             }
         }
 
-        foreach (var param in ParamNames(member))
+        foreach (var param in paramNames)
         {
-            sb.Append($"        var {Naming.Sanitize(param)} = BallRuntime.FieldGet(input, {Naming.StringLiteral(param)});\n");
+            if (param == "self")
+            {
+                continue;
+            }
+
+            sb.Append($"        var {Naming.Sanitize(param)} = BallRuntime.FieldGet({inName}, {Naming.StringLiteral(param)});\n");
             BindLocal(param);
         }
 

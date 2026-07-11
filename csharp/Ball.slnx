@@ -23,6 +23,9 @@
   <Folder Name="/engine/test/">
     <Project Path="engine/test/Ball.Engine.Tests.csproj" />
   </Folder>
+  <Folder Name="/engine/tool/">
+    <Project Path="engine/tool/Ball.Engine.Regen.csproj" />
+  </Folder>
   <Folder Name="/shared/">
     <Project Path="shared/Ball.Shared.csproj" />
   </Folder>

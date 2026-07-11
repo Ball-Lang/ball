@@ -1,0 +1,7 @@
+# Generated self-hosted engine (issue #383): compiled from
+# dart/self_host/engine.ball.pb through the Ball -> C# compiler by
+# csharp/engine/tool. Kept out of git (like rust/engine/src/compiled_engine.rs
+# and cpp's engine_rt.cpp) so the repo doesn't balloon and review isn't churned
+# by a machine-emitted file; it is regenerated on demand and CI-side. It only
+# participates in the build under `-p:SelfHost=true` (see engine/Ball.Engine.csproj).
+engine/src/CompiledEngine.cs

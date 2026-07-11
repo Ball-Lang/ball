@@ -241,6 +241,44 @@ The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs`, a
 is the `rust` job in `.github/workflows/ci.yml` plus the `rust-engine` row in
 `conformance-matrix.yml` — both gate on full parity.
 
+### C# workspace (`csharp/`)
+
+A `csharp/Ball.slnx` solution (epic #377, all 10 phases complete) with Central Package Management
+(`csharp/Directory.Packages.props` — every `.csproj` references package versions by name only)
+pinning versions for five packages plus two regen tool projects — see `csharp/AGENTS.md` for the
+full status table and `.claude/rules/csharp.md` for key patterns:
+
+- `Ball.Shared` (`shared/`) — protobuf bindings (`buf.build/protocolbuffers/csharp:v35.1`,
+  version-pinned `Google.Protobuf`) plus the runtime value model (`BallValue`/`BallList`/
+  `BallMap`/`BallMessage`/`BallFunction`, `BallMap` backed by `OrderedDictionary<string,
+  BallValue>` for insertion order) and std/std_collections/std_io/std_memory module builders.
+  Complete (#379-380).
+- `Ball.Compiler` (`compiler/`) — Ball → C#. Emits a single runnable C# source file as strings
+  (closer to the C++/Rust compilers' approach than Dart's `code_builder`); base-function dispatch
+  lives in `BaseCall.cs`, delegating to `Ball.Shared`'s `BallRuntime`. Two compilation contexts
+  (statement vs. expression) handle C#'s statement-shaped `if`/`for`/`while`/`try` — see
+  `csharp/AGENTS.md`'s "Block-lowering decision". Complete (#381).
+- `Ball.Encoder` (`encoder/`) — C# → Ball via **Roslyn** (`Microsoft.CodeAnalysis.CSharp`,
+  syntax-only, no semantic model). No `csharp_std` base module — every construct routes through
+  universal `std`/`std_collections`. Complete (#382).
+- `Ball.Engine` (`engine/`) — self-hosted engine (SKILL.md Phase 4 Option B), same approach as
+  TS/C++/Rust: compiles `dart/self_host/engine.ball.pb` through `Ball.Compiler`. **Complete, at
+  Dart parity** (#383/#384 closed): the compiled engine runs the whole conformance corpus with
+  Dart-identical output (`Results: 320 passed, 0 failed, 320 total`; the 4 golden-less
+  resource-limit/sandbox fixtures are documented carve-outs). Behind the off-by-default
+  `-p:SelfHost=true` MSBuild property because `CompiledEngine.cs` is a gitignored generated
+  artifact not present in a fresh checkout — see `csharp/AGENTS.md`'s "Self-hosted engine" for the
+  regeneration workflow. `engine/conformance/` is the committed conformance harness (#384, three
+  legs: `engine`/`compiler`/`roundtrip`, selected via `--leg=`).
+- `Ball.Cli` (`cli/`) — `run`/`compile`/`encode`/`check` subcommands (via `System.CommandLine`)
+  over `Ball.Engine`/`Ball.Compiler`/`Ball.Encoder`, plus the self-hosted cli-core verbs
+  `info`/`validate`/`tree`/`version` (generated, gitignored `CompiledCli.cs`, behind
+  `-p:CliCore=true`, independent of `-p:SelfHost=true`). Complete (#385).
+
+CI job (#386) is the `csharp` job in `.github/workflows/ci.yml` (build/test/format plus the
+regenerate-then-run self-hosted engine conformance sweep) plus the `csharp-engine` row in
+`conformance-matrix.yml` — both gate on full parity, mirroring the `rust`/`rust-engine` jobs.
+
 ### Standard library modules
 Eight universal modules ship in `dart/shared/lib/` (`std*.dart`): `std` (arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null_aware_access, invoke, spread, record, etc. — `dart/shared/std.json` is the canonical base-function inventory), `std_collections` (list/map/set), `std_io` (console/process/time/random), `std_memory` (linear-memory fns for C/C++ interop), `std_convert` (JSON/UTF-8/base64), `std_fs` (file/directory ops), `std_time` (clock, timestamp format/parse, duration arithmetic), and `std_concurrency` (threads, mutexes, atomics). The `dart_std`/`cpp_std`/`ts_std` modules have been eliminated — all functions now route through universal `std`.
 

@@ -152,12 +152,13 @@ conformance corpus:
 | **Dart** | Full (reference implementation) | Full (`analyzer`-based) | Full — true async, tree-walking |
 | **TypeScript** | Full (`ts-morph`-based) | Full (TS Compiler API, routes through universal `std`) | Full — **self-hosted**: compiled from the Dart engine's own Ball IR, runs in Node and the browser |
 | **C++** | Full (string-emitting) | Full — consumes **Clang JSON AST** (`clang -Xclang -ast-dump=json`), not raw source | Full — **self-hosted**, passes every fixture in the conformance corpus |
-| Go, Python, Java, C# | — | — | — |
-| Rust | — | — | — |
+| **Rust** | Full (string-emitting) | Full (`syn` AST-based) | Full — **self-hosted**, runs the whole corpus at Dart parity (319/319) |
+| **C#** | Full (string-emitting) | Full — Roslyn syntax API, syntax-only | Full — **self-hosted**, runs the whole corpus at Dart parity (320/320) |
+| Go, Python, Java | — | — | — |
 
-Go, Python, Java, and C# currently ship generated **protobuf bindings only** — you can read and
+Go, Python, and Java currently ship generated **protobuf bindings only** — you can read and
 write `ball.v1.Program` messages in those languages, but there's no compiler, encoder, or
-engine yet. Rust hasn't started. This table drifts as the project moves; the authoritative,
+engine yet. This table drifts as the project moves; the authoritative,
 always-current source is CI (`.github/workflows/ci.yml` and
 `.github/workflows/conformance-matrix.yml`), not this paragraph.
 
@@ -325,15 +326,15 @@ No language write-up is complete without saying where it doesn't shine yet:
     - Upstream protobuf conformance: `dart/ball_protobuf/conformance/README.md`
 -->
 
-- **323 conformance fixtures** in `tests/conformance/`, each one a real, runnable program
+- **324 conformance fixtures** in `tests/conformance/`, each one a real, runnable program
   (classes, generics, async/await, pattern matching, closures, sorting algorithms, parsers —
   not toy snippets) executed and checked byte-identical across every engine that claims to
   support it.
 - **257 standard-library base functions** across the 8 universal `std*` modules
   (arithmetic/control-flow/strings/collections/IO/memory/convert/filesystem/time/concurrency) —
   every target compiler and engine implements the same base-function surface.
-- **Proto bindings generated for 7 languages** (Dart, TypeScript, C++, Go, Python, Java, C#) from
-  the single `proto/ball/v1/ball.proto` schema via `buf generate` — before any compiler or
+- **Proto bindings generated for 8 languages** (Dart, TypeScript, C++, Rust, Go, Python, Java, C#)
+  from the single `proto/ball/v1/ball.proto` schema via `buf generate` — before any compiler or
   encoder work starts, a language already has typed access to the `Program` message.
 - **2,769 passing conformance checks, 0 failures**, against the *official upstream protobuf
   conformance suite* (`protocolbuffers/protobuf`) — `ball_protobuf`, Ball's own pure-Dart,

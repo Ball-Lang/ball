@@ -9,12 +9,12 @@ Ball is a programming language where code is structured protobuf messages. The p
 - **TypeScript** — a full pipeline, all CI-gated: compiler, self-hosted engine (passes the conformance corpus), encoder (TS→Ball; 100+ round-trip tests; routes through universal `std`, no `ts_std`), CLI.
 - **C++** — compiler, encoder (Clang JSON AST → Ball), self-hosted engine; the self-host conformance passes **every** fixture (no skip-list). Still FetchContents upstream protobuf v34.1 (#18/#25).
 - **Rust** (epic #32, closed) — a complete pipeline: compiler (`rust/compiler/`, #36-38) and encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`; #41/#304 closed). Conformance harness (#40) and CI job (#44) both closed — see `rust/AGENTS.md`.
-- **C#** (epic #377) — proto bindings + runtime value model (`csharp/shared/`, #379-380) and a Roslyn C#→Ball encoder (`csharp/encoder/`, #382, syntax-only, verified against the Dart reference engine); compiler/self-hosted engine/CLI still pending — see `csharp/AGENTS.md`.
+- **C#** (epic #377) — a complete pipeline: proto bindings + runtime value model (`csharp/shared/`, #379-380), a Ball → C# compiler (`csharp/compiler/`, #381), a Roslyn C#→Ball encoder (`csharp/encoder/`, #382, syntax-only, verified against the Dart reference engine), a self-hosted engine that runs the whole conformance corpus at Dart parity (`csharp/engine/`, #383, `Results: 320 passed, 0 failed, 320 total`, behind `-p:SelfHost=true`), a committed conformance harness (`csharp/engine/conformance/`, #384), and a `ball` CLI (`csharp/cli/`, #385: `run`/`compile`/`encode`/`check` plus the self-hosted cli-core verbs). CI job (#386) is the `csharp` job in `ci.yml` plus a `csharp-engine` row in `conformance-matrix.yml` — see `csharp/AGENTS.md`.
 - **Proto bindings only** for Go, Python, Java.
 
-Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS, C++, and Rust all have full compiler+encoder+engine pipelines gated in CI.
+Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS, C++, Rust, and C# all have full compiler+encoder+engine pipelines gated in CI.
 
-C++, TypeScript, and Rust all run a **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS/Rust engines. All three now compile and run the full conformance corpus at Dart parity.
+C++, TypeScript, Rust, and C# all run a **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS/Rust/C# engines. All four now compile and run the full conformance corpus at Dart parity.
 
 ## Build & Test
 
@@ -30,7 +30,7 @@ C++/self-host gaps are tracked in `docs/SELF_HOST_STATUS.md` (kept current); the
 
 ## File Organization
 
-Each implementation documents its own generated/editable files. See the per-language "Generated Files" sections in `dart/AGENTS.md`, `ts/AGENTS.md`, `cpp/AGENTS.md`, and `rust/AGENTS.md`. Cross-cutting entry points:
+Each implementation documents its own generated/editable files. See the per-language "Generated Files" sections in `dart/AGENTS.md`, `ts/AGENTS.md`, `cpp/AGENTS.md`, `rust/AGENTS.md`, and `csharp/AGENTS.md`. Cross-cutting entry points:
 
 | Path | What it is | Editable? |
 |------|-----------|-----------|
@@ -41,6 +41,9 @@ Each implementation documents its own generated/editable files. See the per-lang
 | `dart/shared/std.json` | Compiled std module | NO — generated |
 | `dart/shared/lib/gen/` | Protobuf Dart types | NO — generated |
 | `rust/shared/gen/` | Protobuf Rust types (`buf.build/community/neoeinstein-prost`) | NO — generated |
+| `csharp/shared/gen/Ball.cs` | Protobuf C# types (`buf.build/protocolbuffers/csharp:v35.1`) | NO — generated |
+| `csharp/engine/src/CompiledEngine.cs` | Self-hosted C# engine (runs the whole conformance corpus at Dart parity — #383/#384 closed) | NO — generated, gitignored |
+| `csharp/cli/src/CompiledCli.cs` | Self-hosted C# CLI core (`info`/`validate`/`tree`/`version`) | NO — generated, gitignored |
 | `dart/compiler/lib/compiler.dart` | Reference compiler | Yes |
 | `dart/encoder/lib/encoder.dart` | Reference encoder | Yes |
 | `dart/engine/lib/engine.dart` | Reference interpreter | Yes |

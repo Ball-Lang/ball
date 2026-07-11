@@ -5,977 +5,1132 @@
 /// - Unbounded recursion (direct/mutual recursion without base case)
 /// - Unreachable code (statements after return/throw in blocks)
 /// - Orphaned labeled break/continue (label not found in enclosing scope)
-library;
+///
+/// This is a `part of 'cli_core.dart'` and follows its **engine-safe authoring
+/// rules**: warnings are plain `Map`s (`{severity, category, message,
+/// location}`) collected in a `List`, expression-kind dispatch uses `hasX()`
+/// presence cascades, sets are modeled as dedup `List`s, the call graph is a
+/// `List` of `{key, callees}` entries (no `.keys`/`map[k]`), and every
+/// recursive walker takes a **single** argument (a `Map` context, or a bare
+/// `Expression` for the pure boolean probes).
+part of 'cli_core.dart';
 
-import 'gen/ball/v1/ball.pb.dart';
-
-/// Analyze a Ball program for termination and control-flow issues.
-TerminationReport analyzeTermination(Program program) {
-  return _TerminationAnalyzer(program.modules).analyze();
+/// Analyze a Ball program for termination and control-flow issues. Returns the
+/// list of warning [Map]s (empty ⇒ no issues).
+List<Object?> analyzeTermination(Program program) {
+  return _analyzeTerminationCore({'modules': program.modules});
 }
 
 /// Analyze a library [module] (and any inline [imports]) for termination and
-/// control-flow issues — audited as the Module it is, with no synthetic
-/// `Program` wrapper.
-TerminationReport analyzeModuleTermination(
+/// control-flow issues — audited as the Module it is. Native-only.
+List<Object?> analyzeModuleTermination(
   Module module, {
   Iterable<Module> imports = const [],
 }) {
-  return _TerminationAnalyzer([module, ...imports]).analyze();
+  final modules = <Module>[module];
+  for (final m in imports) {
+    modules.add(m);
+  }
+  return _analyzeTerminationCore({'modules': modules});
 }
 
-/// Structured report of termination analysis warnings.
-class TerminationReport {
-  final List<TerminationWarning> warnings;
-
-  const TerminationReport(this.warnings);
-
-  bool get hasErrors => warnings.any((w) => w.severity == 'error');
-  bool get hasWarnings =>
-      warnings.any((w) => w.severity == 'warning' || w.severity == 'error');
-  bool get isEmpty => warnings.isEmpty;
-}
-
-/// A single warning from termination analysis.
-class TerminationWarning {
-  /// 'error', 'warning', or 'info'
-  final String severity;
-
-  /// 'infinite_loop', 'unbounded_recursion', 'unreachable_code', 'orphaned_label'
-  final String category;
-
-  /// Human-readable description.
-  final String message;
-
-  /// Location as "module.function" or "module.function:stmt[N]".
-  final String location;
-
-  const TerminationWarning({
-    required this.severity,
-    required this.category,
-    required this.message,
-    required this.location,
+/// Core termination analysis. `ctx` = `{modules}`. Single-arg (engine-safe).
+List<Object?> _analyzeTerminationCore(Map ctx) {
+  final modules = ctx['modules'];
+  final baseModules = _identifyBaseModules(modules);
+  final warnings = <Object?>[];
+  final callGraph = _buildCallGraph({
+    'modules': modules,
+    'baseModules': baseModules,
   });
-
-  @override
-  String toString() => '[$severity] $category at $location: $message';
+  _checkLoops({
+    'modules': modules,
+    'baseModules': baseModules,
+    'warnings': warnings,
+  });
+  _checkRecursion({
+    'modules': modules,
+    'callGraph': callGraph,
+    'warnings': warnings,
+  });
+  _checkUnreachableCode({
+    'modules': modules,
+    'baseModules': baseModules,
+    'warnings': warnings,
+  });
+  _checkOrphanedLabels({
+    'modules': modules,
+    'baseModules': baseModules,
+    'warnings': warnings,
+  });
+  return warnings;
 }
 
-/// Format a termination report as human-readable text.
-String formatTerminationReport(TerminationReport report) {
-  final buf = StringBuffer();
-  buf.writeln('Termination Analysis');
-  buf.writeln('=' * 60);
-  buf.writeln();
+/// Format a termination warning [List] as human-readable text. Built from a
+/// line list joined with `\n` plus a trailing newline (reproducing
+/// `StringBuffer.writeln`) so it self-hosts on the StringBuffer-less compiled
+/// TS/C++/Rust CLIs.
+String formatTerminationReport(List warnings) {
+  final lines = <String>[];
+  lines.add('Termination Analysis');
+  lines.add('============================================================');
+  lines.add('');
 
-  if (report.isEmpty) {
-    buf.writeln('No issues found.');
-    return buf.toString();
+  if (warnings.isEmpty) {
+    lines.add('No issues found.');
+    return '${lines.join('\n')}\n';
   }
 
-  final byCategory = <String, List<TerminationWarning>>{};
-  for (final w in report.warnings) {
-    byCategory.putIfAbsent(w.category, () => []).add(w);
-  }
-
-  for (final entry in byCategory.entries) {
-    buf.writeln('${_categoryLabel(entry.key)} (${entry.value.length}):');
-    for (final w in entry.value) {
-      final icon = w.severity == 'error'
-          ? '\u2716'
-          : w.severity == 'warning'
-          ? '\u26A0'
-          : '\u2139';
-      buf.writeln('  $icon ${w.location}: ${w.message}');
+  // Group by category, preserving first-seen order.
+  final categoryOrder = <String>[];
+  final byCategory = <String, Object?>{};
+  for (final w in warnings) {
+    final cat = w['category'];
+    if (!byCategory.containsKey(cat)) {
+      categoryOrder.add(cat);
+      byCategory[cat] = <Object?>[];
     }
-    buf.writeln();
+    final dynamic bucket = byCategory[cat];
+    bucket.add(w);
   }
 
-  final errors = report.warnings.where((w) => w.severity == 'error').length;
-  final warns = report.warnings.where((w) => w.severity == 'warning').length;
-  final infos = report.warnings.where((w) => w.severity == 'info').length;
-  buf.writeln('Total: $errors error(s), $warns warning(s), $infos info(s)');
+  for (final cat in categoryOrder) {
+    final dynamic bucket = byCategory[cat];
+    lines.add('${_categoryLabel(cat)} (${bucket.length}):');
+    for (final w in bucket) {
+      final sev = w['severity'];
+      final icon = sev == 'error' ? '✖' : (sev == 'warning' ? '⚠' : 'ℹ');
+      lines.add('  $icon ${w['location']}: ${w['message']}');
+    }
+    lines.add('');
+  }
 
-  return buf.toString();
+  var errors = 0;
+  var warns = 0;
+  var infos = 0;
+  for (final w in warnings) {
+    final sev = w['severity'];
+    if (sev == 'error') errors++;
+    if (sev == 'warning') warns++;
+    if (sev == 'info') infos++;
+  }
+  lines.add('Total: $errors error(s), $warns warning(s), $infos info(s)');
+
+  return '${lines.join('\n')}\n';
 }
 
 String _categoryLabel(String category) {
-  switch (category) {
-    case 'infinite_loop':
-      return 'Potential Infinite Loops';
-    case 'unbounded_recursion':
-      return 'Unbounded Recursion';
-    case 'unreachable_code':
-      return 'Unreachable Code';
-    case 'orphaned_label':
-      return 'Orphaned Labels';
-    default:
-      return category;
+  if (category == 'infinite_loop') return 'Potential Infinite Loops';
+  if (category == 'unbounded_recursion') return 'Unbounded Recursion';
+  if (category == 'unreachable_code') return 'Unreachable Code';
+  if (category == 'orphaned_label') return 'Orphaned Labels';
+  return category;
+}
+
+/// Whether every warning has `severity == 'error'` in the list (helper for the
+/// native `--exit-code` gate).
+bool terminationHasErrors(List warnings) {
+  for (final w in warnings) {
+    if (w['severity'] == 'error') return true;
+  }
+  return false;
+}
+
+// ── Call graph construction ────────────────────────────────────────────────
+
+/// Build the call graph as a `List` of `{key, callees}` entries. `ctx` =
+/// `{modules, baseModules}`.
+List<Object?> _buildCallGraph(Map ctx) {
+  final modules = ctx['modules'];
+  final baseModules = ctx['baseModules'];
+  final graph = <Object?>[];
+  for (final module in modules) {
+    if (baseModules.contains(module.name)) continue;
+    for (final fn in module.functions) {
+      if (fn.isBase) continue;
+      if (!fn.hasBody()) continue;
+      final key = '${module.name}.${fn.name}';
+      final callees = <String>[];
+      _collectCallees({
+        'expr': fn.body,
+        'contextModule': module.name,
+        'baseModules': baseModules,
+        'callees': callees,
+      });
+      graph.add({'key': key, 'callees': callees});
+    }
+  }
+  return graph;
+}
+
+/// Collect the non-base callee keys reachable from `ctx['expr']`. `ctx` =
+/// `{expr, contextModule, baseModules, callees}`. Single-arg.
+void _collectCallees(Map ctx) {
+  final expr = ctx['expr'];
+  final contextModule = ctx['contextModule'];
+  final baseModules = ctx['baseModules'];
+  final List callees = ctx['callees'];
+  if (expr == null) return;
+
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final module = call.module.isEmpty ? contextModule : call.module;
+    final fn = call.function;
+    if (!baseModules.contains(module)) {
+      final ck = '$module.$fn';
+      if (!callees.contains(ck)) callees.add(ck);
+    }
+    if (call.hasInput()) {
+      _collectCallees({
+        'expr': call.input,
+        'contextModule': contextModule,
+        'baseModules': baseModules,
+        'callees': callees,
+      });
+    }
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _collectCallees({
+          'expr': stmt.let.value,
+          'contextModule': contextModule,
+          'baseModules': baseModules,
+          'callees': callees,
+        });
+      }
+      if (stmt.hasExpression()) {
+        _collectCallees({
+          'expr': stmt.expression,
+          'contextModule': contextModule,
+          'baseModules': baseModules,
+          'callees': callees,
+        });
+      }
+    }
+    if (expr.block.hasResult()) {
+      _collectCallees({
+        'expr': expr.block.result,
+        'contextModule': contextModule,
+        'baseModules': baseModules,
+        'callees': callees,
+      });
+    }
+  } else if (expr.hasLambda()) {
+    _collectCallees({
+      'expr': expr.lambda.body,
+      'contextModule': contextModule,
+      'baseModules': baseModules,
+      'callees': callees,
+    });
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _collectCallees({
+        'expr': field.value,
+        'contextModule': contextModule,
+        'baseModules': baseModules,
+        'callees': callees,
+      });
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _collectCallees({
+        'expr': expr.fieldAccess.object,
+        'contextModule': contextModule,
+        'baseModules': baseModules,
+        'callees': callees,
+      });
+    }
+  } else if (expr.hasLiteral()) {
+    if (expr.literal.hasListValue()) {
+      for (final elem in expr.literal.listValue.elements) {
+        _collectCallees({
+          'expr': elem,
+          'contextModule': contextModule,
+          'baseModules': baseModules,
+          'callees': callees,
+        });
+      }
+    }
   }
 }
 
-// ── Analyzer Implementation ──────────────────────────────────────────────────
+// ── Infinite loop detection ─────────────────────────────────────────────────
 
-class _TerminationAnalyzer {
-  final List<Module> modules;
-  final List<TerminationWarning> _warnings = [];
-
-  /// Call graph: "module.function" -> set of "module.function" it calls.
-  final Map<String, Set<String>> _callGraph = {};
-
-  /// Base modules (all functions are isBase).
-  final Set<String> _baseModules = {};
-
-  _TerminationAnalyzer(this.modules);
-
-  TerminationReport analyze() {
-    _identifyBaseModules();
-    _buildCallGraph();
-    _checkLoops();
-    _checkRecursion();
-    _checkUnreachableCode();
-    _checkOrphanedLabels();
-    return TerminationReport(_warnings);
+void _checkLoops(Map ctx) {
+  final modules = ctx['modules'];
+  final baseModules = ctx['baseModules'];
+  final warnings = ctx['warnings'];
+  for (final module in modules) {
+    if (baseModules.contains(module.name)) continue;
+    for (final fn in module.functions) {
+      if (fn.isBase) continue;
+      if (!fn.hasBody()) continue;
+      _checkLoopsInExpr({
+        'expr': fn.body,
+        'moduleName': module.name,
+        'fnName': fn.name,
+        'warnings': warnings,
+      });
+    }
   }
+}
 
-  void _identifyBaseModules() {
-    for (final module in modules) {
-      if (module.functions.isNotEmpty &&
-          module.functions.every((f) => f.isBase)) {
-        _baseModules.add(module.name);
+void _checkLoopsInExpr(Map ctx) {
+  final expr = ctx['expr'];
+  final moduleName = ctx['moduleName'];
+  final fnName = ctx['fnName'];
+  final warnings = ctx['warnings'];
+  if (expr == null) return;
+
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final callModule = call.module.isEmpty ? 'std' : call.module;
+    final callFn = call.function;
+    if (callModule == 'std' && callFn == 'while') {
+      _checkWhileLoop({
+        'call': call,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+        'kind': 'while',
+      });
+    } else if (callModule == 'std' && callFn == 'do_while') {
+      _checkWhileLoop({
+        'call': call,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+        'kind': 'do-while',
+      });
+    } else if (callModule == 'std' && callFn == 'for') {
+      _checkForLoop({
+        'call': call,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+    if (call.hasInput()) {
+      _checkLoopsInExpr({
+        'expr': call.input,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _checkLoopsInExpr({
+          'expr': stmt.let.value,
+          'moduleName': moduleName,
+          'fnName': fnName,
+          'warnings': warnings,
+        });
+      }
+      if (stmt.hasExpression()) {
+        _checkLoopsInExpr({
+          'expr': stmt.expression,
+          'moduleName': moduleName,
+          'fnName': fnName,
+          'warnings': warnings,
+        });
       }
     }
-  }
-
-  // ── Call graph construction ──────────────────────────────────────────────
-
-  void _buildCallGraph() {
-    for (final module in modules) {
-      if (_baseModules.contains(module.name)) continue;
-      for (final fn in module.functions) {
-        if (fn.isBase) continue;
-        final key = '${module.name}.${fn.name}';
-        final callees = <String>{};
-        _collectCallees(fn.body, module.name, callees);
-        _callGraph[key] = callees;
-      }
+    if (expr.block.hasResult()) {
+      _checkLoopsInExpr({
+        'expr': expr.block.result,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  } else if (expr.hasLambda()) {
+    _checkLoopsInExpr({
+      'expr': expr.lambda.body,
+      'moduleName': moduleName,
+      'fnName': fnName,
+      'warnings': warnings,
+    });
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _checkLoopsInExpr({
+        'expr': field.value,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _checkLoopsInExpr({
+        'expr': expr.fieldAccess.object,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
     }
   }
+}
 
-  void _collectCallees(
-    Expression expr,
-    String contextModule,
-    Set<String> callees,
-  ) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? contextModule : call.module;
-        final fn = call.function;
-        // Only track non-base function calls for recursion analysis.
-        if (!_baseModules.contains(module)) {
-          callees.add('$module.$fn');
-        }
-        if (call.hasInput()) {
-          _collectCallees(call.input, contextModule, callees);
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _collectCallees(stmt.let.value, contextModule, callees);
-          }
-          if (stmt.hasExpression()) {
-            _collectCallees(stmt.expression, contextModule, callees);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _collectCallees(expr.block.result, contextModule, callees);
-        }
-      case Expression_Expr.lambda:
-        _collectCallees(expr.lambda.body, contextModule, callees);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _collectCallees(field.value, contextModule, callees);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _collectCallees(expr.fieldAccess.object, contextModule, callees);
-        }
-      case Expression_Expr.literal:
-        if (expr.literal.hasListValue()) {
-          for (final elem in expr.literal.listValue.elements) {
-            _collectCallees(elem, contextModule, callees);
-          }
-        }
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
+/// Shared while / do-while checker; `ctx['kind']` is `'while'` or `'do-while'`.
+void _checkWhileLoop(Map ctx) {
+  final call = ctx['call'];
+  final moduleName = ctx['moduleName'];
+  final fnName = ctx['fnName'];
+  final List warnings = ctx['warnings'];
+  final String kind = ctx['kind'];
+  final location = '$moduleName.$fnName';
+  if (!call.hasInput()) return;
+  final callInput = call.input;
+  if (!callInput.hasMessageCreation()) return;
+
+  final fields = callInput.messageCreation.fields;
+  final condition = _getFieldValue({'fields': fields, 'name': 'condition'});
+  final body = _getFieldValue({'fields': fields, 'name': 'body'});
+  if (condition == null || body == null) return;
+
+  final isLiteralTrue = _isLiteralTrue(condition);
+  final condVars = <String>[];
+  _collectReferencedVars({'expr': condition, 'vars': condVars});
+  final hasExit = _exprHasExitSignal(body);
+  final mutatedVars = <String>[];
+  _collectMutatedVars({'expr': body, 'vars': mutatedVars});
+
+  if (isLiteralTrue && !hasExit) {
+    warnings.add({
+      'severity': 'warning',
+      'category': 'infinite_loop',
+      'message': '$kind(true) loop without break or return in body',
+      'location': location,
+    });
+    return;
   }
 
-  // ── Infinite loop detection ─────────────────────────────────────────────
-
-  void _checkLoops() {
-    for (final module in modules) {
-      if (_baseModules.contains(module.name)) continue;
-      for (final fn in module.functions) {
-        if (fn.isBase) continue;
-        _checkLoopsInExpr(fn.body, module.name, fn.name);
-      }
-    }
+  var intersects = false;
+  for (final v in condVars) {
+    if (mutatedVars.contains(v)) intersects = true;
   }
-
-  void _checkLoopsInExpr(Expression expr, String moduleName, String fnName) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final callModule = call.module.isEmpty ? 'std' : call.module;
-        final callFn = call.function;
-
-        if (callModule == 'std' && callFn == 'while') {
-          _checkWhileLoop(call, moduleName, fnName);
-        } else if (callModule == 'std' && callFn == 'do_while') {
-          _checkDoWhileLoop(call, moduleName, fnName);
-        } else if (callModule == 'std' && callFn == 'for') {
-          _checkForLoop(call, moduleName, fnName);
-        }
-
-        // Recurse into input to find nested loops.
-        if (call.hasInput()) {
-          _checkLoopsInExpr(call.input, moduleName, fnName);
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _checkLoopsInExpr(stmt.let.value, moduleName, fnName);
-          }
-          if (stmt.hasExpression()) {
-            _checkLoopsInExpr(stmt.expression, moduleName, fnName);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _checkLoopsInExpr(expr.block.result, moduleName, fnName);
-        }
-      case Expression_Expr.lambda:
-        _checkLoopsInExpr(expr.lambda.body, moduleName, fnName);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _checkLoopsInExpr(field.value, moduleName, fnName);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _checkLoopsInExpr(expr.fieldAccess.object, moduleName, fnName);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
+  if (!isLiteralTrue && condVars.isNotEmpty && !hasExit && !intersects) {
+    warnings.add({
+      'severity': 'warning',
+      'category': 'infinite_loop',
+      'message':
+          '$kind loop condition references ${condVars.join(", ")} but body '
+          'does not modify any of them and has no break/return',
+      'location': location,
+    });
   }
+}
 
-  void _checkWhileLoop(FunctionCall call, String moduleName, String fnName) {
-    final location = '$moduleName.$fnName';
-    if (!call.hasInput()) return;
-    final input = call.input;
-    if (input.whichExpr() != Expression_Expr.messageCreation) return;
+void _checkForLoop(Map ctx) {
+  final call = ctx['call'];
+  final moduleName = ctx['moduleName'];
+  final fnName = ctx['fnName'];
+  final List warnings = ctx['warnings'];
+  final location = '$moduleName.$fnName';
+  if (!call.hasInput()) return;
+  final callInput = call.input;
+  if (!callInput.hasMessageCreation()) return;
 
-    final fields = input.messageCreation.fields;
-    final condition = _getField(fields, 'condition');
-    final body = _getField(fields, 'body');
+  final fields = callInput.messageCreation.fields;
+  final update = _getFieldValue({'fields': fields, 'name': 'update'});
+  final body = _getFieldValue({'fields': fields, 'name': 'body'});
 
-    if (condition == null || body == null) return;
+  final hasUpdate = update != null && _exprIsSet(update);
+  final hasExit = body != null && _exprHasExitSignal(body);
 
-    // Check if the condition is a literal true.
-    final isLiteralTrue = _isLiteralTrue(condition);
-
-    // Collect variables referenced in the condition.
-    final condVars = <String>{};
-    _collectReferencedVars(condition, condVars);
-
-    // Check if the body modifies any condition variable or has break/return.
-    final hasExit = _exprHasExitSignal(body);
-    final mutatedVars = <String>{};
-    _collectMutatedVars(body, mutatedVars);
-
-    if (isLiteralTrue && !hasExit) {
-      _warnings.add(
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message: 'while(true) loop without break or return in body',
-          location: location,
-        ),
-      );
-    } else if (!isLiteralTrue &&
-        condVars.isNotEmpty &&
-        !hasExit &&
-        condVars.intersection(mutatedVars).isEmpty) {
-      _warnings.add(
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message:
-              'while loop condition references ${condVars.join(", ")} but body '
-              'does not modify any of them and has no break/return',
-          location: location,
-        ),
-      );
-    }
+  if (!hasUpdate && !hasExit) {
+    warnings.add({
+      'severity': 'warning',
+      'category': 'infinite_loop',
+      'message':
+          'for loop without update expression and no break/return in body',
+      'location': location,
+    });
   }
+}
 
-  void _checkDoWhileLoop(FunctionCall call, String moduleName, String fnName) {
-    final location = '$moduleName.$fnName';
-    if (!call.hasInput()) return;
-    final input = call.input;
-    if (input.whichExpr() != Expression_Expr.messageCreation) return;
+// ── Unbounded recursion detection ───────────────────────────────────────────
 
-    final fields = input.messageCreation.fields;
-    final condition = _getField(fields, 'condition');
-    final body = _getField(fields, 'body');
-
-    if (condition == null || body == null) return;
-
-    final isLiteralTrue = _isLiteralTrue(condition);
-    final condVars = <String>{};
-    _collectReferencedVars(condition, condVars);
-    final hasExit = _exprHasExitSignal(body);
-    final mutatedVars = <String>{};
-    _collectMutatedVars(body, mutatedVars);
-
-    if (isLiteralTrue && !hasExit) {
-      _warnings.add(
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message: 'do-while(true) loop without break or return in body',
-          location: location,
-        ),
-      );
-    } else if (!isLiteralTrue &&
-        condVars.isNotEmpty &&
-        !hasExit &&
-        condVars.intersection(mutatedVars).isEmpty) {
-      _warnings.add(
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message:
-              'do-while loop condition references ${condVars.join(", ")} but body '
-              'does not modify any of them and has no break/return',
-          location: location,
-        ),
-      );
-    }
-  }
-
-  void _checkForLoop(FunctionCall call, String moduleName, String fnName) {
-    final location = '$moduleName.$fnName';
-    if (!call.hasInput()) return;
-    final input = call.input;
-    if (input.whichExpr() != Expression_Expr.messageCreation) return;
-
-    final fields = input.messageCreation.fields;
-    final update = _getField(fields, 'update');
-    final body = _getField(fields, 'body');
-
-    // Missing update expression is suspicious.
-    final hasUpdate =
-        update != null && update.whichExpr() != Expression_Expr.notSet;
-    final hasExit = body != null && _exprHasExitSignal(body);
-
-    if (!hasUpdate && !hasExit) {
-      _warnings.add(
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message:
-              'for loop without update expression and no break/return in body',
-          location: location,
-        ),
-      );
-    }
-  }
-
-  // ── Unbounded recursion detection ───────────────────────────────────────
-
-  void _checkRecursion() {
-    // Find all cycles in the call graph.
-    final cycles = _findCycles();
-    for (final cycle in cycles) {
-      // For each function in the cycle, check if it has a base case.
-      for (final fnKey in cycle) {
-        if (!_hasBaseCase(fnKey)) {
-          final cycleDesc = cycle.length == 1
-              ? 'direct recursion'
-              : 'mutual recursion cycle: ${cycle.join(" -> ")}';
-          _warnings.add(
-            TerminationWarning(
-              severity: 'warning',
-              category: 'unbounded_recursion',
-              message:
-                  '$cycleDesc without conditional return (no base case detected)',
-              location: fnKey,
-            ),
-          );
-          // Only warn once per cycle, not once per member.
-          break;
-        }
-      }
-    }
-  }
-
-  /// Find all simple cycles in the call graph using DFS.
-  /// Returns list of cycles, each cycle is a list of function keys.
-  List<List<String>> _findCycles() {
-    final visited = <String>{};
-    final inStack = <String>{};
-    final stack = <String>[];
-    final cycles = <List<String>>[];
-    final reportedCycles = <String>{};
-
-    void dfs(String node) {
-      if (visited.contains(node)) return;
-      visited.add(node);
-      inStack.add(node);
-      stack.add(node);
-
-      final neighbors = _callGraph[node] ?? {};
-      for (final neighbor in neighbors) {
-        if (inStack.contains(neighbor)) {
-          // Found a cycle — extract it.
-          final cycleStart = stack.indexOf(neighbor);
-          if (cycleStart >= 0) {
-            final cycle = stack.sublist(cycleStart);
-            // Normalize for dedup: sort cycle members.
-            final normalized = List<String>.from(cycle)..sort();
-            final key = normalized.join(',');
-            if (!reportedCycles.contains(key)) {
-              reportedCycles.add(key);
-              cycles.add(cycle);
-            }
-          }
-        } else if (!visited.contains(neighbor)) {
-          dfs(neighbor);
-        }
-      }
-
-      stack.removeLast();
-      inStack.remove(node);
-    }
-
-    for (final node in _callGraph.keys) {
-      dfs(node);
-    }
-    return cycles;
-  }
-
-  /// Check if a function has a base case: an std.if call that contains
-  /// an std.return before the recursive call path.
-  bool _hasBaseCase(String fnKey) {
-    final fn = _findFunction(fnKey);
-    if (fn == null) return true; // Can't analyze, assume safe.
-    return _exprContainsConditionalReturn(fn.body);
-  }
-
-  /// Returns true if the expression tree contains an std.if call that has
-  /// an std.return in either its then or else branch.
-  bool _exprContainsConditionalReturn(Expression expr) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? 'std' : call.module;
-        if (module == 'std' && call.function == 'if' && call.hasInput()) {
-          final input = call.input;
-          if (input.whichExpr() == Expression_Expr.messageCreation) {
-            final thenBranch = _getField(input.messageCreation.fields, 'then');
-            final elseBranch = _getField(input.messageCreation.fields, 'else');
-            if ((thenBranch != null && _exprContainsReturn(thenBranch)) ||
-                (elseBranch != null && _exprContainsReturn(elseBranch))) {
-              return true;
-            }
-          }
-        }
-        if (call.hasInput()) {
-          if (_exprContainsConditionalReturn(call.input)) return true;
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet() && _exprContainsConditionalReturn(stmt.let.value)) {
-            return true;
-          }
-          if (stmt.hasExpression() &&
-              _exprContainsConditionalReturn(stmt.expression)) {
-            return true;
-          }
-        }
-        if (expr.block.hasResult() &&
-            _exprContainsConditionalReturn(expr.block.result)) {
-          return true;
-        }
-      case Expression_Expr.lambda:
-        return _exprContainsConditionalReturn(expr.lambda.body);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          if (_exprContainsConditionalReturn(field.value)) return true;
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          return _exprContainsConditionalReturn(expr.fieldAccess.object);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
-    return false;
-  }
-
-  /// Check if expression tree contains a return call.
-  bool _exprContainsReturn(Expression expr) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? 'std' : call.module;
-        if (module == 'std' && call.function == 'return') return true;
-        if (call.hasInput()) {
-          if (_exprContainsReturn(call.input)) return true;
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet() && _exprContainsReturn(stmt.let.value)) {
-            return true;
-          }
-          if (stmt.hasExpression() && _exprContainsReturn(stmt.expression)) {
-            return true;
-          }
-        }
-        if (expr.block.hasResult() && _exprContainsReturn(expr.block.result)) {
-          return true;
-        }
-      case Expression_Expr.lambda:
-        return _exprContainsReturn(expr.lambda.body);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          if (_exprContainsReturn(field.value)) return true;
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          return _exprContainsReturn(expr.fieldAccess.object);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
-    return false;
-  }
-
-  FunctionDefinition? _findFunction(String key) {
-    final parts = key.split('.');
-    if (parts.length < 2) return null;
-    final moduleName = parts[0];
-    final fnName = parts.sublist(1).join('.');
-    for (final module in modules) {
-      if (module.name != moduleName) continue;
-      for (final fn in module.functions) {
-        if (fn.name == fnName) return fn;
-      }
-    }
-    return null;
-  }
-
-  // ── Unreachable code detection ──────────────────────────────────────────
-
-  void _checkUnreachableCode() {
-    for (final module in modules) {
-      if (_baseModules.contains(module.name)) continue;
-      for (final fn in module.functions) {
-        if (fn.isBase) continue;
-        _checkUnreachableInExpr(fn.body, module.name, fn.name);
-      }
-    }
-  }
-
-  void _checkUnreachableInExpr(
-    Expression expr,
-    String moduleName,
-    String fnName,
-  ) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.block:
-        _checkBlockUnreachable(expr.block, moduleName, fnName);
-        // Also recurse into each statement's expression.
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _checkUnreachableInExpr(stmt.let.value, moduleName, fnName);
-          }
-          if (stmt.hasExpression()) {
-            _checkUnreachableInExpr(stmt.expression, moduleName, fnName);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _checkUnreachableInExpr(expr.block.result, moduleName, fnName);
-        }
-      case Expression_Expr.call:
-        if (expr.call.hasInput()) {
-          _checkUnreachableInExpr(expr.call.input, moduleName, fnName);
-        }
-      case Expression_Expr.lambda:
-        _checkUnreachableInExpr(expr.lambda.body, moduleName, fnName);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _checkUnreachableInExpr(field.value, moduleName, fnName);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _checkUnreachableInExpr(expr.fieldAccess.object, moduleName, fnName);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
-  }
-
-  void _checkBlockUnreachable(Block block, String moduleName, String fnName) {
-    for (var i = 0; i < block.statements.length; i++) {
-      final stmt = block.statements[i];
-      if (_isTerminatingStatement(stmt) && i < block.statements.length - 1) {
-        // Statements after this one are unreachable.
-        final unreachableCount = block.statements.length - 1 - i;
-        _warnings.add(
-          TerminationWarning(
-            severity: 'warning',
-            category: 'unreachable_code',
-            message:
-                '$unreachableCount statement(s) after ${_terminatingCallName(stmt)} are unreachable',
-            location: '$moduleName.$fnName:stmt[${i + 1}]',
-          ),
-        );
+void _checkRecursion(Map ctx) {
+  final modules = ctx['modules'];
+  final callGraph = ctx['callGraph'];
+  final List warnings = ctx['warnings'];
+  final cycles = _findCycles({'callGraph': callGraph});
+  for (final dynamic cycle in cycles) {
+    final List cycleList = cycle;
+    for (final fnKey in cycleList) {
+      if (!_hasBaseCase({'modules': modules, 'fnKey': fnKey})) {
+        final cycleDesc = cycleList.length == 1
+            ? 'direct recursion'
+            : 'mutual recursion cycle: ${cycleList.join(" -> ")}';
+        warnings.add({
+          'severity': 'warning',
+          'category': 'unbounded_recursion',
+          'message':
+              '$cycleDesc without conditional return (no base case detected)',
+          'location': fnKey,
+        });
         break;
       }
     }
   }
+}
 
-  /// Check if a statement is a terminating call (return, throw, rethrow).
-  bool _isTerminatingStatement(Statement stmt) {
-    if (!stmt.hasExpression()) return false;
-    return _isTerminatingExpr(stmt.expression);
+/// Find all simple cycles in the call graph via DFS. `ctx` = `{callGraph}`
+/// (a `List` of `{key, callees}`). Returns a `List` of cycles (each a `List`
+/// of function keys).
+List<Object?> _findCycles(Map ctx) {
+  final List callGraph = ctx['callGraph'];
+  final visited = <String>[];
+  final stack = <String>[];
+  final cycles = <Object?>[];
+  final reportedCycles = <String>[];
+  for (final entry in callGraph) {
+    _dfsCycles({
+      'callGraph': callGraph,
+      'visited': visited,
+      'stack': stack,
+      'cycles': cycles,
+      'reportedCycles': reportedCycles,
+      'node': entry['key'],
+    });
+  }
+  return cycles;
+}
+
+void _dfsCycles(Map ctx) {
+  final List callGraph = ctx['callGraph'];
+  final List visited = ctx['visited'];
+  final List stack = ctx['stack'];
+  final List cycles = ctx['cycles'];
+  final List reportedCycles = ctx['reportedCycles'];
+  final String node = ctx['node'];
+
+  if (visited.contains(node)) return;
+  visited.add(node);
+  stack.add(node);
+
+  // `stack` doubles as the in-recursion set: a node is "in stack" iff present.
+  final neighbors = _calleesOf(callGraph, node);
+  for (final neighbor in neighbors) {
+    if (stack.contains(neighbor)) {
+      final cycleStart = stack.indexOf(neighbor);
+      if (cycleStart >= 0) {
+        final cycle = stack.sublist(cycleStart);
+        final normalized = <String>[];
+        for (final c in cycle) {
+          normalized.add(c);
+        }
+        normalized.sort();
+        final key = normalized.join(',');
+        if (!reportedCycles.contains(key)) {
+          reportedCycles.add(key);
+          cycles.add(cycle);
+        }
+      }
+    } else if (!visited.contains(neighbor)) {
+      _dfsCycles({
+        'callGraph': callGraph,
+        'visited': visited,
+        'stack': stack,
+        'cycles': cycles,
+        'reportedCycles': reportedCycles,
+        'node': neighbor,
+      });
+    }
   }
 
-  bool _isTerminatingExpr(Expression expr) {
-    if (expr.whichExpr() != Expression_Expr.call) return false;
+  stack.removeLast();
+}
+
+/// Look up a node's callees in the `List` call graph (linear scan; the graph is
+/// small). Returns an empty list when the node has no entry.
+List _calleesOf(List callGraph, String node) {
+  for (final entry in callGraph) {
+    if (entry['key'] == node) {
+      return entry['callees'];
+    }
+  }
+  return <String>[];
+}
+
+/// Whether the function `ctx['fnKey']` has a base case (an `std.if` containing
+/// an `std.return` in a branch). `ctx` = `{modules, fnKey}`.
+bool _hasBaseCase(Map ctx) {
+  final modules = ctx['modules'];
+  final String fnKey = ctx['fnKey'];
+  final fn = _findFunction(modules, fnKey);
+  if (fn == null) return true; // Can't analyze, assume safe.
+  if (!fn.hasBody()) return true;
+  return _exprContainsConditionalReturn(fn.body);
+}
+
+bool _exprContainsConditionalReturn(dynamic expr) {
+  if (expr == null) return false;
+  if (expr.hasCall()) {
     final call = expr.call;
     final module = call.module.isEmpty ? 'std' : call.module;
-    return module == 'std' &&
-        (call.function == 'return' ||
-            call.function == 'throw' ||
-            call.function == 'rethrow');
-  }
-
-  String _terminatingCallName(Statement stmt) {
-    if (!stmt.hasExpression()) return '?';
-    final expr = stmt.expression;
-    if (expr.whichExpr() != Expression_Expr.call) return '?';
-    return 'std.${expr.call.function}';
-  }
-
-  // ── Orphaned label detection ────────────────────────────────────────────
-
-  void _checkOrphanedLabels() {
-    for (final module in modules) {
-      if (_baseModules.contains(module.name)) continue;
-      for (final fn in module.functions) {
-        if (fn.isBase) continue;
-        // Collect all labels defined via std.label in this function.
-        final definedLabels = <String>{};
-        _collectDefinedLabels(fn.body, definedLabels);
-        // Collect all labeled break/continue usages.
-        final usedLabels = <_LabelUsage>[];
-        _collectLabelUsages(fn.body, usedLabels);
-        // Report orphans.
-        for (final usage in usedLabels) {
-          if (usage.label.isNotEmpty && !definedLabels.contains(usage.label)) {
-            _warnings.add(
-              TerminationWarning(
-                severity: 'error',
-                category: 'orphaned_label',
-                message:
-                    'std.${usage.kind}(label: "${usage.label}") references '
-                    'undefined label "${usage.label}"',
-                location: '${module.name}.${fn.name}',
-              ),
-            );
-          }
-        }
+    if (module == 'std' && call.function == 'if' && call.hasInput()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
+        final thenBranch = _getFieldValue({
+          'fields': callInput.messageCreation.fields,
+          'name': 'then',
+        });
+        final elseBranch = _getFieldValue({
+          'fields': callInput.messageCreation.fields,
+          'name': 'else',
+        });
+        if (thenBranch != null && _exprContainsReturn(thenBranch)) return true;
+        if (elseBranch != null && _exprContainsReturn(elseBranch)) return true;
       }
     }
-  }
-
-  void _collectDefinedLabels(Expression expr, Set<String> labels) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? 'std' : call.module;
-        if (module == 'std' && call.function == 'label' && call.hasInput()) {
-          final input = call.input;
-          if (input.whichExpr() == Expression_Expr.messageCreation) {
-            final name = _getStringField(input.messageCreation.fields, 'name');
-            if (name != null && name.isNotEmpty) {
-              labels.add(name);
-            }
-          }
-        }
-        if (call.hasInput()) {
-          _collectDefinedLabels(call.input, labels);
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _collectDefinedLabels(stmt.let.value, labels);
-          }
-          if (stmt.hasExpression()) {
-            _collectDefinedLabels(stmt.expression, labels);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _collectDefinedLabels(expr.block.result, labels);
-        }
-      case Expression_Expr.lambda:
-        _collectDefinedLabels(expr.lambda.body, labels);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _collectDefinedLabels(field.value, labels);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _collectDefinedLabels(expr.fieldAccess.object, labels);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
+    if (call.hasInput()) {
+      if (_exprContainsConditionalReturn(call.input)) return true;
     }
-  }
-
-  void _collectLabelUsages(Expression expr, List<_LabelUsage> usages) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? 'std' : call.module;
-        if (module == 'std' &&
-            (call.function == 'break' || call.function == 'continue') &&
-            call.hasInput()) {
-          final input = call.input;
-          if (input.whichExpr() == Expression_Expr.messageCreation) {
-            final label = _getStringField(
-              input.messageCreation.fields,
-              'label',
-            );
-            if (label != null && label.isNotEmpty) {
-              usages.add(_LabelUsage(call.function, label));
-            }
-          }
-        }
-        if (call.hasInput()) {
-          _collectLabelUsages(call.input, usages);
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _collectLabelUsages(stmt.let.value, usages);
-          }
-          if (stmt.hasExpression()) {
-            _collectLabelUsages(stmt.expression, usages);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _collectLabelUsages(expr.block.result, usages);
-        }
-      case Expression_Expr.lambda:
-        _collectLabelUsages(expr.lambda.body, usages);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _collectLabelUsages(field.value, usages);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _collectLabelUsages(expr.fieldAccess.object, usages);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
-  }
-
-  // ── Helpers ─────────────────────────────────────────────────────────────
-
-  /// Get a named field's expression value from a list of FieldValuePairs.
-  Expression? _getField(List<FieldValuePair> fields, String name) {
-    for (final f in fields) {
-      if (f.name == name) return f.value;
-    }
-    return null;
-  }
-
-  /// Get a string literal value from a named field.
-  String? _getStringField(List<FieldValuePair> fields, String name) {
-    for (final f in fields) {
-      if (f.name == name) {
-        final val = f.value;
-        if (val.whichExpr() == Expression_Expr.literal &&
-            val.literal.hasStringValue()) {
-          return val.literal.stringValue;
-        }
+    return false;
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet() && _exprContainsConditionalReturn(stmt.let.value)) {
+        return true;
+      }
+      if (stmt.hasExpression() &&
+          _exprContainsConditionalReturn(stmt.expression)) {
+        return true;
       }
     }
-    return null;
-  }
-
-  /// Check if an expression is literally `true`.
-  bool _isLiteralTrue(Expression expr) {
-    if (expr.whichExpr() == Expression_Expr.literal) {
-      return expr.literal.hasBoolValue() && expr.literal.boolValue;
+    if (expr.block.hasResult() &&
+        _exprContainsConditionalReturn(expr.block.result)) {
+      return true;
+    }
+    return false;
+  } else if (expr.hasLambda()) {
+    return _exprContainsConditionalReturn(expr.lambda.body);
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      if (_exprContainsConditionalReturn(field.value)) return true;
+    }
+    return false;
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      return _exprContainsConditionalReturn(expr.fieldAccess.object);
     }
     return false;
   }
+  return false;
+}
 
-  /// Collect all variable names referenced in an expression.
-  void _collectReferencedVars(Expression expr, Set<String> vars) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.reference:
-        if (expr.reference.name.isNotEmpty) {
-          vars.add(expr.reference.name);
-        }
-      case Expression_Expr.call:
-        if (expr.call.hasInput()) {
-          _collectReferencedVars(expr.call.input, vars);
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _collectReferencedVars(stmt.let.value, vars);
-          }
-          if (stmt.hasExpression()) {
-            _collectReferencedVars(stmt.expression, vars);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _collectReferencedVars(expr.block.result, vars);
-        }
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _collectReferencedVars(field.value, vars);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _collectReferencedVars(expr.fieldAccess.object, vars);
-        }
-      case Expression_Expr.lambda:
-        _collectReferencedVars(expr.lambda.body, vars);
-      case Expression_Expr.literal:
-      case Expression_Expr.notSet:
-        break;
-    }
-  }
-
-  /// Collect variable names mutated via std.assign in an expression.
-  void _collectMutatedVars(Expression expr, Set<String> vars) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? 'std' : call.module;
-        if (module == 'std' && call.function == 'assign' && call.hasInput()) {
-          final input = call.input;
-          if (input.whichExpr() == Expression_Expr.messageCreation) {
-            final target = _getField(input.messageCreation.fields, 'target');
-            if (target != null &&
-                target.whichExpr() == Expression_Expr.reference) {
-              vars.add(target.reference.name);
-            }
-          }
-        }
-        if (call.hasInput()) {
-          _collectMutatedVars(call.input, vars);
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet()) {
-            _collectMutatedVars(stmt.let.value, vars);
-          }
-          if (stmt.hasExpression()) {
-            _collectMutatedVars(stmt.expression, vars);
-          }
-        }
-        if (expr.block.hasResult()) {
-          _collectMutatedVars(expr.block.result, vars);
-        }
-      case Expression_Expr.lambda:
-        _collectMutatedVars(expr.lambda.body, vars);
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          _collectMutatedVars(field.value, vars);
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          _collectMutatedVars(expr.fieldAccess.object, vars);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
-    }
-  }
-
-  /// Check if an expression tree contains a break, return, or throw.
-  bool _exprHasExitSignal(Expression expr) {
-    switch (expr.whichExpr()) {
-      case Expression_Expr.call:
-        final call = expr.call;
-        final module = call.module.isEmpty ? 'std' : call.module;
-        if (module == 'std' &&
-            (call.function == 'break' ||
-                call.function == 'return' ||
-                call.function == 'throw')) {
-          return true;
-        }
-        if (call.hasInput()) {
-          if (_exprHasExitSignal(call.input)) return true;
-        }
-      case Expression_Expr.block:
-        for (final stmt in expr.block.statements) {
-          if (stmt.hasLet() && _exprHasExitSignal(stmt.let.value)) return true;
-          if (stmt.hasExpression() && _exprHasExitSignal(stmt.expression)) {
-            return true;
-          }
-        }
-        if (expr.block.hasResult() && _exprHasExitSignal(expr.block.result)) {
-          return true;
-        }
-      case Expression_Expr.lambda:
-        // Lambdas create a new scope; break/return inside won't exit the
-        // enclosing loop, so we intentionally do NOT recurse here.
-        return false;
-      case Expression_Expr.messageCreation:
-        for (final field in expr.messageCreation.fields) {
-          if (_exprHasExitSignal(field.value)) return true;
-        }
-      case Expression_Expr.fieldAccess:
-        if (expr.fieldAccess.hasObject()) {
-          return _exprHasExitSignal(expr.fieldAccess.object);
-        }
-      case Expression_Expr.literal:
-      case Expression_Expr.reference:
-      case Expression_Expr.notSet:
-        break;
+bool _exprContainsReturn(dynamic expr) {
+  if (expr == null) return false;
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final module = call.module.isEmpty ? 'std' : call.module;
+    if (module == 'std' && call.function == 'return') return true;
+    if (call.hasInput()) {
+      if (_exprContainsReturn(call.input)) return true;
     }
     return false;
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet() && _exprContainsReturn(stmt.let.value)) return true;
+      if (stmt.hasExpression() && _exprContainsReturn(stmt.expression)) {
+        return true;
+      }
+    }
+    if (expr.block.hasResult() && _exprContainsReturn(expr.block.result)) {
+      return true;
+    }
+    return false;
+  } else if (expr.hasLambda()) {
+    return _exprContainsReturn(expr.lambda.body);
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      if (_exprContainsReturn(field.value)) return true;
+    }
+    return false;
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      return _exprContainsReturn(expr.fieldAccess.object);
+    }
+    return false;
+  }
+  return false;
+}
+
+/// Find the function named by `key` (`"module.function"`) in [modules].
+dynamic _findFunction(dynamic modules, String key) {
+  final dot = key.indexOf('.');
+  if (dot < 0) return null;
+  final moduleName = key.substring(0, dot);
+  final fnName = key.substring(dot + 1);
+  for (final module in modules) {
+    if (module.name != moduleName) continue;
+    for (final fn in module.functions) {
+      if (fn.name == fnName) return fn;
+    }
+  }
+  return null;
+}
+
+// ── Unreachable code detection ──────────────────────────────────────────────
+
+void _checkUnreachableCode(Map ctx) {
+  final modules = ctx['modules'];
+  final baseModules = ctx['baseModules'];
+  final warnings = ctx['warnings'];
+  for (final module in modules) {
+    if (baseModules.contains(module.name)) continue;
+    for (final fn in module.functions) {
+      if (fn.isBase) continue;
+      if (!fn.hasBody()) continue;
+      _checkUnreachableInExpr({
+        'expr': fn.body,
+        'moduleName': module.name,
+        'fnName': fn.name,
+        'warnings': warnings,
+      });
+    }
   }
 }
 
-class _LabelUsage {
-  final String kind; // 'break' or 'continue'
-  final String label;
-  const _LabelUsage(this.kind, this.label);
+void _checkUnreachableInExpr(Map ctx) {
+  final expr = ctx['expr'];
+  final moduleName = ctx['moduleName'];
+  final fnName = ctx['fnName'];
+  final warnings = ctx['warnings'];
+  if (expr == null) return;
+
+  if (expr.hasBlock()) {
+    _checkBlockUnreachable({
+      'block': expr.block,
+      'moduleName': moduleName,
+      'fnName': fnName,
+      'warnings': warnings,
+    });
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _checkUnreachableInExpr({
+          'expr': stmt.let.value,
+          'moduleName': moduleName,
+          'fnName': fnName,
+          'warnings': warnings,
+        });
+      }
+      if (stmt.hasExpression()) {
+        _checkUnreachableInExpr({
+          'expr': stmt.expression,
+          'moduleName': moduleName,
+          'fnName': fnName,
+          'warnings': warnings,
+        });
+      }
+    }
+    if (expr.block.hasResult()) {
+      _checkUnreachableInExpr({
+        'expr': expr.block.result,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  } else if (expr.hasCall()) {
+    if (expr.call.hasInput()) {
+      _checkUnreachableInExpr({
+        'expr': expr.call.input,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  } else if (expr.hasLambda()) {
+    _checkUnreachableInExpr({
+      'expr': expr.lambda.body,
+      'moduleName': moduleName,
+      'fnName': fnName,
+      'warnings': warnings,
+    });
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _checkUnreachableInExpr({
+        'expr': field.value,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _checkUnreachableInExpr({
+        'expr': expr.fieldAccess.object,
+        'moduleName': moduleName,
+        'fnName': fnName,
+        'warnings': warnings,
+      });
+    }
+  }
+}
+
+void _checkBlockUnreachable(Map ctx) {
+  final block = ctx['block'];
+  final moduleName = ctx['moduleName'];
+  final fnName = ctx['fnName'];
+  final List warnings = ctx['warnings'];
+  final statements = block.statements;
+  final count = statements.length;
+  for (var i = 0; i < count; i++) {
+    final stmt = statements[i];
+    if (_isTerminatingStatement(stmt) && i < count - 1) {
+      final unreachableCount = count - 1 - i;
+      warnings.add({
+        'severity': 'warning',
+        'category': 'unreachable_code',
+        'message':
+            '$unreachableCount statement(s) after ${_terminatingCallName(stmt)} are unreachable',
+        'location': '$moduleName.$fnName:stmt[${i + 1}]',
+      });
+      break;
+    }
+  }
+}
+
+bool _isTerminatingStatement(dynamic stmt) {
+  if (!stmt.hasExpression()) return false;
+  return _isTerminatingExpr(stmt.expression);
+}
+
+bool _isTerminatingExpr(dynamic expr) {
+  if (!expr.hasCall()) return false;
+  final call = expr.call;
+  final module = call.module.isEmpty ? 'std' : call.module;
+  return module == 'std' &&
+      (call.function == 'return' ||
+          call.function == 'throw' ||
+          call.function == 'rethrow');
+}
+
+String _terminatingCallName(dynamic stmt) {
+  if (!stmt.hasExpression()) return '?';
+  final expr = stmt.expression;
+  if (!expr.hasCall()) return '?';
+  return 'std.${expr.call.function}';
+}
+
+// ── Orphaned label detection ────────────────────────────────────────────────
+
+void _checkOrphanedLabels(Map ctx) {
+  final modules = ctx['modules'];
+  final baseModules = ctx['baseModules'];
+  final List warnings = ctx['warnings'];
+  for (final module in modules) {
+    if (baseModules.contains(module.name)) continue;
+    for (final fn in module.functions) {
+      if (fn.isBase) continue;
+      if (!fn.hasBody()) continue;
+      final definedLabels = <String>[];
+      _collectDefinedLabels({'expr': fn.body, 'labels': definedLabels});
+      final usedLabels = <Object?>[];
+      _collectLabelUsages({'expr': fn.body, 'usages': usedLabels});
+      for (final dynamic usage in usedLabels) {
+        final label = usage['label'];
+        if (label.isNotEmpty && !definedLabels.contains(label)) {
+          warnings.add({
+            'severity': 'error',
+            'category': 'orphaned_label',
+            'message':
+                'std.${usage['kind']}(label: "$label") references '
+                'undefined label "$label"',
+            'location': '${module.name}.${fn.name}',
+          });
+        }
+      }
+    }
+  }
+}
+
+void _collectDefinedLabels(Map ctx) {
+  final expr = ctx['expr'];
+  final List labels = ctx['labels'];
+  if (expr == null) return;
+
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final module = call.module.isEmpty ? 'std' : call.module;
+    if (module == 'std' && call.function == 'label' && call.hasInput()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
+        final name = _getStringFieldValue({
+          'fields': callInput.messageCreation.fields,
+          'name': 'name',
+        });
+        if (name != null && name.isNotEmpty) {
+          if (!labels.contains(name)) labels.add(name);
+        }
+      }
+    }
+    if (call.hasInput()) {
+      _collectDefinedLabels({'expr': call.input, 'labels': labels});
+    }
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _collectDefinedLabels({'expr': stmt.let.value, 'labels': labels});
+      }
+      if (stmt.hasExpression()) {
+        _collectDefinedLabels({'expr': stmt.expression, 'labels': labels});
+      }
+    }
+    if (expr.block.hasResult()) {
+      _collectDefinedLabels({'expr': expr.block.result, 'labels': labels});
+    }
+  } else if (expr.hasLambda()) {
+    _collectDefinedLabels({'expr': expr.lambda.body, 'labels': labels});
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _collectDefinedLabels({'expr': field.value, 'labels': labels});
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _collectDefinedLabels({
+        'expr': expr.fieldAccess.object,
+        'labels': labels,
+      });
+    }
+  }
+}
+
+void _collectLabelUsages(Map ctx) {
+  final expr = ctx['expr'];
+  final List usages = ctx['usages'];
+  if (expr == null) return;
+
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final module = call.module.isEmpty ? 'std' : call.module;
+    if (module == 'std' &&
+        (call.function == 'break' || call.function == 'continue') &&
+        call.hasInput()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
+        final label = _getStringFieldValue({
+          'fields': callInput.messageCreation.fields,
+          'name': 'label',
+        });
+        if (label != null && label.isNotEmpty) {
+          usages.add({'kind': call.function, 'label': label});
+        }
+      }
+    }
+    if (call.hasInput()) {
+      _collectLabelUsages({'expr': call.input, 'usages': usages});
+    }
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _collectLabelUsages({'expr': stmt.let.value, 'usages': usages});
+      }
+      if (stmt.hasExpression()) {
+        _collectLabelUsages({'expr': stmt.expression, 'usages': usages});
+      }
+    }
+    if (expr.block.hasResult()) {
+      _collectLabelUsages({'expr': expr.block.result, 'usages': usages});
+    }
+  } else if (expr.hasLambda()) {
+    _collectLabelUsages({'expr': expr.lambda.body, 'usages': usages});
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _collectLabelUsages({'expr': field.value, 'usages': usages});
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _collectLabelUsages({'expr': expr.fieldAccess.object, 'usages': usages});
+    }
+  }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// Get a named field's expression value from `ctx['fields']` (a list of
+/// FieldValuePairs); returns `null` when absent. `ctx` = `{fields, name}`.
+dynamic _getFieldValue(Map ctx) {
+  final fields = ctx['fields'];
+  final name = ctx['name'];
+  for (final f in fields) {
+    if (f.name == name) return f.value;
+  }
+  return null;
+}
+
+/// Get a string-literal value from a named field, or `null`. `ctx` =
+/// `{fields, name}`.
+String? _getStringFieldValue(Map ctx) {
+  final fields = ctx['fields'];
+  final name = ctx['name'];
+  for (final f in fields) {
+    if (f.name == name) {
+      final val = f.value;
+      if (val.hasLiteral() && val.literal.hasStringValue()) {
+        return val.literal.stringValue;
+      }
+    }
+  }
+  return null;
+}
+
+/// Whether `expr` is literally `true`.
+bool _isLiteralTrue(dynamic expr) {
+  if (expr == null) return false;
+  if (expr.hasLiteral()) {
+    return expr.literal.hasBoolValue() && expr.literal.boolValue;
+  }
+  return false;
+}
+
+/// Whether `expr` has any expression-kind set (i.e. is not `notSet`).
+bool _exprIsSet(dynamic expr) {
+  if (expr == null) return false;
+  return expr.hasCall() ||
+      expr.hasLiteral() ||
+      expr.hasReference() ||
+      expr.hasFieldAccess() ||
+      expr.hasMessageCreation() ||
+      expr.hasBlock() ||
+      expr.hasLambda();
+}
+
+/// Collect all variable names referenced in `ctx['expr']` into `ctx['vars']`.
+void _collectReferencedVars(Map ctx) {
+  final expr = ctx['expr'];
+  final List vars = ctx['vars'];
+  if (expr == null) return;
+
+  if (expr.hasReference()) {
+    if (expr.reference.name.isNotEmpty) {
+      if (!vars.contains(expr.reference.name)) vars.add(expr.reference.name);
+    }
+  } else if (expr.hasCall()) {
+    if (expr.call.hasInput()) {
+      _collectReferencedVars({'expr': expr.call.input, 'vars': vars});
+    }
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _collectReferencedVars({'expr': stmt.let.value, 'vars': vars});
+      }
+      if (stmt.hasExpression()) {
+        _collectReferencedVars({'expr': stmt.expression, 'vars': vars});
+      }
+    }
+    if (expr.block.hasResult()) {
+      _collectReferencedVars({'expr': expr.block.result, 'vars': vars});
+    }
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _collectReferencedVars({'expr': field.value, 'vars': vars});
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _collectReferencedVars({'expr': expr.fieldAccess.object, 'vars': vars});
+    }
+  } else if (expr.hasLambda()) {
+    _collectReferencedVars({'expr': expr.lambda.body, 'vars': vars});
+  }
+}
+
+/// Collect variable names mutated via `std.assign` in `ctx['expr']` into
+/// `ctx['vars']`.
+void _collectMutatedVars(Map ctx) {
+  final expr = ctx['expr'];
+  final List vars = ctx['vars'];
+  if (expr == null) return;
+
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final module = call.module.isEmpty ? 'std' : call.module;
+    if (module == 'std' && call.function == 'assign' && call.hasInput()) {
+      final callInput = call.input;
+      if (callInput.hasMessageCreation()) {
+        final target = _getFieldValue({
+          'fields': callInput.messageCreation.fields,
+          'name': 'target',
+        });
+        if (target != null && target.hasReference()) {
+          if (!vars.contains(target.reference.name)) {
+            vars.add(target.reference.name);
+          }
+        }
+      }
+    }
+    if (call.hasInput()) {
+      _collectMutatedVars({'expr': call.input, 'vars': vars});
+    }
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet()) {
+        _collectMutatedVars({'expr': stmt.let.value, 'vars': vars});
+      }
+      if (stmt.hasExpression()) {
+        _collectMutatedVars({'expr': stmt.expression, 'vars': vars});
+      }
+    }
+    if (expr.block.hasResult()) {
+      _collectMutatedVars({'expr': expr.block.result, 'vars': vars});
+    }
+  } else if (expr.hasLambda()) {
+    _collectMutatedVars({'expr': expr.lambda.body, 'vars': vars});
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      _collectMutatedVars({'expr': field.value, 'vars': vars});
+    }
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      _collectMutatedVars({'expr': expr.fieldAccess.object, 'vars': vars});
+    }
+  }
+}
+
+/// Whether the expression tree `expr` contains a break, return, or throw
+/// (not descending into lambdas — a new scope).
+bool _exprHasExitSignal(dynamic expr) {
+  if (expr == null) return false;
+  if (expr.hasCall()) {
+    final call = expr.call;
+    final module = call.module.isEmpty ? 'std' : call.module;
+    if (module == 'std' &&
+        (call.function == 'break' ||
+            call.function == 'return' ||
+            call.function == 'throw')) {
+      return true;
+    }
+    if (call.hasInput()) {
+      if (_exprHasExitSignal(call.input)) return true;
+    }
+    return false;
+  } else if (expr.hasBlock()) {
+    for (final stmt in expr.block.statements) {
+      if (stmt.hasLet() && _exprHasExitSignal(stmt.let.value)) return true;
+      if (stmt.hasExpression() && _exprHasExitSignal(stmt.expression)) {
+        return true;
+      }
+    }
+    if (expr.block.hasResult() && _exprHasExitSignal(expr.block.result)) {
+      return true;
+    }
+    return false;
+  } else if (expr.hasLambda()) {
+    return false;
+  } else if (expr.hasMessageCreation()) {
+    for (final field in expr.messageCreation.fields) {
+      if (_exprHasExitSignal(field.value)) return true;
+    }
+    return false;
+  } else if (expr.hasFieldAccess()) {
+    if (expr.fieldAccess.hasObject()) {
+      return _exprHasExitSignal(expr.fieldAccess.object);
+    }
+    return false;
+  }
+  return false;
 }

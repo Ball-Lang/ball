@@ -426,6 +426,16 @@ if (existsSync(fib)) {
     assert(Array.isArray(report.capabilities), 'missing capabilities');
     assert(Array.isArray(report.functions), 'missing functions');
   });
+
+  // --reachable-only takes the scoped text path (formatCapabilityReport over
+  // the entry closure) rather than the default full auditReport — exercises the
+  // reachable branch of cmdAudit's text output.
+  test('audit --reachable-only prints the scoped capability report', () => {
+    const r = runCli(['audit', fib, '--reachable-only']);
+    assert(r.status === 0, `exit ${r.status}: ${r.stderr}`);
+    assert(r.stdout.includes('Ball Capability Audit'), 'missing header');
+    assert(r.stdout.includes('Summary:'), 'missing summary');
+  });
 }
 
 // Synthetic program that calls std_fs.file_read — must trip --deny fs.

@@ -4,7 +4,7 @@
 /// collection path.
 library;
 
-import 'package:ball_base/capability_analyzer.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:test/test.dart';
 
@@ -74,10 +74,13 @@ void main() {
     );
 
     final report = analyzeCapabilities(program);
-    expect(report.summary.isPure, isFalse);
-    expect(report.summary.writesStdout, isTrue);
+    expect((report['summary'] as Map)['isPure'], isFalse);
+    expect((report['summary'] as Map)['writesStdout'], isTrue);
     // Both main (transitively) and helper (directly) are effectful.
-    expect(report.summary.effectfulFunctions, greaterThanOrEqualTo(1));
+    expect(
+      (report['summary'] as Map)['effectfulFunctions'],
+      greaterThanOrEqualTo(1),
+    );
   });
 
   test('std_io.print_error marks writesStderr (and writesStdout)', () {
@@ -96,8 +99,8 @@ void main() {
     );
 
     final report = analyzeCapabilities(program);
-    expect(report.summary.writesStderr, isTrue);
-    expect(report.summary.writesStdout, isTrue);
+    expect((report['summary'] as Map)['writesStderr'], isTrue);
+    expect((report['summary'] as Map)['writesStdout'], isTrue);
   });
 
   test('reachableOnly:true actually drives the transitive _analyzeFunction '
@@ -124,9 +127,9 @@ void main() {
       ],
     );
 
-    final report = analyzeCapabilities(program, reachableOnly: true);
-    expect(report.summary.isPure, isFalse);
-    expect(report.summary.writesStdout, isTrue);
+    final report = analyzeCapabilitiesReachable(program);
+    expect((report['summary'] as Map)['isPure'], isFalse);
+    expect((report['summary'] as Map)['writesStdout'], isTrue);
   });
 
   test('reachableOnly:true collects an unknown (undefined) callee without '
@@ -136,8 +139,8 @@ void main() {
         {'name': 'main', 'body': _call('main', 'ghost')},
       ],
     );
-    final report = analyzeCapabilities(program, reachableOnly: true);
-    expect(report.summary.isPure, isTrue);
+    final report = analyzeCapabilitiesReachable(program);
+    expect((report['summary'] as Map)['isPure'], isTrue);
   });
 
   test('an unknown callee is collected without crashing', () {
@@ -150,7 +153,7 @@ void main() {
     );
     final report = analyzeCapabilities(program);
     // No effect detected, no throw.
-    expect(report.summary.isPure, isTrue);
+    expect((report['summary'] as Map)['isPure'], isTrue);
   });
 
   test('formatCapabilityReport renders a summary', () {

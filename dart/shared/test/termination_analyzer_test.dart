@@ -1,5 +1,5 @@
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'package:ball_base/termination_analyzer.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:test/test.dart';
 
 /// Build a minimal program from JSON maps, following the same pattern
@@ -109,11 +109,11 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      expect(report.warnings, hasLength(1));
-      expect(report.warnings[0].category, 'infinite_loop');
-      expect(report.warnings[0].severity, 'warning');
-      expect(report.warnings[0].message, contains('while(true)'));
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report, hasLength(1));
+      expect(report[0]['category'], 'infinite_loop');
+      expect(report[0]['severity'], 'warning');
+      expect(report[0]['message'], contains('while(true)'));
     });
 
     test('while(true) with break does not warn', () {
@@ -144,9 +144,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final loopWarnings = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loopWarnings = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loopWarnings, isEmpty);
     });
@@ -190,13 +190,13 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final loopWarnings = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loopWarnings = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loopWarnings, hasLength(1));
-      expect(loopWarnings[0].message, contains('i'));
-      expect(loopWarnings[0].message, contains('does not modify'));
+      expect(loopWarnings[0]['message'], contains('i'));
+      expect(loopWarnings[0]['message'], contains('does not modify'));
     });
 
     test('while loop with condition variable mutated does not warn', () {
@@ -252,9 +252,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final loopWarnings = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loopWarnings = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loopWarnings, isEmpty);
     });
@@ -299,12 +299,12 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final loopWarnings = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loopWarnings = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loopWarnings, hasLength(1));
-      expect(loopWarnings[0].message, contains('for loop without update'));
+      expect(loopWarnings[0]['message'], contains('for loop without update'));
     });
 
     test('for loop with update does not warn', () {
@@ -341,9 +341,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final loopWarnings = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loopWarnings = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loopWarnings, isEmpty);
     });
@@ -376,12 +376,12 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final loopWarnings = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loopWarnings = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loopWarnings, hasLength(1));
-      expect(loopWarnings[0].message, contains('do-while(true)'));
+      expect(loopWarnings[0]['message'], contains('do-while(true)'));
     });
   });
 
@@ -400,13 +400,13 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final recWarnings = report.warnings
-          .where((w) => w.category == 'unbounded_recursion')
+      final report = analyzeTermination(program).cast<Map>();
+      final recWarnings = report
+          .where((w) => w['category'] == 'unbounded_recursion')
           .toList();
       expect(recWarnings, hasLength(1));
-      expect(recWarnings[0].message, contains('direct recursion'));
-      expect(recWarnings[0].message, contains('no base case'));
+      expect(recWarnings[0]['message'], contains('direct recursion'));
+      expect(recWarnings[0]['message'], contains('no base case'));
     });
 
     test('direct recursion with base case does not warn', () {
@@ -440,9 +440,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final recWarnings = report.warnings
-          .where((w) => w.category == 'unbounded_recursion')
+      final report = analyzeTermination(program).cast<Map>();
+      final recWarnings = report
+          .where((w) => w['category'] == 'unbounded_recursion')
           .toList();
       expect(recWarnings, isEmpty);
     });
@@ -457,12 +457,12 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final recWarnings = report.warnings
-          .where((w) => w.category == 'unbounded_recursion')
+      final report = analyzeTermination(program).cast<Map>();
+      final recWarnings = report
+          .where((w) => w['category'] == 'unbounded_recursion')
           .toList();
       expect(recWarnings, hasLength(1));
-      expect(recWarnings[0].message, contains('mutual recursion'));
+      expect(recWarnings[0]['message'], contains('mutual recursion'));
     });
   });
 
@@ -496,14 +496,14 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final deadWarnings = report.warnings
-          .where((w) => w.category == 'unreachable_code')
+      final report = analyzeTermination(program).cast<Map>();
+      final deadWarnings = report
+          .where((w) => w['category'] == 'unreachable_code')
           .toList();
       expect(deadWarnings, hasLength(1));
-      expect(deadWarnings[0].message, contains('unreachable'));
-      expect(deadWarnings[0].message, contains('std.return'));
-      expect(deadWarnings[0].location, contains('stmt[1]'));
+      expect(deadWarnings[0]['message'], contains('unreachable'));
+      expect(deadWarnings[0]['message'], contains('std.return'));
+      expect(deadWarnings[0]['location'], contains('stmt[1]'));
     });
 
     test('statement after throw is unreachable', () {
@@ -535,12 +535,12 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final deadWarnings = report.warnings
-          .where((w) => w.category == 'unreachable_code')
+      final report = analyzeTermination(program).cast<Map>();
+      final deadWarnings = report
+          .where((w) => w['category'] == 'unreachable_code')
           .toList();
       expect(deadWarnings, hasLength(1));
-      expect(deadWarnings[0].message, contains('std.throw'));
+      expect(deadWarnings[0]['message'], contains('std.throw'));
     });
 
     test('no warning when return is last statement', () {
@@ -572,9 +572,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final deadWarnings = report.warnings
-          .where((w) => w.category == 'unreachable_code')
+      final report = analyzeTermination(program).cast<Map>();
+      final deadWarnings = report
+          .where((w) => w['category'] == 'unreachable_code')
           .toList();
       expect(deadWarnings, isEmpty);
     });
@@ -609,13 +609,13 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final labelWarnings = report.warnings
-          .where((w) => w.category == 'orphaned_label')
+      final report = analyzeTermination(program).cast<Map>();
+      final labelWarnings = report
+          .where((w) => w['category'] == 'orphaned_label')
           .toList();
       expect(labelWarnings, hasLength(1));
-      expect(labelWarnings[0].severity, 'error');
-      expect(labelWarnings[0].message, contains('outer'));
+      expect(labelWarnings[0]['severity'], 'error');
+      expect(labelWarnings[0]['message'], contains('outer'));
     });
 
     test('break with defined label does not warn', () {
@@ -659,9 +659,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final labelWarnings = report.warnings
-          .where((w) => w.category == 'orphaned_label')
+      final report = analyzeTermination(program).cast<Map>();
+      final labelWarnings = report
+          .where((w) => w['category'] == 'orphaned_label')
           .toList();
       expect(labelWarnings, isEmpty);
     });
@@ -696,13 +696,13 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final labelWarnings = report.warnings
-          .where((w) => w.category == 'orphaned_label')
+      final report = analyzeTermination(program).cast<Map>();
+      final labelWarnings = report
+          .where((w) => w['category'] == 'orphaned_label')
           .toList();
       expect(labelWarnings, hasLength(1));
-      expect(labelWarnings[0].severity, 'error');
-      expect(labelWarnings[0].message, contains('missing'));
+      expect(labelWarnings[0]['severity'], 'error');
+      expect(labelWarnings[0]['message'], contains('missing'));
     });
 
     test('break without label does not trigger orphan check', () {
@@ -733,9 +733,9 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      final labelWarnings = report.warnings
-          .where((w) => w.category == 'orphaned_label')
+      final report = analyzeTermination(program).cast<Map>();
+      final labelWarnings = report
+          .where((w) => w['category'] == 'orphaned_label')
           .toList();
       expect(labelWarnings, isEmpty);
     });
@@ -749,8 +749,8 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      expect(report.warnings, isEmpty);
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report, isEmpty);
     });
 
     test('simple print program has no warnings', () {
@@ -770,8 +770,8 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      expect(report.warnings, isEmpty);
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report, isEmpty);
     });
 
     test('well-formed while loop has no warnings', () {
@@ -832,27 +832,27 @@ void main() {
         ],
       );
 
-      final report = analyzeTermination(program);
-      expect(report.warnings, isEmpty);
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report, isEmpty);
     });
   });
 
   group('formatTerminationReport', () {
     test('empty report says no issues', () {
-      final report = TerminationReport([]);
+      final report = <Map>[];
       final text = formatTerminationReport(report);
       expect(text, contains('No issues found'));
     });
 
     test('report with warnings formats correctly', () {
-      final report = TerminationReport([
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message: 'while(true) loop without break',
-          location: 'main.loop_fn',
-        ),
-      ]);
+      final report = <Map>[
+        {
+          'severity': 'warning',
+          'category': 'infinite_loop',
+          'message': 'while(true) loop without break',
+          'location': 'main.loop_fn',
+        },
+      ];
       final text = formatTerminationReport(report);
       expect(text, contains('Potential Infinite Loops'));
       expect(text, contains('main.loop_fn'));

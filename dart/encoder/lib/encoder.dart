@@ -3842,6 +3842,11 @@ class DartEncoder {
         'hasGit': 'hasGit',
         'hasRegistry': 'hasRegistry',
         'hasInline': 'hasInline',
+        // Statement oneof + FieldAccess.object presence checks (used by the
+        // self-hosted `ball audit` capability/termination analyzers, #362).
+        'hasLet': 'hasLet',
+        'hasExpression': 'hasExpression',
+        'hasObject': 'hasObject',
       };
       if (protoRoutes.containsKey(methodName)) {
         final protoFn = protoRoutes[methodName]!;

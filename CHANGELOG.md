@@ -1,3 +1,10 @@
+# [1.32.0](https://github.com/Ball-Lang/ball/compare/v1.31.0...v1.32.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#382](https://github.com/Ball-Lang/ball/issues/382) Phase 5 -- Roslyn C# -> Ball encoder ([#392](https://github.com/Ball-Lang/ball/issues/392)) ([0ad66c1](https://github.com/Ball-Lang/ball/commit/0ad66c1e72e87fd87dff7b871bfa084ca65e9984)), closes [#377](https://github.com/Ball-Lang/ball/issues/377) [#381](https://github.com/Ball-Lang/ball/issues/381)
+
 # [1.31.0](https://github.com/Ball-Lang/ball/compare/v1.30.0...v1.31.0) (2026-07-11)
 
 

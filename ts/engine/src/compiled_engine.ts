@@ -655,6 +655,17 @@ function hasCall(obj: any): boolean { return _has(obj, 'call'); }
 function hasLet(obj: any): boolean { return _has(obj, 'let'); }
 function hasExpression(obj: any): boolean { return _has(obj, 'expression'); }
 function hasObject(obj: any): boolean { return _has(obj, 'object'); }
+// Expression oneof presence (issue 362): the self-hosted ball audit
+// capability/termination analyzers dispatch expression kinds via a hasX()
+// presence cascade (hasCall/hasLiteral/hasBlock/hasLambda/hasMessageCreation/
+// hasFieldAccess/hasReference) instead of the whichExpr() enum, so these route
+// to ball_proto and compile to free calls needing top-level definitions here.
+function hasLiteral(obj: any): boolean { return _has(obj, 'literal'); }
+function hasBlock(obj: any): boolean { return _has(obj, 'block'); }
+function hasLambda(obj: any): boolean { return _has(obj, 'lambda'); }
+function hasMessageCreation(obj: any): boolean { return _has(obj, 'messageCreation'); }
+function hasFieldAccess(obj: any): boolean { return _has(obj, 'fieldAccess'); }
+function hasReference(obj: any): boolean { return _has(obj, 'reference'); }
 function hasListValue(obj: any): boolean { return _has(obj, 'listValue'); }
 function hasNullValue(obj: any): boolean { return _has(obj, 'nullValue'); }
 function hasStructValue(obj: any): boolean { return _has(obj, 'structValue'); }

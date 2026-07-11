@@ -434,6 +434,27 @@ public sealed partial class CSharpCompiler
             }
         }
 
-        return null;
+        // The engine's own value-model wrappers (`BallMap`/`BallList` in
+        // ball_value.dart) carry no typeDef in the self-host program — each
+        // target provides them natively — yet the compiled engine still
+        // constructs them positionally (`BallMap(map)`, `BallList(items)`). Map
+        // that positional arg to the wrapper's real backing field so field access
+        // (`.entries`/`.items`) and the map/list runtime delegation resolve.
+        return ValueModelWrapperFields.TryGetValue(shortName, out var wrapperFields)
+            ? wrapperFields
+            : null;
     }
+
+    /// <summary>
+    /// Positional-arg field names for the engine's native value-model wrapper
+    /// constructors (see <see cref="ConstructorParamNames"/>). These classes
+    /// have no typeDef in the self-host program, so their single positional
+    /// argument would otherwise stay <c>arg0</c> and their <c>.entries</c>/
+    /// <c>.items</c> field access would miss.
+    /// </summary>
+    private static readonly Dictionary<string, List<string>> ValueModelWrapperFields = new(StringComparer.Ordinal)
+    {
+        ["BallMap"] = new() { "entries" },
+        ["BallList"] = new() { "items" },
+    };
 }

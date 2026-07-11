@@ -130,6 +130,12 @@ public static partial class BallRuntime
             "apply" => MethodApply(self, a0, a1),
             "fold" => MethodFold(self, a0, a1),
 
+            // ── Numeric instance methods on a boxed double/int (the engine's own
+            //    number-method switch calls these on a raw num receiver) ──
+            "remainder" => Remainder(self, a0),
+            "toInt" => ToInt(self),
+            "toDouble" => ToDouble(self),
+
             // ── Set algebra (a set is a duplicate-free list) ──
             "union" => SetUnion(self, a0),
             "intersection" => SetIntersection(self, a0),

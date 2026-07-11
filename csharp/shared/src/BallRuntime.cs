@@ -226,6 +226,30 @@ public static partial class BallRuntime
         return BallValue.Double(rem < 0.0 ? rem + Math.Abs(b) : rem);
     }
 
+    /// <summary>
+    /// <c>value.remainder(other)</c> — Dart's <c>num.remainder</c>: the
+    /// <em>truncated</em> remainder (<c>this - (this ~/ other) * other</c>),
+    /// whose sign follows the dividend. Distinct from <see cref="Modulo"/>
+    /// (Euclidean <c>%</c>, sign of the divisor): <c>(-3.75).remainder(2)</c> is
+    /// <c>-1.75</c>, not <c>0.25</c>. C#'s <c>%</c> operator already computes the
+    /// truncated remainder for both <c>int</c> and <c>double</c>; both-int stays
+    /// int, any double promotes to double.
+    /// </summary>
+    public static BallValue Remainder(BallValue left, BallValue right)
+    {
+        if (BothInt(left, right) is { } p)
+        {
+            if (p.Right == 0)
+            {
+                throw new BallRuntimeException("IntegerDivisionByZeroException");
+            }
+
+            return BallValue.Int(p.Left % p.Right);
+        }
+
+        return BallValue.Double(AsDouble(left) % AsDouble(right));
+    }
+
     /// <summary><c>-value</c>.</summary>
     public static BallValue Negate(BallValue value) => value switch
     {

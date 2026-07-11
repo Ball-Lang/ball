@@ -52,6 +52,23 @@ public static partial class BallRuntime
         _ => throw new BallRuntimeException($"expected a string, got {TypeName(value)}"),
     };
 
+    /// <summary>
+    /// Coerce a Ball value to a map key. Ball maps are string-keyed (the C#
+    /// backing is <c>OrderedDictionary&lt;string, BallValue&gt;</c>, and
+    /// <see cref="MapKeys"/> already returns every key as a <see cref="BallString"/>),
+    /// so a non-string key (an int memo key, a bool, …) is stringified via its
+    /// display form rather than rejected — a raw string passes through unchanged;
+    /// anything else uses <see cref="BallValue.ToString"/> (int <c>5</c> → <c>"5"</c>,
+    /// whole double <c>5.0</c> → <c>"5.0"</c>). Mirrors <c>rust/shared/src/runtime.rs</c>'s
+    /// <c>index_key</c> exactly (the sibling engine that runs the whole corpus at
+    /// Dart parity keys maps this way).
+    /// </summary>
+    private static string MapKey(BallValue value) => value switch
+    {
+        BallString s => s.Value,
+        _ => value.ToString() ?? string.Empty,
+    };
+
     private static int AsIndex(BallValue value) => value switch
     {
         BallInt i when i.Value >= 0 => (int)i.Value,
@@ -224,6 +241,30 @@ public static partial class BallRuntime
         var (a, b) = (AsDouble(left), AsDouble(right));
         var rem = a % b;
         return BallValue.Double(rem < 0.0 ? rem + Math.Abs(b) : rem);
+    }
+
+    /// <summary>
+    /// <c>value.remainder(other)</c> — Dart's <c>num.remainder</c>: the
+    /// <em>truncated</em> remainder (<c>this - (this ~/ other) * other</c>),
+    /// whose sign follows the dividend. Distinct from <see cref="Modulo"/>
+    /// (Euclidean <c>%</c>, sign of the divisor): <c>(-3.75).remainder(2)</c> is
+    /// <c>-1.75</c>, not <c>0.25</c>. C#'s <c>%</c> operator already computes the
+    /// truncated remainder for both <c>int</c> and <c>double</c>; both-int stays
+    /// int, any double promotes to double.
+    /// </summary>
+    public static BallValue Remainder(BallValue left, BallValue right)
+    {
+        if (BothInt(left, right) is { } p)
+        {
+            if (p.Right == 0)
+            {
+                throw new BallRuntimeException("IntegerDivisionByZeroException");
+            }
+
+            return BallValue.Int(p.Left % p.Right);
+        }
+
+        return BallValue.Double(AsDouble(left) % AsDouble(right));
     }
 
     /// <summary><c>-value</c>.</summary>
@@ -637,22 +678,22 @@ public static partial class BallRuntime
 
     /// <summary><c>map[key]</c> — an absent key reads as <c>null</c> (Dart).</summary>
     public static BallValue MapGet(BallValue map, BallValue key) =>
-        AsMap(map).Get(AsStr(key)) ?? BallValue.Null;
+        AsMap(map).Get(MapKey(key)) ?? BallValue.Null;
 
     /// <summary><c>map[key] = value</c> — mutates the shared map; returns it.</summary>
     public static BallValue MapSet(BallValue map, BallValue key, BallValue value)
     {
-        AsMap(map).Set(AsStr(key), value);
+        AsMap(map).Set(MapKey(key), value);
         return map;
     }
 
     /// <summary><c>map.remove(key)</c> — returns the removed value or <c>null</c>.</summary>
     public static BallValue MapDelete(BallValue map, BallValue key) =>
-        AsMap(map).Remove(AsStr(key)) ?? BallValue.Null;
+        AsMap(map).Remove(MapKey(key)) ?? BallValue.Null;
 
     /// <summary><c>map.containsKey(key)</c>.</summary>
     public static BallValue MapContainsKey(BallValue map, BallValue key) =>
-        BallValue.Bool(AsMap(map).ContainsKey(AsStr(key)));
+        BallValue.Bool(AsMap(map).ContainsKey(MapKey(key)));
 
     /// <summary><c>map.keys.toList()</c>.</summary>
     public static BallValue MapKeys(BallValue map) =>

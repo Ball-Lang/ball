@@ -249,7 +249,16 @@ public sealed partial class CSharpCompiler
             sb.Append($"        if (__t == {Naming.StringLiteral(owner)} || __t == {Naming.StringLiteral(shortOwner)}) return {impl}(input);\n");
         }
 
-        sb.Append($"        throw new BallRuntimeException($\"no method '{shortMember}' for {{__t}}\");\n");
+        // `toString` is Dart's universal `Object.toString()` — every value has it.
+        // A receiver that matches no user override (a core value, or a user object
+        // whose class declares no `toString`) falls back to the runtime's canonical
+        // string form, which mirrors the reference engine (user objects are maps →
+        // `{k: v}`, core values → their natural string). Without this, the engine's
+        // own value-stringify (`result.toString()` on an interpreted method's
+        // String result, and its final `v.toString()` fallback) throws.
+        sb.Append(shortMember == "toString"
+            ? "        return BallRuntime.ToStringValue(__self);\n"
+            : $"        throw new BallRuntimeException($\"no method '{shortMember}' for {{__t}}\");\n");
         sb.Append("    }\n");
         return sb.ToString();
     }
@@ -321,8 +330,10 @@ public sealed partial class CSharpCompiler
 
         var prevInInstance = _inInstanceMethod;
         var prevSelfRecv = _selfRecvName;
+        var prevVolatile = _volatileFields;
         _inInstanceMethod = true;
         _selfRecvName = selfName;
+        _volatileFields = VolatileFieldsOf(ownerTd);
 
         // A declared parameter shadows a same-named field inside the method body
         // (Dart semantics); the field alias would be dead, so skip it when a
@@ -331,11 +342,15 @@ public sealed partial class CSharpCompiler
         var shadowed = new HashSet<string>(paramNames, StringComparer.Ordinal) { "self" };
 
         // Bind each instance field (own + inherited via the superclass chain) as
-        // a local alias so the body's bare field references resolve.
+        // a local alias so the body's bare field references resolve. A *volatile*
+        // field (reassigned somewhere in the class) is deliberately NOT aliased:
+        // its references/assignments read/write live through `self` instead (see
+        // _volatileFields / CompileReference / ResolveLValue), so a rebind by one
+        // method or closure is observed by another mid-run (issue #383).
         var fieldAliases = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var field in AllInstanceFieldNames(ownerTd))
         {
-            if (shadowed.Contains(field))
+            if (shadowed.Contains(field) || _volatileFields.Contains(field))
             {
                 continue;
             }
@@ -400,6 +415,7 @@ public sealed partial class CSharpCompiler
         sb.Append("    }\n");
         _inInstanceMethod = prevInInstance;
         _selfRecvName = prevSelfRecv;
+        _volatileFields = prevVolatile;
         PopScope();
         return sb.ToString();
     }
@@ -434,6 +450,38 @@ public sealed partial class CSharpCompiler
             }
         }
 
-        return null;
+        // The engine's own value-model wrappers (`BallMap`/`BallList` in
+        // ball_value.dart) carry no typeDef in the self-host program — each
+        // target provides them natively — yet the compiled engine still
+        // constructs them positionally (`BallMap(map)`, `BallList(items)`). Map
+        // that positional arg to the wrapper's real backing field so field access
+        // (`.entries`/`.items`) and the map/list runtime delegation resolve.
+        return ValueModelWrapperFields.TryGetValue(shortName, out var wrapperFields)
+            ? wrapperFields
+            : null;
     }
+
+    /// <summary>
+    /// Positional-arg field names for the engine's native value-model wrapper
+    /// constructors (see <see cref="ConstructorParamNames"/>). These classes
+    /// (<c>ball_value.dart</c>'s <c>BallInt</c>/<c>BallDouble</c>/<c>BallString</c>/
+    /// <c>BallBool</c>/<c>BallList</c>/<c>BallMap</c>) carry no typeDef in the
+    /// self-host program, so their single positional argument would otherwise stay
+    /// <c>arg0</c> and their real backing-field access would miss: for the scalar
+    /// wrappers that means every <c>.value</c> read returns <c>null</c> — e.g. a
+    /// double literal (<c>BallDouble(lit.doubleValue)</c>, the only wrapper the
+    /// engine still boxes rather than storing natively) reaches every numeric op
+    /// (<c>_toNum</c>/<c>_ballToDouble</c>) as <c>null</c>, so
+    /// <c>roundToDouble</c>/<c>string_to_double</c>/arithmetic on doubles all
+    /// throw "expected a number, got Null".
+    /// </summary>
+    private static readonly Dictionary<string, List<string>> ValueModelWrapperFields = new(StringComparer.Ordinal)
+    {
+        ["BallInt"] = new() { "value" },
+        ["BallDouble"] = new() { "value" },
+        ["BallString"] = new() { "value" },
+        ["BallBool"] = new() { "value" },
+        ["BallList"] = new() { "items" },
+        ["BallMap"] = new() { "entries" },
+    };
 }

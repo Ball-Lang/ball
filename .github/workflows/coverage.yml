@@ -355,7 +355,7 @@ jobs:
 
       # Default-feature workspace only (mirrors ci.yml's plain `cargo build
       # --workspace` / `cargo test --workspace`) — deliberately NOT
-      # `--features self_host`. The self-hosted engine (`ball-engine`'s
+      # `--features self_host`. The self-hosted engine (`ball-lang-engine`'s
       # `compiled_engine.rs`) is a gitignored, generated artifact that first
       # needs `dart pub get` + `gen_engine_json.dart` + `cargo run -p
       # ball-engine-regen` (see ci.yml's dedicated steps) — pulling that whole
@@ -363,8 +363,8 @@ jobs:
       # generated file that's excluded from coverage anyway (see codecov.yml's
       # `ignore:` list, mirroring the TS/C++ generated-file exclusions). This
       # keeps the job lean while still measuring every authored crate
-      # (ball-shared, ball-compiler, ball-encoder, ball-engine's wrapper
-      # foundation, ball-cli).
+      # (ball-lang-shared, ball-lang-compiler, ball-lang-encoder, ball-lang-engine's wrapper
+      # foundation, ball-lang-cli).
       - name: Coverage — cargo-llvm-cov (workspace, default features)
         run: cd rust && cargo llvm-cov --workspace --lcov --output-path ../rust.lcov
 

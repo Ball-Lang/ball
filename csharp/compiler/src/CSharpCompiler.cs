@@ -81,6 +81,24 @@ public sealed partial class CSharpCompiler
     /// <summary>The C# local holding the current receiver, for implicit-<c>this</c> injection (survives a same-named <c>self</c> parameter shadowing).</summary>
     private string? _selfRecvName;
 
+    /// <summary>
+    /// Instance fields of the current method's owner that are <em>reassigned</em>
+    /// (a bare <c>field = x</c> rebind) somewhere in the class, and so must be read
+    /// and written <em>live</em> through <c>self</c> rather than via a method-entry
+    /// alias snapshot. The entry-alias optimization (read each field into a local
+    /// once, at method entry) is a read-time snapshot: sound for read-only or
+    /// mutate-through-a-shared-backing fields, but wrong for a field that is
+    /// rebound and observed across method/closure boundaries mid-run — e.g. the
+    /// engine's <c>_activeException</c>, set by <c>_evalLazyTry</c>'s catch handler
+    /// and read by the separate <c>rethrow</c> dispatch closure (issue #383). For
+    /// a volatile field, references compile to <c>FieldGet(self, name)</c> and
+    /// assignments to <c>FieldSet(self, name, …)</c>, matching Dart's implicit-this.
+    /// </summary>
+    private HashSet<string> _volatileFields = new(StringComparer.Ordinal);
+
+    /// <summary>Per-owner cache of <see cref="_volatileFields"/> (keyed by the owner <see cref="TypeDefinition.Name"/>).</summary>
+    private readonly Dictionary<string, HashSet<string>> _volatileFieldsByOwner = new(StringComparer.Ordinal);
+
     /// <summary>Class members (constructors/methods) grouped by their owner <see cref="TypeDefinition.Name"/>.</summary>
     private readonly Dictionary<string, List<FunctionDefinition>> _classMembersByOwner = new(StringComparer.Ordinal);
 
@@ -337,9 +355,19 @@ public sealed partial class CSharpCompiler
         }
         else
         {
+            // Bind each parameter name-or-positionally (the same convention the
+            // instance/static-method and constructor prologues use): a call site
+            // that knows the callee's names packs `{name: …}`, but a first-class
+            // invoke of a function *value* (`op(x, y)` where `op` is a local, e.g.
+            // `_stdBinaryComp`'s `op(left, right)`) has no names to pack and emits
+            // positional `{arg0, arg1}`. FieldGet-by-name-only silently dropped the
+            // positional case (null operands); ArgGet tries the name, then `argN`.
+            var positional = 0;
             foreach (var name in names)
             {
-                sb.Append($"var {BindLocal(name)} = BallRuntime.FieldGet({CurrentInput}, {Naming.StringLiteral(name)});\n");
+                var argKey = Naming.StringLiteral($"arg{positional}");
+                positional++;
+                sb.Append($"var {BindLocal(name)} = BallRuntime.ArgGet({CurrentInput}, {Naming.StringLiteral(name)}, {argKey});\n");
             }
         }
 
@@ -479,7 +507,18 @@ public sealed partial class CSharpCompiler
         return $"Bytes(new byte[] {{ {items} }})";
     }
 
-    /// <summary>A list literal builds a fresh reference-semantic backing (a distinct list per evaluation).</summary>
+    /// <summary>
+    /// A list literal builds a fresh reference-semantic backing (a distinct list
+    /// per evaluation). The common case — every element a plain value — is a
+    /// direct <c>new BallList(new[]{…})</c>. When any element is a spread
+    /// (<c>...x</c>/<c>...?x</c>), <c>collection_if</c>, or <c>collection_for</c>,
+    /// the literal is built imperatively so those elements <b>splice</b> their
+    /// contents instead of nesting as a single element. The missing splice made
+    /// the self-hosted engine's own <c>_ballSetOf([...items, v])</c> produce
+    /// <c>{[...], v}</c> — breaking every internal set/list append. Mirrors
+    /// <c>ball-compiler</c>'s <c>compile_list_literal</c> and the reference
+    /// engines' <c>_addCollectionElement</c>.
+    /// </summary>
     private string CompileListLiteral(ListLiteral list)
     {
         if (list.Elements.Count == 0)
@@ -487,8 +526,112 @@ public sealed partial class CSharpCompiler
             return "(BallValue)new BallList()";
         }
 
-        var items = string.Join(", ", list.Elements.Select(CompileExpression));
-        return $"(BallValue)new BallList(new BallValue[] {{ {items} }})";
+        if (!list.Elements.Any(el => CollectionElementKind(el) is not null))
+        {
+            var items = string.Join(", ", list.Elements.Select(CompileExpression));
+            return $"(BallValue)new BallList(new BallValue[] {{ {items} }})";
+        }
+
+        var litVar = $"__lit{_tempCounter++}";
+        var sb = new System.Text.StringBuilder($"Run(() =>\n{{\nvar {litVar} = new BallList();\n");
+        foreach (var el in list.Elements)
+        {
+            sb.Append(CompileCollectionElement(litVar, el));
+        }
+
+        sb.Append($"return (BallValue){litVar};\n}})");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// If <paramref name="el"/> is a list-literal element that must be spliced
+    /// rather than pushed as one value — a <c>std.spread</c>/<c>null_spread</c>,
+    /// a <c>std.collection_if</c>, or a <c>std.collection_for</c> — return its
+    /// function name; otherwise <c>null</c> (a plain element).
+    /// </summary>
+    private static string? CollectionElementKind(Expression el) =>
+        el.ExprCase == Expression.ExprOneofCase.Call
+        && el.Call.Module == "std"
+        && el.Call.Function is "spread" or "null_spread" or "collection_if" or "collection_for"
+            ? el.Call.Function
+            : null;
+
+    /// <summary>
+    /// Emit code appending one list-literal element to <paramref name="target"/>
+    /// (a <see cref="BallList"/> local). A plain element is added; a spread
+    /// splices via <c>BallRuntime.SpreadIter</c>; a <c>collection_if</c>
+    /// conditionally emits its then/else element; a <c>collection_for</c> loops.
+    /// Nested element forms recurse (<c>[if (c) ...x]</c> composes).
+    /// </summary>
+    private string CompileCollectionElement(string target, Expression el)
+    {
+        var kind = CollectionElementKind(el);
+        if (kind is null)
+        {
+            return $"{target}.Add({CompileExpression(el)});\n";
+        }
+
+        var f = Fields.Extract(el.Call);
+        var uid = _tempCounter++;
+        switch (kind)
+        {
+            case "spread":
+                return $"foreach (var __sp{uid} in BallRuntime.SpreadIter({FieldOrNull(f, "value")})) {{ {target}.Add(__sp{uid}); }}\n";
+            case "null_spread":
+                return $"{{ var __sp{uid} = {FieldOrNull(f, "value")}; if (__sp{uid} is not BallNull) {{ foreach (var __e{uid} in BallRuntime.SpreadIter(__sp{uid})) {{ {target}.Add(__e{uid}); }} }} }}\n";
+            case "collection_if":
+                {
+                    var cond = f.TryGetValue("condition", out var c)
+                        ? $"BallRuntime.Truthy({CompileExpression(c)})"
+                        : "false";
+                    var then = f.TryGetValue("then", out var t) ? CompileCollectionElement(target, t) : string.Empty;
+                    if (f.TryGetValue("else", out var e))
+                    {
+                        var els = CompileCollectionElement(target, e);
+                        return $"if ({cond})\n{{\n{then}}}\nelse\n{{\n{els}}}\n";
+                    }
+
+                    return $"if ({cond})\n{{\n{then}}}\n";
+                }
+
+            case "collection_for":
+                return CompileCollectionFor(target, f);
+            default:
+                throw new InvalidOperationException($"unexpected collection element kind: {kind}");
+        }
+    }
+
+    /// <summary>
+    /// Compile a <c>collection_for</c> list-literal element, appending each
+    /// produced value to <paramref name="target"/>. Handles both encoder shapes:
+    /// for-each (<c>variable</c>+<c>iterable</c>+<c>body</c>) and C-style
+    /// (<c>init</c>;<c>condition</c>;<c>update</c>;<c>body</c>), each in a fresh
+    /// lexical scope so the loop variable resolves as a value.
+    /// </summary>
+    private string CompileCollectionFor(string target, OrderedDictionary<string, Expression> f)
+    {
+        if (f.TryGetValue("iterable", out var iterable))
+        {
+            var variable = StringField(f, "variable") ?? "item";
+            PushScope();
+            var loopVar = BindLocal(variable);
+            var body = f.TryGetValue("body", out var forBody)
+                ? CompileCollectionElement(target, forBody)
+                : string.Empty;
+            PopScope();
+            return $"foreach (var {loopVar} in BallRuntime.Iterate({CompileExpression(iterable)}))\n{{\n{body}}}\n";
+        }
+
+        PushScope();
+        var cfid = _tempCounter++;
+        var init = f.TryGetValue("init", out var initExpr) ? $"var __cfInit{cfid} = {CompileExpression(initExpr)};\n" : string.Empty;
+        var cond = f.TryGetValue("condition", out var condExpr)
+            ? $"BallRuntime.Truthy({CompileExpression(condExpr)})"
+            : "true";
+        var bodyC = f.TryGetValue("body", out var cBody) ? CompileCollectionElement(target, cBody) : string.Empty;
+        var update = f.TryGetValue("update", out var updExpr) ? $"{CompileExpression(updExpr)};\n" : string.Empty;
+        PopScope();
+        return $"{{\n{init}while ({cond})\n{{\n{bodyC}{update}}}\n}}\n";
     }
 
     /// <summary>
@@ -502,7 +645,14 @@ public sealed partial class CSharpCompiler
     {
         if (reference.Name == "input")
         {
-            return CurrentInput;
+            // A function whose *declared* parameter is literally named `input`
+            // (e.g. the engine's `_stdPrint(input)`) binds it to its own local via
+            // the param prologue — for an instance method that is
+            // `ArgGet(__in, "input", "arg0")`, the extracted argument, NOT the raw
+            // `{self, arg0}` wrapper `CurrentInput` points at. Resolve through the
+            // bound local when present; only an implicit, unnamed single parameter
+            // (no `input` local) falls back to the raw input parameter.
+            return LocalName("input") ?? CurrentInput;
         }
 
         // The encoders' shared sentinel for an uninitialized late/nullable
@@ -517,6 +667,16 @@ public sealed partial class CSharpCompiler
         if (LocalName(reference.Name) is { } local)
         {
             return local;
+        }
+
+        // A reassigned ("volatile") instance field is read LIVE through the
+        // receiver — it is deliberately not aliased into a method-entry local (a
+        // stale snapshot), so a rebind by one method/closure is observed by
+        // another mid-run (issue #383 — `rethrow` reads `_activeException` set by
+        // the catch handler). Non-volatile fields keep their fast alias local.
+        if (_inInstanceMethod && _selfRecvName is { } selfRead && _volatileFields.Contains(reference.Name))
+        {
+            return $"BallRuntime.FieldGet({selfRead}, {Naming.StringLiteral(reference.Name)})";
         }
 
         // A oneof-discriminator constant (Expression_Expr.call, …) — proto
@@ -590,6 +750,18 @@ public sealed partial class CSharpCompiler
         "Uri", "Type", "Symbol", "Pattern", "Match", "Comparable", "Stopwatch",
     };
 
+    /// <summary>
+    /// Dart core map constructors that carry no typeDef but must materialize as a
+    /// native runtime map (insertion-ordered, indexable) — see
+    /// <see cref="CompileMessageCreation"/>. The engine uses these for its own
+    /// instance-map / lookup-table backings (<c>_ballUserMap()</c> →
+    /// <c>LinkedHashMap()</c>).
+    /// </summary>
+    private static readonly HashSet<string> NativeMapConstructors = new(StringComparer.Ordinal)
+    {
+        "LinkedHashMap", "HashMap", "SplayTreeMap",
+    };
+
     /// <summary><c>field_access</c> — <c>object.field</c> against a dynamic (message/map) receiver.</summary>
     private string CompileFieldAccess(FieldAccess fieldAccess)
     {
@@ -604,8 +776,70 @@ public sealed partial class CSharpCompiler
     /// fields of a constructor call are remapped to the constructor's real
     /// parameter names.
     /// </summary>
+    /// <summary>
+    /// If <paramref name="mc"/> is a Dart core-collection copy/fill constructor
+    /// (<c>Map.from</c>/<c>Map.of</c>, <c>List.from</c>/<c>List.of</c>,
+    /// <c>List.filled</c>, plus the <c>LinkedHashMap</c>/<c>HashMap</c> named
+    /// aliases), emit the native-runtime materialization
+    /// (<see cref="BallRuntime.MapCopy"/>/<see cref="BallRuntime.ListCopy"/>/
+    /// <see cref="BallRuntime.ListFilled"/>); otherwise <c>null</c> (fall through
+    /// to the general dynamic-message path).
+    /// </summary>
+    private string? CompileCollectionFactory(MessageCreation mc)
+    {
+        var op = Naming.TypeShortName(mc.TypeName) switch
+        {
+            "Map.from" or "Map.of"
+                or "LinkedHashMap.from" or "LinkedHashMap.of"
+                or "HashMap.from" or "HashMap.of"
+                or "SplayTreeMap.from" or "SplayTreeMap.of" => "MapCopy",
+            "List.from" or "List.of" => "ListCopy",
+            "List.filled" => "ListFilled",
+            _ => null,
+        };
+        if (op is null)
+        {
+            return null;
+        }
+
+        var args = mc.Fields
+            .Where(f => Naming.IsPositionalArg(f.Name))
+            .Select(f => f.Value is null ? "BallValue.Null" : CompileExpression(f.Value))
+            .ToList();
+
+        return op switch
+        {
+            "ListFilled" when args.Count >= 2 => $"BallRuntime.ListFilled({args[0]}, {args[1]})",
+            "MapCopy" or "ListCopy" when args.Count >= 1 => $"BallRuntime.{op}({args[0]})",
+            _ => null,
+        };
+    }
+
     private string CompileMessageCreation(MessageCreation mc)
     {
+        // A Dart core-collection constructor (`LinkedHashMap()`, `HashMap()`, …)
+        // used for the engine's internal map backings has no typeDef; compile it
+        // to the native runtime map so it indexes/iterates/mutates like a real
+        // map instead of an opaque BallMessage. Only the no-data-argument form is
+        // native-lowered (the engine populates via `[]=`/`addAll`); a populated
+        // core-collection ctor falls through to the general path.
+        if (NativeMapConstructors.Contains(Naming.TypeShortName(mc.TypeName))
+            && !mc.Fields.Any(f => Naming.IsPositionalArg(f.Name)))
+        {
+            return "(BallValue)new BallMap()";
+        }
+
+        // A Dart core-collection copy/fill constructor carrying a source or count
+        // argument (`Map.from(m)`, `List.of(xs)`, `List.filled(n, x)`, …) also has
+        // no typeDef; materialize a real native map/list so the result
+        // indexes/iterates/mutates instead of being an opaque BallMessage the
+        // engine then fails to `..remove(k)` / iterate. (The no-arg forms are
+        // handled above.)
+        if (CompileCollectionFactory(mc) is { } factory)
+        {
+            return factory;
+        }
+
         // Remap each positional argN field to the constructor's real parameter
         // (== field) name, in declaration order.
         var ctorParams = ConstructorParamNames(mc.TypeName);

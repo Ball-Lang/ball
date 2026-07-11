@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "@ball-lang/engine-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/engine"] }],
+    ["@semantic-release/changelog", { "changelogFile": "ts/engine/CHANGELOG.md" }],
+    ["@semantic-release/npm", { "pkgRoot": "ts/engine", "npmPublish": false }],
+    ["@semantic-release/exec", {
+      "publishCmd": "gh workflow run publish-npm.yml --ref @ball-lang/engine-v${nextRelease.version} -f package=engine"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["ts/engine/package.json", "ts/engine/CHANGELOG.md"],
+      "message": "chore(release): @ball-lang/engine ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

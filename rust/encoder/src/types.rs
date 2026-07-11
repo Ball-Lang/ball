@@ -12,7 +12,7 @@
 //!
 //! ## Why an associated function with no `self` receiver is a documented gap
 //!
-//! `ball-compiler`'s `method_prologue` (`rust/compiler/src/type_emit.rs`)
+//! `ball-lang-compiler`'s `method_prologue` (`rust/compiler/src/type_emit.rs`)
 //! *unconditionally* extracts a `"self"` field from `input` and then reads
 //! every owner-type descriptor field *off of it* — and `ball_field_get`
 //! (`rust/shared/src/runtime.rs`) panics at run time on a non-message/
@@ -43,14 +43,14 @@
 //! ordinary `field_access` + `std.assign`) is the correct, working idiom
 //! (matches `tests/conformance/101_simple_class.ball.json`'s own
 //! `p2.x = 5;` outside any method).
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::{
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::{
     Expression, FieldValuePair, FunctionDefinition, MessageCreation, TypeDefinition, TypeParameter,
 };
-use ball_shared::proto::google::protobuf::field_descriptor_proto::{
+use ball_lang_shared::proto::google::protobuf::field_descriptor_proto::{
     Label as ProtoLabel, Type as ProtoType,
 };
-use ball_shared::proto::google::protobuf::{
+use ball_lang_shared::proto::google::protobuf::{
     DescriptorProto, EnumDescriptorProto, EnumValueDescriptorProto, FieldDescriptorProto,
 };
 
@@ -77,7 +77,7 @@ impl Encoder {
         let full = qualified_type_name(&short);
         let syn::Fields::Named(named) = &item.fields else {
             panic!(
-                "ball-encoder: only a struct with named fields is supported (tuple/unit \
+                "ball-lang-encoder: only a struct with named fields is supported (tuple/unit \
                  structs are a documented gap): `struct {short}`"
             );
         };
@@ -129,7 +129,7 @@ impl Encoder {
     pub(crate) fn encode_struct_literal(&mut self, e: &syn::ExprStruct) -> Expression {
         if e.rest.is_some() {
             panic!(
-                "ball-encoder: struct-update syntax (`..base`) is not supported (a documented \
+                "ball-lang-encoder: struct-update syntax (`..base`) is not supported (a documented \
                  gap)"
             );
         }
@@ -178,7 +178,7 @@ impl Encoder {
         for (index, variant) in item.variants.iter().enumerate() {
             if !matches!(variant.fields, syn::Fields::Unit) {
                 panic!(
-                    "ball-encoder: an enum variant carrying data is not supported (only \
+                    "ball-lang-encoder: an enum variant carrying data is not supported (only \
                      fieldless variants — a documented gap): `{short}::{}`",
                     variant.ident
                 );
@@ -191,9 +191,9 @@ impl Encoder {
                         lit: syn::Lit::Int(int_lit),
                         ..
                     }),
-                )) => int_lit
-                    .base10_parse::<i32>()
-                    .unwrap_or_else(|err| panic!("ball-encoder: invalid enum discriminant: {err}")),
+                )) => int_lit.base10_parse::<i32>().unwrap_or_else(|err| {
+                    panic!("ball-lang-encoder: invalid enum discriminant: {err}")
+                }),
                 _ => index as i32,
             };
             values.push(EnumValueDescriptorProto {
@@ -212,7 +212,7 @@ impl Encoder {
         // No `descriptor` at all — mirrors `dart/encoder/lib/encoder.dart`'s
         // own enum `TypeDefinition` shape exactly (the real value/number
         // data lives in the `EnumDescriptorProto` below, not here); this is
-        // also the shape `ball-compiler`'s `compile_module_types` relies on
+        // also the shape `ball-lang-compiler`'s `compile_module_types` relies on
         // to skip re-emitting a redundant declaration (`if
         // td.descriptor.is_none() { continue; }`).
         let type_def = TypeDefinition {
@@ -245,13 +245,13 @@ impl Encoder {
         for trait_item in &item.items {
             let syn::TraitItem::Fn(trait_fn) = trait_item else {
                 panic!(
-                    "ball-encoder: only method signatures are supported inside a `trait` block \
+                    "ball-lang-encoder: only method signatures are supported inside a `trait` block \
                      (associated consts/types are a documented gap): `trait {short}`"
                 );
             };
             if !has_self_receiver(&trait_fn.sig) {
                 panic!(
-                    "ball-encoder: an associated function with no `self` receiver inside a \
+                    "ball-lang-encoder: an associated function with no `self` receiver inside a \
                      `trait` is not supported (see the module doc comment): \
                      `{short}::{}`",
                     trait_fn.sig.ident
@@ -349,13 +349,13 @@ impl Encoder {
         for impl_item in &item.items {
             let syn::ImplItem::Fn(impl_fn) = impl_item else {
                 panic!(
-                    "ball-encoder: only methods are supported inside an `impl` block \
+                    "ball-lang-encoder: only methods are supported inside an `impl` block \
                      (associated consts/types are a documented gap): `impl {owner_short}`"
                 );
             };
             if !has_self_receiver(&impl_fn.sig) {
                 panic!(
-                    "ball-encoder: an associated function with no `self` receiver \
+                    "ball-lang-encoder: an associated function with no `self` receiver \
                      (`{owner_short}::{}`) is not supported — see the module doc comment; use \
                      a struct-literal expression (`{owner_short} {{ ... }}`) to construct \
                      `{owner_short}` instead",
@@ -419,7 +419,7 @@ fn method_non_self_params(sig: &syn::Signature) -> Vec<(String, String)> {
                         ..
                     }) => ident.to_string(),
                     other => panic!(
-                        "ball-encoder: only a simple identifier method parameter is supported \
+                        "ball-lang-encoder: only a simple identifier method parameter is supported \
                          (destructuring parameters are a documented gap): {}",
                         quote::quote!(#other)
                     ),
@@ -427,7 +427,7 @@ fn method_non_self_params(sig: &syn::Signature) -> Vec<(String, String)> {
                 (name, type_to_string(&pat_type.ty))
             }
             syn::FnArg::Receiver(_) => panic!(
-                "ball-encoder: a method may only take one `self` receiver, as its first \
+                "ball-lang-encoder: a method may only take one `self` receiver, as its first \
                  parameter"
             ),
         })
@@ -444,7 +444,7 @@ fn type_short_name(ty: &syn::Type) -> String {
             .ident
             .to_string(),
         other => panic!(
-            "ball-encoder: unsupported `impl` self type (only a plain named type is \
+            "ball-lang-encoder: unsupported `impl` self type (only a plain named type is \
              supported): {}",
             quote::quote!(#other)
         ),
@@ -477,7 +477,7 @@ fn type_parameters(generics: &syn::Generics) -> Vec<TypeParameter> {
 // ════════════════════════════════════════════════════════════
 
 /// Build one `DescriptorProto` field entry. Best-effort, like every other
-/// reference encoder's field-type mapping (`ball-compiler`'s own inverse,
+/// reference encoder's field-type mapping (`ball-lang-compiler`'s own inverse,
 /// `type_emit::proto_field_rust_type`, falls back to the dynamic
 /// `BallValue` for anything it doesn't recognize — the struct's *field
 /// names* are the semantically load-bearing part; the declared scalar type

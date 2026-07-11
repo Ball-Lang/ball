@@ -549,6 +549,51 @@
       }
     },
     {
+      "name": "hasLet",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"let\" field is present and non-default.",
+        "field": "let"
+      }
+    },
+    {
+      "name": "hasExpression",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"expression\" field is present and non-default.",
+        "field": "expression"
+      }
+    },
+    {
+      "name": "hasObject",
+      "inputType": "Map",
+      "outputType": "bool",
+      "isBase": true,
+      "metadata": {
+        "params": [
+          {
+            "name": "obj"
+          }
+        ],
+        "doc": "Returns true if \"object\" field is present and non-default.",
+        "field": "object"
+      }
+    },
+    {
       "name": "getStructField",
       "isBase": true,
       "metadata": {

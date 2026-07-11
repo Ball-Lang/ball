@@ -1,7 +1,7 @@
 //! `ball version` — print the CLI's version (issue #365).
 //!
 //! VERSION POLICY (issue #366): `ball version` reports the ECOSYSTEM package
-//! version — the crates.io `ball-cli` version, i.e. the cargo workspace
+//! version — the crates.io `ball-lang-cli` version, i.e. the cargo workspace
 //! version via `CARGO_PKG_VERSION`. This is the deliberate cross-target
 //! decision: each CLI stays true to its own registry (crates.io for Rust,
 //! npm's semantic-release line for TypeScript, the pubspec version for Dart),
@@ -31,7 +31,7 @@ pub fn version() {
 
 #[cfg(feature = "cli_core")]
 fn version_line() -> String {
-    use ball_shared::BallValue;
+    use ball_lang_shared::BallValue;
     crate::compiled_cli::versionLine(BallValue::String(VERSION.to_string())).to_string()
 }
 
@@ -42,7 +42,7 @@ fn version_line() -> String {
 
 #[cfg(all(test, feature = "cli_core"))]
 mod tests {
-    use ball_shared::BallValue;
+    use ball_lang_shared::BallValue;
 
     /// Mirrors `dart/cli/test/cli_core_parity_test.dart`'s `versionReport`
     /// test — the same three representative version strings, checked

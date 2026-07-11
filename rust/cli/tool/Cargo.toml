@@ -10,17 +10,17 @@ publish = false
 
 # The cli-core regeneration entry point (issue #365), mirroring
 # `ball-engine-regen` (rust/engine/tool/) exactly: a separate workspace member
-# crate — NOT a `[[bin]]` inside `ball-cli` — so it can be built and run even
+# crate — NOT a `[[bin]]` inside `ball-lang-cli` — so it can be built and run even
 # when the generated `compiled_cli.rs` doesn't exist yet (a `[[bin]]` in
-# `ball-cli` would share that crate's compilation, which needs
+# `ball-lang-cli` would share that crate's compilation, which needs
 # `compiled_cli.rs` present under the `cli_core` feature — chicken-and-egg).
 [[bin]]
 name = "regen-cli"
 path = "src/main.rs"
 
 [dependencies]
-ball-shared = { workspace = true }
-ball-compiler = { workspace = true }
+ball-lang-shared = { workspace = true }
+ball-lang-compiler = { workspace = true }
 prost = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
 serde_json = "1"

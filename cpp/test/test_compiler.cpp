@@ -232,6 +232,55 @@ std::string compile_program(const json& prog) {
     return compiler.compile();
 }
 
+// ---- Pattern-IR test helpers (issue #63 cluster 1/2) ----
+// A structured pattern node is a MessageCreation with a `typeName` naming the
+// pattern kind (VarPattern, ObjectPattern, RelationalPattern, …) and named
+// pattern fields. These builders mirror the exact proto3-JSON shapes the Dart
+// encoder emits (see SHAPES.md) so the tests drive `_compileStructuredPattern`
+// and its three switch entry points with real IR, not hand-guessed trees.
+json pat_msg(const std::string& type,
+             std::vector<std::pair<std::string, json>> fields) {
+    return make_msg(type, std::move(fields));
+}
+
+// VarPattern binds a name; a type field is OMITTED entirely when empty (the
+// encoder never emits an empty `type`, and a present-but-empty one would send
+// `_typeCheckCondition("")` down the user-type branch).
+json varpat(const std::string& name, const std::string& type) {
+    std::vector<std::pair<std::string, json>> fs = {{"name", lit_string(name)}};
+    if (!type.empty()) fs.push_back({"type", lit_string(type)});
+    return make_msg("VarPattern", std::move(fs));
+}
+
+// WildcardPattern matches any value; carries an optional type test.
+json wildpat(const std::string& type) {
+    std::vector<std::pair<std::string, json>> fs;
+    if (!type.empty()) fs.push_back({"type", lit_string(type)});
+    return make_msg("WildcardPattern", std::move(fs));
+}
+
+json constpat(json value) {
+    return make_msg("ConstPattern", {{"value", std::move(value)}});
+}
+
+// A structured switch-STATEMENT case (entry B): pattern_expr + block body.
+json scase(json pattern_expr, json body) {
+    return make_msg("", {{"pattern_expr", std::move(pattern_expr)},
+                         {"body", std::move(body)}});
+}
+
+// Build a switch STATEMENT program (entry B, subject var `__switch_subj`):
+// block({ switch(subject){ cases } }, 0). Shares `_compileStructuredPattern`
+// with the switch-EXPRESSION and switch-GOTO lowerings.
+json sw_stmt_prog(json subject, std::vector<json> cases) {
+    return build_program(block(
+        {stmt_expr(std_call("switch", make_msg("SwitchInput", {
+            {"subject", std::move(subject)},
+            {"cases", lit_list(std::move(cases))}
+        })))},
+        lit_int(0)));
+}
+
 // ================================================================
 // Tests — Basic output structure
 // ================================================================
@@ -3351,6 +3400,234 @@ TEST(method_call_index_of_route) {
     ASSERT_CONTAINS(compile_program(build_program(
         mcall("indexOf", {{"self", ref("l")}, {"arg0", lit_int(2)}}))),
         "l.indexOf(static_cast<int64_t>(2))");
+}
+
+// ================================================================
+// Tests — Structured pattern IR (issue #63, cluster 2: _compileStructuredPattern
+// arms reached via the switch-STATEMENT entry point B, subject __switch_subj)
+// ================================================================
+
+// ObjectPattern: `case P(fx: var v):` type-checks the subject and binds a
+// field. A type-less ObjectPattern (`case (fy: var w):`) exercises the
+// `!typeName.empty()` false branch (no type check emitted).
+TEST(cov_object_pattern_typed_and_untyped) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        scase(pat_msg("ObjectPattern", {
+            {"type", lit_string("P")},
+            {"fields", lit_list({make_msg("", {
+                {"name", lit_string("fx")}, {"pattern", varpat("v", "")}})})}
+        }), block({stmt_expr(print_call(ref("v")))})),
+        scase(pat_msg("ObjectPattern", {
+            {"fields", lit_list({make_msg("", {
+                {"name", lit_string("fy")}, {"pattern", varpat("w", "")}})})}
+        }), block({stmt_expr(print_call(ref("w")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_object_type_matches(__switch_subj, \"P\"s)");
+    ASSERT_CONTAINS(out, "static_cast<BallDyn>(BallDyn(__switch_subj))[\"fx\"s]");
+    ASSERT_CONTAINS(out, "auto v = BallDyn(");
+    // Type-less ObjectPattern still binds its field, with no type gate.
+    ASSERT_CONTAINS(out, "static_cast<BallDyn>(BallDyn(__switch_subj))[\"fy\"s]");
+    ASSERT_CONTAINS(out, "auto w = BallDyn(");
+}
+
+// NullCheckPattern / NullAssertPattern: both gate on `subject.has_value()`.
+// Covers the sub-pattern-cond conjunction branch (`has_value() && (…)`), the
+// bare has_value() branch (untyped inner), and the no-subpattern fallback.
+TEST(cov_null_assert_and_check_patterns) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        // NullCheckPattern with a TYPED inner var → `has_value() && (typecheck)`.
+        scase(pat_msg("NullCheckPattern", {{"pattern", varpat("a", "int")}}),
+              block({stmt_expr(print_call(ref("a")))})),
+        // NullCheckPattern with NO subpattern → bare has_value().
+        scase(pat_msg("NullCheckPattern", {}),
+              block({stmt_expr(print_call(lit_string("nc")))})),
+        // NullAssertPattern with untyped inner var → bare has_value() + bind.
+        scase(pat_msg("NullAssertPattern", {{"pattern", varpat("b", "")}}),
+              block({stmt_expr(print_call(ref("b")))})),
+        // NullAssertPattern with a TYPED inner var → has_value() && (typecheck).
+        scase(pat_msg("NullAssertPattern", {{"pattern", varpat("c", "String")}}),
+              block({stmt_expr(print_call(ref("c")))})),
+        // NullAssertPattern with NO subpattern → bare has_value() fallback.
+        scase(pat_msg("NullAssertPattern", {}),
+              block({stmt_expr(print_call(lit_string("na")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "__switch_subj.has_value()");
+    ASSERT_CONTAINS(out, "__switch_subj.has_value() && (");
+    ASSERT_CONTAINS(out, "auto a = BallDyn(__switch_subj)");
+    ASSERT_CONTAINS(out, "auto b = BallDyn(__switch_subj)");
+    ASSERT_CONTAINS(out, "auto c = BallDyn(__switch_subj)");
+}
+
+// The lowercase `record` arm (map-keyed field access) is distinct from the
+// uppercase RecordPattern the encoder emits — it is fed by hand-built /
+// engine-internal IR. Also covers the standalone RestPattern arms (a
+// RestPattern reaching _compileStructuredPattern outside a ListPattern): one
+// with a subpattern (recurses) and one bare (→ "true").
+TEST(cov_record_lowercase_and_standalone_rest) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        // Two TYPED fields so the record arm's condition-join runs the
+        // `i > 0 && …` branch (a single "true"-condition field would leave
+        // `conds` empty and skip it).
+        scase(pat_msg("record", {
+            {"fields", lit_list({
+                make_msg("", {{"name", lit_string("f")}, {"pattern", varpat("rv", "int")}}),
+                make_msg("", {{"name", lit_string("g")}, {"pattern", varpat("rw", "String")}})})}
+        }), block({stmt_expr(print_call(ref("rv")))})),
+        scase(pat_msg("RestPattern", {{"subpattern", varpat("rr", "")}}),
+              block({stmt_expr(print_call(ref("rr")))})),
+        scase(pat_msg("RestPattern", {}),
+              block({stmt_expr(print_call(lit_string("re")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "static_cast<BallDyn>(BallDyn(__switch_subj))[\"f\"s]");
+    ASSERT_CONTAINS(out, "auto rv = BallDyn(");
+    ASSERT_CONTAINS(out, "auto rr = BallDyn(__switch_subj)");
+}
+
+// RelationalPattern operator mapping: `!=` emits `!=`, an unrecognized operator
+// falls back to `==`, and a RelationalPattern with no operator/operand yields a
+// "true" (catch-all) condition.
+TEST(cov_relational_pattern_operators) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        scase(pat_msg("RelationalPattern", {
+            {"operator", lit_string("!=")}, {"operand", lit_int(0)}}),
+              block({stmt_expr(print_call(lit_string("ne")))})),
+        scase(pat_msg("RelationalPattern", {
+            {"operator", lit_string("~")}, {"operand", lit_int(1)}}),
+              block({stmt_expr(print_call(lit_string("tilde")))})),
+        scase(pat_msg("RelationalPattern", {}),
+              block({stmt_expr(print_call(lit_string("bare")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "BallDyn(__switch_subj) != BallDyn(");
+    // Unknown operator falls back to equality.
+    ASSERT_CONTAINS(out, "BallDyn(__switch_subj) == BallDyn(");
+}
+
+// LogicalAndPattern condition-combining: when the left sub-condition is "true"
+// the result is the right condition, when the right is "true" it is the left,
+// and when both are "true" the whole pattern is a catch-all.
+TEST(cov_logical_and_pattern_combine_branches) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        // left "true" → result is the right (int) typecheck.
+        scase(pat_msg("LogicalAndPattern", {
+            {"left", wildpat("")}, {"right", wildpat("int")}}),
+              block({stmt_expr(print_call(lit_string("lt")))})),
+        // right "true" → result is the left (String) typecheck.
+        scase(pat_msg("LogicalAndPattern", {
+            {"left", wildpat("String")}, {"right", wildpat("")}}),
+              block({stmt_expr(print_call(lit_string("rt")))})),
+        // both "true" → catch-all.
+        scase(pat_msg("LogicalAndPattern", {
+            {"left", wildpat("")}, {"right", wildpat("")}}),
+              block({stmt_expr(print_call(lit_string("bb")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_is_int(__switch_subj)");
+    ASSERT_CONTAINS(out, "ball_is_string(__switch_subj)");
+}
+
+// LogicalOrPattern whose right operand is a non-structured (unknown-kind)
+// pattern makes _compileStructuredPattern return nullopt (both the OR arm's
+// `!(lr && rr)` path and the trailing unknown-kind fallthrough); the
+// switch-statement lowering then falls back to the or-value collector, which
+// harvests the left ConstPattern's value into an equality test.
+TEST(cov_logical_or_pattern_nullopt_fallback) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        scase(pat_msg("LogicalOrPattern", {
+            {"left", constpat(lit_int(7))}, {"right", pat_msg("Bogus", {})}}),
+              block({stmt_expr(print_call(lit_string("or")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "BallDyn(__switch_subj) == ball_to_dyn(");
+}
+
+// ListPattern with a rest element that has BOTH leading and trailing fixed
+// elements (`[var a, ...var rest, var c]`): exercises the trailing-slice end
+// offset (`__l.end() - 1`), the after-rest element indexing (length - N), and
+// the rest sub-slice binding.
+TEST(cov_list_pattern_rest_with_trailing_elements) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        scase(pat_msg("ListPattern", {{"elements", lit_list({
+            varpat("a", ""),
+            pat_msg("RestPattern", {{"subpattern", varpat("rest", "")}}),
+            varpat("c", "")
+        })}}), block({stmt_expr(print_call(ref("a")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_is_list(BallDyn(__switch_subj))");
+    ASSERT_CONTAINS(out, ">= 2");
+    ASSERT_CONTAINS(out, "__l.end() - 1");
+    ASSERT_CONTAINS(out, "ball_length(BallDyn(__switch_subj)) - 1");
+    ASSERT_CONTAINS(out, "auto rest = BallDyn(");
+}
+
+// _typeCheckCondition branches reached through typed WildcardPatterns:
+// num (int||double), List, Map (with the set exclusion), and a user type.
+TEST(cov_type_check_condition_branches) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        scase(wildpat("num"),    block({stmt_expr(print_call(lit_string("n")))})),
+        scase(wildpat("List"),   block({stmt_expr(print_call(lit_string("l")))})),
+        scase(wildpat("Map"),    block({stmt_expr(print_call(lit_string("m")))})),
+        scase(wildpat("Widget"), block({stmt_expr(print_call(lit_string("w")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "ball_is_double(__switch_subj)");
+    ASSERT_CONTAINS(out, "ball_is_list(__switch_subj)");
+    ASSERT_CONTAINS(out, "ball_is_map_dyn(__switch_subj)");
+    ASSERT_CONTAINS(out, "!ball_is_ball_set(BallDyn(__switch_subj))");
+    ASSERT_CONTAINS(out, "ball_object_type_matches(__switch_subj, \"Widget\"s)");
+}
+
+// A ConstPattern carrying NO `value` field lowers to a "true" (catch-all)
+// condition rather than an equality compare.
+TEST(cov_const_pattern_no_value_is_wildcard) {
+    auto prog = sw_stmt_prog(ref("x"), {
+        scase(pat_msg("ConstPattern", {{"value", lit_int(5)}}),
+              block({stmt_expr(print_call(lit_string("five")))})),
+        scase(pat_msg("ConstPattern", {}),
+              block({stmt_expr(print_call(lit_string("any")))})),
+    });
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "BallDyn(__switch_subj) == ball_to_dyn(");
+    // The valueless ConstPattern becomes the catch-all else block.
+    ASSERT_CONTAINS(out, "else {");
+}
+
+// ================================================================
+// Tests — switch-EXPRESSION residual (issue #63, cluster 1:
+// compile_std_call switch_expr arms, subject __subj)
+// ================================================================
+
+// A switch-EXPRESSION case carrying only a cosmetic `pattern` STRING (no
+// value / pattern_expr) drives the text-fallback path: a normal string becomes
+// an equality compare, and `"_"` becomes an unconditional catch-all return.
+TEST(cov_switch_expr_text_pattern_fallback) {
+    auto cases = lit_list({
+        make_msg("", {{"pattern", lit_string("red")}, {"body", lit_string("R")}}),
+        make_msg("", {{"pattern", lit_string("_")}, {"body", lit_string("other")}}),
+    });
+    auto prog = build_program(std_call("switch_expr", make_msg("", {
+        {"subject", ref("x")}, {"cases", std::move(cases)}
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "auto __subj = BallDyn(");
+    ASSERT_CONTAINS(out, "ball_to_dyn(\"red\"s)");
+    // `_` catch-all → bare return of the body, no equality gate.
+    ASSERT_CONTAINS(out, "\"other\"");
+}
+
+// A switch-EXPRESSION with no `cases` field short-circuits to `BallDyn()` —
+// the IIFE prologue (`auto __subj`) is never emitted.
+TEST(cov_switch_expr_no_cases_returns_balldyn) {
+    auto prog = build_program(std_call("switch_expr", make_msg("", {
+        {"subject", ref("x")}
+    })));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "BallDyn()");
+    ASSERT_NOT_CONTAINS(out, "auto __subj");
 }
 
 // ================================================================

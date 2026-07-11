@@ -64,6 +64,54 @@ public class BallRuntimeTests
         Assert.Throws<BallRuntimeException>(() => BallRuntime.Modulo(BallValue.Int(1), BallValue.Int(0)));
     }
 
+    [Fact]
+    public void RemainderIsTruncatedNotEuclidean()
+    {
+        // Dart's num.remainder keeps the sign of the DIVIDEND (truncated), unlike
+        // the Euclidean Modulo above: (-3.75).remainder(2) == -1.75, not 0.25.
+        Assert.Equal(BallValue.Double(0.5), BallRuntime.Remainder(BallValue.Double(2.5), BallValue.Int(2)));
+        Assert.Equal(BallValue.Double(-1.75), BallRuntime.Remainder(BallValue.Double(-3.75), BallValue.Int(2)));
+        Assert.Equal(BallValue.Int(1), BallRuntime.Remainder(BallValue.Int(7), BallValue.Int(3)));
+        // Both-int stays int; any double promotes to double.
+        Assert.IsType<BallInt>(BallRuntime.Remainder(BallValue.Int(7), BallValue.Int(3)));
+        Assert.IsType<BallDouble>(BallRuntime.Remainder(BallValue.Double(2.5), BallValue.Int(2)));
+        Assert.Throws<BallRuntimeException>(() => BallRuntime.Remainder(BallValue.Int(1), BallValue.Int(0)));
+    }
+
+    [Fact]
+    public void NanIsNeverEqualAndSignedZerosAreEqual()
+    {
+        var nan = BallValue.Double(double.NaN);
+        // IEEE-754 / Dart: NaN != NaN (this is exactly how the self-hosted engine
+        // computes `isNaN` — as `d != d`).
+        Assert.Equal(BallValue.Bool(false), BallRuntime.Equals(nan, nan));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.NotEquals(nan, nan));
+        // Dart: -0.0 == 0.0 is true, and equal values must hash identically.
+        Assert.Equal(BallValue.Bool(true), BallRuntime.Equals(BallValue.Double(-0.0), BallValue.Double(0.0)));
+        Assert.Equal(BallValue.Double(0.0).GetHashCode(), BallValue.Double(-0.0).GetHashCode());
+    }
+
+    [Fact]
+    public void NumericInstanceMethodsDispatchThroughCallMethod()
+    {
+        // The self-hosted engine routes num.remainder/toInt/toDouble here.
+        Assert.Equal(BallValue.Int(1), BallRuntime.CallMethod("remainder", NumMethodInput(BallValue.Int(7), BallValue.Int(3))));
+        Assert.Equal(BallValue.Int(3), BallRuntime.CallMethod("toInt", NumMethodInput(BallValue.Double(3.9))));
+        Assert.Equal(BallValue.Double(4.0), BallRuntime.CallMethod("toDouble", NumMethodInput(BallValue.Int(4))));
+    }
+
+    private static BallValue NumMethodInput(BallValue self, BallValue? arg0 = null)
+    {
+        var input = new BallMap();
+        input.Set("self", self);
+        if (arg0 is not null)
+        {
+            input.Set("arg0", arg0);
+        }
+
+        return input;
+    }
+
     // ── Comparison ────────────────────────────────────────────────────────
 
     [Fact]
@@ -169,6 +217,34 @@ public class BallRuntimeTests
         Assert.Equal(BallValue.Int(1), BallRuntime.MapLength(map));
         var keys = (BallList)BallRuntime.MapKeys(map);
         Assert.Equal(BallValue.Str("k"), keys.Get(0));
+    }
+
+    [Fact]
+    public void MapNonStringKeysAreStringified()
+    {
+        // Ball maps are string-keyed, so a non-string key (an int memo key, a
+        // bool, a whole double) is coerced to its display form rather than
+        // rejected — matches rust/shared's `index_key` (self-host fixtures 95 /
+        // 391 memoize with int keys). Every keying path routes through the same
+        // coercion: set / get / containsKey / delete and the `map[key]` index form.
+        var map = new BallMap();
+        BallRuntime.MapSet(map, BallValue.Int(3), BallValue.Str("three"));
+        BallRuntime.IndexSet(map, BallValue.Double(2.0), BallValue.Str("two"));
+        BallRuntime.MapSet(map, BallValue.Bool(true), BallValue.Str("yes"));
+
+        Assert.Equal(BallValue.Str("three"), BallRuntime.MapGet(map, BallValue.Int(3)));
+        Assert.Equal(BallValue.Str("two"), BallRuntime.IndexGet(map, BallValue.Double(2.0)));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.MapContainsKey(map, BallValue.Int(3)));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.MapContainsKey(map, BallValue.Int(9)));
+
+        // Keys round-trip back as their stringified form.
+        var keys = (BallList)BallRuntime.MapKeys(map);
+        Assert.Equal(BallValue.Str("3"), keys.Get(0));
+        Assert.Equal(BallValue.Str("2.0"), keys.Get(1));
+        Assert.Equal(BallValue.Str("true"), keys.Get(2));
+
+        Assert.Equal(BallValue.Str("three"), BallRuntime.MapDelete(map, BallValue.Int(3)));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.MapContainsKey(map, BallValue.Int(3)));
     }
 
     [Fact]

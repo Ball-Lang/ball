@@ -5433,6 +5433,18 @@ inline bool hasBoolValue(const BallDyn& o) { return _bd_has(o,"boolValue"); }
 inline bool hasNumberValue(const BallDyn& o) { return _bd_has(o,"numberValue"); }
 inline bool hasListValue(const BallDyn& o) { return _bd_has(o,"listValue"); }
 inline bool hasCall(const BallDyn& o) { return _bd_has(o,"call"); }
+// Expression oneof arms (proto3-JSON camelCase) — `call` is above; the rest
+// here. The audit analyzers (capability_analyzer/termination_analyzer) walk the
+// tree via these presence accessors, unlike the engine which uses whichExpr().
+inline bool hasLiteral(const BallDyn& o) { return _bd_has(o,"literal"); }
+inline bool hasReference(const BallDyn& o) { return _bd_has(o,"reference"); }
+inline bool hasFieldAccess(const BallDyn& o) { return _bd_has(o,"fieldAccess"); }
+inline bool hasMessageCreation(const BallDyn& o) { return _bd_has(o,"messageCreation"); }
+inline bool hasBlock(const BallDyn& o) { return _bd_has(o,"block"); }
+inline bool hasLambda(const BallDyn& o) { return _bd_has(o,"lambda"); }
+// Statement oneof arms.
+inline bool hasLet(const BallDyn& o) { return _bd_has(o,"let"); }
+inline bool hasExpression(const BallDyn& o) { return _bd_has(o,"expression"); }
 inline bool hasObject(const BallDyn& o) { return _bd_has(o,"object"); }
 inline bool hasValue(const BallDyn& o) { return _bd_has(o,"value"); }
 inline bool hasNullValue(const BallDyn&) { return false; }

@@ -90,6 +90,11 @@ Module buildBallProtoModule() {
       'git',
       'registry',
       'inline',
+      // Statement oneof + FieldAccess.object presence checks (used by the
+      // self-hosted `ball audit` capability/termination analyzers, #362).
+      'let',
+      'expression',
+      'object',
     ]),
 
     // ── Struct field access ──────────────────────────────────────

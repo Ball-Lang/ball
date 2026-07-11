@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "ball_protobuf_gen-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["dart/ball_protobuf_gen"] }],
+    ["@semantic-release/changelog", { "changelogFile": "dart/ball_protobuf_gen/CHANGELOG.md" }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/ball_protobuf_gen/pubspec.yaml --version=${nextRelease.version}",
+      "publishCmd": "gh workflow run release-publish.yml --ref ball_protobuf_gen-v${nextRelease.version}"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["dart/ball_protobuf_gen/pubspec.yaml", "dart/ball_protobuf_gen/CHANGELOG.md"],
+      "message": "chore(release): ball_protobuf_gen ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

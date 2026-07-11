@@ -6,7 +6,7 @@
 library;
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'package:ball_base/termination_analyzer.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:test/test.dart';
 
 // ── Builders (same shape as termination_analyzer_test.dart) ─────────────────
@@ -133,9 +133,9 @@ void main() {
       final module = _buildModule([
         {'name': 'main', 'body': _whileTrue(_printX())},
       ]);
-      final report = analyzeModuleTermination(module);
-      expect(report.warnings, isNotEmpty);
-      expect(report.warnings.first.category, 'infinite_loop');
+      final report = analyzeModuleTermination(module).cast<Map>();
+      expect(report, isNotEmpty);
+      expect(report.first['category'], 'infinite_loop');
     });
 
     test('audits a Module plus inline imports', () {
@@ -145,8 +145,11 @@ void main() {
       final imported = _buildModule([
         {'name': 'helper', 'body': _whileTrue(_printX())},
       ]);
-      final report = analyzeModuleTermination(module, imports: [imported]);
-      expect(report.warnings.any((w) => w.location.contains('helper')), isTrue);
+      final report = analyzeModuleTermination(
+        module,
+        imports: [imported],
+      ).cast<Map>();
+      expect(report.any((w) => w['location'].contains('helper')), isTrue);
     });
   });
 
@@ -162,11 +165,8 @@ void main() {
           {'name': 'main', 'body': _lambda(_whileTrue(_printX()))},
         ],
       );
-      final report = analyzeTermination(program);
-      expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
-        isNotEmpty,
-      );
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report.where((w) => w['category'] == 'infinite_loop'), isNotEmpty);
     });
 
     test('a loop inside a messageCreation field is found', () {
@@ -179,11 +179,8 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
-        isNotEmpty,
-      );
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report.where((w) => w['category'] == 'infinite_loop'), isNotEmpty);
     });
 
     test('a loop inside a fieldAccess object is found', () {
@@ -196,11 +193,8 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
-        isNotEmpty,
-      );
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report.where((w) => w['category'] == 'infinite_loop'), isNotEmpty);
     });
 
     test('a loop inside a block result expression is found', () {
@@ -213,11 +207,8 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
-        isNotEmpty,
-      );
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report.where((w) => w['category'] == 'infinite_loop'), isNotEmpty);
     });
 
     test('a loop inside a let-statement value is found', () {
@@ -230,11 +221,8 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
-        isNotEmpty,
-      );
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report.where((w) => w['category'] == 'infinite_loop'), isNotEmpty);
     });
   });
 
@@ -253,9 +241,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isNotEmpty,
       );
     });
@@ -267,9 +255,9 @@ void main() {
           {'name': 'rec', 'body': _lambda(_call('main', 'rec', _litInt(1)))},
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isNotEmpty,
       );
     });
@@ -284,9 +272,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isNotEmpty,
       );
     });
@@ -298,9 +286,9 @@ void main() {
           {'name': 'rec', 'body': _block([], _call('main', 'rec', _litInt(1)))},
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isNotEmpty,
       );
     });
@@ -334,13 +322,13 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      final loop = report.warnings
-          .where((w) => w.category == 'infinite_loop')
+      final report = analyzeTermination(program).cast<Map>();
+      final loop = report
+          .where((w) => w['category'] == 'infinite_loop')
           .toList();
       expect(loop, hasLength(1));
-      expect(loop.first.message, contains('do-while'));
-      expect(loop.first.message, contains('does not modify'));
+      expect(loop.first['message'], contains('do-while'));
+      expect(loop.first['message'], contains('does not modify'));
     });
 
     test('for loop missing both update and body does not crash, warns', () {
@@ -357,9 +345,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
+        report.where((w) => w['category'] == 'infinite_loop'),
         hasLength(1),
       );
     });
@@ -393,9 +381,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unreachable_code'),
+        report.where((w) => w['category'] == 'unreachable_code'),
         isNotEmpty,
       );
     });
@@ -420,37 +408,22 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      final labels = report.warnings
-          .where((w) => w.category == 'orphaned_label')
+      final report = analyzeTermination(program).cast<Map>();
+      final labels = report
+          .where((w) => w['category'] == 'orphaned_label')
           .toList();
       expect(labels, hasLength(1));
-      expect(labels.first.message, contains('ghost'));
+      expect(labels.first['message'], contains('ghost'));
     });
   });
 
   group('formatTerminationReport rendering', () {
     test('renders error + warning + info icons and the totals line', () {
-      final report = TerminationReport([
-        TerminationWarning(
-          severity: 'error',
-          category: 'orphaned_label',
-          message: 'bad label',
-          location: 'main.a',
-        ),
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message: 'spinny',
-          location: 'main.b',
-        ),
-        TerminationWarning(
-          severity: 'info',
-          category: 'unreachable_code',
-          message: 'fyi',
-          location: 'main.c',
-        ),
-      ]);
+      final report = <Map>[
+        _w('error', 'orphaned_label', 'bad label', 'main.a'),
+        _w('warning', 'infinite_loop', 'spinny', 'main.b'),
+        _w('info', 'unreachable_code', 'fyi', 'main.c'),
+      ];
       final text = formatTerminationReport(report);
       expect(text, contains('Orphaned Labels'));
       expect(text, contains('Potential Infinite Loops'));
@@ -463,58 +436,43 @@ void main() {
     });
 
     test('unknown category falls through to the raw name label', () {
-      final report = TerminationReport([
-        TerminationWarning(
-          severity: 'warning',
-          category: 'mystery_category',
-          message: 'm',
-          location: 'main.x',
-        ),
-      ]);
+      final report = <Map>[_w('warning', 'mystery_category', 'm', 'main.x')];
       final text = formatTerminationReport(report);
       expect(text, contains('mystery_category'));
     });
   });
 
   group('report flags', () {
-    test('hasErrors / hasWarnings reflect severities', () {
-      final errReport = TerminationReport([
-        TerminationWarning(
-          severity: 'error',
-          category: 'orphaned_label',
-          message: 'm',
-          location: 'l',
-        ),
-      ]);
-      expect(errReport.hasErrors, isTrue);
-      expect(errReport.hasWarnings, isTrue);
+    test('terminationHasErrors reflects severities', () {
+      final errReport = <Map>[_w('error', 'orphaned_label', 'm', 'l')];
+      expect(terminationHasErrors(errReport), isTrue);
       expect(errReport.isEmpty, isFalse);
 
-      final warnReport = TerminationReport([
-        TerminationWarning(
-          severity: 'warning',
-          category: 'infinite_loop',
-          message: 'm',
-          location: 'l',
-        ),
-      ]);
-      expect(warnReport.hasErrors, isFalse);
-      expect(warnReport.hasWarnings, isTrue);
+      final warnReport = <Map>[_w('warning', 'infinite_loop', 'm', 'l')];
+      expect(terminationHasErrors(warnReport), isFalse);
 
-      expect(const TerminationReport([]).isEmpty, isTrue);
+      expect(<Map>[].isEmpty, isTrue);
     });
 
-    test('TerminationWarning.toString renders severity/category/location', () {
-      const w = TerminationWarning(
-        severity: 'warning',
-        category: 'infinite_loop',
-        message: 'spins forever',
-        location: 'main.loop',
-      );
-      expect(
-        w.toString(),
-        '[warning] infinite_loop at main.loop: spins forever',
-      );
+    test('warning Map carries severity/category/message/location fields', () {
+      final w = _w('warning', 'infinite_loop', 'spins forever', 'main.loop');
+      expect(w['severity'], 'warning');
+      expect(w['category'], 'infinite_loop');
+      expect(w['message'], 'spins forever');
+      expect(w['location'], 'main.loop');
     });
   });
 }
+
+/// Build a termination warning Map (mirrors the analyzer's warning shape).
+Map<String, Object?> _w(
+  String severity,
+  String category,
+  String message,
+  String location,
+) => {
+  'severity': severity,
+  'category': category,
+  'message': message,
+  'location': location,
+};

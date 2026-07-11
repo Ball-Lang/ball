@@ -26,9 +26,7 @@ import 'package:ball_base/ball_base.dart'
         encodeBallFileBinary,
         encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'package:ball_base/capability_analyzer.dart';
 import 'package:ball_base/cli_core.dart' as cli_core;
-import 'package:ball_base/termination_analyzer.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
 import 'package:ball_encoder/package_encoder.dart';
@@ -511,12 +509,14 @@ void _audit(List<String> args, StringSink out, StringSink err) {
     return;
   }
 
-  final BallCapabilityReport report;
-  final TerminationReport Function() runTermination;
+  final Map report;
+  final List<Object?> Function() runTermination;
   switch (ballFile) {
     case BallProgramFile(:final program):
-      report = analyzeCapabilities(program, reachableOnly: reachableOnly);
-      runTermination = () => analyzeTermination(program);
+      report = reachableOnly
+          ? cli_core.analyzeCapabilitiesReachable(program)
+          : cli_core.analyzeCapabilities(program);
+      runTermination = () => cli_core.analyzeTermination(program);
     case BallModuleFile(:final module):
       final imports = _inlineImports(module);
       if (reachableOnly) {
@@ -525,33 +525,35 @@ void _audit(List<String> args, StringSink out, StringSink err) {
           '(no entry point); analyzing all functions.',
         );
       }
-      report = analyzeModuleCapabilities(module, imports: imports);
-      runTermination = () => analyzeModuleTermination(module, imports: imports);
+      report = cli_core.analyzeModuleCapabilities(module, imports: imports);
+      runTermination = () =>
+          cli_core.analyzeModuleTermination(module, imports: imports);
   }
 
   if (outputPath != null) {
-    final jsonOut = jsonEncode(report.toProto3Json());
+    final proto = _capabilityReportMapToProto(report);
+    final jsonOut = jsonEncode(proto.toProto3Json());
     File(outputPath).writeAsStringSync(
       const JsonEncoder.withIndent('  ').convert(jsonDecode(jsonOut)),
     );
     err.writeln('Report written to $outputPath');
   } else {
-    out.writeln(formatCapabilityReport(report));
+    out.writeln(cli_core.formatCapabilityReport(report));
   }
 
   if (checkTermination) {
-    final termReport = runTermination();
-    if (termReport.warnings.isNotEmpty) {
+    final termWarnings = runTermination();
+    if (termWarnings.isNotEmpty) {
       out.writeln('');
-      out.writeln(formatTerminationReport(termReport));
+      out.writeln(cli_core.formatTerminationReport(termWarnings));
     }
-    if (exitCode && termReport.hasErrors) {
+    if (exitCode && cli_core.terminationHasErrors(termWarnings)) {
       throw const _CliExit(1);
     }
   }
 
   if (deny.isNotEmpty) {
-    final violations = checkPolicy(report, deny: deny);
+    final violations = cli_core.checkPolicy(report, deny: deny);
     if (violations.isNotEmpty) {
       err.writeln('\nPolicy violations (denied: ${deny.join(", ")}):');
       for (final v in violations) {
@@ -560,6 +562,73 @@ void _audit(List<String> args, StringSink out, StringSink err) {
       if (exitCode) throw const _CliExit(1);
     }
   }
+}
+
+/// Materialize the Map-based capability report (the single, self-hostable
+/// analysis output produced by `cli_core.analyzeCapabilities`) into the proto
+/// `BallCapabilityReport` so `ball audit --output report.json` can emit the
+/// exact proto3-JSON byte shape it always has. Native-only glue — the analysis
+/// itself has one implementation (the Map producer).
+BallCapabilityReport _capabilityReportMapToProto(Map report) {
+  final proto = BallCapabilityReport()
+    ..programName = (report['programName'] as String? ?? '')
+    ..programVersion = (report['programVersion'] as String? ?? '');
+
+  final capabilities = report['capabilities'] as List? ?? const [];
+  for (final entry in capabilities) {
+    final e = entry as Map;
+    final capEntry = CapabilityEntry()
+      ..capability = (e['capability'] as String? ?? '')
+      ..riskLevel = (e['riskLevel'] as String? ?? '');
+    final sites = e['callSites'] as List? ?? const [];
+    for (final site in sites) {
+      final s = site as Map;
+      capEntry.callSites.add(
+        CallSite()
+          ..module = (s['module'] as String? ?? '')
+          ..function = (s['function'] as String? ?? '')
+          ..calleeModule = (s['calleeModule'] as String? ?? '')
+          ..calleeFunction = (s['calleeFunction'] as String? ?? ''),
+      );
+    }
+    proto.capabilities.add(capEntry);
+  }
+
+  final functions = report['functions'] as List? ?? const [];
+  for (final fn in functions) {
+    final f = fn as Map;
+    final fnCap = FunctionCapability()
+      ..module = (f['module'] as String? ?? '')
+      ..function = (f['function'] as String? ?? '');
+    final caps = f['capabilities'] as List? ?? const [];
+    for (final c in caps) {
+      fnCap.capabilities.add(c as String);
+    }
+    proto.functions.add(fnCap);
+  }
+
+  final summary = report['summary'] as Map? ?? const {};
+  bool flag(String key) => summary[key] == true;
+  int count(String key) => (summary[key] as int?) ?? 0;
+  proto.summary = CapabilitySummary()
+    ..isPure = flag('isPure')
+    ..readsFilesystem = flag('readsFilesystem')
+    ..writesFilesystem = flag('writesFilesystem')
+    ..readsStdin = flag('readsStdin')
+    ..writesStdout = flag('writesStdout')
+    ..writesStderr = flag('writesStderr')
+    ..readsEnvironment = flag('readsEnvironment')
+    ..controlsProcess = flag('controlsProcess')
+    ..usesMemory = flag('usesMemory')
+    ..usesTime = flag('usesTime')
+    ..usesRandom = flag('usesRandom')
+    ..usesConcurrency = flag('usesConcurrency')
+    ..usesNetwork = flag('usesNetwork')
+    ..totalFunctions = count('totalFunctions')
+    ..pureFunctions = count('pureFunctions')
+    ..effectfulFunctions = count('effectfulFunctions');
+
+  return proto;
 }
 
 // ── ball build ──────────────────────────────────────────────────────────────

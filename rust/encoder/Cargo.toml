@@ -1,5 +1,5 @@
 [package]
-name = "ball-encoder"
+name = "ball-lang-encoder"
 description = "Rust -> Ball encoder."
 version.workspace = true
 edition.workspace = true
@@ -8,10 +8,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-ball-shared = { workspace = true }
+ball-lang-shared = { workspace = true }
 syn = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 
 [dev-dependencies]
-ball-compiler = { workspace = true }
+ball-lang-compiler = { workspace = true }

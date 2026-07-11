@@ -10,7 +10,7 @@
 //! - [`CliError::Parse`] (exit `2`) — the input was not a valid
 //!   `ball.v1.Program` (bad JSON/binary shape) or, for `encode`, not
 //!   encodable Rust source; or a loaded `Program` was too malformed to
-//!   compile (an `assert!`/`panic!` in `ball-compiler`/`ball-encoder`,
+//!   compile (an `assert!`/`panic!` in `ball-lang-compiler`/`ball-lang-encoder`,
 //!   caught via [`crate::panic_guard::catch_panic_message`] rather than
 //!   letting it abort the process with an unrelated exit code).
 //! - [`CliError::Runtime`] (exit `1`) — a Ball program executed but failed
@@ -21,7 +21,7 @@
 //! `Err`.
 use std::fmt;
 
-use ball_engine::EngineError;
+use ball_lang_engine::EngineError;
 
 /// A CLI-level failure, carrying its own exit code (see the module doc
 /// comment for the three buckets and their exact codes).
@@ -62,10 +62,10 @@ impl fmt::Display for CliError {
 
 impl std::error::Error for CliError {}
 
-/// `ball-engine`'s own [`EngineError`] maps directly onto two of our three
+/// `ball-lang-engine`'s own [`EngineError`] maps directly onto two of our three
 /// buckets: a load-time shape failure is a [`CliError::Parse`]; a run-time
 /// failure (including the self-hosted engine not being built in, see
-/// `ball-cli`'s `self_host` Cargo feature) is a [`CliError::Runtime`] — never
+/// `ball-lang-cli`'s `self_host` Cargo feature) is a [`CliError::Runtime`] — never
 /// silently swallowed, always surfaced with `EngineError`'s own message.
 impl From<EngineError> for CliError {
     fn from(err: EngineError) -> Self {

@@ -532,6 +532,139 @@ public sealed partial class CSharpCompiler
         }
     }
 
+    /// <summary>
+    /// The owner's instance fields that are reassigned (<c>field = x</c>) anywhere
+    /// in the class — its methods' or constructors' bodies, including inside catch
+    /// clauses and lambdas. Such fields cannot be safely aliased into a
+    /// method-entry local: they must read/write live through <c>self</c> so a
+    /// rebind is observed across method/closure boundaries mid-run (issue #383,
+    /// <see cref="_volatileFields"/>). Cached per owner.
+    /// </summary>
+    private HashSet<string> VolatileFieldsOf(TypeDefinition ownerTd)
+    {
+        if (_volatileFieldsByOwner.TryGetValue(ownerTd.Name, out var cached))
+        {
+            return cached;
+        }
+
+        var reassigned = new HashSet<string>(StringComparer.Ordinal);
+        if (_classMembersByOwner.TryGetValue(ownerTd.Name, out var members))
+        {
+            foreach (var member in members)
+            {
+                if (member.Body is not null)
+                {
+                    CollectReassignedNames(member.Body, reassigned);
+                }
+            }
+        }
+
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var field in AllInstanceFieldNames(ownerTd))
+        {
+            if (reassigned.Contains(field))
+            {
+                result.Add(field);
+            }
+        }
+
+        _volatileFieldsByOwner[ownerTd.Name] = result;
+        return result;
+    }
+
+    /// <summary>
+    /// Collect every bare-name reassignment target (an <c>assign</c>/increment/
+    /// decrement whose target is a <c>reference(name)</c>) anywhere in
+    /// <paramref name="expr"/>. Unlike <see cref="ExprReassignsVar"/> (which
+    /// answers a single name and stops at the first hit), this walks the WHOLE
+    /// tree — crucially into <c>literal.listValue</c> elements, where a Dart
+    /// try's catch-clause bodies live (so the engine's <c>_activeException = e</c>
+    /// inside a catch is detected).
+    /// </summary>
+    private static void CollectReassignedNames(Expression expr, HashSet<string> acc)
+    {
+        switch (expr.ExprCase)
+        {
+            case Expression.ExprOneofCase.Call:
+                var call = expr.Call;
+                if (call.Module is "std" or ""
+                    && call.Function is "assign" or "pre_increment" or "post_increment" or "pre_decrement" or "post_decrement"
+                    && call.Input is { ExprCase: Expression.ExprOneofCase.MessageCreation } assignInput)
+                {
+                    foreach (var field in assignInput.MessageCreation.Fields)
+                    {
+                        if (field.Name is "target" or "value"
+                            && field.Value is { ExprCase: Expression.ExprOneofCase.Reference } refExpr)
+                        {
+                            acc.Add(refExpr.Reference.Name);
+                        }
+                    }
+                }
+
+                if (call.Input is not null)
+                {
+                    CollectReassignedNames(call.Input, acc);
+                }
+
+                break;
+            case Expression.ExprOneofCase.MessageCreation:
+                foreach (var field in expr.MessageCreation.Fields)
+                {
+                    if (field.Value is not null)
+                    {
+                        CollectReassignedNames(field.Value, acc);
+                    }
+                }
+
+                break;
+            case Expression.ExprOneofCase.Literal:
+                if (expr.Literal.ValueCase == Literal.ValueOneofCase.ListValue)
+                {
+                    foreach (var element in expr.Literal.ListValue.Elements)
+                    {
+                        CollectReassignedNames(element, acc);
+                    }
+                }
+
+                break;
+            case Expression.ExprOneofCase.Block:
+                foreach (var statement in expr.Block.Statements)
+                {
+                    if (statement.StmtCase == Statement.StmtOneofCase.Let && statement.Let.Value is { } letValue)
+                    {
+                        CollectReassignedNames(letValue, acc);
+                    }
+                    else if (statement.StmtCase == Statement.StmtOneofCase.Expression)
+                    {
+                        CollectReassignedNames(statement.Expression, acc);
+                    }
+                }
+
+                if (expr.Block.Result is not null)
+                {
+                    CollectReassignedNames(expr.Block.Result, acc);
+                }
+
+                break;
+            case Expression.ExprOneofCase.FieldAccess:
+                if (expr.FieldAccess.Object is not null)
+                {
+                    CollectReassignedNames(expr.FieldAccess.Object, acc);
+                }
+
+                break;
+            case Expression.ExprOneofCase.Lambda:
+                if (expr.Lambda.Body is not null)
+                {
+                    CollectReassignedNames(expr.Lambda.Body, acc);
+                }
+
+                break;
+            default:
+                break;
+        }
+    }
+
     // ════════════════════════════════════════════════════════════
     // Metadata + text helpers
     // ════════════════════════════════════════════════════════════

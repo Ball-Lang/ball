@@ -22,8 +22,9 @@ library;
 
 import 'gen/ball/v1/ball.pb.dart';
 
-import 'capability_analyzer.dart';
-import 'termination_analyzer.dart';
+part 'capability_table.dart';
+part 'capability_analyzer.dart';
+part 'termination_analyzer.dart';
 
 // ── version ──────────────────────────────────────────────────────────────
 
@@ -222,15 +223,16 @@ String _importSource(ModuleImport imp) {
 /// line and the termination report.
 String auditReport(Program program) {
   final report = analyzeCapabilities(program);
-  final buf = StringBuffer();
-  buf.writeln(formatCapabilityReport(report));
+  // String concatenation (not StringBuffer) so this verb self-hosts on the
+  // compiled TS/C++/Rust CLIs. `formatCapabilityReport` already ends in `\n`;
+  // the extra `\n` reproduces the enclosing `writeln`.
+  var out = '${formatCapabilityReport(report)}\n';
 
-  final termReport = analyzeTermination(program);
-  if (termReport.warnings.isNotEmpty) {
-    buf.writeln('');
-    buf.writeln(formatTerminationReport(termReport));
+  final termWarnings = analyzeTermination(program);
+  if (termWarnings.isNotEmpty) {
+    out = '$out\n${formatTerminationReport(termWarnings)}\n';
   }
-  return buf.toString();
+  return out;
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────

@@ -1,11 +1,11 @@
 //! Loading a `.ball.json`/`.ball.bin` program for every subcommand (issue
 //! #41).
 //!
-//! Reuses `ball-engine`'s own loader (`BallEngine::from_json`/`from_binary`,
+//! Reuses `ball-lang-engine`'s own loader (`BallEngine::from_json`/`from_binary`,
 //! backed by `rust/engine/src/loader.rs`'s prost-reflect proto3-JSON<->binary
 //! round trip) rather than re-implementing program parsing here — the same
 //! codec every subcommand (`run`, `compile`, `check`) needs, and the one the
-//! issue explicitly calls out ("the loader in ball-engine handles both —
+//! issue explicitly calls out ("the loader in ball-lang-engine handles both —
 //! reuse it").
 //!
 //! Format is sniffed by extension: a path ending in `.bin` is read as raw
@@ -16,7 +16,7 @@
 //! (`path.endsWith('.bin')`) and the Dart/TS engines' own format convention.
 use std::path::Path;
 
-use ball_engine::BallEngine;
+use ball_lang_engine::BallEngine;
 
 use crate::error::CliError;
 

@@ -126,6 +126,16 @@ public static partial class BallRuntime
             "elementAt" => ListGet(self, a0),
             "indexWhere" => MethodIndexWhere(self, a0),
 
+            // ── Higher-order callbacks the self-hosted engine invokes on its own values ──
+            "apply" => MethodApply(self, a0, a1),
+            "fold" => MethodFold(self, a0, a1),
+
+            // ── Numeric instance methods on a boxed double/int (the engine's own
+            //    number-method switch calls these on a raw num receiver) ──
+            "remainder" => Remainder(self, a0),
+            "toInt" => ToInt(self),
+            "toDouble" => ToDouble(self),
+
             // ── Set algebra (a set is a duplicate-free list) ──
             "union" => SetUnion(self, a0),
             "intersection" => SetIntersection(self, a0),
@@ -137,6 +147,12 @@ public static partial class BallRuntime
             "filled" => MethodFilled(self, a0, a1),
             "unmodifiable" => MethodUnmodifiable(self, a0),
             "fromCharCode" => StringFromCharCode(a0),
+
+            // ── Regular expressions (RegExp receiver → Match, then Match.group) ──
+            "firstMatch" => RegexFirstMatch(self, a0),
+            "hasMatch" => RegexHasMatch(self, a0),
+            "allMatches" => RegexAllMatches(self, a0),
+            "group" => MatchGroup(self, a0),
 
             // ── Top-level Dart core functions ──
             "identical" => BallValue.Bool(MethodIdentical(a0, a1)),
@@ -229,10 +245,43 @@ public static partial class BallRuntime
 
                 return BallValue.Bool(false);
             case BallMap map:
-                return map.Remove(AsStr(value)) ?? BallValue.Null;
+                return map.Remove(MapKey(value)) ?? BallValue.Null;
             default:
                 return UnsupportedMethod("remove", self);
         }
+    }
+
+    // ── Core-collection copy/fill constructors (Map.from / List.of / List.filled) ──
+
+    /// <summary><c>Map.from(source)</c> / <c>Map.of(source)</c> — a fresh insertion-ordered copy of a map-like value.</summary>
+    public static BallValue MapCopy(BallValue source) => source switch
+    {
+        BallMap m => m.Snapshot(),
+        BallMessage msg => msg.Fields.Snapshot(),
+        BallNull => new BallMap(),
+        _ => throw new BallRuntimeException($"Map.from/of expected a map, got {TypeName(source)}"),
+    };
+
+    /// <summary><c>List.from(source)</c> / <c>List.of(source)</c> — a fresh copy of a list-like value (a set is a list).</summary>
+    public static BallValue ListCopy(BallValue source) => source switch
+    {
+        BallList l => new BallList(l.Snapshot()),
+        BallMessage msg when msg.Get("items") is BallList items => new BallList(items.Snapshot()),
+        BallNull => new BallList(),
+        _ => throw new BallRuntimeException($"List.from/of expected an iterable, got {TypeName(source)}"),
+    };
+
+    /// <summary><c>List.filled(count, fill)</c> — a new list of <paramref name="count"/> copies of <paramref name="fill"/> (Dart shares the one fill reference).</summary>
+    public static BallValue ListFilled(BallValue count, BallValue fill)
+    {
+        var n = AsIndex(count);
+        var list = new BallList();
+        for (var i = 0; i < n; i++)
+        {
+            list.Add(fill);
+        }
+
+        return list;
     }
 
     private static BallValue MethodSetAll(BallValue self, BallValue index, BallValue values)
@@ -262,6 +311,66 @@ public static partial class BallRuntime
 
         return BallValue.Int(-1);
     }
+
+    // ── Higher-order callbacks the self-hosted engine invokes on its own values ──
+
+    /// <summary>
+    /// Dart's top-level <c>Function.apply(callee, positionalArgs)</c> — the std
+    /// <c>invoke</c> handler's dynamic dispatch (<c>engine_std.dart</c>'s
+    /// <c>_stdInvoke</c>). Encoded as <c>Function.apply(callee, [arg])</c>, so
+    /// <paramref name="self"/> is the <c>Function</c> type literal,
+    /// <paramref name="callee"/> the target function, and
+    /// <paramref name="positional"/> the one-element positional-args list. (A
+    /// <c>callee.apply([arg])</c> form — <paramref name="self"/> the callee — is
+    /// also accepted.) Ball functions take one input, so the sole positional
+    /// element is passed straight through.
+    /// </summary>
+    private static BallValue MethodApply(BallValue self, BallValue callee, BallValue positional)
+    {
+        if (self is BallFunction)
+        {
+            positional = callee;
+            callee = self;
+        }
+
+        var args = positional is BallList list ? list.Snapshot() : new List<BallValue> { positional };
+        var input = args.Count > 0 ? args[0] : BallValue.Null;
+        return InvokeCallable(callee, input);
+    }
+
+    /// <summary>
+    /// Dart's <c>Iterable.fold&lt;T&gt;(initial, (acc, elem) =&gt; …)</c> — the engine
+    /// folds a native list with a two-parameter combine callback (e.g.
+    /// <c>string_split</c>'s allocation accounting). The compiled combine binds
+    /// its parameters name-or-positionally, so the pair is passed under
+    /// <c>arg0</c>/<c>arg1</c>.
+    /// </summary>
+    private static BallValue MethodFold(BallValue self, BallValue initial, BallValue combine)
+    {
+        var acc = initial;
+        foreach (var element in AsList(self).Snapshot())
+        {
+            var callArgs = new BallMap();
+            callArgs.Set("arg0", acc);
+            callArgs.Set("arg1", element);
+            acc = InvokeCallable(combine, callArgs);
+        }
+
+        return acc;
+    }
+
+    /// <summary>
+    /// Invoke a first-class callback that may be either a native
+    /// <see cref="BallFunction"/> or the engine's own <c>BallFunction</c> value
+    /// object (a <see cref="BallMessage"/> wrapping the native closure under its
+    /// <c>value</c> field).
+    /// </summary>
+    private static BallValue InvokeCallable(BallValue callee, BallValue input) => callee switch
+    {
+        BallFunction => CallFunction(callee, input),
+        BallMessage m when m.Get("value") is BallFunction inner => CallFunction(inner, input),
+        _ => throw new BallRuntimeException($"apply/fold callback is not callable: {TypeName(callee)}"),
+    };
 
     // ── Static constructors / parsers ────────────────────────────
 

@@ -1,3 +1,66 @@
+# [1.42.0](https://github.com/Ball-Lang/ball/compare/v1.41.0...v1.42.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — IEEE double equality + num.remainder/toInt dispatch ([#410](https://github.com/Ball-Lang/ball/issues/410)) ([f65c4f6](https://github.com/Ball-Lang/ball/commit/f65c4f66d6a8794a9505245e654ab1fc3a57a39c))
+
+# [1.41.0](https://github.com/Ball-Lang/ball/compare/v1.40.1...v1.41.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — splice list-literal spread/comprehension elements ([#409](https://github.com/Ball-Lang/ball/issues/409)) ([d98fbb8](https://github.com/Ball-Lang/ball/commit/d98fbb8036499cf96f93eb9e9084810b539ed7e7))
+
+## [1.40.1](https://github.com/Ball-Lang/ball/compare/v1.40.0...v1.40.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **cpp:** link nlohmann_json to test_cli_parity — repair the macOS C++ release ([#404](https://github.com/Ball-Lang/ball/issues/404)) ([3d792c0](https://github.com/Ball-Lang/ball/commit/3d792c0698038881dc2f9216890c5acf8e1241f7))
+
+# [1.40.0](https://github.com/Ball-Lang/ball/compare/v1.39.0...v1.40.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — first-class callback invoke (Function.apply + list fold) ([#408](https://github.com/Ball-Lang/ball/issues/408)) ([7966707](https://github.com/Ball-Lang/ball/commit/7966707952014b9700634295a05b9357aa55ae49))
+
+# [1.39.0](https://github.com/Ball-Lang/ball/compare/v1.38.0...v1.39.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host corpus 271→291 — live reassigned-field state + loader depth ([#407](https://github.com/Ball-Lang/ball/issues/407)) ([ffbac56](https://github.com/Ball-Lang/ball/commit/ffbac56df192feb5ed9b60e1fc414f18cfe6f063))
+
+# [1.38.0](https://github.com/Ball-Lang/ball/compare/v1.37.0...v1.38.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host corpus 251→271 — close the double value-representation gap ([#406](https://github.com/Ball-Lang/ball/issues/406)) ([c7b6716](https://github.com/Ball-Lang/ball/commit/c7b6716f7808d6b7e0b9da484bff1cf0457bd0a5))
+
+# [1.37.0](https://github.com/Ball-Lang/ball/compare/v1.36.0...v1.37.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host corpus 199→251 — RegExp, collection copy/fill ctors, universal toString ([#405](https://github.com/Ball-Lang/ball/issues/405)) ([527c140](https://github.com/Ball-Lang/ball/commit/527c1408d4f18c4edc4e955895c52b9b9013cc34))
+
+# [1.36.0](https://github.com/Ball-Lang/ball/compare/v1.35.1...v1.36.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host engine runs hello_world + fibonacci (switch fall-through + runtime-shape fixes) ([#401](https://github.com/Ball-Lang/ball/issues/401)) ([b23e9b1](https://github.com/Ball-Lang/ball/commit/b23e9b1eb40fbbddcf999192bfc0e701b7c1819d))
+
+## [1.35.1](https://github.com/Ball-Lang/ball/compare/v1.35.0...v1.35.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **ci:** [@claude](https://github.com/claude) workflows — OAuth token input + working account failover ([#400](https://github.com/Ball-Lang/ball/issues/400)) ([6ff51d4](https://github.com/Ball-Lang/ball/commit/6ff51d41ddfc34f39bb448b608382116575b5ddb)), closes [#368](https://github.com/Ball-Lang/ball/issues/368)
+
 # [1.35.0](https://github.com/Ball-Lang/ball/compare/v1.34.1...v1.35.0) (2026-07-11)
 
 

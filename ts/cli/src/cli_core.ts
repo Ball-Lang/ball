@@ -41,12 +41,16 @@ import {
   validateOk as _validateOk,
   treeReport as _treeReport,
   versionLine as _versionLine,
+  auditReport as _auditReport,
+  analyzeCapabilities as _analyzeCapabilities,
+  analyzeCapabilitiesReachable as _analyzeCapabilitiesReachable,
+  formatCapabilityReport as _formatCapabilityReport,
+  checkPolicyViolations as _checkPolicyViolations,
 } from './compiled_cli.ts';
 
 // ── Ball program types (proto3 JSON shape) ──────────────────────────────────
-// Intentionally permissive and redeclared locally — same convention as
-// `capability_analyzer.ts` — so this wrapper has no hard dependency on the
-// engine's private types, only the fields the four verbs actually read.
+// Intentionally permissive and redeclared locally so this wrapper has no hard
+// dependency on the engine's private types, only the fields the verbs read.
 
 export interface Program {
   name?: string;
@@ -168,4 +172,156 @@ export function treeReport(program: Program): string {
 
 export function versionLine(version: string): string {
   return _versionLine(version) as string;
+}
+
+// ── audit ─────────────────────────────────────────────────────────────────────
+// The capability + termination analyzers now self-host (issue #362): they are
+// compiled from `cli_core.dart` into `compiled_cli.ts` alongside the other
+// verbs. Their walkers read scalar fields (e.g. `call.module.length`) and
+// repeated fields (`block.statements`) directly, so — like info/validate/tree —
+// the proto3-JSON input must be materialized first (every scalar defaulted,
+// every repeated present), and unlike them the materialization must descend the
+// whole expression tree the analyzers walk. `matExpr`/`matStmt` below mirror the
+// Dart parity gate's `protoToEngineMap` for the audit surface.
+
+function _str(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
+function matExpr(raw: any): any {
+  if (raw === null || raw === undefined) return raw;
+  // A guarded oneof member (`raw.<case> !== undefined`) is a non-null object, so
+  // no `?? {}` fallback is needed on it; only genuinely-optional sub-fields
+  // (call.input, fieldAccess.object, block.result, repeated fields) are guarded.
+  const out: Record<string, unknown> = {};
+  if (raw.call !== undefined) {
+    const c = raw.call;
+    const call: Record<string, unknown> = {
+      module: _str(c.module),
+      function: _str(c.function),
+    };
+    if (c.input !== undefined) call.input = matExpr(c.input);
+    out.call = call;
+  } else if (raw.literal !== undefined) {
+    out.literal = matLiteral(raw.literal);
+  } else if (raw.reference !== undefined) {
+    out.reference = { name: _str(raw.reference.name) };
+  } else if (raw.fieldAccess !== undefined) {
+    const fa = raw.fieldAccess;
+    const acc: Record<string, unknown> = { field: _str(fa.field) };
+    if (fa.object !== undefined) acc.object = matExpr(fa.object);
+    out.fieldAccess = acc;
+  } else if (raw.messageCreation !== undefined) {
+    const mc = raw.messageCreation;
+    out.messageCreation = {
+      typeName: _str(mc.typeName),
+      fields: (mc.fields ?? []).map((f: any) => ({
+        name: _str(f.name),
+        value: matExpr(f.value),
+      })),
+    };
+  } else if (raw.block !== undefined) {
+    const b = raw.block;
+    const blk: Record<string, unknown> = {
+      statements: (b.statements ?? []).map(matStmt),
+    };
+    if (b.result !== undefined) blk.result = matExpr(b.result);
+    out.block = blk;
+  } else if (raw.lambda !== undefined) {
+    out.lambda = { body: matExpr(raw.lambda.body) };
+  }
+  return out;
+}
+
+function matLiteral(raw: any): any {
+  const out: Record<string, unknown> = { ...raw };
+  if (raw.listValue !== undefined) {
+    out.listValue = { elements: (raw.listValue.elements ?? []).map(matExpr) };
+  }
+  return out;
+}
+
+function matStmt(raw: any): any {
+  const out: Record<string, unknown> = {};
+  if (raw.let !== undefined) {
+    const lt = raw.let;
+    out.let = { name: _str(lt.name), value: matExpr(lt.value) };
+  }
+  if (raw.expression !== undefined) {
+    out.expression = matExpr(raw.expression);
+  }
+  return out;
+}
+
+function matFunction(raw: ProgramFunction): unknown {
+  const out: Record<string, unknown> = {
+    name: raw.name ?? '',
+    isBase: raw.isBase ?? false,
+  };
+  if (raw.body !== undefined) out.body = matExpr(raw.body);
+  if (raw.metadata !== undefined) out.metadata = raw.metadata;
+  return out;
+}
+
+function matModule(raw: ProgramModule): unknown {
+  return {
+    name: raw.name ?? '',
+    description: raw.description ?? '',
+    functions: (raw.functions ?? []).map(matFunction),
+    moduleImports: (raw.moduleImports ?? []).map(normalizeModuleImport),
+  };
+}
+
+/**
+ * Materialize a proto3-JSON Program (with omitted defaults) into the fully
+ * defaulted shape the compiled audit analyzers walk — including the expression
+ * tree. A program missing `modules` entirely throws (fail-loud, issue #55),
+ * preserving the audit verb's crash-on-malformed contract.
+ */
+function normalizeAuditProgram(raw: Program): Record<string, unknown> {
+  return {
+    name: raw.name ?? '',
+    version: raw.version ?? '',
+    entryModule: raw.entryModule ?? '',
+    entryFunction: raw.entryFunction ?? '',
+    // No `?? []`: a program with no `modules` key must throw, not silently
+    // audit as empty (matches the native analyzer + the malformed-input test).
+    modules: (raw.modules as ProgramModule[]).map(matModule),
+  };
+}
+
+/** The Map/List capability report the compiled analyzers produce. */
+export type CapabilityReport = unknown;
+
+/**
+ * Static capability analysis. `reachableOnly` scopes it to the transitive
+ * closure of the entry function. Returns the Map/List report shape (see
+ * `capability_analyzer.dart`).
+ */
+export function analyzeCapabilities(
+  program: Program,
+  opts: { reachableOnly?: boolean } = {},
+): CapabilityReport {
+  const norm = normalizeAuditProgram(program);
+  return opts.reachableOnly
+    ? _analyzeCapabilitiesReachable(norm)
+    : _analyzeCapabilities(norm);
+}
+
+/** Render a capability report as human-readable text. */
+export function formatCapabilityReport(report: CapabilityReport): string {
+  return _formatCapabilityReport(report) as string;
+}
+
+/** Violations for a report against a `deny` set (empty ⇒ pass). */
+export function checkPolicy(
+  report: CapabilityReport,
+  deny: Set<string>,
+): string[] {
+  return _checkPolicyViolations({ report, deny: [...deny] }) as string[];
+}
+
+/** The full `ball audit` report text (capability report + termination). */
+export function auditReport(program: Program): string {
+  return _auditReport(normalizeAuditProgram(program)) as string;
 }

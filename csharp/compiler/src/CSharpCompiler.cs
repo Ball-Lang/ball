@@ -633,6 +633,45 @@ public sealed partial class CSharpCompiler
     /// fields of a constructor call are remapped to the constructor's real
     /// parameter names.
     /// </summary>
+    /// <summary>
+    /// If <paramref name="mc"/> is a Dart core-collection copy/fill constructor
+    /// (<c>Map.from</c>/<c>Map.of</c>, <c>List.from</c>/<c>List.of</c>,
+    /// <c>List.filled</c>, plus the <c>LinkedHashMap</c>/<c>HashMap</c> named
+    /// aliases), emit the native-runtime materialization
+    /// (<see cref="BallRuntime.MapCopy"/>/<see cref="BallRuntime.ListCopy"/>/
+    /// <see cref="BallRuntime.ListFilled"/>); otherwise <c>null</c> (fall through
+    /// to the general dynamic-message path).
+    /// </summary>
+    private string? CompileCollectionFactory(MessageCreation mc)
+    {
+        var op = Naming.TypeShortName(mc.TypeName) switch
+        {
+            "Map.from" or "Map.of"
+                or "LinkedHashMap.from" or "LinkedHashMap.of"
+                or "HashMap.from" or "HashMap.of"
+                or "SplayTreeMap.from" or "SplayTreeMap.of" => "MapCopy",
+            "List.from" or "List.of" => "ListCopy",
+            "List.filled" => "ListFilled",
+            _ => null,
+        };
+        if (op is null)
+        {
+            return null;
+        }
+
+        var args = mc.Fields
+            .Where(f => Naming.IsPositionalArg(f.Name))
+            .Select(f => f.Value is null ? "BallValue.Null" : CompileExpression(f.Value))
+            .ToList();
+
+        return op switch
+        {
+            "ListFilled" when args.Count >= 2 => $"BallRuntime.ListFilled({args[0]}, {args[1]})",
+            "MapCopy" or "ListCopy" when args.Count >= 1 => $"BallRuntime.{op}({args[0]})",
+            _ => null,
+        };
+    }
+
     private string CompileMessageCreation(MessageCreation mc)
     {
         // A Dart core-collection constructor (`LinkedHashMap()`, `HashMap()`, …)
@@ -645,6 +684,17 @@ public sealed partial class CSharpCompiler
             && !mc.Fields.Any(f => Naming.IsPositionalArg(f.Name)))
         {
             return "(BallValue)new BallMap()";
+        }
+
+        // A Dart core-collection copy/fill constructor carrying a source or count
+        // argument (`Map.from(m)`, `List.of(xs)`, `List.filled(n, x)`, …) also has
+        // no typeDef; materialize a real native map/list so the result
+        // indexes/iterates/mutates instead of being an opaque BallMessage the
+        // engine then fails to `..remove(k)` / iterate. (The no-arg forms are
+        // handled above.)
+        if (CompileCollectionFactory(mc) is { } factory)
+        {
+            return factory;
         }
 
         // Remap each positional argN field to the constructor's real parameter

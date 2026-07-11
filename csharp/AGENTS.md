@@ -446,13 +446,28 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   keystone — **Dart switch-statement fall-through** (a bare `case 'a': case 'b': <stmt>`) now ORs
   the empty-body labels into the shared body, instead of dropping it; this silently broke every
   `++`/`--` (a four-label fall-through case), hanging every counter loop.
-- **Conformance baseline (informal sweep):** driving the whole `tests/conformance/*.ball.json`
-  corpus through `BallEngine.Run` gives **199 passed / 324** (0 timeouts). The remaining failures
-  are dominated (~55%) by the dynamic built-in-method surface (`BallRuntime.CallMethod` /
-  `MethodRemove` on `Message`/`List` receivers — e.g. `.remove`, `.tag`, `.name`, `.remainder`),
-  then null-operand numeric ops and a handful of `toString`/method-resolution gaps. The proper
-  gated harness is #384; the acceptance tests are `csharp/engine/test/SelfHostRunTests.cs`
-  (SELF_HOST-gated, excluded from the default build; run with `dotnet test -p:SelfHost=true`).
+- **Climbs the corpus (Round 5):** the informal `tests/conformance/*.ball.json` sweep is now at
+  **251 passed / 324** (0 timeouts), up from 199. Round 5 landed three bounded root-cause
+  categories, each measured: (a) the **RegExp surface** (`BallRegex.cs`: `firstMatch`/`hasMatch`/
+  `allMatches` on a `RegExp` message, `group` on the returned match — the engine parses type/
+  expression strings with `RegExp`, and Dart's default flags line up with .NET's default
+  `Regex`); (b) **core-collection copy/fill constructors** — `Map.from`/`List.of`/`List.filled`
+  (and the `LinkedHashMap`/`HashMap` aliases) now materialize a native `BallMap`/`BallList`
+  (`CompileCollectionFactory` → `BallRuntime.MapCopy`/`ListCopy`/`ListFilled`) instead of an
+  opaque `BallMessage` the engine then fails to `..remove(k)`/iterate; and (c) the **universal
+  `toString` dispatcher fallback** — a `toString` method dispatcher that matches no user override
+  now falls back to `BallRuntime.ToStringValue` (Dart's `Object.toString()` is universal — a core
+  value or an override-less object must still stringify), which the engine's own value-stringify
+  (`result.toString()` on an interpreted method's String result, and its final `v.toString()`)
+  depends on.
+- **Remaining failures (Round 5 residual):** the largest coherent bucket is null-operand numeric
+  ops (~18: a genuine double-value-representation gap — an operand reaches `AsDouble` as `Null`
+  from a path `_toNum` provably cannot produce, so the root cause is upstream in how a double
+  value is modelled, NOT a guard to add), then output diffs (~20), `Function.apply`/`fold`
+  higher-order callbacks (~7), and a handful of method-resolution singletons (`.tag`/`.name`/
+  `.remainder`/`.greet`). The proper gated harness is #384; the acceptance tests are
+  `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build; run
+  with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -498,7 +513,9 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
   **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
   **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
-  informal corpus sweep is at 199/324 with no hangs (see "Self-hosted engine" above and #383). The
+  informal corpus sweep is at 251/324 with no hangs after the Round-5 category grind (RegExp
+  surface, core-collection copy/fill constructors, universal `toString` fallback — see
+  "Self-hosted engine" above and #383). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

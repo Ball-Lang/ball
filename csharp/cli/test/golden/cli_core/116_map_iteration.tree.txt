@@ -1,0 +1,5 @@
+encoded v1.0.0
+  std (base) — 6 functions
+  std_collections (base) — 1 functions
+  main — 1 functions
+    → std (ref only)

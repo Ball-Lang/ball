@@ -5,6 +5,18 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Under -p:CliCore=true / -p:SelfHost=true, define the matching symbols here too so the
+       gated test classes (CliCoreParityTests, CliSelfHostRunTests) compile in and the
+       default-build "honest degradation" tests are excluded. Ball.Cli/Ball.Engine pick up the
+       properties via their own csproj conditions (the global properties propagate to every
+       ProjectReference in the same build). -->
+  <PropertyGroup Condition="'$(CliCore)' == 'true'">
+    <DefineConstants>$(DefineConstants);CLI_CORE</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(SelfHost)' == 'true'">
+    <DefineConstants>$(DefineConstants);SELF_HOST</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3" />

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Ball Is
 
-Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the reference implementation (compiler + encoder + engine + CLI, broadest std coverage). **TypeScript** is a full pipeline too — compiler, self-hosted engine, and encoder — all CI-gated (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`, with no `ts_std`). **C++** has a compiler, encoder (Clang AST → Ball), and self-hosted engine, with the self-host conformance passing **every** fixture; it is now **libprotobuf-free** — #18 Stage 5 dropped the FetchContent Google protobuf entirely (closing #18/#25/#330/#333), loading Ball via the protobuf-free `ball::ir` (nlohmann/json) + Ball's own compiled protobuf runtime. **Rust** (epic #32, closed) is now a complete pipeline too: compiler (`rust/compiler/`, #36-38), encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`, #41); all CI-gated (the `rust` job in `ci.yml` plus a `rust-engine` row in `conformance-matrix.yml`, #40/#44 closed) — see `rust/AGENTS.md`. **C#** (epic #377) has proto bindings + a runtime value model (`csharp/shared/`, #379-380) and a Roslyn-based C# → Ball encoder (`csharp/encoder/`, #382, syntax-only via `Microsoft.CodeAnalysis.CSharp`, verified against the Dart reference engine since no C# engine exists yet); the compiler, self-hosted engine, and CLI are still pending (#381/#383/#385) — see `csharp/AGENTS.md`. **Go/Python/Java** ship proto bindings only. Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
+Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the reference implementation (compiler + encoder + engine + CLI, broadest std coverage). **TypeScript** is a full pipeline too — compiler, self-hosted engine, and encoder — all CI-gated (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`, with no `ts_std`). **C++** has a compiler, encoder (Clang AST → Ball), and self-hosted engine, with the self-host conformance passing **every** fixture; it is now **libprotobuf-free** — #18 Stage 5 dropped the FetchContent Google protobuf entirely (closing #18/#25/#330/#333), loading Ball via the protobuf-free `ball::ir` (nlohmann/json) + Ball's own compiled protobuf runtime. **Rust** (epic #32, closed) is now a complete pipeline too: compiler (`rust/compiler/`, #36-38), encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`, #41); all CI-gated (the `rust` job in `ci.yml` plus a `rust-engine` row in `conformance-matrix.yml`, #40/#44 closed) — see `rust/AGENTS.md`. **C#** (epic #377) is now a complete pipeline too: proto bindings + a runtime value model (`csharp/shared/`, #379-380), a Ball → C# compiler (`csharp/compiler/`, #381), a Roslyn-based C# → Ball encoder (`csharp/encoder/`, #382, syntax-only via `Microsoft.CodeAnalysis.CSharp`), a self-hosted engine that runs the whole conformance corpus at Dart parity (`csharp/engine/`, #383, 320/320, behind the off-by-default `-p:SelfHost=true` MSBuild property since the generated `CompiledEngine.cs` isn't present in a fresh checkout), and a `ball` CLI (`csharp/cli/`, #385: `run`/`compile`/`encode`/`check` via `System.CommandLine` plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` behind `-p:CliCore=true`). No C# CI job exists yet (#386) — see `csharp/AGENTS.md`. **Go/Python/Java** ship proto bindings only. Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
 
 **Every language is only "done" when it can compile AND encode AND execute the conformance corpus** — a compiler without an encoder (or vice-versa) is a half-implementation. Treat the cross-language conformance matrix (Dart/TS/C++/… × compile/encode/run) as the definition of done.
 
@@ -113,6 +113,26 @@ cargo fmt --check && cargo clippy --workspace
 cd rust && cargo run -p ball-engine-regen
 cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored --nocapture
 
+# C# — .NET 10 SDK is native on Windows, no WSL needed. Solution is csharp/Ball.slnx;
+# Central Package Management pins versions in csharp/Directory.Packages.props.
+cd csharp && dotnet build Ball.slnx && dotnet test Ball.slnx
+dotnet format Ball.slnx --verify-no-changes   # run `dotnet format` (no flag) to fix
+
+# Regenerate the C# self-hosted engine (dart/self_host/engine.ball.pb -> CompiledEngine.cs,
+# gitignored, only in the build under -p:SelfHost=true — see csharp/AGENTS.md)
+cd dart && dart run compiler/tool/compile_engine_cpp.dart   # writes engine.ball.pb (the trailing
+                                                              # C++ emit step errors when
+                                                              # ball_cpp_compile is absent —
+                                                              # harmless, the .pb is already written
+cd ../csharp && dotnet run --project engine/tool/Ball.Engine.Regen.csproj
+dotnet test engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true --filter "FullyQualifiedName~SelfHostRunTests"
+
+# Regenerate the C# self-hosted CLI core (dart/self_host/cli.ball.json -> CompiledCli.cs,
+# gitignored, only in the build under -p:CliCore=true — see csharp/AGENTS.md)
+cd dart && dart run compiler/tool/gen_cli_json.dart
+cd ../csharp && dotnet run --project cli/tool/Ball.Cli.Regen.csproj
+dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true
+
 # Proto — lint, breaking-change check, regenerate all bindings
 # NOTE: buf.yaml lives at proto/buf.yaml (not repo root), so `proto` MUST be
 # passed as the explicit input — a bare `buf generate`/`buf lint` run from
@@ -151,7 +171,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS engine regeneration command above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C# engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
 
 ## Architecture Big Picture
 

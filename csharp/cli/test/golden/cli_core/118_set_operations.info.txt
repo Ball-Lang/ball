@@ -1,0 +1,13 @@
+Program: encoded v1.0.0
+Entry:   main.main
+Modules: 3
+
+  std (base)
+    typeDefs:  3
+    functions: 7
+    desc:      Universal standard library base module
+  std_collections (base)
+    functions: 3
+    desc:      Collections standard library base module
+  main
+    functions: 1

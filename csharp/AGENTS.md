@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–5 complete + Phase 6 self-host engine runs the WHOLE conformance corpus at Dart parity — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine)
+# C# (Phases 1–5 complete + Phase 6 self-host engine runs the WHOLE conformance corpus at Dart parity + Phase 8 `ball` CLI — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine + run/compile/encode/check/info/validate/tree/version)
 
 ## Purpose
 
@@ -13,8 +13,11 @@ bindings" below). **Phase 3 (#380) added the runtime value model + std module bu
 base-op helper layer to `shared/`** (see "Runtime value model" below). **Phase 4 (#381) added the
 Ball → C# compiler to `compiler/`** (see "Compiler" below). **Phase 5 (#382) added the C# → Ball
 encoder to `encoder/`** (via Roslyn, syntax-only — see "Encoder" below; verified end-to-end
-against the DART reference engine). The `engine`/`cli` packages are still Phase-1 placeholders —
-see the phase table in the epic #377 tracking comment.
+against the DART reference engine). **Phase 6 (#383) added the self-hosted engine to `engine/`**,
+running the whole conformance corpus at Dart parity (see "Self-hosted engine" below). **Phase 8
+(#385) added the `ball` CLI to `cli/`** — `run`/`compile`/`encode`/`check` plus the self-hosted
+cli-core verbs `info`/`validate`/`tree`/`version` (see "CLI" below). Conformance harness (#384)
+and CI (#386) are still pending — see the phase table in the epic #377 tracking comment.
 
 ## Layout
 
@@ -58,12 +61,26 @@ csharp/
                             # a std-accumulation/zero-csharp_std suite + proof-program tests
                             # (hello_world/fibonacci/factorial)
   engine/
-    src/PackageInfo.cs     # Phase 1 placeholder; self-hosted engine wrapper lands in #383
+    src/PackageInfo.cs     # Phase 1 marker (kept as a stable PackageInfo.Name constant)
+    src/Loader.cs          # #383: proto3-JSON/binary -> typed Program + canonical BallValue view
+    src/BallEngine.cs      # #383: FromJson/FromBinary/Run facade; RunSelfHosted under SELF_HOST
+    src/CompiledEngine.cs  # #383: GENERATED, gitignored — see engine/tool below
     test/
+    tool/                  # #383: Ball.Engine.Regen — regenerates src/CompiledEngine.cs
   cli/
-    src/Program.cs         # Phase 1 placeholder entry point; real subcommands land in #385
-    src/CliInfo.cs          # proves shared/compiler/encoder/engine all resolve as references
-    test/
+    src/Program.cs         # #385: `ball` entry point — System.CommandLine wiring (class
+                            # CliEntryPoint, deliberately not `Program`, to avoid colliding with
+                            # Ball.V1.Program in this assembly's other files)
+    src/CliError.cs        # #385: CliError (Io=3/Parse=2/Runtime=1) — the exit-code contract
+    src/Loader.cs           # #385: load_engine — .ball.json/.ball.bin -> BallEngine
+    src/Output.cs           # #385: write_text/write_bytes — --output <file> or stdout
+    src/ExceptionGuard.cs   # #385: compiler/encoder exception -> CliParseError
+    src/Serialize.cs        # #385: Program -> Any-wrapped JSON/binary (ball encode's output)
+    src/Commands/*.cs       # #385: one file per subcommand (Run/Compile/Encode/Check/Info/
+                            # Validate/Tree/Version)
+    src/CompiledCli.cs      # #385: GENERATED, gitignored — see cli/tool below
+    test/                   # golden/cli_core/*.txt — checked-in Dart CLI goldens (parity gate)
+    tool/                   # #385: Ball.Cli.Regen — regenerates src/CompiledCli.cs
 ```
 
 ## Solution format
@@ -543,12 +560,153 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
+## CLI (issue #385) — `cli/`
+
+The `ball` binary: `run`/`compile`/`encode`/`check` over `shared`/`compiler`/`encoder`/`engine`,
+plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` (epic #361 pattern,
+mirroring `rust/cli` — see `rust/cli/AGENTS.md` — and `ts/cli`). This is the binary #369 ships to
+NuGet. Argument parsing is **`System.CommandLine` 2.0.9** — verified the current stable release
+on nuget.org 2026-07-11 (`api.nuget.org/v3-flatcontainer/system.commandline/index.json` lists 51
+versions; highest non-preview is `2.0.9`, the newest overall is a `3.0.0-preview.*` deliberately
+not used here). It went GA (stable `2.0.0`) 2025-11-11 after years of beta/RC — the "`Option<T>`
++ `Argument<T>` + `Command.SetAction(ParseResult -> int)` + `rootCommand.Parse(args).Invoke()`"
+shape (not the older `SetHandler`/`InvocationContext` API from pre-beta5 docs).
+
+### Exit-code contract (issue #385)
+
+| Code | Meaning |
+|------|---------|
+| `0`  | success |
+| `1`  | runtime error — a Ball program ran but failed (a `throw` that escaped `main`, or the engine itself reporting an error), or a cli-core verb needs a build the current binary doesn't have |
+| `2`  | invalid/unparseable program — bad `.ball.json`/`.ball.bin` shape, C# source `encode` couldn't turn into a program, a loaded program was too malformed to compile, or `ball validate` found the program invalid |
+| `3`  | file-not-found / other I/O error reading input or writing `--output` |
+
+`CliError` (`src/CliError.cs`) is an exception hierarchy — `CliIoError`/`CliParseError`/
+`CliRuntimeError` — each carrying its own `ExitCode`; `CliEntryPoint.Invoke` (in `Program.cs`)
+catches it at the top level, prints `ball: <message>` to stderr, and returns the code.
+`0` is simply the absence of a thrown `CliError`, never an explicit branch. Mirrors
+`rust/cli/src/error.rs` exactly (including its Dart-vs-target `validate` exit-code adaptation —
+Dart exits `1` generically on an invalid program; this CLI's own pre-existing contract reserves
+`1` for a *runtime* failure, so `ValidateCommand` maps a failed validation to `CliParseError`
+(exit `2`) instead, text unchanged).
+
+### `.ball.bin` is `Any`-wrapped — a deliberate divergence from `rust/cli`
+
+`Serialize.ProgramToBinary` (`ball encode --format binary`'s output) wraps the `Program` in a
+`google.protobuf.Any` envelope (`Any.Pack(program).ToByteArray()`) — the **canonical** binary
+ball-file shape (Dart's `encodeBallFileBinary`, and this CLI's own `Loader`/
+`csharp/engine/src/Loader.cs`'s `ParseBinary`, both expect the `Any` wrapper). `rust/cli/src/
+serialize.rs` writes a bare (unwrapped) `Program` instead — a Rust-target-only convention that
+matches only `ball-lang-engine`'s own loader, not the Dart-canonical format. Do not copy that
+choice here; verified by encoding a program to `--format binary` and round-tripping it through
+`ball check`/`ball run` (a bare-`Program` encoding fails to load with a
+"`Full type name for Program is ball.v1.Program; Any message's type url is …`" error — the
+Any-vs-bare mismatch surfaces loudly, never silently).
+
+### Two Windows-specific console fixes (`Program.cs`, `CliEntryPoint.Main`)
+
+Both verified by running the whole `tests/conformance/*.ball.json` corpus (320 fixtures) through
+`ball run` under `-p:SelfHost=true` and diffing against `*.expected_output.txt`:
+
+- **UTF-8 output encoding.** The default Windows console codepage is not UTF-8, so non-ASCII
+  stdout silently mangled to `?` (fixtures 190/191/193/247/249/250/255 — every Unicode/UTF-8
+  fixture). Fixed with `Console.OutputEncoding = new UTF8Encoding(false)` at startup (guarded —
+  can throw when there's no console handle at all on some hosts).
+- **LF-only line endings.** `Console.WriteLine`'s terminator defaults to `Environment.NewLine`
+  (`"\r\n"` on Windows), but every other Ball target (Dart's `print`/`IOSink.writeln`, per
+  `BallRuntime.Print`'s own doc comment) always emits a bare `"\n"`. Fixed with
+  `Console.Out.NewLine = Console.Error.NewLine = "\n"` at startup, so `ball run` output and
+  cli-core report text stay byte-identical across OSes.
+
+### cli-core adoption (issue #385, epic #361 pattern) — the `CliCore` MSBuild property
+
+`dart/shared/lib/cli_core.dart` is a Ball-portable library of `Program -> String` report
+functions (`versionLine`/`infoReport`/`validateOk`/`validateReport`/`treeReport` — plus
+`auditReport`, **not** wired here, see below) — the single source of truth
+`dart/cli/lib/src/runner.dart`'s `info`/`validate`/`tree`/`version` verbs already call natively.
+`dotnet run --project csharp/cli/tool/Ball.Cli.Regen.csproj` compiles it via the Phase-4 compiler
+in **library mode** into `src/CompiledCli.cs`: since `cli_core` is a plain function library (no
+classes, no interpreter loop, unlike the self-hosted *engine*), `CSharpCompiler.Compile` already
+skips `Main` emission (no function named `main` exists in `cli_core`'s `main` module) — no
+runtime-driving wrapper like `BallEngine.RunSelfHosted` is needed; `Commands/{Info,Validate,Tree,
+Version}Command.cs` calls the generated `BallProgram.infoReport`/etc. straight.
+
+```bash
+cd dart && dart run compiler/tool/gen_cli_json.dart        # regen dart/self_host/cli.ball.json(+.pb)
+cd ../csharp && dotnet run --project cli/tool/Ball.Cli.Regen.csproj   # regen src/CompiledCli.cs
+```
+
+- `src/CompiledCli.cs` is **generated and gitignored** (`csharp/.gitignore`), same reasoning as
+  `CompiledEngine.cs` — never hand-patch it; fix `dart/shared/lib/cli_core.dart` (then
+  regenerate `cli.ball.json`) or `csharp/compiler/`.
+- Gated behind `Ball.Cli.csproj`'s own `CliCore` MSBuild property, off by default for the same
+  not-present-in-a-fresh-checkout reason as `SelfHost` — **independent** of `SelfHost`: cli-core's
+  functions are pure data transforms, not the interpreter. `Ball.Cli.Tests.csproj` mirrors the
+  same property so its gated test classes compile in under `-p:CliCore=true`.
+  - **Default build:** `info`/`validate`/`tree` report an honest `CliRuntimeError` (exit `1`),
+    never false success. `version` is the one exception: its whole logic is the one-line format
+    `"ball " + version`, so `Commands/VersionCommand.cs` keeps a tiny always-on fallback.
+  - **`-p:CliCore=true`** (after the two regen commands above): all four verbs produce output
+    byte-identical to the Dart CLI — **compiled clean on the first regen attempt, 0 `csc`
+    errors** (`cli_core` is a small library of report functions, unlike the whole-interpreter
+    self-hosted engine's multi-round grind) — proven by the golden-fixture parity gate below.
+- **`auditReport` is intentionally excluded** from `CompiledCli.cs` (issue #385, `#362` residual):
+  it calls `capability_analyzer`/`termination_analyzer`, separate Dart files pulled in via
+  `import` (not `part`), which `gen_cli_json.dart`'s `resolveDartLibrary` does not merge — the
+  Dart encoder leaves them as **empty import-stub modules** in `cli.ball.json`. `csharp/cli/tool/
+  Program.cs`'s `SkippedFunctions` filter drops `auditReport` from the loaded `Program` before
+  compiling (mirrors `rust/cli/tool/src/main.rs`'s identical `SKIPPED_FUNCTIONS`) — a C#-target-only,
+  well-documented workaround that touches neither `cli_core.dart` nor the compiler. No `ball audit`
+  subcommand exists.
+
+### Golden-fixture parity gate
+
+`test/CliCoreParityTests.cs` compares the **built `ball` binary's** stdout (spawned via
+`dotnet exec ball.dll …`, `CliProcess.cs`) for `info`/`validate`/`tree` against golden `.txt`
+files checked into `test/golden/cli_core/`, generated once from the real Dart CLI (`dart run
+dart/cli/bin/ball.dart <verb> <fixture>`) — the same 5-fixture set (`100_complex_control_flow`,
+`101_simple_class`, `111_cascade_operator`, `116_map_iteration`, `118_set_operations`)
+`rust/cli/tests/cli_core_parity.rs`/`dart/cli/test/cli_core_parity_test.dart` use. Verified
+byte-identical (after `\r\n`/`\n` normalization — Windows' `core.autocrlf` mangles the checked-out
+golden `.txt` files' embedded newlines, same caveat `SelfHostRunTests.cs`'s `ExpectedLines`
+already works around) across all 15 fixture×verb combinations. `version` has no golden file — its
+compiled-vs-fallback identity is checked directly by `CliGeneralTests`.
+
+### Testing (`cli/test/`)
+
+xUnit v3, black-box process-spawn style (mirrors `rust/cli/tests/*.rs`, not an in-process API —
+`CliProcess.Run(args)` spawns the real built `ball.dll` and asserts on stdout/stderr/exit code):
+`CliGeneralTests` (`--help`, `version`, usage errors), `CliRunTests` (`SelfHost`-gated real
+execution + default-build honest degradation + I/O/parse exit codes), `CliCompileTests`,
+`CliEncodeTests` (both `--format json|binary`), `CliCheckTests`, `CliCoreParityTests`
+(`CliCore`-gated golden parity + default-build degradation). `ball.dll` is found next to the test
+assembly — the test project's `ProjectReference` on `Ball.Cli.csproj` copies the referenced exe's
+output there as an ordinary build dependency, no extra wiring needed.
+
+```bash
+dotnet test csharp/cli/test/Ball.Cli.Tests.csproj                                   # default: 22 tests
+dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true                    # 35 tests
+dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:SelfHost=true                   # 24 tests
+dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 37 tests
+```
+
+### Known gaps
+
+- No package-registry commands (`dart/cli`'s `init`/`add`/`resolve`/`publish`/`build`) — out of
+  scope for issue #385, mirrors `rust/cli`.
+- No `ball audit` — see "`auditReport` is intentionally excluded" above (issue #362 residual).
+- `check` does not attempt to run the program — only compiler-shaped structural validation, plus
+  an opt-in `--compile` dry-run. It never drives the self-hosted engine.
+- No C# CI job runs this yet (that's #386).
+
 ## Generated Files — NEVER Edit
 
 - `csharp/shared/gen/` — protobuf bindings (`buf generate`, plugin
   `buf.build/protocolbuffers/csharp:v35.1`, see root `buf.gen.yaml`)
 - `csharp/engine/src/CompiledEngine.cs` — the self-hosted engine, regenerated by
   `csharp/engine/tool` (gitignored; only in the build under `-p:SelfHost=true`)
+- `csharp/cli/src/CompiledCli.cs` — the self-hosted CLI core, regenerated by `csharp/cli/tool`
+  (gitignored; only in the build under `-p:CliCore=true`)
 
 ## Build & Test
 
@@ -557,7 +715,7 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
 dotnet build csharp/Ball.slnx
 dotnet test csharp/Ball.slnx
 dotnet format csharp/Ball.slnx --verify-no-changes   # run `dotnet format` (no flag) to fix
-dotnet run --project csharp/cli/Ball.Cli.csproj       # prints the Phase 1 wiring banner
+dotnet run --project csharp/cli/Ball.Cli.csproj -- --help   # the real `ball` CLI (issue #385)
 
 # Self-hosted engine (issue #383): regenerate, build, and run the acceptance tests.
 # The regen tool prefers dart/self_host/engine.ball.pb (binary Any envelope). In a
@@ -570,6 +728,14 @@ dotnet run --project csharp/engine/tool/Ball.Engine.Regen.csproj    # writes Com
 dotnet build csharp/engine/Ball.Engine.csproj -p:SelfHost=true      # compile the generated engine
 dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   --filter "FullyQualifiedName~SelfHostRunTests"   # hello_world + fibonacci golden
+
+# Self-hosted cli-core (issue #385): regenerate, build, and run `ball` for real.
+cd dart && dart run compiler/tool/gen_cli_json.dart                  # writes cli.ball.json(+.pb)
+cd ../csharp && dotnet run --project cli/tool/Ball.Cli.Regen.csproj  # writes src/CompiledCli.cs
+dotnet build cli/Ball.Cli.csproj -p:CliCore=true -p:SelfHost=true    # both features together
+dotnet run --project cli/Ball.Cli.csproj -p:CliCore=true -p:SelfHost=true -- run \
+  ../examples/hello_world/hello_world.ball.json                     # prints "Hello, World!"
+dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 37 tests
 ```
 
 ## For AI Agents
@@ -595,8 +761,20 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   non-string map-key coercion; Round 13: Dart-catchable runtime errors; Round 14: JSON/DateTime
   built-ins + map-comprehension splice; Round 15: bytes-as-`List<int>`, two-variable
   `catch (e, stackTrace)`, in-place `Map.addAll` merge — see "Self-hosted engine" above and #383).
-  The `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
-  comment for the blocked-by graph (#384 conformance harness, #385 CLI, #386 CI, #387 docs).
+  **Phase 8 (#385) added the `ball` CLI**: `run`/`compile`/`encode`/`check` (via
+  `System.CommandLine` 2.0.9, verified GA-stable on nuget.org) plus the self-hosted cli-core verbs
+  `info`/`validate`/`tree`/`version` (epic #361 pattern — `CompiledCli.cs` compiled clean on the
+  first regen attempt, 0 errors), both input formats (`.ball.json`/`.ball.bin`, the latter
+  `Any`-wrapped per the Dart-canonical shape — see "CLI" above for why this deliberately diverges
+  from `rust/cli`'s bare-`Program` `.ball.bin` convention), the full `0`/`1`/`2`/`3` exit-code
+  contract, and a golden-fixture parity gate against the Dart CLI (`test/CliCoreParityTests.cs`).
+  `ball run` (under `-p:SelfHost=true -p:CliCore=true`) executes the **whole** `tests/
+  conformance/*.ball.json` corpus (320 fixtures) at Dart parity through the real built binary —
+  the same two Windows console fixes (UTF-8 output encoding, forced LF line endings) that made
+  that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
+  accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
+  Conformance harness (#384) and CI (#386) are still pending — see the phase table in the epic
+  #377 tracking comment for the blocked-by graph.
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds
   lists/maps/messages with the reference-vs-value-semantics copy rules above — do not re-derive
   operator semantics as emitted text. Fixes to compiled-program behavior belong in the compiler

@@ -1,20 +1,61 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    csharp/cli: `ball run`/`compile`/`encode`/`check` entry point (issue
-    #385). Phase 1 (#378) wires the executable to all four sibling packages
-    to prove the dependency graph resolves; test/ is excluded from this
-    project's own compile items because it holds a sibling test project
-    (see test/).
+    csharp/cli: the `ball` CLI (issue #385) — `run`/`compile`/`encode`/`check`
+    over shared/compiler/encoder/engine, plus the self-hosted cli-core verbs
+    `info`/`validate`/`tree`/`version` (compiled from
+    dart/shared/lib/cli_core.dart through csharp/cli/tool — see
+    csharp/AGENTS.md). test/ is excluded from this project's own compile
+    items because it holds a sibling test project (see test/).
+
+    Two independent MSBuild properties gate generated/feature-dependent code,
+    mirroring rust/cli's `self_host`/`cli_core` Cargo features:
+      - SelfHost (defined on csharp/engine/Ball.Engine.csproj, which this
+        project references) — `run` actually executes a program only when the
+        whole build is invoked with -p:SelfHost=true; the ProjectReference
+        propagates that global property to Ball.Engine automatically.
+      - CliCore (this project's own property) — `info`/`validate`/`tree`
+        report real output, and `version` calls the compiled `versionLine`,
+        only under -p:CliCore=true, which both defines CLI_CORE and pulls in
+        the generated, gitignored src/CompiledCli.cs. Independent of SelfHost:
+        cli-core's functions are pure data transforms, not the interpreter.
+    Neither property is on by default, so a fresh checkout (no generated
+    files present) still builds — every gated verb reports an honest
+    CliRuntimeError (exit 1) instead of a false success.
   -->
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Ball.Cli</RootNamespace>
+    <AssemblyName>ball</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- The SDK appends `+<git-sha>` build metadata to AssemblyInformationalVersion by default
+         (source-revision embedding for reproducible builds) whenever a .git directory is
+         present. `ball version` should report a clean, stable "ball <version>" line — like
+         Rust's CARGO_PKG_VERSION / Dart's pubspec version — not a commit-qualified one. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(CliCore)' == 'true'">
+    <DefineConstants>$(DefineConstants);CLI_CORE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Remove="test/**/*.cs" />
+    <!-- tool/ is a sibling console project (the regenerator); exclude it from
+         this project's own compile items. -->
+    <Compile Remove="tool/**/*.cs" />
+    <!-- Generated cli-core: off by default; included only for the CliCore
+         build so the default build never depends on it. -->
+    <Compile Remove="src/CompiledCli.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CliCore)' == 'true'">
+    <Compile Include="src/CompiledCli.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
   <ItemGroup>

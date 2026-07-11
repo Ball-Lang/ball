@@ -186,24 +186,224 @@ public static partial class BallRuntime
     /// <summary><c>x.truncateToDouble()</c>.</summary>
     public static BallValue TruncateToDouble(BallValue value) => BallValue.Double(Math.Truncate(AsNum(value)));
 
-    /// <summary><c>d.toStringAsFixed(digits)</c>.</summary>
-    public static BallValue ToStringAsFixed(BallValue value, BallValue digits) =>
-        BallValue.Str(AsNum(value).ToString("F" + AsInt(digits), CultureInfo.InvariantCulture));
-
-    /// <summary><c>d.toStringAsExponential(digits?)</c>.</summary>
-    public static BallValue ToStringAsExponential(BallValue value, BallValue digits)
+    /// <summary>
+    /// <c>d.toStringAsFixed(digits)</c> — Dart rounds half <b>away from zero</b>,
+    /// where .NET's <c>"F"</c> format uses banker's rounding (ties-to-even), so
+    /// <c>(-2.5).toStringAsFixed(0)</c> is <c>-3</c> not <c>-2</c>.
+    /// <see cref="Math.Round(double, int, MidpointRounding)"/> supports 0..15
+    /// fractional digits; beyond that a double has no exact tie at that place, so
+    /// <c>"F"</c> already reproduces Dart's exact decimal expansion.
+    /// </summary>
+    public static BallValue ToStringAsFixed(BallValue value, BallValue digits)
     {
         var d = AsNum(value);
-        var text = digits is BallNull
-            ? d.ToString("E", CultureInfo.InvariantCulture)
-            : d.ToString("E" + AsInt(digits), CultureInfo.InvariantCulture);
-        // .NET uses E+NNN with a 3-digit exponent; Dart uses e+N. Normalize.
-        return BallValue.Str(text.Replace("E", "e").Replace("e+0", "e+").Replace("e-0", "e-"));
+        var n = (int)AsInt(digits);
+        if (double.IsNaN(d))
+        {
+            return BallValue.Str("NaN");
+        }
+
+        if (double.IsInfinity(d))
+        {
+            return BallValue.Str(d < 0 ? "-Infinity" : "Infinity");
+        }
+
+        if (n <= 15)
+        {
+            d = Math.Round(d, n, MidpointRounding.AwayFromZero);
+        }
+
+        return BallValue.Str(d.ToString("F" + n, CultureInfo.InvariantCulture));
     }
 
-    /// <summary><c>d.toStringAsPrecision(precision)</c>.</summary>
-    public static BallValue ToStringAsPrecision(BallValue value, BallValue precision) =>
-        BallValue.Str(AsNum(value).ToString("G" + AsInt(precision), CultureInfo.InvariantCulture));
+    /// <summary>
+    /// <c>d.toStringAsExponential([fractionDigits])</c> — byte-exact with Dart
+    /// (ECMAScript) formatting, which differs from .NET's <c>"E"</c> format in
+    /// three ways: a <em>minimal</em> exponent (<c>1.23e+2</c>, not the fixed
+    /// 3-digit <c>1.23e+002</c>), round-half-<b>away-from-zero</b> on an exact tie
+    /// (<c>2.5.toStringAsExponential(0)</c> → <c>3e+0</c>, where IEEE ties-to-even
+    /// gives <c>2e+0</c>), and — for the no-argument form — the shortest
+    /// round-trip mantissa (<c>1.23456e+2</c>, not <c>"E"</c>'s six padded
+    /// digits). Ported from <c>cpp/shared/include/ball_emit_runtime.h</c> /
+    /// <c>rust/shared/src/runtime.rs</c>: extract the value's exact decimal digits
+    /// and round the digit string ourselves.
+    /// </summary>
+    public static BallValue ToStringAsExponential(BallValue value, BallValue digits)
+    {
+        var x = AsNum(value);
+        if (double.IsNaN(x))
+        {
+            return BallValue.Str("NaN");
+        }
+
+        if (double.IsInfinity(x))
+        {
+            return BallValue.Str(x < 0 ? "-Infinity" : "Infinity");
+        }
+
+        var neg = double.IsNegative(x);
+        var ax = Math.Abs(x);
+        var d = digits is BallNull ? ShortestSignificantDigits(ax) - 1 : (int)AsInt(digits);
+        var body = FormatExponential(ax, d);
+        return BallValue.Str(neg ? "-" + body : body);
+    }
+
+    /// <summary>
+    /// <c>d.toStringAsPrecision(precision)</c> — <c>p</c> significant digits,
+    /// choosing fixed vs exponential form by ECMAScript's rule (exponent &lt; -6
+    /// or ≥ p ⇒ exponential). Byte-exact with Dart, unlike .NET's <c>"G"</c>
+    /// format (which drops the trailing zeros Dart keeps — <c>1.0.toStringAsPrecision(3)</c>
+    /// is <c>1.00</c> — uses uppercase <c>E</c>, and rounds ties-to-even).
+    /// </summary>
+    public static BallValue ToStringAsPrecision(BallValue value, BallValue precision)
+    {
+        var x = AsNum(value);
+        if (double.IsNaN(x))
+        {
+            return BallValue.Str("NaN");
+        }
+
+        if (double.IsInfinity(x))
+        {
+            return BallValue.Str(x < 0 ? "-Infinity" : "Infinity");
+        }
+
+        var p = Math.Max(1, (int)AsInt(precision));
+        var neg = double.IsNegative(x);
+        var ax = Math.Abs(x);
+        string body;
+        if (ax == 0.0)
+        {
+            body = p > 1 ? "0." + new string('0', p - 1) : "0";
+        }
+        else
+        {
+            var (m, e) = RoundSigDigits(ax, p);
+            if (e < -6 || e >= p)
+            {
+                body = m[..1];
+                if (p > 1)
+                {
+                    body += "." + m[1..];
+                }
+
+                body += DartExponent(e);
+            }
+            else if (e >= 0)
+            {
+                var intDigits = e + 1;
+                body = m[..intDigits];
+                if (p > intDigits)
+                {
+                    body += "." + m[intDigits..];
+                }
+            }
+            else
+            {
+                body = "0." + new string('0', -e - 1) + m;
+            }
+        }
+
+        return BallValue.Str(neg ? "-" + body : body);
+    }
+
+    /// <summary>
+    /// Format the finite, non-negative <paramref name="ax"/> in exponential form
+    /// with <paramref name="fractionDigits"/> mantissa fraction digits (Dart's
+    /// minimal-exponent, away-from-zero-tie form).
+    /// </summary>
+    private static string FormatExponential(double ax, int fractionDigits)
+    {
+        if (ax == 0.0)
+        {
+            var zero = fractionDigits > 0 ? "0." + new string('0', fractionDigits) : "0";
+            return zero + "e+0";
+        }
+
+        var (m, e) = RoundSigDigits(ax, fractionDigits + 1);
+        var body = m[..1];
+        if (fractionDigits > 0)
+        {
+            body += "." + m[1..];
+        }
+
+        return body + DartExponent(e);
+    }
+
+    /// <summary>Dart's minimal exponent suffix (<c>e+2</c> / <c>e-4</c>).</summary>
+    private static string DartExponent(int e) =>
+        "e" + (e < 0 ? "-" : "+") + Math.Abs(e).ToString(CultureInfo.InvariantCulture);
+
+    /// <summary>
+    /// The fewest significant digits (1..17) whose <c>"E"</c>-rounded form parses
+    /// back to <paramref name="ax"/> exactly — the shortest round-trip mantissa
+    /// Dart's argument-less <c>toStringAsExponential()</c> emits.
+    /// </summary>
+    private static int ShortestSignificantDigits(double ax)
+    {
+        if (ax == 0.0)
+        {
+            return 1;
+        }
+
+        for (var k = 1; k < 17; k++)
+        {
+            var s = ax.ToString("E" + (k - 1), CultureInfo.InvariantCulture);
+            if (double.Parse(s, CultureInfo.InvariantCulture) == ax)
+            {
+                return k;
+            }
+        }
+
+        return 17;
+    }
+
+    /// <summary>
+    /// Round the exact significant digits of finite <paramref name="ax"/> (&gt; 0)
+    /// to <paramref name="k"/> significant digits, half-away-from-zero. Returns the
+    /// k-digit string and the decimal exponent of the leading digit
+    /// (value = D[0].D[1..] × 10^E; a carry like 9.99 → 10 bumps E). <c>"E1080"</c>
+    /// yields 1081 significant digits — more than the 767 a double's exact decimal
+    /// expansion ever needs — so the printed digits are EXACT (trailing zeros, not
+    /// a rounding artifact), and "away from zero on a tie" reduces to
+    /// <c>D[k] &gt;= '5'</c>. Ported from the C++/Rust reference emission.
+    /// </summary>
+    private static (string Digits, int Exp) RoundSigDigits(double ax, int k)
+    {
+        var s = ax.ToString("E1080", CultureInfo.InvariantCulture);
+        var epos = s.IndexOf('E');
+        var exp = int.Parse(s[(epos + 1)..], CultureInfo.InvariantCulture);
+        // "D.DDD…E±NNN" → the significant digits without the decimal point.
+        var digits = s[0] + s.Substring(2, epos - 2);
+        if (digits.Length <= k)
+        {
+            return (digits + new string('0', k - digits.Length), exp);
+        }
+
+        var kept = digits[..k].ToCharArray();
+        if (digits[k] >= '5')
+        {
+            var i = k - 1;
+            for (; i >= 0; i--)
+            {
+                if (kept[i] != '9')
+                {
+                    kept[i]++;
+                    break;
+                }
+
+                kept[i] = '0';
+            }
+
+            if (i < 0)
+            {
+                // All nines carried: 9.99 → 10.0 — one more leading digit.
+                return ("1" + new string(kept, 0, k - 1), exp + 1);
+            }
+        }
+
+        return (new string(kept), exp);
+    }
 
     private static double AsNum(BallValue value) => value switch
     {

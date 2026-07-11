@@ -1,3 +1,10 @@
+# [1.39.0](https://github.com/Ball-Lang/ball/compare/v1.38.0...v1.39.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host corpus 271→291 — live reassigned-field state + loader depth ([#407](https://github.com/Ball-Lang/ball/issues/407)) ([ffbac56](https://github.com/Ball-Lang/ball/commit/ffbac56df192feb5ed9b60e1fc414f18cfe6f063))
+
 # [1.38.0](https://github.com/Ball-Lang/ball/compare/v1.37.0...v1.38.0) (2026-07-11)
 
 

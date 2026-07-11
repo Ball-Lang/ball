@@ -2,9 +2,16 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'package:ball_base/capability_analyzer.dart';
-import 'package:ball_base/capability_table.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:test/test.dart';
+
+// The capability analyzer now produces plain Map/List reports (it self-hosts
+// through the Ball engine — see cli_core.dart's engine-safe authoring rules).
+// These helpers read the Map report shape.
+Map _sum(Map report) => report['summary'] as Map;
+List _caps(Map report) => report['capabilities'] as List;
+Map _findCap(Map report, String name) =>
+    _caps(report).firstWhere((c) => (c as Map)['capability'] == name) as Map;
 
 Program _load(String path) {
   final json =
@@ -35,29 +42,39 @@ Program _buildMinimal({
 }
 
 void main() {
+  final table = buildCapabilityTable();
+
   group('capability_table', () {
     test('std.print is io', () {
-      expect(lookupCapability('std', 'print'), Capability.io);
+      expect(lookupCapability(table, 'std', 'print'), 'io');
     });
 
     test('std.add is pure', () {
-      expect(lookupCapability('std', 'add'), Capability.pure);
+      expect(lookupCapability(table, 'std', 'add'), 'pure');
     });
 
     test('std_fs.file_read is fs', () {
-      expect(lookupCapability('std_fs', 'file_read'), Capability.fs);
+      expect(lookupCapability(table, 'std_fs', 'file_read'), 'fs');
     });
 
     test('std_io.exit is process', () {
-      expect(lookupCapability('std_io', 'exit'), Capability.process);
+      expect(lookupCapability(table, 'std_io', 'exit'), 'process');
     });
 
     test('std_memory.memory_alloc is memory', () {
-      expect(lookupCapability('std_memory', 'memory_alloc'), Capability.memory);
+      expect(lookupCapability(table, 'std_memory', 'memory_alloc'), 'memory');
     });
 
-    test('unknown function returns null', () {
-      expect(lookupCapability('main', 'my_func'), isNull);
+    test('unknown function returns empty string', () {
+      expect(lookupCapability(table, 'main', 'my_func'), '');
+    });
+
+    test('capabilityRisk maps categories to risk levels', () {
+      expect(capabilityRisk('pure'), 'none');
+      expect(capabilityRisk('io'), 'low');
+      expect(capabilityRisk('fs'), 'medium');
+      expect(capabilityRisk('process'), 'high');
+      expect(capabilityRisk('memory'), 'high');
     });
   });
 
@@ -99,9 +116,9 @@ void main() {
       );
 
       final report = analyzeCapabilities(program);
-      expect(report.summary.isPure, isTrue);
-      expect(report.summary.pureFunctions, 1);
-      expect(report.summary.effectfulFunctions, 0);
+      expect(_sum(report)['isPure'], isTrue);
+      expect(_sum(report)['pureFunctions'], 1);
+      expect(_sum(report)['effectfulFunctions'], 0);
     });
 
     test('program with print reports io capability', () {
@@ -135,13 +152,14 @@ void main() {
       );
 
       final report = analyzeCapabilities(program);
-      expect(report.summary.isPure, isFalse);
-      expect(report.summary.writesStdout, isTrue);
-      expect(report.summary.effectfulFunctions, 1);
+      expect(_sum(report)['isPure'], isFalse);
+      expect(_sum(report)['writesStdout'], isTrue);
+      expect(_sum(report)['effectfulFunctions'], 1);
 
-      final ioCap = report.capabilities.firstWhere((c) => c.capability == 'io');
-      expect(ioCap.callSites, hasLength(1));
-      expect(ioCap.callSites.first.calleeFunction, 'print');
+      final ioCap = _findCap(report, 'io');
+      final sites = ioCap['callSites'] as List;
+      expect(sites, hasLength(1));
+      expect((sites.first as Map)['calleeFunction'], 'print');
     });
 
     test('checkPolicy denies forbidden capabilities', () {
@@ -178,6 +196,13 @@ void main() {
       final violations = checkPolicy(report, deny: {'io'});
       expect(violations, isNotEmpty);
       expect(violations.first, contains('print'));
+
+      // The engine-safe entry point must agree with the native wrapper.
+      final viaEngineForm = checkPolicyViolations({
+        'report': report,
+        'deny': ['io'],
+      });
+      expect(viaEngineForm, equals(violations));
     });
 
     test('checkPolicy passes for allowed capabilities', () {
@@ -271,7 +296,7 @@ void main() {
       test('audit $name completes without error', () {
         final program = _load(file.path);
         final report = analyzeCapabilities(program);
-        expect(report.summary.totalFunctions, greaterThan(0));
+        expect(_sum(report)['totalFunctions'], greaterThan(0));
       });
     }
   });

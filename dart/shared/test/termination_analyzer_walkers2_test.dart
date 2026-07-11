@@ -13,7 +13,7 @@
 library;
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
-import 'package:ball_base/termination_analyzer.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:test/test.dart';
 
 Program _buildProgram({
@@ -143,9 +143,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -169,9 +169,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -195,9 +195,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -224,9 +224,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -250,9 +250,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -277,9 +277,9 @@ void main() {
           {'name': 'wrap', 'body': _litInt(0)},
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -305,9 +305,9 @@ void main() {
             },
           ],
         );
-        final report = analyzeTermination(program);
+        final report = analyzeTermination(program).cast<Map>();
         expect(
-          report.warnings.where((w) => w.category == 'unbounded_recursion'),
+          report.where((w) => w['category'] == 'unbounded_recursion'),
           isEmpty,
         );
       },
@@ -345,10 +345,10 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       // No base case anywhere — the recursion is genuinely unbounded.
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isNotEmpty,
       );
     });
@@ -377,9 +377,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -407,9 +407,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -438,9 +438,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -467,9 +467,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unbounded_recursion'),
+        report.where((w) => w['category'] == 'unbounded_recursion'),
         isEmpty,
       );
     });
@@ -501,7 +501,7 @@ void main() {
         ],
       );
       // Just must not crash; the point is walking the block-shaped condition.
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
 
     test('while condition is a fieldAccess (referenced vars walker)', () {
@@ -521,7 +521,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
 
     test('while condition is a lambda (referenced vars walker)', () {
@@ -541,7 +541,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
 
     test(
@@ -576,7 +576,7 @@ void main() {
             },
           ],
         );
-        expect(() => analyzeTermination(program), returnsNormally);
+        expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
       },
     );
 
@@ -605,7 +605,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
 
     test('while body is a block whose let-statement and result recurse into '
@@ -641,7 +641,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
 
     test('do-while body is a lambda (exit-signal + mutated-vars walkers)', () {
@@ -673,7 +673,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
   });
 
@@ -698,7 +698,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
 
     test('a not-set expression inside a while(true) body does not crash', () {
@@ -720,11 +720,8 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
-      expect(
-        report.warnings.where((w) => w.category == 'infinite_loop'),
-        isNotEmpty,
-      );
+      final report = analyzeTermination(program).cast<Map>();
+      expect(report.where((w) => w['category'] == 'infinite_loop'), isNotEmpty);
     });
 
     test('a not-set expression inside unreachable-code scanning', () {
@@ -743,9 +740,9 @@ void main() {
           },
         ],
       );
-      final report = analyzeTermination(program);
+      final report = analyzeTermination(program).cast<Map>();
       expect(
-        report.warnings.where((w) => w.category == 'unreachable_code'),
+        report.where((w) => w['category'] == 'unreachable_code'),
         isNotEmpty,
       );
     });
@@ -771,7 +768,7 @@ void main() {
           },
         ],
       );
-      expect(() => analyzeTermination(program), returnsNormally);
+      expect(() => analyzeTermination(program).cast<Map>(), returnsNormally);
     });
   });
 }

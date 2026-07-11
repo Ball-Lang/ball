@@ -341,8 +341,7 @@ public sealed partial class CSharpCompiler
             {
                 var let = statement.Let;
                 var value = let.Value is null ? "BallValue.Null" : CompileExpression(let.Value);
-                sb.Append($"var {Naming.Sanitize(let.Name)} = {value};\n");
-                BindLocal(let.Name);
+                sb.Append($"var {BindLocal(let.Name)} = {value};\n");
             }
 
             return sb.ToString();
@@ -378,10 +377,10 @@ public sealed partial class CSharpCompiler
         var variable = StringField(f, "variable") ?? "item";
         var iterableCode = FieldOrNull(f, "iterable");
         PushScope();
-        BindLocal(variable);
+        var loopVar = BindLocal(variable);
         var bodyCode = EmitBranch(f, "body");
         PopScope();
-        return $"foreach (var {Naming.Sanitize(variable)} in BallRuntime.Iterate({iterableCode}))\n{{\n{bodyCode}\n}}";
+        return $"foreach (var {loopVar} in BallRuntime.Iterate({iterableCode}))\n{{\n{bodyCode}\n}}";
     }
 
     private string CompileWhileStatement(FunctionCall call)
@@ -415,7 +414,10 @@ public sealed partial class CSharpCompiler
         var f = Fields.Extract(call);
         var subject = FieldOrNull(f, "subject");
         var cases = MessageList(f, "cases");
-        var sb = new StringBuilder($"do\n{{\nvar __subj = {subject};\n");
+        // A unique subject temp — nested switches share the same `do {…} while(false)`
+        // block nesting, so a fixed name would collide (CS0136).
+        var subjVar = $"__subj{_tempCounter++}";
+        var sb = new StringBuilder($"do\n{{\nvar {subjVar} = {subject};\n");
         var first = true;
         MessageCreation? defaultCase = null;
         foreach (var caseMc in cases)
@@ -429,7 +431,7 @@ public sealed partial class CSharpCompiler
 
             var value = FieldOrNull(cf, "value");
             var body = cf.TryGetValue("body", out var b) ? EmitStatementUnwrapped(b) : ";";
-            sb.Append($"{(first ? "if" : "else if")} (BallValue.ValueEquals(__subj, {value}))\n{{\n{body}\n}}\n");
+            sb.Append($"{(first ? "if" : "else if")} (BallValue.ValueEquals({subjVar}, {value}))\n{{\n{body}\n}}\n");
             first = false;
         }
 
@@ -466,8 +468,7 @@ public sealed partial class CSharpCompiler
             sb.Append("catch (BallThrow __ballEx)\n{\n");
             if (!string.IsNullOrEmpty(variable))
             {
-                BindLocal(variable);
-                sb.Append($"var {Naming.Sanitize(variable)} = __ballEx.Payload;\n");
+                sb.Append($"var {BindLocal(variable)} = __ballEx.Payload;\n");
             }
 
             sb.Append(cf.TryGetValue("body", out var cb) ? EmitStatementUnwrapped(cb) : ";");
@@ -525,7 +526,10 @@ public sealed partial class CSharpCompiler
         switch (target.ExprCase)
         {
             case Expression.ExprOneofCase.Reference:
-                return new LValue(LValueKind.Var, Naming.Sanitize(target.Reference.Name), string.Empty);
+                // Resolve through the (possibly renamed) local so an assignment
+                // targets the same C# identifier the reference reads.
+                var varName = LocalName(target.Reference.Name) ?? Naming.Sanitize(target.Reference.Name);
+                return new LValue(LValueKind.Var, varName, string.Empty);
             case Expression.ExprOneofCase.FieldAccess:
                 var fa = target.FieldAccess;
                 var obj = fa.Object is null ? "BallValue.Null" : CompileExpression(fa.Object);

@@ -143,7 +143,9 @@ public static partial class BallRuntime
 
             // ── Static constructors / parsers on a type literal ──
             "tryParse" => MethodParseNumber(self, a0, tryParse: true),
-            "parse" => MethodParseNumber(self, a0, tryParse: false),
+            "parse" => TypeLiteralName(self) == "DateTime"
+                ? MethodDateTimeParse(a0)
+                : MethodParseNumber(self, a0, tryParse: false),
             "filled" => MethodFilled(self, a0, a1),
             "unmodifiable" => MethodUnmodifiable(self, a0),
             "fromCharCode" => StringFromCharCode(a0),
@@ -157,8 +159,13 @@ public static partial class BallRuntime
             // ── Top-level Dart core functions ──
             "identical" => BallValue.Bool(MethodIdentical(a0, a1)),
 
-            // ── DateTime (static) ──
+            // ── JSON codec — the engine's `const JsonEncoder()/JsonDecoder().convert(x)` (std_convert) ──
+            "convert" => MethodConvert(self, a0),
+
+            // ── DateTime (static + instance) ──
             "now" => MethodDateTimeNow(),
+            "fromMillisecondsSinceEpoch" => MethodDateTimeFromMillis(input),
+            "toIso8601String" => MethodDateTimeToIso8601(self),
 
             // A proto presence getter (`binding.hasValue()`) called as a method —
             // route to the ball_proto presence check on the named field.
@@ -431,10 +438,232 @@ public static partial class BallRuntime
     private static BallValue MethodDateTimeNow()
     {
         var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        return DateTimeMessage(nowMs, isUtc: false);
+    }
+
+    /// <summary>
+    /// <c>DateTime.fromMillisecondsSinceEpoch(ms, isUtc: …)</c> — the engine's
+    /// <c>format_timestamp</c> std_time handler. Returns the same <c>DateTime</c>
+    /// message shape as <see cref="MethodDateTimeNow"/>, so a later
+    /// <c>.millisecondsSinceEpoch</c> getter or <c>.toIso8601String()</c> resolves.
+    /// </summary>
+    private static BallValue MethodDateTimeFromMillis(BallValue input)
+    {
+        var ms = AsInt(MethodArg(input, "arg0"));
+        var isUtc = Truthy(MethodArg(input, "isUtc"));
+        return DateTimeMessage(ms, isUtc);
+    }
+
+    /// <summary><c>DateTime.parse(str)</c> — the engine's <c>parse_timestamp</c> std_time handler. An ISO-8601 string ending in <c>Z</c> is UTC.</summary>
+    private static BallValue MethodDateTimeParse(BallValue value)
+    {
+        var text = AsStr(value);
+        DateTimeOffset dto;
+        try
+        {
+            dto = DateTimeOffset.Parse(
+                text,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind | System.Globalization.DateTimeStyles.AssumeUniversal);
+        }
+        catch (FormatException)
+        {
+            // Dart surfaces an unparseable timestamp as a catchable FormatException.
+            throw new BallThrow(BallValue.Str($"FormatException: invalid date: {text}"));
+        }
+
+        return DateTimeMessage(dto.ToUnixTimeMilliseconds(), isUtc: text.EndsWith('Z'));
+    }
+
+    /// <summary><c>DateTime.toIso8601String()</c> — millisecond-precision ISO-8601, <c>Z</c>-suffixed when UTC (Dart's format for a ms-resolution instant).</summary>
+    private static BallValue MethodDateTimeToIso8601(BallValue self)
+    {
+        var ms = DateTimeField(self, "millisecondsSinceEpoch");
+        var isUtc = self is BallMessage m && Truthy(m.Get("isUtc") ?? BallValue.Null);
+        var text = DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime
+            .ToString("yyyy-MM-ddTHH:mm:ss.fff", System.Globalization.CultureInfo.InvariantCulture);
+        return BallValue.Str(isUtc ? text + "Z" : text);
+    }
+
+    private static long DateTimeField(BallValue self, string name) =>
+        self is BallMessage m && m.Get(name) is { } v
+            ? AsInt(v)
+            : throw new BallRuntimeException($"expected a DateTime, got {TypeName(self)}");
+
+    private static BallValue DateTimeMessage(long ms, bool isUtc)
+    {
         var fields = new BallMap();
-        fields.Set("millisecondsSinceEpoch", BallValue.Int(nowMs));
-        fields.Set("microsecondsSinceEpoch", BallValue.Int(nowMs * 1000));
+        fields.Set("millisecondsSinceEpoch", BallValue.Int(ms));
+        fields.Set("microsecondsSinceEpoch", BallValue.Int(ms * 1000));
+        fields.Set("isUtc", BallValue.Bool(isUtc));
         return new BallMessage("DateTime", fields);
+    }
+
+    // ── JSON codec (std_convert) ─────────────────────────────────
+
+    /// <summary>
+    /// <c>const JsonEncoder().convert(value)</c> / <c>const JsonDecoder().convert(text)</c>
+    /// — the engine's <c>json_encode</c>/<c>json_decode</c> std_convert handlers.
+    /// The receiver is an empty <c>main:JsonEncoder</c>/<c>main:JsonDecoder</c>
+    /// message (a bodyless BCL-type <c>messageCreation</c>); dispatch on its short
+    /// type name.
+    /// </summary>
+    private static BallValue MethodConvert(BallValue self, BallValue arg)
+    {
+        var codec = self is BallMessage m ? ShortTypeName(m.TypeName) : null;
+        return codec switch
+        {
+            "JsonEncoder" => BallValue.Str(JsonEncode(arg)),
+            "JsonDecoder" => JsonDecode(AsStr(arg)),
+            _ => UnsupportedMethod("convert", self),
+        };
+    }
+
+    /// <summary>Serialize a JSON-safe Ball value (the tree the engine's <c>_toJsonSafe</c> produces) to compact JSON, matching Dart's default <c>JsonEncoder</c>.</summary>
+    private static string JsonEncode(BallValue value)
+    {
+        var sb = new System.Text.StringBuilder();
+        JsonWrite(sb, value);
+        return sb.ToString();
+    }
+
+    private static void JsonWrite(System.Text.StringBuilder sb, BallValue value)
+    {
+        switch (value)
+        {
+            case BallNull:
+                sb.Append("null");
+                break;
+            case BallBool b:
+                sb.Append(b.Value ? "true" : "false");
+                break;
+            case BallInt or BallDouble:
+                sb.Append(value.ToString()); // Dart num.toString() (whole doubles keep `.0`).
+                break;
+            case BallString s:
+                JsonWriteString(sb, s.Value);
+                break;
+            case BallList list:
+                sb.Append('[');
+                var firstItem = true;
+                foreach (var item in list.Snapshot())
+                {
+                    if (!firstItem)
+                    {
+                        sb.Append(',');
+                    }
+
+                    firstItem = false;
+                    JsonWrite(sb, item);
+                }
+
+                sb.Append(']');
+                break;
+            case BallMap map:
+                sb.Append('{');
+                var firstEntry = true;
+                foreach (var (key, entryValue) in map.Entries())
+                {
+                    if (!firstEntry)
+                    {
+                        sb.Append(',');
+                    }
+
+                    firstEntry = false;
+                    JsonWriteString(sb, key);
+                    sb.Append(':');
+                    JsonWrite(sb, entryValue);
+                }
+
+                sb.Append('}');
+                break;
+            default:
+                throw new BallRuntimeException($"JsonEncoder cannot convert {TypeName(value)}");
+        }
+    }
+
+    private static void JsonWriteString(System.Text.StringBuilder sb, string s)
+    {
+        sb.Append('"');
+        foreach (var ch in s)
+        {
+            switch (ch)
+            {
+                case '"': sb.Append("\\\""); break;
+                case '\\': sb.Append("\\\\"); break;
+                case '\n': sb.Append("\\n"); break;
+                case '\r': sb.Append("\\r"); break;
+                case '\t': sb.Append("\\t"); break;
+                case '\b': sb.Append("\\b"); break;
+                case '\f': sb.Append("\\f"); break;
+                default:
+                    if (ch < 0x20)
+                    {
+                        sb.Append("\\u").Append(((int)ch).ToString("x4", System.Globalization.CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        sb.Append(ch);
+                    }
+
+                    break;
+            }
+        }
+
+        sb.Append('"');
+    }
+
+    /// <summary>Parse JSON text into a native Ball value tree, matching Dart's <c>JsonDecoder</c> (integer literals → int, fractional/exponent → double, objects keep source order).</summary>
+    private static BallValue JsonDecode(string text)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(text);
+            return JsonToBall(doc.RootElement);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            // Dart surfaces malformed JSON as a catchable FormatException.
+            throw new BallThrow(BallValue.Str("FormatException: invalid JSON"));
+        }
+    }
+
+    private static BallValue JsonToBall(System.Text.Json.JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case System.Text.Json.JsonValueKind.Object:
+                var map = new BallMap();
+                foreach (var property in element.EnumerateObject())
+                {
+                    map.Set(property.Name, JsonToBall(property.Value));
+                }
+
+                return map;
+            case System.Text.Json.JsonValueKind.Array:
+                var list = new BallList();
+                foreach (var item in element.EnumerateArray())
+                {
+                    list.Add(JsonToBall(item));
+                }
+
+                return list;
+            case System.Text.Json.JsonValueKind.String:
+                return BallValue.Str(element.GetString()!);
+            case System.Text.Json.JsonValueKind.Number:
+                var raw = element.GetRawText();
+                return raw.IndexOfAny(['.', 'e', 'E']) < 0 && element.TryGetInt64(out var i)
+                    ? BallValue.Int(i)
+                    : BallValue.Double(element.GetDouble());
+            case System.Text.Json.JsonValueKind.True:
+                return BallValue.Bool(true);
+            case System.Text.Json.JsonValueKind.False:
+                return BallValue.Bool(false);
+            case System.Text.Json.JsonValueKind.Null:
+                return BallValue.Null;
+            default:
+                throw new BallRuntimeException($"JsonDecoder: unexpected JSON value kind {element.ValueKind}");
+        }
     }
 
     private static bool MethodIdentical(BallValue a, BallValue b)

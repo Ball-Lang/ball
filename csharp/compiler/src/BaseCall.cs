@@ -236,13 +236,30 @@ public sealed partial class CSharpCompiler
         };
     }
 
-    /// <summary><c>map_create</c> — build a map from the input's <c>entry</c> fields (each a <c>{key, value}</c> message).</summary>
+    /// <summary>
+    /// <c>map_create</c> — build a map from the input's entry fields. The fast
+    /// path (every field a plain <c>entry</c> = <c>{key, value}</c> message)
+    /// emits a direct <c>BallRuntime.MapCreate([[k, v], …])</c>. A map
+    /// <b>comprehension</b> instead carries an <c>element</c> field wrapping a
+    /// <c>std.spread</c>/<c>collection_if</c>/<c>collection_for</c>; those must be
+    /// <b>spliced</b>, not dropped — the missing map-literal splice (the analog of
+    /// the Round-9 list-literal fix) silently emptied every internal comprehension
+    /// map (e.g. <c>_toJsonSafe</c>'s <c>{ for (e in m.entries) … }</c>).
+    /// Mirrors the reference engine's <c>_evalLazyMapCreate</c>.
+    /// </summary>
     private string CompileMapCreate(FunctionCall call)
     {
-        var pairs = new List<string>();
-        if (call.Input is { ExprCase: Expression.ExprOneofCase.MessageCreation } input)
+        if (call.Input is not { ExprCase: Expression.ExprOneofCase.MessageCreation } input)
         {
-            foreach (var field in input.MessageCreation.Fields)
+            return "BallRuntime.MapCreate((BallValue)new BallList())";
+        }
+
+        var fields = input.MessageCreation.Fields;
+        if (!fields.Any(f => f.Name == "element"))
+        {
+            // Fast path: plain {key, value} entries only.
+            var pairs = new List<string>();
+            foreach (var field in fields)
             {
                 if (field.Name == "entry" && field.Value is { ExprCase: Expression.ExprOneofCase.MessageCreation } entry)
                 {
@@ -250,10 +267,103 @@ public sealed partial class CSharpCompiler
                     pairs.Add($"(BallValue)new BallList(new BallValue[] {{ {FieldOrNull(ef, "key")}, {FieldOrNull(ef, "value")} }})");
                 }
             }
+
+            var list = pairs.Count == 0 ? "new BallList()" : $"new BallList(new BallValue[] {{ {string.Join(", ", pairs)} }})";
+            return $"BallRuntime.MapCreate((BallValue){list})";
         }
 
-        var list = pairs.Count == 0 ? "new BallList()" : $"new BallList(new BallValue[] {{ {string.Join(", ", pairs)} }})";
-        return $"BallRuntime.MapCreate((BallValue){list})";
+        // Comprehension path: build imperatively so element splices apply.
+        var mapVar = $"__map{_tempCounter++}";
+        var sb = new System.Text.StringBuilder($"Run(() =>\n{{\nvar {mapVar} = new BallMap();\n");
+        foreach (var field in fields)
+        {
+            switch (field.Name)
+            {
+                case "entry" or "entries":
+                    sb.Append($"BallRuntime.MapAddEntry({mapVar}, {CompileExpression(field.Value)});\n");
+                    break;
+                case "element":
+                    sb.Append(CompileMapCollectionElement(mapVar, field.Value));
+                    break;
+                    // type_args and any unknown field: ignore (as the reference engine does).
+            }
+        }
+
+        sb.Append($"return (BallValue){mapVar};\n}})");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Emit code splicing one map-literal <c>element</c> into <paramref name="target"/>
+    /// (a <see cref="Ball.Shared.BallMap"/> local): a <c>spread</c>/<c>null_spread</c>
+    /// merges a map, a <c>collection_if</c> conditionally emits its then/else
+    /// element, a <c>collection_for</c> loops, and a leaf <c>{key, value}</c> entry
+    /// is added. Nested element forms recurse. The map analog of
+    /// <see cref="CompileCollectionElement"/>.
+    /// </summary>
+    private string CompileMapCollectionElement(string target, Expression el)
+    {
+        var kind = CollectionElementKind(el);
+        if (kind is null)
+        {
+            return $"BallRuntime.MapAddEntry({target}, {CompileExpression(el)});\n";
+        }
+
+        var f = Fields.Extract(el.Call);
+        var uid = _tempCounter++;
+        switch (kind)
+        {
+            case "spread":
+                return $"BallRuntime.MapSpread({target}, {FieldOrNull(f, "value")});\n";
+            case "null_spread":
+                return $"{{ var __ms{uid} = {FieldOrNull(f, "value")}; if (__ms{uid} is not Ball.Shared.BallNull) {{ BallRuntime.MapSpread({target}, __ms{uid}); }} }}\n";
+            case "collection_if":
+                {
+                    var cond = f.TryGetValue("condition", out var c)
+                        ? $"BallRuntime.Truthy({CompileExpression(c)})"
+                        : "false";
+                    var then = f.TryGetValue("then", out var t) ? CompileMapCollectionElement(target, t) : string.Empty;
+                    if (f.TryGetValue("else", out var e))
+                    {
+                        var els = CompileMapCollectionElement(target, e);
+                        return $"if ({cond})\n{{\n{then}}}\nelse\n{{\n{els}}}\n";
+                    }
+
+                    return $"if ({cond})\n{{\n{then}}}\n";
+                }
+
+            case "collection_for":
+                return CompileMapCollectionFor(target, f);
+            default:
+                throw new InvalidOperationException($"unexpected collection element kind: {kind}");
+        }
+    }
+
+    /// <summary>The map analog of <see cref="CompileCollectionFor"/> — each produced value is spliced as a map element.</summary>
+    private string CompileMapCollectionFor(string target, OrderedDictionary<string, Expression> f)
+    {
+        if (f.TryGetValue("iterable", out var iterable))
+        {
+            var variable = StringField(f, "variable") ?? "item";
+            PushScope();
+            var loopVar = BindLocal(variable);
+            var body = f.TryGetValue("body", out var forBody)
+                ? CompileMapCollectionElement(target, forBody)
+                : string.Empty;
+            PopScope();
+            return $"foreach (var {loopVar} in BallRuntime.Iterate({CompileExpression(iterable)}))\n{{\n{body}}}\n";
+        }
+
+        PushScope();
+        var cfid = _tempCounter++;
+        var init = f.TryGetValue("init", out var initExpr) ? $"var __mcfInit{cfid} = {CompileExpression(initExpr)};\n" : string.Empty;
+        var cond = f.TryGetValue("condition", out var condExpr)
+            ? $"BallRuntime.Truthy({CompileExpression(condExpr)})"
+            : "true";
+        var bodyC = f.TryGetValue("body", out var cBody) ? CompileMapCollectionElement(target, cBody) : string.Empty;
+        var update = f.TryGetValue("update", out var updExpr) ? $"{CompileExpression(updExpr)};\n" : string.Empty;
+        PopScope();
+        return $"{{\n{init}while ({cond})\n{{\n{bodyC}{update}}}\n}}\n";
     }
 
     /// <summary><c>std_convert</c> — UTF-8 / base64 codecs.</summary>

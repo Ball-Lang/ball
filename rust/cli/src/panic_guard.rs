@@ -1,4 +1,4 @@
-//! Converting a `ball-compiler`/`ball-encoder` panic into a [`CliError`]
+//! Converting a `ball-lang-compiler`/`ball-lang-encoder` panic into a [`CliError`]
 //! (issue #41).
 //!
 //! Both crates deliberately `panic!`/`assert!` on a program shape they don't

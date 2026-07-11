@@ -14,7 +14,7 @@ fn encodes_a_minimal_program_to_ball_type_enveloped_json_by_default() {
     let path = write_scratch_file(
         "encode_minimal_json",
         "source.rs",
-        "fn main() { println!(\"hi from ball-cli\"); }",
+        "fn main() { println!(\"hi from ball-lang-cli\"); }",
     );
 
     let output = ball(&["encode", path.to_str().unwrap()]);
@@ -23,7 +23,7 @@ fn encodes_a_minimal_program_to_ball_type_enveloped_json_by_default() {
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
     let json = stdout(&output);
     assert!(json.contains("\"@type\": \"type.googleapis.com/ball.v1.Program\""));
-    assert!(json.contains("hi from ball-cli"));
+    assert!(json.contains("hi from ball-lang-cli"));
 
     let parsed: serde_json::Value = serde_json::from_str(&json).expect("must be valid JSON");
     assert_eq!(parsed["entryModule"], "main");

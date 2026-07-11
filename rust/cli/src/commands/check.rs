@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use ball_compiler::Compiler;
-use ball_shared::proto::ball::v1::Program;
+use ball_lang_compiler::Compiler;
+use ball_lang_shared::proto::ball::v1::Program;
 
 use crate::error::CliError;
 use crate::loader::load_engine;
@@ -22,11 +22,11 @@ use crate::panic_guard::catch_panic_message;
 ///   ones allowed to omit a body).
 ///
 /// When `also_compile` is set (`ball check --compile`), additionally
-/// attempts a dry-run `ball-compiler` compile (output discarded) — a
+/// attempts a dry-run `ball-lang-compiler` compile (output discarded) — a
 /// stronger, Rust-target-specific check that catches shapes the structural
 /// checks above don't (an unregistered base call, an unsupported construct),
 /// at the cost of false positives for a program that is valid Ball but hits
-/// one of `ball-compiler`'s documented scope gaps (see
+/// one of `ball-lang-compiler`'s documented scope gaps (see
 /// `rust/compiler/src/lib.rs`) — hence opt-in rather than the default.
 ///
 /// Any finding is reported as a single [`CliError::Parse`] (exit `2`)
@@ -128,7 +128,7 @@ fn validate_structure(program: &Program) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use ball_shared::proto::ball::v1::{FunctionDefinition, Module};
+    use ball_lang_shared::proto::ball::v1::{FunctionDefinition, Module};
 
     use super::*;
 

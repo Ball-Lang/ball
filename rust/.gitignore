@@ -5,7 +5,7 @@
 # Self-hosted engine, compiled from dart/self_host/engine.ball.json by
 # `cargo run -p ball-engine-regen` (issue #39). Git-ignored like the C++
 # self-host's engine_rt.cpp: it is a ~19k-line generated artifact that does not
-# yet build through ball-compiler (gated behind the off-by-default `self_host`
+# yet build through ball-lang-compiler (gated behind the off-by-default `self_host`
 # feature), so committing it would only add churn. CI/consumers regenerate it.
 engine/src/compiled_engine.rs
 

@@ -22,7 +22,7 @@ pub fn tree(path: &Path) -> Result<(), CliError> {
 pub fn tree(path: &Path) -> Result<(), CliError> {
     let _engine = load_engine(path)?;
     Err(CliError::Runtime(
-        "`ball tree` needs the self-hosted cli-core, built in via `ball-cli`'s `cli_core` \
+        "`ball tree` needs the self-hosted cli-core, built in via `ball-lang-cli`'s `cli_core` \
          Cargo feature (off by default — see rust/cli/Cargo.toml). Build with `--features \
          cli_core` after regenerating rust/cli/src/compiled_cli.rs (`cargo run -p \
          ball-cli-regen`, which itself needs `dart/self_host/cli.ball.json` — see \

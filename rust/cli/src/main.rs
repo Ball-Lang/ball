@@ -42,7 +42,7 @@ use error::CliError;
     about = "Ball language CLI (Rust toolchain) — run/compile/encode/check/info/validate/tree/version.",
     long_about = "Ball language CLI (Rust toolchain): run/compile/encode/check/info/validate/tree/version.\n\n\
         NOTE on `run`: it drives the self-hosted engine, built in via \
-        `ball-cli`'s `self_host` Cargo feature (off by default — see \
+        `ball-lang-cli`'s `self_host` Cargo feature (off by default — see \
         rust/cli/Cargo.toml). Without that feature every program honestly \
         reports a runtime error instead of silently doing nothing. Built \
         with `--features self_host` (after regenerating \
@@ -51,7 +51,7 @@ use error::CliError;
         recursive fibonacci); anything beyond that surfaces the engine's own \
         error rather than pretending to succeed.\n\n\
         NOTE on `info`/`validate`/`tree`: they drive the self-hosted cli-core, \
-        built in via `ball-cli`'s `cli_core` Cargo feature (off by default — \
+        built in via `ball-lang-cli`'s `cli_core` Cargo feature (off by default — \
         see rust/cli/Cargo.toml). Without that feature they honestly report a \
         runtime error instead of silently doing nothing. `version` always \
         works regardless of this feature."

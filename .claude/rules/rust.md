@@ -33,24 +33,24 @@ cargo fmt --check && cargo clippy --workspace
 
 ## Package Structure
 
-- `ball-shared` (`rust/shared/`) — protobuf bindings (`prost`/`prost-reflect`, generated into
+- `ball-lang-shared` (`rust/shared/`) — protobuf bindings (`prost`/`prost-reflect`, generated into
   `rust/shared/gen/`) + runtime value model (`BallValue`/`BallList`/`BallMap`/`BallFunction`/
   `BallMessage`, `rust/shared/src/value.rs`) + std/std_collections/std_io/std_memory module
   builders + `runtime::*` base-op helpers consumed by the compiler.
-- `ball-compiler` (`rust/compiler/`) — Ball → Rust compiler. `compile_expression` handles all 7
+- `ball-lang-compiler` (`rust/compiler/`) — Ball → Rust compiler. `compile_expression` handles all 7
   expression node types; `base_call.rs` is the base-function dispatch table (delegates to
-  `ball_shared::runtime`); `lvalue.rs` handles assignment/mutation; `type_emit.rs` handles
+  `ball_lang_shared::runtime`); `lvalue.rs` handles assignment/mutation; `type_emit.rs` handles
   `typeDefs[]` → struct/trait/enum + multi-module output.
-- `ball-encoder` (`rust/encoder/`) — Rust → Ball via `syn` 2.x (`features = ["full",
+- `ball-lang-encoder` (`rust/encoder/`) — Rust → Ball via `syn` 2.x (`features = ["full",
   "extra-traits"]`). Routes every construct through universal `std`/`std_collections` — **no
   `rust_std` base module**, ever.
-- `ball-engine` (`rust/engine/`) — self-hosted engine wrapper (`loader.rs`/`scope.rs`/
+- `ball-lang-engine` (`rust/engine/`) — self-hosted engine wrapper (`loader.rs`/`scope.rs`/
   `ball_proto.rs`) + generated, gitignored `src/compiled_engine.rs`. See
   `rust/engine/AGENTS.md` for the full self-host gap list; the compiled-engine driver is behind
   the off-by-default `self_host` cargo feature.
 - `ball-engine-regen` (`rust/engine/tool/`) — `cargo run -p ball-engine-regen` regenerates
   `compiled_engine.rs` from `dart/self_host/engine.ball.json`.
-- `ball-cli` (`rust/cli/`) — currently a placeholder `main()` printing a scaffold message; no
+- `ball-lang-cli` (`rust/cli/`) — currently a placeholder `main()` printing a scaffold message; no
   subcommands wired (issue #41).
 
 ## Key Patterns
@@ -60,7 +60,7 @@ cargo fmt --check && cargo clippy --workspace
 - `Compiler::compile` / `compile_library` (library mode has no runnable entry point — used for
   the self-host regen tool) emit Rust source **as strings**, closest in spirit to the C++
   compiler's string-concatenation approach (not Dart's `code_builder`/TS's `ts-morph`).
-- Every compiled expression evaluates to a `ball_shared::BallValue` — there are no "void"
+- Every compiled expression evaluates to a `ball_lang_shared::BallValue` — there are no "void"
   expressions; side-effecting calls like `print` compile to `{ ...; BallValue::Null }` so every
   expression position (block tail, `if`/`else` arms, function bodies) stays type-uniform.
 - `Block` compiles to a **native Rust block expression** (Rust blocks are already
@@ -68,7 +68,7 @@ cargo fmt --check && cargo clippy --workspace
 - Control flow (`if`/`and`/`or`/`for`/`for_in`/`while`/`do_while`) compiles to native Rust
   control flow, never a function call — lazy evaluation per invariant #4.
 - Arithmetic semantics must match the Dart reference engine, not "whatever Rust's operator
-  does": `modulo` is Euclidean (sign of divisor, via `ball_shared::runtime`), int ops use
+  does": `modulo` is Euclidean (sign of divisor, via `ball_lang_shared::runtime`), int ops use
   wrapping arithmetic (Dart's fixed-width 64-bit `int`, no overflow panics), `equals`/
   `not_equals` promote `Int`/`Double` cross-type.
 - **Reference-semantic collections (Dart parity, #298/#39/#300).** `BallValue::List` and
@@ -104,23 +104,23 @@ cargo fmt --check && cargo clippy --workspace
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs`): tuple/unit structs,
   data-carrying enum variants, receiver-less associated functions (`Point::new(...)` — would
-  silently panic in `ball-compiler`'s `method_prologue`, so it's rejected rather than encoded).
+  silently panic in `ball-lang-compiler`'s `method_prologue`, so it's rejected rather than encoded).
 
 ### Engine
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
-  `dart/self_host/engine.ball.json` through `ball-compiler` into `src/compiled_engine.rs`.
+  `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
   whole corpus with Dart-identical output: `Results: 319 passed, 0 failed, 319 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
   stays green on the wrapper foundation. Regenerate + run: `cargo run -p ball-engine-regen` then
-  `cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored`.
-- Fixes to engine behavior belong in `rust/compiler/` or `ball_shared::runtime` (or the Dart
+  `cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored`.
+- Fixes to engine behavior belong in `rust/compiler/` or `ball_lang_shared::runtime` (or the Dart
   self-host source, then regenerate) — **never** hand-patch `compiled_engine.rs`. When a fixture
   diverges from Dart, check whether the divergence is in the compiler's emitted code (a compiler
-  fix + regen) or in a runtime helper the emitted code calls (a `ball_shared::runtime` fix, no
+  fix + regen) or in a runtime helper the emitted code calls (a `ball_lang_shared::runtime` fix, no
   regen) — the final-24 close-out was split roughly evenly between the two.
 
 ## Generated Files — NEVER Edit
@@ -133,9 +133,9 @@ cargo fmt --check && cargo clippy --workspace
 
 ## Testing
 
-- `cargo test --workspace` from `rust/` (via WSL). `ball-engine`'s compiled-engine driver is
+- `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
-- `cargo test -p ball-compiler` / `cargo test -p ball-encoder` include `tests/end_to_end.rs`
+- `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over
   Rust-only unit tests, per the repo-wide "prefer conformance tests" rule.

@@ -1,14 +1,14 @@
 //! `ball compile <program>` — Ball -> Rust source (issue #41).
 use std::path::Path;
 
-use ball_compiler::Compiler;
+use ball_lang_compiler::Compiler;
 
 use crate::error::CliError;
 use crate::loader::load_engine;
 use crate::output::write_text;
 use crate::panic_guard::catch_panic_message;
 
-/// Load `path`, compile it via `ball-compiler`, and write the emitted Rust
+/// Load `path`, compile it via `ball-lang-compiler`, and write the emitted Rust
 /// source to `output` (or stdout when `output` is `None`).
 ///
 /// `Compiler::compile()` `panic!`s on a program shape it doesn't support

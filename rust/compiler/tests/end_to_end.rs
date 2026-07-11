@@ -1,5 +1,5 @@
 //! Phase 2a end-to-end conformance: compile a Ball [`Program`] to Rust with
-//! [`ball_compiler::Compiler`], then actually run the Rust toolchain
+//! [`ball_lang_compiler::Compiler`], then actually run the Rust toolchain
 //! (`cargo run`, which invokes `rustc` under the hood) against the emitted
 //! source and assert on the compiled binary's stdout. This is the same
 //! "compile -> execute with the native toolchain -> compare" idiom the
@@ -9,7 +9,7 @@
 //! Fixtures:
 //! - `hello_world` / `fibonacci` — loaded from the real, cross-language
 //!   `examples/*.ball.json` fixtures (proto3 JSON), round-tripped through
-//!   `prost-reflect` exactly like `ball-shared`'s own test does
+//!   `prost-reflect` exactly like `ball-lang-shared`'s own test does
 //!   (`rust/shared/src/lib.rs`).
 //! - `factorial` and a `closures` fixture — issue #36's acceptance criteria
 //!   name these explicitly, but neither exists as a committed
@@ -28,19 +28,19 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ball_compiler::Compiler;
-use ball_shared::DESCRIPTOR_POOL;
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::statement::Stmt;
-use ball_shared::proto::ball::v1::{
+use ball_lang_compiler::Compiler;
+use ball_lang_shared::DESCRIPTOR_POOL;
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::statement::Stmt;
+use ball_lang_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FieldValuePair, FunctionCall, FunctionDefinition, LetBinding,
     ListLiteral, Literal, MessageCreation, Module, ModuleImport, Program, Reference, Statement,
     TypeDefinition,
 };
-use ball_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
-use ball_shared::proto::google::protobuf::value::Kind;
-use ball_shared::proto::google::protobuf::{
+use ball_lang_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
+use ball_lang_shared::proto::google::protobuf::value::Kind;
+use ball_lang_shared::proto::google::protobuf::{
     DescriptorProto, FieldDescriptorProto, ListValue, Struct, Value,
 };
 use prost::Message;
@@ -213,14 +213,14 @@ fn program_with_main(functions: Vec<FunctionDefinition>) -> Program {
         name: "test".to_string(),
         version: "1.0.0".to_string(),
         modules: vec![
-            ball_shared::build_std_module(),
+            ball_lang_shared::build_std_module(),
             // Every #37 fixture below is free to reach for `std_collections`/
             // `std_io` base calls (e.g. `list_push`) without each test having
             // to opt in individually — registering the module is what makes
             // `Compiler::is_base_module` recognize it; it's a no-op for
             // fixtures that never call into it.
-            ball_shared::build_std_collections_module(),
-            ball_shared::build_std_io_module(),
+            ball_lang_shared::build_std_collections_module(),
+            ball_lang_shared::build_std_io_module(),
             Module {
                 name: "main".to_string(),
                 functions,
@@ -575,14 +575,14 @@ fn workspace_root() -> PathBuf {
 }
 
 /// Writes `rust_src` as the `main.rs` of a small standalone Cargo package
-/// (depending on `ball-shared` via a path dependency), builds and runs it
+/// (depending on `ball-lang-shared` via a path dependency), builds and runs it
 /// with `cargo run`, and returns its captured stdout. Panics with the
 /// compiler/runtime output on any failure so a failing fixture's assertion
 /// message is immediately actionable.
 ///
 /// The throwaway package's `--target-dir` is pointed at the *workspace's
-/// own* `target/` directory (not a fresh temp one) so `ball-shared` and its
-/// dependency tree — already built for `cargo test -p ball-compiler` itself
+/// own* `target/` directory (not a fresh temp one) so `ball-lang-shared` and its
+/// dependency tree — already built for `cargo test -p ball-lang-compiler` itself
 /// — are reused instead of rebuilt from scratch per fixture.
 fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let workspace_root = workspace_root();
@@ -603,7 +603,7 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let manifest = format!(
         "[package]\nname = \"ball_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
          [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
-         [dependencies]\nball-shared = {{ path = {:?} }}\n",
+         [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
         shared_path
     );
     fs::write(fixture_dir.join("Cargo.toml"), manifest)
@@ -1015,7 +1015,7 @@ fn arithmetic_comparison_logic_bitwise_operators_match_reference_semantics() {
         .collect();
     let tail = match statements.pop().expect("checks is non-empty") {
         Statement {
-            stmt: Some(ball_shared::proto::ball::v1::statement::Stmt::Expression(last)),
+            stmt: Some(ball_lang_shared::proto::ball::v1::statement::Stmt::Expression(last)),
         } => last,
         _ => unreachable!("every statement built above is Stmt::Expression"),
     };
@@ -1268,7 +1268,7 @@ fn multi_module_program_compiles_into_nested_mods_and_resolves_cross_module_call
         name: "test".to_string(),
         version: "1.0.0".to_string(),
         modules: vec![
-            ball_shared::build_std_module(),
+            ball_lang_shared::build_std_module(),
             math_module,
             Module {
                 name: "main".to_string(),
@@ -1427,7 +1427,7 @@ fn params_meta_value(names: &[&str]) -> Value {
 /// (`dart/encoder/lib/encoder.dart`'s `_encodeMethodDeclaration`: `meta['kind']
 /// = 'method'; if (member.isStatic) meta['is_static'] = true;`), which is
 /// what marks a class member as having no `self` receiver at the Ball IR
-/// level (`ball-compiler`'s own Rust encoder doesn't emit this shape yet —
+/// level (`ball-lang-compiler`'s own Rust encoder doesn't emit this shape yet —
 /// see `rust/encoder/src/types.rs`'s module doc comment — so this is
 /// hand-built exactly like `factorial`/`closures` above).
 fn static_method_meta(params: &[&str]) -> Struct {
@@ -1515,7 +1515,7 @@ fn receiver_less_associated_function_compiles_and_runs() {
         name: "test".to_string(),
         version: "1.0.0".to_string(),
         modules: vec![
-            ball_shared::build_std_module(),
+            ball_lang_shared::build_std_module(),
             Module {
                 name: "main".to_string(),
                 functions: vec![point_new, user_fn("main", "", "void", main_body, None)],
@@ -1740,7 +1740,7 @@ fn named_and_positional_parameters_bind_and_run() {
         name: "test".to_string(),
         version: "1.0.0".to_string(),
         modules: vec![
-            ball_shared::build_std_module(),
+            ball_lang_shared::build_std_module(),
             Module {
                 name: "main".to_string(),
                 functions: vec![
@@ -1869,7 +1869,7 @@ fn implicit_this_dispatch_and_reference_semantic_field_mutation() {
         name: "test".to_string(),
         version: "1.0.0".to_string(),
         modules: vec![
-            ball_shared::build_std_module(),
+            ball_lang_shared::build_std_module(),
             Module {
                 name: "main".to_string(),
                 functions: vec![

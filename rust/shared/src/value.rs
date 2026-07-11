@@ -2,7 +2,7 @@
 //!
 //! Every Ball value at runtime is one of the [`BallValue`] variants. This
 //! mirrors `dart/engine/lib/ball_value.dart` (the Dart reference's typed
-//! value hierarchy) and `cpp/shared/include/ball_shared.h`'s
+//! value hierarchy) and `cpp/shared/include/ball_lang_shared.h`'s
 //! `BallValue`/`BallList`/`BallMap` aliases, adapted to Rust's ownership
 //! model: instead of a single dynamic `std::any`/`Object?`, values are a
 //! plain `enum` so the compiler/engine can pattern-match exhaustively.
@@ -128,7 +128,7 @@ impl BallList {
         let mut guard = self.guard();
         if index >= guard.len() {
             panic!(
-                "ball-compiler runtime: list index {index} out of range (len {})",
+                "ball-lang-compiler runtime: list index {index} out of range (len {})",
                 guard.len()
             );
         }

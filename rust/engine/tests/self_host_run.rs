@@ -5,7 +5,7 @@
 //! generated `compiled_engine.rs`).
 #![cfg(feature = "self_host")]
 
-use ball_engine::BallEngine;
+use ball_lang_engine::BallEngine;
 
 /// Run a `.ball.json` program (relative to the repo root) and return its
 /// captured stdout lines.

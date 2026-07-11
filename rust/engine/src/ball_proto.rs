@@ -22,7 +22,7 @@
 //! engine resolves dynamically on native `String`/`List`/`Map` values rather
 //! than by a field lookup — see [`virtual_property`].
 
-use ball_shared::{BallList, BallValue};
+use ball_lang_shared::{BallList, BallValue};
 
 // ════════════════════════════════════════════════════════════
 // Oneof discriminators
@@ -197,7 +197,7 @@ pub fn virtual_property(value: &BallValue, name: &str) -> Option<BallValue> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ball_shared::BallMap;
+    use ball_lang_shared::BallMap;
 
     fn map(pairs: &[(&str, BallValue)]) -> BallValue {
         let m = BallMap::new();

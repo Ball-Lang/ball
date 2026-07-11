@@ -1,5 +1,5 @@
 [package]
-name = "ball-compiler"
+name = "ball-lang-compiler"
 description = "Ball -> Rust compiler."
 version.workspace = true
 edition.workspace = true
@@ -8,16 +8,16 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-ball-shared = { workspace = true }
-# `ball_shared::extract_fields` returns `IndexMap<String, Expression>` — same
-# version as `ball-shared` (workspace-pinned) so the type is identical, not
+ball-lang-shared = { workspace = true }
+# `ball_lang_shared::extract_fields` returns `IndexMap<String, Expression>` — same
+# version as `ball-lang-shared` (workspace-pinned) so the type is identical, not
 # just structurally compatible.
 indexmap = { workspace = true }
 
 [dev-dependencies]
 # Used only by tests: load examples/*.ball.json fixtures through the same
 # proto3-JSON -> DynamicMessage -> binary -> typed Program round trip that
-# `ball-shared`'s own tests use (see `rust/shared/src/lib.rs`), and shell out
+# `ball-lang-shared`'s own tests use (see `rust/shared/src/lib.rs`), and shell out
 # to `cargo run` to prove the emitted Rust actually compiles and runs.
 prost = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }

@@ -48,3 +48,15 @@ updates:
       cargo-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # nuget — Central Package Management (csharp/Directory.Packages.props)
+  # resolves every csharp/ package's NuGet versions from one root directory,
+  # like the pub/cargo workspace roots above.
+  - package-ecosystem: "nuget"
+    directory: "/csharp"
+    schedule:
+      interval: "weekly"
+    groups:
+      nuget-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

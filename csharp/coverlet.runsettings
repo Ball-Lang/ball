@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  coverlet.collector (the "XPlat Code Coverage" VSTest data collector, wired
+  into every csharp/*/test/*.csproj — see Directory.Packages.props) writes
+  JSON coverage by default. CI (issue #386) needs lcov to match the other
+  four stacks' Codecov upload shape (dart/typescript/cpp/rust all upload
+  lcov — see .github/workflows/coverage.yml). Consumed via:
+
+    dotnet test Ball.slnx —collect "XPlat Code Coverage"
+      —settings coverlet.runsettings —results-directory DIR
+
+  Each test project's data collector writes its own coverage.info under
+  DIR/GUID/coverage.info; merge them with ReportGenerator (see coverage.yml's
+  "csharp" job) since VSTest integration does not merge multi-project runs on
+  its own.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>lcov</Format>
+          <!-- Exclude generated/never-authored sources from the gate, mirroring
+               codecov.yml's ignore list and the other stacks' generated-file
+               exclusions (Google.Protobuf-generated shared/gen/Ball.cs, and the
+               self-hosted CompiledEngine.cs/CompiledCli.cs — gitignored,
+               regenerated build artifacts, absent from a fresh checkout's
+               default-build coverage run anyway). -->
+          <Exclude>[Ball.Shared]Ball.V1.*,[Ball.Engine]*.CompiledEngine,[ball]*.CompiledCli</Exclude>
+          <ExcludeByFile>**/gen/**/*.cs,**/CompiledEngine.cs,**/CompiledCli.cs</ExcludeByFile>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

@@ -70,6 +70,19 @@ internal static class CSharpRunner
 {
     private static readonly MetadataReference[] References = BuildReferences();
 
+    // Console.Out is PROCESS-GLOBAL mutable state. xUnit v3 runs test classes
+    // in parallel by default (separate collections on separate threads), so
+    // two tests both inside Run() at once — one redirecting Console.Out right
+    // as another is mid-Invoke — race: each can observe (or capture) the
+    // OTHER'S output, or restore over the other's redirect. This is exactly
+    // the failure signature seen when this lock was absent (e.g. a test
+    // expecting "0\n1\n2\n" instead asserting on "false\n", another test's own
+    // expected output) — nondeterministic, core-count-dependent, so it can
+    // pass locally and fail on CI (or vice versa). Serialize the
+    // redirect-invoke-restore critical section; compilation (CompileToAssembly,
+    // called before this lock) still runs in parallel across tests.
+    private static readonly Lock ConsoleLock = new();
+
     /// <summary>Compile + run <paramref name="source"/>, returning its stdout (with <c>\n</c> line endings preserved).</summary>
     public static string Run(string source)
     {
@@ -84,26 +97,29 @@ internal static class CSharpRunner
         var entryPoint = assembly.EntryPoint
             ?? throw new InvalidOperationException("compiled program has no entry point");
 
-        var originalOut = Console.Out;
-        var writer = new StringWriter { NewLine = "\n" };
-        Console.SetOut(writer);
-        try
+        lock (ConsoleLock)
         {
-            var parameters = entryPoint.GetParameters().Length == 1
-                ? new object?[] { Array.Empty<string>() }
-                : null;
-            entryPoint.Invoke(null, parameters);
-        }
-        catch (TargetInvocationException ex)
-        {
-            throw ex.InnerException ?? ex;
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
+            var originalOut = Console.Out;
+            var writer = new StringWriter { NewLine = "\n" };
+            Console.SetOut(writer);
+            try
+            {
+                var parameters = entryPoint.GetParameters().Length == 1
+                    ? new object?[] { Array.Empty<string>() }
+                    : null;
+                entryPoint.Invoke(null, parameters);
+            }
+            catch (TargetInvocationException ex)
+            {
+                throw ex.InnerException ?? ex;
+            }
+            finally
+            {
+                Console.SetOut(originalOut);
+            }
 
-        return writer.ToString();
+            return writer.ToString();
+        }
     }
 
     /// <summary>Compile <paramref name="source"/> only, returning whether it built (for compile-only assertions).</summary>

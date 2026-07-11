@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–8 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (320/320) + committed conformance harness + `ball` CLI; no CI job yet)
+# C# (Phases 1–9 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (320/320) + committed conformance harness + `ball` CLI + CI/CD)
 
 ## Purpose
 
@@ -18,8 +18,11 @@ against the DART reference engine). **Phase 6 (#383, CLOSED) added the self-host
 **Phase 7 (#384) added the committed conformance harness to `engine/conformance/`** (see
 "Conformance harness" below). **Phase 8 (#385) added the `ball` CLI to `cli/`** —
 `run`/`compile`/`encode`/`check` plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version`
-(see "CLI" below). CI (#386) and docs (#387) are still pending — see the phase table in the epic
-#377 tracking comment.
+(see "CLI" below). **Phase 9 (#386) added CI/CD** — a `csharp` job in `ci.yml` (build, test, format
+check, and the regenerate-then-run self-hosted engine conformance sweep), a `csharp-engine` row in
+`conformance-matrix.yml`, a coverlet→Codecov coverage flag/floor, and a `nuget` dependabot entry
+(see "CI/CD" below). Docs (#387) are still pending — see the phase table in the epic #377 tracking
+comment.
 
 ## Layout
 
@@ -170,8 +173,9 @@ root `CLAUDE.md`) and diffed the result against the committed tree.
   "would-convert" even when its content exactly matches HEAD. Confirmed via `git diff --numstat`
   (zero output — no line changes) and the blob-hash/`cmp` check above; do not read a bare `git
   status` "M" on `**/gen/**` after a regen as evidence of drift on Windows — check the blob hash.
-- Regen command (also what CI should run once a C# CI job exists — #386):
-  `buf generate proto` from the repo root, with `buf` on `PATH`.
+- Regen command: `buf generate proto` from the repo root, with `buf` on `PATH`. `shared/gen/` is
+  committed and consumed as-is by the `csharp` CI job (#386); regen-and-diff drift checking is the
+  root `proto` job's concern (`buf lint`/`buf breaking`), not `csharp`'s.
 
 ## Ordered-map decision (issue #378, for the runtime value model landing in #380)
 
@@ -614,10 +618,11 @@ Three legs, one runner, selected via `--leg=`:
   .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
   /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
 
-**Regen seam for CI (issue #386):** the harness does not regenerate `CompiledEngine.cs` itself —
-same division of responsibility as `Ball.Engine.Tests`. A CI job must run the regen steps
-documented in "Build & Test" below (`gen_engine_json.dart`/`compile_engine_cpp.dart` to produce
-`engine.ball.pb`, then `Ball.Engine.Regen`) before invoking the `engine` leg, exactly like the
+**Regen seam for CI (issue #386, implemented):** the harness does not regenerate
+`CompiledEngine.cs` itself — same division of responsibility as `Ball.Engine.Tests`. A CI job
+runs the regen steps documented in "Build & Test" below (`compile_engine_cpp.dart` to produce
+`engine.ball.pb`, then `Ball.Engine.Regen`) before invoking the `engine` leg — both the `csharp`
+job in `ci.yml` and the `csharp-engine` row in `conformance-matrix.yml` do this — exactly like the
 `rust-engine` row in `conformance-matrix.yml` regenerates `compiled_engine.rs` before running
 `self_host_conformance.rs`. `--fixture=<name>` (or the `BALL_FIXTURE` env var, matching the Rust
 runner's convention) narrows any leg to one fixture with full actual-vs-expected detail, for
@@ -760,7 +765,52 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
 - No `ball audit` — see "`auditReport` is intentionally excluded" above (issue #362 residual).
 - `check` does not attempt to run the program — only compiler-shaped structural validation, plus
   an opt-in `--compile` dry-run. It never drives the self-hosted engine.
-- No C# CI job runs this yet (that's #386).
+
+## CI/CD (issue #386)
+
+- **`csharp` job** (`.github/workflows/ci.yml`) — gated on `needs.changes.outputs.csharp` (any
+  `csharp/**` change) or `infra`; also fires whenever `needs.changes.outputs.self_host` is true
+  (a `dart/engine/lib/**` edit cross-compiles into `CompiledEngine.cs`, same reasoning as the
+  `cpp`/`rust` jobs — see the `changes` job's `self_host` computation in `ci.yml`). Mirrors the
+  `rust` job's shape: `actions/setup-dotnet@v5` (`dotnet-version: "10.0.x"`, matching
+  `csharp/global.json`'s `rollForward: latestFeature` floor of `10.0.100`) → `dotnet build
+  Ball.slnx` → `dotnet test Ball.slnx` → `dotnet format Ball.slnx --verify-no-changes` → the
+  self-host conformance sweep: `dart-lang/setup-dart` + `dart pub get` +
+  `compiler/tool/compile_engine_cpp.dart` (tolerating its documented post-`.pb`-write C++-emit
+  failure — see "Build & Test" above) to produce `engine.ball.pb`, `dotnet run --project
+  engine/tool/Ball.Engine.Regen.csproj` to produce `CompiledEngine.cs`, `dotnet build
+  engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true`, then `dotnet run
+  ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
+  `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
+  identical gate so the corpus can grow without editing the workflow. Currently green at
+  `Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)`.
+- **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
+  as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
+  blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
+  filter.
+- **Coverage** (`.github/workflows/coverage.yml`, `codecov.yml`) — `coverlet.collector` (already
+  referenced by every `csharp/*/test/*.csproj`, pinned in `Directory.Packages.props`) is the VSTest
+  `"XPlat Code Coverage"` data collector; `csharp/coverlet.runsettings` switches its output to lcov
+  and excludes generated sources (`Ball.V1.*` — the buf-generated protobuf namespace — plus
+  `CompiledEngine`/`CompiledCli`, mirroring `codecov.yml`'s `ignore:` list). `dotnet test
+  Ball.slnx --collect:"XPlat Code Coverage" --settings coverlet.runsettings` instruments all 5
+  default-build test projects in one invocation, each writing its own `coverage.info`; since
+  VSTest integration doesn't merge multi-project runs or compute a summary (unlike coverlet's
+  dotnet/msbuild integration), `dotnet-reportgenerator-globaltool` merges them into one `lcov.info`
+  for Codecov and a `TextSummary` (`Line coverage: NN.N%`) the floor gate parses — the C# analog of
+  the `cpp` job's `lcov --summary` and the `rust` job's `cargo llvm-cov report
+  --fail-under-lines`. Floor is `60` (measured 65.3% locally 2026-07-12); raise toward 100% as
+  tests land, per the same ratchet philosophy as the other four stacks. Codecov flag `csharp`,
+  `paths: [csharp/]`, `carryforward: true` in both `coverage.yml`'s upload step and
+  `codecov.yml`'s `flag_management`.
+- **Dependabot** (`.github/dependabot.yml`) — a `nuget` ecosystem entry at `directory: "/csharp"`
+  (Central Package Management via `Directory.Packages.props` resolves every `csharp/` package's
+  versions from that one root, like the `pub`/`cargo` workspace-root entries above it), grouped
+  `nuget-minor-patch` for minor/patch bumps.
+- Out of scope for #386 (left for a future pass): regenerating `CompiledCli.cs` /
+  `-p:CliCore=true` in CI, and running the conformance harness's `compiler`/`roundtrip` legs (both
+  have documented non-parity gaps — see "Conformance harness" above — so they are not yet
+  CI-gated pass/fail checks).
 
 ## Generated Files — NEVER Edit
 
@@ -856,8 +906,11 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
   the same two Windows console fixes (UTF-8 output encoding, forced LF line endings) that made
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
-  CI (#386, wiring the harness in) and docs (#387) are still pending — see the phase table in the
-  epic #377 tracking comment for the blocked-by graph.
+  **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 320 passed, 0 failed,
+  320 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. Docs (#387) are still pending —
+  see the phase table in the epic #377 tracking comment for the blocked-by graph.
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds
   lists/maps/messages with the reference-vs-value-semantics copy rules above — do not re-derive
   operator semantics as emitted text. Fixes to compiled-program behavior belong in the compiler
@@ -868,5 +921,5 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
 - Follow `.claude/skills/new-ball-language/SKILL.md` for the remaining phases.
 - Central Package Management is on (`Directory.Packages.props`) — add new package versions there,
   not per-project `Version=` attributes.
-- Verify maturity against CI (`.github/workflows/ci.yml`), not this prose — no C# CI job exists
-  yet (that's #386).
+- Verify maturity against CI (`.github/workflows/ci.yml`) — the `csharp` job and `csharp-engine`
+  conformance-matrix row (#386) are the source of truth, not this prose.

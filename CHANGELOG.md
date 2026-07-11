@@ -1,3 +1,10 @@
+# [1.38.0](https://github.com/Ball-Lang/ball/compare/v1.37.0...v1.38.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host corpus 251→271 — close the double value-representation gap ([#406](https://github.com/Ball-Lang/ball/issues/406)) ([c7b6716](https://github.com/Ball-Lang/ball/commit/c7b6716f7808d6b7e0b9da484bff1cf0457bd0a5))
+
 # [1.37.0](https://github.com/Ball-Lang/ball/compare/v1.36.0...v1.37.0) (2026-07-11)
 
 

@@ -1,0 +1,99 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "for_in_list",
+  "version": "1.0.0",
+  "entryModule": "main",
+  "entryFunction": "main",
+  "modules": [
+    {
+      "name": "std",
+      "description": "Universal standard library base module",
+      "functions": [
+        { "name": "print", "isBase": true },
+        { "name": "for_in", "isBase": true },
+        { "name": "to_string", "isBase": true }
+      ],
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              { "name": "message", "number": 1, "label": "LABEL_OPTIONAL", "type": "TYPE_STRING" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "moduleImports": [{ "name": "std" }],
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "metadata": { "kind": "function" },
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "for_in",
+              "input": {
+                "messageCreation": {
+                  "fields": [
+                    { "name": "variable", "value": { "literal": { "stringValue": "x" } } },
+                    {
+                      "name": "iterable",
+                      "value": {
+                        "literal": {
+                          "listValue": {
+                            "elements": [
+                              { "literal": { "intValue": "10" } },
+                              { "literal": { "intValue": "20" } },
+                              { "literal": { "intValue": "30" } }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "name": "body",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "print",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "PrintInput",
+                              "fields": [
+                                {
+                                  "name": "message",
+                                  "value": {
+                                    "call": {
+                                      "module": "std",
+                                      "function": "to_string",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            { "name": "value", "value": { "reference": { "name": "x" } } }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

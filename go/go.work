@@ -1,0 +1,13 @@
+// Go workspace tying together the Ball Go implementation modules so they
+// resolve against the local tree during development (no published versions yet).
+//
+//   go/runtime  — dependency-free runtime value model (package ballrt)
+//   go/shared   — generated proto bindings (package ballv1)
+//   go/compiler — Ball → Go compiler
+go 1.23
+
+use (
+	./compiler
+	./runtime
+	./shared
+)

@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "@ball-lang/cli-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/cli"] }],
+    ["@semantic-release/changelog", { "changelogFile": "ts/cli/CHANGELOG.md" }],
+    ["@semantic-release/npm", { "pkgRoot": "ts/cli", "npmPublish": false }],
+    ["@semantic-release/exec", {
+      "publishCmd": "gh workflow run publish-npm.yml --ref @ball-lang/cli-v${nextRelease.version} -f package=cli"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["ts/cli/package.json", "ts/cli/CHANGELOG.md"],
+      "message": "chore(release): @ball-lang/cli ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

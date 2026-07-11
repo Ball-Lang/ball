@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "ball_cli-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["dart/cli"] }],
+    ["@semantic-release/changelog", { "changelogFile": "dart/cli/CHANGELOG.md" }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/cli/pubspec.yaml --version=${nextRelease.version}",
+      "publishCmd": "gh workflow run release-publish.yml --ref ball_cli-v${nextRelease.version}"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["dart/cli/pubspec.yaml", "dart/cli/CHANGELOG.md"],
+      "message": "chore(release): ball_cli ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

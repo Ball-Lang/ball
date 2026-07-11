@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "ball_encoder-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["dart/encoder"] }],
+    ["@semantic-release/changelog", { "changelogFile": "dart/encoder/CHANGELOG.md" }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/encoder/pubspec.yaml --version=${nextRelease.version}",
+      "publishCmd": "gh workflow run release-publish.yml --ref ball_encoder-v${nextRelease.version}"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["dart/encoder/pubspec.yaml", "dart/encoder/CHANGELOG.md"],
+      "message": "chore(release): ball_encoder ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

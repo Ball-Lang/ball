@@ -1,3 +1,10 @@
+# [1.44.0](https://github.com/Ball-Lang/ball/compare/v1.43.0...v1.44.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — JSON codec + DateTime built-ins via map-literal comprehension splice (315 → 317) ([#419](https://github.com/Ball-Lang/ball/issues/419)) ([95759e7](https://github.com/Ball-Lang/ball/commit/95759e72b029357273159c6a02038ed770067c02))
+
 # [1.43.0](https://github.com/Ball-Lang/ball/compare/v1.42.0...v1.43.0) (2026-07-11)
 
 

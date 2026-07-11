@@ -23,6 +23,11 @@
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+
+    <!-- Roslyn — the compiler-lane test suite (#381) compiles the emitted C#
+         in-memory and executes it, so it can assert on real stdout (the C#
+         analog of the Rust encoder/compiler tests invoking `rustc`/`cargo`). -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
 </Project>

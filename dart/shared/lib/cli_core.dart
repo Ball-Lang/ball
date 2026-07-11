@@ -22,8 +22,9 @@ library;
 
 import 'gen/ball/v1/ball.pb.dart';
 
-import 'capability_analyzer.dart';
-import 'termination_analyzer.dart';
+part 'capability_table.dart';
+part 'capability_analyzer.dart';
+part 'termination_analyzer.dart';
 
 // ── version ──────────────────────────────────────────────────────────────
 
@@ -225,10 +226,10 @@ String auditReport(Program program) {
   final buf = StringBuffer();
   buf.writeln(formatCapabilityReport(report));
 
-  final termReport = analyzeTermination(program);
-  if (termReport.warnings.isNotEmpty) {
+  final termWarnings = analyzeTermination(program);
+  if (termWarnings.isNotEmpty) {
     buf.writeln('');
-    buf.writeln(formatTerminationReport(termReport));
+    buf.writeln(formatTerminationReport(termWarnings));
   }
   return buf.toString();
 }

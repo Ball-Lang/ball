@@ -1,0 +1,17 @@
+{
+  "name": "@ball-lang/release-tooling",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned semantic-release toolchain + local path-filter plugin for the per-package release matrix (docs/RELEASE.md). Not published.",
+  "license": "MIT",
+  "devDependencies": {
+    "@semantic-release/changelog": "6.0.3",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "10.0.1",
+    "@semantic-release/github": "12.0.9",
+    "@semantic-release/npm": "13.1.5",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "semantic-release": "25.0.6"
+  }
+}

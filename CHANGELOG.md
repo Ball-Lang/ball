@@ -1,3 +1,10 @@
+# [1.47.0](https://github.com/Ball-Lang/ball/compare/v1.46.0...v1.47.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#384](https://github.com/Ball-Lang/ball/issues/384) Phase 7 -- conformance harness (Results: 320 passed, 0 failed, 320 total) ([#424](https://github.com/Ball-Lang/ball/issues/424)) ([7900d17](https://github.com/Ball-Lang/ball/commit/7900d173355aafce0ec73dd8150e1b75339bb86c))
+
 # [1.46.0](https://github.com/Ball-Lang/ball/compare/v1.45.0...v1.46.0) (2026-07-11)
 
 

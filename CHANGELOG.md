@@ -1,3 +1,10 @@
+# [1.31.0](https://github.com/Ball-Lang/ball/compare/v1.30.0...v1.31.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#381](https://github.com/Ball-Lang/ball/issues/381) Phase 4 — Ball -> C# compiler (7 node types, lazy control flow, types) ([#391](https://github.com/Ball-Lang/ball/issues/391)) ([8969907](https://github.com/Ball-Lang/ball/commit/8969907f81cb5ad174adb3e851e0c74c0c195751)), closes [#4](https://github.com/Ball-Lang/ball/issues/4) [C#-specific](https://github.com/C/issues/-specific)
+
 # [1.30.0](https://github.com/Ball-Lang/ball/compare/v1.29.0...v1.30.0) (2026-07-10)
 
 

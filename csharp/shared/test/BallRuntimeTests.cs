@@ -220,6 +220,34 @@ public class BallRuntimeTests
     }
 
     [Fact]
+    public void MapNonStringKeysAreStringified()
+    {
+        // Ball maps are string-keyed, so a non-string key (an int memo key, a
+        // bool, a whole double) is coerced to its display form rather than
+        // rejected — matches rust/shared's `index_key` (self-host fixtures 95 /
+        // 391 memoize with int keys). Every keying path routes through the same
+        // coercion: set / get / containsKey / delete and the `map[key]` index form.
+        var map = new BallMap();
+        BallRuntime.MapSet(map, BallValue.Int(3), BallValue.Str("three"));
+        BallRuntime.IndexSet(map, BallValue.Double(2.0), BallValue.Str("two"));
+        BallRuntime.MapSet(map, BallValue.Bool(true), BallValue.Str("yes"));
+
+        Assert.Equal(BallValue.Str("three"), BallRuntime.MapGet(map, BallValue.Int(3)));
+        Assert.Equal(BallValue.Str("two"), BallRuntime.IndexGet(map, BallValue.Double(2.0)));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.MapContainsKey(map, BallValue.Int(3)));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.MapContainsKey(map, BallValue.Int(9)));
+
+        // Keys round-trip back as their stringified form.
+        var keys = (BallList)BallRuntime.MapKeys(map);
+        Assert.Equal(BallValue.Str("3"), keys.Get(0));
+        Assert.Equal(BallValue.Str("2.0"), keys.Get(1));
+        Assert.Equal(BallValue.Str("true"), keys.Get(2));
+
+        Assert.Equal(BallValue.Str("three"), BallRuntime.MapDelete(map, BallValue.Int(3)));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.MapContainsKey(map, BallValue.Int(3)));
+    }
+
+    [Fact]
     public void SetRuntimeOpsDedupAsList()
     {
         var set = (BallList)BallRuntime.SetCreate(new BallList(new BallValue[]

@@ -27,7 +27,7 @@ public static partial class BallRuntime
                 throw new BallRuntimeException("map_create expects [key, value] pairs");
             }
 
-            map.Set(AsStr(pair.Get(0)), pair.Get(1));
+            map.Set(MapKey(pair.Get(0)), pair.Get(1));
         }
 
         return map;
@@ -553,7 +553,7 @@ public static partial class BallRuntime
     public static BallValue MapPutIfAbsent(BallValue map, BallValue key, BallValue ifAbsent)
     {
         var m = AsMap(map);
-        var k = AsStr(key);
+        var k = MapKey(key);
         if (m.Get(k) is { } existing)
         {
             return existing;

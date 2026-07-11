@@ -16,6 +16,7 @@ Contributors working inside the Ball repository are prompted automatically (the 
 | Skill | Use for |
 |---|---|
 | `/ball:convert <target>[, custom instructions]` | Convert a whole codebase (source, tests, build config, CI) from one language to another through the Ball IR — deterministic encode → IR → compile, with engine-oracle parity verification. Runs in **your** repository. |
+| `/ball:embed` | Safely execute dynamically-delivered code inside **your** app — server-driven logic or native UI without arbitrary remote code execution. Teaches the receive → audit → reject-or-execute pattern, deny-by-default capability policy, and exposing only a vetted native module surface. |
 | `/ball:new <language>` | Bootstrap full Ball support for a new target language (compiler + encoder + engine + CLI + conformance + CI). Wrapper that defers to the canonical in-repo skill in a `Ball-Lang/ball` checkout. |
 | `/ball:iterate <language>[, focus]` | Audit and improve an existing Ball language target (conformance, coverage, fail-loud, docs). Wrapper that defers to the canonical in-repo skill in a `Ball-Lang/ball` checkout. |
 

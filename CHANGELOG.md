@@ -1,3 +1,10 @@
+# [1.37.0](https://github.com/Ball-Lang/ball/compare/v1.36.0...v1.37.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host corpus 199→251 — RegExp, collection copy/fill ctors, universal toString ([#405](https://github.com/Ball-Lang/ball/issues/405)) ([527c140](https://github.com/Ball-Lang/ball/commit/527c1408d4f18c4edc4e955895c52b9b9013cc34))
+
 # [1.36.0](https://github.com/Ball-Lang/ball/compare/v1.35.1...v1.36.0) (2026-07-11)
 
 

@@ -182,12 +182,6 @@ public sealed partial class CSharpCompiler
 
             foreach (var member in members)
             {
-                var kind = MetaString(member.Metadata, "kind");
-                if (kind == "constructor")
-                {
-                    continue;
-                }
-
                 var split = Naming.SplitMemberName(member.Name);
                 if (split is null)
                 {
@@ -195,8 +189,34 @@ public sealed partial class CSharpCompiler
                 }
 
                 var shortMember = Naming.Sanitize(split.Value.Member);
-                var ownerShort = Naming.Sanitize(Naming.TypeShortName(owner));
-                var implName = $"{ownerShort}__{shortMember}";
+                var implName = MemberImplName(Naming.TypeShortName(owner), split.Value.Member);
+
+                if (MetaString(member.Metadata, "kind") == "constructor")
+                {
+                    // A body-carrying constructor is emitted as an invocable method
+                    // (called directly by CompileMessageCreation, not via type
+                    // dispatch). A bodyless constructor needs no method — its
+                    // instance is built inline by CompileMessageCreation.
+                    if (member.Body is not null)
+                    {
+                        impls.Append(CompileConstructor(implName, ownerTd, member));
+                        impls.Append('\n');
+                    }
+
+                    continue;
+                }
+
+                // A static member has no receiver — emit it as a plain function
+                // (no `self`/field prologue, no type dispatcher, its single
+                // positional argument passed directly), exactly like a free
+                // function. It is called by its short name, never injected.
+                if (MetaBool(member.Metadata, "is_static"))
+                {
+                    impls.Append(CompileStaticMethod(shortMember, member));
+                    impls.Append('\n');
+                    continue;
+                }
+
                 impls.Append(CompileMethodImpl(implName, ownerTd, member));
                 impls.Append('\n');
 
@@ -235,46 +255,34 @@ public sealed partial class CSharpCompiler
     }
 
     /// <summary>
-    /// A method implementation: binds the receiver (<c>self</c>) and each of
-    /// the owner's fields as read aliases (so the body's bare field references
-    /// resolve — Dart's implicit-<c>this</c> convention), plus the method's
-    /// declared parameters, then compiles the body.
+    /// A static class member — a plain <c>static BallValue &lt;short&gt;(input)</c>
+    /// function with no receiver: its single positional argument is passed
+    /// directly (the encoder's single-positional-direct convention), any other
+    /// arity destructures from the input. No <c>self</c>/field prologue, no
+    /// implicit-<c>this</c> (compiled with the instance-method flag cleared).
     /// </summary>
-    private string CompileMethodImpl(string implName, TypeDefinition ownerTd, FunctionDefinition member)
+    private string CompileStaticMethod(string shortMember, FunctionDefinition member)
     {
         var inName = PushInput();
         PushScope();
-        var sb = new StringBuilder($"    private static BallValue {implName}(BallValue {inName})\n    {{\n");
-        var selfName = BindLocal("self");
-        sb.Append($"        var {selfName} = BallRuntime.FieldGet({inName}, \"self\");\n");
+        var prevInInstance = _inInstanceMethod;
+        _inInstanceMethod = false;
+        var sb = new StringBuilder($"    public static BallValue {shortMember}(BallValue {inName})\n    {{\n");
 
-        // A declared parameter shadows a same-named field inside the method body
-        // (Dart semantics); the field alias would be dead, so skip it when a
-        // parameter (or the receiver `self`) already claims that name.
         var paramNames = ParamNames(member);
-        var shadowed = new HashSet<string>(paramNames, StringComparer.Ordinal) { "self" };
-
-        if (ownerTd.Descriptor_ is not null)
+        if (paramNames.Count == 1)
         {
-            foreach (var field in ownerTd.Descriptor_.Field)
-            {
-                if (string.IsNullOrEmpty(field.Name) || shadowed.Contains(field.Name))
-                {
-                    continue;
-                }
-
-                sb.Append($"        var {BindLocal(field.Name)} = BallRuntime.FieldGet({selfName}, {Naming.StringLiteral(field.Name)});\n");
-            }
+            sb.Append($"        var {BindLocal(paramNames[0])} = {inName};\n");
         }
-
-        foreach (var param in paramNames)
+        else
         {
-            if (param == "self")
+            var positional = 0;
+            foreach (var param in paramNames)
             {
-                continue;
+                var argKey = Naming.StringLiteral($"arg{positional}");
+                positional++;
+                sb.Append($"        var {BindLocal(param)} = BallRuntime.ArgGet({inName}, {Naming.StringLiteral(param)}, {argKey});\n");
             }
-
-            sb.Append($"        var {BindLocal(param)} = BallRuntime.FieldGet({inName}, {Naming.StringLiteral(param)});\n");
         }
 
         if (member.Body is null)
@@ -291,6 +299,107 @@ public sealed partial class CSharpCompiler
         }
 
         sb.Append("    }\n");
+        _inInstanceMethod = prevInInstance;
+        PopScope();
+        PopInput();
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// A method implementation: binds the receiver (<c>self</c>) and each of
+    /// the owner's fields as read aliases (so the body's bare field references
+    /// resolve — Dart's implicit-<c>this</c> convention), plus the method's
+    /// declared parameters, then compiles the body.
+    /// </summary>
+    private string CompileMethodImpl(string implName, TypeDefinition ownerTd, FunctionDefinition member)
+    {
+        var inName = PushInput();
+        PushScope();
+        var sb = new StringBuilder($"    private static BallValue {implName}(BallValue {inName})\n    {{\n");
+        var selfName = BindLocal("self");
+        sb.Append($"        var {selfName} = BallRuntime.FieldGet({inName}, \"self\");\n");
+
+        var prevInInstance = _inInstanceMethod;
+        var prevSelfRecv = _selfRecvName;
+        _inInstanceMethod = true;
+        _selfRecvName = selfName;
+
+        // A declared parameter shadows a same-named field inside the method body
+        // (Dart semantics); the field alias would be dead, so skip it when a
+        // parameter (or the receiver `self`) already claims that name.
+        var paramNames = ParamNames(member);
+        var shadowed = new HashSet<string>(paramNames, StringComparer.Ordinal) { "self" };
+
+        // Bind each instance field (own + inherited via the superclass chain) as
+        // a local alias so the body's bare field references resolve.
+        var fieldAliases = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var field in AllInstanceFieldNames(ownerTd))
+        {
+            if (shadowed.Contains(field))
+            {
+                continue;
+            }
+
+            var local = BindLocal(field);
+            fieldAliases[field] = local;
+            sb.Append($"        var {local} = BallRuntime.FieldGet({selfName}, {Naming.StringLiteral(field)});\n");
+        }
+
+        var positional = 0;
+        foreach (var param in paramNames)
+        {
+            // Bind each parameter by name or its positional arg{i} slot. A param
+            // literally named `self` (the built-in-method dispatcher) is bound from
+            // its positional slot, shadowing the receiver in the body.
+            var argKey = Naming.StringLiteral($"arg{positional}");
+            positional++;
+            var getter = param == "self"
+                ? $"BallRuntime.FieldGet({inName}, {argKey})"
+                : $"BallRuntime.ArgGet({inName}, {Naming.StringLiteral(param)}, {argKey})";
+            sb.Append($"        var {BindLocal(param)} = {getter};\n");
+        }
+
+        // Fields the body reassigns via a bare `field = x` need writing back into
+        // the instance afterward (a reference-semantic message shares its field
+        // map, so mutations *through* an alias already persist — only a local
+        // rebind is lost). When any exist, run the body inside an IIFE so an early
+        // `return` still yields to the write-back rather than skipping it.
+        var writebacks = member.Body is null
+            ? new List<KeyValuePair<string, string>>()
+            : fieldAliases.Where(kv => ExprReassignsVar(member.Body, kv.Key)).ToList();
+
+        if (member.Body is null)
+        {
+            sb.Append("        return BallValue.Null;\n");
+        }
+        else if (writebacks.Count == 0)
+        {
+            if (member.Body.ExprCase == Expression.ExprOneofCase.Block)
+            {
+                sb.Append(EmitBlockInner(member.Body.Block, isFunctionBody: true));
+            }
+            else
+            {
+                sb.Append($"        return {CompileExpression(member.Body)};\n");
+            }
+        }
+        else
+        {
+            var inner = member.Body.ExprCase == Expression.ExprOneofCase.Block
+                ? EmitBlockInner(member.Body.Block, isFunctionBody: true)
+                : $"return {CompileExpression(member.Body)};\n";
+            sb.Append($"        var __methodResult = Run(() =>\n        {{\n{inner}        }});\n");
+            foreach (var (field, local) in writebacks)
+            {
+                sb.Append($"        BallRuntime.FieldSet({selfName}, {Naming.StringLiteral(field)}, {local});\n");
+            }
+
+            sb.Append("        return __methodResult;\n");
+        }
+
+        sb.Append("    }\n");
+        _inInstanceMethod = prevInInstance;
+        _selfRecvName = prevSelfRecv;
         PopScope();
         return sb.ToString();
     }

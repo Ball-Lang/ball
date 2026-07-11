@@ -5,6 +5,14 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <!-- Under -p:SelfHost=true, define SELF_HOST here too so the self-host run
+       tests compile against the driven engine (and the default-build
+       pending-test is excluded). Ball.Engine picks up SelfHost via its own
+       csproj condition (the global property propagates to the reference). -->
+  <PropertyGroup Condition="'$(SelfHost)' == 'true'">
+    <DefineConstants>$(DefineConstants);SELF_HOST</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit.v3" />

@@ -419,12 +419,23 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   fallback for the last handful (an inherited field on a base-type superclass like `entries` on
   `BallObject extends BallMap`, a stub-module enum `io_FileMode`, a second catch binding
   `stackTrace`).
-- **Running is NOT yet wired:** `BallEngine.Run` still reports `SelfHostPendingException`. The
-  compiled engine's `run` reads `self._functions`/`_types`/`_globalScope`/… — state a **body-
-  carrying constructor** (`BallEngine.new`) builds, which the compiler still skips (a Phase-4
-  documented gap). Emitting constructor bodies (+ `super` chains, inherited-field binding) is the
-  next milestone to make the corpus actually run — the analog of Rust's post-compile "run
-  blocker". Track it on #383, not this prose.
+- **Running (Round 3):** the engine now **constructs and EXECUTES** — `BallEngine.Run` (under
+  `-p:SelfHost=true`) builds a `BallEngine` via its compiled constructor and drives the compiled
+  `run` on a large-stack thread (`RunSelfHosted`). Round 3 landed the execution machinery:
+  body-carrying constructor emission (`BallEngine.new`/`BallObject.new` — init-formals + field
+  defaults like `_functions = {}` / `_globalScope = _Scope()`, inherited fields via the
+  `metadata.superclass` chain, `super`, and body-mutated-field write-back); implicit-`this`
+  injection + bound method tear-offs (`{'print': _stdPrint}`); static-member emission (no
+  receiver/dispatcher); top-level-variable getter invocation; `switch_expr` with Dart-3 structured
+  patterns (`WildcardPattern`/`LogicalOrPattern`/`ConstPattern`); and a large, **polymorphic**
+  runtime surface (`FieldGet` virtual properties `.length`/`.isEmpty`/`.entries` + proto-getter
+  aliases `field_2`→`field`; `CallMethod` built-in dispatch incl. `has*` proto getters and
+  `DateTime.now`; math/collections/convert). The engine runs through construction, lookup-table
+  building, module-handler `print` dispatch, and deep into expression evaluation.
+- **Remaining (Round 4):** a bounded runtime-shape grind (the analog of Rust's "final-24") — a
+  handful of `BallRuntime` polymorphism/null-handling mismatches still stop `hello_world`/
+  `fibonacci` short of golden output. The acceptance tests are `csharp/engine/test/SelfHostRunTests.cs`
+  (SELF_HOST-gated, excluded from the default build; run with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 

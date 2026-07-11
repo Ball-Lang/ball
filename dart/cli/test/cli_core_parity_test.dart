@@ -117,6 +117,175 @@ void main() {
       });
     }
 
+    // #402 regression: a base call whose call-site `module` string is spoofed
+    // must still be categorized by its resolved base-fn identity — native AND
+    // on the engine (a single audit implementation closes the bypass on every
+    // target). Mirrors the investigation's repro (sec-dispatch c_spoofed /
+    // d_spoofed_declared): `mutex_create` invoked under a benign-looking module.
+    Program spoofProgram({required bool declareConcurrency}) {
+      final modules = <Map<String, Object?>>[
+        {
+          'name': 'std',
+          'functions': [
+            {'name': 'print', 'isBase': true},
+          ],
+        },
+        if (declareConcurrency)
+          {
+            'name': 'std_concurrency',
+            'functions': [
+              {'name': 'mutex_create', 'isBase': true},
+            ],
+          },
+        {
+          'name': 'main',
+          'functions': [
+            {
+              'name': 'main',
+              'outputType': 'void',
+              'body': {
+                'call': {
+                  'module': 'harmless_looking_module',
+                  'function': 'mutex_create',
+                  'input': {
+                    'messageCreation': {'fields': <Object?>[]},
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ];
+      return Program()..mergeFromProto3Json({
+        'name': 'spoof',
+        'version': '1.0.0',
+        'entryModule': 'main',
+        'entryFunction': 'main',
+        'modules': modules,
+      }, ignoreUnknownFields: true);
+    }
+
+    for (final row in ['c_undeclared', 'd_declared']) {
+      test('$row spoofed concurrency is denied — native == engine', () async {
+        final program = spoofProgram(declareConcurrency: row == 'd_declared');
+        final input = protoToEngineMap(program);
+        final engine = newEngine();
+
+        // Native: the spoofed call is now categorized as concurrency.
+        final nativeViolations = cli.checkPolicy(
+          cli.analyzeCapabilities(program),
+          deny: {'concurrency'},
+        );
+        expect(
+          nativeViolations,
+          isNotEmpty,
+          reason: 'spoofed mutex_create ($row) must trip --deny concurrency',
+        );
+
+        // Engine: same report, same violations (byte-identical audit).
+        final hostedReport = await engine.callFunction(
+          'main',
+          'analyzeCapabilities',
+          input,
+        );
+        final hostedViolations = await engine.callFunction(
+          'main',
+          'checkPolicyViolations',
+          {
+            'report': hostedReport,
+            'deny': ['concurrency'],
+          },
+        );
+        expect(
+          hostedViolations,
+          equals(nativeViolations),
+          reason: 'spoof ($row) audit diverged native vs engine',
+        );
+
+        // And the full audit report text self-hosts identically.
+        final nativeText = cli.auditReport(program);
+        final hostedText = await engine.callFunction(
+          'main',
+          'auditReport',
+          input,
+        );
+        expect(hostedText, equals(nativeText));
+      });
+    }
+
+    test(
+      'benign concurrency-free program stays clean — native == engine',
+      () async {
+        // Same shape but the entry only calls std.print — no concurrency.
+        final program = Program()
+          ..mergeFromProto3Json({
+            'name': 'benign',
+            'version': '1.0.0',
+            'entryModule': 'main',
+            'entryFunction': 'main',
+            'modules': [
+              {
+                'name': 'std',
+                'functions': [
+                  {'name': 'print', 'isBase': true},
+                ],
+              },
+              {
+                'name': 'main',
+                'functions': [
+                  {
+                    'name': 'main',
+                    'outputType': 'void',
+                    'body': {
+                      'call': {
+                        'module': 'std',
+                        'function': 'print',
+                        'input': {
+                          'messageCreation': {
+                            'fields': [
+                              {
+                                'name': 'message',
+                                'value': {
+                                  'literal': {'stringValue': 'hi'},
+                                },
+                              },
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          }, ignoreUnknownFields: true);
+        final input = protoToEngineMap(program);
+        final engine = newEngine();
+
+        final nativeViolations = cli.checkPolicy(
+          cli.analyzeCapabilities(program),
+          deny: {'concurrency'},
+        );
+        expect(nativeViolations, isEmpty);
+
+        final hostedReport = await engine.callFunction(
+          'main',
+          'analyzeCapabilities',
+          input,
+        );
+        final hostedViolations = await engine.callFunction(
+          'main',
+          'checkPolicyViolations',
+          {
+            'report': hostedReport,
+            'deny': ['concurrency'],
+          },
+        );
+        expect(hostedViolations, equals(nativeViolations));
+        expect(hostedViolations, isEmpty);
+      },
+    );
+
     test('versionReport', () async {
       final engine = newEngine();
       for (final v in ['0.3.0+6', '1.0.0', '0.1.0']) {

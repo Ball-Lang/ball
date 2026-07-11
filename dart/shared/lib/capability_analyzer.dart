@@ -59,6 +59,7 @@ Map<String, Object?> analyzeModuleCapabilities(
 Map<String, Object?> analyzeCapabilitiesReachable(Program program) {
   final table = buildCapabilityTable();
   final baseModules = _identifyBaseModules(program.modules);
+  final userFns = _collectUserFunctionNames(program.modules);
   final fnCaps = <String, Object?>{}; // "module.function" -> List<String> caps
   final capSites = <String, Object?>{}; // capName -> List<site>
   final visited = <String>[];
@@ -66,6 +67,7 @@ Map<String, Object?> analyzeCapabilitiesReachable(Program program) {
     'modules': program.modules,
     'baseModules': baseModules,
     'table': table,
+    'userFns': userFns,
     'fnCaps': fnCaps,
     'capSites': capSites,
     'visited': visited,
@@ -99,6 +101,7 @@ void _analyzeReachableFn(Map ctx) {
   final modules = ctx['modules'];
   final baseModules = ctx['baseModules'];
   final table = ctx['table'];
+  final userFns = ctx['userFns'];
   final Map fnCaps = ctx['fnCaps'];
   final capSites = ctx['capSites'];
   final List visited = ctx['visited'];
@@ -129,6 +132,7 @@ void _analyzeReachableFn(Map ctx) {
         'capSites': capSites,
         'table': table,
         'callees': callees,
+        'userFns': userFns,
       });
       fnCaps[key] = caps;
       for (final dynamic callee in callees) {
@@ -136,6 +140,7 @@ void _analyzeReachableFn(Map ctx) {
           'modules': modules,
           'baseModules': baseModules,
           'table': table,
+          'userFns': userFns,
           'fnCaps': fnCaps,
           'capSites': capSites,
           'visited': visited,
@@ -164,6 +169,7 @@ Map<String, Object?> _analyzeCapabilitiesCore(Map ctx) {
 
   final table = buildCapabilityTable();
   final baseModules = _identifyBaseModules(modules);
+  final userFns = _collectUserFunctionNames(modules);
   final functionsOut = <Object?>[];
   final capSites = <String, Object?>{}; // capName -> List<site>
 
@@ -185,6 +191,7 @@ Map<String, Object?> _analyzeCapabilitiesCore(Map ctx) {
           'capSites': capSites,
           'table': table,
           'callees': null,
+          'userFns': userFns,
         });
       }
       functionsOut.add({
@@ -218,6 +225,23 @@ List<String> _identifyBaseModules(dynamic modules) {
   return baseModules;
 }
 
+/// The bare names of every declared non-base (user-defined) function across
+/// [modules]. Used by the bare-name capability fallback (issue #402) to tell a
+/// genuine user call apart from a base call whose call-site module was spoofed:
+/// only when a missed call's name is NOT in this list is it resolved by bare
+/// name. A user function that shadows a base name is therefore left alone.
+List<String> _collectUserFunctionNames(dynamic modules) {
+  final names = <String>[];
+  for (final module in modules) {
+    for (final f in module.functions) {
+      if (!f.isBase) {
+        names.add(f.name);
+      }
+    }
+  }
+  return names;
+}
+
 /// Walk one expression, accumulating capabilities into `ctx['caps']` and call
 /// sites into `ctx['capSites']`. When `ctx['callees']` is a list, non-base
 /// function calls are recorded there (reachability mode). Single-arg.
@@ -229,6 +253,7 @@ void _walkCap(Map ctx) {
   final capSites = ctx['capSites'];
   final table = ctx['table'];
   final callees = ctx['callees'];
+  final userFns = ctx['userFns'];
   if (expr == null) return;
 
   if (expr.hasCall()) {
@@ -240,6 +265,7 @@ void _walkCap(Map ctx) {
       'capSites': capSites,
       'table': table,
       'callees': callees,
+      'userFns': userFns,
     });
   } else if (expr.hasLiteral()) {
     final lit = expr.literal;
@@ -253,6 +279,7 @@ void _walkCap(Map ctx) {
           'capSites': capSites,
           'table': table,
           'callees': callees,
+          'userFns': userFns,
         });
       }
     }
@@ -267,6 +294,7 @@ void _walkCap(Map ctx) {
           'capSites': capSites,
           'table': table,
           'callees': callees,
+          'userFns': userFns,
         });
       }
       if (stmt.hasExpression()) {
@@ -278,6 +306,7 @@ void _walkCap(Map ctx) {
           'capSites': capSites,
           'table': table,
           'callees': callees,
+          'userFns': userFns,
         });
       }
     }
@@ -290,6 +319,7 @@ void _walkCap(Map ctx) {
         'capSites': capSites,
         'table': table,
         'callees': callees,
+        'userFns': userFns,
       });
     }
   } else if (expr.hasLambda()) {
@@ -301,6 +331,7 @@ void _walkCap(Map ctx) {
       'capSites': capSites,
       'table': table,
       'callees': callees,
+      'userFns': userFns,
     });
   } else if (expr.hasMessageCreation()) {
     for (final field in expr.messageCreation.fields) {
@@ -312,6 +343,7 @@ void _walkCap(Map ctx) {
         'capSites': capSites,
         'table': table,
         'callees': callees,
+        'userFns': userFns,
       });
     }
   } else if (expr.hasFieldAccess()) {
@@ -324,6 +356,7 @@ void _walkCap(Map ctx) {
         'capSites': capSites,
         'table': table,
         'callees': callees,
+        'userFns': userFns,
       });
     }
   }
@@ -339,11 +372,36 @@ void _walkCapCall(Map ctx) {
   final Map capSites = ctx['capSites'];
   final table = ctx['table'];
   final callees = ctx['callees'];
+  final userFns = ctx['userFns'];
 
   final module = call.module.isEmpty ? contextModule : call.module;
   final fn = call.function;
 
-  final cap = lookupCapability(table, module, fn);
+  var cap = lookupCapability(table, module, fn);
+  if (cap.isEmpty) {
+    // #402: the `(module, function)` lookup missed. `call.module` is an
+    // attacker-controllable call-site string, and the engine dispatches a base
+    // call by its function identity — not by this string — so a program can
+    // label a base call with a benign-looking module (e.g. `{module:
+    // "harmless_looking_module", function: "mutex_create"}`) and slip the side
+    // effect past a `(module, function)` capability lookup. If `fn` is not a
+    // declared user function, resolve it by bare name (globally unique across
+    // base modules) so the spoofed base call is still categorized. Fails
+    // closed: an unrecognized name resolves to '' and stays an ordinary user
+    // call. This never touches dispatch, so it cannot regress conformance.
+    var isUserFn = false;
+    if (userFns != null) {
+      for (final u in userFns) {
+        if (u == fn) {
+          isUserFn = true;
+        }
+      }
+    }
+    if (!isUserFn) {
+      cap = lookupCapabilityByName(table, fn);
+    }
+  }
+
   if (cap.isNotEmpty) {
     if (!caps.contains(cap)) caps.add(cap);
     if (cap != 'pure') {
@@ -354,6 +412,9 @@ void _walkCapCall(Map ctx) {
         sites = <Object?>[];
         capSites[cap] = sites;
       }
+      // `calleeModule` keeps the literal call-site module so a spoofed call is
+      // visibly flagged in the report (e.g. `harmless_looking_module.
+      // mutex_create`), while the capability is the resolved base-fn identity.
       sites.add({
         'module': contextModule,
         'function': contextFunction,
@@ -374,6 +435,7 @@ void _walkCapCall(Map ctx) {
       'capSites': capSites,
       'table': table,
       'callees': callees,
+      'userFns': userFns,
     });
   }
 }

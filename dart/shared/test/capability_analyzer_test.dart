@@ -76,6 +76,80 @@ void main() {
       expect(capabilityRisk('process'), 'high');
       expect(capabilityRisk('memory'), 'high');
     });
+
+    // ── #402: bare-name fallback support ──────────────────────────────────
+    //
+    // `lookupCapabilityByName` backstops the audit when a call's `module`
+    // string is spoofed. These guard its two preconditions: (1) every module
+    // keyed in the table is scanned, and (2) bare names are globally unique so
+    // the by-name resolution is unambiguous.
+
+    test('capabilityModuleNames covers every module keyed in the table', () {
+      final declared = capabilityModuleNames();
+      final tableModules = <String>{};
+      for (final key in table.keys) {
+        tableModules.add(key.split('.').first);
+      }
+      for (final m in tableModules) {
+        expect(
+          declared,
+          contains(m),
+          reason:
+              'table has module "$m" not in capabilityModuleNames() — the '
+              'bare-name fallback would miss its functions (#402)',
+        );
+      }
+    });
+
+    test('every base-function bare name is globally unique', () {
+      // A collision would make lookupCapabilityByName ambiguous. Verify each
+      // bare name appears under exactly one module.
+      final byBareName = <String, List<String>>{};
+      for (final k in table.keys) {
+        final dot = k.indexOf('.');
+        final module = k.substring(0, dot);
+        final fn = k.substring(dot + 1);
+        (byBareName[fn] ??= <String>[]).add(module);
+      }
+      final collisions = <String, List<String>>{
+        for (final e in byBareName.entries)
+          if (e.value.length > 1) e.key: e.value,
+      };
+      expect(
+        collisions,
+        isEmpty,
+        reason: 'bare-name collisions break the #402 fallback: $collisions',
+      );
+    });
+
+    test('lookupCapabilityByName resolves base fns ignoring the module', () {
+      expect(lookupCapabilityByName(table, 'mutex_create'), 'concurrency');
+      expect(lookupCapabilityByName(table, 'file_read'), 'fs');
+      expect(lookupCapabilityByName(table, 'memory_alloc'), 'memory');
+      expect(lookupCapabilityByName(table, 'print'), 'io');
+      expect(lookupCapabilityByName(table, 'add'), 'pure');
+    });
+
+    test('lookupCapabilityByName returns empty for non-base names', () {
+      expect(lookupCapabilityByName(table, 'my_user_helper'), '');
+      expect(lookupCapabilityByName(table, ''), '');
+    });
+
+    test('by-name resolution agrees with the qualified lookup', () {
+      // For every table entry, resolving by bare name yields the same
+      // capability as the qualified (module, fn) lookup — proving the fallback
+      // never changes the categorization of a correctly-attributed call.
+      for (final k in table.keys) {
+        final dot = k.indexOf('.');
+        final module = k.substring(0, dot);
+        final fn = k.substring(dot + 1);
+        expect(
+          lookupCapabilityByName(table, fn),
+          lookupCapability(table, module, fn),
+          reason: 'by-name vs qualified diverged for $k',
+        );
+      }
+    });
   });
 
   group('analyzeCapabilities', () {
@@ -282,6 +356,144 @@ void main() {
       expect(text, contains('Ball Capability Audit'));
       expect(text, contains('io'));
       expect(text, contains('LOW RISK'));
+    });
+  });
+
+  // ── #402: module-spoofing capability bypass ─────────────────────────────
+  //
+  // A call is categorized by the base-function identity the engine dispatches,
+  // not by the spoofable call-site `module` string. Programs mirror the
+  // investigation's repro (sec-dispatch: c_spoofed / d_spoofed_declared).
+  group('#402 module-spoofing', () {
+    // Builds a program whose entry calls `mutex_create` under [callModule].
+    // When [declareConcurrency] is true the real std_concurrency base module is
+    // also present (row d); otherwise it is absent (row c).
+    Program buildSpoof({
+      required String callModule,
+      required bool declareConcurrency,
+    }) {
+      final modules = <Map<String, dynamic>>[
+        {
+          'name': 'std',
+          'functions': [
+            {'name': 'print', 'isBase': true},
+          ],
+        },
+        if (declareConcurrency)
+          {
+            'name': 'std_concurrency',
+            'functions': [
+              {'name': 'mutex_create', 'isBase': true},
+            ],
+          },
+        {
+          'name': 'main',
+          'functions': [
+            {
+              'name': 'main',
+              'outputType': 'void',
+              'body': {
+                'call': {
+                  'module': callModule,
+                  'function': 'mutex_create',
+                  'input': {
+                    'messageCreation': {'fields': <dynamic>[]},
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ];
+      return Program()..mergeFromProto3Json({
+        'name': 'spoof',
+        'version': '1.0.0',
+        'entryModule': 'main',
+        'entryFunction': 'main',
+        'modules': modules,
+      }, ignoreUnknownFields: true);
+    }
+
+    test('honest std_concurrency call is flagged (baseline)', () {
+      final report = buildSpoof(
+        callModule: 'std_concurrency',
+        declareConcurrency: true,
+      );
+      final r = analyzeCapabilities(report);
+      expect(_sum(r)['usesConcurrency'], isTrue);
+      expect(checkPolicy(r, deny: {'concurrency'}), isNotEmpty);
+    });
+
+    test('spoofed module, concurrency undeclared (row c) is flagged', () {
+      final r = analyzeCapabilities(
+        buildSpoof(
+          callModule: 'harmless_looking_module',
+          declareConcurrency: false,
+        ),
+      );
+      expect(_sum(r)['usesConcurrency'], isTrue);
+      expect(checkPolicy(r, deny: {'concurrency'}), isNotEmpty);
+    });
+
+    test('spoofed module, concurrency declared (row d) is flagged', () {
+      final r = analyzeCapabilities(
+        buildSpoof(
+          callModule: 'harmless_looking_module',
+          declareConcurrency: true,
+        ),
+      );
+      expect(_sum(r)['usesConcurrency'], isTrue);
+      expect(checkPolicy(r, deny: {'concurrency'}), isNotEmpty);
+    });
+
+    test('a user function that shadows a base name is NOT flagged', () {
+      // The program defines its OWN non-base `mutex_create` and calls it. The
+      // bare-name fallback must stay silent (no false positive) — only a
+      // MISSING declaration triggers by-name resolution.
+      final program = Program()
+        ..mergeFromProto3Json({
+          'name': 'shadow',
+          'version': '1.0.0',
+          'entryModule': 'main',
+          'entryFunction': 'main',
+          'modules': [
+            {
+              'name': 'std',
+              'functions': [
+                {'name': 'print', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                {
+                  'name': 'main',
+                  'outputType': 'void',
+                  'body': {
+                    'call': {
+                      'module': 'main',
+                      'function': 'mutex_create',
+                      'input': {
+                        'messageCreation': {'fields': <dynamic>[]},
+                      },
+                    },
+                  },
+                },
+                // The user's own harmless helper, sharing a base fn's name.
+                {
+                  'name': 'mutex_create',
+                  'outputType': 'void',
+                  'body': {
+                    'literal': {'intValue': '0'},
+                  },
+                },
+              ],
+            },
+          ],
+        }, ignoreUnknownFields: true);
+      final r = analyzeCapabilities(program);
+      expect(_sum(r)['usesConcurrency'], isFalse);
+      expect(checkPolicy(r, deny: {'concurrency'}), isEmpty);
     });
   });
 

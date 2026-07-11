@@ -33,6 +33,68 @@ public static partial class BallRuntime
         return map;
     }
 
+    /// <summary>
+    /// Splice a map-literal <c>entry</c>/<c>entries</c> value into
+    /// <paramref name="map"/> — the reference engine's <c>_putMapEntryValue</c>. A
+    /// list of entries recurses; a <c>{key, value}</c>/<c>{name, value}</c> message
+    /// is added with its key stringified (Ball maps are string-keyed); a non-map
+    /// value is ignored. Used by the map-comprehension build path.
+    /// </summary>
+    public static void MapAddEntry(BallValue map, BallValue entryValue) =>
+        PutMapEntryValue(AsMap(map), entryValue);
+
+    private static void PutMapEntryValue(BallMap result, BallValue val)
+    {
+        if (val is BallList list)
+        {
+            foreach (var element in list.Snapshot())
+            {
+                PutMapEntryValue(result, element);
+            }
+
+            return;
+        }
+
+        var (key, value) = val switch
+        {
+            BallMap em => (em.Get("key") ?? em.Get("name"), em.Get("value")),
+            BallMessage msg => (msg.Get("key") ?? msg.Get("name"), msg.Get("value")),
+            _ => (null, null), // Non-map value: ignore (mirrors `_asMap(val) == null → return`).
+        };
+
+        if (key is not null)
+        {
+            result.Set(MapKey(key), value ?? BallValue.Null);
+        }
+    }
+
+    /// <summary>Merge a map spread (<c>...m</c> / <c>...?m</c>) into <paramref name="map"/> — the reference engine's <c>_spliceMapSpread</c>; the source's string keys carry over unchanged.</summary>
+    public static void MapSpread(BallValue map, BallValue source)
+    {
+        var m = AsMap(map);
+        switch (source)
+        {
+            case BallMap src:
+                foreach (var (key, value) in src.Entries())
+                {
+                    m.Set(key, value);
+                }
+
+                break;
+            case BallMessage msg:
+                foreach (var (key, value) in msg.Fields.Entries())
+                {
+                    m.Set(key, value);
+                }
+
+                break;
+            case BallNull:
+                break; // A null map spread contributes nothing.
+            default:
+                throw new BallRuntimeException($"map spread expected a map, got {TypeName(source)}");
+        }
+    }
+
     /// <summary><c>std.invoke({callee, arg…})</c> — call a first-class function value with the remaining argument(s).</summary>
     public static BallValue Invoke(BallValue input)
     {

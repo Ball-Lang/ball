@@ -51,5 +51,10 @@ public sealed class BallMessage : BallValue
     public override int GetHashCode() => 0x11E550;
 
     /// <inheritdoc />
-    public override string ToString() => FormatEntries(Fields.Entries());
+    // An engine scalar value-model wrapper (BallDouble/BallInt/…) renders as its
+    // payload, not the map form `{value: …}` — see ScalarWrapperPayload.
+    public override string ToString() =>
+        ScalarWrapperPayload(this) is { } payload
+            ? payload.ToString()!
+            : FormatEntries(Fields.Entries());
 }

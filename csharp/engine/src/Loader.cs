@@ -174,6 +174,18 @@ public static class Loader
                 continue;
             }
 
+            // A Literal.doubleValue is a proto double, but proto3-JSON renders a
+            // whole double (`9.0`) as a bare integer (`9`) — which the generic
+            // number path below would load as a BallInt, dropping the double-ness
+            // the engine's BallDouble literal path (and its trailing `.0`
+            // formatting) depends on. Coerce it to a BallDouble regardless of the
+            // JSON token's shape (a fractional value already loads as a double).
+            if (property.NameEquals("doubleValue") && property.Value.ValueKind == JsonValueKind.Number)
+            {
+                map.Set("doubleValue", BallValue.Double(property.Value.GetDouble()));
+                continue;
+            }
+
             map.Set(property.Name, JsonToBallValue(property.Value));
         }
 

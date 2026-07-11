@@ -460,14 +460,28 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   value or an override-less object must still stringify), which the engine's own value-stringify
   (`result.toString()` on an interpreted method's String result, and its final `v.toString()`)
   depends on.
-- **Remaining failures (Round 5 residual):** the largest coherent bucket is null-operand numeric
-  ops (~18: a genuine double-value-representation gap — an operand reaches `AsDouble` as `Null`
-  from a path `_toNum` provably cannot produce, so the root cause is upstream in how a double
-  value is modelled, NOT a guard to add), then output diffs (~20), `Function.apply`/`fold`
-  higher-order callbacks (~7), and a handful of method-resolution singletons (`.tag`/`.name`/
-  `.remainder`/`.greet`). The proper gated harness is #384; the acceptance tests are
-  `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build; run
-  with `dotnet test -p:SelfHost=true`).
+- **Closes the double-value-representation gap (Round 6):** the sweep is now at **271 passed /
+  324** (0 timeouts), up from 251 — the whole Round-5 residual "null-operand numeric ops" bucket
+  (and its `{value: …}`/`{arg0: …}` output-diff siblings) was one root cause: the engine boxes
+  every double literal in its own `BallDouble(this.value)` value-model class (`ball_value.dart`),
+  and three seams dropped its `value`. (a) The compiler emitted the positional constructor arg as
+  `arg0`, not the initializing-formal field `value` — `ValueModelWrapperFields` only mapped
+  `BallMap`→`entries`/`BallList`→`items`, so every `.value` read on a double returned `null` and
+  `roundToDouble`/`string_to_double`/arithmetic threw "expected a number, got Null" (added
+  `BallInt`/`BallDouble`/`BallString`/`BallBool`→`value`, `TypeEmit.cs`). (b) The wrapper's own
+  `toString()` override is absent from the (typeDef-less) dispatch table, so it printed as the map
+  `{value: 3.14}`; `Ball.Shared` now renders an engine scalar value-model wrapper as its payload
+  (`ScalarWrapperPayload` in `BallValue.cs`, consumed by `BallMessage.ToString`). (c) The
+  `Loader` re-serializes a whole double (`9.0`) as proto3-JSON's bare integer `9` and loaded it as
+  a `BallInt`, dropping the trailing `.0`; a `doubleValue` key now always loads a `BallDouble`
+  (`Loader.cs`). All three are the same coherent gap, each measured (+9/+5/+6), 0 regressions.
+- **Remaining failures (Round 6 residual):** output diffs (~20, incl. `remainder`/exponential-
+  precision/`toStringAsFixed` rounding singletons), the `Function.apply`/`fold` higher-order
+  callbacks (~7), the loader max-depth deep fixtures (5: `System.Text.Json`'s default 64-level
+  read cap on `127`/`146`/`148`/`256`/`280`), rethrow-outside-catch chaining (~7), and
+  method-resolution singletons (`.tag`/`.name`/`.greet`). The proper gated harness is #384; the
+  acceptance tests are `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from
+  the default build; run with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -513,9 +527,10 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
   **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
   **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
-  informal corpus sweep is at 251/324 with no hangs after the Round-5 category grind (RegExp
-  surface, core-collection copy/fill constructors, universal `toString` fallback — see
-  "Self-hosted engine" above and #383). The
+  informal corpus sweep is at 271/324 with no hangs after the Round-6 category grind (Round 5:
+  RegExp surface, core-collection copy/fill constructors, universal `toString` fallback; Round 6:
+  the double-value-representation gap — scalar value-model wrapper field mapping + wrapper
+  stringification + whole-double loader coercion — see "Self-hosted engine" above and #383). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

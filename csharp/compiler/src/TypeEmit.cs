@@ -457,13 +457,24 @@ public sealed partial class CSharpCompiler
     /// <summary>
     /// Positional-arg field names for the engine's native value-model wrapper
     /// constructors (see <see cref="ConstructorParamNames"/>). These classes
-    /// have no typeDef in the self-host program, so their single positional
-    /// argument would otherwise stay <c>arg0</c> and their <c>.entries</c>/
-    /// <c>.items</c> field access would miss.
+    /// (<c>ball_value.dart</c>'s <c>BallInt</c>/<c>BallDouble</c>/<c>BallString</c>/
+    /// <c>BallBool</c>/<c>BallList</c>/<c>BallMap</c>) carry no typeDef in the
+    /// self-host program, so their single positional argument would otherwise stay
+    /// <c>arg0</c> and their real backing-field access would miss: for the scalar
+    /// wrappers that means every <c>.value</c> read returns <c>null</c> — e.g. a
+    /// double literal (<c>BallDouble(lit.doubleValue)</c>, the only wrapper the
+    /// engine still boxes rather than storing natively) reaches every numeric op
+    /// (<c>_toNum</c>/<c>_ballToDouble</c>) as <c>null</c>, so
+    /// <c>roundToDouble</c>/<c>string_to_double</c>/arithmetic on doubles all
+    /// throw "expected a number, got Null".
     /// </summary>
     private static readonly Dictionary<string, List<string>> ValueModelWrapperFields = new(StringComparer.Ordinal)
     {
-        ["BallMap"] = new() { "entries" },
+        ["BallInt"] = new() { "value" },
+        ["BallDouble"] = new() { "value" },
+        ["BallString"] = new() { "value" },
+        ["BallBool"] = new() { "value" },
         ["BallList"] = new() { "items" },
+        ["BallMap"] = new() { "entries" },
     };
 }

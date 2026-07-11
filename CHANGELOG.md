@@ -1,3 +1,10 @@
+# [1.34.0](https://github.com/Ball-Lang/ball/compare/v1.33.0...v1.34.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) Phase 6 Round 2 — self-host engine COMPILES (174→0 csc errors) ([#394](https://github.com/Ball-Lang/ball/issues/394)) ([230bb76](https://github.com/Ball-Lang/ball/commit/230bb76cea20c684a939730d0614a87a74092aae))
+
 # [1.33.0](https://github.com/Ball-Lang/ball/compare/v1.32.0...v1.33.0) (2026-07-11)
 
 

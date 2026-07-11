@@ -1,3 +1,10 @@
+# [1.41.0](https://github.com/Ball-Lang/ball/compare/v1.40.1...v1.41.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — splice list-literal spread/comprehension elements ([#409](https://github.com/Ball-Lang/ball/issues/409)) ([d98fbb8](https://github.com/Ball-Lang/ball/commit/d98fbb8036499cf96f93eb9e9084810b539ed7e7))
+
 ## [1.40.1](https://github.com/Ball-Lang/ball/compare/v1.40.0...v1.40.1) (2026-07-11)
 
 

@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "@ball-lang/encoder-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/encoder"] }],
+    ["@semantic-release/changelog", { "changelogFile": "ts/encoder/CHANGELOG.md" }],
+    ["@semantic-release/npm", { "pkgRoot": "ts/encoder", "npmPublish": false }],
+    ["@semantic-release/exec", {
+      "publishCmd": "gh workflow run publish-npm.yml --ref @ball-lang/encoder-v${nextRelease.version} -f package=encoder"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["ts/encoder/package.json", "ts/encoder/CHANGELOG.md"],
+      "message": "chore(release): @ball-lang/encoder ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

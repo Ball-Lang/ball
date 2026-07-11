@@ -83,3 +83,153 @@ the two packages still awaiting the config (ball_rpc, ball_protobuf_gen).
   that package with its tag (see above); the others are unaffected.
 - **"publishing from github is not enabled":** pub.dev-side Automated
   publishing config missing for that package (uploader-only, see above).
+
+---
+
+# Release v2 — per-package semantic-release (gated, not yet live)
+
+Everything above is the **current, live** release flow. This section documents
+the **v2** flow that will replace it: a per-package matrix of plain
+`semantic-release` configs with **independent per-package versions**, fully
+automated on push to main. v2 lands **alongside** the live flow and is **gated
+OFF** — merging it changes no release behavior. The cutover (flip the gate,
+delete the Melos flow) is a later, separate PR.
+
+## Why
+
+The live flow runs **two** release mechanisms side by side: semantic-release
+(npm, lockstep `vX.Y.Z`) and Melos (pub.dev, a rolling `chore/release` PR that a
+human squash-merges). They both write `CHANGELOG.md`, which made the Melos PR go
+perpetually conflicting after every semantic-release commit (issue #194), and the
+human merge is the one manual step in an otherwise-automated pipeline. v2 unifies
+**every** publishable package (npm + pub.dev + crates.io + the C++ binary) onto
+one mechanism — `semantic-release` — with no manual step.
+
+## Model
+
+One `semantic-release` config per publishable package under
+`.github/release/<pkg>.releaserc.json`, each with:
+
+- its own **`tagFormat`** = its **independent version line** (semantic-release
+  discovers `lastRelease` from the highest tag matching that format);
+- **path-based commit filtering** via the local plugin
+  `tools/release/only-package-commits.mjs` (env `SR_PKG_PATHS` or an explicit
+  `paths` option), because the repo's commit *scopes* are language/component-level
+  (`feat(cpp)`, `fix(rust-compiler)`) and cannot distinguish `ball_engine` from
+  `ball_compiler` — only the files a commit touched can. The plugin re-implements
+  `semantic-release-monorepo`'s `withOnlyPackageCommits` decorator (same
+  `git diff-tree` mechanics) without its hard `package.json` dependency, which the
+  Dart/Rust trees don't have.
+- Dart/Rust use the official **non-JS recipe** (semantic-release FAQ "Configure
+  semantic-release for Non-JavaScript Packages"): the path-filter wrapper
+  (commit-analyzer + release-notes-generator) + `@semantic-release/changelog` +
+  `@semantic-release/exec` (`prepareCmd` writes the manifest version via
+  `tools/release/set_manifest_version.mjs`; `publishCmd` dispatches the existing
+  OIDC publish workflow) + `@semantic-release/git` + `@semantic-release/github`.
+- npm packages keep `@semantic-release/npm` (`npmPublish: false` — bump the
+  `package.json` only; the actual publish stays in `publish-npm.yml`), exactly as
+  the live `.releaserc.json` does today.
+
+`.github/workflows/release-v2.yml` runs `semantic-release` **once per package,
+SEQUENTIALLY** (each package's `@semantic-release/git` pushes a `chore(release):
+… [skip ci]` commit to main; concurrent pushes race into non-fast-forward
+rejections). Recursion protection is preserved: the tag semantic-release pushes
+is created with `GITHUB_TOKEN`, so the publish backends' `push: tags:` triggers
+do **not** fire — each config's `publishCmd` therefore **explicitly dispatches**
+its backend with `gh workflow run --ref <tag>`, the same pattern the live
+`release.yml` / `release-tag.yml` already use.
+
+### The 15 packages + version continuity
+
+| Config | tagFormat | Ecosystem | Continuity |
+|---|---|---|---|
+| `ball_base`,`ball_engine`,`ball_compiler`,`ball_cli`,`ball_encoder`,`ball_resolver`,`ball_protobuf`,`ball_protobuf_gen`,`ball_rpc` | `<pkg>-v${version}` | pub.dev | existing `<pkg>-v0.3.*` tags are the anchors → **no seeding**. pub.dev Automated-publishing pattern `<pkg>-v{{version}}` keeps working unchanged. `+N` build metadata is dropped going forward (`0.3.0+6` → `0.4.0`; not a reset). |
+| `ts-engine`,`ts-cli`,`ts-compiler`,`ts-encoder` | `@ball-lang/<pkg>-v${version}` | npm | new per-package format — **must seed** at the current published version (see prerequisites), else the first run defaults to `1.0.0` (a regression below the live line). |
+| `rust-crates` | `rust-crates/v${version}` | crates.io | **lockstep** — one config for the whole Rust workspace (per the locked maintainer decision; de-lockstep is a later follow-up). The anchor tag `rust-crates/v0.1.0` **already exists** on origin (from the #403 rename / #366 crates.io work), so **no seeding is needed** — the config continues from `0.1.0`. The `/` deliberately dodges the pub.dev `*-v[0-9]…` tag filter. |
+| `repo` | `v${version}` | GitHub Release (C++ binary) | continues the existing `vX.Y.Z` line (`v1.42.0` → next); path-scoped to `cpp/**`, drives `release-cpp.yml`. **No seeding.** |
+
+Private packages have **no** config and are correctly excluded:
+`ball_self_host_tests` (`publish_to: none`), `@ball-lang/shared` (npm 404,
+workspace-internal), and the `publish = false` Rust tool crates.
+
+## Gating
+
+`release-v2.yml` is `workflow_dispatch`-only (no `push:` trigger — it cannot fire
+on a merge). A **dry-run** is always allowed; a **real** release additionally
+requires the repo variable `RELEASE_V2 == 'true'`. With `RELEASE_V2` unset, a
+non-dry-run dispatch is skipped and the live flow stays authoritative. It creates
+no tags/commits/releases in dry-run and never modifies the live
+`release.yml`/`release-prepare.yml`/`release-tag.yml`/`.releaserc.json`.
+
+## Dry-run evidence (semantic-release 25.0.6)
+
+`npx semantic-release --dry-run` (read-only: all prepare/publish/tag/commit steps
+are skipped) per package, run on the branch with
+`--branches <branch> --no-ci`, after `cp .github/release/<pkg>.releaserc.json
+.releaserc.json` (the same shim `release-v2.yml` uses so the per-package config is
+the sole auto-discovered config, since the live root `.releaserc.json` still
+exists in this phase):
+
+| Package | Computed next version | Continues the right line? |
+|---|---|---|
+| `ball_engine` (Dart) | `0.4.0` | ✅ from `ball_engine-v0.3.0+6` (minor bump; `+6` dropped) — no seeding (34 of 314 commits touch `dart/engine`) |
+| `ts-engine` (npm) | `1.0.0` | ⚠️ **expected** — no `@ball-lang/engine-v*` tag yet; **confirms the npm seed prerequisite** (225 of 972 commits touch `ts/engine`) |
+| `rust-crates` (Rust) | *no release* (continues from `rust-crates/v0.1.0`) | ✅ anchor tag exists; 0 of 9 commits since it touch `rust/` — **no seeding needed** |
+| `repo` (C++/meta) | `1.43.0` | ✅ from `v1.42.0`; 1 of 4 commits since touch `cpp/` — no seeding |
+
+To reproduce in CI or locally: `cd tools/release && npm ci`, then from the repo
+root for each `<pkg>`:
+`cp .github/release/<pkg>.releaserc.json .releaserc.json && GITHUB_TOKEN=… npx --prefix tools/release semantic-release --dry-run --no-ci --branches "$(git branch --show-current)"`.
+(On Windows the first-release case — a package with no seed tag — walks the whole
+history spawning one `git diff-tree` per commit and is slow; on CI Linux and for
+seeded packages it is fast.)
+
+## Human prerequisites (do NOT perform as part of the alongside PR)
+
+1. **Seed the npm per-package git tags** at the **current** published npm
+   version, then push:
+   `@ball-lang/{engine,cli,compiler,encoder}-v<current npm version>` — or accept
+   the `1.0.0` first release. **Dart, Rust, and the `repo` line need none** —
+   their anchor tags (`<pkg>-v0.3.*`, `rust-crates/v0.1.0`, `v1.42.0`) already
+   exist.
+2. **pub.dev Automated-publishing** for the uploader-only packages `ball_rpc`,
+   `ball_protobuf_gen`, `ball_protobuf` (issue #152): repo `Ball-Lang/ball`, tag
+   pattern `<pkg>-v{{version}}` — required before their `publishCmd` can publish.
+3. **crates.io bootstrap** (issue #366): first publish of the `ball-lang-*` crates
+   uses `CARGO_REGISTRY_TOKEN`; configure Trusted Publishing per crate afterward.
+4. **Confirm the release bot may push** `chore(release): … [skip ci]` commits +
+   tags to `main` with `GITHUB_TOKEN` (the live npm semantic-release already
+   does). `RELEASE_PAT` is likely **removable** — it existed only for the deleted
+   Melos `create-pull-request` flow.
+
+## Cutover checklist (a later, separate PR)
+
+1. Do the prerequisites above (seed tags; pub.dev configs; crates.io bootstrap).
+2. Split `publish-npm.yml` to accept a `package` input and publish one package
+   per dispatch (the ts configs already pass `-f package=<name>`; **the current
+   `publish-npm.yml` has no such input yet** — this split is a cutover task, and
+   the `publishCmd` never runs before cutover so it is not a live break).
+3. `ball_cli` only: `dart/cli/lib/version.g.dart` is generated from
+   `dart/cli/pubspec.yaml` (issue #363) and is guarded by a CI `gen_version.dart
+   --check`. A `ball_cli` version bump must regenerate it, or that guard fails on
+   the next push. At cutover, add Dart SDK setup (+ `dart pub get`) to the release
+   job and extend `ball_cli.releaserc.json`'s `prepareCmd` with
+   `dart run tool/gen_version.dart`, adding `dart/cli/lib/version.g.dart` to its
+   `@semantic-release/git` assets. (Left out here so all 9 Dart configs stay
+   uniform while the release job has no Dart toolchain.)
+4. Set `RELEASE_V2=true`, rename `release-v2.yml` → `release.yml`, and in the
+   same PR delete the Melos flow: `release-prepare.yml`, `release-tag.yml`, the
+   root `.releaserc.json`, `PACKAGES_CHANGELOG.md`, and the `pubspec.yaml`
+   `melos: command: version:` block (Melos stays as a dev task-runner).
+5. **Rollback** = revert that one PR. The publish backends
+   (`release-publish.yml`, `publish-npm.yml`, `publish-crates.yml`,
+   `release-cpp.yml`) are untouched throughout, so publishing works under either
+   regime; seeded tags are inert if unused.
+
+## Later follow-ups
+
+- **Rust de-lockstep** (optional): split `rust-crates` into per-crate configs +
+  per-crate versions + per-crate `publish-crates.yml` dispatch. Kept lockstep for
+  now per the locked decision.
+- Retire or repurpose the root `CHANGELOG.md` as the `repo`/C++ meta line's
+  changelog at cutover.

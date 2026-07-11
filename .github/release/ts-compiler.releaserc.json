@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "@ball-lang/compiler-v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["ts/compiler"] }],
+    ["@semantic-release/changelog", { "changelogFile": "ts/compiler/CHANGELOG.md" }],
+    ["@semantic-release/npm", { "pkgRoot": "ts/compiler", "npmPublish": false }],
+    ["@semantic-release/exec", {
+      "publishCmd": "gh workflow run publish-npm.yml --ref @ball-lang/compiler-v${nextRelease.version} -f package=compiler"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["ts/compiler/package.json", "ts/compiler/CHANGELOG.md"],
+      "message": "chore(release): @ball-lang/compiler ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

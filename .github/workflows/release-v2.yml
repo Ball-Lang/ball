@@ -1,0 +1,188 @@
+name: Release v2 (per-package, gated)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 0/1 of the release-unification (docs/RELEASE.md): the per-package
+# semantic-release matrix, running ALONGSIDE the live Melos + root-.releaserc.json
+# flow WITHOUT changing it. This workflow is GATED OFF and never fires
+# automatically:
+#   - trigger is workflow_dispatch ONLY (no push) — it cannot run on a merge; and
+#   - a REAL (non-dry-run) release additionally requires the repo variable
+#     RELEASE_V2 == 'true'. With RELEASE_V2 unset, only --dry-run is allowed.
+# So merging this PR changes no live release behavior. The cutover (flip the gate,
+# rename this to release.yml, delete the Melos flow) is a LATER phase.
+#
+# It runs `semantic-release` once per publishable package, SEQUENTIALLY — never a
+# parallel matrix — because each package's @semantic-release/git step pushes a
+# `chore(release): … [skip ci]` commit to main, and concurrent pushes race into
+# non-fast-forward rejections. A successful push leaves the runner's local branch
+# in sync with origin, so the next package in the loop starts fast-forward-clean.
+#
+# Recursion protection: the tag semantic-release pushes is created with
+# GITHUB_TOKEN, so the `push: tags:` triggers on the publish backends
+# (release-publish.yml / publish-npm.yml / publish-crates.yml / release-cpp.yml)
+# do NOT fire. Each config's @semantic-release/exec publishCmd therefore
+# EXPLICITLY dispatches its backend with `gh workflow run --ref <tag>` — the same
+# proven pattern release.yml / release-tag.yml already use.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only (no tags, releases, commits or publishes). Leave ON unless cutting a real release."
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+  # gh workflow run (publishCmd dispatches the OIDC publish backends)
+  actions: write
+
+# One release run at a time — sequential per-package pushes to main must never
+# overlap with another run of this workflow.
+concurrency:
+  group: release-v2
+  cancel-in-progress: false
+
+jobs:
+  # ──────────────────────────────────────────────────
+  # Pre-release tests (mirrors release.yml's test job). A real release must not
+  # ship on a red tree; a dry-run still exercises the gate cheaply.
+  # ──────────────────────────────────────────────────
+  test:
+    name: Pre-release Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        with:
+          setup_only: true
+
+      - name: Proto lint
+        run: buf lint proto/
+
+      - name: Proto format check
+        run: buf format proto/ --diff --exit-code
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Dart install dependencies
+        run: cd dart && dart pub get
+
+      - name: Dart analyze
+        run: dart analyze dart/
+
+      - name: Dart shared tests
+        run: cd dart/shared && dart test
+
+      - name: Dart engine tests
+        run: cd dart/engine && dart test
+
+      - name: Dart encoder tests
+        run: cd dart/encoder && dart test
+
+      - name: Dart compiler tests
+        run: cd dart/compiler && dart test --exclude-tags slow
+
+      - name: Dart resolver tests
+        run: cd dart/resolver && dart test
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/engine/package-lock.json
+
+      - name: TypeScript install dependencies
+        run: cd ts/engine && npm ci
+
+      - name: TypeScript build
+        run: cd ts/engine && npm run build
+
+      - name: TypeScript test
+        run: cd ts/engine && npm test
+
+  # ──────────────────────────────────────────────────
+  # Per-package semantic-release loop (sequential).
+  # ──────────────────────────────────────────────────
+  release:
+    name: Per-package semantic-release
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # GATE: a dry-run is always allowed (no side effects); a REAL release requires
+    # the repo variable RELEASE_V2 == 'true'. With the variable unset, a
+    # dry_run=false dispatch is skipped — the old flow stays authoritative.
+    if: ${{ inputs.dry_run == true || vars.RELEASE_V2 == 'true' }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      # Pinned toolchain (tools/release/package-lock.json). The local path-filter
+      # plugin (tools/release/only-package-commits.mjs) resolves its
+      # @semantic-release/commit-analyzer + release-notes-generator imports from
+      # this node_modules, so it MUST be installed here (not `-g`).
+      - name: Install release toolchain
+        run: cd tools/release && npm ci
+
+      - name: Run semantic-release per package (sequential)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${DRY_RUN}" = "true" ]; then FLAG="--dry-run"; fi
+          SR="tools/release/node_modules/semantic-release/bin/semantic-release.js"
+
+          # Dependency order (deps before dependents). Steady-state releases are
+          # order-independent — caret ranges resolve against previously-published
+          # versions — so order only matters for a catch-up/first release.
+          PACKAGES="
+            ball_base
+            ball_resolver
+            ball_protobuf
+            ball_protobuf_gen
+            ball_rpc
+            ball_compiler
+            ball_encoder
+            ball_engine
+            ball_cli
+            ts-engine
+            ts-cli
+            ts-compiler
+            ts-encoder
+            rust-crates
+            repo
+          "
+
+          for cfg in $PACKAGES; do
+            echo "::group::semantic-release $cfg"
+            # Stage this package's config as THE config semantic-release discovers.
+            # PHASE 0/1 SHIM: the legacy root .releaserc.json still exists and would
+            # otherwise be auto-discovered by cosmiconfig and merged OVER the
+            # per-package config (its branches/plugins/tagFormat would win). Copying
+            # the per-package config to .releaserc.json makes it the sole discovered
+            # config. It is not in any @semantic-release/git `assets` list, so the
+            # overwrite is never committed. (At cutover the legacy file is deleted;
+            # this copy still works and stays correct.)
+            cp ".github/release/${cfg}.releaserc.json" ".releaserc.json"
+            node "$SR" $FLAG
+            echo "::endgroup::"
+          done

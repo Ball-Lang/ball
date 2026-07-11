@@ -1,0 +1,17 @@
+{
+  "branches": ["main"],
+  "tagFormat": "rust-crates/v${version}",
+  "plugins": [
+    ["./tools/release/only-package-commits.mjs", { "paths": ["rust"] }],
+    ["@semantic-release/changelog", { "changelogFile": "rust/CHANGELOG.md" }],
+    ["@semantic-release/exec", {
+      "prepareCmd": "node tools/release/set_manifest_version.mjs --format=cargo-workspace --file=rust/Cargo.toml --version=${nextRelease.version}",
+      "publishCmd": "gh workflow run publish-crates.yml --ref rust-crates/v${nextRelease.version}"
+    }],
+    ["@semantic-release/git", {
+      "assets": ["rust/Cargo.toml", "rust/CHANGELOG.md"],
+      "message": "chore(release): rust-crates ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+    }],
+    ["@semantic-release/github", { "successComment": false }]
+  ]
+}

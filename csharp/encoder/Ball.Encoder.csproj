@@ -11,4 +11,17 @@
     <Compile Remove="test/**/*.cs" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../shared/Ball.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Roslyn C# syntax API — official AST parser (CSharpSyntaxTree), used
+         syntax-only (no semantic model / no Compilation): mirrors the Dart
+         encoder's `parseString` approach documented in .claude/rules/dart.md.
+         Version pinned centrally in ../Directory.Packages.props (verified
+         against nuget.org at lane time — see that file's comment). -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
 </Project>

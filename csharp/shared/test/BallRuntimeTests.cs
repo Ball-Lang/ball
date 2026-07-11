@@ -64,6 +64,54 @@ public class BallRuntimeTests
         Assert.Throws<BallRuntimeException>(() => BallRuntime.Modulo(BallValue.Int(1), BallValue.Int(0)));
     }
 
+    [Fact]
+    public void RemainderIsTruncatedNotEuclidean()
+    {
+        // Dart's num.remainder keeps the sign of the DIVIDEND (truncated), unlike
+        // the Euclidean Modulo above: (-3.75).remainder(2) == -1.75, not 0.25.
+        Assert.Equal(BallValue.Double(0.5), BallRuntime.Remainder(BallValue.Double(2.5), BallValue.Int(2)));
+        Assert.Equal(BallValue.Double(-1.75), BallRuntime.Remainder(BallValue.Double(-3.75), BallValue.Int(2)));
+        Assert.Equal(BallValue.Int(1), BallRuntime.Remainder(BallValue.Int(7), BallValue.Int(3)));
+        // Both-int stays int; any double promotes to double.
+        Assert.IsType<BallInt>(BallRuntime.Remainder(BallValue.Int(7), BallValue.Int(3)));
+        Assert.IsType<BallDouble>(BallRuntime.Remainder(BallValue.Double(2.5), BallValue.Int(2)));
+        Assert.Throws<BallRuntimeException>(() => BallRuntime.Remainder(BallValue.Int(1), BallValue.Int(0)));
+    }
+
+    [Fact]
+    public void NanIsNeverEqualAndSignedZerosAreEqual()
+    {
+        var nan = BallValue.Double(double.NaN);
+        // IEEE-754 / Dart: NaN != NaN (this is exactly how the self-hosted engine
+        // computes `isNaN` — as `d != d`).
+        Assert.Equal(BallValue.Bool(false), BallRuntime.Equals(nan, nan));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.NotEquals(nan, nan));
+        // Dart: -0.0 == 0.0 is true, and equal values must hash identically.
+        Assert.Equal(BallValue.Bool(true), BallRuntime.Equals(BallValue.Double(-0.0), BallValue.Double(0.0)));
+        Assert.Equal(BallValue.Double(0.0).GetHashCode(), BallValue.Double(-0.0).GetHashCode());
+    }
+
+    [Fact]
+    public void NumericInstanceMethodsDispatchThroughCallMethod()
+    {
+        // The self-hosted engine routes num.remainder/toInt/toDouble here.
+        Assert.Equal(BallValue.Int(1), BallRuntime.CallMethod("remainder", NumMethodInput(BallValue.Int(7), BallValue.Int(3))));
+        Assert.Equal(BallValue.Int(3), BallRuntime.CallMethod("toInt", NumMethodInput(BallValue.Double(3.9))));
+        Assert.Equal(BallValue.Double(4.0), BallRuntime.CallMethod("toDouble", NumMethodInput(BallValue.Int(4))));
+    }
+
+    private static BallValue NumMethodInput(BallValue self, BallValue? arg0 = null)
+    {
+        var input = new BallMap();
+        input.Set("self", self);
+        if (arg0 is not null)
+        {
+            input.Set("arg0", arg0);
+        }
+
+        return input;
+    }
+
     // ── Comparison ────────────────────────────────────────────────────────
 
     [Fact]

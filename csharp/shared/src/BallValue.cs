@@ -59,7 +59,11 @@ public abstract class BallValue
         (BallNull, BallNull) => true,
         (BallBool ba, BallBool bb) => ba.Value == bb.Value,
         (BallInt ia, BallInt ib) => ia.Value == ib.Value,
-        (BallDouble da, BallDouble db) => da.Value.Equals(db.Value),
+        // IEEE-754 / Dart double equality via the `==` operator, NOT
+        // double.Equals: `NaN == NaN` is false (so `nan.isNaN`, which the engine
+        // computes as `d != d`, works) and `-0.0 == 0.0` is true — double.Equals
+        // gets both backwards. Matches rust/shared/src/value.rs (`a == b`).
+        (BallDouble da, BallDouble db) => da.Value == db.Value,
         (BallString sa, BallString sb) => sa.Value == sb.Value,
         (BallBytes xa, BallBytes xb) => xa.Value.AsSpan().SequenceEqual(xb.Value),
         (BallList la, BallList lb) => ListStructuralEquals(la, lb),
@@ -247,7 +251,11 @@ public sealed class BallDouble : BallValue
     public double Value { get; }
 
     /// <inheritdoc />
-    public override int GetHashCode() => Value.GetHashCode();
+    // Normalize signed zero so `-0.0` and `0.0` — which ValueEquals now treats as
+    // equal (`-0.0 == 0.0`) — hash identically, preserving the equals/hashCode
+    // contract. `Value == 0.0` is true for both zeros; all other doubles (incl.
+    // every NaN, which hashes to one constant) fall through unchanged.
+    public override int GetHashCode() => (Value == 0.0 ? 0.0 : Value).GetHashCode();
 
     /// <inheritdoc />
     public override string ToString() => FormatDouble(Value);

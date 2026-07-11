@@ -1,3 +1,10 @@
+## [1.40.1](https://github.com/Ball-Lang/ball/compare/v1.40.0...v1.40.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* **cpp:** link nlohmann_json to test_cli_parity — repair the macOS C++ release ([#404](https://github.com/Ball-Lang/ball/issues/404)) ([3d792c0](https://github.com/Ball-Lang/ball/commit/3d792c0698038881dc2f9216890c5acf8e1241f7))
+
 # [1.40.0](https://github.com/Ball-Lang/ball/compare/v1.39.0...v1.40.0) (2026-07-11)
 
 

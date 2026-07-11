@@ -28,6 +28,13 @@
          resolution to NuGet's silent duplicate handling. -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
 
+    <!-- csharp/cli's arg parser (issue #385). System.CommandLine went GA (stable
+         2.0.0) on 2025-11-11 after years of beta/RC; verified latest stable on
+         nuget.org 2026-07-11 via the v3-flatcontainer index (51 versions listed,
+         highest non-preview = 2.0.9; the newest entry overall,
+         3.0.0-preview.5.26302.115, is a preview and deliberately not used here). -->
+    <PackageVersion Include="System.CommandLine" Version="2.0.9" />
+
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
          self-executing test apps bridged to `dotnet test` via the VSTest
          adapter (xunit.runner.visualstudio). -->

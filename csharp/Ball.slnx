@@ -5,6 +5,9 @@
   <Folder Name="/cli/test/">
     <Project Path="cli/test/Ball.Cli.Tests.csproj" />
   </Folder>
+  <Folder Name="/cli/tool/">
+    <Project Path="cli/tool/Ball.Cli.Regen.csproj" />
+  </Folder>
   <Folder Name="/compiler/">
     <Project Path="compiler/Ball.Compiler.csproj" />
   </Folder>

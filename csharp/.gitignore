@@ -5,3 +5,9 @@
 # by a machine-emitted file; it is regenerated on demand and CI-side. It only
 # participates in the build under `-p:SelfHost=true` (see engine/Ball.Engine.csproj).
 engine/src/CompiledEngine.cs
+
+# Generated self-hosted CLI core (issue #385): compiled from
+# dart/self_host/cli.ball.json through the Ball -> C# compiler by
+# csharp/cli/tool. Same reasoning as CompiledEngine.cs above. It only
+# participates in the build under `-p:CliCore=true` (see cli/Ball.Cli.csproj).
+cli/src/CompiledCli.cs

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    csharp/cli/tool: regenerates csharp/cli/src/CompiledCli.cs from the self-hosted CLI-core Ball
+    program (dart/self_host/cli.ball.json) by compiling it through the Phase-4 Ball -> C#
+    compiler (issue #385, mirroring the epic #361 cli-core adoption pattern — rust/cli/tool and
+    ts/cli's compiled_cli.ts). The C# analog of the Rust `ball-cli-regen` crate
+    (rust/cli/tool/src/main.rs): a DELIBERATELY SEPARATE project — not a target inside Ball.Cli —
+    so it can be built and run even when the generated CompiledCli.cs does not compile (a broken
+    generated file must never make the regenerator itself un-buildable). Mirrors
+    csharp/engine/tool/Ball.Engine.Regen.csproj almost exactly.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../compiler/Ball.Compiler.csproj" />
+    <ProjectReference Include="../../shared/Ball.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

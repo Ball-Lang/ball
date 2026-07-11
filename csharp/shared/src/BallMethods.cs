@@ -126,6 +126,10 @@ public static partial class BallRuntime
             "elementAt" => ListGet(self, a0),
             "indexWhere" => MethodIndexWhere(self, a0),
 
+            // ── Higher-order callbacks the self-hosted engine invokes on its own values ──
+            "apply" => MethodApply(self, a0, a1),
+            "fold" => MethodFold(self, a0, a1),
+
             // ── Set algebra (a set is a duplicate-free list) ──
             "union" => SetUnion(self, a0),
             "intersection" => SetIntersection(self, a0),
@@ -301,6 +305,66 @@ public static partial class BallRuntime
 
         return BallValue.Int(-1);
     }
+
+    // ── Higher-order callbacks the self-hosted engine invokes on its own values ──
+
+    /// <summary>
+    /// Dart's top-level <c>Function.apply(callee, positionalArgs)</c> — the std
+    /// <c>invoke</c> handler's dynamic dispatch (<c>engine_std.dart</c>'s
+    /// <c>_stdInvoke</c>). Encoded as <c>Function.apply(callee, [arg])</c>, so
+    /// <paramref name="self"/> is the <c>Function</c> type literal,
+    /// <paramref name="callee"/> the target function, and
+    /// <paramref name="positional"/> the one-element positional-args list. (A
+    /// <c>callee.apply([arg])</c> form — <paramref name="self"/> the callee — is
+    /// also accepted.) Ball functions take one input, so the sole positional
+    /// element is passed straight through.
+    /// </summary>
+    private static BallValue MethodApply(BallValue self, BallValue callee, BallValue positional)
+    {
+        if (self is BallFunction)
+        {
+            positional = callee;
+            callee = self;
+        }
+
+        var args = positional is BallList list ? list.Snapshot() : new List<BallValue> { positional };
+        var input = args.Count > 0 ? args[0] : BallValue.Null;
+        return InvokeCallable(callee, input);
+    }
+
+    /// <summary>
+    /// Dart's <c>Iterable.fold&lt;T&gt;(initial, (acc, elem) =&gt; …)</c> — the engine
+    /// folds a native list with a two-parameter combine callback (e.g.
+    /// <c>string_split</c>'s allocation accounting). The compiled combine binds
+    /// its parameters name-or-positionally, so the pair is passed under
+    /// <c>arg0</c>/<c>arg1</c>.
+    /// </summary>
+    private static BallValue MethodFold(BallValue self, BallValue initial, BallValue combine)
+    {
+        var acc = initial;
+        foreach (var element in AsList(self).Snapshot())
+        {
+            var callArgs = new BallMap();
+            callArgs.Set("arg0", acc);
+            callArgs.Set("arg1", element);
+            acc = InvokeCallable(combine, callArgs);
+        }
+
+        return acc;
+    }
+
+    /// <summary>
+    /// Invoke a first-class callback that may be either a native
+    /// <see cref="BallFunction"/> or the engine's own <c>BallFunction</c> value
+    /// object (a <see cref="BallMessage"/> wrapping the native closure under its
+    /// <c>value</c> field).
+    /// </summary>
+    private static BallValue InvokeCallable(BallValue callee, BallValue input) => callee switch
+    {
+        BallFunction => CallFunction(callee, input),
+        BallMessage m when m.Get("value") is BallFunction inner => CallFunction(inner, input),
+        _ => throw new BallRuntimeException($"apply/fold callback is not callable: {TypeName(callee)}"),
+    };
 
     // ── Static constructors / parsers ────────────────────────────
 

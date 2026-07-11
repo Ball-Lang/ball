@@ -1,3 +1,10 @@
+# [1.33.0](https://github.com/Ball-Lang/ball/compare/v1.32.0...v1.33.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) Phase 6 — self-host engine wrapper foundation + first-compile grind (474→174) ([#393](https://github.com/Ball-Lang/ball/issues/393)) ([ccbb884](https://github.com/Ball-Lang/ball/commit/ccbb884376fe969df04448d9600b5d66b4d6c721))
+
 # [1.32.0](https://github.com/Ball-Lang/ball/compare/v1.31.0...v1.32.0) (2026-07-11)
 
 

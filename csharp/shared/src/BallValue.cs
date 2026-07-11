@@ -150,6 +150,35 @@ public abstract class BallValue
         var parts = entries.Select(e => $"{e.Key}: {e.Value}");
         return "{" + string.Join(", ", parts) + "}";
     }
+
+    /// <summary>
+    /// The payload of an engine scalar value-model wrapper, or <c>null</c> if
+    /// <paramref name="value"/> is not one. The self-hosted engine
+    /// (<c>ball_value.dart</c>) boxes some scalars in its own
+    /// <c>BallInt</c>/<c>BallDouble</c>/<c>BallString</c>/<c>BallBool</c> classes
+    /// (e.g. a double literal is <c>BallDouble(lit.doubleValue)</c>, so whole
+    /// doubles keep their trailing <c>.0</c>). Those classes carry no typeDef in
+    /// the self-host program — they lower to a <c>BallMessage</c> whose single
+    /// <c>value</c> field holds the native payload — so their own
+    /// <c>toString()</c> override is absent from the dispatch table and a bare
+    /// render would leak the map form <c>{value: 3.14}</c>. Rendering therefore
+    /// delegates to the payload, which is a native <see cref="BallDouble"/> (etc.)
+    /// that already formats reference-engine-exactly. Type-name matched (mirrors
+    /// <c>IsOfType</c>'s <c>BallMap</c>/<c>BallObject</c> special-casing).
+    /// </summary>
+    internal static BallValue? ScalarWrapperPayload(BallValue value)
+    {
+        if (value is not BallMessage m)
+        {
+            return null;
+        }
+
+        var name = m.TypeName;
+        var shortName = name.Contains(':') ? name[(name.LastIndexOf(':') + 1)..] : name;
+        return shortName is "BallInt" or "BallDouble" or "BallString" or "BallBool"
+            ? m.Get("value") ?? BallNull.Instance
+            : null;
+    }
 }
 
 /// <summary>Ball's <c>null</c>.</summary>

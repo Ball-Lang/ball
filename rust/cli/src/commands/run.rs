@@ -4,11 +4,11 @@ use std::path::Path;
 use crate::error::CliError;
 use crate::loader::load_engine;
 
-/// Load `path` and execute it via `ball-engine`, writing each captured
+/// Load `path` and execute it via `ball-lang-engine`, writing each captured
 /// stdout line to the real process stdout.
 ///
-/// **Self-host status:** without `ball-cli`'s `self_host` Cargo feature
-/// (off by default — see `Cargo.toml`), `ball-engine`'s `run()` always
+/// **Self-host status:** without `ball-lang-cli`'s `self_host` Cargo feature
+/// (off by default — see `Cargo.toml`), `ball-lang-engine`'s `run()` always
 /// returns `EngineError::SelfHostPending`, which surfaces here as a
 /// [`CliError::Runtime`] (exit `1`) — a program never silently "succeeds"
 /// without actually running. Built with `--features self_host` (after

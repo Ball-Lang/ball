@@ -1,4 +1,4 @@
-//! `ball-compiler` — compiles a Ball `Program` protobuf into Rust source.
+//! `ball-lang-compiler` — compiles a Ball `Program` protobuf into Rust source.
 //!
 //! Phase 2a (issue #36) implements **expression-tree compilation**: a
 //! recursive `compile_expression` that lowers every one of the seven Ball
@@ -15,7 +15,7 @@
 //! Rust block expression here, since Rust blocks are already
 //! tail-expression-valued).
 //!
-//! Every compiled Ball expression evaluates to a `ball_shared::BallValue`
+//! Every compiled Ball expression evaluates to a `ball_lang_shared::BallValue`
 //! (see `rust/shared/src/value.rs`). This is a deliberate, uniform
 //! invariant of this crate: there are no "void" expressions — even
 //! side-effecting calls like `print` compile to a `{ ...; BallValue::Null
@@ -24,7 +24,7 @@
 //! statement-vs-expression compilation context.
 //!
 //! Phase 2b (issue #37) adds the real base-function dispatch table
-//! (`base_call.rs`, delegating to `ball_shared::runtime` — see that
+//! (`base_call.rs`, delegating to `ball_lang_shared::runtime` — see that
 //! module's doc comment) plus **lazy** control flow (`if`/`and`/`or`/`for`/
 //! `for_in`/`while`/`do_while` compile to native Rust control flow, never a
 //! function call that would eagerly evaluate every branch — invariant #4)
@@ -80,10 +80,10 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::statement::Stmt;
-use ball_shared::proto::ball::v1::{
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::statement::Stmt;
+use ball_lang_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FunctionDefinition, Literal, MessageCreation, Module, Program,
     Reference, TypeDefinition,
 };
@@ -164,7 +164,7 @@ pub struct Compiler<'a> {
     /// This is what lets [`Compiler::compile_call`] tell a call *through a
     /// value* (`bound(input)`, where `bound` is a local `BallValue::Function`
     /// — dynamic dispatch via `ball_call_function`) from a call to a real
-    /// function *item* (a user function, or a `ball_shared::runtime` Dart-SDK
+    /// function *item* (a user function, or a `ball_lang_shared::runtime` Dart-SDK
     /// helper like `unmodifiable`/`now`/`cast` — a direct Rust call), which a
     /// name-only test cannot: both are unqualified, and a local can even
     /// shadow a function of the same name (the self-hosted engine binds a
@@ -212,7 +212,7 @@ pub struct Compiler<'a> {
     /// body — of the expression currently being compiled (issue #300). A
     /// `return`/`break`/`continue` inside a `try` body cannot escape the `try`'s
     /// `catch_unwind` closure with a bare Rust keyword; it must yield a
-    /// [`ball_shared::runtime::BallFlow`] the `try` re-issues after `finally`.
+    /// [`ball_lang_shared::runtime::BallFlow`] the `try` re-issues after `finally`.
     /// Whether a `break`/`continue` needs that treatment depends on whether the
     /// nearest scope is the `try` (escape) or a loop (its own target) — hence a
     /// stack, not a counter. See [`Compiler::compile_try`].
@@ -252,7 +252,7 @@ pub struct Compiler<'a> {
 
 /// A control-flow scope on [`Compiler::flow_scopes`] — a `try` body or a loop
 /// body — used to decide whether a `return`/`break`/`continue` must escape a
-/// `try`'s `catch_unwind` closure via [`ball_shared::runtime::BallFlow`]
+/// `try`'s `catch_unwind` closure via [`ball_lang_shared::runtime::BallFlow`]
 /// (issue #300).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FlowScope {
@@ -639,7 +639,9 @@ impl<'a> Compiler<'a> {
     /// so, an implicit-`this` receiver must NOT be injected over it. Only a
     /// `message_creation` input can carry named fields, so any other input
     /// shape (a bare positional value, or none) has no explicit receiver.
-    fn call_input_has_explicit_self(call: &ball_shared::proto::ball::v1::FunctionCall) -> bool {
+    fn call_input_has_explicit_self(
+        call: &ball_lang_shared::proto::ball::v1::FunctionCall,
+    ) -> bool {
         matches!(
             call.input.as_deref(),
             Some(Expression { expr: Some(Expr::MessageCreation(mc)) })
@@ -654,7 +656,7 @@ impl<'a> Compiler<'a> {
     /// constructed instance), so this distinguishes the two for implicit-`this`
     /// injection (issue #300 — [`Compiler::compile_call`]): a multi-arg message
     /// gets `self` merged in, a single positional gets wrapped as `{self, arg0}`.
-    fn call_input_is_arg_message(call: &ball_shared::proto::ball::v1::FunctionCall) -> bool {
+    fn call_input_is_arg_message(call: &ball_lang_shared::proto::ball::v1::FunctionCall) -> bool {
         matches!(
             call.input.as_deref(),
             Some(Expression { expr: Some(Expr::MessageCreation(mc)) })
@@ -687,7 +689,7 @@ impl<'a> Compiler<'a> {
     }
 
     /// Is `name` a local binding in *any* enclosing scope (as opposed to a
-    /// top-level function item, a `ball_shared::runtime` helper, or an enum
+    /// top-level function item, a `ball_lang_shared::runtime` helper, or an enum
     /// namespace static)? See [`Compiler::local_scopes`].
     fn is_local(&self, name: &str) -> bool {
         let sanitized = sanitize_ident(name);
@@ -716,7 +718,7 @@ impl<'a> Compiler<'a> {
     // ════════════════════════════════════════════════════════════
 
     /// Compile [`Self::program`] into a complete, runnable Rust source file:
-    /// a `use ball_shared::runtime::*;` import (the base-function runtime
+    /// a `use ball_lang_shared::runtime::*;` import (the base-function runtime
     /// helpers — see that module's doc comment), the entry module's own
     /// types/functions inlined at the top level, every *other* user module
     /// nested as its own `pub mod <name> { ... }` (issue #38 — see
@@ -815,9 +817,9 @@ impl<'a> Compiler<'a> {
         ));
         out.push_str("#![allow(unused_mut, dead_code, unused_variables)]\n\n");
         out.push_str(
-            "use ball_shared::{BallFunction, BallList, BallMap, BallMessage, BallValue};\n",
+            "use ball_lang_shared::{BallFunction, BallList, BallMap, BallMessage, BallValue};\n",
         );
-        out.push_str("use ball_shared::runtime::*;\n\n");
+        out.push_str("use ball_lang_shared::runtime::*;\n\n");
 
         // The Ball-proto oneof-discriminator enum namespaces
         // (`Expression_Expr`, `Literal_Value`, `Statement_Stmt`,
@@ -857,12 +859,12 @@ impl<'a> Compiler<'a> {
                 // this way and then calls into them fully qualified
                 // (`dart_math::sqrt(x)`, `dart_io::File(path)`). Re-export the
                 // shared runtime so those qualified calls resolve to the
-                // matching `ball_shared::runtime` helper (issue #39 gap #2 —
+                // matching `ball_lang_shared::runtime` helper (issue #39 gap #2 —
                 // the Dart-SDK method/type surface). A `use super::*;` glob
                 // would *not* work: it imports privately, so the names would
                 // not be reachable as `<mod>::<name>` from the crate root.
                 out.push_str(&format!(
-                    "pub mod {} {{\n    pub use ball_shared::runtime::*;\n}}\n\n",
+                    "pub mod {} {{\n    pub use ball_lang_shared::runtime::*;\n}}\n\n",
                     sanitize_ident(&module.name)
                 ));
             } else {
@@ -1662,7 +1664,7 @@ impl<'a> Compiler<'a> {
 
 /// Format a `double` literal for embedding in generated Rust source (a
 /// syntactically valid Rust `f64` expression, not stdout formatting — see
-/// `ball_shared::value::format_double` for *that*, used at run time by the
+/// `ball_lang_shared::value::format_double` for *that*, used at run time by the
 /// compiled program's own `BallValue::Display`). Rust has no literal syntax
 /// for NaN/Infinity, so those lower to the `f64::NAN`/`f64::INFINITY`/
 /// `f64::NEG_INFINITY` constants; every finite value uses `{:?}` (Rust's
@@ -1693,7 +1695,7 @@ fn format_double_literal(value: f64) -> String {
 /// The sanitized cascade-var name if `statement` is a cascade `let`
 /// (`let __cascade_self__ = <receiver>`, tagged `metadata.kind = "cascade"`),
 /// else `None`. See [`Compiler::compile_block`] (issue #300).
-fn cascade_let_var(statement: &ball_shared::proto::ball::v1::Statement) -> Option<String> {
+fn cascade_let_var(statement: &ball_lang_shared::proto::ball::v1::Statement) -> Option<String> {
     match &statement.stmt {
         Some(Stmt::Let(let_binding)) if type_emit::let_is_cascade(let_binding) => {
             Some(sanitize_ident(&let_binding.name))
@@ -1736,17 +1738,17 @@ fn sanitize_ident(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ball_shared::proto::ball::v1::{
+    use ball_lang_shared::proto::ball::v1::{
         FieldValuePair, FunctionCall, ListLiteral, Literal as LiteralMsg, Module,
     };
-    use ball_shared::proto::google::protobuf::value::Kind;
-    use ball_shared::proto::google::protobuf::{ListValue, Struct, Value};
+    use ball_lang_shared::proto::google::protobuf::value::Kind;
+    use ball_lang_shared::proto::google::protobuf::{ListValue, Struct, Value};
 
     fn program_with_std() -> Program {
         Program {
             name: "test".to_string(),
             version: "1.0.0".to_string(),
-            modules: vec![ball_shared::build_std_module()],
+            modules: vec![ball_lang_shared::build_std_module()],
             entry_module: "main".to_string(),
             entry_function: "main".to_string(),
             metadata: None,
@@ -1863,8 +1865,8 @@ mod tests {
         // A `let x = __no_init__;` binding inside a block therefore compiles
         // to a valid, self-contained Rust `let`.
         let block = Block {
-            statements: vec![ball_shared::proto::ball::v1::Statement {
-                stmt: Some(Stmt::Let(ball_shared::proto::ball::v1::LetBinding {
+            statements: vec![ball_lang_shared::proto::ball::v1::Statement {
+                stmt: Some(Stmt::Let(ball_lang_shared::proto::ball::v1::LetBinding {
                     name: "maybe".to_string(),
                     value: Some(reference("__no_init__")),
                     metadata: None,
@@ -1947,8 +1949,8 @@ mod tests {
         let program = program_with_std();
         let compiler = Compiler::new(&program);
         let block = Block {
-            statements: vec![ball_shared::proto::ball::v1::Statement {
-                stmt: Some(Stmt::Let(ball_shared::proto::ball::v1::LetBinding {
+            statements: vec![ball_lang_shared::proto::ball::v1::Statement {
+                stmt: Some(Stmt::Let(ball_lang_shared::proto::ball::v1::LetBinding {
                     name: "a".to_string(),
                     value: Some(int_lit(1)),
                     metadata: None,
@@ -2047,7 +2049,7 @@ mod tests {
     /// dynamic dispatcher `ball_call_function` — the self-hosted engine's
     /// `final bound = scope.lookup(name); bound(input)` shape (issue #39, gap
     /// #6). An unqualified callee that is *not* a local stays a direct call
-    /// (a user function or a `ball_shared::runtime` Dart-SDK helper), even
+    /// (a user function or a `ball_lang_shared::runtime` Dart-SDK helper), even
     /// when the same name is unknown to the compiler.
     #[test]
     fn compiles_function_value_call_via_dynamic_dispatch() {
@@ -2272,9 +2274,9 @@ mod tests {
         let compiler = Compiler::new(&program);
         let compiled = compiler.compile();
         assert!(compiled.contains(
-            "use ball_shared::{BallFunction, BallList, BallMap, BallMessage, BallValue};"
+            "use ball_lang_shared::{BallFunction, BallList, BallMap, BallMessage, BallValue};"
         ));
-        assert!(compiled.contains("use ball_shared::runtime::*;"));
+        assert!(compiled.contains("use ball_lang_shared::runtime::*;"));
         assert!(compiled.contains("fn main() {"));
         assert!(!compiled.contains("pub fn main(")); // entry fn is inlined, not emitted as a wrapper
     }
@@ -2308,7 +2310,7 @@ mod tests {
         let compiler = Compiler::new(&program);
         let compiled = compiler.compile();
         assert!(
-            compiled.contains("pub mod dart_math {\n    pub use ball_shared::runtime::*;\n}"),
+            compiled.contains("pub mod dart_math {\n    pub use ball_lang_shared::runtime::*;\n}"),
             "empty namespace module should re-export the runtime, got:\n{compiled}"
         );
     }

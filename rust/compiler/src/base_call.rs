@@ -7,7 +7,7 @@
 //! `ts/compiler/src/compiler.ts`).
 //!
 //! Arithmetic/comparison/logic/bitwise/string/math/collection operators
-//! delegate to plain functions in `ball_shared::runtime` (see that module's
+//! delegate to plain functions in `ball_lang_shared::runtime` (see that module's
 //! doc comment for why — short version: it's the Rust analog of
 //! `cpp/shared/include/ball_dyn.h`'s operator overloads, and it's
 //! unit-testable on its own). **This module's own job is exclusively the
@@ -34,7 +34,7 @@
 //! A runtime **function call**, by contrast, cannot be lazy — Rust always
 //! evaluates every argument expression before making the call — which is
 //! exactly why `and`/`or`/`null_coalesce` are hand-written here instead of
-//! going through `ball_shared::runtime` like every other binary operator.
+//! going through `ball_lang_shared::runtime` like every other binary operator.
 //!
 //! ## Assignment / mutation
 //!
@@ -71,10 +71,10 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use ball_shared::extract_fields;
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::{
+use ball_lang_shared::extract_fields;
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::{
     Expression, FieldValuePair, FunctionCall, ListLiteral, MessageCreation,
 };
 
@@ -119,7 +119,7 @@ impl Compiler<'_> {
         // `error[E0618]` "expected function, found `BallValue`". Route it
         // through the dynamic dispatcher (issue #39, gap #6). Every *other*
         // unqualified callee names a real Rust `fn` — a user function or a
-        // `ball_shared::runtime` Dart-SDK helper (`unmodifiable`/`now`/`cast`/
+        // `ball_lang_shared::runtime` Dart-SDK helper (`unmodifiable`/`now`/`cast`/
         // …) — and stays a direct call; only lexical scope (not the name
         // alone) distinguishes the two, since a local can shadow a function
         // of the same name. A cross-module call (non-empty `prefix`) is always
@@ -658,7 +658,7 @@ impl Compiler<'_> {
     // ball_proto — protobuf-compat AST access patterns (issue #300)
     // ════════════════════════════════════════════════════════════
 
-    /// Route a `ball_proto.<fn>` call to its native `ball_shared::runtime`
+    /// Route a `ball_proto.<fn>` call to its native `ball_lang_shared::runtime`
     /// helper (implemented there; see that module's `ball_proto` section). The
     /// compiler had always lowered these to `ball_unsupported_base_call` (the
     /// long-open AGENTS gap #3), which is what blocked the self-hosted engine
@@ -993,7 +993,7 @@ impl Compiler<'_> {
 
     /// `null_coalesce(left, right)` (`??`) — Dart's `??` doesn't evaluate
     /// `right` when `left` is non-null, so (like `and`/`or`) this is an
-    /// inline `if` rather than a `ball_shared::runtime` call.
+    /// inline `if` rather than a `ball_lang_shared::runtime` call.
     fn compile_null_coalesce(&self, call: &FunctionCall) -> String {
         let f = extract_fields(call);
         let left = self.field_or_null(&f, "left");
@@ -1073,14 +1073,15 @@ impl Compiler<'_> {
                 && block.statements.iter().all(|s| {
                     matches!(
                         &s.stmt,
-                        Some(ball_shared::proto::ball::v1::statement::Stmt::Let(_))
+                        Some(ball_lang_shared::proto::ball::v1::statement::Stmt::Let(_))
                     )
                 })
             {
                 let mut out = String::new();
                 for statement in &block.statements {
-                    if let Some(ball_shared::proto::ball::v1::statement::Stmt::Let(let_binding)) =
-                        &statement.stmt
+                    if let Some(ball_lang_shared::proto::ball::v1::statement::Stmt::Let(
+                        let_binding,
+                    )) = &statement.stmt
                     {
                         let name = crate::sanitize_ident(&let_binding.name);
                         let value = match &let_binding.value {
@@ -1099,7 +1100,7 @@ impl Compiler<'_> {
 
     /// `for_in(variable, iterable, body)` — iterates a `List` (or a `Map`'s
     /// entries, each surfaced as `[key, value]` — see
-    /// `ball_shared::runtime::ball_iterate`) via a native Rust `for` loop.
+    /// `ball_lang_shared::runtime::ball_iterate`) via a native Rust `for` loop.
     fn compile_for_in(&self, call: &FunctionCall, label: Option<&str>) -> String {
         let f = extract_fields(call);
         let variable = self
@@ -1307,7 +1308,7 @@ impl Compiler<'_> {
 
     /// `try(body, catches, finally?)` — wraps `body` in
     /// `std::panic::catch_unwind`; `throw` (see
-    /// `ball_shared::runtime::ball_throw`) panics with the thrown
+    /// `ball_lang_shared::runtime::ball_throw`) panics with the thrown
     /// `BallValue` as the panic payload via `std::panic::panic_any`, which
     /// `ball_catch_payload` recovers on the catching side.
     ///
@@ -1434,7 +1435,7 @@ impl Compiler<'_> {
         }
     }
 
-    /// The `match __flow { … }` that re-issues a `try`'s [`ball_shared::runtime::BallFlow`]
+    /// The `match __flow { … }` that re-issues a `try`'s [`ball_lang_shared::runtime::BallFlow`]
     /// result as real control flow, matching the **enclosing** scope (the
     /// try's own scope must already be popped): a bare Rust keyword under a
     /// loop, a fresh `BallFlow` under an outer `try`, and — for a `break`/
@@ -1828,7 +1829,7 @@ impl Compiler<'_> {
     /// Extract a `MessageCreation`'s fields directly (used by
     /// `switch`/`try` to read each case/catch-clause struct — these appear
     /// as list *elements*, not a `FunctionCall`'s own input, so
-    /// `ball_shared::extract_fields` — which takes a `&FunctionCall` — can't
+    /// `ball_lang_shared::extract_fields` — which takes a `&FunctionCall` — can't
     /// be reused directly).
     fn message_creation_fields(&self, mc: &MessageCreation) -> IndexMap<String, Expression> {
         mc.fields
@@ -1995,7 +1996,7 @@ impl Compiler<'_> {
     /// (single-`input`) callback — `list_map(list, callback)`, etc. The
     /// callback's compiled source (a Rust closure literal or a
     /// `.clone()`d closure/fn-item reference) satisfies
-    /// `ball_shared::runtime`'s generic `F: Fn(BallValue) -> BallValue`
+    /// `ball_lang_shared::runtime`'s generic `F: Fn(BallValue) -> BallValue`
     /// bound directly, no boxing needed.
     fn callback_call(
         &self,

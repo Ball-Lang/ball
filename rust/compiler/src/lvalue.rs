@@ -30,11 +30,11 @@
 //! [`LValue::Unsupported`], which compiles to a runtime panic (never a
 //! silently-wrong mutation of a clone) — full lvalue-chain support is
 //! `TypeDefinition`-driven struct field access, which is #38's scope.
-use ball_shared::extract_fields;
-use ball_shared::proto::ball::v1::Expression;
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::statement::Stmt;
+use ball_lang_shared::extract_fields;
+use ball_lang_shared::proto::ball::v1::Expression;
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::statement::Stmt;
 
 use crate::Compiler;
 
@@ -118,12 +118,14 @@ impl Compiler<'_> {
             // both route `LValue::Index` through `ball_index_get` + `ball_index_set`
             // (read/modify/write) instead. This arm is therefore unreachable; it
             // panics rather than silently mis-mutating.
-            LValue::Index { .. } => "panic!(\"ball-compiler runtime: index lvalue slot must go \
+            LValue::Index { .. } => {
+                "panic!(\"ball-lang-compiler runtime: index lvalue slot must go \
                  through ball_index_set (issues #39/#300)\")"
-                .to_string(),
+                    .to_string()
+            }
             LValue::Unsupported(reason) => {
                 format!(
-                    "panic!(\"ball-compiler runtime: {}\")",
+                    "panic!(\"ball-lang-compiler runtime: {}\")",
                     escape_for_panic(reason)
                 )
             }
@@ -387,7 +389,7 @@ impl Compiler<'_> {
     /// mutation of `name`. Used by [`Compiler::compile_block`].
     pub(crate) fn rest_mutates_var(
         &self,
-        rest: &[ball_shared::proto::ball::v1::Statement],
+        rest: &[ball_lang_shared::proto::ball::v1::Statement],
         result: Option<&Expression>,
         name: &str,
     ) -> bool {
@@ -414,7 +416,7 @@ fn lvalue_root_matches(lvalue: &LValue, name: &str) -> bool {
 }
 
 /// Combine a read (`left`, a Rust expression string) with `right` per the
-/// `AssignInput.op` compound-assignment operator, via the `ball_shared`
+/// `AssignInput.op` compound-assignment operator, via the `ball_lang_shared`
 /// runtime helpers (see `rust/shared/src/runtime.rs`). `"="` (simple
 /// assignment) just returns `right` — the read is discarded.
 pub(crate) fn combine_op(op: &str, left: &str, right: &str) -> String {

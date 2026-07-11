@@ -19,12 +19,12 @@ run-acceptance and the full conformance sweep.
 
 | Crate | Path | Purpose | Status |
 |-------|------|---------|--------|
-| `ball-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders + `runtime::*` base-op helpers | Complete (#34, #35) |
-| `ball-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
-| `ball-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
-| `ball-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
+| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders + `runtime::*` base-op helpers | Complete (#34, #35) |
+| `ball-lang-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
+| `ball-lang-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
+| `ball-lang-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
 | `ball-engine-regen` | `rust/engine/tool/` | Internal helper crate: regenerates `rust/engine/src/compiled_engine.rs` | Complete, run manually |
-| `ball-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check`/`info`/`validate`/`tree`/`version` CLI | Complete (#41/#304, #365) — clap subcommands; `run` behind `self_host`, `info`/`validate`/`tree` behind `cli_core` (no `audit` — #362 residual) |
+| `ball-lang-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check`/`info`/`validate`/`tree`/`version` CLI | Complete (#41/#304, #365) — clap subcommands; `run` behind `self_host`, `info`/`validate`/`tree` behind `cli_core` (no `audit` — #362 residual) |
 | `ball-cli-regen` | `rust/cli/tool/` | Internal helper crate: regenerates `rust/cli/src/compiled_cli.rs` | Complete, run manually |
 
 The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs` — it
@@ -41,20 +41,20 @@ Windows shell, wrap commands like `wsl.exe -e bash -lc "cd /mnt/d/packages/ball/
 ```bash
 cd rust
 cargo build --workspace
-cargo test --workspace              # ball-engine's self-hosted driver is feature-gated off by
+cargo test --workspace              # ball-lang-engine's self-hosted driver is feature-gated off by
                                      # default (see "Self-hosted engine status" below), so this
                                      # stays green on the wrapper foundation, not the compiled engine
-cargo test -p ball-shared           # proto round-trip + std module builder tests
-cargo test -p ball-compiler         # expression/base-call/type-emit tests + end-to-end (compiles
+cargo test -p ball-lang-shared           # proto round-trip + std module builder tests
+cargo test -p ball-lang-compiler         # expression/base-call/type-emit tests + end-to-end (compiles
                                      # emitted Rust with `cargo run` and asserts on stdout)
-cargo test -p ball-encoder          # syn AST -> Ball tests + end-to-end (encode -> compile -> run)
-cargo test -p ball-engine           # loader/scope/ball_proto wrapper-foundation tests
+cargo test -p ball-lang-encoder          # syn AST -> Ball tests + end-to-end (encode -> compile -> run)
+cargo test -p ball-lang-engine           # loader/scope/ball_proto wrapper-foundation tests
 cargo fmt --check
 cargo clippy --workspace
 ```
 
-**Prefer conformance tests over unit tests where they exist.** `ball-compiler` and
-`ball-encoder` both have `tests/end_to_end.rs` suites that compile emitted Rust with the real
+**Prefer conformance tests over unit tests where they exist.** `ball-lang-compiler` and
+`ball-lang-encoder` both have `tests/end_to_end.rs` suites that compile emitted Rust with the real
 `cargo`/`rustc` toolchain and assert on actual stdout — this is the same "compile → execute
 with the native toolchain → compare" idiom `ts/compiler/test/` uses. The whole-corpus
 conformance runner is `rust/engine/tests/self_host_conformance.rs` (`--features self_host`,
@@ -92,7 +92,7 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
-The self-hosted engine compiles through `ball-compiler` **and runs the whole
+The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
 conformance corpus with Dart-identical output**: `Results: 319 passed, 0 failed,
 319 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
@@ -103,8 +103,8 @@ stays green on the wrapper foundation); regenerate + run with:
 ```bash
 cd dart && dart run compiler/tool/gen_engine_json.dart   # regen engine.ball.json
 cd ../rust && cargo run -p ball-engine-regen             # regen compiled_engine.rs
-cargo test -p ball-engine --features self_host --test self_host_run          # acceptance
-cargo test -p ball-engine --features self_host --test self_host_conformance \
+cargo test -p ball-lang-engine --features self_host --test self_host_run          # acceptance
+cargo test -p ball-lang-engine --features self_host --test self_host_conformance \
   -- --ignored --nocapture                               # whole-corpus sweep (Results: line)
 ```
 
@@ -115,14 +115,14 @@ instructions.
 
 - Compiler and encoder both emit/parse as strings/AST via `syn`, mirroring the C++ prototype's
   string-concatenation style more than Dart's `code_builder`/`analyzer` structural approach.
-- Every compiled Ball expression evaluates to a `ball_shared::BallValue` — there are no "void"
+- Every compiled Ball expression evaluates to a `ball_lang_shared::BallValue` — there are no "void"
   expressions in the compiler's output (even `print` compiles to a block ending in
   `BallValue::Null`), so every expression position (block tail, `if`/`else` branches, function
   bodies) is uniformly type-correct.
 - The encoder has **no `rust_std` base module** — every Rust construct (operators, control flow,
   iterator sugar, `?`, `if let`) expands into universal `std`/`std_collections` calls, exactly
   like the Dart encoder's cascade/null-aware-access/spread expansion. This is invariant, not
-  optional — see `ball-encoder`'s module doc comment (`rust/encoder/src/lib.rs`).
+  optional — see `ball-lang-encoder`'s module doc comment (`rust/encoder/src/lib.rs`).
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
   (documented gaps: multi-parameter lambdas, receiver-less associated functions, data-carrying
   enum variants, tuple/unit structs, etc.) — read those module doc comments before assuming a
@@ -163,7 +163,7 @@ order itself and waits for each crate to be index-available before its
 dependents publish (no hand-rolled sleeps, no crates.io index-propagation race):
 
 ```
-ball-shared → ball-compiler / ball-encoder → ball-engine → ball-cli
+ball-lang-shared → ball-lang-compiler / ball-lang-encoder → ball-lang-engine → ball-lang-cli
 ```
 
 `ball-engine-regen` and `ball-cli-regen` carry `publish = false` and are skipped
@@ -172,7 +172,7 @@ pre-existing 2022 `ball` crate on crates.io.
 
 ### Generated-source packaging (the `include` arrangement)
 
-`ball-engine`'s `src/compiled_engine.rs` and `ball-cli`'s `src/compiled_cli.rs`
+`ball-lang-engine`'s `src/compiled_engine.rs` and `ball-lang-cli`'s `src/compiled_cli.rs`
 are **gitignored** (generated by `ball-engine-regen` / `ball-cli-regen`). By
 default `cargo package` skips gitignored files, which would ship broken crates.
 Each crate sets `include = ["src/**/*.rs", "Cargo.toml"]`: per the [Cargo
@@ -184,11 +184,11 @@ ball-*-regen`) **before** packaging, so the shipped copies are current.
 
 ### Published feature shape (working `ball run` out of the box)
 
-The committed `default` features are **off** for `ball-engine`
-(`self_host`) and `ball-cli` (`self_host` + `cli_core`) so a fresh-checkout
+The committed `default` features are **off** for `ball-lang-engine`
+(`self_host`) and `ball-lang-cli` (`self_host` + `cli_core`) so a fresh-checkout
 `cargo build --workspace` stays green without the dart+regen dance. For the
 **published** crates the workflow flips the defaults **on** (a `sed` step, after
-regen, before `cargo package`), so `cargo install ball-cli` yields a working
+regen, before `cargo package`), so `cargo install ball-lang-cli` yields a working
 `ball run` (self-hosted engine) plus `info`/`validate`/`tree` (cli-core) with no
 `--features` flag. The flip is publish-time only; nothing is committed with the
 defaults on.
@@ -196,7 +196,7 @@ defaults on.
 ### Version policy (issue #366 comment)
 
 `ball version` reports the **ecosystem package version** — the crates.io
-`ball-cli` version, single-sourced from `CARGO_PKG_VERSION` (the cargo workspace
+`ball-lang-cli` version, single-sourced from `CARGO_PKG_VERSION` (the cargo workspace
 version). This is the deliberate cross-target decision: each CLI stays true to
 its own registry (crates.io for Rust, npm's semantic-release line for
 TypeScript, the pubspec version for Dart), rather than carrying a shared

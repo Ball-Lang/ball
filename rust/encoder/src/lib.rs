@@ -1,4 +1,4 @@
-//! `ball-encoder` — encodes Rust source into a Ball [`Program`] protobuf.
+//! `ball-lang-encoder` — encodes Rust source into a Ball [`Program`] protobuf.
 //!
 //! Phase 3a (issue #42) parses Rust source with **`syn` 2.x** (`features =
 //! ["full"]`) and walks the AST (items -> fns -> statements -> expressions),
@@ -28,14 +28,14 @@
 //!   instance methods (`self`/`&self`/`&mut self` receiver required — see
 //!   `types.rs`'s module doc comment for why an associated function with no
 //!   receiver, e.g. `Point::new(...)`, is a documented gap instead: it would
-//!   silently panic at run time in `ball-compiler`'s existing
+//!   silently panic at run time in `ball-lang-compiler`'s existing
 //!   `method_prologue`, not just fail to compile). Construction uses Rust's
 //!   own struct-literal syntax (`Point { x, y }`), which needs no
 //!   constructor at all — it's a plain `message_creation`.
 //! - **Cosmetic metadata** (invariant #2): visibility (`pub` →
 //!   `metadata.is_public`), `async`, a type's `kind`, generics/type params,
 //!   and a `let` binding's `mut`-ness all round-trip into `metadata` Structs
-//!   that `ball-compiler` never reads for anything but `is_abstract` and
+//!   that `ball-lang-compiler` never reads for anything but `is_abstract` and
 //!   `kind == "constructor"` (the only two keys with real code-generation
 //!   effect — see `rust/compiler/src/type_emit.rs`) — stripping every other
 //!   key this crate sets can never change a compiled program's output.
@@ -57,7 +57,7 @@
 //! every reference encoder already relies on for correctness: a function/
 //! closure with **exactly one** parameter gets `metadata.params =
 //! [{name}]` (see [`single_param_metadata`]), which is what makes
-//! `ball-compiler`'s existing `param_alias_prologue` emit `let <name> =
+//! `ball-lang-compiler`'s existing `param_alias_prologue` emit `let <name> =
 //! input.clone();` — without it, a body that references its own
 //! parameter by name wouldn't compile. This is a narrow, load-bearing
 //! exception, not general metadata/round-trip work.
@@ -97,15 +97,15 @@ mod types;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::statement::Stmt as BallStmt;
-use ball_shared::proto::ball::v1::{
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::statement::Stmt as BallStmt;
+use ball_lang_shared::proto::ball::v1::{
     Block, Expression, FieldAccess, FieldValuePair, FunctionCall, FunctionDefinition, LetBinding,
     ListLiteral, Literal, MessageCreation, Module, ModuleImport, Program, Reference, Statement,
 };
-use ball_shared::proto::google::protobuf::value::Kind;
-use ball_shared::proto::google::protobuf::{ListValue, Struct, Value};
+use ball_lang_shared::proto::google::protobuf::value::Kind;
+use ball_lang_shared::proto::google::protobuf::{ListValue, Struct, Value};
 
 /// Encode a Rust source file into a Ball [`Program`]. Requires a `fn
 /// main()` (the entry point every Ball `Program` needs) — fails loud
@@ -116,7 +116,7 @@ pub fn encode(source: &str) -> Program {
     let (main_module, has_main) = encode_main_module(source);
     assert!(
         has_main,
-        "ball-encoder: a Ball Program requires a `fn main()` entry point"
+        "ball-lang-encoder: a Ball Program requires a `fn main()` entry point"
     );
 
     let mut used: HashMap<String, BTreeSet<String>> = HashMap::new();
@@ -235,7 +235,7 @@ fn module_uses_collections(functions: &[FunctionDefinition]) -> bool {
 
 /// Build a base module declaring exactly `fn_names` (each `is_base = true`,
 /// no body — invariant #3) — the fine-grained shape [`collect_used_functions`]
-/// drives, in place of the old "always the full `ball_shared::build_std_*`
+/// drives, in place of the old "always the full `ball_lang_shared::build_std_*`
 /// catalog" approach.
 fn build_used_module(name: &str, fn_names: BTreeSet<String>) -> Module {
     Module {
@@ -268,7 +268,7 @@ pub fn encode_module_only(source: &str) -> Module {
 /// Returns `(module, has_main)`.
 fn encode_main_module(source: &str) -> (Module, bool) {
     let file: syn::File = syn::parse_file(source)
-        .unwrap_or_else(|err| panic!("ball-encoder: failed to parse Rust source: {err}"));
+        .unwrap_or_else(|err| panic!("ball-lang-encoder: failed to parse Rust source: {err}"));
 
     let mut encoder = Encoder::new();
 
@@ -332,7 +332,7 @@ fn encode_main_module(source: &str) -> (Module, bool) {
             // own to encode — silently skipped, not a scope violation.
             syn::Item::Use(_) | syn::Item::Mod(_) => {}
             other => panic!(
-                "ball-encoder: unsupported top-level item `{}` — issue #43's scope covers \
+                "ball-lang-encoder: unsupported top-level item `{}` — issue #43's scope covers \
                  struct/enum/trait/impl declarations; consts/statics/type-aliases/macro \
                  invocations at item level remain deferred",
                 item_kind_name(other)
@@ -399,7 +399,7 @@ pub(crate) struct Encoder {
     /// (`receiver.method(args)`, in `methods.rs`) to pack `args` under their
     /// real parameter names instead of a positional `arg0`/`arg1` fallback.
     /// Keyed by short name only (not `(owner, method)`) because
-    /// `ball-compiler`'s own dispatcher (`compile_method_dispatchers`)
+    /// `ball-lang-compiler`'s own dispatcher (`compile_method_dispatchers`)
     /// resolves purely by short name too — see
     /// `rust/compiler/src/type_emit.rs`.
     pub(crate) method_params: HashMap<String, Vec<String>>,
@@ -448,7 +448,7 @@ impl Encoder {
     /// frame, never outer ones: a multi-parameter fn/closure's parameters
     /// are read via `field_access(reference("input"), name)`, and
     /// `"input"` is *shadowed* by any nested closure's own `input`
-    /// parameter (`ball-compiler`'s `compile_lambda` emits `move |input:
+    /// parameter (`ball-lang-compiler`'s `compile_lambda` emits `move |input:
     /// BallValue| ...`) — so a `field_access` on `"input"` written from
     /// inside a nested closure would silently read the closure's *own*
     /// input, not the enclosing fn's, if this walked outer frames too. A
@@ -542,7 +542,7 @@ impl Encoder {
             syn::Expr::Macro(e) => self.encode_macro(&e.mac),
             syn::Expr::Struct(e) => self.encode_struct_literal(e),
             other => panic!(
-                "ball-encoder: unsupported Rust expression kind `{}` (deferred — see the \
+                "ball-lang-encoder: unsupported Rust expression kind `{}` (deferred — see the \
                  module doc comment for Phase 3a's scope)",
                 expr_kind_name(other)
             ),
@@ -553,19 +553,21 @@ impl Encoder {
 
     fn encode_lit(&mut self, lit: &syn::Lit) -> Expression {
         match lit {
-            syn::Lit::Int(i) => int_literal(
-                i.base10_parse::<i64>()
-                    .unwrap_or_else(|err| panic!("ball-encoder: invalid integer literal: {err}")),
-            ),
-            syn::Lit::Float(f) => double_literal(
-                f.base10_parse::<f64>()
-                    .unwrap_or_else(|err| panic!("ball-encoder: invalid float literal: {err}")),
-            ),
+            syn::Lit::Int(i) => {
+                int_literal(i.base10_parse::<i64>().unwrap_or_else(|err| {
+                    panic!("ball-lang-encoder: invalid integer literal: {err}")
+                }))
+            }
+            syn::Lit::Float(f) => {
+                double_literal(f.base10_parse::<f64>().unwrap_or_else(|err| {
+                    panic!("ball-lang-encoder: invalid float literal: {err}")
+                }))
+            }
             syn::Lit::Str(s) => string_literal(s.value()),
             syn::Lit::Bool(b) => bool_literal(b.value),
             syn::Lit::ByteStr(b) => bytes_literal(b.value()),
             other => panic!(
-                "ball-encoder: unsupported literal kind (only int/float/string/bool/byte-string \
+                "ball-lang-encoder: unsupported literal kind (only int/float/string/bool/byte-string \
                  literals are supported): {other:?}"
             ),
         }
@@ -605,7 +607,7 @@ impl Encoder {
             }
         }
         panic!(
-            "ball-encoder: unsupported path expression `{}` — module/type/enum-variant paths \
+            "ball-lang-encoder: unsupported path expression `{}` — module/type/enum-variant paths \
              beyond `None` and a known enum's own variants need TypeDefinition-aware \
              resolution",
             path_to_string(path)
@@ -628,7 +630,7 @@ impl Encoder {
                 // `divide_double` (always-double division); otherwise
                 // `divide` (truncating), matching Rust's own native `/` for
                 // the far more common integer case exactly (see
-                // `ball_shared::runtime::ball_divide`'s doc comment).
+                // `ball_lang_shared::runtime::ball_divide`'s doc comment).
                 let op = if looks_like_float(&e.left) || looks_like_float(&e.right) {
                     "divide_double"
                 } else {
@@ -660,7 +662,7 @@ impl Encoder {
             BitOrAssign(_) => self.encode_assign(&e.left, &e.right, "|="),
             ShlAssign(_) => self.encode_assign(&e.left, &e.right, "<<="),
             ShrAssign(_) => self.encode_assign(&e.left, &e.right, ">>="),
-            other => panic!("ball-encoder: unsupported binary operator: {other:?}"),
+            other => panic!("ball-lang-encoder: unsupported binary operator: {other:?}"),
         }
     }
 
@@ -673,7 +675,7 @@ impl Encoder {
             // pointer dereference at encode time — see the module doc
             // comment's cross-reference to `cpp/encoder`).
             syn::UnOp::Deref(_) => self.encode_expr(&e.expr),
-            other => panic!("ball-encoder: unsupported unary operator: {other:?}"),
+            other => panic!("ball-lang-encoder: unsupported unary operator: {other:?}"),
         }
     }
 
@@ -775,7 +777,7 @@ impl Encoder {
             }
         }
         panic!(
-            "ball-encoder: unsupported call target `{}` — only same-file functions, \
+            "ball-lang-encoder: unsupported call target `{}` — only same-file functions, \
              `Ok`/`Err`/`Some`, `String::from`, and `Box::new` are supported (an associated \
              function with no `self` receiver, e.g. `Point::new(...)`, is a documented gap — \
              see `types.rs`'s module doc comment — use a struct-literal expression instead)",
@@ -784,7 +786,7 @@ impl Encoder {
     }
 
     /// Pack `args` as the input to a call targeting `name` — a bare Rust
-    /// call syntax, resolved by `ball-compiler` through ordinary Rust name
+    /// call syntax, resolved by `ball-lang-compiler` through ordinary Rust name
     /// resolution (works identically whether `name` is a same-file
     /// top-level fn or a local closure-valued variable; see the module doc
     /// comment).
@@ -841,12 +843,14 @@ impl Encoder {
                         ..
                     }) => (ident.to_string(), type_to_string(&pat_type.ty)),
                     _ => panic!(
-                        "ball-encoder: only simple identifier closure parameters are supported"
+                        "ball-lang-encoder: only simple identifier closure parameters are supported"
                     ),
                 },
                 syn::Pat::Wild(_) => ("_".to_string(), String::new()),
                 _ => {
-                    panic!("ball-encoder: only simple identifier closure parameters are supported")
+                    panic!(
+                        "ball-lang-encoder: only simple identifier closure parameters are supported"
+                    )
                 }
             })
             .collect();
@@ -1008,7 +1012,7 @@ pub(crate) fn block_expr(statements: Vec<Statement>, result: Expression) -> Expr
     }
 }
 
-/// A `for` loop's `init` clause shape `ball_compiler::Compiler::compile_for_init`
+/// A `for` loop's `init` clause shape `ball_lang_compiler::Compiler::compile_for_init`
 /// specifically recognizes (a `block` of fresh `let`-bindings with **no**
 /// result — mirrors `rust/compiler/tests/end_to_end.rs`'s `for_init_lets`
 /// helper) so each becomes a real `let mut <name> = <value>;` in the
@@ -1093,7 +1097,7 @@ pub(crate) fn option_result_message(is_err: bool, value: Expression) -> Expressi
 }
 
 /// Builds the `metadata.params = [{name: <name>}]` shape
-/// `ball_compiler::Compiler::param_alias_prologue` reads to alias a
+/// `ball_lang_compiler::Compiler::param_alias_prologue` reads to alias a
 /// function/closure's single named parameter to a real local binding
 /// (mirrors `rust/compiler/tests/end_to_end.rs`'s `single_param_metadata`
 /// test helper — the exact same shape Dart's `_encodeParamsMeta` emits).
@@ -1185,7 +1189,7 @@ pub(crate) fn merge_struct(a: Option<Struct>, b: Option<Struct>) -> Option<Struc
 /// a type/function's `kind`, generics, and per-field documentation (issue
 /// #43). Every key this builder ever sets is purely cosmetic — the module
 /// doc comment explains why stripping any of them can never change a
-/// compiled program's output: `ball-compiler` (`rust/compiler/src/
+/// compiled program's output: `ball-lang-compiler` (`rust/compiler/src/
 /// type_emit.rs`) only ever inspects `metadata.is_abstract` and
 /// `metadata.kind == "constructor"` for real code-generation decisions, and
 /// this crate never emits `kind == "constructor"` (construction goes
@@ -1243,7 +1247,7 @@ impl MetaBuilder {
     /// `metadata.type_params = ["T", "K: Comparable", ...]` — the full
     /// source text of every declared generic type parameter (including any
     /// bound), for round-trip fidelity beyond the bare identifier names a
-    /// [`ball_shared::proto::ball::v1::TypeParameter`] entry carries (mirrors
+    /// [`ball_lang_shared::proto::ball::v1::TypeParameter`] entry carries (mirrors
     /// `dart/encoder/lib/encoder.dart`'s own `classMeta['type_params']`,
     /// which likewise duplicates the raw source text alongside the
     /// `TypeParameter` list). Lifetime and const generic parameters are
@@ -1297,7 +1301,7 @@ fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
                         ..
                     }) => ident.to_string(),
                     other => panic!(
-                        "ball-encoder: only simple identifier function parameters are supported \
+                        "ball-lang-encoder: only simple identifier function parameters are supported \
                          (destructuring parameters are deferred): {}",
                         quote::quote!(#other)
                     ),
@@ -1305,7 +1309,7 @@ fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
                 (name, type_to_string(&pat_type.ty))
             }
             syn::FnArg::Receiver(_) => panic!(
-                "ball-encoder: `self` methods need TypeDefinition/impl-block emission — deferred \
+                "ball-lang-encoder: `self` methods need TypeDefinition/impl-block emission — deferred \
                  to issue #43 (Phase 3a covers free functions only)"
             ),
         })
@@ -1314,7 +1318,7 @@ fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
 
 /// Best-effort, purely cosmetic stringification of a `syn::Type` for
 /// `FunctionDefinition.input_type`/`output_type` (informational only —
-/// `ball-compiler` never parses these strings back).
+/// `ball-lang-compiler` never parses these strings back).
 pub(crate) fn type_to_string(ty: &syn::Type) -> String {
     quote::quote!(#ty).to_string().replace(' ', "")
 }

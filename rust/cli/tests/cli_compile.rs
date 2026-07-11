@@ -48,7 +48,7 @@ fn compile_writes_to_an_output_file_instead_of_stdout() {
 }
 
 /// A structurally-valid `Program` (decodes fine) whose `entryModule` names a
-/// module that doesn't exist — `ball-compiler` `panic!`s on this rather than
+/// module that doesn't exist — `ball-lang-compiler` `panic!`s on this rather than
 /// silently emitting garbage; the CLI must convert that into exit `2`, not a
 /// raw process abort.
 #[test]
@@ -71,7 +71,7 @@ fn a_program_with_a_missing_entry_module_exits_2() {
 // Strongest proof: the CLI's own `compile` output actually compiles and
 // runs with the real Rust toolchain — the issue's "compilable for the core
 // fixtures" acceptance criterion, exercised through the CLI binary (not
-// just ball-compiler's own unit tests). Mirrors the harness in
+// just ball-lang-compiler's own unit tests). Mirrors the harness in
 // rust/compiler/tests/end_to_end.rs and rust/encoder/tests/end_to_end.rs.
 // ════════════════════════════════════════════════════════════
 
@@ -84,7 +84,7 @@ fn workspace_root() -> PathBuf {
 }
 
 /// Writes `rust_src` as the `main.rs` of a throwaway Cargo package
-/// (depending on `ball-shared` via a path dependency), builds and runs it
+/// (depending on `ball-lang-shared` via a path dependency), builds and runs it
 /// with `cargo run`, and returns its captured stdout.
 fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let workspace_root = workspace_root();
@@ -104,7 +104,7 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let manifest = format!(
         "[package]\nname = \"ball_cli_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
          [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
-         [dependencies]\nball-shared = {{ path = {:?} }}\n",
+         [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
         shared_path
     );
     std::fs::write(fixture_dir.join("Cargo.toml"), manifest)

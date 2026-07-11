@@ -122,4 +122,33 @@ public class BallValueTests
         Assert.Equal("<function print>", new BallFunction("print", v => v).ToString());
         Assert.Equal("<lambda>", new BallFunction("", v => v).ToString());
     }
+
+    [Fact]
+    public void ScalarValueModelWrapperRendersAsItsPayload()
+    {
+        // The self-hosted engine boxes some scalars in its own value-model
+        // classes (ball_value.dart's BallDouble/BallInt/…). Those carry no
+        // typeDef, so they lower to a BallMessage("main:BallX", {value: payload})
+        // whose own toString() override is absent from the dispatch table. The
+        // wrapper must still render as its payload, not the map form
+        // `{value: 3.14}` — including the trailing `.0` on whole doubles.
+        BallValue Wrap(string type, BallValue payload) =>
+            new BallMessage($"main:{type}", new BallMap { ["value"] = payload });
+
+        Assert.Equal("3.14", Wrap("BallDouble", BallValue.Double(3.14)).ToString());
+        Assert.Equal("0.0", Wrap("BallDouble", BallValue.Double(0.0)).ToString());
+        Assert.Equal("-7.0", Wrap("BallDouble", BallValue.Double(-7.0)).ToString());
+        Assert.Equal("42", Wrap("BallInt", BallValue.Int(42)).ToString());
+        Assert.Equal("hi", Wrap("BallString", BallValue.Str("hi")).ToString());
+        Assert.Equal("true", Wrap("BallBool", BallValue.Bool(true)).ToString());
+
+        // The wrapper renders as its payload when nested in a list/map too
+        // (FormatEntries → the element's ToString).
+        var nested = new BallList(new[] { Wrap("BallDouble", BallValue.Double(1.0)) });
+        Assert.Equal("[1.0]", nested.ToString());
+
+        // A non-wrapper message with a `value` field still renders as a map.
+        var real = new BallMessage("Point", new BallMap { ["value"] = BallValue.Int(1) });
+        Assert.Equal("{value: 1}", real.ToString());
+    }
 }

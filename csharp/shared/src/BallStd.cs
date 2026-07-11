@@ -300,6 +300,24 @@ public static partial class BallRuntime
     public static BallValue ListToList(BallValue list) => new BallList(AsList(list).Snapshot());
 
     /// <summary>
+    /// Iterate a spread operand (<c>...x</c>) for list/set-literal splicing —
+    /// yields its ITEMS, not the collection itself. A list yields a snapshot; a
+    /// portable ordered set (<c>{'__ball_set__': [...]}</c>) yields its tagged
+    /// items; <c>null</c> yields nothing (a null-aware spread guards separately).
+    /// The C# analog of <c>ball_shared::runtime::ball_spread_iter</c> — its
+    /// absence silently nested the self-hosted engine's own
+    /// <c>_ballSetOf([...items, v])</c> as <c>{[...], v}</c>.
+    /// </summary>
+    public static IEnumerable<BallValue> SpreadIter(BallValue value) => value switch
+    {
+        BallList list => list.Snapshot(),
+        BallMap map when map.Get("__ball_set__") is BallList setItems => setItems.Snapshot(),
+        BallMessage msg when msg.Get("__ball_set__") is BallList msgSetItems => msgSetItems.Snapshot(),
+        BallNull => Array.Empty<BallValue>(),
+        _ => throw new BallRuntimeException($"cannot spread a non-iterable: {TypeName(value)}"),
+    };
+
+    /// <summary>
     /// <c>list.sort(compare?)</c> — sorts the shared backing in place and returns
     /// it. With a comparator, calls it (expecting a negative/zero/positive int);
     /// without, compares with the default order.

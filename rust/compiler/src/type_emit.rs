@@ -12,10 +12,10 @@
 //! system.
 use std::collections::HashMap;
 
-use ball_shared::proto::ball::v1::{Expression, FunctionDefinition, Module, TypeDefinition};
-use ball_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
-use ball_shared::proto::google::protobuf::value::Kind;
-use ball_shared::proto::google::protobuf::{
+use ball_lang_shared::proto::ball::v1::{Expression, FunctionDefinition, Module, TypeDefinition};
+use ball_lang_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
+use ball_lang_shared::proto::google::protobuf::value::Kind;
+use ball_lang_shared::proto::google::protobuf::{
     EnumDescriptorProto, FieldDescriptorProto, Struct, Value,
 };
 
@@ -141,7 +141,7 @@ fn func_meta_bool(func: &FunctionDefinition, key: &str) -> bool {
 /// Whether a `let` binding is a **cascade** receiver (`metadata.kind ==
 /// "cascade"` — the encoder tags `let __cascade_self__ = x` this way when
 /// desugaring `x..a()..b()`). Issue #300 — see [`Compiler::compile_block`].
-pub(crate) fn let_is_cascade(let_binding: &ball_shared::proto::ball::v1::LetBinding) -> bool {
+pub(crate) fn let_is_cascade(let_binding: &ball_lang_shared::proto::ball::v1::LetBinding) -> bool {
     let_binding
         .metadata
         .as_ref()
@@ -990,7 +990,7 @@ impl Compiler<'_> {
         for (name, is_named) in &decls {
             // A named argument always arrives under its own name; a positional
             // one arrives as `arg{i}` but may be passed by name instead (see
-            // [`ball_shared::runtime::ball_arg_get`]).
+            // [`ball_lang_shared::runtime::ball_arg_get`]).
             let getter = if *is_named {
                 format!("ball_field_get(input.clone(), {name:?})")
             } else {
@@ -1512,7 +1512,7 @@ impl Compiler<'_> {
                 ));
             }
             out.push_str(&format!(
-                "        other => panic!(\"ball-compiler runtime: no method '{short}' for type '{{}}'\", other),\n"
+                "        other => panic!(\"ball-lang-compiler runtime: no method '{short}' for type '{{}}'\", other),\n"
             ));
             out.push_str("    }\n}\n\n");
         }

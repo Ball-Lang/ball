@@ -98,7 +98,7 @@ writeFileSync('../cli/src/compiled_cli.ts', '// @ts-nocheck — auto-generated\n
 # Rust — cargo is not on native Windows in this environment; build/test via
 # WSL. rust-toolchain.toml pins the stable channel + rustfmt/clippy.
 cd rust && cargo build --workspace
-cargo test --workspace            # ball-engine's compiled-engine driver is
+cargo test --workspace            # ball-lang-engine's compiled-engine driver is
                                    # feature-gated off by default (see
                                    # rust/AGENTS.md), so this stays green
                                    # without requiring the generated,
@@ -111,7 +111,7 @@ cargo fmt --check && cargo clippy --workspace
 # `self_host` cargo feature since the generated file isn't present in a
 # fresh checkout)
 cd rust && cargo run -p ball-engine-regen
-cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored --nocapture
+cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored --nocapture
 
 # Proto — lint, breaking-change check, regenerate all bindings
 # NOTE: buf.yaml lives at proto/buf.yaml (not repo root), so `proto` MUST be
@@ -196,25 +196,25 @@ Five packages (no workspace manager — each has its own `node_modules`):
 Cargo workspace (`rust/Cargo.toml`, `resolver = "3"`) with five member crates plus one internal
 tool crate — see `rust/AGENTS.md` for the full status table:
 
-- `ball-shared` — protobuf bindings (`prost` + `prost-reflect`, generated via the
+- `ball-lang-shared` — protobuf bindings (`prost` + `prost-reflect`, generated via the
   `buf.build/community/neoeinstein-prost` plugin into `rust/shared/gen/`) plus the runtime value
   model (`BallValue`/`BallList`/`BallMap` backed by `indexmap::IndexMap`/`BallFunction`/
   `BallMessage`) and std/std_collections/std_io/std_memory module builders.
-- `ball-compiler` — Ball → Rust. Emits Rust source as strings (closer to the C++ compiler's
+- `ball-lang-compiler` — Ball → Rust. Emits Rust source as strings (closer to the C++ compiler's
   approach than Dart's `code_builder`); `Block` compiles to a native Rust block expression
   (already tail-expression-valued, unlike C++'s IIFE pattern). Base-function dispatch lives in
-  `base_call.rs`, delegating to `ball_shared::runtime`. Complete (#36-38).
-- `ball-encoder` — Rust (`syn` 2.x AST) → Ball. No `rust_std` base module — every construct
+  `base_call.rs`, delegating to `ball_lang_shared::runtime`. Complete (#36-38).
+- `ball-lang-encoder` — Rust (`syn` 2.x AST) → Ball. No `rust_std` base module — every construct
   routes through universal `std`/`std_collections`. Complete (#42-43).
-- `ball-engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as TS/C++:
-  compiles `dart/self_host/engine.ball.json` through `ball-compiler`. **Complete, at Dart
+- `ball-lang-engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as TS/C++:
+  compiles `dart/self_host/engine.ball.json` through `ball-lang-compiler`. **Complete, at Dart
   parity** (#39/#300 closed): the compiled engine builds and runs the whole conformance corpus
   with Dart-identical output (`Results: 319 passed, 0 failed, 319 total`; the 4 golden-less
   resource-limit/sandbox fixtures are documented carve-outs). Still behind the off-by-default
   `self_host` cargo feature because `compiled_engine.rs` is a gitignored generated artifact not
   present in a fresh checkout — see `rust/engine/AGENTS.md` for the regeneration workflow.
-- `ball-cli` — `run`/`compile`/`encode`/`check` subcommands over `ball-engine`/`ball-compiler`/
-  `ball-encoder`. Complete (#41/#304).
+- `ball-lang-cli` — `run`/`compile`/`encode`/`check` subcommands over `ball-lang-engine`/`ball-lang-compiler`/
+  `ball-lang-encoder`. Complete (#41/#304).
 
 The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs`, and CI job (#44)
 is the `rust` job in `.github/workflows/ci.yml` plus the `rust-engine` row in

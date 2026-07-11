@@ -446,13 +446,72 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   keystone — **Dart switch-statement fall-through** (a bare `case 'a': case 'b': <stmt>`) now ORs
   the empty-body labels into the shared body, instead of dropping it; this silently broke every
   `++`/`--` (a four-label fall-through case), hanging every counter loop.
-- **Conformance baseline (informal sweep):** driving the whole `tests/conformance/*.ball.json`
-  corpus through `BallEngine.Run` gives **199 passed / 324** (0 timeouts). The remaining failures
-  are dominated (~55%) by the dynamic built-in-method surface (`BallRuntime.CallMethod` /
-  `MethodRemove` on `Message`/`List` receivers — e.g. `.remove`, `.tag`, `.name`, `.remainder`),
-  then null-operand numeric ops and a handful of `toString`/method-resolution gaps. The proper
-  gated harness is #384; the acceptance tests are `csharp/engine/test/SelfHostRunTests.cs`
-  (SELF_HOST-gated, excluded from the default build; run with `dotnet test -p:SelfHost=true`).
+- **Climbs the corpus (Round 5):** the informal `tests/conformance/*.ball.json` sweep is now at
+  **251 passed / 324** (0 timeouts), up from 199. Round 5 landed three bounded root-cause
+  categories, each measured: (a) the **RegExp surface** (`BallRegex.cs`: `firstMatch`/`hasMatch`/
+  `allMatches` on a `RegExp` message, `group` on the returned match — the engine parses type/
+  expression strings with `RegExp`, and Dart's default flags line up with .NET's default
+  `Regex`); (b) **core-collection copy/fill constructors** — `Map.from`/`List.of`/`List.filled`
+  (and the `LinkedHashMap`/`HashMap` aliases) now materialize a native `BallMap`/`BallList`
+  (`CompileCollectionFactory` → `BallRuntime.MapCopy`/`ListCopy`/`ListFilled`) instead of an
+  opaque `BallMessage` the engine then fails to `..remove(k)`/iterate; and (c) the **universal
+  `toString` dispatcher fallback** — a `toString` method dispatcher that matches no user override
+  now falls back to `BallRuntime.ToStringValue` (Dart's `Object.toString()` is universal — a core
+  value or an override-less object must still stringify), which the engine's own value-stringify
+  (`result.toString()` on an interpreted method's String result, and its final `v.toString()`)
+  depends on.
+- **Closes the double-value-representation gap (Round 6):** the sweep is now at **271 passed /
+  324** (0 timeouts), up from 251 — the whole Round-5 residual "null-operand numeric ops" bucket
+  (and its `{value: …}`/`{arg0: …}` output-diff siblings) was one root cause: the engine boxes
+  every double literal in its own `BallDouble(this.value)` value-model class (`ball_value.dart`),
+  and three seams dropped its `value`. (a) The compiler emitted the positional constructor arg as
+  `arg0`, not the initializing-formal field `value` — `ValueModelWrapperFields` only mapped
+  `BallMap`→`entries`/`BallList`→`items`, so every `.value` read on a double returned `null` and
+  `roundToDouble`/`string_to_double`/arithmetic threw "expected a number, got Null" (added
+  `BallInt`/`BallDouble`/`BallString`/`BallBool`→`value`, `TypeEmit.cs`). (b) The wrapper's own
+  `toString()` override is absent from the (typeDef-less) dispatch table, so it printed as the map
+  `{value: 3.14}`; `Ball.Shared` now renders an engine scalar value-model wrapper as its payload
+  (`ScalarWrapperPayload` in `BallValue.cs`, consumed by `BallMessage.ToString`). (c) The
+  `Loader` re-serializes a whole double (`9.0`) as proto3-JSON's bare integer `9` and loaded it as
+  a `BallInt`, dropping the trailing `.0`; a `doubleValue` key now always loads a `BallDouble`
+  (`Loader.cs`). All three are the same coherent gap, each measured (+9/+5/+6), 0 regressions.
+- **Live instance-field state + loader depth (Round 7):** the sweep is now at **291 passed /
+  320** (0 timeouts, 0 regressions), up from 271, via two bounded root-cause categories. (a) The
+  **loader JSON depth cap** — deeply-nested programs (labeled loops / nested try-catch / editions
+  resolver) blew past `System.Text.Json`'s default 64-level read cap *and* Google.Protobuf's
+  default 100-level `JsonParser` recursion limit; both are lifted in `Loader.cs` (+4). (b) The
+  **reassigned-instance-field write-back gap** — the compiler read every instance field into a
+  method-entry alias local (a read-time snapshot), so a bare `field = x` rebind mutated only the
+  local shadow, never the field. That silently broke every field observed *across* a method /
+  closure boundary mid-run: `_activeException` (set by `_evalLazyTry`'s catch handler, read by
+  the separate `rethrow` dispatch closure — so `rethrow` always saw null → "rethrow outside of
+  catch"), plus the dispatch-table / closure-capture state behind the OOP method-resolution and
+  nested-function fixtures. The compiler now treats a field reassigned anywhere in its class as
+  *volatile* — references compile to a live `FieldGet(self, …)` and assignments to
+  `FieldSet(self, …)`, matching Dart's implicit-this — and skips its alias local
+  (`_volatileFields` / `VolatileFieldsOf` in `csharp/compiler`) (+16: all rethrow chaining, the
+  `MathUtils`/`.greet`/`.name`/`.tag`/named-constructor OOP dispatch, and the nested-function
+  captures).
+- **First-class callback invoke + list-literal spread splice (Rounds 8–9):** the sweep climbed
+  **291 → 303 / 320** (0 regressions; `hello_world`+`fibonacci` still byte-exact golden). Round 8
+  (PR #408) implemented the `Function.apply`/`Iterable.fold` higher-order callbacks the engine
+  invokes on its own runtime values (`Ball.Shared` `CallMethod`). Round 9 fixed the largest
+  remaining bounded category — **list-literal spread/comprehension elements were never spliced**:
+  `CompileListLiteral` emitted every element (including a `std.spread`/`collection_if`/
+  `collection_for` call) as one nested value, so the engine's own `_ballSetOf([...items, v])` /
+  `list_concat` / `set_union` produced a nested `{[...], v}` instead of appending — silently
+  breaking every internal `set.add`/`list.addAll`/set-algebra path (`118`/`129`/`350`/`386`/`392`).
+  The compiler now builds a spread-containing literal imperatively, splicing via
+  `BallRuntime.SpreadIter` (mirrors `ball-compiler`'s `compile_list_literal` and the reference
+  engines' `_addCollectionElement`).
+- **Remaining failures (17):** `remainder`/`toInt`/`convert` scalar-method singletons (`320`/`188`/
+  `185`), NaN/infinity/number-getter diffs (`214`/`215`/`263`/`317`), `toStringAsFixed`/
+  exponential-precision rounding (`316`/`357`), logical-and pattern binding (`258`), int-boundary
+  `abs` overflow (`230`), non-string (int) map-key coercion (`391`/`95`), bytes-literal-to-list
+  (`399`), catchable `int.parse`/index-range errors surfacing loud (`275`/`199`), and the
+  `stackTrace` catch binding (`300`). The proper gated harness is #384; the acceptance tests are
+  `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build; run
+  with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -498,7 +557,11 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
   **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
   **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
-  informal corpus sweep is at 199/324 with no hangs (see "Self-hosted engine" above and #383). The
+  informal corpus sweep is at 291/320 with no hangs after the Round-7 category grind (Round 5:
+  RegExp surface, core-collection copy/fill constructors, universal `toString` fallback; Round 6:
+  the double-value-representation gap — scalar value-model wrapper field mapping + wrapper
+  stringification + whole-double loader coercion; Round 7: live reassigned-instance-field
+  read/write through `self` + loader JSON depth-cap lift — see "Self-hosted engine" above and #383). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

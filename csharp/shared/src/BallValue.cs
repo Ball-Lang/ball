@@ -59,7 +59,11 @@ public abstract class BallValue
         (BallNull, BallNull) => true,
         (BallBool ba, BallBool bb) => ba.Value == bb.Value,
         (BallInt ia, BallInt ib) => ia.Value == ib.Value,
-        (BallDouble da, BallDouble db) => da.Value.Equals(db.Value),
+        // IEEE-754 / Dart double equality via the `==` operator, NOT
+        // double.Equals: `NaN == NaN` is false (so `nan.isNaN`, which the engine
+        // computes as `d != d`, works) and `-0.0 == 0.0` is true — double.Equals
+        // gets both backwards. Matches rust/shared/src/value.rs (`a == b`).
+        (BallDouble da, BallDouble db) => da.Value == db.Value,
         (BallString sa, BallString sb) => sa.Value == sb.Value,
         (BallBytes xa, BallBytes xb) => xa.Value.AsSpan().SequenceEqual(xb.Value),
         (BallList la, BallList lb) => ListStructuralEquals(la, lb),
@@ -150,6 +154,35 @@ public abstract class BallValue
         var parts = entries.Select(e => $"{e.Key}: {e.Value}");
         return "{" + string.Join(", ", parts) + "}";
     }
+
+    /// <summary>
+    /// The payload of an engine scalar value-model wrapper, or <c>null</c> if
+    /// <paramref name="value"/> is not one. The self-hosted engine
+    /// (<c>ball_value.dart</c>) boxes some scalars in its own
+    /// <c>BallInt</c>/<c>BallDouble</c>/<c>BallString</c>/<c>BallBool</c> classes
+    /// (e.g. a double literal is <c>BallDouble(lit.doubleValue)</c>, so whole
+    /// doubles keep their trailing <c>.0</c>). Those classes carry no typeDef in
+    /// the self-host program — they lower to a <c>BallMessage</c> whose single
+    /// <c>value</c> field holds the native payload — so their own
+    /// <c>toString()</c> override is absent from the dispatch table and a bare
+    /// render would leak the map form <c>{value: 3.14}</c>. Rendering therefore
+    /// delegates to the payload, which is a native <see cref="BallDouble"/> (etc.)
+    /// that already formats reference-engine-exactly. Type-name matched (mirrors
+    /// <c>IsOfType</c>'s <c>BallMap</c>/<c>BallObject</c> special-casing).
+    /// </summary>
+    internal static BallValue? ScalarWrapperPayload(BallValue value)
+    {
+        if (value is not BallMessage m)
+        {
+            return null;
+        }
+
+        var name = m.TypeName;
+        var shortName = name.Contains(':') ? name[(name.LastIndexOf(':') + 1)..] : name;
+        return shortName is "BallInt" or "BallDouble" or "BallString" or "BallBool"
+            ? m.Get("value") ?? BallNull.Instance
+            : null;
+    }
 }
 
 /// <summary>Ball's <c>null</c>.</summary>
@@ -218,7 +251,11 @@ public sealed class BallDouble : BallValue
     public double Value { get; }
 
     /// <inheritdoc />
-    public override int GetHashCode() => Value.GetHashCode();
+    // Normalize signed zero so `-0.0` and `0.0` — which ValueEquals now treats as
+    // equal (`-0.0 == 0.0`) — hash identically, preserving the equals/hashCode
+    // contract. `Value == 0.0` is true for both zeros; all other doubles (incl.
+    // every NaN, which hashes to one constant) fall through unchanged.
+    public override int GetHashCode() => (Value == 0.0 ? 0.0 : Value).GetHashCode();
 
     /// <inheritdoc />
     public override string ToString() => FormatDouble(Value);

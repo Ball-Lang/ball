@@ -65,6 +65,29 @@ public sealed class LoaderTests
     }
 
     [Fact]
+    public void JsonToBallValue_keeps_a_whole_doubleValue_a_double()
+    {
+        // proto3-JSON renders a whole double (`9.0`) as a bare integer (`9`),
+        // which the generic number path would load as a BallInt — dropping the
+        // double-ness the engine's BallDouble literal path (trailing `.0`)
+        // depends on. A `doubleValue` key must always load as a BallDouble.
+        using var wholeDouble = System.Text.Json.JsonDocument.Parse("""{ "doubleValue": 9 }""");
+        var lit = (BallMap)Loader.JsonToBallValue(wholeDouble.RootElement);
+        var value = Assert.IsType<BallDouble>(lit.Get("doubleValue"));
+        Assert.Equal(9.0, value.Value);
+
+        // A fractional value still round-trips as a double.
+        using var fracDouble = System.Text.Json.JsonDocument.Parse("""{ "doubleValue": 3.14 }""");
+        var lit2 = (BallMap)Loader.JsonToBallValue(fracDouble.RootElement);
+        Assert.Equal(3.14, Assert.IsType<BallDouble>(lit2.Get("doubleValue")).Value);
+
+        // A bare integer under a non-double key stays an int.
+        using var intLit = System.Text.Json.JsonDocument.Parse("""{ "intValue": 9 }""");
+        var lit3 = (BallMap)Loader.JsonToBallValue(intLit.RootElement);
+        Assert.IsType<BallInt>(lit3.Get("intValue"));
+    }
+
+    [Fact]
     public void View_materializes_proto3_defaults()
     {
         var engine = BallEngine.FromJson(Hello);
@@ -109,6 +132,37 @@ public sealed class LoaderTests
     public void FromJson_throws_on_invalid_json()
     {
         Assert.Throws<EngineException>(() => BallEngine.FromJson("{ not valid"));
+    }
+
+    [Fact]
+    public void FromJson_loads_a_deeply_nested_program_past_the_default_json_depth()
+    {
+        // A Ball program's expression tree nests as deep as the source it was
+        // encoded from. Deeply-nested control flow / try-catch / labeled loops
+        // (conformance fixtures 127/146/148/256/280) push past System.Text.Json's
+        // default 64-level read cap AND Google.Protobuf's default 100-level
+        // JsonParser recursion limit — both of which the loader now lifts. Build a
+        // body ~130 object-levels deep (well past 64 and 100) and prove it loads.
+        var body = """{ "literal": { "intValue": 1 } }""";
+        for (var i = 0; i < 60; i++)
+        {
+            body = $$"""{ "call": { "module": "std", "function": "paren", "input": {{body}} } }""";
+        }
+
+        var json = $$"""
+            {
+                "@type": "type.googleapis.com/ball.v1.Program",
+                "name": "deep", "version": "1.0.0",
+                "entryModule": "main", "entryFunction": "main",
+                "modules": [ { "name": "main", "functions": [
+                    { "name": "main", "body": {{body}} }
+                ] } ]
+            }
+            """;
+
+        var engine = BallEngine.FromJson(json);
+        Assert.Equal("deep", engine.Program.Name);
+        Assert.IsType<BallMap>(engine.ProgramValue);
     }
 
 #if !SELF_HOST

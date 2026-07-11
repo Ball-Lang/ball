@@ -3,7 +3,7 @@
 //! direction of [`crate::loader`] / `rust/engine/src/loader.rs`.
 //!
 //! - [`program_to_binary`] — plain protobuf binary (`prost::Message::
-//!   encode_to_vec`), matching what [`ball_engine::BallEngine::from_binary`]
+//!   encode_to_vec`), matching what [`ball_lang_engine::BallEngine::from_binary`]
 //!   (and every other engine's `.ball.bin` loader) expects: no `Any`
 //!   envelope, just the message's own wire encoding.
 //! - [`program_to_json`] — canonical proto3 JSON (camelCase field names,
@@ -11,8 +11,8 @@
 //!   wrapped in the cosmetic `@type` `google.protobuf.Any` envelope every
 //!   other target's `.ball.json` output carries (see `rust/engine/src/
 //!   loader.rs`'s doc comment and `examples/hello_world/hello_world.ball.json`).
-use ball_shared::DESCRIPTOR_POOL;
-use ball_shared::proto::ball::v1::Program;
+use ball_lang_shared::DESCRIPTOR_POOL;
+use ball_lang_shared::proto::ball::v1::Program;
 use prost::Message;
 use prost_reflect::{DynamicMessage, SerializeOptions};
 

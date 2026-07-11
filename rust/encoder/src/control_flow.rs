@@ -25,7 +25,7 @@
 //! desugaring, which needs the exact same discriminant-check shape). See
 //! `lib.rs::option_result_message`'s doc comment for the unified
 //! Option/Result "outcome" representation both share.
-use ball_shared::proto::ball::v1::Expression;
+use ball_lang_shared::proto::ball::v1::Expression;
 
 use crate::{
     Encoder, args_message, block_expr, bool_literal, field_access, for_init_block, if_call,
@@ -52,13 +52,13 @@ fn pattern_outcome_shape(pat: &syn::Pat) -> (bool, Option<String>) {
                 "Some" | "Ok" => false,
                 "Err" => true,
                 other => panic!(
-                    "ball-encoder: unsupported if-let/match pattern `{other}(...)` (only \
+                    "ball-lang-encoder: unsupported if-let/match pattern `{other}(...)` (only \
                      Some/Ok/Err are supported — real enum-variant patterns need #43)"
                 ),
             };
             if ts.elems.len() != 1 {
                 panic!(
-                    "ball-encoder: only a single-binding pattern is supported, e.g. `Some(x)` \
+                    "ball-lang-encoder: only a single-binding pattern is supported, e.g. `Some(x)` \
                      (got {} bindings)",
                     ts.elems.len()
                 );
@@ -71,7 +71,7 @@ fn pattern_outcome_shape(pat: &syn::Pat) -> (bool, Option<String>) {
                 }) => Some(ident.to_string()),
                 syn::Pat::Wild(_) => None,
                 other => panic!(
-                    "ball-encoder: only a simple identifier or `_` binding is supported inside \
+                    "ball-lang-encoder: only a simple identifier or `_` binding is supported inside \
                      Some/Ok/Err(...): {}",
                     quote::quote!(#other)
                 ),
@@ -90,13 +90,13 @@ fn pattern_outcome_shape(pat: &syn::Pat) -> (bool, Option<String>) {
                 (true, None)
             } else {
                 panic!(
-                    "ball-encoder: unsupported if-let/match pattern `{last}` (only `None` is \
+                    "ball-lang-encoder: unsupported if-let/match pattern `{last}` (only `None` is \
                      supported as a bare path pattern)"
                 );
             }
         }
         other => panic!(
-            "ball-encoder: unsupported if-let/match pattern (only Some(x)/Ok(x)/Err(e)/None are \
+            "ball-lang-encoder: unsupported if-let/match pattern (only Some(x)/Ok(x)/Err(e)/None are \
              supported): {}",
             quote::quote!(#other)
         ),
@@ -215,7 +215,7 @@ impl Encoder {
         for arm in &e.arms {
             assert!(
                 arm.guard.is_none(),
-                "ball-encoder: match arm guards (`pat if cond => ...`) are not supported \
+                "ball-lang-encoder: match arm guards (`pat if cond => ...`) are not supported \
                  (issue #42's scope)"
             );
             match &arm.pat {
@@ -265,7 +265,7 @@ impl Encoder {
         for arm in &e.arms {
             assert!(
                 arm.guard.is_none(),
-                "ball-encoder: match arm guards (`pat if cond => ...`) are not supported \
+                "ball-lang-encoder: match arm guards (`pat if cond => ...`) are not supported \
                  (issue #42's scope)"
             );
             self.encode_switch_arm(arm, tmp, &mut cases);
@@ -319,7 +319,7 @@ impl Encoder {
                             cases.push(switch_case_message(Some(value), false, body));
                         }
                         other => panic!(
-                            "ball-encoder: only literal patterns are supported inside a \
+                            "ball-lang-encoder: only literal patterns are supported inside a \
                              `|`-combination: {}",
                             quote::quote!(#other)
                         ),
@@ -327,7 +327,7 @@ impl Encoder {
                 }
             }
             other => panic!(
-                "ball-encoder: unsupported match pattern (only literals, `_`, a catch-all \
+                "ball-lang-encoder: unsupported match pattern (only literals, `_`, a catch-all \
                  identifier binding, and `|`-combinations of literals are supported for a \
                  value match — enum/struct patterns need #43): {}",
                 quote::quote!(#other)
@@ -372,7 +372,7 @@ impl Encoder {
             }) => ident.to_string(),
             syn::Pat::Wild(_) => "_".to_string(),
             other => panic!(
-                "ball-encoder: unsupported for-loop pattern (only a simple identifier or `_` is \
+                "ball-lang-encoder: unsupported for-loop pattern (only a simple identifier or `_` is \
                  supported): {}",
                 quote::quote!(#other)
             ),
@@ -468,7 +468,7 @@ impl Encoder {
     pub(crate) fn encode_break(&mut self, e: &syn::ExprBreak) -> Expression {
         assert!(
             e.expr.is_none(),
-            "ball-encoder: `break <value>` (breaking a loop with a value) is not supported \
+            "ball-lang-encoder: `break <value>` (breaking a loop with a value) is not supported \
              (issue #42's scope)"
         );
         match &e.label {

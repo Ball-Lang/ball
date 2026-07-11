@@ -1,3 +1,10 @@
+# [1.35.0](https://github.com/Ball-Lang/ball/compare/v1.34.1...v1.35.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) Phase 6 Round 3 — self-host engine CONSTRUCTS + EXECUTES (body constructors, driver, runtime surface) ([#396](https://github.com/Ball-Lang/ball/issues/396)) ([6aafca5](https://github.com/Ball-Lang/ball/commit/6aafca5ee5e5dce549b8b10e9b21314378b0398e))
+
 ## [1.34.1](https://github.com/Ball-Lang/ball/compare/v1.34.0...v1.34.1) (2026-07-11)
 
 

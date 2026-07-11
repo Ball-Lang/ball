@@ -324,4 +324,79 @@ public class BallRuntimeTests
         var empty = Assert.Throws<BallThrow>(() => BallRuntime.ListGet(new BallList(), BallValue.Int(0)));
         Assert.Equal("RangeError", empty.TypeName);
     }
+
+    // ── bytes viewed as a List<int> (issue #383, conformance 399) ──────────
+
+    [Fact]
+    public void BytesBehaveAsAnIntListForListAndIterateOps()
+    {
+        // A proto `bytes` field is a Dart Uint8List — a List<int> of unsigned
+        // byte values — so the engine's list/iterate surface must view it as one.
+        var raw = BallValue.Bytes(new byte[] { 0, 1, 127, 255, 65 });
+
+        Assert.Equal(BallValue.Int(5), BallRuntime.ListLength(raw));
+        Assert.Equal(BallValue.Int(0), BallRuntime.ListGet(raw, BallValue.Int(0)));
+        Assert.Equal(BallValue.Int(255), BallRuntime.ListGet(raw, BallValue.Int(3)));
+
+        // `.toList()` yields a fresh int list; iteration and spread splice the ints.
+        var copy = (BallList)BallRuntime.ListToList(raw);
+        Assert.Equal(
+            new BallValue[] { BallValue.Int(0), BallValue.Int(1), BallValue.Int(127), BallValue.Int(255), BallValue.Int(65) },
+            copy.Snapshot());
+        Assert.Equal(5, BallRuntime.SpreadIter(raw).Count());
+    }
+
+    // ── Map.addAll merges IN PLACE (issue #383, conformance 258) ───────────
+
+    [Fact]
+    public void ListConcatMergesMapsInPlaceSoSharedReferenceSeesTheMerge()
+    {
+        // `map.addAll(other)` is encoded as `map = list_concat(map, other)`, and
+        // Dart's Map.addAll mutates — so a caller sharing the map reference must
+        // observe the merge. (A fresh-map copy silently dropped pattern bindings.)
+        var target = new BallMap();
+        target["a"] = BallValue.Int(1);
+        BallMap alias = target; // shared reference, like the pattern binder's `bindings`
+
+        var other = new BallMap();
+        other["b"] = BallValue.Int(2);
+        other["a"] = BallValue.Int(9); // right wins on key clash
+
+        var result = BallRuntime.ListConcat(target, other);
+
+        // The receiver was mutated in place and returned (same object).
+        Assert.Same(target, result);
+        Assert.Equal(BallValue.Int(9), alias.Get("a"));
+        Assert.Equal(BallValue.Int(2), alias.Get("b"));
+        Assert.Equal(new[] { "a", "b" }, alias.Keys);
+    }
+
+    [Fact]
+    public void ListConcatStillConcatenatesListsIntoAFreshList()
+    {
+        var a = new BallList(new BallValue[] { BallValue.Int(1), BallValue.Int(2) });
+        var b = new BallList(new BallValue[] { BallValue.Int(3) });
+        var result = (BallList)BallRuntime.ListConcat(a, b);
+        Assert.Equal(3, result.Count);
+        Assert.Equal(2, a.Count); // a list receiver is not mutated (the reassignment carries same-scope callers)
+    }
+
+    // ── two-variable catch binding (issue #383, conformance 300) ───────────
+
+    [Fact]
+    public void CaughtStackTraceIsANonEmptyString()
+    {
+        BallValue trace;
+        try
+        {
+            throw new BallThrow(BallValue.Str("boom"));
+        }
+        catch (BallThrow ex)
+        {
+            trace = BallRuntime.CaughtStackTrace(ex);
+        }
+
+        var s = Assert.IsType<BallString>(trace);
+        Assert.NotEqual(string.Empty, s.Value);
+    }
 }

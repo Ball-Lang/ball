@@ -30,12 +30,35 @@ public sealed class SelfHostRunTests
     public void Fibonacci_prints_the_sequence()
     {
         var output = Run(Path.Combine("tests", "conformance", "28_fibonacci.ball.json"));
-        var expected = File.ReadAllText(
-                Path.Combine(TestPaths.RepoRoot(), "tests", "conformance", "28_fibonacci.expected_output.txt"))
+        var expected = ExpectedLines("28_fibonacci");
+        Assert.Equal(expected, output);
+    }
+
+    /// <summary>
+    /// Byte-exact conformance for the last self-host corpus residuals closed in
+    /// this round (issue #383): the whole <c>tests/conformance/*.ball.json</c>
+    /// corpus now runs through the compiled engine at Dart parity, and these are
+    /// the three root-cause categories that brought it there — bytes-literal
+    /// list/iterate ops, a two-variable <c>catch (e, stackTrace)</c> binding, and
+    /// a <c>logical_and</c>/<c>logical_or</c> pattern merging its bindings back
+    /// through the shared map. Guards against a silent regression in the runtime
+    /// helpers / compiler emission those depend on.
+    /// </summary>
+    [Theory]
+    [InlineData("399_bytes_literal")]
+    [InlineData("300_enc_catch_stack")]
+    [InlineData("258_logical_and_pattern")]
+    public void Conformance_fixture_matches_golden(string fixture)
+    {
+        var output = Run(Path.Combine("tests", "conformance", fixture + ".ball.json"));
+        Assert.Equal(ExpectedLines(fixture), output);
+    }
+
+    private static string[] ExpectedLines(string fixture) =>
+        File.ReadAllText(
+                Path.Combine(TestPaths.RepoRoot(), "tests", "conformance", fixture + ".expected_output.txt"))
             .Replace("\r\n", "\n")
             .TrimEnd('\n')
             .Split('\n');
-        Assert.Equal(expected, output);
-    }
 }
 #endif

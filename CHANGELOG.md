@@ -1,3 +1,10 @@
+# [1.45.0](https://github.com/Ball-Lang/ball/compare/v1.44.0...v1.45.0) (2026-07-11)
+
+
+### Features
+
+* **plugin:** /ball:embed — safe embedded Ball execution skill (advances [#361](https://github.com/Ball-Lang/ball/issues/361)) ([#399](https://github.com/Ball-Lang/ball/issues/399)) ([6b997c2](https://github.com/Ball-Lang/ball/commit/6b997c220a71fa24596469716085d85f51ec2471)), closes [#402](https://github.com/Ball-Lang/ball/issues/402) [362/#398](https://github.com/Ball-Lang/ball/issues/398) [#402](https://github.com/Ball-Lang/ball/issues/402) [#402](https://github.com/Ball-Lang/ball/issues/402)
+
 # [1.44.0](https://github.com/Ball-Lang/ball/compare/v1.43.0...v1.44.0) (2026-07-11)
 
 

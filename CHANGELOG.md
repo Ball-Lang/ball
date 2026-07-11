@@ -1,3 +1,10 @@
+# [1.42.0](https://github.com/Ball-Lang/ball/compare/v1.41.0...v1.42.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — IEEE double equality + num.remainder/toInt dispatch ([#410](https://github.com/Ball-Lang/ball/issues/410)) ([f65c4f6](https://github.com/Ball-Lang/ball/commit/f65c4f66d6a8794a9505245e654ab1fc3a57a39c))
+
 # [1.41.0](https://github.com/Ball-Lang/ball/compare/v1.40.1...v1.41.0) (2026-07-11)
 
 

@@ -22,6 +22,20 @@
     Neither property is on by default, so a fresh checkout (no generated
     files present) still builds — every gated verb reports an honest
     CliRuntimeError (exit 1) instead of a false success.
+
+    ── NuGet global tool packaging (issue #369) ──
+    PackAsTool ships this Exe as a `dotnet tool install` (global) package
+    (ToolCommandName `ball`). CRITICAL: a `dotnet pack` of this project with
+    neither -p:SelfHost=true nor -p:CliCore=true set would ship a tool whose
+    `ball run`/`compile`/`encode`/`check` and `info`/`validate`/`tree`/
+    `version` all honestly report CliRuntimeError instead of working — a
+    non-functional tool. The publish workflow
+    (.github/workflows/publish-nuget.yml) regenerates CompiledEngine.cs +
+    CompiledCli.cs and packs WITH both properties on, mirroring how
+    publish-crates.yml (#375) flips ball-lang-cli's default Cargo features on
+    for the published crate. `Version` is overridden at pack time via
+    -p:Version=<tag-version> by that workflow; the value below is only what a
+    plain local `dotnet pack`/`dotnet build` sees.
   -->
 
   <PropertyGroup>
@@ -34,7 +48,29 @@
          present. `ball version` should report a clean, stable "ball <version>" line — like
          Rust's CARGO_PKG_VERSION / Dart's pubspec version — not a commit-qualified one. -->
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>ball</ToolCommandName>
+    <PackageId>Ball.Cli</PackageId>
+    <!-- Verified available on nuget.org 2026-07-12: api.nuget.org/v3-flatcontainer/ball.cli/index.json
+         returns 404 (no published versions ever), and the nuget.org package-search UI shows no
+         exact-name match for "ball"/"ball.cli" — the id is free. NuGet ids are case-insensitive,
+         so this also reserves `ball.cli`/`BALL.CLI`/etc. Distinct from the unrelated, unmaintained
+         `ball` crate on crates.io (rust/AGENTS.md notes crates.io's `ball` is a pre-existing 2022
+         crate) — nuget.org is a separate namespace and has no such squatter. -->
+    <Authors>Ball Language Contributors</Authors>
+    <Description>Command-line tool for Ball, a programming language where every program is a Protocol Buffer message. Runs, compiles, encodes, and inspects Ball programs via the self-hosted C# engine and cli-core.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Ball-Lang/ball</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Ball-Lang/ball</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>ball;cli;dotnet-tool;compiler;interpreter;protobuf</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <PropertyGroup Condition="'$(CliCore)' == 'true'">
     <DefineConstants>$(DefineConstants);CLI_CORE</DefineConstants>

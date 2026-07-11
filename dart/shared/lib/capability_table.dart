@@ -53,6 +53,49 @@ String lookupCapability(Map table, String module, String function) {
   return '';
 }
 
+/// The base module names keyed in [buildCapabilityTable], in scan order. The
+/// audit's bare-name fallback ([lookupCapabilityByName]) walks these prefixes,
+/// so this list MUST stay in sync with the modules present in the table — the
+/// `capability_table` group in `capability_analyzer_test.dart` guards against
+/// drift and against any bare-name collision that would make the fallback
+/// ambiguous.
+List<String> capabilityModuleNames() {
+  return <String>[
+    'std',
+    'std_io',
+    'std_fs',
+    'std_collections',
+    'std_convert',
+    'std_time',
+    'std_memory',
+    'std_concurrency',
+  ];
+}
+
+/// Resolve a base-function capability by BARE function name alone, ignoring the
+/// (attacker-controllable) call-site module. Scans the known base modules in
+/// [capabilityModuleNames] and returns the capability of the single base
+/// function named [function], or `''` when no base function has that name.
+///
+/// Every base function has a globally-unique bare name across the base modules,
+/// so at most one module yields a hit and the result is unambiguous. This
+/// backstops [lookupCapability] for `ball audit`: the engine dispatches a call
+/// by base-function identity, not by `call.module`, so a program can name a
+/// base call with a bogus module (`{module: "harmless", function:
+/// "mutex_create"}`) and slip past a `(module, function)` capability lookup —
+/// issue #402. Fails closed: an unrecognized name yields `''`, so a genuine
+/// user call is still treated as a user call.
+String lookupCapabilityByName(Map table, String function) {
+  final modules = capabilityModuleNames();
+  for (final m in modules) {
+    final cap = lookupCapability(table, m, function);
+    if (cap.isNotEmpty) {
+      return cap;
+    }
+  }
+  return '';
+}
+
 /// Build the `"module.function" -> capability-name` table. Provably complete:
 /// every base function that can perform a side effect appears here.
 Map<String, String> buildCapabilityTable() {

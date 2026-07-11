@@ -1,3 +1,10 @@
+# [1.49.0](https://github.com/Ball-Lang/ball/compare/v1.48.0...v1.49.0) (2026-07-11)
+
+
+### Features
+
+* **go:** [#426](https://github.com/Ball-Lang/ball/issues/426) Phase 2 — Ball → Go compiler (7 node types, lazy control flow, runtime value model) ([#427](https://github.com/Ball-Lang/ball/issues/427)) ([b194cce](https://github.com/Ball-Lang/ball/commit/b194cce84fce963cdaba13045db91a4ba96c250b)), closes [#1](https://github.com/Ball-Lang/ball/issues/1) [#4](https://github.com/Ball-Lang/ball/issues/4) [#55](https://github.com/Ball-Lang/ball/issues/55)
+
 # [1.48.0](https://github.com/Ball-Lang/ball/compare/v1.47.0...v1.48.0) (2026-07-11)
 
 

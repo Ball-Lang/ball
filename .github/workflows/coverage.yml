@@ -397,3 +397,83 @@ jobs:
           # Best-effort: a Codecov outage / not-yet-activated repo must not
           # fail this job (mirrors the dart/typescript/cpp uploads above).
           fail_ci_if_error: false
+
+  # ──────────────────────────────────────────────────
+  # C# — coverlet (VSTest "XPlat Code Coverage") → lcov, merged via
+  # ReportGenerator (issue #386)
+  # ──────────────────────────────────────────────────
+  csharp:
+    name: C# coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: "10.0.x"
+
+      # coverlet.collector (the "XPlat Code Coverage" VSTest data collector,
+      # already referenced by every csharp/*/test/*.csproj — see
+      # Directory.Packages.props) instruments each of the 5 default-build test
+      # projects independently. csharp/coverlet.runsettings switches its
+      # output format to lcov and excludes generated sources (buf-generated
+      # protobuf bindings + the gitignored self-hosted CompiledEngine.cs/
+      # CompiledCli.cs — absent from this default, non-SelfHost/non-CliCore
+      # build anyway), mirroring codecov.yml's ignore list and the other
+      # stacks' generated-file exclusions.
+      - name: Test with coverage (coverlet, all 5 packages)
+        run: >
+          dotnet test csharp/Ball.slnx --collect:"XPlat Code Coverage"
+          --settings csharp/coverlet.runsettings
+          --results-directory csharp/coverage-raw
+
+      # VSTest integration doesn't merge multi-project coverage or compute a
+      # summary on its own (unlike coverlet's dotnet/msbuild integration) —
+      # ReportGenerator merges the 5 per-project coverage.info files into one
+      # lcov.info for Codecov, and its TextSummary report gives the overall
+      # "Line coverage: NN.N%" the floor gate below parses.
+      - name: Install ReportGenerator
+        run: |
+          dotnet tool install -g dotnet-reportgenerator-globaltool
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
+      - name: Merge coverage (ReportGenerator)
+        run: >
+          reportgenerator "-reports:csharp/coverage-raw/**/coverage.info"
+          "-targetdir:csharp/coverage-report" "-reporttypes:lcov;TextSummary"
+
+      # Line-coverage floor for the authored csharp/ packages (issue #386,
+      # epic #59/#60) — mirrors the Dart/C++/Rust ratchet philosophy: the
+      # floor must never regress, and is raised toward 100% as tests land.
+      # Measured 65.3% locally (2026-07-12, Directory.Packages.props-pinned
+      # coverlet.collector 10.0.1 + ReportGenerator 5.5.10, all 5 default-build
+      # test projects); floor set a few points below to absorb CI variance.
+      - name: C# line coverage floor
+        run: |
+          pct=$(grep -oP 'Line coverage: \K[0-9]+(\.[0-9]+)?' csharp/coverage-report/Summary.txt)
+          if [ -z "$pct" ]; then
+            echo "ERROR: could not parse line coverage percentage from Summary.txt"
+            exit 1
+          fi
+          floor=60
+          echo "C# overall line coverage: ${pct}% (floor: ${floor}%)"
+          awk -v p="$pct" -v f="$floor" 'BEGIN {
+            if (p + 0 < f) {
+              print "ERROR: " p "% is below the floor of " f "%. Add tests " \
+                    "(target: 100%) or, only with justification, lower the " \
+                    "floor in this workflow.";
+              exit 1;
+            }
+            print "OK: " p "% >= floor " f "%.";
+          }'
+
+      - name: Upload C# coverage to Codecov
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          use_oidc: true
+          files: ./csharp/coverage-report/lcov.info
+          flags: csharp
+          # Best-effort: a Codecov outage / not-yet-activated repo must not
+          # fail this job (mirrors the dart/typescript/cpp/rust uploads above).
+          fail_ci_if_error: false

@@ -93,6 +93,12 @@ csharp/**/bin/
 csharp/**/obj/
 *.user
 
+# Coverage artifacts (coverlet + ReportGenerator output — coverage.yml's
+# csharp job; regenerated, not committed, mirrors the top-level coverage/
+# ignore above for the Dart tool's lcov output)
+csharp/coverage-raw*/
+csharp/coverage-report*/
+
 # ----------------------------------
 # Local agent / tooling state (per-machine, may leak absolute paths)
 # ----------------------------------

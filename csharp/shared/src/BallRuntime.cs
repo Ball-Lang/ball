@@ -740,4 +740,107 @@ public static class BallRuntime
 
         return result;
     }
+
+    // ════════════════════════════════════════════════════════════
+    // Field / index access, iteration, and print — the small set of
+    // runtime helpers the Phase-4 compiler (#381) emits for the
+    // `field_access`/`index` node types, `for_in` iteration, and `print`.
+    // Kept here (not inlined into emitted text) for the same reason as the
+    // operator helpers above: one canonical implementation the compiler
+    // dispatches to, matching `rust/shared/src/runtime.rs`'s
+    // `ball_field_get`/`ball_field_set`/`ball_index_*`/`ball_iterate`.
+    // ════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// <c>object.field</c> — read a field of a <see cref="BallMessage"/> or a
+    /// key of a <see cref="BallMap"/>. An absent field/key reads as
+    /// <c>null</c> (Dart's auto-vivifying getter / <c>map[key]</c>).
+    /// </summary>
+    public static BallValue FieldGet(BallValue obj, string field) => obj switch
+    {
+        BallMessage m => m.Get(field) ?? BallValue.Null,
+        BallMap map => map.Get(field) ?? BallValue.Null,
+        _ => throw new BallRuntimeException($"no field '{field}' on {TypeName(obj)}"),
+    };
+
+    /// <summary>
+    /// <c>object.field = value</c> — write a field of a shared (reference-
+    /// semantic) <see cref="BallMessage"/> or <see cref="BallMap"/>; returns
+    /// the written value.
+    /// </summary>
+    public static BallValue FieldSet(BallValue obj, string field, BallValue value)
+    {
+        switch (obj)
+        {
+            case BallMessage m:
+                m.Set(field, value);
+                return value;
+            case BallMap map:
+                map.Set(field, value);
+                return value;
+            default:
+                throw new BallRuntimeException($"cannot set field '{field}' on {TypeName(obj)}");
+        }
+    }
+
+    /// <summary><c>target[index]</c> — polymorphic over List (int index)/Map (string key)/String (int index).</summary>
+    public static BallValue IndexGet(BallValue target, BallValue index) => target switch
+    {
+        BallList => ListGet(target, index),
+        BallMap => MapGet(target, index),
+        BallString s => BallValue.Str(s.Value[AsIndex(index)].ToString()),
+        _ => throw new BallRuntimeException($"cannot index {TypeName(target)}"),
+    };
+
+    /// <summary><c>target[index] = value</c> — mutates the shared List/Map; returns the value.</summary>
+    public static BallValue IndexSet(BallValue target, BallValue index, BallValue value)
+    {
+        switch (target)
+        {
+            case BallList:
+                ListSet(target, index, value);
+                return value;
+            case BallMap:
+                MapSet(target, index, value);
+                return value;
+            default:
+                throw new BallRuntimeException($"cannot index-assign {TypeName(target)}");
+        }
+    }
+
+    /// <summary>
+    /// Iterate a value for a <c>for_in</c> loop: a List yields its elements
+    /// (a snapshot, so mutating the source mid-loop doesn't disturb the
+    /// iteration), a Map yields each entry as a two-element <c>[key, value]</c>
+    /// list (Dart's <c>MapEntry</c>), a String yields its characters.
+    /// </summary>
+    public static IEnumerable<BallValue> Iterate(BallValue value) => value switch
+    {
+        BallList l => l.Snapshot(),
+        BallMap m => m.Entries().Select(e => (BallValue)new BallList(new[] { BallValue.Str(e.Key), e.Value })),
+        BallString s => s.Value.Select(c => BallValue.Str(c.ToString())),
+        _ => throw new BallRuntimeException($"value is not iterable: {TypeName(value)}"),
+    };
+
+    /// <summary>
+    /// The declared <c>type_name</c> of a <see cref="BallMessage"/> instance
+    /// (used by a compiled method dispatcher to pick the concrete
+    /// implementation at run time), or the empty string for any non-message
+    /// value.
+    /// </summary>
+    public static string MessageTypeName(BallValue value) =>
+        value is BallMessage m ? m.TypeName : string.Empty;
+
+    /// <summary>
+    /// <c>print(message)</c> — write the value's stdout form followed by a
+    /// single <c>\n</c> (never the platform <c>\r\n</c>, so compiled-program
+    /// output is byte-identical to the other engines' golden output on every
+    /// OS), and return <c>null</c> (invariant #1 — every base op yields a value).
+    /// </summary>
+    public static BallValue Print(BallValue message)
+    {
+        Console.Out.Write(message.ToString());
+        Console.Out.Write('\n');
+        return BallValue.Null;
+    }
 }

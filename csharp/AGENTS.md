@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–3 — bindings wired + runtime value model landed; compiler/encoder/engine still scaffold)
+# C# (Phases 1–4 — bindings + runtime value model + Ball→C# compiler landed; encoder/engine still scaffold)
 
 ## Purpose
 
@@ -10,9 +10,9 @@ plus one xunit test project per package, all under a single solution. Phase 2 (#
 buf-generated protobuf bindings in `shared/gen/` consumable: pins the `Google.Protobuf` runtime
 to the gencode's plugin version and adds binary + JSON round-trip smoke tests (see "Proto
 bindings" below). **Phase 3 (#380) added the runtime value model + std module builders + the
-base-op helper layer to `shared/`** (see "Runtime value model" below). The
-`compiler`/`encoder`/`engine`/`cli` packages are still Phase-1 placeholders — see the phase
-table in the epic #377 tracking comment.
+base-op helper layer to `shared/`** (see "Runtime value model" below). **Phase 4 (#381) added the
+Ball → C# compiler to `compiler/`** (see "Compiler" below). The `encoder`/`engine`/`cli` packages
+are still Phase-1 placeholders — see the phase table in the epic #377 tracking comment.
 
 ## Layout
 
@@ -37,8 +37,12 @@ csharp/
     src/PackageInfo.cs     # Phase 1 marker (still referenced by cli's CliInfo)
     test/                  # Ball.Shared.Tests — binary+JSON protobuf smoke + value-model/runtime/builder tests
   compiler/
-    src/PackageInfo.cs     # Phase 1 placeholder; real Ball -> C# compiler lands in #381
-    test/
+    src/CSharpCompiler.cs  # #381: Compile(Program) -> C# — 7 node types, stmt/expr contexts
+    src/BaseCall.cs        # #381: base-function dispatch + lazy control flow (native if/for/while/…)
+    src/TypeEmit.cs        # #381: typeDefs[] -> class/abstract class/enum + method dispatchers
+    src/Naming.cs          # #381: identifier sanitization + literal emission helpers
+    src/PackageInfo.cs     # Phase 1 marker (still referenced by cli's CliInfo.Banner)
+    test/                  # #381: end-to-end (compile+run) + lazy-eval + dispatch + type/lambda tests
   encoder/
     src/PackageInfo.cs     # Phase 1 placeholder; real C# -> Ball encoder (Roslyn) lands in #382
     test/
@@ -229,10 +233,73 @@ compiler dispatch table depends on:
 
 **Fail loud** (throw `BallRuntimeException`) on an unhandled/mistyped shape — never a silent
 `null`/placeholder. `BallThrow` is the catchable Ball `throw` (carries a `BallValue` payload +
-optional type name for `on Type catch`). **Scope:** deferred to Phase 4 (fall back to
-`UnsupportedBaseCall`): higher-order collection ops needing multi-arg callbacks
-(`list_map`/`list_reduce`/…), `regex_*`, the `math_*` transcendental family, `std_io`, and all of
-`std_memory`.
+optional type name for `on Type catch`). Phase 4 (#381) added the remaining node-type helpers the
+compiler dispatches to: `FieldGet`/`FieldSet` (`object.field`), `IndexGet`/`IndexSet`
+(`target[index]`), `Iterate` (`for_in`), `MessageTypeName` (method dispatch), and `Print`
+(newline is always `\n`, never the platform `\r\n`, so compiled-program output is byte-identical
+to the other engines on every OS). **Scope:** still deferred (fall back to `UnsupportedBaseCall`):
+higher-order collection ops needing multi-arg callbacks (`list_map`/`list_reduce`/…), `regex_*`,
+the `math_*` transcendental family, most of `std_io`, and all of `std_memory`.
+
+## Compiler (issue #381) — `compiler/`
+
+`CSharpCompiler.Compile(Ball.V1.Program) → string` emits a **single, runnable C# source file**.
+The closest sibling is `rust/compiler/` (string emission + `base_call.rs`-style dispatch to a
+shared runtime); `dart/compiler/lib/compiler.dart`'s `_compileBaseCall` is the canonical dispatch
+inventory. Every compiled expression evaluates to a `BallValue`; base calls dispatch to
+`BallRuntime.*` (operators) or lower to native C# (control flow); user calls become a direct
+method call, or `BallRuntime.CallFunction(local, input)` for a first-class function value in a
+local.
+
+### Block-lowering decision (the C#-specific choice)
+
+C#'s `if`/`for`/`while`/`foreach`/`switch`/`try` and `{ … }` blocks are **statements, not
+expressions** (unlike Rust's block-expressions and C++'s IIFE lowering is only a fallback). The
+compiler runs in **two contexts**:
+
+- **Statement context** (`EmitBlockInner`/`EmitStatement` in `CSharpCompiler.cs`, control-flow
+  lowering in `BaseCall.cs`) — used for function bodies and every block statement. Control flow
+  lowers to the **native** C# statement, and `return`/`break`/`continue` to the real C# keyword.
+  This makes compiled code read almost 1:1 with the Dart source and — load-bearing — makes a
+  `return` inside an `if`-branch return from the enclosing function, which a pure-IIFE lowering
+  gets wrong (it would return from the lambda).
+- **Expression context** (`CompileExpression`) — used where a value is required. An `if` becomes a
+  C# ternary; a block/loop that lands here is wrapped in a `Func<BallValue>` IIFE
+  (`Run(() => { … })`, the C++ precedent), confined to that narrow case.
+
+Rejected: pure-IIFE-everywhere (unreadable + mis-scopes `return`); full statement-lowering with
+temp-var spilling (most readable, but needs an ANF pass — disproportionate for Phase 4).
+
+**Single-file emission:** the entry module's functions are `static` methods on one `BallProgram`
+class; every other user module is its own nested `static class`; base modules (`std`, …) emit
+nothing (they *are* `BallRuntime`). A thin `static void Main` calls the compiled entry function.
+
+**Lazy control flow (invariant #4):** `if`→native `if`/ternary; `and`/`or`/`??`→native
+`&&`/`||`/conditional (untaken operand never reached); `for`/`for_in`/`while`/`do_while`→native
+loops with the body inlined. Regression-tested with both-branches-side-effecting programs
+(`LazyControlFlowTests`).
+
+**Type emission:** `typeDefs[]` `metadata.kind` → C# `sealed class`/`abstract class`; `Module.enums[]`
+→ a working dynamic enum namespace; instance methods (`owner:Type.member` + `metadata.kind`) →
+run-time dispatchers routing on the receiver's `type_name`. The runtime representation stays
+**dynamic** (`BallMessage`, like the Rust sibling), so class declarations are faithful field
+*shapes* — `message_creation` always builds the dynamic message. Body-carrying constructors,
+`super` chains, static members, and labelled `break`/`continue` are documented gaps for the
+self-host phase (#383).
+
+### Formatting
+
+The emitter emits structurally-correct but minimally-indented C#; run `dotnet format whitespace`
+for idiomatic indentation (the C# analog of `rustfmt`/`ts-morph`). Generated program text is a
+build artifact — never committed.
+
+### Tests (`compiler/test/`)
+
+xUnit v3. `EndToEndTests` compile `hello_world`/`28_fibonacci`/`57_recursion_factorial`/
+`100_complex_control_flow` and assert **byte-exact** stdout (Roslyn in-memory compile + run —
+`TestSupport.cs`); `LazyControlFlowTests` prove single-branch evaluation; `BaseDispatchTests`
+cover the dispatch categories; `TypeEmitTests`/`LambdaTests` cover types + closures. `Ast.cs`
+builds Ball trees in-code for the targeted tests.
 
 ## Generated Files — NEVER Edit
 
@@ -251,17 +318,18 @@ dotnet run --project csharp/cli/Ball.Cli.csproj       # prints the Phase 1 wirin
 
 ## For AI Agents
 
-- Status: Phases 1–3 complete for `shared/` — every package compiles; `shared` consumes the
-  buf-generated bindings against a version-pinned `Google.Protobuf` runtime with binary AND JSON
-  round-trip smoke tests and verified byte-identical regen discipline (#379, documented above);
-  plus the runtime value model + std module builders + base-op helper layer with real tests
-  (#380; see "Runtime value model" above). The `compiler`/`encoder`/`engine`/`cli` packages are
-  still Phase-1 placeholders with smoke tests only — see the phase table in the epic #377
-  tracking comment for the blocked-by graph (#381 compiler, #382 encoder, #383 self-hosted
-  engine, #384 conformance, #385 CLI, #386 CI, #387 docs).
-- The Phase-4 compiler (#381) must emit calls into `BallRuntime.*` for base-function dispatch and
-  build lists/maps/messages with the reference-vs-value-semantics copy rules above — do not
-  re-derive operator semantics as emitted text.
+- Status: Phases 1–4 complete — every package compiles; `shared` consumes the buf-generated
+  bindings against a version-pinned `Google.Protobuf` runtime with binary AND JSON round-trip
+  smoke tests and verified byte-identical regen discipline (#379); the runtime value model + std
+  module builders + base-op helper layer with real tests (#380); and the Ball → C# compiler with
+  compile-and-run end-to-end tests (#381; see "Compiler" above). The `encoder`/`engine`/`cli`
+  packages are still Phase-1 placeholders with smoke tests only — see the phase table in the epic
+  #377 tracking comment for the blocked-by graph (#382 encoder, #383 self-hosted engine, #384
+  conformance, #385 CLI, #386 CI, #387 docs).
+- The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds
+  lists/maps/messages with the reference-vs-value-semantics copy rules above — do not re-derive
+  operator semantics as emitted text. Fixes to compiled-program behavior belong in the compiler
+  (`compiler/src/`) or a `BallRuntime` helper, never in emitted text.
 - Follow `.claude/skills/new-ball-language/SKILL.md` for the remaining phases.
 - Central Package Management is on (`Directory.Packages.props`) — add new package versions there,
   not per-project `Version=` attributes.

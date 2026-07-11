@@ -10,6 +10,7 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="coverlet.collector" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
   <ItemGroup>
@@ -18,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Ball.Compiler.csproj" />
+    <ProjectReference Include="../../shared/Ball.Shared.csproj" />
   </ItemGroup>
 
 </Project>

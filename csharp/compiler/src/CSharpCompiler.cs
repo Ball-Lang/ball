@@ -1,0 +1,604 @@
+using System.Text;
+using Ball.Shared;
+using Ball.V1;
+using Google.Protobuf.WellKnownTypes;
+
+namespace Ball.Compiler;
+
+/// <summary>
+/// Compiles a Ball <see cref="Program"/> into a single, runnable C# source
+/// file (issue #381, playbook Phase 2). The C# analog of
+/// <c>rust/compiler/src/lib.rs</c> (the closest sibling — string emission,
+/// base-call dispatch delegating to a shared runtime helper layer) and
+/// <c>dart/compiler/lib/compiler.dart</c> (the canonical base-function
+/// dispatch inventory).
+///
+/// <para><b>Every compiled expression evaluates to a
+/// <see cref="BallValue"/></b> — there are no "void" positions. Base-function
+/// calls dispatch to <see cref="BallRuntime"/> (arithmetic/comparison/…) or
+/// are lowered to native C# (the lazy control-flow constructs); user calls
+/// compile to a direct method call or, for a first-class function value held
+/// in a local, to <see cref="BallRuntime.CallFunction"/>.</para>
+///
+/// <para><b>Block-lowering strategy (the C#-specific decision, issue #381).</b>
+/// Unlike Rust, C#'s <c>if</c>/<c>for</c>/<c>while</c>/<c>foreach</c>/
+/// <c>switch</c>/<c>try</c> and <c>{ … }</c> blocks are <em>statements</em>,
+/// not expressions. The compiler therefore has two lowering contexts:
+/// <list type="bullet">
+/// <item><b>Statement context</b> (<see cref="EmitBlockInner"/> /
+/// <see cref="EmitStatement"/>) — used for function bodies and every block
+/// statement. Control flow lowers to the <em>native</em> C# statement
+/// (<c>if</c>/<c>for</c>/<c>while</c>/<c>foreach</c>/<c>switch</c>/<c>try</c>),
+/// and <c>return</c>/<c>break</c>/<c>continue</c> to the real C# keyword — so a
+/// compiled program reads almost exactly like its Dart source, and (crucially)
+/// a <c>return</c> inside an <c>if</c>-branch returns from the enclosing
+/// function, which a pure-IIFE lowering would get wrong.</item>
+/// <item><b>Expression context</b> (<see cref="CompileExpression"/>) — used
+/// wherever a value is required (a call argument, a <c>let</c> right-hand
+/// side, a nested condition). An <c>if</c> becomes a C# ternary; a block or a
+/// loop that lands here is wrapped in a <c>Func&lt;BallValue&gt;</c> IIFE
+/// (<c>Run(() =&gt; { … })</c>), the C++ precedent — but confined to that
+/// narrow case rather than used everywhere.</item>
+/// </list>
+/// Rejected alternatives: pure-IIFE-everywhere (unreadable, and mis-scopes
+/// <c>return</c>); full statement-lowering with temp-var spilling (most
+/// readable, but needs an ANF pass — disproportionate for Phase 4).</para>
+///
+/// <para><b>Output layout:</b> a single file. The entry module's functions
+/// become <c>static</c> methods on one <c>BallProgram</c> class; every other
+/// user module becomes its own nested <c>static class</c>; base modules
+/// (<c>std</c>, …) emit nothing — they <em>are</em> <see cref="BallRuntime"/>.</para>
+/// </summary>
+public sealed partial class CSharpCompiler
+{
+    private readonly Program _program;
+    private readonly string _entryModule;
+    private readonly HashSet<string> _baseModules = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _userModuleNames = new(StringComparer.Ordinal);
+
+    /// <summary>Sanitized names of every callable top-level function / method short name (direct-call targets).</summary>
+    private readonly HashSet<string> _callableNames = new(StringComparer.Ordinal);
+
+    /// <summary>Class members (constructors/methods) grouped by their owner <see cref="TypeDefinition.Name"/>.</summary>
+    private readonly Dictionary<string, List<FunctionDefinition>> _classMembersByOwner = new(StringComparer.Ordinal);
+
+    /// <summary>Every user <see cref="TypeDefinition"/> keyed by short name (for constructor-argument remapping).</summary>
+    private readonly Dictionary<string, TypeDefinition> _typeDefsByShortName = new(StringComparer.Ordinal);
+
+    /// <summary>Lexical scope stack of sanitized local binding names (parameters, <c>let</c>s, loop/catch variables).</summary>
+    private readonly List<HashSet<string>> _localScopes = new();
+
+    private string _currentModule;
+
+    private CSharpCompiler(Program program)
+    {
+        _program = program;
+        _entryModule = program.EntryModule;
+        _currentModule = program.EntryModule;
+
+        foreach (var module in program.Modules)
+        {
+            var allBase = module.Functions.Count > 0 && module.Functions.All(f => f.IsBase);
+            if (allBase)
+            {
+                _baseModules.Add(module.Name);
+            }
+        }
+
+        foreach (var module in program.Modules)
+        {
+            if (_baseModules.Contains(module.Name))
+            {
+                continue;
+            }
+
+            _userModuleNames.Add(module.Name);
+
+            foreach (var td in module.TypeDefs)
+            {
+                _typeDefsByShortName[Naming.TypeShortName(td.Name)] = td;
+            }
+
+            foreach (var func in module.Functions)
+            {
+                if (func.IsBase)
+                {
+                    continue;
+                }
+
+                if (Naming.SplitMemberName(func.Name) is { } member)
+                {
+                    _classMembersByOwner.TryAdd(member.Owner, new List<FunctionDefinition>());
+                    _classMembersByOwner[member.Owner].Add(func);
+                    _callableNames.Add(Naming.Sanitize(member.Member));
+                }
+                else
+                {
+                    _callableNames.Add(Naming.Sanitize(func.Name));
+                }
+            }
+        }
+    }
+
+    /// <summary>Compile <paramref name="program"/> into a complete C# source file.</summary>
+    public static string Compile(Program program) => new CSharpCompiler(program).CompileProgram();
+
+    private string CompileProgram()
+    {
+        var sb = new StringBuilder();
+        sb.Append("// <auto-generated> Ball -> C# compiler (issue #381).\n");
+        sb.Append($"// Source: {_program.Name} v{_program.Version}\n");
+        sb.Append("#nullable enable\n");
+        sb.Append("using System;\n");
+        sb.Append("using System.Collections.Generic;\n");
+        sb.Append("using Ball.Shared;\n");
+        sb.Append("using static Ball.Shared.BallValue;\n\n");
+
+        sb.Append("internal static class BallProgram\n{\n");
+
+        // A tiny IIFE helper — the C# stand-in for Rust's block-expression /
+        // C++'s immediately-invoked lambda. Only reached when a block or a
+        // control-flow construct lands in true value position (see the class
+        // doc comment); the common statement path never uses it.
+        sb.Append("    private static BallValue Run(Func<BallValue> body) => body();\n\n");
+
+        // The entry module's types and functions live directly on BallProgram.
+        var entry = _program.Modules.FirstOrDefault(m => m.Name == _entryModule)
+            ?? throw new InvalidOperationException($"Entry module \"{_entryModule}\" not found");
+        sb.Append(CompileModuleBody(entry));
+
+        // The C# entry point: run the Ball entry function's body. Emitted as a
+        // thin wrapper that calls the compiled entry function (which handles a
+        // top-level `return` naturally), so `void main()`'s `return;` and a
+        // value-returning entry both work.
+        var entryFunc = entry.Functions.FirstOrDefault(f => f.Name == _program.EntryFunction);
+        if (entryFunc is not null)
+        {
+            sb.Append("\n    public static void Main(string[] args)\n    {\n");
+            sb.Append($"        {Naming.Sanitize(entryFunc.Name)}(BallValue.Null);\n");
+            sb.Append("    }\n");
+        }
+
+        sb.Append("}\n");
+
+        // Every other user module → its own nested static class.
+        foreach (var module in _program.Modules)
+        {
+            if (module.Name == _entryModule || _baseModules.Contains(module.Name))
+            {
+                continue;
+            }
+
+            var body = CompileModuleBody(module);
+            sb.Append($"\ninternal static class {Naming.Sanitize(module.Name)}\n{{\n");
+            sb.Append(body);
+            sb.Append("}\n");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Compile one module's types + standalone (non-base, non-class-member) functions.</summary>
+    private string CompileModuleBody(Module module)
+    {
+        _currentModule = module.Name;
+        var sb = new StringBuilder();
+
+        sb.Append(CompileModuleTypes(module));
+
+        foreach (var func in module.Functions)
+        {
+            if (func.IsBase || Naming.SplitMemberName(func.Name) is not null)
+            {
+                continue;
+            }
+
+            sb.Append(CompileFunction(func));
+            sb.Append('\n');
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>Compile a standalone function: <c>static BallValue name(BallValue input) { … }</c> (invariant #1).</summary>
+    private string CompileFunction(FunctionDefinition func)
+    {
+        var name = Naming.Sanitize(func.Name);
+        var body = EmitFunctionBody(func);
+        return $"    public static BallValue {name}(BallValue input)\n    {body}\n";
+    }
+
+    /// <summary>Emit a function/method/lambda body as a braced statement block ending in a <c>return</c>.</summary>
+    private string EmitFunctionBody(FunctionDefinition func)
+    {
+        PushScope();
+        BindLocal("input");
+        var sb = new StringBuilder("{\n");
+        sb.Append(ParamPrologue(func));
+
+        if (func.Body is null)
+        {
+            sb.Append("return BallValue.Null;\n");
+        }
+        else if (func.Body.ExprCase == Expression.ExprOneofCase.Block)
+        {
+            sb.Append(EmitBlockInner(func.Body.Block, isFunctionBody: true));
+        }
+        else
+        {
+            sb.Append($"return {CompileExpression(func.Body)};\n");
+        }
+
+        sb.Append('}');
+        PopScope();
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The <c>let</c>-bindings a function/lambda body needs to resolve its
+    /// declared parameter names. A single parameter is bound directly to
+    /// <c>input</c> (the common <c>fibonacci</c>-style shape); multiple
+    /// parameters are destructured out of the input message by name.
+    /// </summary>
+    private string ParamPrologue(FunctionDefinition func)
+    {
+        var names = ParamNames(func);
+        if (names.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var sb = new StringBuilder();
+        if (names.Count == 1)
+        {
+            BindLocal(names[0]);
+            sb.Append($"var {Naming.Sanitize(names[0])} = input;\n");
+        }
+        else
+        {
+            foreach (var name in names)
+            {
+                BindLocal(name);
+                sb.Append($"var {Naming.Sanitize(name)} = BallRuntime.FieldGet(input, {Naming.StringLiteral(name)});\n");
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Statement context
+    // ════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Emit a block's statements (without the enclosing braces). When
+    /// <paramref name="isFunctionBody"/>, the block's <c>result</c> becomes the
+    /// function's <c>return</c>; otherwise (a nested statement-position block)
+    /// the result is evaluated for its side effects and discarded.
+    /// </summary>
+    private string EmitBlockInner(Block block, bool isFunctionBody)
+    {
+        PushScope();
+        var sb = new StringBuilder();
+
+        foreach (var statement in block.Statements)
+        {
+            switch (statement.StmtCase)
+            {
+                case Statement.StmtOneofCase.Let:
+                    var let = statement.Let;
+                    var value = let.Value is null ? "BallValue.Null" : CompileExpression(let.Value);
+                    sb.Append($"var {Naming.Sanitize(let.Name)} = {value};\n");
+                    BindLocal(let.Name);
+                    break;
+                case Statement.StmtOneofCase.Expression:
+                    sb.Append(EmitStatement(statement.Expression));
+                    sb.Append('\n');
+                    break;
+            }
+        }
+
+        if (isFunctionBody)
+        {
+            sb.Append(block.Result is null
+                ? "return BallValue.Null;\n"
+                : $"return {CompileExpression(block.Result)};\n");
+        }
+        else if (block.Result is not null)
+        {
+            sb.Append(EmitStatement(block.Result));
+            sb.Append('\n');
+        }
+
+        PopScope();
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Emit an expression appearing in statement position (its value
+    /// discarded). Control-flow base calls lower to native C# statements
+    /// (<see cref="EmitBaseStatement"/>); every other expression is a plain
+    /// expression statement.
+    /// </summary>
+    private string EmitStatement(Expression expr)
+    {
+        switch (expr.ExprCase)
+        {
+            case Expression.ExprOneofCase.Block:
+                return "{\n" + EmitBlockInner(expr.Block, isFunctionBody: false) + "}";
+            case Expression.ExprOneofCase.Call:
+                var call = expr.Call;
+                if (_baseModules.Contains(call.Module))
+                {
+                    var native = EmitBaseStatement(call);
+                    if (native is not null)
+                    {
+                        return native;
+                    }
+                }
+
+                // A value-yielding call (arithmetic, print, a user call) is a
+                // valid C# expression statement on its own.
+                return CompileExpression(expr) + ";";
+            case Expression.ExprOneofCase.None:
+                return ";";
+            default:
+                // A bare reference/literal/etc. in statement position: discard.
+                return "_ = " + CompileExpression(expr) + ";";
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Expression context — the 7 node types
+    // ════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Emit an expression in statement position, but with a <c>block</c>
+    /// <em>unwrapped</em> to its bare inner statements (no braces) — for use
+    /// where the caller already supplies the enclosing <c>{ }</c> (an
+    /// <c>if</c>/loop/<c>catch</c> branch), so a block branch does not produce a
+    /// redundant second brace pair.
+    /// </summary>
+    private string EmitStatementUnwrapped(Expression expr) =>
+        expr.ExprCase == Expression.ExprOneofCase.Block
+            ? EmitBlockInner(expr.Block, isFunctionBody: false)
+            : EmitStatement(expr);
+
+    /// <summary>Compile any <see cref="Expression"/> to a C# expression evaluating to a <see cref="BallValue"/>.</summary>
+    private string CompileExpression(Expression expr) => expr.ExprCase switch
+    {
+        Expression.ExprOneofCase.Call => CompileCall(expr.Call),
+        Expression.ExprOneofCase.Literal => CompileLiteral(expr.Literal),
+        Expression.ExprOneofCase.Reference => CompileReference(expr.Reference),
+        Expression.ExprOneofCase.FieldAccess => CompileFieldAccess(expr.FieldAccess),
+        Expression.ExprOneofCase.MessageCreation => CompileMessageCreation(expr.MessageCreation),
+        Expression.ExprOneofCase.Block => CompileBlockExpression(expr.Block),
+        Expression.ExprOneofCase.Lambda => CompileLambda(expr.Lambda),
+        _ => "BallValue.Null",
+    };
+
+    /// <summary><c>literal</c> — emit a <see cref="BallValue"/> constructor.</summary>
+    private string CompileLiteral(Literal lit) => lit.ValueCase switch
+    {
+        Literal.ValueOneofCase.IntValue => $"Int({Naming.IntLiteral(lit.IntValue)})",
+        Literal.ValueOneofCase.DoubleValue => $"Double({Naming.DoubleLiteral(lit.DoubleValue)})",
+        Literal.ValueOneofCase.StringValue => $"Str({Naming.StringLiteral(lit.StringValue)})",
+        Literal.ValueOneofCase.BoolValue => $"Bool({(lit.BoolValue ? "true" : "false")})",
+        Literal.ValueOneofCase.BytesValue => CompileBytesLiteral(lit.BytesValue.ToByteArray()),
+        Literal.ValueOneofCase.ListValue => CompileListLiteral(lit.ListValue),
+        _ => "BallValue.Null",
+    };
+
+    private static string CompileBytesLiteral(byte[] bytes)
+    {
+        var items = string.Join(", ", bytes.Select(b => b.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return $"Bytes(new byte[] {{ {items} }})";
+    }
+
+    /// <summary>A list literal builds a fresh reference-semantic backing (a distinct list per evaluation).</summary>
+    private string CompileListLiteral(ListLiteral list)
+    {
+        if (list.Elements.Count == 0)
+        {
+            return "(BallValue)new BallList()";
+        }
+
+        var items = string.Join(", ", list.Elements.Select(CompileExpression));
+        return $"(BallValue)new BallList(new BallValue[] {{ {items} }})";
+    }
+
+    /// <summary>
+    /// <c>reference</c> — an identifier read. <c>"input"</c> is the current
+    /// function's single parameter (invariant #1). An unshadowed reference to a
+    /// known top-level function used as a value is wrapped as a
+    /// <see cref="BallFunction"/> so a method group flows as a first-class
+    /// value.
+    /// </summary>
+    private string CompileReference(Reference reference)
+    {
+        if (reference.Name == "input")
+        {
+            return "input";
+        }
+
+        // The encoders' shared sentinel for an uninitialized late/nullable
+        // local (`int? maybe;`): a read of the still-unassigned variable is null.
+        if (reference.Name == "__no_init__")
+        {
+            return "BallValue.Null";
+        }
+
+        var name = Naming.Sanitize(reference.Name);
+        if (!IsLocal(reference.Name) && _callableNames.Contains(name))
+        {
+            return $"new BallFunction({Naming.StringLiteral(reference.Name)}, {name})";
+        }
+
+        return name;
+    }
+
+    /// <summary><c>field_access</c> — <c>object.field</c> against a dynamic (message/map) receiver.</summary>
+    private string CompileFieldAccess(FieldAccess fieldAccess)
+    {
+        var obj = fieldAccess.Object is null ? "BallValue.Null" : CompileExpression(fieldAccess.Object);
+        return $"BallRuntime.FieldGet({obj}, {Naming.StringLiteral(fieldAccess.Field)})";
+    }
+
+    /// <summary>
+    /// <c>message_creation</c> — build a dynamic <see cref="BallMap"/> (an
+    /// anonymous/argument message, empty <c>type_name</c>) or a
+    /// <see cref="BallMessage"/> (a named instance). Positional <c>argN</c>
+    /// fields of a constructor call are remapped to the constructor's real
+    /// parameter names.
+    /// </summary>
+    private string CompileMessageCreation(MessageCreation mc)
+    {
+        var ctorParams = ConstructorParamNames(mc.TypeName);
+        var entries = new List<string>();
+        for (var i = 0; i < mc.Fields.Count; i++)
+        {
+            var field = mc.Fields[i];
+            var fieldName = field.Name;
+            if (ctorParams is not null && Naming.IsPositionalArg(fieldName) && i < ctorParams.Count)
+            {
+                fieldName = ctorParams[i];
+            }
+
+            var value = field.Value is null ? "BallValue.Null" : CompileExpression(field.Value);
+            entries.Add($"[{Naming.StringLiteral(fieldName)}] = {value}");
+        }
+
+        var mapExpr = entries.Count == 0
+            ? "new BallMap()"
+            : $"new BallMap {{ {string.Join(", ", entries)} }}";
+
+        return mc.TypeName.Length == 0
+            ? $"(BallValue){mapExpr}"
+            : $"(BallValue)new BallMessage({Naming.StringLiteral(mc.TypeName)}, {mapExpr})";
+    }
+
+    /// <summary><c>block</c> in value position — a <c>Func&lt;BallValue&gt;</c> IIFE (see the class doc comment).</summary>
+    private string CompileBlockExpression(Block block)
+    {
+        var inner = EmitBlockInner(block, isFunctionBody: true);
+        return $"Run(() =>\n{{\n{inner}}})";
+    }
+
+    /// <summary>
+    /// <c>lambda</c> — an anonymous function compiled as a C# lambda wrapped in
+    /// a <see cref="BallFunction"/> so it is a first-class value. C# closures
+    /// capture enclosing locals by reference, giving Ball's shared-capture
+    /// semantics for free (no pre-clone dance is needed, unlike the Rust
+    /// <c>move</c>-closure sibling).
+    /// </summary>
+    private string CompileLambda(FunctionDefinition lambda)
+    {
+        var body = EmitFunctionBody(lambda);
+        var label = lambda.Name;
+        return $"(BallValue)new BallFunction({Naming.StringLiteral(label)}, (BallValue input) =>\n{body})";
+    }
+
+    /// <summary>
+    /// <c>call</c> — a base-module call (dispatches to
+    /// <see cref="CompileBaseCall"/>) or a user call. A user call to a local
+    /// binding holding a function value routes through
+    /// <see cref="BallRuntime.CallFunction"/>; every other user call is a
+    /// direct method call, cross-module-qualified when needed.
+    /// </summary>
+    private string CompileCall(FunctionCall call)
+    {
+        if (_baseModules.Contains(call.Module))
+        {
+            return CompileBaseCall(call);
+        }
+
+        var input = call.Input is null ? "BallValue.Null" : CompileExpression(call.Input);
+        var name = Naming.Sanitize(call.Function);
+        var prefix = ResolveUserCallPrefix(call.Module);
+
+        if (prefix.Length == 0 && IsLocal(call.Function))
+        {
+            return $"BallRuntime.CallFunction({name}, {input})";
+        }
+
+        return $"{prefix}{name}({input})";
+    }
+
+    /// <summary>The <c>&lt;Class&gt;.</c> qualifier for a cross-module user call (empty for a same-module call).</summary>
+    private string ResolveUserCallPrefix(string module)
+    {
+        if (module.Length == 0 || module == _currentModule)
+        {
+            return string.Empty;
+        }
+
+        return module == _entryModule ? "BallProgram." : $"{Naming.Sanitize(module)}.";
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Scope tracking + metadata helpers
+    // ════════════════════════════════════════════════════════════
+
+    private void PushScope() => _localScopes.Add(new HashSet<string>(StringComparer.Ordinal));
+
+    private void PopScope() => _localScopes.RemoveAt(_localScopes.Count - 1);
+
+    private void BindLocal(string name)
+    {
+        if (_localScopes.Count > 0)
+        {
+            _localScopes[^1].Add(Naming.Sanitize(name));
+        }
+    }
+
+    private bool IsLocal(string name)
+    {
+        var sanitized = Naming.Sanitize(name);
+        return _localScopes.Any(frame => frame.Contains(sanitized));
+    }
+
+    /// <summary>The declared parameter names of <paramref name="func"/> from its <c>metadata.params</c> bag.</summary>
+    private static List<string> ParamNames(FunctionDefinition func)
+    {
+        var names = new List<string>();
+        if (func.Metadata is null || !func.Metadata.Fields.TryGetValue("params", out var paramsValue))
+        {
+            return names;
+        }
+
+        if (paramsValue.KindCase != Value.KindOneofCase.ListValue)
+        {
+            return names;
+        }
+
+        foreach (var element in paramsValue.ListValue.Values)
+        {
+            if (element.KindCase == Value.KindOneofCase.StructValue
+                && element.StructValue.Fields.TryGetValue("name", out var nameValue)
+                && nameValue.KindCase == Value.KindOneofCase.StringValue)
+            {
+                names.Add(nameValue.StringValue);
+            }
+        }
+
+        return names;
+    }
+
+    private static string MetaString(Struct? meta, string key)
+    {
+        if (meta is not null
+            && meta.Fields.TryGetValue(key, out var value)
+            && value.KindCase == Value.KindOneofCase.StringValue)
+        {
+            return value.StringValue;
+        }
+
+        return string.Empty;
+    }
+
+    private static bool MetaBool(Struct? meta, string key) =>
+        meta is not null
+        && meta.Fields.TryGetValue(key, out var value)
+        && value.KindCase == Value.KindOneofCase.BoolValue
+        && value.BoolValue;
+}

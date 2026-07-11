@@ -1,13 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    csharp/compiler: Ball -> C# compiler (issue #381). Phase 1 (#378) only
-    scaffolds a compiling project; test/ is excluded from this project's own
-    compile items because it holds a sibling test project (see test/).
+    csharp/compiler: Ball -> C# compiler (issue #381). Emits C# source that
+    dispatches base-function calls into Ball.Shared's BallRuntime and builds
+    lists/maps/messages with the reference-vs-value-semantics copy rules
+    (csharp/AGENTS.md). test/ holds a sibling test project, so it is excluded
+    from this project's own compile items.
   -->
 
   <ItemGroup>
     <Compile Remove="test/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../shared/Ball.Shared.csproj" />
   </ItemGroup>
 
 </Project>

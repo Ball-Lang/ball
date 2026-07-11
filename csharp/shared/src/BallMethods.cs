@@ -245,7 +245,7 @@ public static partial class BallRuntime
 
                 return BallValue.Bool(false);
             case BallMap map:
-                return map.Remove(AsStr(value)) ?? BallValue.Null;
+                return map.Remove(MapKey(value)) ?? BallValue.Null;
             default:
                 return UnsupportedMethod("remove", self);
         }

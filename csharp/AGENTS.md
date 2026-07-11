@@ -504,14 +504,26 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   The compiler now builds a spread-containing literal imperatively, splicing via
   `BallRuntime.SpreadIter` (mirrors `ball-compiler`'s `compile_list_literal` and the reference
   engines' `_addCollectionElement`).
-- **Remaining failures (17):** `remainder`/`toInt`/`convert` scalar-method singletons (`320`/`188`/
-  `185`), NaN/infinity/number-getter diffs (`214`/`215`/`263`/`317`), `toStringAsFixed`/
-  exponential-precision rounding (`316`/`357`), logical-and pattern binding (`258`), int-boundary
-  `abs` overflow (`230`), non-string (int) map-key coercion (`391`/`95`), bytes-literal-to-list
-  (`399`), catchable `int.parse`/index-range errors surfacing loud (`275`/`199`), and the
-  `stackTrace` catch binding (`300`). The proper gated harness is #384; the acceptance tests are
-  `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build; run
-  with `dotnet test -p:SelfHost=true`).
+- **Numeric value-semantics + map-key coercion (Rounds 10–12):** the sweep climbed **303 → 312 /
+  320** (0 regressions; `hello_world`+`fibonacci` still byte-exact golden). Round 10 (PR #410)
+  fixed inverted NaN/finiteness getters — `BallDouble` equality used `double.Equals`, which reports
+  `NaN.Equals(NaN)` true and `(-0.0).Equals(0.0)` false, both backwards from IEEE-754 — plus the
+  `num.remainder`/`toInt` scalar methods. Round 11 (PR #411) reimplemented
+  `toStringAsFixed`/`Exponential`/`Precision` byte-exact against Dart (away-from-zero ties, minimal
+  exponent, shortest mantissa). Round 12 fixed **non-string map-key coercion**: Ball maps are
+  string-keyed (the C# backing is `OrderedDictionary<string, …>`, and `MapKeys` already returns
+  every key as a `BallString`), but `MapGet`/`Set`/`Delete`/`ContainsKey`/`MapCreate`/
+  `MapPutIfAbsent`/`.remove` demanded a `BallString` key via `AsStr` and threw on an int memo key
+  (`95`/`391`). All now route through a `BallRuntime.MapKey` helper that stringifies a non-string
+  key via its display form (int `5` → `"5"`, whole double → `"5.0"`) — mirrors
+  `rust/shared/src/runtime.rs`'s `index_key` exactly (+2, `95`/`391`).
+- **Remaining failures (8):** `convert` (`185`) and `DateTime.fromMillisecondsSinceEpoch` (`188`)
+  scalar-method singletons, int-boundary `abs` overflow (`230` — .NET checked negation throws on
+  `long.MinValue` where Dart wraps), logical-and pattern binding (`258`), catchable
+  `int.parse`/index-range errors surfacing loud (`275`/`199`), bytes-literal-to-list (`399`), and
+  the `stackTrace` catch binding (`300`). The proper gated harness is #384; the acceptance tests
+  are `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build;
+  run with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -557,11 +569,13 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
   **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
   **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
-  informal corpus sweep is at 291/320 with no hangs after the Round-7 category grind (Round 5:
-  RegExp surface, core-collection copy/fill constructors, universal `toString` fallback; Round 6:
-  the double-value-representation gap — scalar value-model wrapper field mapping + wrapper
-  stringification + whole-double loader coercion; Round 7: live reassigned-instance-field
-  read/write through `self` + loader JSON depth-cap lift — see "Self-hosted engine" above and #383). The
+  informal corpus sweep is at 312/320 with no hangs after the Rounds 8–12 bounded-category grind
+  (Round 5: RegExp surface, core-collection copy/fill constructors, universal `toString` fallback;
+  Round 6: the double-value-representation gap; Round 7: live reassigned-instance-field
+  read/write through `self` + loader JSON depth-cap lift; Round 8: first-class `Function.apply`/
+  `fold` callbacks; Round 9: list-literal spread splice; Rounds 10–11: IEEE double equality +
+  `num.remainder`/`toInt` + byte-exact `toStringAs*` formatting; Round 12: non-string map-key
+  coercion — see "Self-hosted engine" above and #383). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

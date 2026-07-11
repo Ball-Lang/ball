@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–9 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (320/320) + committed conformance harness + `ball` CLI + CI/CD)
+# C# (epic #377, Phases 1–10 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (320/320) + committed conformance harness + `ball` CLI + CI/CD + documentation)
 
 ## Purpose
 
@@ -21,8 +21,10 @@ against the DART reference engine). **Phase 6 (#383, CLOSED) added the self-host
 (see "CLI" below). **Phase 9 (#386) added CI/CD** — a `csharp` job in `ci.yml` (build, test, format
 check, and the regenerate-then-run self-hosted engine conformance sweep), a `csharp-engine` row in
 `conformance-matrix.yml`, a coverlet→Codecov coverage flag/floor, and a `nuget` dependabot entry
-(see "CI/CD" below). Docs (#387) are still pending — see the phase table in the epic #377 tracking
-comment.
+(see "CI/CD" below). **Phase 10 (#387) added documentation** — this file, `.claude/rules/csharp.md`,
+and the root `CLAUDE.md`/`AGENTS.md` status paragraphs, cross-checked against the actual `csharp`
+CI job and `csharp-engine` conformance-matrix row. This completes all 10 phases of epic #377's
+phase table (the epic issue itself closes separately, per maintainer review).
 
 ## Layout
 
@@ -909,8 +911,9 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
   the regenerate-then-run self-hosted engine conformance sweep, `Results: 320 passed, 0 failed,
   320 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
-  flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. Docs (#387) are still pending —
-  see the phase table in the epic #377 tracking comment for the blocked-by graph.
+  flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
+  documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
+  status paragraphs (see below). This is the last phase in epic #377's phase table.
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds
   lists/maps/messages with the reference-vs-value-semantics copy rules above — do not re-derive
   operator semantics as emitted text. Fixes to compiled-program behavior belong in the compiler
@@ -918,7 +921,8 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
 - With both #381 and #382 landed, re-verify the encoder's proof programs through the full C#
   pipeline (encode → compile → dotnet run) as part of the #384 conformance harness — today's
   encoder proof is Dart-engine-only.
-- Follow `.claude/skills/new-ball-language/SKILL.md` for the remaining phases.
+- All 10 phases of `.claude/skills/new-ball-language/SKILL.md` are complete for C# — there are no
+  remaining phases in epic #377.
 - Central Package Management is on (`Directory.Packages.props`) — add new package versions there,
   not per-project `Version=` attributes.
 - Verify maturity against CI (`.github/workflows/ci.yml`) — the `csharp` job and `csharp-engine`

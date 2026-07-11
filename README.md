@@ -196,12 +196,13 @@ The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.pr
 | **Dart** | Yes | Full | Full | Full (true async) |
 | **TypeScript** | Yes | Full | Full | Full (self-hosted, browser + Node) |
 | **C++** | Yes | Full | Full | Full (self-hosted) |
+| **Rust** | Yes | Full | Full | Full (self-hosted) |
+| **C#** | Yes | Full | Full | Full (self-hosted) |
 | **Go** | Yes | -- | -- | -- |
 | **Python** | Yes | -- | -- | -- |
 | **Java** | Yes | -- | -- | -- |
-| **C#** | Yes | -- | -- | -- |
 
-Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture.
+Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (`319 passed, 0 failed, 319 total` and `320 passed, 0 failed, 320 total` respectively) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
 
 ```mermaid
 flowchart LR
@@ -279,7 +280,9 @@ ball/
 │   └── cli/                        # ball CLI
 ├── cpp/                            # C++ implementation (compiler + encoder + self-hosted engine)
 ├── ts/                             # TypeScript implementation (compiler + encoder + self-hosted engine, browser + Node)
-├── go/, python/, java/, csharp/    # Proto bindings
+├── rust/                           # Rust implementation (compiler + encoder + self-hosted engine + CLI)
+├── csharp/                         # C# implementation (compiler + encoder + self-hosted engine + CLI)
+├── go/, python/, java/             # Proto bindings only
 ├── examples/                       # Example Ball programs
 ├── tests/conformance/              # Cross-implementation conformance tests
 ├── website/                        # ball-lang.dev + playground

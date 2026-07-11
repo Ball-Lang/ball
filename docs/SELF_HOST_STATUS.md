@@ -4,7 +4,7 @@ Tracks the round-trip story for the reference Dart engine across all
 target languages: encode the live engine to Ball IR, compile back to
 each supported language, run conformance.
 
-Last refreshed: 2026-07-09
+Last refreshed: 2026-07-12
 
 ## Pipeline
 
@@ -14,10 +14,12 @@ Last refreshed: 2026-07-09
 | 2. C++ compile | `dart run dart/compiler/tool/compile_engine_cpp.dart` | `dart/self_host/lib/engine_rt.cpp` |
 | 3. TS compile | `ts/compiler` (strip `@type`, compile) | `ts/engine/src/compiled_engine.ts` |
 | 4. Rust compile | `cargo run -p ball-engine-regen` (from `dart/self_host/engine.ball.json`) | `rust/engine/src/compiled_engine.rs` |
-| 5. Conformance -- Dart roundtrip | `dart test dart/self_host/test/engine_parity_test.dart` | parity vs live engine |
-| 6. Conformance -- C++ self-host | `cmake --build cpp/build --target test_selfhost_conformance` | per-fixture pass/fail |
-| 7. Conformance -- TS self-host | `cd ts/engine && npm test` | per-fixture pass/fail |
-| 8. Conformance -- Rust self-host | `cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored` | `Results: N passed, M failed, T total` line |
+| 5. C# compile | `dotnet run --project csharp/engine/tool/Ball.Engine.Regen.csproj` (from `dart/self_host/engine.ball.pb`) | `csharp/engine/src/CompiledEngine.cs` |
+| 6. Conformance -- Dart roundtrip | `dart test dart/self_host/test/engine_parity_test.dart` | parity vs live engine |
+| 7. Conformance -- C++ self-host | `cmake --build cpp/build --target test_selfhost_conformance` | per-fixture pass/fail |
+| 8. Conformance -- TS self-host | `cd ts/engine && npm test` | per-fixture pass/fail |
+| 9. Conformance -- Rust self-host | `cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored` | `Results: N passed, M failed, T total` line |
+| 10. Conformance -- C# self-host | `dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true --no-build -- --leg=engine` | `Results: N passed, M failed, T total` line |
 
 ## Per-language status
 
@@ -89,6 +91,22 @@ build, plus a `rust-engine` row in `conformance-matrix.yml`. See
 `rust/AGENTS.md` and `rust/engine/AGENTS.md` for the full pass history and
 regeneration workflow — this file intentionally does not duplicate their
 pass counts (see the CI-gated note above).
+
+### C# self-host (CompiledEngine.cs)
+
+The C# self-hosted engine (`csharp/engine/src/CompiledEngine.cs`, compiled
+from `engine.ball.pb` via `Ball.Compiler`) runs the whole conformance corpus
+with Dart-identical output (epic #377, #383/#384 closed). It is gated behind
+the off-by-default `-p:SelfHost=true` MSBuild property because the generated
+file isn't present in a fresh checkout (the C# analog of Rust's `self_host`
+cargo feature and C++'s gitignored `engine_rt.cpp`). The `csharp` job in
+`.github/workflows/ci.yml` regenerates and runs it on every build, plus a
+`csharp-engine` row in `conformance-matrix.yml`. A committed conformance
+harness (`csharp/engine/conformance/`, #384) also runs `compiler` and
+`roundtrip` legs (not CI-gated — both have documented, honest non-parity
+gaps). See `csharp/AGENTS.md` for the full pass history and regeneration
+workflow — this file intentionally does not duplicate their pass counts (see
+the CI-gated note above).
 
 ## ball_protobuf cross-target compilation
 

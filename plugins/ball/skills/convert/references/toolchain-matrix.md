@@ -1,6 +1,6 @@
 # Ball toolchain matrix — acquisition and verification
 
-Last verified: **2026-07-10** against live registries and `Ball-Lang/ball` CI. Statuses drift — re-verify before relying on a row (§2 of the skill).
+Last verified: **2026-07-12** against live registries and `Ball-Lang/ball` CI. Statuses drift — re-verify before relying on a row (§2 of the skill).
 
 ## Summary
 
@@ -10,7 +10,8 @@ Last verified: **2026-07-10** against live registries and `Ball-Lang/ball` CI. S
 | TypeScript | ✅ `@ball-lang/encoder` | ✅ `@ball-lang/compiler` | ✅ `@ball-lang/cli` (`run`, `audit`) | `npm i @ball-lang/encoder @ball-lang/compiler @ball-lang/cli` |
 | C++ | ✅ `ball_cpp_encode` (Clang JSON AST) | ✅ `ball_cpp_compile` | ✅ self-hosted engine | clone + CMake build (see below) |
 | Rust | ✅ `rust/encoder` | ✅ `rust/compiler` | ✅ `rust/engine` | clone + `cargo build` (see below) |
-| C#, Go, Python, Java | ❌ proto bindings only | ❌ | ❌ | Route to `/ball:new <lang>` |
+| C# | ✅ `csharp/encoder` (Roslyn) | ✅ `csharp/compiler` | ✅ self-hosted `csharp/engine` (`-p:SelfHost=true`) | clone + `dotnet build` (see below) — **not yet on NuGet** (#369 blocked on packaging, prerequisite now satisfied) |
+| Go, Python, Java | ❌ proto bindings only | ❌ | ❌ | Route to `/ball:new <lang>` |
 
 ## Verification commands (run these, do not trust the table)
 
@@ -40,6 +41,7 @@ Each Ball compiler emits **its own language only**; there is **no `--target` fla
 - Ball → TypeScript: `@ball-lang/compiler`'s `compile()` — e.g. `node -e "const {readFileSync,writeFileSync}=require('fs');const {compile}=require('@ball-lang/compiler');const p=JSON.parse(readFileSync(process.argv[1],'utf8'));delete p['@type'];writeFileSync(process.argv[2], compile(p));" program.ball.json out.ts`
 - Ball → C++: `ball_cpp_compile <program.ball.json>`
 - Ball → Rust: the built `rust/compiler` binary
+- Ball → C#: `dotnet run --project csharp/cli/Ball.Cli.csproj -- compile <program.ball.json>`
 
 ## Dart (`ball` CLI)
 
@@ -67,6 +69,17 @@ Linux/macOS/WSL only — native Windows MSVC builds are unsupported; on Windows 
 git clone https://github.com/Ball-Lang/ball && cd ball/rust
 cargo build --release
 # Workspace crates: cli (binary name: ball), compiler, encoder, engine, shared
+```
+
+## C# (build from source — not yet on NuGet)
+
+```bash
+git clone https://github.com/Ball-Lang/ball && cd ball/csharp
+dotnet build Ball.slnx
+dotnet run --project cli/Ball.Cli.csproj -- --help
+# Packages: shared, compiler, encoder, engine, cli. The self-hosted engine
+# (info/validate/tree/version cli-core verbs, and the interpreter itself)
+# need CompiledEngine.cs/CompiledCli.cs regenerated first — see csharp/AGENTS.md.
 ```
 
 ## When a row is missing (no target compiler)

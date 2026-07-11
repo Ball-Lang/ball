@@ -188,7 +188,10 @@ jobs:
         run: cd ts/compiler && npm ci && npm run build
 
       - name: Analyze
-        run: dart analyze --no-fatal-warnings dart/
+        # Strict (warnings fatal) to match release.yml's pre-release analyze —
+        # otherwise a warning passes PR CI but breaks every release (a BallMap
+        # `undefined_shown_name` warning silently blocked releases past v1.42.0).
+        run: dart analyze dart/
 
       - name: Format check
         run: dart format --set-exit-if-changed dart/

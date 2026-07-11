@@ -1,0 +1,239 @@
+package ballrt
+
+import (
+	"fmt"
+	"os"
+)
+
+// Flow signals model Ball's non-local control flow (return / break / continue)
+// the same way every reference engine does — as objects that propagate up the
+// call stack (Dart's FlowSignal, the engines' break/continue values). Here they
+// travel as Go panics so they cross the immediately-invoked-function-expression
+// (IIFE) boundaries the compiler emits for blocks and control flow: Go has no
+// block/if/loop *expressions*, so a block compiles to `func() Value { … }()`,
+// and a bare `return`/`break`/`continue` keyword cannot escape that closure.
+// Panicking a flow signal and recovering it at the right frame (a function
+// wrapper for return, a loop for break/continue) is the portable equivalent.
+//
+// Native control flow stays native: `if`/`for`/`while` compile to real Go
+// `if`/`for`, evaluated lazily (only the taken branch / next iteration runs).
+// Only the *jump* is a signal.
+
+type flowKind int
+
+const (
+	flowReturn flowKind = iota
+	flowBreak
+	flowContinue
+)
+
+// flowSignal is a return/break/continue in flight. label is the empty string for
+// an unlabeled break/continue; value carries a return's payload.
+type flowSignal struct {
+	kind  flowKind
+	label string
+	value Value
+}
+
+// Thrown is a Ball exception in flight (std.throw). Caught by TryCatch and, at
+// the top level, by RunEntry (which reports it and exits non-zero).
+type Thrown struct {
+	Value Value
+}
+
+func (t Thrown) Error() string { return "Ball exception: " + ToStr(t.Value) }
+
+// Return implements std.return: unwind to the enclosing function wrapper,
+// yielding v. Typed as Value so it fits any expression position the compiler
+// emits it in; it never actually returns (it panics).
+func Return(v Value) Value { panic(flowSignal{kind: flowReturn, value: v}) }
+
+// Break implements std.break (label "" for an unlabeled break).
+func Break(label string) Value { panic(flowSignal{kind: flowBreak, label: label}) }
+
+// Continue implements std.continue.
+func Continue(label string) Value { panic(flowSignal{kind: flowContinue, label: label}) }
+
+// Throw implements std.throw.
+func Throw(v Value) Value { panic(Thrown{Value: v}) }
+
+// CatchReturn is deferred at the top of every compiled function body. If the
+// body unwinds with a std.return, it captures the returned value into the
+// function's named return slot; any other panic (a break/continue that escaped
+// its loop — a malformed program — or a Ball exception) propagates unchanged.
+func CatchReturn(out *Value) {
+	if r := recover(); r != nil {
+		if fs, ok := r.(flowSignal); ok && fs.kind == flowReturn {
+			*out = fs.value
+			return
+		}
+		panic(r)
+	}
+}
+
+// RunLoopBody runs one iteration body for a compiled loop and reports whether
+// the loop should break. It recovers a break/continue whose label is empty
+// (unlabeled — targets the innermost loop) or matches this loop's label;
+// break → returns true, continue → returns false. Any other signal (a return, a
+// labeled jump targeting an *outer* loop, or a Ball exception) is re-panicked so
+// it reaches its own frame.
+func RunLoopBody(label string, body func()) (brk bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			if fs, ok := r.(flowSignal); ok && (fs.label == "" || fs.label == label) {
+				switch fs.kind {
+				case flowBreak:
+					brk = true
+					return
+				case flowContinue:
+					brk = false
+					return
+				}
+			}
+			panic(r)
+		}
+	}()
+	body()
+	return false
+}
+
+// TryCatch implements std.try. It runs body; if a Ball exception unwinds it and
+// catch is non-nil, catch is invoked with the thrown value. finally (if
+// non-nil) always runs. A return/break/continue that unwinds body still runs
+// finally, then continues unwinding (Dart semantics).
+func TryCatch(body func() Value, catch func(Value) Value, finally func()) (result Value) {
+	if finally != nil {
+		defer finally()
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if t, ok := r.(Thrown); ok && catch != nil {
+				result = catch(t.Value)
+				return
+			}
+			panic(r)
+		}
+	}()
+	return body()
+}
+
+// RunEntry executes a program's entry function body. A top-level std.return is
+// swallowed (the program simply ends); an uncaught Ball exception is reported to
+// stderr and the process exits with status 1 (matching the reference engines'
+// fail-loud behavior).
+func RunEntry(body func() Value) {
+	defer func() {
+		if r := recover(); r != nil {
+			if fs, ok := r.(flowSignal); ok && fs.kind == flowReturn {
+				return
+			}
+			if t, ok := r.(Thrown); ok {
+				fmt.Fprintln(os.Stderr, "Unhandled exception: "+ToStr(t.Value))
+				os.Exit(1)
+			}
+			panic(r)
+		}
+	}()
+	body()
+}
+
+// ── Field / index access & mutation ─────────────────────────────────────────
+
+// FieldGet implements a field read (`object.field`) against a *Message or *Map.
+func FieldGet(object Value, field string) Value {
+	switch o := object.(type) {
+	case *Message:
+		v, _ := o.Fields.Get(field)
+		return v
+	case *Map:
+		v, _ := o.Get(field)
+		return v
+	}
+	panic(fmt.Sprintf("ball: field access .%s on non-message %T", field, object))
+}
+
+// FieldSet implements a field write (`object.field = value`). Returns value.
+func FieldSet(object Value, field string, value Value) Value {
+	switch o := object.(type) {
+	case *Message:
+		o.Fields.Set(field, value)
+	case *Map:
+		o.Set(field, value)
+	default:
+		panic(fmt.Sprintf("ball: field set .%s on non-message %T", field, object))
+	}
+	return value
+}
+
+// Index implements std.index (`target[index]`) for lists, maps, and strings.
+func Index(target, index Value) Value {
+	switch t := target.(type) {
+	case *List:
+		i := int(asFloat(index))
+		if i < 0 || i >= len(t.Items) {
+			panic(fmt.Sprintf("ball: list index %d out of range (len %d)", i, len(t.Items)))
+		}
+		return t.Items[i]
+	case *Map:
+		k := ToStr(index)
+		v, _ := t.Get(k)
+		return v
+	case string:
+		i := int(asFloat(index))
+		r := []rune(t)
+		if i < 0 || i >= len(r) {
+			panic(fmt.Sprintf("ball: string index %d out of range", i))
+		}
+		return string(r[i])
+	}
+	panic(fmt.Sprintf("ball: indexing unsupported target %T", target))
+}
+
+// SetIndex implements `target[index] = value`. Returns value.
+func SetIndex(target, index, value Value) Value {
+	switch t := target.(type) {
+	case *List:
+		i := int(asFloat(index))
+		if i < 0 || i >= len(t.Items) {
+			panic(fmt.Sprintf("ball: list index %d out of range (len %d)", i, len(t.Items)))
+		}
+		t.Items[i] = value
+	case *Map:
+		t.Set(ToStr(index), value)
+	default:
+		panic(fmt.Sprintf("ball: index-set unsupported target %T", target))
+	}
+	return value
+}
+
+// Iterate yields the elements a std.for_in / std.for_each ranges over: a list's
+// items, a map's keys, or a string's characters.
+func Iterate(v Value) []Value {
+	switch x := v.(type) {
+	case *List:
+		return x.Items
+	case *Map:
+		out := make([]Value, 0, x.Len())
+		for _, k := range x.keys {
+			out = append(out, k)
+		}
+		return out
+	case string:
+		out := make([]Value, 0, len(x))
+		for _, r := range x {
+			out = append(out, string(r))
+		}
+		return out
+	case nil:
+		return nil
+	}
+	panic(fmt.Sprintf("ball: cannot iterate %T", v))
+}
+
+// Call invokes a first-class function value with a single input (std.invoke).
+func Call(fn, input Value) Value {
+	if f, ok := fn.(*Function); ok {
+		return f.Fn(input)
+	}
+	panic(fmt.Sprintf("ball: cannot call non-function %T", fn))
+}

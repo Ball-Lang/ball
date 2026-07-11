@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    csharp/engine/conformance: the C# Phase-7 conformance harness (issue #384).
+    A standalone console app, not an xunit test project, because CI needs a
+    reliable "Results: N passed, M failed, T total" line on real stdout
+    regardless of pass/fail (xunit's per-test console capture only surfaces on
+    failure by default; a whole-corpus sweep must print its summary even when
+    every fixture passes). Mirrors `rust/engine/tool` in spirit (a deliberately
+    separate project) and `rust/engine/tests/self_host_conformance.rs` in
+    behavior (discovery, carve-outs, the Results: line format).
+
+    Three legs, one runner:
+      * engine:    tests/conformance/*.ball.json to self-hosted BallEngine.Run()
+                   (needs the SelfHost MSBuild property set true; propagates to
+                   the Ball.Engine ProjectReference below, same as
+                   Ball.Engine.Tests).
+      * compiler:  *.ball.json to CSharpCompiler.Compile() to Roslyn in-memory
+                   compile+run (no SelfHost needed).
+      * roundtrip: *.ball.json to C# source (compiler) to a re-encoded Ball
+                   program (Roslyn encoder) to `dart run dart/cli/bin/ball.dart
+                   run` (the Dart reference engine is ground truth here, not
+                   the C# self-hosted engine).
+
+    See Program.cs for the exact command-line flag names and usage.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SelfHost)' == 'true'">
+    <DefineConstants>$(DefineConstants);SELF_HOST</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Ball.Engine.csproj" />
+    <ProjectReference Include="../../compiler/Ball.Compiler.csproj" />
+    <ProjectReference Include="../../encoder/Ball.Encoder.csproj" />
+    <ProjectReference Include="../../shared/Ball.Shared.csproj" />
+  </ItemGroup>
+
+</Project>

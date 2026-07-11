@@ -316,6 +316,22 @@ if(EXISTS "${BALL_CLI_RT_HDR}")
         ${CMAKE_CURRENT_SOURCE_DIR}/../../dart/self_host/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/../shared/include
     )
+    # test_cli_parity.cpp includes <nlohmann/json.hpp>; link the interface
+    # target that carries its include path. test_ball_ir (above) already made
+    # the target available (find_package / FetchContent), but re-guard here so
+    # this block does not depend on that ordering — without the link, the header
+    # is only found incidentally on some toolchains (Linux) and the macOS
+    # release build fails with "'nlohmann/json.hpp' file not found".
+    if(NOT TARGET nlohmann_json::nlohmann_json)
+        find_package(nlohmann_json QUIET)
+    endif()
+    if(NOT TARGET nlohmann_json::nlohmann_json)
+        include(FetchContent)
+        FetchContent_Declare(json
+            URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+        FetchContent_MakeAvailable(json)
+    endif()
+    target_link_libraries(test_cli_parity PRIVATE nlohmann_json::nlohmann_json)
     target_compile_definitions(test_cli_parity PRIVATE
         BALL_CONFORMANCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance"
         BALL_CLI_PARITY_GOLDENS="${CMAKE_BINARY_DIR}/cli_parity_goldens"

@@ -2,8 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ball_base/ball_base.dart' show decodeProgramJson;
+import 'package:ball_base/ball_base.dart' show BallMap, decodeProgramJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
+import 'package:ball_encoder/encoder.dart' show DartEncoder;
 import 'package:ball_engine/engine.dart';
 import 'package:test/test.dart';
 
@@ -9478,4 +9479,163 @@ void _inheritanceTests() {
       expect(lines, ['true', 'false']);
     });
   });
+
+  group('engine: ball_proto presence cascades (audit self-host #362)', () {
+    // The self-hosted `ball audit` verb reads proto oneof presence through the
+    // ball_proto module's hasX() accessors: hasLet/hasExpression on a Statement,
+    // hasObject on a FieldAccess. The capability/termination analyzers dispatch
+    // expression kinds via these presence cascades (not the whichExpr() enum,
+    // which the engine returns as a String). This locks in that the engine
+    // routes ball_proto.hasX() to a BallModuleHandler and that the accessors
+    // read the right booleans over the normalized message maps.
+    Map<String, dynamic> protoHas(String fn, Map<String, dynamic> objExpr) =>
+        call(fn, module: 'ball_proto', input: msg([field('obj', objExpr)]));
+
+    Program buildProg(List<Map<String, dynamic>> statements) {
+      final json = {
+        'name': 'test',
+        'version': '1.0.0',
+        'entryModule': 'main',
+        'entryFunction': 'main',
+        'modules': [
+          {
+            'name': 'ball_proto',
+            'functions': [
+              {'name': 'hasLet', 'isBase': true},
+              {'name': 'hasExpression', 'isBase': true},
+              {'name': 'hasObject', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'functions': [mainFn(statements)],
+          },
+        ],
+      };
+      return Program()..mergeFromProto3Json(json);
+    }
+
+    test('hasLet/hasExpression/hasObject route to a handler and read '
+        'presence over in-engine message maps', () async {
+      final stmtWithLet = msg([
+        field(
+          'let',
+          msg([field('name', literal('x')), field('value', literal(1))]),
+        ),
+      ]);
+      final stmtWithExpr = msg([field('expression', literal(2))]);
+      final faWithObject = msg([
+        field('object', literal('foo')),
+        field('field', literal('bar')),
+      ]);
+      final faWithoutObject = msg([field('field', literal('bar'))]);
+
+      final program = buildProg([
+        stmt(printToString(protoHas('hasLet', stmtWithLet))),
+        stmt(printToString(protoHas('hasExpression', stmtWithExpr))),
+        stmt(printToString(protoHas('hasObject', faWithObject))),
+        stmt(printToString(protoHas('hasObject', faWithoutObject))),
+      ]);
+
+      final lines = await runAndCapture(
+        program,
+        handlers: [StdModuleHandler(), _BallProtoTestHandler()],
+      );
+      expect(lines, ['true', 'true', 'true', 'false']);
+    });
+  });
+
+  group('engine: in-engine Map/List report construction (audit self-host '
+      '#362)', () {
+    // The analyzers build their report as a plain Map with nested List fields
+    // (never a proto message, which throws on unset-field reads when constructed
+    // in-engine), appending per-item with .add and reading keys back. Exercise
+    // that shape end-to-end through the engine with a self-hosted helper.
+    test('build a Map report, append to a List field, read it back', () async {
+      // Ball-portable Dart source, encoded + run so the map/list construction
+      // executes on the engine exactly as the analyzers do.
+      const src = '''
+List<Object?> buildReport() {
+  final report = <String, Object?>{};
+  report['name'] = 'demo';
+  final items = <Object?>[];
+  report['items'] = items;
+  items.add('a');
+  items.add('b');
+  items.add('c');
+  final out = <String>[];
+  out.add(report['name'] as String);
+  final List got = report['items'] as List;
+  out.add('\${got.length}');
+  for (final it in got) {
+    out.add(it as String);
+  }
+  return out;
 }
+''';
+      final program = _encodeMainReturning(src, 'buildReport');
+      final engine = BallEngine(program);
+      final result = await engine.callFunction('main', 'buildReport', null);
+      expect(result, ['demo', '3', 'a', 'b', 'c']);
+    });
+  });
+}
+
+/// Encode a Ball-portable Dart [source] library and wrap it as a Program whose
+/// entry is [entry]. Used by the audit self-host representation tests to run
+/// map/list construction through the engine.
+Program _encodeMainReturning(String source, String entry) {
+  final program = DartEncoder().encode(source, name: 'main');
+  program
+    ..entryModule = 'main'
+    ..entryFunction = entry;
+  return program;
+}
+
+/// Minimal `ball_proto` handler mirroring the accessor dispatch the self-hosted
+/// audit verb depends on: `hasX()` returns whether field `x` is present on the
+/// receiver map (the encoder's `{obj: <message>}` calling convention).
+class _BallProtoTestHandler extends BallModuleHandler {
+  @override
+  bool handles(String module) => module == 'ball_proto';
+
+  @override
+  FutureOr<Object?> call(String function, Object? input, BallCallable engine) {
+    final wrapper = _asPlainMap(input);
+    final map = wrapper == null ? null : _asPlainMap(wrapper['obj']);
+    if (function.startsWith('has') && function.length > 3) {
+      final field = _protoLowerFirst(function.substring(3));
+      return map != null && _protoPresent(map[field]);
+    }
+    throw StateError('ball_proto.$function is not implemented in this test');
+  }
+}
+
+/// Normalize an engine value to a plain Dart `Map` — the engine builds
+/// messageCreations as `BallMap`, whose backing store is exposed via `.entries`
+/// (a real `Map`), not as a `dart:core` `Map` directly.
+Map? _asPlainMap(Object? v) {
+  if (v is Map) return v;
+  if (v is BallMap) return v.entries;
+  return null;
+}
+
+bool _protoPresent(Object? v) {
+  if (v == null) return false;
+  if (v is String) return v.isNotEmpty;
+  if (v is bool) return v;
+  if (v is num) return v != 0;
+  if (v is List) return v.isNotEmpty;
+  if (v is Map) return v.isNotEmpty;
+  return true;
+}
+
+String _protoLowerFirst(String s) =>
+    s.isEmpty ? s : '${s[0].toLowerCase()}${s.substring(1)}';

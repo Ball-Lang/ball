@@ -26,16 +26,28 @@ export 'std_convert.dart' show buildStdConvertModule;
 export 'std_fs.dart' show buildStdFsModule;
 export 'std_time.dart' show buildStdTimeModule;
 export 'ball_proto.dart' show buildBallProtoModule;
-export 'capability_table.dart'
-    show Capability, capabilityRiskLevel, lookupCapability;
-export 'capability_analyzer.dart'
-    show analyzeCapabilities, formatCapabilityReport, checkPolicy;
-export 'termination_analyzer.dart'
+// The capability + termination analyzers are `part of 'cli_core.dart'` (they
+// self-host through the Ball engine, so they follow cli_core's engine-safe
+// authoring rules). Import `package:ball_base/cli_core.dart` for their Map-based
+// API (`analyzeCapabilities`, `formatCapabilityReport`, `checkPolicy`,
+// `analyzeTermination`, `formatTerminationReport`, `auditReport`, …).
+export 'cli_core.dart'
     show
+        analyzeCapabilities,
+        analyzeModuleCapabilities,
+        analyzeCapabilitiesReachable,
+        formatCapabilityReport,
+        checkPolicy,
+        checkPolicyViolations,
         analyzeTermination,
-        TerminationReport,
-        TerminationWarning,
-        formatTerminationReport;
+        analyzeModuleTermination,
+        formatTerminationReport,
+        terminationHasErrors,
+        buildCapabilityTable,
+        capabilityNames,
+        capabilityRisk,
+        lookupCapability,
+        auditReport;
 // The protobuf engine now lives in its own publishable package; re-export it so
 // existing `package:ball_base/ball_base.dart` consumers keep the same surface.
 export 'package:ball_protobuf/ball_protobuf.dart';

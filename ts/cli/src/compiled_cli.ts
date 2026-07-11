@@ -648,6 +648,24 @@ export function hasBoolValue(obj: any): boolean { return _has(obj, 'boolValue');
 export function hasNumberValue(obj: any): boolean { return _has(obj, 'numberValue'); }
 export function hasResult(obj: any): boolean { return _has(obj, 'result'); }
 export function hasCall(obj: any): boolean { return _has(obj, 'call'); }
+// Statement oneof presence (let, expression) + FieldAccess object presence,
+// issue 362. The self-hosted ball audit analyzers and engine.dart read these
+// via hasLet, hasExpression, hasObject; they route to ball_proto and compile to
+// free calls, so they need top-level definitions here (mirrors hasHttp etc.).
+export function hasLet(obj: any): boolean { return _has(obj, 'let'); }
+export function hasExpression(obj: any): boolean { return _has(obj, 'expression'); }
+export function hasObject(obj: any): boolean { return _has(obj, 'object'); }
+// Expression oneof presence (issue 362): the self-hosted ball audit
+// capability/termination analyzers dispatch expression kinds via a hasX()
+// presence cascade (hasCall/hasLiteral/hasBlock/hasLambda/hasMessageCreation/
+// hasFieldAccess/hasReference) instead of the whichExpr() enum, so these route
+// to ball_proto and compile to free calls needing top-level definitions here.
+export function hasLiteral(obj: any): boolean { return _has(obj, 'literal'); }
+export function hasBlock(obj: any): boolean { return _has(obj, 'block'); }
+export function hasLambda(obj: any): boolean { return _has(obj, 'lambda'); }
+export function hasMessageCreation(obj: any): boolean { return _has(obj, 'messageCreation'); }
+export function hasFieldAccess(obj: any): boolean { return _has(obj, 'fieldAccess'); }
+export function hasReference(obj: any): boolean { return _has(obj, 'reference'); }
 export function hasListValue(obj: any): boolean { return _has(obj, 'listValue'); }
 export function hasNullValue(obj: any): boolean { return _has(obj, 'nullValue'); }
 export function hasStructValue(obj: any): boolean { return _has(obj, 'structValue'); }
@@ -1715,14 +1733,12 @@ export function _importSource(imp: any): any {
 export function auditReport(program: any): any {
   const input = program;
   let report = analyzeCapabilities(program);
-  let buf = "";
-  buf.writeln(formatCapabilityReport(report));
-  let termReport = analyzeTermination(program);
-  if (!(termReport.warnings.length === 0)) {
-    buf.writeln('');
-    buf.writeln(formatTerminationReport(termReport));
+  let out = (__ball_to_string(formatCapabilityReport(report)) + '\n');
+  let termWarnings = analyzeTermination(program);
+  if (!(termWarnings.length === 0)) {
+    out = (((__ball_to_string(out) + '\n') + __ball_to_string(formatTerminationReport(termWarnings))) + '\n');
   }
-  return __ball_to_string(buf);
+  return out;
 }
 
 export function _allBase(functions: any): any {
@@ -1733,4 +1749,1506 @@ export function _allBase(functions: any): any {
     }
   }
   return true;
+}
+
+export function capabilityNames(): any {
+  return ['pure', 'io', 'fs', 'process', 'time', 'random', 'memory', 'concurrency', 'network', 'async'];
+}
+
+export function capabilityRisk(capability: any): any {
+  const input = capability;
+  if (__ball_eq(capability, 'pure')) {
+    return 'none';
+  }
+  if (__ball_eq(capability, 'io')) {
+    return 'low';
+  }
+  if (__ball_eq(capability, 'fs')) {
+    return 'medium';
+  }
+  if (__ball_eq(capability, 'process')) {
+    return 'high';
+  }
+  if (__ball_eq(capability, 'time')) {
+    return 'low';
+  }
+  if (__ball_eq(capability, 'random')) {
+    return 'low';
+  }
+  if (__ball_eq(capability, 'memory')) {
+    return 'high';
+  }
+  if (__ball_eq(capability, 'concurrency')) {
+    return 'medium';
+  }
+  if (__ball_eq(capability, 'network')) {
+    return 'high';
+  }
+  if (__ball_eq(capability, 'async')) {
+    return 'low';
+  }
+  return 'none';
+}
+
+export function lookupCapability(table: any, module: any, function_: any): any {
+  let key = ((__ball_to_string(module) + '.') + __ball_to_string(function_));
+  if ((key in __ball_require_map(table, 'map_contains_key'))) {
+    return __ball_index(table, key);
+  }
+  return '';
+}
+
+export function buildCapabilityTable(): any {
+  return { ['std.print']: 'io', ['std.add']: 'pure', ['std.subtract']: 'pure', ['std.multiply']: 'pure', ['std.divide']: 'pure', ['std.divide_double']: 'pure', ['std.modulo']: 'pure', ['std.negate']: 'pure', ['std.equals']: 'pure', ['std.not_equals']: 'pure', ['std.less_than']: 'pure', ['std.greater_than']: 'pure', ['std.lte']: 'pure', ['std.gte']: 'pure', ['std.and']: 'pure', ['std.or']: 'pure', ['std.not']: 'pure', ['std.bitwise_and']: 'pure', ['std.bitwise_or']: 'pure', ['std.bitwise_xor']: 'pure', ['std.bitwise_not']: 'pure', ['std.left_shift']: 'pure', ['std.right_shift']: 'pure', ['std.unsigned_right_shift']: 'pure', ['std.pre_increment']: 'pure', ['std.pre_decrement']: 'pure', ['std.post_increment']: 'pure', ['std.post_decrement']: 'pure', ['std.concat']: 'pure', ['std.length']: 'pure', ['std.to_string']: 'pure', ['std.int_to_string']: 'pure', ['std.double_to_string']: 'pure', ['std.string_to_int']: 'pure', ['std.string_to_double']: 'pure', ['std.null_coalesce']: 'pure', ['std.null_check']: 'pure', ['std.if']: 'pure', ['std.for']: 'pure', ['std.for_in']: 'pure', ['std.while']: 'pure', ['std.do_while']: 'pure', ['std.switch']: 'pure', ['std.try']: 'pure', ['std.throw']: 'pure', ['std.rethrow']: 'pure', ['std.assert']: 'pure', ['std.return']: 'pure', ['std.break']: 'pure', ['std.continue']: 'pure', ['std.yield']: 'async', ['std.yield_each']: 'async', ['std.await']: 'async', ['std.async']: 'async', ['std.assign']: 'pure', ['std.compound_assign']: 'pure', ['std.is']: 'pure', ['std.is_not']: 'pure', ['std.as']: 'pure', ['std.index']: 'pure', ['std.index_assign']: 'pure', ['std.labeled']: 'pure', ['std.label']: 'pure', ['std.goto']: 'pure', ['std.paren']: 'pure', ['std.string_length']: 'pure', ['std.string_is_empty']: 'pure', ['std.string_concat']: 'pure', ['std.string_contains']: 'pure', ['std.string_starts_with']: 'pure', ['std.string_ends_with']: 'pure', ['std.string_index_of']: 'pure', ['std.string_last_index_of']: 'pure', ['std.string_substring']: 'pure', ['std.string_char_at']: 'pure', ['std.string_char_code_at']: 'pure', ['std.string_from_char_code']: 'pure', ['std.string_to_upper']: 'pure', ['std.string_to_lower']: 'pure', ['std.string_trim']: 'pure', ['std.string_trim_start']: 'pure', ['std.string_trim_end']: 'pure', ['std.string_replace']: 'pure', ['std.string_replace_all']: 'pure', ['std.string_split']: 'pure', ['std.string_repeat']: 'pure', ['std.string_pad_left']: 'pure', ['std.string_pad_right']: 'pure', ['std.string_interpolation']: 'pure', ['std.regex_match']: 'pure', ['std.regex_find']: 'pure', ['std.regex_find_all']: 'pure', ['std.regex_replace']: 'pure', ['std.regex_replace_all']: 'pure', ['std.math_abs']: 'pure', ['std.math_floor']: 'pure', ['std.math_ceil']: 'pure', ['std.math_round']: 'pure', ['std.math_trunc']: 'pure', ['std.math_sqrt']: 'pure', ['std.math_pow']: 'pure', ['std.math_log']: 'pure', ['std.math_log2']: 'pure', ['std.math_log10']: 'pure', ['std.math_exp']: 'pure', ['std.math_sin']: 'pure', ['std.math_cos']: 'pure', ['std.math_tan']: 'pure', ['std.math_asin']: 'pure', ['std.math_acos']: 'pure', ['std.math_atan']: 'pure', ['std.math_atan2']: 'pure', ['std.math_min']: 'pure', ['std.math_max']: 'pure', ['std.math_clamp']: 'pure', ['std.math_pi']: 'pure', ['std.math_e']: 'pure', ['std.math_infinity']: 'pure', ['std.math_nan']: 'pure', ['std.math_is_nan']: 'pure', ['std.math_is_finite']: 'pure', ['std.math_is_infinite']: 'pure', ['std.math_sign']: 'pure', ['std.math_gcd']: 'pure', ['std.math_lcm']: 'pure', ['std_io.print_error']: 'io', ['std_io.read_line']: 'io', ['std_io.exit']: 'process', ['std_io.panic']: 'process', ['std_io.sleep_ms']: 'time', ['std_io.timestamp_ms']: 'time', ['std_io.random_int']: 'random', ['std_io.random_double']: 'random', ['std_io.env_get']: 'io', ['std_io.args_get']: 'io', ['std_fs.file_read']: 'fs', ['std_fs.file_read_bytes']: 'fs', ['std_fs.file_write']: 'fs', ['std_fs.file_write_bytes']: 'fs', ['std_fs.file_append']: 'fs', ['std_fs.file_exists']: 'fs', ['std_fs.file_delete']: 'fs', ['std_fs.dir_list']: 'fs', ['std_fs.dir_create']: 'fs', ['std_fs.dir_exists']: 'fs', ['std_collections.list_push']: 'pure', ['std_collections.list_pop']: 'pure', ['std_collections.list_insert']: 'pure', ['std_collections.list_remove_at']: 'pure', ['std_collections.list_get']: 'pure', ['std_collections.list_set']: 'pure', ['std_collections.list_length']: 'pure', ['std_collections.list_is_empty']: 'pure', ['std_collections.list_first']: 'pure', ['std_collections.list_last']: 'pure', ['std_collections.list_single']: 'pure', ['std_collections.list_contains']: 'pure', ['std_collections.list_index_of']: 'pure', ['std_collections.list_map']: 'pure', ['std_collections.list_filter']: 'pure', ['std_collections.list_reduce']: 'pure', ['std_collections.list_find']: 'pure', ['std_collections.list_any']: 'pure', ['std_collections.list_all']: 'pure', ['std_collections.list_none']: 'pure', ['std_collections.list_sort']: 'pure', ['std_collections.list_sort_by']: 'pure', ['std_collections.list_reverse']: 'pure', ['std_collections.list_slice']: 'pure', ['std_collections.list_flat_map']: 'pure', ['std_collections.list_zip']: 'pure', ['std_collections.list_take']: 'pure', ['std_collections.list_drop']: 'pure', ['std_collections.list_concat']: 'pure', ['std_collections.map_get']: 'pure', ['std_collections.map_set']: 'pure', ['std_collections.map_delete']: 'pure', ['std_collections.map_contains_key']: 'pure', ['std_collections.map_keys']: 'pure', ['std_collections.map_values']: 'pure', ['std_collections.map_entries']: 'pure', ['std_collections.map_from_entries']: 'pure', ['std_collections.map_merge']: 'pure', ['std_collections.map_map']: 'pure', ['std_collections.map_filter']: 'pure', ['std_collections.map_is_empty']: 'pure', ['std_collections.map_length']: 'pure', ['std_collections.set_create']: 'pure', ['std_collections.set_add']: 'pure', ['std_collections.set_remove']: 'pure', ['std_collections.set_contains']: 'pure', ['std_collections.set_union']: 'pure', ['std_collections.set_intersection']: 'pure', ['std_collections.set_difference']: 'pure', ['std_collections.set_length']: 'pure', ['std_collections.set_is_empty']: 'pure', ['std_collections.set_to_list']: 'pure', ['std_collections.string_join']: 'pure', ['std_convert.json_encode']: 'pure', ['std_convert.json_decode']: 'pure', ['std_convert.utf8_encode']: 'pure', ['std_convert.utf8_decode']: 'pure', ['std_convert.base64_encode']: 'pure', ['std_convert.base64_decode']: 'pure', ['std_time.now']: 'time', ['std_time.now_micros']: 'time', ['std_time.format_timestamp']: 'time', ['std_time.parse_timestamp']: 'time', ['std_time.duration_add']: 'pure', ['std_time.duration_subtract']: 'pure', ['std_time.year']: 'time', ['std_time.month']: 'time', ['std_time.day']: 'time', ['std_time.hour']: 'time', ['std_time.minute']: 'time', ['std_time.second']: 'time', ['std_memory.memory_alloc']: 'memory', ['std_memory.memory_free']: 'memory', ['std_memory.memory_realloc']: 'memory', ['std_memory.memory_read_i8']: 'memory', ['std_memory.memory_read_u8']: 'memory', ['std_memory.memory_read_i16']: 'memory', ['std_memory.memory_read_u16']: 'memory', ['std_memory.memory_read_i32']: 'memory', ['std_memory.memory_read_u32']: 'memory', ['std_memory.memory_read_i64']: 'memory', ['std_memory.memory_read_u64']: 'memory', ['std_memory.memory_read_f32']: 'memory', ['std_memory.memory_read_f64']: 'memory', ['std_memory.memory_write_i8']: 'memory', ['std_memory.memory_write_u8']: 'memory', ['std_memory.memory_write_i16']: 'memory', ['std_memory.memory_write_u16']: 'memory', ['std_memory.memory_write_i32']: 'memory', ['std_memory.memory_write_u32']: 'memory', ['std_memory.memory_write_i64']: 'memory', ['std_memory.memory_write_u64']: 'memory', ['std_memory.memory_write_f32']: 'memory', ['std_memory.memory_write_f64']: 'memory', ['std_memory.memory_copy']: 'memory', ['std_memory.memory_set']: 'memory', ['std_memory.memory_compare']: 'memory', ['std_memory.ptr_add']: 'memory', ['std_memory.ptr_sub']: 'memory', ['std_memory.ptr_diff']: 'memory', ['std_memory.stack_alloc']: 'memory', ['std_memory.stack_push_frame']: 'memory', ['std_memory.stack_pop_frame']: 'memory', ['std_memory.memory_sizeof']: 'memory', ['std_memory.address_of']: 'memory', ['std_memory.deref']: 'memory', ['std_memory.nullptr']: 'memory', ['std_memory.memory_heap_size']: 'memory', ['std_memory.memory_stack_size']: 'memory', ['std_concurrency.thread_spawn']: 'concurrency', ['std_concurrency.thread_join']: 'concurrency', ['std_concurrency.mutex_create']: 'concurrency', ['std_concurrency.mutex_lock']: 'concurrency', ['std_concurrency.mutex_unlock']: 'concurrency', ['std_concurrency.scoped_lock']: 'concurrency', ['std_concurrency.atomic_load']: 'concurrency', ['std_concurrency.atomic_store']: 'concurrency', ['std_concurrency.atomic_compare_exchange']: 'concurrency' };
+}
+
+export function analyzeCapabilities(program: any): any {
+  const input = program;
+  return _analyzeCapabilitiesCore({ ['modules']: program.modules, ['programName']: program.name, ['programVersion']: program.version });
+}
+
+export function analyzeModuleCapabilities(module: any, imports: any): any {
+  let modules = [module];
+  for (const m of imports) {
+    modules = (modules.push(m), modules);
+  }
+  return _analyzeCapabilitiesCore({ ['modules']: modules, ['programName']: module.name, ['programVersion']: '' });
+}
+
+export function analyzeCapabilitiesReachable(program: any): any {
+  const input = program;
+  let table = buildCapabilityTable();
+  let baseModules = _identifyBaseModules(program.modules);
+  let fnCaps = {};
+  let capSites = {};
+  let visited = [];
+  _analyzeReachableFn({ ['modules']: program.modules, ['baseModules']: baseModules, ['table']: table, ['fnCaps']: fnCaps, ['capSites']: capSites, ['visited']: visited, ['module']: program.entryModule, ['function']: program.entryFunction });
+  let functionsOut = [];
+  for (const key of fnCaps.keys) {
+    let dot = key.indexOf('.');
+    let mod = key.substring(0, dot);
+    let fn = key.substring(__ball_add(dot, 1));
+    functionsOut = (functionsOut.push({ ['module']: mod, ['function']: fn, ['capabilities']: __ball_index(fnCaps, key) }), functionsOut);
+  }
+  return _buildReportFromFunctions(program.name, program.version, functionsOut, capSites);
+}
+
+export function _analyzeReachableFn(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let baseModules = __ball_index(ctx, 'baseModules');
+  let table = __ball_index(ctx, 'table');
+  let fnCaps = __ball_index(ctx, 'fnCaps');
+  let capSites = __ball_index(ctx, 'capSites');
+  let visited = __ball_index(ctx, 'visited');
+  let moduleName = __ball_index(ctx, 'module');
+  let fnName = __ball_index(ctx, 'function');
+  let key = ((__ball_to_string(moduleName) + '.') + __ball_to_string(fnName));
+  if (visited.includes(key)) {
+    return;
+  }
+  visited = (visited.push(key), visited);
+  if (baseModules.includes(moduleName)) {
+    return;
+  }
+  for (const module of modules) {
+    if (!__ball_eq(module.name, moduleName)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (!__ball_eq(fn.name, fnName)) {
+        continue;
+      }
+      if (fn.isBase) {
+        return;
+      }
+      let caps = [];
+      let callees = [];
+      if (!hasBody(fn)) {
+        fnCaps[key] = caps;
+        return;
+      }
+      _walkCap({ ['expr']: fn.body, ['module']: moduleName, ['function']: fnName, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+      fnCaps[key] = caps;
+      for (const callee of callees) {
+        _analyzeReachableFn({ ['modules']: modules, ['baseModules']: baseModules, ['table']: table, ['fnCaps']: fnCaps, ['capSites']: capSites, ['visited']: visited, ['module']: __ball_index(callee, 'module'), ['function']: __ball_index(callee, 'function') });
+        let calleeKey = ((__ball_to_string(__ball_index(callee, 'module')) + '.') + __ball_to_string(__ball_index(callee, 'function')));
+        if ((calleeKey in __ball_require_map(fnCaps, 'map_contains_key'))) {
+          let calleeCaps = __ball_index(fnCaps, calleeKey);
+          for (const c of calleeCaps) {
+            if (!caps.includes(c)) {
+              caps = (caps.push(c), caps);
+            }
+          }
+        }
+      }
+      return;
+    }
+  }
+}
+
+export function _analyzeCapabilitiesCore(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let programName = __ball_index(ctx, 'programName');
+  let programVersion = __ball_index(ctx, 'programVersion');
+  let table = buildCapabilityTable();
+  let baseModules = _identifyBaseModules(modules);
+  let functionsOut = [];
+  let capSites = {};
+  for (const module of modules) {
+    if (baseModules.includes(module.name)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (fn.isBase) {
+        continue;
+      }
+      let caps = [];
+      if (hasBody(fn)) {
+        _walkCap({ ['expr']: fn.body, ['module']: module.name, ['function']: fn.name, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: null });
+      }
+      functionsOut = (functionsOut.push({ ['module']: module.name, ['function']: fn.name, ['capabilities']: caps }), functionsOut);
+    }
+  }
+  return _buildReportFromFunctions(programName, programVersion, functionsOut, capSites);
+}
+
+export function _identifyBaseModules(modules: any): any {
+  const input = modules;
+  let baseModules = [];
+  for (const module of modules) {
+    let allBase = true;
+    let hasAny = false;
+    for (const f of module.functions) {
+      hasAny = true;
+      if (!f.isBase) {
+        allBase = false;
+      }
+    }
+    if ((allBase && hasAny)) {
+      baseModules = (baseModules.push(module.name), baseModules);
+    }
+  }
+  return baseModules;
+}
+
+export function _walkCap(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let module = __ball_index(ctx, 'module');
+  let function_ = __ball_index(ctx, 'function');
+  let caps = __ball_index(ctx, 'caps');
+  let capSites = __ball_index(ctx, 'capSites');
+  let table = __ball_index(ctx, 'table');
+  let callees = __ball_index(ctx, 'callees');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasCall(expr)) {
+    _walkCapCall({ ['call']: expr.call, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+  } else {
+    if (hasLiteral(expr)) {
+      let lit = expr.literal;
+      if (hasListValue(lit)) {
+        for (const elem of lit.listValue.elements) {
+          _walkCap({ ['expr']: elem, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+        }
+      }
+    } else {
+      if (hasBlock(expr)) {
+        for (const stmt of expr.block.statements) {
+          if (hasLet(stmt)) {
+            _walkCap({ ['expr']: stmt.let.value, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+          }
+          if (hasExpression(stmt)) {
+            _walkCap({ ['expr']: stmt.expression, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+          }
+        }
+        if (hasResult(expr.block)) {
+          _walkCap({ ['expr']: expr.block.result, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+        }
+      } else {
+        if (hasLambda(expr)) {
+          _walkCap({ ['expr']: expr.lambda.body, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+        } else {
+          if (hasMessageCreation(expr)) {
+            for (const field of expr.messageCreation.fields) {
+              _walkCap({ ['expr']: field.value, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+            }
+          } else {
+            if (hasFieldAccess(expr)) {
+              if (hasObject(expr.fieldAccess)) {
+                _walkCap({ ['expr']: expr.fieldAccess.object, ['module']: module, ['function']: function_, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _walkCapCall(ctx: any): any {
+  const input = ctx;
+  let call = __ball_index(ctx, 'call');
+  let contextModule = __ball_index(ctx, 'module');
+  let contextFunction = __ball_index(ctx, 'function');
+  let caps = __ball_index(ctx, 'caps');
+  let capSites = __ball_index(ctx, 'capSites');
+  let table = __ball_index(ctx, 'table');
+  let callees = __ball_index(ctx, 'callees');
+  let module = ((call.module.length === 0) ? contextModule : call.module);
+  let fn = call.function;
+  let cap = lookupCapability(table, module, fn);
+  if (!(cap.length === 0)) {
+    if (!caps.includes(cap)) {
+      caps = (caps.push(cap), caps);
+    }
+    if (!__ball_eq(cap, 'pure')) {
+      let sites;
+      if ((cap in __ball_require_map(capSites, 'map_contains_key'))) {
+        sites = __ball_index(capSites, cap);
+      } else {
+        sites = [];
+        capSites[cap] = sites;
+      }
+      sites = (sites.push({ ['module']: contextModule, ['function']: contextFunction, ['calleeModule']: module, ['calleeFunction']: fn }), sites);
+    }
+  } else {
+    if (!__ball_eq(callees, null)) {
+      callees = (callees.push({ ['module']: module, ['function']: fn }), callees);
+    }
+  }
+  if (hasInput(call)) {
+    _walkCap({ ['expr']: call.input, ['module']: contextModule, ['function']: contextFunction, ['caps']: caps, ['capSites']: capSites, ['table']: table, ['callees']: callees });
+  }
+}
+
+export function _buildReportFromFunctions(programName: any, programVersion: any, functionsOut: any, capSites: any): any {
+  let allCaps = [];
+  let totalFns = 0;
+  let pureFns = 0;
+  let effectfulFns = 0;
+  for (const entry of functionsOut) {
+    let entryCaps = __ball_index(entry, 'capabilities');
+    for (const c of entryCaps) {
+      if (!allCaps.includes(c)) {
+        allCaps = (allCaps.push(c), allCaps);
+      }
+    }
+    (totalFns++);
+    let onlyPure = true;
+    for (const c of entryCaps) {
+      if (!__ball_eq(c, 'pure')) {
+        onlyPure = false;
+      }
+    }
+    if (onlyPure) {
+      (pureFns++);
+    } else {
+      (effectfulFns++);
+    }
+  }
+  let capabilitiesOut = [];
+  for (const cap of capabilityNames()) {
+    let present = allCaps.includes(cap);
+    if ((!present && !__ball_eq(cap, 'pure'))) {
+      continue;
+    }
+    let sites;
+    if ((cap in __ball_require_map(capSites, 'map_contains_key'))) {
+      sites = __ball_index(capSites, cap);
+    } else {
+      sites = [];
+    }
+    if (((__ball_eq(cap, 'pure') && (sites.length === 0)) && present)) {
+      capabilitiesOut = (capabilitiesOut.push({ ['capability']: cap, ['riskLevel']: capabilityRisk(cap), ['callSites']: [] }), capabilitiesOut);
+      continue;
+    }
+    if (!(sites.length === 0)) {
+      capabilitiesOut = (capabilitiesOut.push({ ['capability']: cap, ['riskLevel']: capabilityRisk(cap), ['callSites']: sites }), capabilitiesOut);
+    }
+  }
+  let ioSites = (('io' in __ball_require_map(capSites, 'map_contains_key')) ? __ball_index(capSites, 'io') : []);
+  let readsStdin = false;
+  let writesStdout = false;
+  let writesStderr = false;
+  let readsEnvironment = false;
+  for (const s of ioSites) {
+    let callee = __ball_index(s, 'calleeFunction');
+    if (__ball_eq(callee, 'read_line')) {
+      readsStdin = true;
+    }
+    if ((__ball_eq(callee, 'print') || __ball_eq(callee, 'print_error'))) {
+      writesStdout = true;
+    }
+    if (__ball_eq(callee, 'print_error')) {
+      writesStderr = true;
+    }
+    if ((__ball_eq(callee, 'env_get') || __ball_eq(callee, 'args_get'))) {
+      readsEnvironment = true;
+    }
+  }
+  let isPure = true;
+  for (const c of allCaps) {
+    if (!__ball_eq(c, 'pure')) {
+      isPure = false;
+    }
+  }
+  let summary = { ['isPure']: isPure, ['readsFilesystem']: allCaps.includes('fs'), ['writesFilesystem']: allCaps.includes('fs'), ['readsStdin']: readsStdin, ['writesStdout']: writesStdout, ['writesStderr']: writesStderr, ['readsEnvironment']: readsEnvironment, ['controlsProcess']: allCaps.includes('process'), ['usesMemory']: allCaps.includes('memory'), ['usesTime']: allCaps.includes('time'), ['usesRandom']: allCaps.includes('random'), ['usesConcurrency']: allCaps.includes('concurrency'), ['usesNetwork']: allCaps.includes('network'), ['totalFunctions']: totalFns, ['pureFunctions']: pureFns, ['effectfulFunctions']: effectfulFns };
+  return { ['programName']: programName, ['programVersion']: programVersion, ['capabilities']: capabilitiesOut, ['functions']: functionsOut, ['summary']: summary };
+}
+
+export function formatCapabilityReport(report: any): any {
+  const input = report;
+  let lines = [];
+  lines = (lines.push(((('Ball Capability Audit: ' + __ball_to_string(__ball_index(report, 'programName'))) + ' v') + __ball_to_string(__ball_index(report, 'programVersion')))), lines);
+  lines = (lines.push('============================================================'), lines);
+  lines = (lines.push(''), lines);
+  lines = (lines.push('Capabilities:'), lines);
+  let capabilities = __ball_index(report, 'capabilities');
+  for (const entry of capabilities) {
+    let icon = (__ball_eq(__ball_index(entry, 'riskLevel'), 'none') ? '\u2713' : '\u26a0');
+    let callSites = __ball_index(entry, 'callSites');
+    let siteCount = callSites.length;
+    if (__ball_eq(siteCount, 0)) {
+      lines = (lines.push((((('  ' + __ball_to_string(icon)) + ' ') + __ball_to_string(__ball_index(entry, 'capability'))) + ' (pure computation)')), lines);
+    } else {
+      let siteStrs = [];
+      for (const s of callSites) {
+        siteStrs = (siteStrs.push(((((((__ball_to_string(__ball_index(s, 'module')) + '.') + __ball_to_string(__ball_index(s, 'function'))) + ' \u2192 ') + __ball_to_string(__ball_index(s, 'calleeModule'))) + '.') + __ball_to_string(__ball_index(s, 'calleeFunction')))), siteStrs);
+      }
+      let sites = siteStrs.join(', ');
+      lines = (lines.push((((((((('  ' + __ball_to_string(icon)) + ' ') + __ball_to_string(__ball_index(entry, 'capability'))) + ' (') + __ball_to_string(siteCount)) + ' call sites: ') + __ball_to_string(sites)) + ')')), lines);
+    }
+  }
+  let s = __ball_index(report, 'summary');
+  let absent = [];
+  let readsFs = __ball_index(s, 'readsFilesystem');
+  let writesFs = __ball_index(s, 'writesFilesystem');
+  if ((__ball_eq(readsFs, false) && __ball_eq(writesFs, false))) {
+    absent = (absent.push('filesystem'), absent);
+  }
+  if (__ball_eq(__ball_index(s, 'usesNetwork'), false)) {
+    absent = (absent.push('network'), absent);
+  }
+  if (__ball_eq(__ball_index(s, 'controlsProcess'), false)) {
+    absent = (absent.push('process'), absent);
+  }
+  if (__ball_eq(__ball_index(s, 'usesMemory'), false)) {
+    absent = (absent.push('memory'), absent);
+  }
+  if (__ball_eq(__ball_index(s, 'usesConcurrency'), false)) {
+    absent = (absent.push('concurrency'), absent);
+  }
+  if (__ball_eq(__ball_index(s, 'usesRandom'), false)) {
+    absent = (absent.push('random'), absent);
+  }
+  if (!(absent.length === 0)) {
+    lines = (lines.push(('  \u2717 NONE: ' + __ball_to_string(absent.join(', ')))), lines);
+  }
+  lines = (lines.push(''), lines);
+  let isPure = __ball_eq(__ball_index(s, 'isPure'), true);
+  let controlsProcess = __ball_eq(__ball_index(s, 'controlsProcess'), true);
+  let usesMemory = __ball_eq(__ball_index(s, 'usesMemory'), true);
+  let usesNetwork = __ball_eq(__ball_index(s, 'usesNetwork'), true);
+  let rFs = __ball_eq(__ball_index(s, 'readsFilesystem'), true);
+  let wFs = __ball_eq(__ball_index(s, 'writesFilesystem'), true);
+  let usesConcurrency = __ball_eq(__ball_index(s, 'usesConcurrency'), true);
+  let risk;
+  if (isPure) {
+    risk = 'NO RISK \u2014 pure computation only';
+  } else {
+    if (((controlsProcess || usesMemory) || usesNetwork)) {
+      risk = 'HIGH RISK';
+    } else {
+      if (((rFs || wFs) || usesConcurrency)) {
+        risk = 'MEDIUM RISK';
+      } else {
+        risk = 'LOW RISK';
+      }
+    }
+  }
+  lines = (lines.push(('Summary: ' + __ball_to_string(risk))), lines);
+  lines = (lines.push((((((('  ' + __ball_to_string(__ball_index(s, 'totalFunctions'))) + ' functions: ') + __ball_to_string(__ball_index(s, 'pureFunctions'))) + ' pure, ') + __ball_to_string(__ball_index(s, 'effectfulFunctions'))) + ' effectful')), lines);
+  lines = (lines.push(''), lines);
+  lines = (lines.push('Per-function breakdown:'), lines);
+  let functions = __ball_index(report, 'functions');
+  for (const fn of functions) {
+    let fnCaps = __ball_index(fn, 'capabilities');
+    let nonPure = [];
+    for (const c of fnCaps) {
+      if (!__ball_eq(c, 'pure')) {
+        nonPure = (nonPure.push(c), nonPure);
+      }
+    }
+    let label = ((nonPure.length === 0) ? 'pure' : nonPure.join(', '));
+    lines = (lines.push(((((('  ' + __ball_to_string(__ball_index(fn, 'module'))) + '.') + __ball_to_string(__ball_index(fn, 'function'))) + ' \u2192 ') + __ball_to_string(label))), lines);
+  }
+  return (__ball_to_string(lines.join('\n')) + '\n');
+}
+
+export function checkPolicy(report: any, deny: any): any {
+  let denyList = [];
+  for (const d of deny) {
+    denyList = (denyList.push(d), denyList);
+  }
+  return checkPolicyViolations({ ['report']: report, ['deny']: denyList });
+}
+
+export function checkPolicyViolations(ctx: any): any {
+  const input = ctx;
+  let report = __ball_index(ctx, 'report');
+  let deny = __ball_index(ctx, 'deny');
+  let violations = [];
+  let capabilities = __ball_index(report, 'capabilities');
+  for (const entry of capabilities) {
+    if (deny.includes(__ball_index(entry, 'capability'))) {
+      let callSites = __ball_index(entry, 'callSites');
+      for (const site of callSites) {
+        violations = (violations.push(((((((__ball_to_string(__ball_index(entry, 'capability')) + ': ') + __ball_to_string(__ball_index(site, 'module'))) + '.') + __ball_to_string(__ball_index(site, 'function'))) + ' calls ') + ((__ball_to_string(__ball_index(site, 'calleeModule')) + '.') + __ball_to_string(__ball_index(site, 'calleeFunction'))))), violations);
+      }
+    }
+  }
+  return violations;
+}
+
+export function analyzeTermination(program: any): any {
+  const input = program;
+  return _analyzeTerminationCore({ ['modules']: program.modules });
+}
+
+export function analyzeModuleTermination(module: any, imports: any): any {
+  let modules = [module];
+  for (const m of imports) {
+    modules = (modules.push(m), modules);
+  }
+  return _analyzeTerminationCore({ ['modules']: modules });
+}
+
+export function _analyzeTerminationCore(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let baseModules = _identifyBaseModules(modules);
+  let warnings = [];
+  let callGraph = _buildCallGraph({ ['modules']: modules, ['baseModules']: baseModules });
+  _checkLoops({ ['modules']: modules, ['baseModules']: baseModules, ['warnings']: warnings });
+  _checkRecursion({ ['modules']: modules, ['callGraph']: callGraph, ['warnings']: warnings });
+  _checkUnreachableCode({ ['modules']: modules, ['baseModules']: baseModules, ['warnings']: warnings });
+  _checkOrphanedLabels({ ['modules']: modules, ['baseModules']: baseModules, ['warnings']: warnings });
+  return warnings;
+}
+
+export function formatTerminationReport(warnings: any): any {
+  const input = warnings;
+  let lines = [];
+  lines = (lines.push('Termination Analysis'), lines);
+  lines = (lines.push('============================================================'), lines);
+  lines = (lines.push(''), lines);
+  if ((warnings.length === 0)) {
+    lines = (lines.push('No issues found.'), lines);
+    return (__ball_to_string(lines.join('\n')) + '\n');
+  }
+  let categoryOrder = [];
+  let byCategory = {};
+  for (const w of warnings) {
+    let cat = __ball_index(w, 'category');
+    if (!(cat in __ball_require_map(byCategory, 'map_contains_key'))) {
+      categoryOrder = (categoryOrder.push(cat), categoryOrder);
+      byCategory[cat] = [];
+    }
+    let bucket = __ball_index(byCategory, cat);
+    bucket = (bucket.push(w), bucket);
+  }
+  for (const cat of categoryOrder) {
+    let bucket = __ball_index(byCategory, cat);
+    lines = (lines.push((((__ball_to_string(_categoryLabel(cat)) + ' (') + __ball_to_string(bucket.length)) + '):')), lines);
+    for (const w of bucket) {
+      let sev = __ball_index(w, 'severity');
+      let icon = (__ball_eq(sev, 'error') ? '\u2716' : ((__ball_eq(sev, 'warning') ? '\u26a0' : '\u2139')));
+      lines = (lines.push(((((('  ' + __ball_to_string(icon)) + ' ') + __ball_to_string(__ball_index(w, 'location'))) + ': ') + __ball_to_string(__ball_index(w, 'message')))), lines);
+    }
+    lines = (lines.push(''), lines);
+  }
+  let errors = 0;
+  let warns = 0;
+  let infos = 0;
+  for (const w of warnings) {
+    let sev = __ball_index(w, 'severity');
+    if (__ball_eq(sev, 'error')) {
+      (errors++);
+    }
+    if (__ball_eq(sev, 'warning')) {
+      (warns++);
+    }
+    if (__ball_eq(sev, 'info')) {
+      (infos++);
+    }
+  }
+  lines = (lines.push((((((('Total: ' + __ball_to_string(errors)) + ' error(s), ') + __ball_to_string(warns)) + ' warning(s), ') + __ball_to_string(infos)) + ' info(s)')), lines);
+  return (__ball_to_string(lines.join('\n')) + '\n');
+}
+
+export function _categoryLabel(category: any): any {
+  const input = category;
+  if (__ball_eq(category, 'infinite_loop')) {
+    return 'Potential Infinite Loops';
+  }
+  if (__ball_eq(category, 'unbounded_recursion')) {
+    return 'Unbounded Recursion';
+  }
+  if (__ball_eq(category, 'unreachable_code')) {
+    return 'Unreachable Code';
+  }
+  if (__ball_eq(category, 'orphaned_label')) {
+    return 'Orphaned Labels';
+  }
+  return category;
+}
+
+export function terminationHasErrors(warnings: any): any {
+  const input = warnings;
+  for (const w of warnings) {
+    if (__ball_eq(__ball_index(w, 'severity'), 'error')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function _buildCallGraph(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let baseModules = __ball_index(ctx, 'baseModules');
+  let graph = [];
+  for (const module of modules) {
+    if (baseModules.includes(module.name)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (fn.isBase) {
+        continue;
+      }
+      if (!hasBody(fn)) {
+        continue;
+      }
+      let key = ((__ball_to_string(module.name) + '.') + __ball_to_string(fn.name));
+      let callees = [];
+      _collectCallees({ ['expr']: fn.body, ['contextModule']: module.name, ['baseModules']: baseModules, ['callees']: callees });
+      graph = (graph.push({ ['key']: key, ['callees']: callees }), graph);
+    }
+  }
+  return graph;
+}
+
+export function _collectCallees(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let contextModule = __ball_index(ctx, 'contextModule');
+  let baseModules = __ball_index(ctx, 'baseModules');
+  let callees = __ball_index(ctx, 'callees');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? contextModule : call.module);
+    let fn = call.function;
+    if (!baseModules.includes(module)) {
+      let ck = ((__ball_to_string(module) + '.') + __ball_to_string(fn));
+      if (!callees.includes(ck)) {
+        callees = (callees.push(ck), callees);
+      }
+    }
+    if (hasInput(call)) {
+      _collectCallees({ ['expr']: call.input, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+    }
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if (hasLet(stmt)) {
+          _collectCallees({ ['expr']: stmt.let.value, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+        }
+        if (hasExpression(stmt)) {
+          _collectCallees({ ['expr']: stmt.expression, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+        }
+      }
+      if (hasResult(expr.block)) {
+        _collectCallees({ ['expr']: expr.block.result, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+      }
+    } else {
+      if (hasLambda(expr)) {
+        _collectCallees({ ['expr']: expr.lambda.body, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _collectCallees({ ['expr']: field.value, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _collectCallees({ ['expr']: expr.fieldAccess.object, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+            }
+          } else {
+            if (hasLiteral(expr)) {
+              if (hasListValue(expr.literal)) {
+                for (const elem of expr.literal.listValue.elements) {
+                  _collectCallees({ ['expr']: elem, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _checkLoops(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let baseModules = __ball_index(ctx, 'baseModules');
+  let warnings = __ball_index(ctx, 'warnings');
+  for (const module of modules) {
+    if (baseModules.includes(module.name)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (fn.isBase) {
+        continue;
+      }
+      if (!hasBody(fn)) {
+        continue;
+      }
+      _checkLoopsInExpr({ ['expr']: fn.body, ['moduleName']: module.name, ['fnName']: fn.name, ['warnings']: warnings });
+    }
+  }
+}
+
+export function _checkLoopsInExpr(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let moduleName = __ball_index(ctx, 'moduleName');
+  let fnName = __ball_index(ctx, 'fnName');
+  let warnings = __ball_index(ctx, 'warnings');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let callModule = ((call.module.length === 0) ? 'std' : call.module);
+    let callFn = call.function;
+    if ((__ball_eq(callModule, 'std') && __ball_eq(callFn, 'while'))) {
+      _checkWhileLoop({ ['call']: call, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings, ['kind']: 'while' });
+    } else {
+      if ((__ball_eq(callModule, 'std') && __ball_eq(callFn, 'do_while'))) {
+        _checkWhileLoop({ ['call']: call, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings, ['kind']: 'do-while' });
+      } else {
+        if ((__ball_eq(callModule, 'std') && __ball_eq(callFn, 'for'))) {
+          _checkForLoop({ ['call']: call, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+        }
+      }
+    }
+    if (hasInput(call)) {
+      _checkLoopsInExpr({ ['expr']: call.input, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+    }
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if (hasLet(stmt)) {
+          _checkLoopsInExpr({ ['expr']: stmt.let.value, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+        }
+        if (hasExpression(stmt)) {
+          _checkLoopsInExpr({ ['expr']: stmt.expression, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+        }
+      }
+      if (hasResult(expr.block)) {
+        _checkLoopsInExpr({ ['expr']: expr.block.result, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+      }
+    } else {
+      if (hasLambda(expr)) {
+        _checkLoopsInExpr({ ['expr']: expr.lambda.body, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _checkLoopsInExpr({ ['expr']: field.value, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _checkLoopsInExpr({ ['expr']: expr.fieldAccess.object, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _checkWhileLoop(ctx: any): any {
+  const input = ctx;
+  let call = __ball_index(ctx, 'call');
+  let moduleName = __ball_index(ctx, 'moduleName');
+  let fnName = __ball_index(ctx, 'fnName');
+  let warnings = __ball_index(ctx, 'warnings');
+  let kind = __ball_index(ctx, 'kind');
+  let location = ((__ball_to_string(moduleName) + '.') + __ball_to_string(fnName));
+  if (!hasInput(call)) {
+    return;
+  }
+  let callInput = call.input;
+  if (!hasMessageCreation(callInput)) {
+    return;
+  }
+  let fields = callInput.messageCreation.fields;
+  let condition = _getFieldValue({ ['fields']: fields, ['name']: 'condition' });
+  let body = _getFieldValue({ ['fields']: fields, ['name']: 'body' });
+  if ((__ball_eq(condition, null) || __ball_eq(body, null))) {
+    return;
+  }
+  let isLiteralTrue = _isLiteralTrue(condition);
+  let condVars = [];
+  _collectReferencedVars({ ['expr']: condition, ['vars']: condVars });
+  let hasExit = _exprHasExitSignal(body);
+  let mutatedVars = [];
+  _collectMutatedVars({ ['expr']: body, ['vars']: mutatedVars });
+  if ((isLiteralTrue && !hasExit)) {
+    warnings = (warnings.push({ ['severity']: 'warning', ['category']: 'infinite_loop', ['message']: (__ball_to_string(kind) + '(true) loop without break or return in body'), ['location']: location }), warnings);
+    return;
+  }
+  let intersects = false;
+  for (const v of condVars) {
+    if (mutatedVars.includes(v)) {
+      intersects = true;
+    }
+  }
+  if ((((!isLiteralTrue && !(condVars.length === 0)) && !hasExit) && !intersects)) {
+    warnings = (warnings.push({ ['severity']: 'warning', ['category']: 'infinite_loop', ['message']: ((((__ball_to_string(kind) + ' loop condition references ') + __ball_to_string(condVars.join(', '))) + ' but body ') + 'does not modify any of them and has no break/return'), ['location']: location }), warnings);
+  }
+}
+
+export function _checkForLoop(ctx: any): any {
+  const input = ctx;
+  let call = __ball_index(ctx, 'call');
+  let moduleName = __ball_index(ctx, 'moduleName');
+  let fnName = __ball_index(ctx, 'fnName');
+  let warnings = __ball_index(ctx, 'warnings');
+  let location = ((__ball_to_string(moduleName) + '.') + __ball_to_string(fnName));
+  if (!hasInput(call)) {
+    return;
+  }
+  let callInput = call.input;
+  if (!hasMessageCreation(callInput)) {
+    return;
+  }
+  let fields = callInput.messageCreation.fields;
+  let update = _getFieldValue({ ['fields']: fields, ['name']: 'update' });
+  let body = _getFieldValue({ ['fields']: fields, ['name']: 'body' });
+  let hasUpdate = (!__ball_eq(update, null) && _exprIsSet(update));
+  let hasExit = (!__ball_eq(body, null) && _exprHasExitSignal(body));
+  if ((!hasUpdate && !hasExit)) {
+    warnings = (warnings.push({ ['severity']: 'warning', ['category']: 'infinite_loop', ['message']: 'for loop without update expression and no break/return in body', ['location']: location }), warnings);
+  }
+}
+
+export function _checkRecursion(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let callGraph = __ball_index(ctx, 'callGraph');
+  let warnings = __ball_index(ctx, 'warnings');
+  let cycles = _findCycles({ ['callGraph']: callGraph });
+  for (const cycle of cycles) {
+    let cycleList = cycle;
+    for (const fnKey of cycleList) {
+      if (!_hasBaseCase({ ['modules']: modules, ['fnKey']: fnKey })) {
+        let cycleDesc = (__ball_eq(cycleList.length, 1) ? 'direct recursion' : ('mutual recursion cycle: ' + __ball_to_string(cycleList.join(' -> '))));
+        warnings = (warnings.push({ ['severity']: 'warning', ['category']: 'unbounded_recursion', ['message']: (__ball_to_string(cycleDesc) + ' without conditional return (no base case detected)'), ['location']: fnKey }), warnings);
+        break;
+      }
+    }
+  }
+}
+
+export function _findCycles(ctx: any): any {
+  const input = ctx;
+  let callGraph = __ball_index(ctx, 'callGraph');
+  let visited = [];
+  let stack = [];
+  let cycles = [];
+  let reportedCycles = [];
+  for (const entry of callGraph) {
+    _dfsCycles({ ['callGraph']: callGraph, ['visited']: visited, ['stack']: stack, ['cycles']: cycles, ['reportedCycles']: reportedCycles, ['node']: __ball_index(entry, 'key') });
+  }
+  return cycles;
+}
+
+export function _dfsCycles(ctx: any): any {
+  const input = ctx;
+  let callGraph = __ball_index(ctx, 'callGraph');
+  let visited = __ball_index(ctx, 'visited');
+  let stack = __ball_index(ctx, 'stack');
+  let cycles = __ball_index(ctx, 'cycles');
+  let reportedCycles = __ball_index(ctx, 'reportedCycles');
+  let node = __ball_index(ctx, 'node');
+  if (visited.includes(node)) {
+    return;
+  }
+  visited = (visited.push(node), visited);
+  stack = (stack.push(node), stack);
+  let neighbors = _calleesOf(callGraph, node);
+  for (const neighbor of neighbors) {
+    if (stack.includes(neighbor)) {
+      let cycleStart = stack.indexOf(neighbor);
+      if (__ball_ge(cycleStart, 0)) {
+        let cycle = stack.slice(cycleStart);
+        let normalized = [];
+        for (const c of cycle) {
+          normalized = (normalized.push(c), normalized);
+        }
+        normalized = [...normalized].sort((a, b) => a < b ? -1 : a > b ? 1 : 0);
+        let key = normalized.join(',');
+        if (!reportedCycles.includes(key)) {
+          reportedCycles = (reportedCycles.push(key), reportedCycles);
+          cycles = (cycles.push(cycle), cycles);
+        }
+      }
+    } else {
+      if (!visited.includes(neighbor)) {
+        _dfsCycles({ ['callGraph']: callGraph, ['visited']: visited, ['stack']: stack, ['cycles']: cycles, ['reportedCycles']: reportedCycles, ['node']: neighbor });
+      }
+    }
+  }
+  stack.pop();
+}
+
+export function _calleesOf(callGraph: any, node: any): any {
+  for (const entry of callGraph) {
+    if (__ball_eq(__ball_index(entry, 'key'), node)) {
+      return __ball_index(entry, 'callees');
+    }
+  }
+  return [];
+}
+
+export function _hasBaseCase(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let fnKey = __ball_index(ctx, 'fnKey');
+  let fn = _findFunction(modules, fnKey);
+  if (__ball_eq(fn, null)) {
+    return true;
+  }
+  if (!hasBody(fn)) {
+    return true;
+  }
+  return _exprContainsConditionalReturn(fn.body);
+}
+
+export function _exprContainsConditionalReturn(expr: any): any {
+  const input = expr;
+  if (__ball_eq(expr, null)) {
+    return false;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? 'std' : call.module);
+    if (((__ball_eq(module, 'std') && __ball_eq(call.function, 'if')) && hasInput(call))) {
+      let callInput = call.input;
+      if (hasMessageCreation(callInput)) {
+        let thenBranch = _getFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'then' });
+        let elseBranch = _getFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'else' });
+        if ((!__ball_eq(thenBranch, null) && _exprContainsReturn(thenBranch))) {
+          return true;
+        }
+        if ((!__ball_eq(elseBranch, null) && _exprContainsReturn(elseBranch))) {
+          return true;
+        }
+      }
+    }
+    if (hasInput(call)) {
+      if (_exprContainsConditionalReturn(call.input)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if ((hasLet(stmt) && _exprContainsConditionalReturn(stmt.let.value))) {
+          return true;
+        }
+        if ((hasExpression(stmt) && _exprContainsConditionalReturn(stmt.expression))) {
+          return true;
+        }
+      }
+      if ((hasResult(expr.block) && _exprContainsConditionalReturn(expr.block.result))) {
+        return true;
+      }
+      return false;
+    } else {
+      if (hasLambda(expr)) {
+        return _exprContainsConditionalReturn(expr.lambda.body);
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            if (_exprContainsConditionalReturn(field.value)) {
+              return true;
+            }
+          }
+          return false;
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              return _exprContainsConditionalReturn(expr.fieldAccess.object);
+            }
+            return false;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+export function _exprContainsReturn(expr: any): any {
+  const input = expr;
+  if (__ball_eq(expr, null)) {
+    return false;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? 'std' : call.module);
+    if ((__ball_eq(module, 'std') && __ball_eq(call.function, 'return'))) {
+      return true;
+    }
+    if (hasInput(call)) {
+      if (_exprContainsReturn(call.input)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if ((hasLet(stmt) && _exprContainsReturn(stmt.let.value))) {
+          return true;
+        }
+        if ((hasExpression(stmt) && _exprContainsReturn(stmt.expression))) {
+          return true;
+        }
+      }
+      if ((hasResult(expr.block) && _exprContainsReturn(expr.block.result))) {
+        return true;
+      }
+      return false;
+    } else {
+      if (hasLambda(expr)) {
+        return _exprContainsReturn(expr.lambda.body);
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            if (_exprContainsReturn(field.value)) {
+              return true;
+            }
+          }
+          return false;
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              return _exprContainsReturn(expr.fieldAccess.object);
+            }
+            return false;
+          }
+        }
+      }
+    }
+  }
+  return false;
+}
+
+export function _findFunction(modules: any, key: any): any {
+  let dot = key.indexOf('.');
+  if (__ball_lt(dot, 0)) {
+    return null;
+  }
+  let moduleName = key.substring(0, dot);
+  let fnName = key.substring(__ball_add(dot, 1));
+  for (const module of modules) {
+    if (!__ball_eq(module.name, moduleName)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (__ball_eq(fn.name, fnName)) {
+        return fn;
+      }
+    }
+  }
+}
+
+export function _checkUnreachableCode(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let baseModules = __ball_index(ctx, 'baseModules');
+  let warnings = __ball_index(ctx, 'warnings');
+  for (const module of modules) {
+    if (baseModules.includes(module.name)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (fn.isBase) {
+        continue;
+      }
+      if (!hasBody(fn)) {
+        continue;
+      }
+      _checkUnreachableInExpr({ ['expr']: fn.body, ['moduleName']: module.name, ['fnName']: fn.name, ['warnings']: warnings });
+    }
+  }
+}
+
+export function _checkUnreachableInExpr(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let moduleName = __ball_index(ctx, 'moduleName');
+  let fnName = __ball_index(ctx, 'fnName');
+  let warnings = __ball_index(ctx, 'warnings');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasBlock(expr)) {
+    _checkBlockUnreachable({ ['block']: expr.block, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+    for (const stmt of expr.block.statements) {
+      if (hasLet(stmt)) {
+        _checkUnreachableInExpr({ ['expr']: stmt.let.value, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+      }
+      if (hasExpression(stmt)) {
+        _checkUnreachableInExpr({ ['expr']: stmt.expression, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+      }
+    }
+    if (hasResult(expr.block)) {
+      _checkUnreachableInExpr({ ['expr']: expr.block.result, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+    }
+  } else {
+    if (hasCall(expr)) {
+      if (hasInput(expr.call)) {
+        _checkUnreachableInExpr({ ['expr']: expr.call.input, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+      }
+    } else {
+      if (hasLambda(expr)) {
+        _checkUnreachableInExpr({ ['expr']: expr.lambda.body, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _checkUnreachableInExpr({ ['expr']: field.value, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _checkUnreachableInExpr({ ['expr']: expr.fieldAccess.object, ['moduleName']: moduleName, ['fnName']: fnName, ['warnings']: warnings });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _checkBlockUnreachable(ctx: any): any {
+  const input = ctx;
+  let block = __ball_index(ctx, 'block');
+  let moduleName = __ball_index(ctx, 'moduleName');
+  let fnName = __ball_index(ctx, 'fnName');
+  let warnings = __ball_index(ctx, 'warnings');
+  let statements = block.statements;
+  let count = statements.length;
+  for (let i = 0; __ball_lt(i, count); (i++)) {
+    let stmt = __ball_index(statements, i);
+    if ((_isTerminatingStatement(stmt) && __ball_lt(i, __ball_sub(count, 1)))) {
+      let unreachableCount = __ball_sub(__ball_sub(count, 1), i);
+      warnings = (warnings.push({ ['severity']: 'warning', ['category']: 'unreachable_code', ['message']: (((__ball_to_string(unreachableCount) + ' statement(s) after ') + __ball_to_string(_terminatingCallName(stmt))) + ' are unreachable'), ['location']: (((((__ball_to_string(moduleName) + '.') + __ball_to_string(fnName)) + ':stmt[') + __ball_to_string(__ball_add(i, 1))) + ']') }), warnings);
+      break;
+    }
+  }
+}
+
+export function _isTerminatingStatement(stmt: any): any {
+  const input = stmt;
+  if (!hasExpression(stmt)) {
+    return false;
+  }
+  return _isTerminatingExpr(stmt.expression);
+}
+
+export function _isTerminatingExpr(expr: any): any {
+  const input = expr;
+  if (!hasCall(expr)) {
+    return false;
+  }
+  let call = expr.call;
+  let module = ((call.module.length === 0) ? 'std' : call.module);
+  return (__ball_eq(module, 'std') && ((__ball_eq(call.function, 'return') || __ball_eq(call.function, 'throw')) || __ball_eq(call.function, 'rethrow')));
+}
+
+export function _terminatingCallName(stmt: any): any {
+  const input = stmt;
+  if (!hasExpression(stmt)) {
+    return '?';
+  }
+  let expr = stmt.expression;
+  if (!hasCall(expr)) {
+    return '?';
+  }
+  return ('std.' + __ball_to_string(expr.call.function));
+}
+
+export function _checkOrphanedLabels(ctx: any): any {
+  const input = ctx;
+  let modules = __ball_index(ctx, 'modules');
+  let baseModules = __ball_index(ctx, 'baseModules');
+  let warnings = __ball_index(ctx, 'warnings');
+  for (const module of modules) {
+    if (baseModules.includes(module.name)) {
+      continue;
+    }
+    for (const fn of module.functions) {
+      if (fn.isBase) {
+        continue;
+      }
+      if (!hasBody(fn)) {
+        continue;
+      }
+      let definedLabels = [];
+      _collectDefinedLabels({ ['expr']: fn.body, ['labels']: definedLabels });
+      let usedLabels = [];
+      _collectLabelUsages({ ['expr']: fn.body, ['usages']: usedLabels });
+      for (const usage of usedLabels) {
+        let label = __ball_index(usage, 'label');
+        if ((!(label.length === 0) && !definedLabels.includes(label))) {
+          warnings = (warnings.push({ ['severity']: 'error', ['category']: 'orphaned_label', ['message']: ((((('std.' + __ball_to_string(__ball_index(usage, 'kind'))) + '(label: "') + __ball_to_string(label)) + '") references ') + (('undefined label "' + __ball_to_string(label)) + '"')), ['location']: ((__ball_to_string(module.name) + '.') + __ball_to_string(fn.name)) }), warnings);
+        }
+      }
+    }
+  }
+}
+
+export function _collectDefinedLabels(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let labels = __ball_index(ctx, 'labels');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? 'std' : call.module);
+    if (((__ball_eq(module, 'std') && __ball_eq(call.function, 'label')) && hasInput(call))) {
+      let callInput = call.input;
+      if (hasMessageCreation(callInput)) {
+        let name = _getStringFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'name' });
+        if ((!__ball_eq(name, null) && !(name.length === 0))) {
+          if (!labels.includes(name)) {
+            labels = (labels.push(name), labels);
+          }
+        }
+      }
+    }
+    if (hasInput(call)) {
+      _collectDefinedLabels({ ['expr']: call.input, ['labels']: labels });
+    }
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if (hasLet(stmt)) {
+          _collectDefinedLabels({ ['expr']: stmt.let.value, ['labels']: labels });
+        }
+        if (hasExpression(stmt)) {
+          _collectDefinedLabels({ ['expr']: stmt.expression, ['labels']: labels });
+        }
+      }
+      if (hasResult(expr.block)) {
+        _collectDefinedLabels({ ['expr']: expr.block.result, ['labels']: labels });
+      }
+    } else {
+      if (hasLambda(expr)) {
+        _collectDefinedLabels({ ['expr']: expr.lambda.body, ['labels']: labels });
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _collectDefinedLabels({ ['expr']: field.value, ['labels']: labels });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _collectDefinedLabels({ ['expr']: expr.fieldAccess.object, ['labels']: labels });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _collectLabelUsages(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let usages = __ball_index(ctx, 'usages');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? 'std' : call.module);
+    if (((__ball_eq(module, 'std') && (__ball_eq(call.function, 'break') || __ball_eq(call.function, 'continue'))) && hasInput(call))) {
+      let callInput = call.input;
+      if (hasMessageCreation(callInput)) {
+        let label = _getStringFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'label' });
+        if ((!__ball_eq(label, null) && !(label.length === 0))) {
+          usages = (usages.push({ ['kind']: call.function, ['label']: label }), usages);
+        }
+      }
+    }
+    if (hasInput(call)) {
+      _collectLabelUsages({ ['expr']: call.input, ['usages']: usages });
+    }
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if (hasLet(stmt)) {
+          _collectLabelUsages({ ['expr']: stmt.let.value, ['usages']: usages });
+        }
+        if (hasExpression(stmt)) {
+          _collectLabelUsages({ ['expr']: stmt.expression, ['usages']: usages });
+        }
+      }
+      if (hasResult(expr.block)) {
+        _collectLabelUsages({ ['expr']: expr.block.result, ['usages']: usages });
+      }
+    } else {
+      if (hasLambda(expr)) {
+        _collectLabelUsages({ ['expr']: expr.lambda.body, ['usages']: usages });
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _collectLabelUsages({ ['expr']: field.value, ['usages']: usages });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _collectLabelUsages({ ['expr']: expr.fieldAccess.object, ['usages']: usages });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _getFieldValue(ctx: any): any {
+  const input = ctx;
+  let fields = __ball_index(ctx, 'fields');
+  let name = __ball_index(ctx, 'name');
+  for (const f of fields) {
+    if (__ball_eq(f.name, name)) {
+      return f.value;
+    }
+  }
+}
+
+export function _getStringFieldValue(ctx: any): any {
+  const input = ctx;
+  let fields = __ball_index(ctx, 'fields');
+  let name = __ball_index(ctx, 'name');
+  for (const f of fields) {
+    if (__ball_eq(f.name, name)) {
+      let val = f.value;
+      if ((hasLiteral(val) && hasStringValue(val.literal))) {
+        return val.literal.stringValue;
+      }
+    }
+  }
+}
+
+export function _isLiteralTrue(expr: any): any {
+  const input = expr;
+  if (__ball_eq(expr, null)) {
+    return false;
+  }
+  if (hasLiteral(expr)) {
+    return (hasBoolValue(expr.literal) && expr.literal.boolValue);
+  }
+  return false;
+}
+
+export function _exprIsSet(expr: any): any {
+  const input = expr;
+  if (__ball_eq(expr, null)) {
+    return false;
+  }
+  return ((((((hasCall(expr) || hasLiteral(expr)) || hasReference(expr)) || hasFieldAccess(expr)) || hasMessageCreation(expr)) || hasBlock(expr)) || hasLambda(expr));
+}
+
+export function _collectReferencedVars(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let vars = __ball_index(ctx, 'vars');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasReference(expr)) {
+    if (!(expr.reference.name.length === 0)) {
+      if (!vars.includes(expr.reference.name)) {
+        vars = (vars.push(expr.reference.name), vars);
+      }
+    }
+  } else {
+    if (hasCall(expr)) {
+      if (hasInput(expr.call)) {
+        _collectReferencedVars({ ['expr']: expr.call.input, ['vars']: vars });
+      }
+    } else {
+      if (hasBlock(expr)) {
+        for (const stmt of expr.block.statements) {
+          if (hasLet(stmt)) {
+            _collectReferencedVars({ ['expr']: stmt.let.value, ['vars']: vars });
+          }
+          if (hasExpression(stmt)) {
+            _collectReferencedVars({ ['expr']: stmt.expression, ['vars']: vars });
+          }
+        }
+        if (hasResult(expr.block)) {
+          _collectReferencedVars({ ['expr']: expr.block.result, ['vars']: vars });
+        }
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _collectReferencedVars({ ['expr']: field.value, ['vars']: vars });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _collectReferencedVars({ ['expr']: expr.fieldAccess.object, ['vars']: vars });
+            }
+          } else {
+            if (hasLambda(expr)) {
+              _collectReferencedVars({ ['expr']: expr.lambda.body, ['vars']: vars });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _collectMutatedVars(ctx: any): any {
+  const input = ctx;
+  let expr = __ball_index(ctx, 'expr');
+  let vars = __ball_index(ctx, 'vars');
+  if (__ball_eq(expr, null)) {
+    return;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? 'std' : call.module);
+    if (((__ball_eq(module, 'std') && __ball_eq(call.function, 'assign')) && hasInput(call))) {
+      let callInput = call.input;
+      if (hasMessageCreation(callInput)) {
+        let target = _getFieldValue({ ['fields']: callInput.messageCreation.fields, ['name']: 'target' });
+        if ((!__ball_eq(target, null) && hasReference(target))) {
+          if (!vars.includes(target.reference.name)) {
+            vars = (vars.push(target.reference.name), vars);
+          }
+        }
+      }
+    }
+    if (hasInput(call)) {
+      _collectMutatedVars({ ['expr']: call.input, ['vars']: vars });
+    }
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if (hasLet(stmt)) {
+          _collectMutatedVars({ ['expr']: stmt.let.value, ['vars']: vars });
+        }
+        if (hasExpression(stmt)) {
+          _collectMutatedVars({ ['expr']: stmt.expression, ['vars']: vars });
+        }
+      }
+      if (hasResult(expr.block)) {
+        _collectMutatedVars({ ['expr']: expr.block.result, ['vars']: vars });
+      }
+    } else {
+      if (hasLambda(expr)) {
+        _collectMutatedVars({ ['expr']: expr.lambda.body, ['vars']: vars });
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            _collectMutatedVars({ ['expr']: field.value, ['vars']: vars });
+          }
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              _collectMutatedVars({ ['expr']: expr.fieldAccess.object, ['vars']: vars });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+export function _exprHasExitSignal(expr: any): any {
+  const input = expr;
+  if (__ball_eq(expr, null)) {
+    return false;
+  }
+  if (hasCall(expr)) {
+    let call = expr.call;
+    let module = ((call.module.length === 0) ? 'std' : call.module);
+    if ((__ball_eq(module, 'std') && ((__ball_eq(call.function, 'break') || __ball_eq(call.function, 'return')) || __ball_eq(call.function, 'throw')))) {
+      return true;
+    }
+    if (hasInput(call)) {
+      if (_exprHasExitSignal(call.input)) {
+        return true;
+      }
+    }
+    return false;
+  } else {
+    if (hasBlock(expr)) {
+      for (const stmt of expr.block.statements) {
+        if ((hasLet(stmt) && _exprHasExitSignal(stmt.let.value))) {
+          return true;
+        }
+        if ((hasExpression(stmt) && _exprHasExitSignal(stmt.expression))) {
+          return true;
+        }
+      }
+      if ((hasResult(expr.block) && _exprHasExitSignal(expr.block.result))) {
+        return true;
+      }
+      return false;
+    } else {
+      if (hasLambda(expr)) {
+        return false;
+      } else {
+        if (hasMessageCreation(expr)) {
+          for (const field of expr.messageCreation.fields) {
+            if (_exprHasExitSignal(field.value)) {
+              return true;
+            }
+          }
+          return false;
+        } else {
+          if (hasFieldAccess(expr)) {
+            if (hasObject(expr.fieldAccess)) {
+              return _exprHasExitSignal(expr.fieldAccess.object);
+            }
+            return false;
+          }
+        }
+      }
+    }
+  }
+  return false;
 }

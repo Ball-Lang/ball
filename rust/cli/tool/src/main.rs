@@ -5,7 +5,7 @@
 //! structural difference: `cli_core` is a plain library of top-level
 //! `Program -> String` report functions (no classes, no interpreter loop), so
 //! the compiled output is directly callable — no runtime-driving wrapper like
-//! `ball-engine`'s `run_self_hosted` is needed; `rust/cli/src/commands/*.rs`
+//! `ball-lang-engine`'s `run_self_hosted` is needed; `rust/cli/src/commands/*.rs`
 //! calls the generated functions straight.
 //!
 //! Pipeline:
@@ -14,8 +14,8 @@
 //!   2. **Strip the `@type` envelope** (it is not part of the `ball.v1.Program`
 //!      schema) before deserializing.
 //!   3. proto3-JSON -> `DynamicMessage` -> binary -> typed `Program`
-//!      (the same load path `ball-shared`/`ball-compiler` tests use).
-//!   4. Compile via `ball_compiler::Compiler` -> Rust source (library mode —
+//!      (the same load path `ball-lang-shared`/`ball-lang-compiler` tests use).
+//!   4. Compile via `ball_lang_compiler::Compiler` -> Rust source (library mode —
 //!      `cli_core` has no runnable entry point).
 //!   5. Write `rust/cli/src/compiled_cli.rs` with a NEVER-edit header.
 //!
@@ -31,9 +31,9 @@
 
 use std::path::{Path, PathBuf};
 
-use ball_compiler::Compiler;
-use ball_shared::DESCRIPTOR_POOL;
-use ball_shared::proto::ball::v1::Program;
+use ball_lang_compiler::Compiler;
+use ball_lang_shared::DESCRIPTOR_POOL;
+use ball_lang_shared::proto::ball::v1::Program;
 use prost::Message;
 use prost_reflect::DynamicMessage;
 
@@ -47,7 +47,7 @@ const HEADER: &str = "\
 //
 // DO NOT EDIT BY HAND. This is the self-hosted Ball CLI core (info/validate/
 // tree/version report functions), compiled from `dart/shared/lib/cli_core.dart`'s
-// own Ball encoding through `ball-compiler`. To change it, fix
+// own Ball encoding through `ball-lang-compiler`. To change it, fix
 // `dart/shared/lib/cli_core.dart` (then rerun `dart run
 // compiler/tool/gen_cli_json.dart`) or `rust/compiler/`, and rerun the
 // regenerator — never hand-patch this file. See rust/cli/AGENTS.md.
@@ -109,7 +109,7 @@ fn load_ball_program(path: &Path) -> Program {
 /// `formatCapabilityReport`/`analyzeTermination`/`formatTerminationReport`/
 /// `writeln` is a hard `rustc` error, not a latent runtime gap. Dropping the
 /// function here (a Rust-target-only, well-documented filter — `cli_core.dart`
-/// and `ball-compiler` itself are untouched) keeps the generated file
+/// and `ball-lang-compiler` itself are untouched) keeps the generated file
 /// compiling while `ball audit` stays out of the Rust CLI, exactly as issue
 /// #365 specifies. Remove this filter once #362 makes `auditReport` fully
 /// self-hostable (its Dart source needs no change either way).

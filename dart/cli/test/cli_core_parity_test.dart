@@ -34,9 +34,12 @@ const _goldenFixtures = <String>[
 ];
 
 /// Verbs whose full transitive call graph self-hosts on the Dart engine today.
-/// (`audit` is intentionally excluded — its capability/termination analyzers
-/// use proto accessors outside the encoder's `ball_proto` routing table plus
-/// enum/`Set` constructs; see the PR description for the deferral rationale.)
+/// This now includes `audit` (issue #362 residual): the capability +
+/// termination analyzers were rewritten into engine-safe procedural Dart
+/// (`part of cli_core.dart`, Map/List reports, `hasX()` presence cascades,
+/// single-argument walkers) so `auditReport` — and the `analyzeCapabilities` +
+/// `checkPolicyViolations` it composes — execute byte-identically native vs.
+/// engine.
 void main() {
   final repoRoot = _findRepoRoot();
   final cliProgram = _loadCliProgram(repoRoot);
@@ -56,7 +59,12 @@ void main() {
         final input = protoToEngineMap(program);
         final engine = newEngine();
 
-        for (final verb in ['infoReport', 'validateReport', 'treeReport']) {
+        for (final verb in [
+          'infoReport',
+          'validateReport',
+          'treeReport',
+          'auditReport',
+        ]) {
           final native = _native(verb, program);
           final hosted = await engine.callFunction('main', verb, input);
           expect(
@@ -65,6 +73,47 @@ void main() {
             reason: 'verb "$verb" diverged on fixture "$name"',
           );
         }
+      });
+    }
+
+    // Policy enforcement (`ball audit --deny io`): the capability report and
+    // the violation list must match native vs. engine. Every golden fixture
+    // calls `std.print` (io), so `deny: [io]` yields a non-empty violation set.
+    for (final name in _goldenFixtures) {
+      final file = File('$repoRoot/tests/conformance/$name.ball.json');
+      test('$name deny-policy', () async {
+        final program = decodeProgramJson(jsonDecode(file.readAsStringSync()));
+        final input = protoToEngineMap(program);
+        final engine = newEngine();
+
+        final nativeViolations = cli.checkPolicy(
+          cli.analyzeCapabilities(program),
+          deny: {'io'},
+        );
+        expect(
+          nativeViolations,
+          isNotEmpty,
+          reason: 'fixture "$name" should call std.print (io)',
+        );
+
+        final hostedReport = await engine.callFunction(
+          'main',
+          'analyzeCapabilities',
+          input,
+        );
+        final hostedViolations = await engine.callFunction(
+          'main',
+          'checkPolicyViolations',
+          {
+            'report': hostedReport,
+            'deny': ['io'],
+          },
+        );
+        expect(
+          hostedViolations,
+          equals(nativeViolations),
+          reason: 'deny-policy violations diverged on fixture "$name"',
+        );
       });
     }
 
@@ -82,6 +131,7 @@ String _native(String verb, Program program) => switch (verb) {
   'infoReport' => cli.infoReport(program),
   'validateReport' => cli.validateReport(program),
   'treeReport' => cli.treeReport(program),
+  'auditReport' => cli.auditReport(program),
   _ => throw ArgumentError('unknown verb $verb'),
 };
 

@@ -8,7 +8,7 @@
 //! long, whole-corpus sweep); run it explicitly:
 //!
 //! ```bash
-//! cargo test -p ball-engine --features self_host --test self_host_conformance \
+//! cargo test -p ball-lang-engine --features self_host --test self_host_conformance \
 //!   -- --ignored --nocapture
 //! ```
 //!
@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use ball_engine::BallEngine;
+use ball_lang_engine::BallEngine;
 
 /// Per-fixture wall-clock budget. A latent infinite loop (the loop-scope bug)
 /// must not wedge the whole sweep — a fixture that blows the budget is recorded

@@ -8,7 +8,7 @@ library;
 
 import 'dart:io';
 
-import 'package:ball_base/capability_analyzer.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:ball_encoder/package_encoder.dart';
 import 'package:ball_encoder/pub_client.dart';
 
@@ -97,10 +97,12 @@ Future<void> main(List<String> args) async {
         sw.stop();
 
         final report = analyzeCapabilities(program);
-        final caps = report.capabilities
-            .where((c) => c.capability != 'pure')
-            .map((c) => c.capability)
-            .toSet();
+        final reportCaps = report['capabilities'] as List;
+        final caps = <String>{};
+        for (final entry in reportCaps) {
+          final capName = (entry as Map)['capability'] as String;
+          if (capName != 'pure') caps.add(capName);
+        }
 
         var fnCount = 0;
         for (final m in program.modules) {
@@ -114,7 +116,7 @@ Future<void> main(List<String> args) async {
             encodeSuccess: true,
             moduleCount: program.modules.length,
             functionCount: fnCount,
-            isPure: report.summary.isPure,
+            isPure: (report['summary'] as Map)['isPure'] == true,
             capabilities: caps,
             encodeTime: sw.elapsed,
           ),

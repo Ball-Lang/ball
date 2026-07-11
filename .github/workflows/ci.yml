@@ -704,7 +704,7 @@ jobs:
         with:
           workspaces: rust
 
-      # NOTE: the default `--workspace` build/test below leaves the ball-engine
+      # NOTE: the default `--workspace` build/test below leaves the ball-lang-engine
       # `self_host` feature OFF (compiled_engine.rs is a gitignored, generated
       # build artifact), so this part of the job gates only the wrapper
       # foundation. The self-hosted engine — which now COMPILES **and RUNS**
@@ -739,7 +739,7 @@ jobs:
 
       # ── Self-hosted engine: regenerate + RUN (issue #300) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
-      # itself gitignored) compiled through ball-compiler into the gitignored
+      # itself gitignored) compiled through ball-lang-compiler into the gitignored
       # rust/engine/src/compiled_engine.rs. Regenerate both from source, then run
       # the acceptance programs under `--features self_host` and assert
       # Dart-identical output (hello_world -> "Hello, World!", fibonacci -> "55").
@@ -753,7 +753,7 @@ jobs:
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../rust && cargo run -p ball-engine-regen
       - name: Self-host run tests (Dart-identical output)
-        run: cd rust && cargo test -p ball-engine --features self_host --test self_host_run
+        run: cd rust && cargo test -p ball-lang-engine --features self_host --test self_host_run
 
       # Whole-corpus conformance sweep (#40) — drives every
       # tests/conformance/*.ball.json through the self-hosted engine and asserts
@@ -765,7 +765,7 @@ jobs:
         run: |
           cd rust
           set +e
-          output=$(cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored --nocapture 2>&1)
+          output=$(cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored --nocapture 2>&1)
           exit_code=$?
           echo "$output"
           passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
@@ -781,7 +781,7 @@ jobs:
 
       # ── cli-core: regenerate + golden-fixture parity gate (issue #365) ──
       # dart/shared/lib/cli_core.dart's info/validate/tree/version verbs,
-      # compiled through ball-compiler into the gitignored
+      # compiled through ball-lang-compiler into the gitignored
       # rust/cli/src/compiled_cli.rs. Regenerate both from source, then build/test
       # under `--features cli_core`: `tests/cli_core_parity.rs` compares the built
       # `ball` binary's info/validate/tree output against the golden `.txt` files
@@ -794,9 +794,9 @@ jobs:
       - name: cli-core build + clippy + golden-parity tests
         run: |
           cd rust
-          cargo build -p ball-cli --features cli_core
-          cargo clippy -p ball-cli --all-targets --features cli_core -- -D warnings
-          cargo test -p ball-cli --features cli_core
+          cargo build -p ball-lang-cli --features cli_core
+          cargo clippy -p ball-lang-cli --all-targets --features cli_core -- -D warnings
+          cargo test -p ball-lang-cli --features cli_core
 
   # ──────────────────────────────────────────────────
   # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language

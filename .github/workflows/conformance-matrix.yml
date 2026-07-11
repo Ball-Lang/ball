@@ -314,7 +314,7 @@ jobs:
         with:
           workspaces: rust
 
-      # The self-hosted engine is a Ball program compiled through ball-compiler,
+      # The self-hosted engine is a Ball program compiled through ball-lang-compiler,
       # so regenerate engine.ball.json (Dart) then compiled_engine.rs first.
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
@@ -331,7 +331,7 @@ jobs:
         run: |
           cd rust
           set +e
-          output=$(cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored --nocapture 2>&1)
+          output=$(cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored --nocapture 2>&1)
           exit_code=$?
           echo "$output"
 

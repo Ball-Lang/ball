@@ -7,7 +7,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:ball_base/capability_analyzer.dart';
+import 'package:ball_base/cli_core.dart';
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/package_encoder.dart';
 import 'package:ball_encoder/pub_client.dart';

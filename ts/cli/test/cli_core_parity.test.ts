@@ -114,7 +114,14 @@ describe('cli_core parity: compiled TS cli-core vs the native Dart CLI', { skip:
     const path = join(conformanceDir, `${fixture}.ball.json`);
     if (!existsSync(path)) continue;
 
-    for (const verb of ['info', 'validate', 'tree'] as const) {
+    // `audit` (issue #362) rides the same byte-identity check: a bare
+    // `ball audit <program>` runs the self-hosted capability + termination
+    // analyzers (compiled from cli_core.dart into compiled_cli.ts) and, on
+    // both CLIs, emits `cli_core.auditReport` — the capability report plus a
+    // trailing newline (and a termination section when warnings exist). This
+    // is what caught the TS default path emitting only `formatCapabilityReport`
+    // (no trailing newline, no termination) before the fix.
+    for (const verb of ['info', 'validate', 'tree', 'audit'] as const) {
       test(`${verb} ${fixture}: TS output matches the native Dart CLI`, () => {
         const dart = runDart([verb, path]);
         const ts = runTs([verb, path]);
@@ -194,5 +201,56 @@ describe('cli_core parity: compiled TS cli-core vs the native Dart CLI', { skip:
     assert.equal(ts.status, 0);
     assert.equal(dart.status, 0);
     assert.equal(ts.stdout, dart.stdout, 'stdout mismatch');
+  });
+
+  // Edge case the golden fixtures never reach: an audit whose report includes a
+  // Termination Analysis section. None of the conformance golden fixtures trip
+  // the termination analyzer, so this synthetic `while(true)` (a literal-true
+  // condition with a non-exiting body) is the only parity case that exercises
+  // the termination half of the self-hosted `auditReport` — and it is exactly
+  // what the TS default path used to drop (it emitted only the capability
+  // report). Both CLIs must render the same "Potential Infinite Loops" warning.
+  test('audit with a termination warning: TS matches the native Dart CLI (incl. the Termination Analysis section)', () => {
+    const loopProgram = {
+      '@type': 'type.googleapis.com/ball.v1.Program',
+      name: 'loopy',
+      version: '1.0.0',
+      entryModule: 'main',
+      entryFunction: 'main',
+      modules: [
+        { name: 'std', functions: [{ name: 'while', isBase: true }] },
+        {
+          name: 'main',
+          functions: [
+            {
+              name: 'main',
+              body: {
+                call: {
+                  module: 'std',
+                  function: 'while',
+                  input: {
+                    messageCreation: {
+                      typeName: 'WhileInput',
+                      fields: [
+                        { name: 'condition', value: { literal: { boolValue: true } } },
+                        { name: 'body', value: { reference: { name: 'x' } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const path = join(workDir, 'loopy.ball.json');
+    writeFileSync(path, JSON.stringify(loopProgram));
+
+    const dart = runDart(['audit', path]);
+    const ts = runTs(['audit', path]);
+    assert.equal(ts.status, dart.status, `exit code mismatch (dart=${dart.status}, ts=${ts.status})`);
+    assert.match(dart.stdout, /Termination Analysis/, 'native audit should include a Termination Analysis section');
+    assert.equal(ts.stdout, dart.stdout, 'audit stdout (with termination section) mismatch');
   });
 });

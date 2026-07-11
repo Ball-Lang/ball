@@ -475,13 +475,32 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   `Loader` re-serializes a whole double (`9.0`) as proto3-JSON's bare integer `9` and loaded it as
   a `BallInt`, dropping the trailing `.0`; a `doubleValue` key now always loads a `BallDouble`
   (`Loader.cs`). All three are the same coherent gap, each measured (+9/+5/+6), 0 regressions.
-- **Remaining failures (Round 6 residual):** output diffs (~20, incl. `remainder`/exponential-
-  precision/`toStringAsFixed` rounding singletons), the `Function.apply`/`fold` higher-order
-  callbacks (~7), the loader max-depth deep fixtures (5: `System.Text.Json`'s default 64-level
-  read cap on `127`/`146`/`148`/`256`/`280`), rethrow-outside-catch chaining (~7), and
-  method-resolution singletons (`.tag`/`.name`/`.greet`). The proper gated harness is #384; the
-  acceptance tests are `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from
-  the default build; run with `dotnet test -p:SelfHost=true`).
+- **Live instance-field state + loader depth (Round 7):** the sweep is now at **291 passed /
+  320** (0 timeouts, 0 regressions), up from 271, via two bounded root-cause categories. (a) The
+  **loader JSON depth cap** — deeply-nested programs (labeled loops / nested try-catch / editions
+  resolver) blew past `System.Text.Json`'s default 64-level read cap *and* Google.Protobuf's
+  default 100-level `JsonParser` recursion limit; both are lifted in `Loader.cs` (+4). (b) The
+  **reassigned-instance-field write-back gap** — the compiler read every instance field into a
+  method-entry alias local (a read-time snapshot), so a bare `field = x` rebind mutated only the
+  local shadow, never the field. That silently broke every field observed *across* a method /
+  closure boundary mid-run: `_activeException` (set by `_evalLazyTry`'s catch handler, read by
+  the separate `rethrow` dispatch closure — so `rethrow` always saw null → "rethrow outside of
+  catch"), plus the dispatch-table / closure-capture state behind the OOP method-resolution and
+  nested-function fixtures. The compiler now treats a field reassigned anywhere in its class as
+  *volatile* — references compile to a live `FieldGet(self, …)` and assignments to
+  `FieldSet(self, …)`, matching Dart's implicit-this — and skips its alias local
+  (`_volatileFields` / `VolatileFieldsOf` in `csharp/compiler`) (+16: all rethrow chaining, the
+  `MathUtils`/`.greet`/`.name`/`.tag`/named-constructor OOP dispatch, and the nested-function
+  captures).
+- **Remaining failures (Round 7 residual):** `Function.apply`/`fold` higher-order callbacks (~7:
+  `85`/`203`/`223`/`224`/`229`/`124`/`264`), set operations (`118`/`129`/`350`/`392`), NaN/
+  infinity/number-getter diffs (`214`/`215`/`263`/`317`), `toStringAsFixed`/exponential-precision
+  rounding (`316`/`357`), `remainder`/`toInt`/`convert` singleton methods (`320`/`188`/`185`),
+  logical-and pattern binding (`258`), int-boundary `abs` overflow (`230`), empty map/set literal
+  key coercion (`391`/`95`), bytes-literal-to-list (`399`), and the `stackTrace` catch binding
+  (`300`). The proper gated harness is #384; the acceptance tests are
+  `csharp/engine/test/SelfHostRunTests.cs` (SELF_HOST-gated, excluded from the default build; run
+  with `dotnet test -p:SelfHost=true`).
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
@@ -527,10 +546,11 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
   **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
   **RUNS**: `hello_world` + `fibonacci` are byte-exact golden through the compiled engine, and an
-  informal corpus sweep is at 271/324 with no hangs after the Round-6 category grind (Round 5:
+  informal corpus sweep is at 291/320 with no hangs after the Round-7 category grind (Round 5:
   RegExp surface, core-collection copy/fill constructors, universal `toString` fallback; Round 6:
   the double-value-representation gap — scalar value-model wrapper field mapping + wrapper
-  stringification + whole-double loader coercion — see "Self-hosted engine" above and #383). The
+  stringification + whole-double loader coercion; Round 7: live reassigned-instance-field
+  read/write through `self` + loader JSON depth-cap lift — see "Self-hosted engine" above and #383). The
   `cli` package is still a Phase-1 placeholder — see the phase table in the epic #377 tracking
   comment for the blocked-by graph (#384 conformance, #385 CLI, #386 CI, #387 docs).
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds

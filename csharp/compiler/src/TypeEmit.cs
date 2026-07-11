@@ -330,8 +330,10 @@ public sealed partial class CSharpCompiler
 
         var prevInInstance = _inInstanceMethod;
         var prevSelfRecv = _selfRecvName;
+        var prevVolatile = _volatileFields;
         _inInstanceMethod = true;
         _selfRecvName = selfName;
+        _volatileFields = VolatileFieldsOf(ownerTd);
 
         // A declared parameter shadows a same-named field inside the method body
         // (Dart semantics); the field alias would be dead, so skip it when a
@@ -340,11 +342,15 @@ public sealed partial class CSharpCompiler
         var shadowed = new HashSet<string>(paramNames, StringComparer.Ordinal) { "self" };
 
         // Bind each instance field (own + inherited via the superclass chain) as
-        // a local alias so the body's bare field references resolve.
+        // a local alias so the body's bare field references resolve. A *volatile*
+        // field (reassigned somewhere in the class) is deliberately NOT aliased:
+        // its references/assignments read/write live through `self` instead (see
+        // _volatileFields / CompileReference / ResolveLValue), so a rebind by one
+        // method or closure is observed by another mid-run (issue #383).
         var fieldAliases = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var field in AllInstanceFieldNames(ownerTd))
         {
-            if (shadowed.Contains(field))
+            if (shadowed.Contains(field) || _volatileFields.Contains(field))
             {
                 continue;
             }
@@ -409,6 +415,7 @@ public sealed partial class CSharpCompiler
         sb.Append("    }\n");
         _inInstanceMethod = prevInInstance;
         _selfRecvName = prevSelfRecv;
+        _volatileFields = prevVolatile;
         PopScope();
         return sb.ToString();
     }

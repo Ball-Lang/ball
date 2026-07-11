@@ -134,6 +134,37 @@ public sealed class LoaderTests
         Assert.Throws<EngineException>(() => BallEngine.FromJson("{ not valid"));
     }
 
+    [Fact]
+    public void FromJson_loads_a_deeply_nested_program_past_the_default_json_depth()
+    {
+        // A Ball program's expression tree nests as deep as the source it was
+        // encoded from. Deeply-nested control flow / try-catch / labeled loops
+        // (conformance fixtures 127/146/148/256/280) push past System.Text.Json's
+        // default 64-level read cap AND Google.Protobuf's default 100-level
+        // JsonParser recursion limit — both of which the loader now lifts. Build a
+        // body ~130 object-levels deep (well past 64 and 100) and prove it loads.
+        var body = """{ "literal": { "intValue": 1 } }""";
+        for (var i = 0; i < 60; i++)
+        {
+            body = $$"""{ "call": { "module": "std", "function": "paren", "input": {{body}} } }""";
+        }
+
+        var json = $$"""
+            {
+                "@type": "type.googleapis.com/ball.v1.Program",
+                "name": "deep", "version": "1.0.0",
+                "entryModule": "main", "entryFunction": "main",
+                "modules": [ { "name": "main", "functions": [
+                    { "name": "main", "body": {{body}} }
+                ] } ]
+            }
+            """;
+
+        var engine = BallEngine.FromJson(json);
+        Assert.Equal("deep", engine.Program.Name);
+        Assert.IsType<BallMap>(engine.ProgramValue);
+    }
+
 #if !SELF_HOST
     [Fact]
     public void Run_reports_self_host_pending_in_the_default_build()

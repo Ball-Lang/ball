@@ -106,4 +106,51 @@ public class BallMethodDispatchTests
         Assert.Equal(BallValue.Str("x"), list.Get(0));
         Assert.Equal(BallValue.Str("x"), list.Get(2));
     }
+
+    // ── Higher-order callbacks the engine invokes on its own values ─────────
+
+    [Fact]
+    public void FunctionApplyInvokesCalleeWithTheSolePositionalArgument()
+    {
+        // Function.apply(callee, [arg]) — self is the `Function` type literal.
+        var callee = new BallFunction("inc", x => BallRuntime.Add(x, BallValue.Int(1)));
+        var result = Call(
+            "apply",
+            BallRuntime.TypeLiteral("Function"),
+            callee,
+            new BallList(new[] { BallValue.Int(41) }));
+        Assert.Equal(BallValue.Int(42), result);
+    }
+
+    [Fact]
+    public void ReceiverApplyFormInvokesTheReceiver()
+    {
+        // callee.apply([arg]) — self is the callee itself.
+        var callee = new BallFunction("double", x => BallRuntime.Multiply(x, BallValue.Int(2)));
+        var result = Call("apply", callee, new BallList(new[] { BallValue.Int(21) }));
+        Assert.Equal(BallValue.Int(42), result);
+    }
+
+    [Fact]
+    public void FoldAccumulatesWithATwoParameterCombine()
+    {
+        // Iterable.fold(0, (acc, elem) => acc + elem) — the combine binds its two
+        // parameters positionally (arg0/arg1), as the compiled engine emits them.
+        var combine = new BallFunction(
+            "add",
+            input => BallRuntime.Add(
+                BallRuntime.ArgGet(input, "acc", "arg0"),
+                BallRuntime.ArgGet(input, "elem", "arg1")));
+        var list = new BallList(new[] { BallValue.Int(1), BallValue.Int(2), BallValue.Int(3), BallValue.Int(4) });
+        var result = Call("fold", list, BallValue.Int(0), combine);
+        Assert.Equal(BallValue.Int(10), result);
+    }
+
+    [Fact]
+    public void FoldOverAnEmptyListReturnsTheInitialValue()
+    {
+        var combine = new BallFunction("never", _ => throw new BallRuntimeException("must not run"));
+        var result = Call("fold", new BallList(), BallValue.Str("seed"), combine);
+        Assert.Equal(BallValue.Str("seed"), result);
+    }
 }

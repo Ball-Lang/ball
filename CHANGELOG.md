@@ -1,3 +1,10 @@
+# [1.51.0](https://github.com/Ball-Lang/ball/compare/v1.50.0...v1.51.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#369](https://github.com/Ball-Lang/ball/issues/369) nuget tool packaging + tag-gated publish workflow ([#433](https://github.com/Ball-Lang/ball/issues/433)) ([8357874](https://github.com/Ball-Lang/ball/commit/8357874fd13e7f4f5888be5c68830f7cb8ad3fe3))
+
 # [1.50.0](https://github.com/Ball-Lang/ball/compare/v1.49.1...v1.50.0) (2026-07-11)
 
 

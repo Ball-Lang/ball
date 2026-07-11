@@ -114,10 +114,15 @@ public static partial class BallRuntime
     // Math
     // ════════════════════════════════════════════════════════════
 
-    /// <summary><c>x.abs()</c> — preserves int/double.</summary>
+    /// <summary>
+    /// <c>x.abs()</c> — preserves int/double. On <see cref="long.MinValue"/> Dart's
+    /// two's-complement <c>abs()</c> wraps back to <c>long.MinValue</c> (its magnitude
+    /// is unrepresentable), where .NET's <see cref="Math.Abs(long)"/> throws
+    /// <see cref="OverflowException"/> — so mirror the Dart wrap.
+    /// </summary>
     public static BallValue MathAbs(BallValue value) => value switch
     {
-        BallInt i => BallValue.Int(Math.Abs(i.Value)),
+        BallInt i => BallValue.Int(i.Value == long.MinValue ? long.MinValue : Math.Abs(i.Value)),
         BallDouble d => BallValue.Double(Math.Abs(d.Value)),
         _ => throw new BallRuntimeException($"abs expects a number, got {TypeName(value)}"),
     };

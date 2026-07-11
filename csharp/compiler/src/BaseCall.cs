@@ -493,6 +493,14 @@ public sealed partial class CSharpCompiler
         var sb = new StringBuilder($"do\n{{\nvar {subjVar} = {subject};\n");
         var first = true;
         MessageCreation? defaultCase = null;
+        // Dart switch cases fall through when a case carries NO body: an
+        // encoded `case 'a': case 'b': <stmt>` gives 'a'/'b' empty bodies and
+        // attaches <stmt> only to the last label. Emitting each as an
+        // independent if/else-if drops that shared body — a bare `case 'a':`
+        // would match and do nothing (this silently broke every `++`/`--`,
+        // whose engine dispatch is one such multi-label case). Accumulate the
+        // empty-body labels and OR them into the next body-carrying case.
+        var pending = new List<string>();
         foreach (var caseMc in cases)
         {
             var cf = MessageCreationFields(caseMc);
@@ -503,10 +511,25 @@ public sealed partial class CSharpCompiler
             }
 
             var condition = CompileCaseCondition(subjVar, cf);
-            var body = cf.TryGetValue("body", out var b) ? EmitStatementUnwrapped(b) : ";";
-            sb.Append($"{(first ? "if" : "else if")} ({condition})\n{{\n{body}\n}}\n");
+            var body = cf.TryGetValue("body", out var b) ? EmitStatementUnwrapped(b) : string.Empty;
+            if (string.IsNullOrWhiteSpace(body))
+            {
+                // Fall-through label — Dart encodes a bare `case 'a':` (that shares
+                // the next case's statements) with an empty body. Defer its
+                // condition to the next body-carrying case.
+                pending.Add(condition);
+                continue;
+            }
+
+            pending.Add(condition);
+            var combined = string.Join(" || ", pending);
+            pending.Clear();
+            sb.Append($"{(first ? "if" : "else if")} ({combined})\n{{\n{body}\n}}\n");
             first = false;
         }
+        // Any trailing fall-through labels with no following body fall through to
+        // the `else` default (or are a no-op when there is none) — exactly the C#
+        // control flow when their conditions are simply omitted here.
 
         if (defaultCase is not null)
         {
@@ -673,6 +696,7 @@ public sealed partial class CSharpCompiler
         Var,
         Field,
         Index,
+        NullAwareIndex,
         Unsupported,
     }
 
@@ -697,7 +721,13 @@ public sealed partial class CSharpCompiler
                 var idxFields = Fields.Extract(target.Call);
                 var targetCode = FieldOrNull(idxFields, "target");
                 var indexCode = FieldOrNull(idxFields, "index");
-                return new LValue(LValueKind.Index, targetCode, indexCode);
+                // `target?[index] = value` short-circuits: when `target` is null,
+                // the whole assignment is skipped (and `value` never evaluated),
+                // yielding null — distinct from the unconditional plain index-set.
+                var idxKind = target.Call.Function == "null_aware_index"
+                    ? LValueKind.NullAwareIndex
+                    : LValueKind.Index;
+                return new LValue(idxKind, targetCode, indexCode);
             default:
                 return new LValue(LValueKind.Unsupported, string.Empty, string.Empty);
         }
@@ -763,6 +793,14 @@ public sealed partial class CSharpCompiler
             case LValueKind.Index:
                 var currentIndex = $"BallRuntime.IndexGet({lv.A}, {lv.B})";
                 return $"BallRuntime.IndexSet({lv.A}, {lv.B}, {CombineOp(op, currentIndex, valueCode)})";
+            case LValueKind.NullAwareIndex:
+                // `target?[index] = value` — bind the receiver once, and when it
+                // is null skip the assignment (never evaluating `value`), yielding
+                // null; otherwise write through the non-null receiver.
+                var naTmp = $"__na{_tempCounter++}";
+                var naCurrent = $"BallRuntime.IndexGet({naTmp}, {lv.B})";
+                return $"Run(() => {{ var {naTmp} = {lv.A}; return {naTmp} is BallNull ? BallValue.Null "
+                    + $": BallRuntime.IndexSet({naTmp}, {lv.B}, {CombineOp(op, naCurrent, valueCode)}); }})";
             default:
                 return "BallRuntime.UnsupportedBaseCall(\"std\", \"assign\")";
         }

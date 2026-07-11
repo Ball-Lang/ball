@@ -337,9 +337,19 @@ public sealed partial class CSharpCompiler
         }
         else
         {
+            // Bind each parameter name-or-positionally (the same convention the
+            // instance/static-method and constructor prologues use): a call site
+            // that knows the callee's names packs `{name: …}`, but a first-class
+            // invoke of a function *value* (`op(x, y)` where `op` is a local, e.g.
+            // `_stdBinaryComp`'s `op(left, right)`) has no names to pack and emits
+            // positional `{arg0, arg1}`. FieldGet-by-name-only silently dropped the
+            // positional case (null operands); ArgGet tries the name, then `argN`.
+            var positional = 0;
             foreach (var name in names)
             {
-                sb.Append($"var {BindLocal(name)} = BallRuntime.FieldGet({CurrentInput}, {Naming.StringLiteral(name)});\n");
+                var argKey = Naming.StringLiteral($"arg{positional}");
+                positional++;
+                sb.Append($"var {BindLocal(name)} = BallRuntime.ArgGet({CurrentInput}, {Naming.StringLiteral(name)}, {argKey});\n");
             }
         }
 
@@ -502,7 +512,14 @@ public sealed partial class CSharpCompiler
     {
         if (reference.Name == "input")
         {
-            return CurrentInput;
+            // A function whose *declared* parameter is literally named `input`
+            // (e.g. the engine's `_stdPrint(input)`) binds it to its own local via
+            // the param prologue — for an instance method that is
+            // `ArgGet(__in, "input", "arg0")`, the extracted argument, NOT the raw
+            // `{self, arg0}` wrapper `CurrentInput` points at. Resolve through the
+            // bound local when present; only an implicit, unnamed single parameter
+            // (no `input` local) falls back to the raw input parameter.
+            return LocalName("input") ?? CurrentInput;
         }
 
         // The encoders' shared sentinel for an uninitialized late/nullable
@@ -590,6 +607,18 @@ public sealed partial class CSharpCompiler
         "Uri", "Type", "Symbol", "Pattern", "Match", "Comparable", "Stopwatch",
     };
 
+    /// <summary>
+    /// Dart core map constructors that carry no typeDef but must materialize as a
+    /// native runtime map (insertion-ordered, indexable) — see
+    /// <see cref="CompileMessageCreation"/>. The engine uses these for its own
+    /// instance-map / lookup-table backings (<c>_ballUserMap()</c> →
+    /// <c>LinkedHashMap()</c>).
+    /// </summary>
+    private static readonly HashSet<string> NativeMapConstructors = new(StringComparer.Ordinal)
+    {
+        "LinkedHashMap", "HashMap", "SplayTreeMap",
+    };
+
     /// <summary><c>field_access</c> — <c>object.field</c> against a dynamic (message/map) receiver.</summary>
     private string CompileFieldAccess(FieldAccess fieldAccess)
     {
@@ -606,6 +635,18 @@ public sealed partial class CSharpCompiler
     /// </summary>
     private string CompileMessageCreation(MessageCreation mc)
     {
+        // A Dart core-collection constructor (`LinkedHashMap()`, `HashMap()`, …)
+        // used for the engine's internal map backings has no typeDef; compile it
+        // to the native runtime map so it indexes/iterates/mutates like a real
+        // map instead of an opaque BallMessage. Only the no-data-argument form is
+        // native-lowered (the engine populates via `[]=`/`addAll`); a populated
+        // core-collection ctor falls through to the general path.
+        if (NativeMapConstructors.Contains(Naming.TypeShortName(mc.TypeName))
+            && !mc.Fields.Any(f => Naming.IsPositionalArg(f.Name)))
+        {
+            return "(BallValue)new BallMap()";
+        }
+
         // Remap each positional argN field to the constructor's real parameter
         // (== field) name, in declaration order.
         var ctorParams = ConstructorParamNames(mc.TypeName);

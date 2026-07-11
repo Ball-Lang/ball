@@ -17,7 +17,7 @@ Last refreshed: 2026-07-09
 | 5. Conformance -- Dart roundtrip | `dart test dart/self_host/test/engine_parity_test.dart` | parity vs live engine |
 | 6. Conformance -- C++ self-host | `cmake --build cpp/build --target test_selfhost_conformance` | per-fixture pass/fail |
 | 7. Conformance -- TS self-host | `cd ts/engine && npm test` | per-fixture pass/fail |
-| 8. Conformance -- Rust self-host | `cargo test -p ball-engine --features self_host --test self_host_conformance -- --ignored` | `Results: N passed, M failed, T total` line |
+| 8. Conformance -- Rust self-host | `cargo test -p ball-lang-engine --features self_host --test self_host_conformance -- --ignored` | `Results: N passed, M failed, T total` line |
 
 ## Per-language status
 
@@ -80,7 +80,7 @@ dispatch, virtual-dispatch scope issues) are resolved.
 ### Rust self-host (compiled_engine.rs)
 
 The Rust self-hosted engine (`rust/engine/src/compiled_engine.rs`, compiled
-from `engine.ball.json` via `ball-compiler`) runs the whole conformance
+from `engine.ball.json` via `ball-lang-compiler`) runs the whole conformance
 corpus with Dart-identical output (#39/#300 closed). It is gated behind the
 off-by-default `self_host` cargo feature because the generated file isn't
 present in a fresh checkout (mirrors C++'s gitignored `engine_rt.cpp`). The

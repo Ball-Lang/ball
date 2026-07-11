@@ -1,4 +1,4 @@
-//! `ball-shared` — protobuf bindings and shared runtime types for the Ball
+//! `ball-lang-shared` — protobuf bindings and shared runtime types for the Ball
 //! Rust implementation.
 //!
 //! Phase 1b (issue #34) wires up the generated protobuf bindings for
@@ -35,7 +35,7 @@ pub use value::{BallFunction, BallList, BallMap, BallMessage, BallValue, extract
 /// `buf generate proto` via the `buf.build/community/neoeinstein-prost`
 /// plugin entry in the repo-root `buf.gen.yaml` — regenerate it there, never
 /// in this file. Downstream crates should import Ball proto types through
-/// this module (`ball_shared::proto::ball::v1::…`) or the top-level
+/// this module (`ball_lang_shared::proto::ball::v1::…`) or the top-level
 /// re-export below, never by reaching into `rust/shared/gen` directly.
 pub mod proto {
     /// `google.protobuf` well-known types (`Struct`, `Value`, `Any`, the

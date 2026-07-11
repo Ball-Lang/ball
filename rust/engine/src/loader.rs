@@ -23,8 +23,8 @@
 //! `.ball.json` happened to use, and so a binary program is viewed identically
 //! to the same program in JSON.
 
-use ball_shared::proto::ball::v1::Program;
-use ball_shared::{BallList, BallMap, BallValue, DESCRIPTOR_POOL};
+use ball_lang_shared::proto::ball::v1::Program;
+use ball_lang_shared::{BallList, BallMap, BallValue, DESCRIPTOR_POOL};
 use prost::Message;
 use prost_reflect::{DynamicMessage, SerializeOptions};
 
@@ -226,7 +226,7 @@ pub fn json_to_ball_value(value: &serde_json::Value) -> BallValue {
                     if let serde_json::Value::String(b64) = val {
                         map.insert(
                             key.clone(),
-                            BallValue::Bytes(ball_shared::runtime::base64_decode_str(b64)),
+                            BallValue::Bytes(ball_lang_shared::runtime::base64_decode_str(b64)),
                         );
                         continue;
                     }

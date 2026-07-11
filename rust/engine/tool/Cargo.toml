@@ -9,9 +9,9 @@ rust-version.workspace = true
 publish = false
 
 # The self-host regeneration entry point (issue #39). Deliberately a *separate*
-# workspace member crate — NOT a `[[bin]]` inside `ball-engine` — so it can be
+# workspace member crate — NOT a `[[bin]]` inside `ball-lang-engine` — so it can be
 # built and run even when the generated `compiled_engine.rs` is broken (a
-# `[[bin]]` in `ball-engine` shares that crate's compilation, so a broken
+# `[[bin]]` in `ball-lang-engine` shares that crate's compilation, so a broken
 # `compiled_engine.rs` would make the regenerator itself un-buildable, a
 # chicken-and-egg deadlock). Mirrors the TS regeneration command (see
 # CLAUDE.md's "Build & Test") and `dart/compiler/tool/compile_engine_cpp.dart`.
@@ -20,8 +20,8 @@ name = "regen-engine"
 path = "src/main.rs"
 
 [dependencies]
-ball-shared = { workspace = true }
-ball-compiler = { workspace = true }
+ball-lang-shared = { workspace = true }
+ball-lang-compiler = { workspace = true }
 prost = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
 serde_json = "1"

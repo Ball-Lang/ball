@@ -9,8 +9,8 @@
 //! **No `rust_std` module**: every arm below routes through `std`/
 //! `std_collections` base-function calls — there is no Rust-specific
 //! runtime hook anywhere in this file.
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::{Expression, FunctionCall};
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::{Expression, FunctionCall};
 
 use crate::{
     Encoder, args_message, collections_call, field_access, if_call, let_stmt, list_literal,
@@ -115,7 +115,7 @@ impl Encoder {
             // `collect_impl_method_params` pre-pass — falling back to
             // positional `arg0`/`arg1` the same way a same-file free-function
             // call already does when its signature isn't known) — the exact
-            // shape `ball-compiler`'s `compile_method_dispatchers` /
+            // shape `ball-lang-compiler`'s `compile_method_dispatchers` /
             // `method_prologue` expect (`rust/compiler/src/type_emit.rs`).
             // Only recognized when `method` was actually seen as an `impl`
             // block's own method name in the pre-pass; anything else still
@@ -128,7 +128,7 @@ impl Encoder {
             }
 
             other => panic!(
-                "ball-encoder: unsupported method call `.{other}()` (see the module doc \
+                "ball-lang-encoder: unsupported method call `.{other}()` (see the module doc \
                  comment — a user-defined instance method must be declared in an `impl` block \
                  this file also encodes)"
             ),
@@ -256,7 +256,7 @@ impl Encoder {
             "format" => self.build_format_expr(mac),
             "vec" => self.encode_vec_macro(mac),
             other => panic!(
-                "ball-encoder: unsupported macro invocation `{other}!` (only `println!`/\
+                "ball-lang-encoder: unsupported macro invocation `{other}!` (only `println!`/\
                  `format!`/`vec!` are supported — issue #42's scope)"
             ),
         }
@@ -269,7 +269,7 @@ impl Encoder {
             )
             .unwrap_or_else(|err| {
                 panic!(
-                    "ball-encoder: failed to parse `vec!` arguments (the `vec![elem; n]` repeat \
+                    "ball-lang-encoder: failed to parse `vec!` arguments (the `vec![elem; n]` repeat \
                      form is not supported — issue #42's scope): {err}"
                 )
             });
@@ -288,7 +288,7 @@ impl Encoder {
                 syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
             )
             .unwrap_or_else(|err| {
-                panic!("ball-encoder: failed to parse format-macro arguments: {err}")
+                panic!("ball-lang-encoder: failed to parse format-macro arguments: {err}")
             });
         if exprs.is_empty() {
             return string_literal("");
@@ -299,7 +299,7 @@ impl Encoder {
                 ..
             }) => s.value(),
             other => panic!(
-                "ball-encoder: the first argument to a format macro must be a string literal \
+                "ball-lang-encoder: the first argument to a format macro must be a string literal \
                  (issue #42's scope — no format-string variables): {}",
                 quote::quote!(#other)
             ),
@@ -313,7 +313,7 @@ impl Encoder {
         assert_eq!(
             placeholder_count,
             args.len(),
-            "ball-encoder: format string {format_str:?} has {placeholder_count} `{{}}` \
+            "ball-lang-encoder: format string {format_str:?} has {placeholder_count} `{{}}` \
              placeholders but {} argument(s) were given",
             args.len()
         );
@@ -385,12 +385,14 @@ fn split_format_string(s: &str) -> Vec<FormatPart> {
                     match chars.next() {
                         Some('}') => break,
                         Some(other) => spec.push(other),
-                        None => panic!("ball-encoder: unterminated `{{` in format string: {s:?}"),
+                        None => {
+                            panic!("ball-lang-encoder: unterminated `{{` in format string: {s:?}")
+                        }
                     }
                 }
                 if !spec.is_empty() {
                     panic!(
-                        "ball-encoder: only the empty `{{}}` format placeholder is supported \
+                        "ball-lang-encoder: only the empty `{{}}` format placeholder is supported \
                          (got `{{{spec}}}` in {s:?}) — issue #42's scope"
                     );
                 }
@@ -405,7 +407,7 @@ fn split_format_string(s: &str) -> Vec<FormatPart> {
                     current.push('}');
                     continue;
                 }
-                panic!("ball-encoder: unmatched `}}` in format string: {s:?}");
+                panic!("ball-lang-encoder: unmatched `}}` in format string: {s:?}");
             }
             other => current.push(other),
         }

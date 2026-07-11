@@ -27,7 +27,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use ball_shared::{BallMap, BallValue};
+use ball_lang_shared::{BallMap, BallValue};
 
 /// A shared handle to a lexical scope. `Rc<RefCell<…>>` because a scope is
 /// referenced by both its child scopes (via [`ScopeNode::parent`]) and any

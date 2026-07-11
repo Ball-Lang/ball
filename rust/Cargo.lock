@@ -74,57 +74,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
-name = "ball-cli"
-version = "0.1.0"
-dependencies = [
- "ball-compiler",
- "ball-encoder",
- "ball-engine",
- "ball-shared",
- "clap",
- "prost",
- "prost-reflect",
- "serde_json",
-]
-
-[[package]]
 name = "ball-cli-regen"
 version = "0.1.0"
 dependencies = [
- "ball-compiler",
- "ball-shared",
- "prost",
- "prost-reflect",
- "serde_json",
-]
-
-[[package]]
-name = "ball-compiler"
-version = "0.1.0"
-dependencies = [
- "ball-shared",
- "indexmap",
- "prost",
- "prost-reflect",
- "serde_json",
-]
-
-[[package]]
-name = "ball-encoder"
-version = "0.1.0"
-dependencies = [
- "ball-compiler",
- "ball-shared",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "ball-engine"
-version = "0.1.0"
-dependencies = [
- "ball-shared",
+ "ball-lang-compiler",
+ "ball-lang-shared",
  "prost",
  "prost-reflect",
  "serde_json",
@@ -134,15 +88,61 @@ dependencies = [
 name = "ball-engine-regen"
 version = "0.1.0"
 dependencies = [
- "ball-compiler",
- "ball-shared",
+ "ball-lang-compiler",
+ "ball-lang-shared",
  "prost",
  "prost-reflect",
  "serde_json",
 ]
 
 [[package]]
-name = "ball-shared"
+name = "ball-lang-cli"
+version = "0.1.0"
+dependencies = [
+ "ball-lang-compiler",
+ "ball-lang-encoder",
+ "ball-lang-engine",
+ "ball-lang-shared",
+ "clap",
+ "prost",
+ "prost-reflect",
+ "serde_json",
+]
+
+[[package]]
+name = "ball-lang-compiler"
+version = "0.1.0"
+dependencies = [
+ "ball-lang-shared",
+ "indexmap",
+ "prost",
+ "prost-reflect",
+ "serde_json",
+]
+
+[[package]]
+name = "ball-lang-encoder"
+version = "0.1.0"
+dependencies = [
+ "ball-lang-compiler",
+ "ball-lang-shared",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "ball-lang-engine"
+version = "0.1.0"
+dependencies = [
+ "ball-lang-shared",
+ "prost",
+ "prost-reflect",
+ "serde_json",
+]
+
+[[package]]
+name = "ball-lang-shared"
 version = "0.1.0"
 dependencies = [
  "indexmap",

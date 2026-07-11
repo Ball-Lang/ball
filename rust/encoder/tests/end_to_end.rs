@@ -1,10 +1,10 @@
 //! Phase 3a end-to-end conformance (issue #42): encode a representative
-//! Rust source file with [`ball_encoder::encode`], then actually compile
-//! and run the resulting `ball.v1.Program` — via `ball-compiler` +
+//! Rust source file with [`ball_lang_encoder::encode`], then actually compile
+//! and run the resulting `ball.v1.Program` — via `ball-lang-compiler` +
 //! `cargo run`, the exact same "compile -> execute with the native
 //! toolchain -> compare" idiom `rust/compiler/tests/end_to_end.rs` already
 //! uses (`compile_and_run`, reproduced here so this crate doesn't need a
-//! test-only path back into `ball-compiler`'s own test module).
+//! test-only path back into `ball-lang-compiler`'s own test module).
 //!
 //! ## Why this substitutes for "run through the Rust engine" here
 //!
@@ -12,7 +12,7 @@
 //! through **both** the Rust engine and the Dart reference engine with
 //! matching output. The self-hosted Rust engine (issue #39) does not exist
 //! yet — `rust/engine` is still an empty Phase-1a scaffold — so there is no
-//! Rust *engine* to run this through today. `ball-compiler` (issues
+//! Rust *engine* to run this through today. `ball-lang-compiler` (issues
 //! #36-38) does exist and is the closest available proof that the encoded
 //! tree is a *correct, executable* Ball program on the Rust target: it
 //! compiles the encoded `Program` to real Rust source and actually runs it
@@ -31,11 +31,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use ball_compiler::Compiler;
-use ball_shared::proto::ball::v1::expression::Expr;
-use ball_shared::proto::ball::v1::literal::Value as LiteralValue;
-use ball_shared::proto::ball::v1::statement::Stmt;
-use ball_shared::proto::ball::v1::{Expression, Module, Program};
+use ball_lang_compiler::Compiler;
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
+use ball_lang_shared::proto::ball::v1::statement::Stmt;
+use ball_lang_shared::proto::ball::v1::{Expression, Module, Program};
 
 // ════════════════════════════════════════════════════════════
 // rustc/cargo execution harness (mirrors rust/compiler/tests/end_to_end.rs)
@@ -69,7 +69,7 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let manifest = format!(
         "[package]\nname = \"ball_encoder_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
          [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
-         [dependencies]\nball-shared = {{ path = {:?} }}\n",
+         [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
         shared_path
     );
     fs::write(fixture_dir.join("Cargo.toml"), manifest)
@@ -137,10 +137,10 @@ fn sum_range(limit: i64) -> i64 {
 
 fn count_down(n: i64) -> i64 {
     // Shadow the (single-named-parameter-aliased) `n` with a mutable local
-    // — `ball-compiler`'s `param_alias_prologue` always aliases a
+    // — `ball-lang-compiler`'s `param_alias_prologue` always aliases a
     // function's single named parameter via an immutable `let`, so
     // mutating the parameter binding *itself* is a pre-existing
-    // ball-compiler limitation outside this encoder issue's scope; this
+    // ball-lang-compiler limitation outside this encoder issue's scope; this
     // shadowing idiom is ordinary, valid Rust that sidesteps it cleanly.
     let mut n = n;
     let mut steps = 0;
@@ -209,7 +209,7 @@ fn main() {
 /// stands in for "the Rust engine" today).
 #[test]
 fn representative_rust_source_encodes_compiles_and_runs_with_expected_output() {
-    let program = ball_encoder::encode(REPRESENTATIVE_SOURCE);
+    let program = ball_lang_encoder::encode(REPRESENTATIVE_SOURCE);
     let expected = [
         "negative",              // classify(-5)
         "zero",                  // classify(0)
@@ -232,7 +232,7 @@ fn representative_rust_source_encodes_compiles_and_runs_with_expected_output() {
 /// `std_memory` (the "eliminate lang-specific std modules" invariant).
 #[test]
 fn encoded_program_contains_no_rust_std_module() {
-    let program = ball_encoder::encode(REPRESENTATIVE_SOURCE);
+    let program = ball_lang_encoder::encode(REPRESENTATIVE_SOURCE);
     const UNIVERSAL_MODULES: &[&str] = &["std", "std_collections", "std_io", "std_memory", "main"];
     for module in &program.modules {
         assert!(
@@ -269,7 +269,7 @@ fn control_flow_branches_are_encoded_as_lazy_sub_expressions() {
             }
         }
     "#;
-    let program = ball_encoder::encode_module_only(source);
+    let program = ball_lang_encoder::encode_module_only(source);
     let pick = program
         .functions
         .iter()
@@ -374,7 +374,7 @@ fn untaken_branches_never_execute_at_run_time() {
     // binary would visibly panic on if reached.
     let source = source.replace("panic!(\"THEN_BRANCH_EVALUATED\");", "let _x = 1 / 0;");
     let source = source.replace("panic!(\"WHILE_BODY_EVALUATED\");", "let _x = 1 / 0;");
-    let program = ball_encoder::encode(&source);
+    let program = ball_lang_encoder::encode(&source);
     assert_program_prints("laziness", &program, "else-ran\n0\n1");
 }
 
@@ -383,7 +383,7 @@ fn untaken_branches_never_execute_at_run_time() {
 /// for a module it never included, or vice versa).
 #[test]
 fn main_module_imports_match_included_modules() {
-    let program = ball_encoder::encode(REPRESENTATIVE_SOURCE);
+    let program = ball_lang_encoder::encode(REPRESENTATIVE_SOURCE);
     let main_module: &Module = program
         .modules
         .iter()
@@ -408,7 +408,7 @@ fn main_module_imports_match_included_modules() {
 /// encoded body (a `for`-loop statement followed by a bare `total` tail).
 #[test]
 fn block_tail_expression_without_semicolon_becomes_the_result() {
-    let program = ball_encoder::encode_module_only(REPRESENTATIVE_SOURCE);
+    let program = ball_lang_encoder::encode_module_only(REPRESENTATIVE_SOURCE);
     let sum_range = program
         .functions
         .iter()
@@ -467,7 +467,7 @@ fn struct_and_impl_methods_conformance_round_trip() {
             println!("{}", p2.distance_squared());
         }
     "#;
-    let program = ball_encoder::encode(source);
+    let program = ball_lang_encoder::encode(source);
 
     let main_module = program
         .modules
@@ -514,7 +514,7 @@ fn struct_and_impl_methods_conformance_round_trip() {
 /// identity passthrough, and **polymorphic dispatch**: a
 /// `Vec<Box<dyn Shape>>` holding both concrete types, iterated with
 /// `s.area()`/`s.name()` calls that must route to the right concrete `impl`
-/// at run time (`ball-compiler`'s `compile_method_dispatchers`), since
+/// at run time (`ball-lang-compiler`'s `compile_method_dispatchers`), since
 /// neither call site can know which concrete type `s` holds at Rust compile
 /// time.
 #[test]
@@ -564,7 +564,7 @@ fn trait_polymorphism_conformance_round_trip() {
             }
         }
     "#;
-    let program = ball_encoder::encode(source);
+    let program = ball_lang_encoder::encode(source);
 
     let main_module = program
         .modules
@@ -590,7 +590,7 @@ fn trait_polymorphism_conformance_round_trip() {
     );
 
     // Ball's `f64` `to_string`/`Display` always includes a decimal point
-    // (`4.0`, not `4`) — matches `ball_shared::value::format_double`'s own
+    // (`4.0`, not `4`) — matches `ball_lang_shared::value::format_double`'s own
     // convention.
     let expected = ["Circle: 4.0", "Rectangle: 12.0"].join("\n");
     assert_program_prints("trait_polymorphism", &program, &expected);
@@ -627,7 +627,7 @@ fn enum_conformance_round_trip() {
             println!("{}", color_name(Color::Green));
         }
     "#;
-    let program = ball_encoder::encode(source);
+    let program = ball_lang_encoder::encode(source);
 
     let main_module = program
         .modules
@@ -656,8 +656,8 @@ fn enum_conformance_round_trip() {
     assert_program_prints("enum_color", &program, &expected);
 }
 
-fn google_bool_kind(value: bool) -> ball_shared::proto::google::protobuf::value::Kind {
-    ball_shared::proto::google::protobuf::value::Kind::BoolValue(value)
+fn google_bool_kind(value: bool) -> ball_lang_shared::proto::google::protobuf::value::Kind {
+    ball_lang_shared::proto::google::protobuf::value::Kind::BoolValue(value)
 }
 
 // ── std accumulation ─────────────────────────────────────────
@@ -678,7 +678,7 @@ fn std_module_declares_only_the_functions_actually_used() {
             println!("{}", add_and_double(3, 4));
         }
     "#;
-    let program = ball_encoder::encode(source);
+    let program = ball_lang_encoder::encode(source);
 
     let std_module = program
         .modules
@@ -735,7 +735,7 @@ fn std_collections_module_declares_only_the_functions_actually_used() {
             println!("{}", doubled.len());
         }
     "#;
-    let program = ball_encoder::encode(source);
+    let program = ball_lang_encoder::encode(source);
 
     let collections_module = program
         .modules
@@ -778,12 +778,12 @@ fn cosmetic_metadata_round_trips_and_stripping_it_does_not_change_output() {
             }
         }
 
-        // NOTE: deliberately *not* `n += 1;` here — `ball-compiler`'s
+        // NOTE: deliberately *not* `n += 1;` here — `ball-lang-compiler`'s
         // `param_alias_prologue` (`rust/compiler/src/lib.rs`, issue #37/#38,
         // outside this crate's scope) unconditionally emits a non-`mut`
         // `let <name> = input.clone();` for a single-named-parameter
         // function, so a body that *reassigns* its own single parameter
-        // fails to compile — a genuine, pre-existing `ball-compiler` gap
+        // fails to compile — a genuine, pre-existing `ball-lang-compiler` gap
         // this test's own discovery surfaced, tracked separately rather
         // than silently worked around by weakening what this test checks.
         pub async fn describe(n: i64) -> i64 {
@@ -795,7 +795,7 @@ fn cosmetic_metadata_round_trips_and_stripping_it_does_not_change_output() {
             println!("{}", c.doubled());
         }
     "#;
-    let program = ball_encoder::encode(source);
+    let program = ball_lang_encoder::encode(source);
     let main_module = program
         .modules
         .iter()
@@ -814,7 +814,11 @@ fn cosmetic_metadata_round_trips_and_stripping_it_does_not_change_output() {
             .fields
             .get("kind")
             .and_then(|v| v.kind.as_ref()),
-        Some(&ball_shared::proto::google::protobuf::value::Kind::StringValue("struct".to_string()))
+        Some(
+            &ball_lang_shared::proto::google::protobuf::value::Kind::StringValue(
+                "struct".to_string()
+            )
+        )
     );
     assert_eq!(
         counter_meta
@@ -851,7 +855,7 @@ fn cosmetic_metadata_round_trips_and_stripping_it_does_not_change_output() {
     // convention. Checked against a dedicated tiny fixture so this
     // assertion stays narrowly scoped to one thing.
     let mut_source = "fn f() { let mut x = 1; x += 1; }";
-    let mut_module = ball_encoder::encode_module_only(mut_source);
+    let mut_module = ball_lang_encoder::encode_module_only(mut_source);
     let f = mut_module.functions.iter().find(|f| f.name == "f").unwrap();
     let Some(Expr::Block(block)) = f.body.as_ref().and_then(|b| b.expr.clone()) else {
         panic!("expected a block body");
@@ -931,7 +935,7 @@ fn assert_program_prints_and_return(
 /// (`Module`, `TypeDefinition`/`TypeParameter`, `FunctionDefinition`/
 /// `Lambda`, `LetBinding`, `MessageCreation`) throughout an entire
 /// [`Program`] — the invariant-#2 check's "strip all cosmetic metadata"
-/// half. Deliberately **preserves** the two keys `ball-compiler` actually
+/// half. Deliberately **preserves** the two keys `ball-lang-compiler` actually
 /// reads for real code-generation decisions (see
 /// `rust/compiler/src/type_emit.rs`'s crate doc comment): a
 /// `FunctionDefinition`/`Lambda`'s `params` (drives
@@ -964,7 +968,10 @@ fn strip_all_metadata(program: &mut Program) {
     }
 }
 
-fn retain_only(metadata: &mut Option<ball_shared::proto::google::protobuf::Struct>, keep: &[&str]) {
+fn retain_only(
+    metadata: &mut Option<ball_lang_shared::proto::google::protobuf::Struct>,
+    keep: &[&str],
+) {
     if let Some(meta) = metadata {
         meta.fields.retain(|key, _| keep.contains(&key.as_str()));
         if meta.fields.is_empty() {
@@ -994,7 +1001,7 @@ fn strip_expr_metadata(expr: &mut Expression) {
             }
         }
         Some(Expr::MessageCreation(message)) => {
-            // Never read by `ball-compiler` for anything (verified: no
+            // Never read by `ball-lang-compiler` for anything (verified: no
             // `message.metadata`/`mc.metadata` reference anywhere in
             // `rust/compiler/src`) — safe to strip unconditionally.
             message.metadata = None;
@@ -1009,7 +1016,7 @@ fn strip_expr_metadata(expr: &mut Expression) {
                 match &mut statement.stmt {
                     Some(Stmt::Let(let_binding)) => {
                         // `LetBinding.metadata` is never read by
-                        // `ball-compiler` either (`let` vs. `let mut` is
+                        // `ball-lang-compiler` either (`let` vs. `let mut` is
                         // re-derived from a `rest_mutates_var` data-flow
                         // scan, not from this metadata) — safe to strip
                         // unconditionally.

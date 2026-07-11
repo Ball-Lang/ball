@@ -2,7 +2,7 @@
 //! `std`/`std_collections`/`std_io` base-function dispatch table
 //! (`rust/compiler/src/base_call.rs`, issue #37).
 //!
-//! ## Why these live in `ball_shared`, not in a generated preamble string
+//! ## Why these live in `ball_lang_shared`, not in a generated preamble string
 //!
 //! Phase 2a (#36) embedded a small bootstrap set of these as a `&str`
 //! constant (`BASE_OPS_PREAMBLE`) spliced verbatim into every compiled
@@ -14,9 +14,9 @@
 //! `BallDyn::operator+`/`operator%`/... once in `cpp/shared/include/ball_dyn.h`
 //! and has the compiler emit plain `a + b` that resolves through operator
 //! overloading. This module is the Rust analog of `ball_dyn.h`: every
-//! compiled program depends on `ball-shared` already (for `BallValue`
+//! compiled program depends on `ball-lang-shared` already (for `BallValue`
 //! itself), so `compile_base_call` just emits calls into
-//! `ball_shared::runtime::*` instead of re-deriving the same logic as text.
+//! `ball_lang_shared::runtime::*` instead of re-deriving the same logic as text.
 //!
 //! ## Semantics — always match the Dart reference engine, not "whatever
 //! Rust's operator does"
@@ -34,7 +34,7 @@
 //!   against Dart's `~/` (`num.operator~/` docs: "equivalent to
 //!   `(a / b).truncate()`").
 //! - **`equals`/`not_equals` promote `Int`/`Double` cross-type** (Dart
-//!   `0 == 0.0` is `true`) — see [`ball_shared::value::BallValue`]'s
+//!   `0 == 0.0` is `true`) — see [`ball_lang_shared::value::BallValue`]'s
 //!   hand-written `PartialEq` impl, which every comparison here reuses.
 //! - **Int arithmetic uses wrapping ops** (`wrapping_add`/...), matching
 //!   Dart's fixed-width 64-bit `int` (no overflow checking) rather than
@@ -69,7 +69,7 @@ fn as_f64(value: &BallValue) -> f64 {
     match value {
         BallValue::Int(v) => *v as f64,
         BallValue::Double(v) => *v,
-        other => panic!("ball-compiler runtime: expected a number, got {other:?}"),
+        other => panic!("ball-lang-compiler runtime: expected a number, got {other:?}"),
     }
 }
 
@@ -77,21 +77,23 @@ fn as_i64(value: &BallValue) -> i64 {
     match value {
         BallValue::Int(v) => *v,
         BallValue::Double(v) => *v as i64,
-        other => panic!("ball-compiler runtime: expected a number, got {other:?}"),
+        other => panic!("ball-lang-compiler runtime: expected a number, got {other:?}"),
     }
 }
 
 fn as_str(value: &BallValue) -> &str {
     match value {
         BallValue::String(s) => s,
-        other => panic!("ball-compiler runtime: expected a string, got {other:?}"),
+        other => panic!("ball-lang-compiler runtime: expected a string, got {other:?}"),
     }
 }
 
 fn as_index(value: &BallValue) -> usize {
     match value {
         BallValue::Int(v) if *v >= 0 => *v as usize,
-        other => panic!("ball-compiler runtime: expected a non-negative int index, got {other:?}"),
+        other => {
+            panic!("ball-lang-compiler runtime: expected a non-negative int index, got {other:?}")
+        }
     }
 }
 
@@ -140,7 +142,7 @@ pub fn ball_truthy(value: BallValue) -> bool {
         // defaults and the reference engines' JS/Dart truthiness, where an
         // absent/`null` condition is falsy), rather than a hard error.
         BallValue::Null => false,
-        other => panic!("ball-compiler runtime: expected a bool condition, got {other:?}"),
+        other => panic!("ball-lang-compiler runtime: expected a bool condition, got {other:?}"),
     }
 }
 
@@ -152,7 +154,7 @@ pub fn ball_truthy(value: BallValue) -> bool {
 /// full deferred list.
 pub fn ball_unsupported_base_call(module: &str, function: &str) -> BallValue {
     panic!(
-        "ball-compiler runtime: base function '{module}.{function}' is not implemented by the \
+        "ball-lang-compiler runtime: base function '{module}.{function}' is not implemented by the \
          Rust target yet — see the scope note in rust/shared/src/runtime.rs"
     )
 }
@@ -174,7 +176,7 @@ pub fn ball_unsupported_base_call(module: &str, function: &str) -> BallValue {
 pub fn ball_call_function(callee: BallValue, input: BallValue) -> BallValue {
     match callee {
         BallValue::Function(function) => function.call(input),
-        other => panic!("ball-compiler runtime: value is not callable: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: value is not callable: {other:?}"),
     }
 }
 
@@ -283,7 +285,7 @@ pub fn ball_divide(left: BallValue, right: BallValue) -> BallValue {
     match both_int(&left, &right) {
         Some((a, b)) => {
             if b == 0 {
-                panic!("ball-compiler runtime: IntegerDivisionByZeroException");
+                panic!("ball-lang-compiler runtime: IntegerDivisionByZeroException");
             }
             BallValue::Int(a / b)
         }
@@ -303,7 +305,7 @@ pub fn ball_modulo(left: BallValue, right: BallValue) -> BallValue {
     match both_int(&left, &right) {
         Some((a, b)) => {
             if b == 0 {
-                panic!("ball-compiler runtime: modulo by zero");
+                panic!("ball-lang-compiler runtime: modulo by zero");
             }
             let r = a % b;
             BallValue::Int(if r < 0 { r + b.abs() } else { r })
@@ -320,7 +322,7 @@ pub fn ball_negate(value: BallValue) -> BallValue {
     match value {
         BallValue::Int(a) => BallValue::Int(a.wrapping_neg()),
         BallValue::Double(a) => BallValue::Double(-a),
-        other => panic!("ball-compiler runtime: unsupported operand for negate: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: unsupported operand for negate: {other:?}"),
     }
 }
 
@@ -343,7 +345,7 @@ fn compare(left: &BallValue, right: &BallValue) -> std::cmp::Ordering {
     match (left, right) {
         (BallValue::String(a), BallValue::String(b)) => a.cmp(b),
         _ => as_f64(left).partial_cmp(&as_f64(right)).unwrap_or_else(|| {
-            panic!("ball-compiler runtime: cannot order {left:?} and {right:?}")
+            panic!("ball-lang-compiler runtime: cannot order {left:?} and {right:?}")
         }),
     }
 }
@@ -384,7 +386,7 @@ pub fn ball_compare_to(left: BallValue, right: BallValue) -> BallValue {
 pub fn ball_not(value: BallValue) -> BallValue {
     match value {
         BallValue::Bool(a) => BallValue::Bool(!a),
-        other => panic!("ball-compiler runtime: unsupported operand for not: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: unsupported operand for not: {other:?}"),
     }
 }
 
@@ -433,7 +435,7 @@ pub fn ball_unsigned_right_shift(left: BallValue, right: BallValue) -> BallValue
 
 pub fn ball_null_check(value: BallValue) -> BallValue {
     if value == BallValue::Null {
-        panic!("ball-compiler runtime: null check operator used on a null value");
+        panic!("ball-lang-compiler runtime: null check operator used on a null value");
     }
     value
 }
@@ -499,7 +501,7 @@ pub fn ball_length(value: BallValue) -> BallValue {
         BallValue::List(list) => list.len() as i64,
         BallValue::Map(map) => map.len() as i64,
         BallValue::Bytes(bytes) => bytes.len() as i64,
-        other => panic!("ball-compiler runtime: no length for {other:?}"),
+        other => panic!("ball-lang-compiler runtime: no length for {other:?}"),
     })
 }
 
@@ -614,12 +616,12 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             "isNotEmpty" => BallValue::Bool(!list.is_empty()),
             "first" => list.get(0).unwrap_or(BallValue::Null),
             "last" => list.snapshot().last().cloned().unwrap_or(BallValue::Null),
-            _ => panic!("ball-compiler runtime: field access '{field}' on a list"),
+            _ => panic!("ball-lang-compiler runtime: field access '{field}' on a list"),
         },
         BallValue::String(s) => match field {
             "isEmpty" => BallValue::Bool(s.is_empty()),
             "isNotEmpty" => BallValue::Bool(!s.is_empty()),
-            _ => panic!("ball-compiler runtime: field access '{field}' on a string"),
+            _ => panic!("ball-lang-compiler runtime: field access '{field}' on a string"),
         },
         BallValue::Message(message) => message
             .get(field)
@@ -638,7 +640,7 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             "isFinite" => BallValue::Bool(true),
             "isInfinite" => BallValue::Bool(false),
             "isNaN" => BallValue::Bool(false),
-            other => panic!("ball-compiler runtime: field access '{other}' on an int"),
+            other => panic!("ball-lang-compiler runtime: field access '{other}' on an int"),
         },
         BallValue::Double(d) => match field {
             // Dart's `double.isNegative` is the sign bit — `-0.0` is negative.
@@ -657,9 +659,11 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             } else {
                 d
             }),
-            other => panic!("ball-compiler runtime: field access '{other}' on a double"),
+            other => panic!("ball-lang-compiler runtime: field access '{other}' on a double"),
         },
-        other => panic!("ball-compiler runtime: field access on a non-message value: {other:?}"),
+        other => {
+            panic!("ball-lang-compiler runtime: field access on a non-message value: {other:?}")
+        }
     }
 }
 
@@ -720,7 +724,7 @@ pub fn ball_message_type_name(value: &BallValue) -> String {
     match value {
         BallValue::Message(message) => message.type_name.clone(),
         other => panic!(
-            "ball-compiler runtime: method call on a non-message value (no type to dispatch on): {other:?}"
+            "ball-lang-compiler runtime: method call on a non-message value (no type to dispatch on): {other:?}"
         ),
     }
 }
@@ -741,13 +745,13 @@ pub fn ball_field_get_mut<'a>(value: &'a mut BallValue, field: &str) -> &'a mut 
         // path is now only ever reached for a plain-variable (`LValue::Var`)
         // target; a map/message field target never routes here.
         BallValue::Map(_) | BallValue::Message(_) => panic!(
-            "ball-compiler runtime: ball_field_get_mut on a map/message field '{field}' — \
+            "ball-lang-compiler runtime: ball_field_get_mut on a map/message field '{field}' — \
              collection fields mutate via ball_field_set (reference semantics, issues \
              #39/#300/#298)"
         ),
         other => {
             panic!(
-                "ball-compiler runtime: field access '{field}' on a non-message value: {other:?}"
+                "ball-lang-compiler runtime: field access '{field}' on a non-message value: {other:?}"
             )
         }
     }
@@ -772,7 +776,7 @@ pub fn ball_field_set(target: &mut BallValue, field: &str, value: BallValue) -> 
             message.insert(field, value.clone());
         }
         other => {
-            panic!("ball-compiler runtime: field assignment on a non-message value: {other:?}")
+            panic!("ball-lang-compiler runtime: field assignment on a non-message value: {other:?}")
         }
     }
     value
@@ -795,7 +799,7 @@ pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
                 s.chars()
                     .nth(i)
                     .unwrap_or_else(|| {
-                        panic!("ball-compiler runtime: string index {i} out of range")
+                        panic!("ball-lang-compiler runtime: string index {i} out of range")
                     })
                     .to_string(),
             )
@@ -803,14 +807,11 @@ pub fn ball_index_get(target: BallValue, index: BallValue) -> BallValue {
         // `bytes[i]` — the byte int at `i` (`bytes` is a `List<int>`, #39/#300).
         BallValue::Bytes(bytes) => {
             let i = as_index(&index);
-            BallValue::Int(
-                *bytes
-                    .get(i)
-                    .unwrap_or_else(|| panic!("ball-compiler runtime: byte index {i} out of range"))
-                    as i64,
-            )
+            BallValue::Int(*bytes.get(i).unwrap_or_else(|| {
+                panic!("ball-lang-compiler runtime: byte index {i} out of range")
+            }) as i64)
         }
-        other => panic!("ball-compiler runtime: index access on unsupported value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: index access on unsupported value: {other:?}"),
     }
 }
 
@@ -834,7 +835,9 @@ pub fn ball_index_set(target: &mut BallValue, index: BallValue, value: BallValue
         BallValue::Map(map) => {
             map.insert(index_key(&index), value.clone());
         }
-        other => panic!("ball-compiler runtime: index assignment on unsupported value: {other:?}"),
+        other => {
+            panic!("ball-lang-compiler runtime: index assignment on unsupported value: {other:?}")
+        }
     }
     value
 }
@@ -873,7 +876,7 @@ pub fn ball_iterate(value: BallValue) -> Vec<BallValue> {
             .into_iter()
             .map(|b| BallValue::Int(b as i64))
             .collect(),
-        other => panic!("ball-compiler runtime: '{other:?}' is not iterable"),
+        other => panic!("ball-lang-compiler runtime: '{other:?}' is not iterable"),
     }
 }
 
@@ -895,7 +898,7 @@ pub fn ball_spread_iter(value: BallValue) -> Vec<BallValue> {
             _ => Vec::new(),
         },
         BallValue::Null => Vec::new(),
-        other => panic!("ball-compiler runtime: cannot spread a non-iterable: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: cannot spread a non-iterable: {other:?}"),
     }
 }
 
@@ -1059,7 +1062,7 @@ pub fn ball_as(value: BallValue, type_name: &str) -> BallValue {
         return value;
     }
     panic!(
-        "ball-compiler runtime: type '{}' is not a subtype of type '{type_name}' in type cast",
+        "ball-lang-compiler runtime: type '{}' is not a subtype of type '{type_name}' in type cast",
         ball_type_name(&value)
     );
 }
@@ -1081,7 +1084,7 @@ pub fn ball_string_is_empty(value: BallValue) -> BallValue {
         BallValue::Map(m) => m.is_empty(),
         BallValue::Bytes(b) => b.is_empty(),
         BallValue::Null => true,
-        other => panic!("ball-compiler runtime: isEmpty on {other:?}"),
+        other => panic!("ball-lang-compiler runtime: isEmpty on {other:?}"),
     })
 }
 
@@ -1145,7 +1148,7 @@ pub fn ball_string_char_code_at(target: BallValue, index: BallValue) -> BallValu
     let unit = s
         .encode_utf16()
         .nth(i)
-        .unwrap_or_else(|| panic!("ball-compiler runtime: string index {i} out of range"));
+        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: string index {i} out of range"));
     BallValue::Int(unit as i64)
 }
 
@@ -1153,7 +1156,7 @@ pub fn ball_string_from_char_code(value: BallValue) -> BallValue {
     let code = as_i64(&value) as u32;
     BallValue::String(
         char::from_u32(code)
-            .unwrap_or_else(|| panic!("ball-compiler runtime: invalid char code {code}"))
+            .unwrap_or_else(|| panic!("ball-lang-compiler runtime: invalid char code {code}"))
             .to_string(),
     )
 }
@@ -1250,7 +1253,7 @@ fn padding_char(padding: &BallValue) -> char {
     match padding {
         BallValue::Null => ' ',
         BallValue::String(s) => s.chars().next().unwrap_or(' '),
-        other => panic!("ball-compiler runtime: invalid pad character {other:?}"),
+        other => panic!("ball-lang-compiler runtime: invalid pad character {other:?}"),
     }
 }
 
@@ -1262,7 +1265,7 @@ pub fn ball_math_abs(value: BallValue) -> BallValue {
     match value {
         BallValue::Int(v) => BallValue::Int(v.wrapping_abs()),
         BallValue::Double(v) => BallValue::Double(v.abs()),
-        other => panic!("ball-compiler runtime: math_abs on non-number {other:?}"),
+        other => panic!("ball-lang-compiler runtime: math_abs on non-number {other:?}"),
     }
 }
 
@@ -1433,7 +1436,7 @@ fn as_list(value: BallValue) -> Vec<BallValue> {
             .into_iter()
             .map(|b| BallValue::Int(b as i64))
             .collect(),
-        other => panic!("ball-compiler runtime: expected a list, got {other:?}"),
+        other => panic!("ball-lang-compiler runtime: expected a list, got {other:?}"),
     }
 }
 
@@ -1458,21 +1461,21 @@ pub fn ball_list_first(list: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
         .next()
-        .unwrap_or_else(|| panic!("ball-compiler runtime: .first on an empty list"))
+        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: .first on an empty list"))
 }
 
 pub fn ball_list_last(list: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
         .next_back()
-        .unwrap_or_else(|| panic!("ball-compiler runtime: .last on an empty list"))
+        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: .last on an empty list"))
 }
 
 pub fn ball_list_single(list: BallValue) -> BallValue {
     let list = as_list(list);
     if list.len() != 1 {
         panic!(
-            "ball-compiler runtime: .single on a list with {} elements",
+            "ball-lang-compiler runtime: .single on a list with {} elements",
             list.len()
         );
     }
@@ -1540,7 +1543,9 @@ pub fn ball_list_find(list: BallValue, callback: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
         .find(|item| ball_truthy(ball_call_function(callback.clone(), item.clone())))
-        .unwrap_or_else(|| panic!("ball-compiler runtime: list_find found no matching element"))
+        .unwrap_or_else(|| {
+            panic!("ball-lang-compiler runtime: list_find found no matching element")
+        })
 }
 
 pub fn ball_list_any(list: BallValue, callback: BallValue) -> BallValue {
@@ -1636,16 +1641,16 @@ pub fn ball_list_push(list: &mut BallValue, value: BallValue) -> BallValue {
             items.push(value);
             list.clone()
         }
-        other => panic!("ball-compiler runtime: list_push on a non-list value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: list_push on a non-list value: {other:?}"),
     }
 }
 
 pub fn ball_list_pop(list: &mut BallValue) -> BallValue {
     match list {
-        BallValue::List(items) => items
-            .pop()
-            .unwrap_or_else(|| panic!("ball-compiler runtime: .removeLast() on an empty list")),
-        other => panic!("ball-compiler runtime: list_pop on a non-list value: {other:?}"),
+        BallValue::List(items) => items.pop().unwrap_or_else(|| {
+            panic!("ball-lang-compiler runtime: .removeLast() on an empty list")
+        }),
+        other => panic!("ball-lang-compiler runtime: list_pop on a non-list value: {other:?}"),
     }
 }
 
@@ -1655,14 +1660,16 @@ pub fn ball_list_insert(list: &mut BallValue, index: BallValue, value: BallValue
             items.insert(as_index(&index), value);
             list.clone()
         }
-        other => panic!("ball-compiler runtime: list_insert on a non-list value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: list_insert on a non-list value: {other:?}"),
     }
 }
 
 pub fn ball_list_remove_at(list: &mut BallValue, index: BallValue) -> BallValue {
     match list {
         BallValue::List(items) => items.remove(as_index(&index)),
-        other => panic!("ball-compiler runtime: list_remove_at on a non-list value: {other:?}"),
+        other => {
+            panic!("ball-lang-compiler runtime: list_remove_at on a non-list value: {other:?}")
+        }
     }
 }
 
@@ -1681,7 +1688,7 @@ pub fn ball_list_remove_at(list: &mut BallValue, index: BallValue) -> BallValue 
 fn as_map(value: BallValue) -> IndexMap<String, BallValue> {
     match value {
         BallValue::Map(map) => map.snapshot(),
-        other => panic!("ball-compiler runtime: expected a map, got {other:?}"),
+        other => panic!("ball-lang-compiler runtime: expected a map, got {other:?}"),
     }
 }
 
@@ -1718,7 +1725,7 @@ pub fn ball_map_from_entries(entries: BallValue) -> BallValue {
     for entry in as_list(entries) {
         let pair = as_list(entry);
         if pair.len() != 2 {
-            panic!("ball-compiler runtime: map_from_entries expects [key, value] pairs");
+            panic!("ball-lang-compiler runtime: map_from_entries expects [key, value] pairs");
         }
         map.insert(index_key(&pair[0]), pair[1].clone());
     }
@@ -1734,7 +1741,7 @@ pub fn ball_map_create(entries: BallValue) -> BallValue {
     for entry in as_list(entries) {
         let pair = as_list(entry);
         if pair.len() != 2 {
-            panic!("ball-compiler runtime: map_create expects [key, value] pairs");
+            panic!("ball-lang-compiler runtime: map_create expects [key, value] pairs");
         }
         map.insert(index_key(&pair[0]), pair[1].clone());
     }
@@ -1766,14 +1773,14 @@ pub fn ball_map_set(map: &mut BallValue, key: BallValue, value: BallValue) -> Ba
             entries.insert(index_key(&key), value.clone());
             value
         }
-        other => panic!("ball-compiler runtime: map_set on a non-map value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: map_set on a non-map value: {other:?}"),
     }
 }
 
 pub fn ball_map_delete(map: &mut BallValue, key: BallValue) -> BallValue {
     match map {
         BallValue::Map(entries) => entries.remove(&index_key(&key)).unwrap_or(BallValue::Null),
-        other => panic!("ball-compiler runtime: map_delete on a non-map value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: map_delete on a non-map value: {other:?}"),
     }
 }
 
@@ -1800,7 +1807,7 @@ pub fn ball_string_join(list: BallValue, separator: BallValue) -> BallValue {
 // `Function`/`Message`). A `Set` is represented as a `List` with
 // insertion-order-preserving, duplicate-free membership — the same
 // simplification the value model already makes for every other "no
-// dedicated variant" case. Adding a real `Set` variant is a `ball_shared`
+// dedicated variant" case. Adding a real `Set` variant is a `ball_lang_shared`
 // schema decision out of this issue's scope.
 
 pub fn ball_set_create(list: BallValue) -> BallValue {
@@ -1821,7 +1828,7 @@ pub fn ball_set_add(set: &mut BallValue, value: BallValue) -> BallValue {
             }
             set.clone()
         }
-        other => panic!("ball-compiler runtime: set_add on a non-set value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: set_add on a non-set value: {other:?}"),
     }
 }
 
@@ -1832,7 +1839,7 @@ pub fn ball_set_remove(set: &mut BallValue, value: BallValue) -> BallValue {
             items.retain(|item| *item != value);
             BallValue::Bool(items.len() != before)
         }
-        other => panic!("ball-compiler runtime: set_remove on a non-set value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: set_remove on a non-set value: {other:?}"),
     }
 }
 
@@ -2033,7 +2040,7 @@ pub fn ball_catch_payload(payload: Box<dyn std::any::Any + Send>) -> BallValue {
             } else if let Some(s) = payload.downcast_ref::<String>() {
                 s.clone()
             } else {
-                "ball-compiler runtime: non-Ball panic caught by try/catch".to_string()
+                "ball-lang-compiler runtime: non-Ball panic caught by try/catch".to_string()
             };
             BallValue::String(message)
         }
@@ -2257,9 +2264,9 @@ pub fn ball_to_double(value: BallValue) -> BallValue {
         BallValue::String(s) => BallValue::Double(
             s.trim()
                 .parse::<f64>()
-                .unwrap_or_else(|_| panic!("ball-compiler runtime: toDouble on '{s}'")),
+                .unwrap_or_else(|_| panic!("ball-lang-compiler runtime: toDouble on '{s}'")),
         ),
-        other => panic!("ball-compiler runtime: toDouble on a non-number: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: toDouble on a non-number: {other:?}"),
     }
 }
 
@@ -2275,10 +2282,10 @@ pub fn ball_to_int(value: BallValue) -> BallValue {
             let parsed = trimmed
                 .parse::<i64>()
                 .or_else(|_| trimmed.parse::<f64>().map(|f| f.trunc() as i64))
-                .unwrap_or_else(|_| panic!("ball-compiler runtime: toInt on '{s}'"));
+                .unwrap_or_else(|_| panic!("ball-lang-compiler runtime: toInt on '{s}'"));
             BallValue::Int(parsed)
         }
-        other => panic!("ball-compiler runtime: toInt on a non-number: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: toInt on a non-number: {other:?}"),
     }
 }
 
@@ -2553,7 +2560,7 @@ pub fn ball_invoke(input: BallValue) -> BallValue {
     let mut map = as_map(input);
     let callee = map
         .shift_remove("callee")
-        .unwrap_or_else(|| panic!("ball-compiler runtime: std.invoke: no callee"));
+        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: std.invoke: no callee"));
     map.shift_remove("__type__");
     let arg = match map.len() {
         0 => BallValue::Null,
@@ -2613,7 +2620,7 @@ pub fn ball_list_clear(list: &mut BallValue) -> BallValue {
             items.clear();
             BallValue::List(items.clone())
         }
-        other => panic!("ball-compiler runtime: list_clear on a non-list value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: list_clear on a non-list value: {other:?}"),
     }
 }
 
@@ -2638,7 +2645,7 @@ pub fn ball_list_sort(list: &mut BallValue, comparator: BallValue) -> BallValue 
             }
             BallValue::List(items.clone())
         }
-        other => panic!("ball-compiler runtime: list_sort on a non-list value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: list_sort on a non-list value: {other:?}"),
     }
 }
 
@@ -2672,7 +2679,9 @@ pub fn ball_map_put_if_absent(map: &mut BallValue, key: BallValue, value: BallVa
             }
             entries.get(&k).unwrap_or(BallValue::Null)
         }
-        other => panic!("ball-compiler runtime: map_put_if_absent on a non-map value: {other:?}"),
+        other => {
+            panic!("ball-lang-compiler runtime: map_put_if_absent on a non-map value: {other:?}")
+        }
     }
 }
 
@@ -2690,7 +2699,7 @@ pub fn ball_utf8_decode(value: BallValue) -> BallValue {
             let bytes: Vec<u8> = items.snapshot().iter().map(|v| as_i64(v) as u8).collect();
             BallValue::String(String::from_utf8_lossy(&bytes).into_owned())
         }
-        other => panic!("ball-compiler runtime: utf8_decode on a non-bytes value: {other:?}"),
+        other => panic!("ball-lang-compiler runtime: utf8_decode on a non-bytes value: {other:?}"),
     }
 }
 
@@ -2699,7 +2708,9 @@ pub fn ball_base64_encode(value: BallValue) -> BallValue {
     let bytes = match value {
         BallValue::Bytes(bytes) => bytes,
         BallValue::List(items) => items.snapshot().iter().map(|v| as_i64(v) as u8).collect(),
-        other => panic!("ball-compiler runtime: base64_encode on a non-bytes value: {other:?}"),
+        other => {
+            panic!("ball-lang-compiler runtime: base64_encode on a non-bytes value: {other:?}")
+        }
     };
     BallValue::String(base64_encode_bytes(&bytes))
 }
@@ -2953,7 +2964,7 @@ mod dartsdk {
         match (&a, &b) {
             (BallValue::Int(x), BallValue::Int(y)) => {
                 if *y == 0 {
-                    panic!("ball-compiler runtime: integer remainder by zero");
+                    panic!("ball-lang-compiler runtime: integer remainder by zero");
                 }
                 BallValue::Int(x.wrapping_rem(*y))
             }
@@ -2990,13 +3001,16 @@ mod dartsdk {
                 .or_else(|| msg.get("source"))
                 .map(|x| x.to_string())
                 .unwrap_or_default(),
-            other => panic!("ball-compiler runtime: RegExp receiver is not a pattern: {other:?}"),
+            other => {
+                panic!("ball-lang-compiler runtime: RegExp receiver is not a pattern: {other:?}")
+            }
         }
     }
 
     fn compile_regex(pattern: &str) -> regex::Regex {
-        regex::Regex::new(pattern)
-            .unwrap_or_else(|e| panic!("ball-compiler runtime: invalid RegExp /{pattern}/: {e}"))
+        regex::Regex::new(pattern).unwrap_or_else(|e| {
+            panic!("ball-lang-compiler runtime: invalid RegExp /{pattern}/: {e}")
+        })
     }
 
     fn regex_match_value(caps: &regex::Captures) -> BallValue {
@@ -3086,7 +3100,9 @@ mod dartsdk {
                 list.extend(as_list(other));
                 BallValue::List(list)
             }
-            other => panic!("ball-compiler runtime: addAll on unsupported receiver: {other:?}"),
+            other => {
+                panic!("ball-lang-compiler runtime: addAll on unsupported receiver: {other:?}")
+            }
         }
     }
 
@@ -3107,7 +3123,9 @@ mod dartsdk {
                 }
                 None => BallValue::Bool(false),
             },
-            other => panic!("ball-compiler runtime: remove on unsupported receiver: {other:?}"),
+            other => {
+                panic!("ball-lang-compiler runtime: remove on unsupported receiver: {other:?}")
+            }
         }
     }
 
@@ -3128,7 +3146,7 @@ mod dartsdk {
         for (offset, item) in as_list(m_get(&input, "arg1")).into_iter().enumerate() {
             let index = start + offset;
             if index >= list.len() {
-                panic!("ball-compiler runtime: setAll range past end of list");
+                panic!("ball-lang-compiler runtime: setAll range past end of list");
             }
             list[index] = item;
         }
@@ -3171,7 +3189,7 @@ mod dartsdk {
         let list = as_list(m_get(&input, "self"));
         let index = as_index(&m_get(&input, "arg0"));
         list.get(index).cloned().unwrap_or_else(|| {
-            panic!("ball-compiler runtime: elementAt index {index} out of range")
+            panic!("ball-lang-compiler runtime: elementAt index {index} out of range")
         })
     }
 
@@ -3509,7 +3527,7 @@ mod dartsdk {
         let path = path_arg(&m_get(&input, "self"));
         match std::fs::read_to_string(&path) {
             Ok(contents) => BallValue::String(contents),
-            Err(e) => panic!("ball-compiler runtime: readAsStringSync('{path}') failed: {e}"),
+            Err(e) => panic!("ball-lang-compiler runtime: readAsStringSync('{path}') failed: {e}"),
         }
     }
 
@@ -3518,7 +3536,7 @@ mod dartsdk {
         let path = path_arg(&m_get(&input, "self"));
         match std::fs::read(&path) {
             Ok(bytes) => BallValue::Bytes(bytes),
-            Err(e) => panic!("ball-compiler runtime: readAsBytesSync('{path}') failed: {e}"),
+            Err(e) => panic!("ball-lang-compiler runtime: readAsBytesSync('{path}') failed: {e}"),
         }
     }
 
@@ -3540,7 +3558,7 @@ mod dartsdk {
                 }
                 BallValue::List(BallList::from(out))
             }
-            Err(e) => panic!("ball-compiler runtime: listSync('{path}') failed: {e}"),
+            Err(e) => panic!("ball-lang-compiler runtime: listSync('{path}') failed: {e}"),
         }
     }
 
@@ -3562,7 +3580,7 @@ mod dartsdk {
             std::fs::write(&path, contents.as_bytes())
         };
         if let Err(e) = result {
-            panic!("ball-compiler runtime: writeAsStringSync('{path}') failed: {e}");
+            panic!("ball-lang-compiler runtime: writeAsStringSync('{path}') failed: {e}");
         }
         BallValue::Null
     }
@@ -3574,11 +3592,11 @@ mod dartsdk {
             BallValue::Bytes(b) => b,
             BallValue::List(list) => list.snapshot().iter().map(|v| as_i64(v) as u8).collect(),
             other => {
-                panic!("ball-compiler runtime: writeAsBytesSync expected bytes, got {other:?}")
+                panic!("ball-lang-compiler runtime: writeAsBytesSync expected bytes, got {other:?}")
             }
         };
         if let Err(e) = std::fs::write(&path, bytes) {
-            panic!("ball-compiler runtime: writeAsBytesSync('{path}') failed: {e}");
+            panic!("ball-lang-compiler runtime: writeAsBytesSync('{path}') failed: {e}");
         }
         BallValue::Null
     }
@@ -3593,7 +3611,7 @@ mod dartsdk {
             std::fs::create_dir(&path)
         };
         if let Err(e) = result {
-            panic!("ball-compiler runtime: createSync('{path}') failed: {e}");
+            panic!("ball-lang-compiler runtime: createSync('{path}') failed: {e}");
         }
         BallValue::Null
     }
@@ -3608,7 +3626,7 @@ mod dartsdk {
             std::fs::remove_file(path_ref)
         };
         if let Err(e) = result {
-            panic!("ball-compiler runtime: deleteSync('{path}') failed: {e}");
+            panic!("ball-lang-compiler runtime: deleteSync('{path}') failed: {e}");
         }
         BallValue::Null
     }
@@ -3697,7 +3715,7 @@ mod dartsdk {
 
     /// Proto presence of field `name` on `obj` (proto3 semantics: present ⇒
     /// set and non-default/non-empty). Mirrors `ball_proto.dart` /
-    /// `ball_engine::ball_proto::has_field`.
+    /// `ball_lang_engine::ball_proto::has_field`.
     fn proto_has_field(obj: &BallValue, name: &str) -> BallValue {
         let field: Option<BallValue> = match obj {
             BallValue::Map(map) => map.get(name),
@@ -3753,7 +3771,7 @@ mod dartsdk {
             let text = as_str(&arg);
             match serde_json::from_str::<serde_json::Value>(text) {
                 Ok(value) => json_value_to_ball(&value),
-                Err(e) => panic!("ball-compiler runtime: JsonDecoder.convert failed: {e}"),
+                Err(e) => panic!("ball-lang-compiler runtime: JsonDecoder.convert failed: {e}"),
             }
         } else {
             BallValue::String(ball_value_to_json_string(&arg))

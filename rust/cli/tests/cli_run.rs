@@ -45,8 +45,8 @@ fn malformed_binary_exits_2() {
 }
 
 /// `hello_world.ball.json` is a **structurally valid** program. Without
-/// `ball-cli`'s `self_host` Cargo feature (the default build — see
-/// `Cargo.toml`), `ball-engine::run()` always reports
+/// `ball-lang-cli`'s `self_host` Cargo feature (the default build — see
+/// `Cargo.toml`), `ball-lang-engine::run()` always reports
 /// `EngineError::SelfHostPending`: this must surface as an honest runtime
 /// error (exit `1`), never a false "success" with empty/wrong output. See
 /// `self_host_hello_world_prints_greeting` below for the real, feature-gated
@@ -69,7 +69,7 @@ fn default_build_reports_self_host_pending_honestly_for_a_valid_program() {
 /// `--features self_host` (requires `rust/engine/src/compiled_engine.rs` to
 /// have been regenerated first — see `rust/engine/AGENTS.md`). Mirrors
 /// `rust/engine/tests/self_host_run.rs::hello_world_prints_greeting`, but
-/// through the actual CLI binary rather than the `ball-engine` API directly.
+/// through the actual CLI binary rather than the `ball-lang-engine` API directly.
 #[cfg(feature = "self_host")]
 #[test]
 fn self_host_hello_world_prints_greeting() {

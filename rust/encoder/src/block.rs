@@ -6,8 +6,8 @@
 //! tail-expression-is-the-value rule, which this encoder gets "for free"
 //! simply by reading `syn::Stmt::Expr(expr, semi)`'s `semi` presence.
 
-use ball_shared::proto::ball::v1::statement::Stmt as BallStmt;
-use ball_shared::proto::ball::v1::{Block, Expression, LetBinding, Statement};
+use ball_lang_shared::proto::ball::v1::statement::Stmt as BallStmt;
+use ball_lang_shared::proto::ball::v1::{Block, Expression, LetBinding, Statement};
 
 use crate::{Encoder, null_literal};
 
@@ -44,14 +44,14 @@ impl Encoder {
                     });
                 }
                 syn::Stmt::Item(_) => panic!(
-                    "ball-encoder: local item declarations (nested fn/struct/...) inside a block \
+                    "ball-lang-encoder: local item declarations (nested fn/struct/...) inside a block \
                      are not supported (issue #42's scope)"
                 ),
             }
         }
 
         Expression {
-            expr: Some(ball_shared::proto::ball::v1::expression::Expr::Block(
+            expr: Some(ball_lang_shared::proto::ball::v1::expression::Expr::Block(
                 Box::new(Block {
                     statements,
                     result: Some(result.unwrap_or_else(|| Box::new(null_literal()))),
@@ -64,7 +64,7 @@ impl Encoder {
         if let Some(init) = &local.init {
             if init.diverge.is_some() {
                 panic!(
-                    "ball-encoder: `let ... else {{ ... }}` (let-else) is not supported (issue \
+                    "ball-lang-encoder: `let ... else {{ ... }}` (let-else) is not supported (issue \
                      #42's scope)"
                 );
             }
@@ -90,12 +90,12 @@ impl Encoder {
                 }) => (ident.to_string(), mutability.is_some()),
                 syn::Pat::Wild(_) => ("_".to_string(), false),
                 _ => panic!(
-                    "ball-encoder: only simple identifier `let` bindings are supported \
+                    "ball-lang-encoder: only simple identifier `let` bindings are supported \
                      (destructuring `let` patterns are deferred)"
                 ),
             },
             other => panic!(
-                "ball-encoder: only simple identifier `let` bindings are supported \
+                "ball-lang-encoder: only simple identifier `let` bindings are supported \
                  (destructuring `let` patterns are deferred): {}",
                 quote::quote!(#other)
             ),
@@ -109,13 +109,13 @@ impl Encoder {
         // conceptually Dart's `final`) carries no metadata at all — matches
         // every other boolean cosmetic flag's "absence means false"
         // convention in this crate (see `MetaBuilder::set_bool_if_true`).
-        // `ball-compiler` never reads a `LetBinding`'s metadata for anything
+        // `ball-lang-compiler` never reads a `LetBinding`'s metadata for anything
         // (see `rust/compiler/src/lib.rs::compile_expression`'s `Block`
         // arm), so this can never change a compiled program's output.
         let metadata = is_mut.then(|| {
             let mut fields = std::collections::HashMap::new();
             fields.insert("is_mut".to_string(), crate::bool_value(true));
-            ball_shared::proto::google::protobuf::Struct { fields }
+            ball_lang_shared::proto::google::protobuf::Struct { fields }
         });
         Statement {
             stmt: Some(BallStmt::Let(LetBinding {

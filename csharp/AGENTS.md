@@ -864,6 +864,101 @@ dotnet run --project cli/Ball.Cli.csproj -p:CliCore=true -p:SelfHost=true -- run
 dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 37 tests
 ```
 
+## Publishing (nuget.org) — issue #369
+
+`csharp/cli/Ball.Cli.csproj` packs as a **.NET global tool** (`PackAsTool=true`,
+`ToolCommandName=ball`, `PackageId=Ball.Cli`) and ships to **nuget.org** via
+`.github/workflows/publish-nuget.yml`. It is **tag-gated** — merging a PR never publishes; a
+release only fires when a `csharp-nuget/vX.Y.Z` tag is pushed.
+
+### Package identity
+
+`PackageId` is `Ball.Cli` — verified available on nuget.org 2026-07-12 (`api.nuget.org/
+v3-flatcontainer/ball.cli/index.json` returns 404: no version ever published; the nuget.org
+search UI shows no exact-name match either). NuGet ids are case-insensitive, so this also
+reserves `ball.cli`/`BALL.CLI`/etc. The bare id `ball` is *also* free on nuget.org (unrelated to
+the pre-existing, unmaintained `ball` crate on crates.io — see `rust/AGENTS.md` — nuget.org is a
+separate namespace with no such squatter), but `Ball.Cli` was chosen to match this project's
+existing C# naming convention (`Ball.Shared`/`Ball.Compiler`/`Ball.Encoder`/`Ball.Engine`/
+`Ball.Cli` are already the five assembly/namespace names).
+
+### Trigger & tag namespace
+
+```bash
+git tag csharp-nuget/v0.1.0 && git push origin csharp-nuget/v0.1.0
+```
+
+The `csharp-nuget/` **slash** prefix mirrors `publish-crates.yml`'s (#375) `rust-crates/`
+precedent: GitHub Actions tag filters treat `*` as "any char except `/`", so
+`csharp-nuget/v0.1.0` does not match the Dart channel's `*-v[0-9]+.[0-9]+.[0-9]+*` filter
+(`release-publish.yml`) or the Rust channel's `rust-crates/v*` filter — none of the release
+channels cross-fire.
+
+### Published feature shape (working `ball run` out of the box)
+
+The committed csproj has neither `SelfHost` nor `CliCore` set, so a fresh-checkout `dotnet build`/
+`dotnet pack` stays green without the Dart-regen dance — every gated verb honestly reports a
+`CliRuntimeError` instead of silently doing nothing (see `Ball.Cli.csproj`'s doc comment). The
+publish workflow regenerates `CompiledEngine.cs` + `CompiledCli.cs` from
+`dart/self_host/{engine.ball.pb,cli.ball.json}` and then runs
+`dotnet pack -p:SelfHost=true -p:CliCore=true`, so `dotnet tool install --global Ball.Cli` yields
+a working `ball run` (self-hosted engine) plus `info`/`validate`/`tree`/`version` (cli-core) with
+no extra flags — the same gitignored-generated-source packaging problem `publish-crates.yml`
+(#375) solved for `ball-lang-cli`, solved the .NET way: unlike Cargo (which packages *source* and
+needs an `include` glob to defeat gitignore-based file discovery), `dotnet pack` packages
+*compiled build output* — building with the properties on is the whole fix, no manifest-level
+include/exclude needed.
+
+Before publishing, the workflow gates on the same acceptance bar as the `csharp` CI job and
+`publish-crates.yml`: the self-hosted engine conformance sweep must show full parity
+(`Results: N passed, 0 failed, N total`) and the cli-core golden-parity tests
+(`CliCoreParityTests`) must pass.
+
+### Version policy
+
+The published package version is derived from the tag (`csharp-nuget/vX.Y.Z` → `X.Y.Z`), passed
+to `dotnet pack` via `-p:Version=`, overriding `Ball.Cli.csproj`'s committed `<Version>0.1.0</
+Version>` placeholder. `ball version` reports the informational version baked into the built
+`ball` assembly (`IncludeSourceRevisionInInformationalVersion=false` keeps it a clean `ball
+<version>` line, no `+<git-sha>` suffix) — the nuget.org package version, mirroring how each
+target's CLI reports its own registry's version (crates.io for Rust, npm's semantic-release line
+for TypeScript, the pubspec version for Dart — see `rust/AGENTS.md`'s "Version policy").
+
+### Auth: nuget.org Trusted Publishing (OIDC) + API-key fallback
+
+Auth uses [`NuGet/login@v1`](https://github.com/NuGet/login) (pinned to the v1.2.0 SHA): it
+exchanges the GitHub OIDC token (`permissions: id-token: write`) for a short-lived (1-hour)
+nuget.org API key exposed as `steps.login.outputs.NUGET_API_KEY`. That key is passed to
+`dotnet nuget push` via an env var, falling back to a `NUGET_API_KEY` **secret** when the OIDC
+exchange fails (`continue-on-error: true` on the login step) — e.g. before a Trusted Publishing
+policy is configured, or before the `NUGET_USER` secret is set.
+
+Unlike crates.io (RFC 3691, `rust/AGENTS.md`), nuget.org Trusted Publishing policies **can** be
+created before a package's first publish (verified against
+<https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing>, 2026-07-12) — a policy for
+a not-yet-existing package id starts "temporarily active for 7 days" and becomes permanent on
+first successful publish. So the token fallback here is a bridge until the policy is configured,
+not specifically required for release #1 the way it is for crates.io.
+
+### Maintainer setup (one-time, registry side) — required before the first tag
+
+1. **Own a nuget.org account** (or organization) with publish rights, linked to the GitHub org.
+2. **Reserve the package id** (optional but recommended): push once manually with a personal API
+   key (`dotnet nuget push` from a local `dotnet pack -p:SelfHost=true -p:CliCore=true`), or skip
+   straight to step 3 — a Trusted Publishing policy can target an id that doesn't exist yet.
+3. **Configure Trusted Publishing**: nuget.org → your username → **Trusted Publishing** → add a
+   policy — Repository Owner `Ball-Lang`, Repository `ball`, Workflow File `publish-nuget.yml`
+   (file name only, no `.github/workflows/` path), Environment left blank. Owner: the account or
+   org that will own the `Ball.Cli` package.
+4. **Set the `NUGET_USER` repo secret** to that nuget.org account's profile username (not email) —
+   consumed by the `NuGet/login` step's `user:` input.
+5. **(Fallback) Set the `NUGET_API_KEY` repo secret**: nuget.org → API Keys → Create, scope Push,
+   glob pattern `Ball.Cli` (or `Ball.*`), an expiry. Needed until step 3's policy is confirmed
+   active (check the nuget.org UI after the first publish — a policy can silently expire after 7
+   days if no publish happens in a private-repo scenario, though `Ball-Lang/ball` is public so this
+   should activate on the first successful push).
+6. **Push the first tag**: `git tag csharp-nuget/v0.1.0 && git push origin csharp-nuget/v0.1.0`.
+
 ## For AI Agents
 
 - Status: Phases 1–5 complete — every package compiles; `shared` consumes the buf-generated
@@ -923,3 +1018,10 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
   not per-project `Version=` attributes.
 - Verify maturity against CI (`.github/workflows/ci.yml`) — the `csharp` job and `csharp-engine`
   conformance-matrix row (#386) are the source of truth, not this prose.
+- **NuGet packaging (issue #369) advances but does not close the registry epic (#361):**
+  `csharp/cli/Ball.Cli.csproj` packs as a working .NET global tool (`PackageId=Ball.Cli`,
+  `ToolCommandName=ball`) and `.github/workflows/publish-nuget.yml` is tag-gated on
+  `csharp-nuget/v*` and proven locally (`dotnet pack -p:SelfHost=true -p:CliCore=true` +
+  `dotnet tool install --global --add-source` + a real `ball run`/`info`/`validate`/`tree` against
+  the conformance corpus) — but nothing has actually been pushed to nuget.org yet, which needs the
+  maintainer registry setup in "Publishing (nuget.org)" above plus a first tag.

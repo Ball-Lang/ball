@@ -1,0 +1,177 @@
+name: Publish NuGet
+
+# Publishes the C# `ball` CLI (Ball.Cli) to nuget.org as a .NET global tool
+# (`dotnet tool install --global Ball.Cli` -> `ball` on PATH). TAG-GATED:
+# merging a PR never publishes anything — a release only happens when a
+# `csharp-nuget/vX.Y.Z` tag is pushed.
+#
+# The tag namespace uses a `/` on purpose, mirroring publish-crates.yml
+# (#375)'s `rust-crates/` precedent: GitHub Actions tag filters treat `*` as
+# "any char except `/`", so `csharp-nuget/v0.1.0` does NOT match the Dart
+# publish workflow's `*-v[0-9]+.[0-9]+.[0-9]+*` filter (release-publish.yml)
+# or the Rust channel's `rust-crates/v*` filter (publish-crates.yml) — none
+# of the release channels cross-fire. (Filter-pattern semantics:
+# https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet)
+#
+# Auth is nuget.org Trusted Publishing (OIDC) via NuGet/login
+# (https://github.com/NuGet/login), with a NUGET_API_KEY secret fallback —
+# see csharp/AGENTS.md § Publishing for the exact maintainer setup. Unlike
+# crates.io (RFC 3691), nuget.org Trusted Publishing policies CAN be created
+# before a package's first publish (verified against
+# https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing,
+# 2026-07-12), so the token fallback here only matters until that policy is
+# configured — not specifically for release #1.
+
+on:
+  push:
+    tags:
+      - 'csharp-nuget/v*'
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC token exchange for nuget.org Trusted Publishing
+  contents: read
+
+jobs:
+  publish:
+    name: Publish Ball.Cli to nuget.org
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # .NET 10 is the current LTS, matching csharp/global.json's
+      # rollForward: latestFeature contract (minimum SDK 10.0.100) — same
+      # pin as the `csharp` job in ci.yml.
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('csharp/Directory.Packages.props', 'csharp/**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # Dart regenerates dart/self_host/{engine.ball.pb,cli.ball.json} — the
+      # self-host sources the gitignored CompiledEngine.cs / CompiledCli.cs
+      # are compiled from. Same reason ci.yml's csharp job bootstraps Dart.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      # compile_engine_cpp.dart writes dart/self_host/engine.ball.pb BEFORE
+      # it tries (and, with no C++ compiler built in this job, fails) to
+      # emit C++ — the trailing failure is expected and harmless here; only
+      # the .pb matters (see csharp/AGENTS.md's "Build & Test"). Mirrors
+      # ci.yml's csharp job exactly.
+      - name: Regenerate engine.ball.pb + cli.ball.json
+        run: |
+          dart pub get
+          cd dart
+          dart run compiler/tool/compile_engine_cpp.dart || true
+          test -f self_host/engine.ball.pb
+          dart run compiler/tool/gen_cli_json.dart
+          test -f self_host/cli.ball.json
+
+      # ── Regenerate the gitignored generated sources the pack step needs ──
+      # csharp/engine/tool and csharp/cli/tool are deliberately separate
+      # console projects (never targets inside Ball.Engine/Ball.Cli) so a
+      # broken generated file can never make the regenerator itself
+      # un-buildable — see csharp/AGENTS.md.
+      - name: Regenerate CompiledEngine.cs + CompiledCli.cs
+        run: |
+          dotnet run --project csharp/engine/tool/Ball.Engine.Regen.csproj -c Release
+          dotnet run --project csharp/cli/tool/Ball.Cli.Regen.csproj -c Release
+
+      # ── Pre-publish gate: self-hosted engine must run the whole
+      #    conformance corpus at Dart parity — this is the publish bar,
+      #    mirroring publish-crates.yml's (#375) "Self-host conformance
+      #    sweep" gate. Never ship a `ball run` that is broken.
+      - name: Build self-hosted engine conformance harness
+        run: dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
+
+      - name: "Self-host conformance sweep (must be full parity)"
+        run: |
+          cd csharp
+          set +e
+          output=$(dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true --no-build -- --leg=engine 2>&1)
+          exit_code=$?
+          echo "$output"
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          echo ""
+          echo "=== C# Self-Host ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+            echo "::error::C# self-host conformance is not at full parity — refusing to publish"
+            exit 1
+          fi
+
+      # cli-core golden parity (info/validate/tree byte-identical to the
+      # Dart reference CLI) — the CLI-analog of the engine sweep above.
+      - name: cli-core golden parity
+        run: dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -c Release -p:CliCore=true -p:SelfHost=true --filter "FullyQualifiedName~CliCoreParityTests"
+
+      # ── Derive the package version from the tag (csharp-nuget/vX.Y.Z), so
+      #    the published version always matches the tag without needing a
+      #    separate csproj bump before every release.
+      - name: Derive package version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#csharp-nuget/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$tag' did not yield a valid semantic version (got '$version' from '$tag')"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $version"
+
+      # ── Publish-time feature shape (working `ball run` out of the box) ──
+      # The committed defaults (neither MSBuild property set) keep a
+      # fresh-checkout `dotnet build`/`dotnet pack` green without the
+      # dart+regen dance (see Ball.Cli.csproj's doc comment). For the
+      # PUBLISHED package, pack WITH -p:SelfHost=true -p:CliCore=true so
+      # `dotnet tool install --global Ball.Cli` yields a working `ball run`
+      # (self-hosted engine) plus info/validate/tree/version (cli-core) with
+      # no extra setup — mirrors publish-crates.yml's (#375) default-feature
+      # flip for the exact same gitignored-generated-source packaging
+      # problem. The generated files are already present (regen step above);
+      # unlike Cargo's `include` field (source-based packaging), `dotnet
+      # pack` ships compiled build OUTPUT, so no packaging-manifest change is
+      # needed beyond building with the properties on.
+      - name: dotnet pack (SelfHost + CliCore on)
+        run: |
+          dotnet pack csharp/cli/Ball.Cli.csproj -c Release \
+            -p:SelfHost=true -p:CliCore=true \
+            -p:Version=${{ steps.version.outputs.version }} \
+            -o csharp/nupkg
+
+      - name: List package contents
+        run: unzip -l csharp/nupkg/*.nupkg
+
+      # ── Auth: nuget.org Trusted Publishing (OIDC) with API-key fallback ──
+      # Exchanges the GitHub OIDC token for a short-lived (1-hour) nuget.org
+      # API key, exposed as steps.login.outputs.NUGET_API_KEY.
+      # `continue-on-error` so that before a Trusted Publishing policy is
+      # configured on nuget.org (or if NUGET_USER isn't set yet) the job
+      # falls back to the NUGET_API_KEY secret instead of hard-failing here.
+      - name: nuget.org Trusted Publishing login (OIDC)
+        id: login
+        continue-on-error: true
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      # Token resolution: the short-lived OIDC-exchanged key when Trusted
+      # Publishing is configured, else the NUGET_API_KEY secret fallback.
+      - name: Push to nuget.org
+        env:
+          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push csharp/nupkg/*.nupkg \
+            --api-key "$NUGET_KEY" \
+            --source https://api.nuget.org/v3/index.json

@@ -1,3 +1,10 @@
+# [1.46.0](https://github.com/Ball-Lang/ball/compare/v1.45.0...v1.46.0) (2026-07-11)
+
+
+### Features
+
+* **csharp:** [#383](https://github.com/Ball-Lang/ball/issues/383) self-host — full conformance corpus at Dart parity (317 → 320) ([#421](https://github.com/Ball-Lang/ball/issues/421)) ([f4a697d](https://github.com/Ball-Lang/ball/commit/f4a697d45f33cb5be25f82dd90d2de9167675d13))
+
 # [1.45.0](https://github.com/Ball-Lang/ball/compare/v1.44.0...v1.45.0) (2026-07-11)
 
 

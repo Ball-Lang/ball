@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (Phases 1–5 complete + Phase 6 self-host engine runs the WHOLE conformance corpus at Dart parity + Phase 8 `ball` CLI — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine + run/compile/encode/check/info/validate/tree/version)
+# C# (Phases 1–8 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (320/320) + committed conformance harness + `ball` CLI; no CI job yet)
 
 ## Purpose
 
@@ -13,11 +13,13 @@ bindings" below). **Phase 3 (#380) added the runtime value model + std module bu
 base-op helper layer to `shared/`** (see "Runtime value model" below). **Phase 4 (#381) added the
 Ball → C# compiler to `compiler/`** (see "Compiler" below). **Phase 5 (#382) added the C# → Ball
 encoder to `encoder/`** (via Roslyn, syntax-only — see "Encoder" below; verified end-to-end
-against the DART reference engine). **Phase 6 (#383) added the self-hosted engine to `engine/`**,
-running the whole conformance corpus at Dart parity (see "Self-hosted engine" below). **Phase 8
-(#385) added the `ball` CLI to `cli/`** — `run`/`compile`/`encode`/`check` plus the self-hosted
-cli-core verbs `info`/`validate`/`tree`/`version` (see "CLI" below). Conformance harness (#384)
-and CI (#386) are still pending — see the phase table in the epic #377 tracking comment.
+against the DART reference engine). **Phase 6 (#383, CLOSED) added the self-hosted engine to
+`engine/`**, running the whole conformance corpus at Dart parity (see "Self-hosted engine" below).
+**Phase 7 (#384) added the committed conformance harness to `engine/conformance/`** (see
+"Conformance harness" below). **Phase 8 (#385) added the `ball` CLI to `cli/`** —
+`run`/`compile`/`encode`/`check` plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version`
+(see "CLI" below). CI (#386) and docs (#387) are still pending — see the phase table in the epic
+#377 tracking comment.
 
 ## Layout
 
@@ -65,6 +67,8 @@ csharp/
     src/Loader.cs          # #383: proto3-JSON/binary -> typed Program + canonical BallValue view
     src/BallEngine.cs      # #383: FromJson/FromBinary/Run facade; RunSelfHosted under SELF_HOST
     src/CompiledEngine.cs  # #383: GENERATED, gitignored — see engine/tool below
+    tool/                  # #383: Ball.Engine.Regen — regenerates src/CompiledEngine.cs
+    conformance/           # #384: Ball.Engine.Conformance — the Phase-7 harness (see below)
     test/
     tool/                  # #383: Ball.Engine.Regen — regenerates src/CompiledEngine.cs
   cli/
@@ -560,6 +564,65 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
 - **Fixes to compiled-engine behavior belong in `csharp/compiler/` or `Ball.Shared` (BallRuntime/
   BallProto)** — NEVER hand-edit `CompiledEngine.cs` (it is regenerated).
 
+## Conformance harness (issue #384) — `csharp/engine/conformance/`
+
+The Phase-7 harness formalizes the informal Round-15 sweep into a committed, CI-runnable runner —
+`Ball.Engine.Conformance` (`csharp/engine/conformance/`), a **standalone console app**, not an
+xunit test project. That choice is deliberate: CI needs a reliable `Results: N passed, M failed, T
+total` line on real stdout regardless of pass/fail, and xunit's per-test console capture only
+surfaces on failure by default, which would swallow the summary line on a fully-green run. Mirrors
+`rust/engine/tool` in spirit (a deliberately separate project, referenced by `Ball.Engine` but
+never included in its own compile items — `Ball.Engine.csproj` excludes `conformance/**/*.cs` the
+same way it excludes `test/**/*.cs` and `tool/**/*.cs`) and `rust/engine/tests/
+self_host_conformance.rs` in behavior (fixture discovery, carve-out handling, the `Results:` line
+format, a capped failure listing).
+
+Three legs, one runner, selected via `--leg=`:
+
+- **`engine`** (the primary deliverable): every `tests/conformance/*.ball.json` with a golden runs
+  through `BallEngine.FromJson(json).Run()` (needs `-p:SelfHost=true`, which propagates to the
+  `Ball.Engine` project reference — same mechanism `Ball.Engine.Tests` uses), each on a watchdog
+  `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
+  whole sweep, and a leaked worker thread is harmless for a measurement run"). Verified fresh
+  (2026-07-11, after regenerating `CompiledEngine.cs` from `dart/self_host/engine.ball.pb` in this
+  worktree): **`Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)`** — Dart parity,
+  matching Round 15's informal count exactly. This is what closes #383's acceptance bar ("full
+  corpus at Dart parity via the Phase-7 harness").
+- **`compiler`**: every fixture compiles Ball → C# (`CSharpCompiler.Compile`), runs in-memory via
+  Roslyn (a small `CSharpRunner` duplicated from `csharp/compiler/test/TestSupport.cs`'s technique,
+  generalized to the whole corpus and returning outcomes instead of throwing so one fixture's
+  failure never aborts the sweep), and diffs stdout. No `SelfHost` needed — never touches the
+  self-hosted engine. Verified fresh: **`Results: 224 passed, 96 failed, 320 total`** — an honest
+  measurement of the Phase-4 compiler's own documented scope gaps (`super`/inheritance dispatch,
+  static members, enums-as-types, generics reification, generators/`yield`, `std_time`/
+  `std_convert` gaps, a handful of `Message`-vs-native-collection built-in methods like `.generate`/
+  `.fromEntries` — see the "Compiler" section above for the authoritative gap list).
+- **`roundtrip`**: every fixture compiles Ball → C# → re-encodes that C# source back to Ball via
+  the Roslyn encoder (`CSharpEncoder.Encode`) → runs the RE-ENCODED program on the **Dart reference
+  engine** (`dart run dart/cli/bin/ball.dart run <file>`, ground truth — proves the C# pipeline
+  round-trips, not merely that it agrees with itself) → diffs stdout. Verified fresh: **`Results: 0
+  passed, 320 failed, 320 total`** — an honest, expected zero: the Phase-4 compiler emits a single
+  flat class dispatching through `BallRuntime.*` static calls and `BallValue` types, which is not a
+  shape the Phase-5 syntactic encoder's heuristics were built to recognize (`BallRuntime.Truthy(x)`
+  parses as an unrecognized instance method call on an unknown receiver, `new BallList(...)` as an
+  unknown-type construction, etc. — see the "Encoder" section's "Documented gaps" above). The
+  serialize → subprocess → diff plumbing itself is verified independently: swapping in the
+  *original* (un-re-encoded) fixture `Program` for one fixture end-to-end reproduces its golden
+  through the real `dart run` subprocess, so a future encoder improvement that closes this gap will
+  be measured by this leg, not blocked by it. On Windows, `dart` resolves to a `.bat` shim that
+  `Process.Start` cannot launch directly (`CreateProcess` does not apply `PATHEXT`, a well-known
+  .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
+  /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
+
+**Regen seam for CI (issue #386):** the harness does not regenerate `CompiledEngine.cs` itself —
+same division of responsibility as `Ball.Engine.Tests`. A CI job must run the regen steps
+documented in "Build & Test" below (`gen_engine_json.dart`/`compile_engine_cpp.dart` to produce
+`engine.ball.pb`, then `Ball.Engine.Regen`) before invoking the `engine` leg, exactly like the
+`rust-engine` row in `conformance-matrix.yml` regenerates `compiled_engine.rs` before running
+`self_host_conformance.rs`. `--fixture=<name>` (or the `BALL_FIXTURE` env var, matching the Rust
+runner's convention) narrows any leg to one fixture with full actual-vs-expected detail, for
+debugging a regression.
+
 ## CLI (issue #385) — `cli/`
 
 The `ball` binary: `run`/`compile`/`encode`/`check` over `shared`/`compiler`/`encoder`/`engine`,
@@ -729,6 +792,19 @@ dotnet build csharp/engine/Ball.Engine.csproj -p:SelfHost=true      # compile th
 dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
   --filter "FullyQualifiedName~SelfHostRunTests"   # hello_world + fibonacci golden
 
+# Conformance harness (issue #384): three legs, one runner. Build once per
+# SelfHost setting, then run with --no-build to skip re-resolving each time.
+dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
+dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 320 passed, 0 failed, 320 total
+dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
+dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
+  -c Release --no-build -- --leg=compiler                    # Results: 224 passed, 96 failed, 320 total
+dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
+  -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
+# --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture
+# with full actual-vs-expected detail.
+
 # Self-hosted cli-core (issue #385): regenerate, build, and run `ball` for real.
 cd dart && dart run compiler/tool/gen_cli_json.dart                  # writes cli.ball.json(+.pb)
 cd ../csharp && dotnet run --project cli/tool/Ball.Cli.Regen.csproj  # writes src/CompiledCli.cs
@@ -746,21 +822,28 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
   module builders + base-op helper layer with real tests (#380); the Ball → C# compiler with
   compile-and-run end-to-end tests (#381; see "Compiler" above); and the Roslyn C# → Ball encoder
   — 77 xunit tests, zero `csharp_std` modules, verified against the Dart reference engine (#382;
-  see "Encoder" above). **Phase 6 (#383) is in progress: the self-hosted engine wrapper
-  foundation** — the regen tool, the `Loader`/`BallEngine`/`BallProto` foundation with real tests,
-  and the category grind that took the generated `CompiledEngine.cs` from 474 `csc` errors to
-  **0 — it now COMPILES** under `-p:SelfHost=true`, and — after the Round-4 execution grind —
-  **RUNS the WHOLE conformance corpus at Dart parity**: the informal `tests/conformance/*.ball.json`
-  sweep is at **320 passed / 320** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact golden;
-  the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs) after the Rounds 5–15
-  bounded-category grind (Round 5: RegExp surface, core-collection copy/fill constructors, universal
-  `toString` fallback; Round 6: the double-value-representation gap; Round 7: live
-  reassigned-instance-field read/write through `self` + loader JSON depth-cap lift; Round 8:
+  see "Encoder" above). **Phase 6 (#383, CLOSED): the self-hosted engine** — the regen tool, the
+  `Loader`/`BallEngine`/`BallProto` foundation with real tests, and the category grind that took the
+  generated `CompiledEngine.cs` from 474 `csc` errors to **0 — it now COMPILES** under
+  `-p:SelfHost=true`, and — after the Round-4 execution grind — **RUNS the WHOLE conformance corpus
+  at Dart parity**: **320 passed / 320** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact
+  golden; the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs) after the
+  Rounds 5–15 bounded-category grind (Round 5: RegExp surface, core-collection copy/fill
+  constructors, universal `toString` fallback; Round 6: the double-value-representation gap; Round
+  7: live reassigned-instance-field read/write through `self` + loader JSON depth-cap lift; Round 8:
   first-class `Function.apply`/`fold` callbacks; Round 9: list-literal spread splice; Rounds 10–11:
   IEEE double equality + `num.remainder`/`toInt` + byte-exact `toStringAs*` formatting; Round 12:
   non-string map-key coercion; Round 13: Dart-catchable runtime errors; Round 14: JSON/DateTime
   built-ins + map-comprehension splice; Round 15: bytes-as-`List<int>`, two-variable
   `catch (e, stackTrace)`, in-place `Map.addAll` merge — see "Self-hosted engine" above and #383).
+  **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
+  into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
+  line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing
+  #383's acceptance bar), plus a `compiler` leg (`224 passed, 96 failed, 320 total` — the Phase-4
+  compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
+  an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize
+  compiler-emitted `BallRuntime.*` shapes; see "Conformance harness" above). The `cli` package is
+  now complete (Phase 8, see below).
   **Phase 8 (#385) added the `ball` CLI**: `run`/`compile`/`encode`/`check` (via
   `System.CommandLine` 2.0.9, verified GA-stable on nuget.org) plus the self-hosted cli-core verbs
   `info`/`validate`/`tree`/`version` (epic #361 pattern — `CompiledCli.cs` compiled clean on the
@@ -773,8 +856,8 @@ dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true   # 
   the same two Windows console fixes (UTF-8 output encoding, forced LF line endings) that made
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
-  Conformance harness (#384) and CI (#386) are still pending — see the phase table in the epic
-  #377 tracking comment for the blocked-by graph.
+  CI (#386, wiring the harness in) and docs (#387) are still pending — see the phase table in the
+  epic #377 tracking comment for the blocked-by graph.
 - The compiler emits calls into `BallRuntime.*` for base-function dispatch and builds
   lists/maps/messages with the reference-vs-value-semantics copy rules above — do not re-derive
   operator semantics as emitted text. Fixes to compiled-program behavior belong in the compiler

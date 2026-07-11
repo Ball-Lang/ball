@@ -4,10 +4,12 @@
 //   go/runtime  — dependency-free runtime value model (package ballrt)
 //   go/shared   — generated proto bindings (package ballv1)
 //   go/compiler — Ball → Go compiler
+//   go/encoder  — Go → Ball encoder
 go 1.23
 
 use (
 	./compiler
+	./encoder
 	./runtime
 	./shared
 )

@@ -4,10 +4,11 @@
 
 ## Purpose
 Ball → Go compiler (Phase 2 of epic #426), the Go → Ball encoder (Phase 3), the
-self-hosted Go engine (Phase 4), the Go runtime value model the compiler targets,
-and the generated Go protobuf bindings. CLI and CI are later phases.
+self-hosted Go engine (Phase 4), the `ball` CLI (Phase 5), the Go runtime value
+model the compiler targets, and the generated Go protobuf bindings. CI wiring
+(Phase 7) is a later phase.
 
-## Layout (five Go modules, tied by `go/go.work`)
+## Layout (six Go modules, tied by `go/go.work`)
 | Dir | Module path | Description |
 |-----|-------------|-------------|
 | `runtime/` | `github.com/ball-lang/ball/go/runtime` | Package `ballrt`: the runtime value model (`Value`/`List`/ordered `Map`/`Set`/`Function`/`Message`) + base-op helpers (`Add`, `Truthy`, `ToStr`, …) + flow signals (`Return`/`Break`/`Continue`/`Throw`/`Rethrow` via panic/recover) + the `ball_proto` access patterns, Dart-SDK method surface (`CallMethod`), `std_collections`/`std_convert`, and the is/as class-hierarchy registry the self-hosted engine calls. **Zero external dependencies** (Go stdlib only) so compiled programs build and run offline via a local `replace`. |
@@ -15,6 +16,7 @@ and the generated Go protobuf bindings. CLI and CI are later phases.
 | `compiler/` | `github.com/ball-lang/ball/go/compiler` | Ball → Go compiler (string emission, mirroring `rust/compiler` / `csharp/compiler`). Two modes: `Compile` (runnable `package main`) and `CompileLibrary` (a named library package — class members as flat funcs, dispatchers, constructors, oneof discriminators — for the self-hosted engine). `cmd/ballgoc` is a thin front-end. |
 | `encoder/` | `github.com/ball-lang/ball/go/encoder` | Go → Ball encoder: `go/parser` + `go/ast` walk emitting a Ball `Program`. Every construct routes through the universal `std` base module — **no `go_std`** (the Rust encoder's "no rust_std" invariant). `cmd/ballgoenc` is a thin front-end. Test-only dependency on `compiler` for the round-trip proof. |
 | `engine/` | `github.com/ball-lang/ball/go/engine` | Self-hosted engine (Phase 4): compiles `dart/self_host/engine.ball.json` through `go/compiler` into the gitignored, `selfhost`-tagged `compiled/compiled_engine.go`, driven by a native wrapper (loader + `ball_proto` view). See `go/engine/AGENTS.md`. |
+| `cli/` | `github.com/ball-lang/ball/go/cli` | The `ball` CLI (Phase 5): `run`/`compile`/`encode`/`check` over engine/compiler/encoder (`cmd/ball` is the binary). `run` executes via the self-hosted engine, inheriting the `selfhost` build tag through Go's tag propagation (a default build reports a clear rebuild-with-selfhost error). See `go/cli/AGENTS.md`. |
 
 ## Build & Test
 ```bash
@@ -81,10 +83,17 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only) so a
   (`Results: 320 passed, 0 failed, 320 total`; 4 golden-less
   resource-limit/sandbox carve-outs). Behind the off-by-default `selfhost` build
   tag. See `go/engine/AGENTS.md`.
-- Deferred to later phases: the `ball` CLI and CI wiring. Encoder gaps remain
-  (top-level types/const/var, structs-as-TypeDefinitions, maps/sets in the
-  encoder path, multi-value return/assign, `switch`/`defer`/goroutines,
-  `fmt.Printf`).
+- **CLI (Phase 5): complete** — `go/cli` produces the `ball` binary with the four
+  core verbs `run`/`compile`/`encode`/`check` over engine/compiler/encoder.
+  `run` inherits the `selfhost` build tag through Go's tag propagation (default
+  build reports a clear rebuild-with-selfhost error, exit 1). Tests drive every
+  verb in-process, build `compile`/`encode` output with the real toolchain, and
+  (under `-tags selfhost`) run conformance fixtures against their goldens. See
+  `go/cli/AGENTS.md`.
+- Deferred to later phases: CI wiring (Phase 7) and the self-hosted cli-core
+  verbs (`info`/`validate`/`tree`/`version`). Encoder gaps remain (top-level
+  types/const/var, structs-as-TypeDefinitions, maps/sets in the encoder path,
+  multi-value return/assign, `switch`/`defer`/goroutines, `fmt.Printf`).
 
 ## For AI Agents
 - Verify maturity against CI (`.github/workflows/ci.yml`), not this prose.

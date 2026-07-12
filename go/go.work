@@ -5,9 +5,12 @@
 //   go/shared   — generated proto bindings (package ballv1)
 //   go/compiler — Ball → Go compiler
 //   go/encoder  — Go → Ball encoder
+//   go/engine   — self-hosted engine
+//   go/cli      — the `ball` CLI (run/compile/encode/check)
 go 1.23
 
 use (
+	./cli
 	./compiler
 	./encoder
 	./engine

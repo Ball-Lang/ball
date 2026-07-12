@@ -1,3 +1,10 @@
+# [1.52.0](https://github.com/Ball-Lang/ball/compare/v1.51.1...v1.52.0) (2026-07-12)
+
+
+### Features
+
+* **go:** [#426](https://github.com/Ball-Lang/ball/issues/426) Phase 4 — self-hosted Go engine at Dart parity (320/320) ([#435](https://github.com/Ball-Lang/ball/issues/435)) ([83f7c11](https://github.com/Ball-Lang/ball/commit/83f7c1193eab661c2cb6d1b8abc2c6238e470113))
+
 ## [1.51.1](https://github.com/Ball-Lang/ball/compare/v1.51.0...v1.51.1) (2026-07-12)
 
 

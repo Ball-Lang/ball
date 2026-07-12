@@ -122,6 +122,15 @@ func IsNotType(v Value, typeName string) Value { return !isType(v, typeName) }
 func AsType(v Value, typeName string) Value { return v }
 
 func isType(v Value, typeName string) bool {
+	// Strip a generic type-argument suffix: `List<Object?>` → `List`,
+	// `Map<String, int>` → `Map`. Ball values are untyped at runtime, so a
+	// generic `is List<T>` test resolves on the base type (Dart semantics). The
+	// self-host engine emits these fully-generic names (e.g. `_asList`'s
+	// `v is List<Object?>`); without stripping, `.length`/`.first`/`.last` on a
+	// list all failed (the `is List<Object?>` guard never matched a *List).
+	if i := strings.IndexByte(typeName, '<'); i >= 0 {
+		typeName = typeName[:i]
+	}
 	short := typeName
 	if i := strings.LastIndex(typeName, ":"); i >= 0 {
 		short = typeName[i+1:]

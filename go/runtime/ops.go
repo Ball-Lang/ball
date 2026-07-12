@@ -95,21 +95,25 @@ func DivDouble(a, b Value) Value {
 	return asFloat(a) / asFloat(b)
 }
 
-// Modulo implements std.modulo with Dart/Euclidean semantics: the result takes
-// the sign of the divisor (`-5 % 3 == 1`), unlike Go's `%` which follows the
-// dividend.
+// Modulo implements std.modulo with Dart's `%` semantics: the result is always
+// non-negative, in the range `0 <= r < b.abs()` (so `-7 % 3 == 2`, `7 % -3 ==
+// 1`), unlike Go's `%` which follows the dividend's sign.
 func Modulo(a, b Value) Value {
 	if ai, bi, ok := bothInt(a, b); ok {
 		m := ai % bi
-		if m != 0 && (m < 0) != (bi < 0) {
-			m += bi
+		if m < 0 {
+			if bi < 0 {
+				m -= bi
+			} else {
+				m += bi
+			}
 		}
 		return m
 	}
 	af, bf := asFloat(a), asFloat(b)
 	m := math.Mod(af, bf)
-	if m != 0 && (m < 0) != (bf < 0) {
-		m += bf
+	if m < 0 {
+		m += math.Abs(bf)
 	}
 	return m
 }

@@ -278,7 +278,11 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	case "paren", "await", "parenthesized":
 		return V()
 	case "invoke":
-		return fmt.Sprintf("ballrt.Invoke(%s, %s)", c.arg(f, "function", "target", "callee"), c.arg(f, "argument", "arg", "input", "value"))
+		// A single-argument first-class call `f(x)` packs its argument under
+		// `arg0` (e.g. the self-host list_sort's `(cb as Function)({...})`); the
+		// `argument`/`arg`/`input`/`value` aliases missed it, so the argument was
+		// dropped and every closure invoked with null (comparators saw no a/b).
+		return fmt.Sprintf("ballrt.Invoke(%s, %s)", c.arg(f, "function", "target", "callee"), c.arg(f, "argument", "arg", "input", "value", "arg0"))
 	case "typed_list", "list_literal":
 		// A typed list literal `<T>[a, ...spread, b]` carries its members in an
 		// `elements` listValue (with possible spread / collection_if /

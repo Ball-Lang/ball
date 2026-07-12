@@ -95,9 +95,11 @@ func UnresolvedReference(name string) Value {
 // fallback and std.to_string on a non-overriding receiver).
 func ToStringValue(v Value) Value { return ToStr(v) }
 
-// CaughtStackTrace returns the current caught exception's stack trace form. The
-// by-value model captures no real trace; return an empty string.
-func CaughtStackTrace() Value { return "" }
+// CaughtStackTrace returns the current caught exception's stack-trace form. The
+// value model captures no real Dart trace, but Dart ALWAYS binds a non-empty
+// StackTrace in `catch (e, stack)`, and programs test `stack.toString().length >
+// 0`; return a minimal non-empty placeholder so that check holds.
+func CaughtStackTrace() Value { return "#0      <ball> (package:ball/engine)" }
 
 // SpreadIter yields the elements a list-literal spread (...x) splices.
 func SpreadIter(v Value) []Value { return Iterate(v) }

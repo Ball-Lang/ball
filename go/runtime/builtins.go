@@ -233,18 +233,22 @@ func MathClamp(v, lo, hi Value) Value { return numClamp(v, lo, hi) }
 
 // StrToInt implements std.string_to_int.
 func StrToInt(v Value) Value {
-	n, err := strconv.ParseInt(strings.TrimSpace(ToStr(v)), 10, 64)
+	s := strings.TrimSpace(ToStr(v))
+	n, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
-		panic("ball: string_to_int: " + err.Error())
+		// Dart's int.parse throws a FormatException on a bad string; throw a
+		// typed Ball exception so `on FormatException catch` can catch it.
+		dartError("FormatException", "Invalid radix-10 number: "+s)
 	}
 	return n
 }
 
 // StrToDouble implements std.string_to_double.
 func StrToDouble(v Value) Value {
-	f, err := strconv.ParseFloat(strings.TrimSpace(ToStr(v)), 64)
+	s := strings.TrimSpace(ToStr(v))
+	f, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		panic("ball: string_to_double: " + err.Error())
+		dartError("FormatException", "Invalid double: "+s)
 	}
 	return f
 }

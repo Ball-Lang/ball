@@ -43,6 +43,18 @@ type Thrown struct {
 
 func (t Thrown) Error() string { return "Ball exception: " + ToStr(t.Value) }
 
+// dartError throws a Ball exception whose runtime type is typeName (e.g.
+// "FormatException", "RangeError") so the engine's typed `on T catch` clauses —
+// which match on the thrown value's runtimeType (engine_control_flow.dart's
+// _evalLazyTry) — can catch it. A raw `panic("...")` (a Go string) escapes the
+// engine's Dart-try→ballrt.TryCatch recover entirely, and even a Thrown with a
+// plain-string value reports runtimeType "String", matching no typed clause.
+func dartError(typeName, message string) {
+	fields := NewMap()
+	fields.Set("message", message)
+	panic(Thrown{Value: &Message{TypeName: typeName, Fields: fields}})
+}
+
 // Return implements std.return: unwind to the enclosing function wrapper,
 // yielding v. Typed as Value so it fits any expression position the compiler
 // emits it in; it never actually returns (it panics).
@@ -202,6 +214,12 @@ func FieldGet(object Value, field string) Value {
 				return v
 			}
 		}
+		// `.runtimeType`/`.hashCode` resolve against the MESSAGE (its type name),
+		// not its field map — else `e.runtimeType` on a thrown FormatException
+		// yielded "Map" (the field map's type) and no `on T catch` clause matched.
+		if vp, ok := VirtualProperty(object, field); ok {
+			return vp
+		}
 		if vp, ok := VirtualProperty(o.Fields, field); ok {
 			return vp
 		}
@@ -261,7 +279,7 @@ func Index(target, index Value) Value {
 	case *List:
 		i := int(asFloat(index))
 		if i < 0 || i >= len(t.Items) {
-			panic(fmt.Sprintf("ball: list index %d out of range (len %d)", i, len(t.Items)))
+			dartError("RangeError", fmt.Sprintf("Index out of range: index should be less than %d: %d", len(t.Items), i))
 		}
 		return t.Items[i]
 	case *Map:
@@ -272,7 +290,7 @@ func Index(target, index Value) Value {
 		i := int(asFloat(index))
 		r := []rune(t)
 		if i < 0 || i >= len(r) {
-			panic(fmt.Sprintf("ball: string index %d out of range", i))
+			dartError("RangeError", fmt.Sprintf("Index out of range: %d", i))
 		}
 		return string(r[i])
 	}

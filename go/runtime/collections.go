@@ -222,7 +222,11 @@ func ListInsert(list, index, value Value) Value {
 	l.Items = append(l.Items, nil)
 	copy(l.Items[i+1:], l.Items[i:])
 	l.Items[i] = value
-	return nil
+	// Return the (mutated) list, not null: the encoder lowers `x.insert(i, v)` to
+	// `assign(x, list_insert(x, i, v))`, so the return value is stored back into
+	// x — nil would blank the list (the self-host list_insert handler's own
+	// `list.insert(...)` did exactly this, returning null to its caller).
+	return l
 }
 
 // ListRemoveAt removes and returns the element at index (Dart's removeAt).

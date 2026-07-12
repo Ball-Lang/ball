@@ -141,6 +141,8 @@ int main() {
               goldens / (stem + ".validate.txt"));
         check(stem + "/tree", ball_to_string(cli_core::treeReport(prog)),
               goldens / (stem + ".tree.txt"));
+        check(stem + "/audit", ball_to_string(cli_core::auditReport(prog)),
+              goldens / (stem + ".audit.txt"));
     }
 
     // version (fixture-independent).

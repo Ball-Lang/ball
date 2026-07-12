@@ -433,7 +433,7 @@ jobs:
         run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
 
       # Issue #367: the unified `ball` CLI's portable verbs (info/validate/tree/
-      # version) are the self-hosted cli_core, library-compiled to
+      # audit/version) are the self-hosted cli_core, library-compiled to
       # dart/self_host/lib/cli_rt.h. Generate the CLI IR + header here (Dart +
       # ball_cpp_compile are both available) so the CMake reconfigure below picks
       # them up and builds `ball` (with real verbs + engine_rt run) and the

@@ -25,6 +25,7 @@ namespace ballcli {
 int cmd_info(const std::vector<std::string>& args);
 int cmd_validate(const std::vector<std::string>& args);
 int cmd_tree(const std::vector<std::string>& args);
+int cmd_audit(const std::vector<std::string>& args);
 int cmd_version(const std::vector<std::string>& args);
 
 // Reuse the existing compiler / encoder libraries behind subcommands.

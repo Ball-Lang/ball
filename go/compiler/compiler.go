@@ -1,6 +1,6 @@
 // Package compiler implements the Ball → Go compiler: it walks a Ball `Program`
 // protobuf and emits Go source as a string (the string-emission approach shared
-// by the C++ and Rust compilers, rather than an AST builder like Dart's
+// by the C++/Rust/C# compilers, rather than an AST builder like Dart's
 // code_builder).
 //
 // # Shape of the emitted code
@@ -8,24 +8,27 @@
 // Every Ball expression compiles to a Go expression that evaluates to a
 // `ballrt.Value` (package `github.com/ball-lang/ball/go/runtime`) — there are no
 // "void" expressions, so every position (block tail, if/else arm, function
-// body) stays type-uniform, exactly like the Rust compiler's invariant. Go has
-// no block/if/loop *expressions*, so anything used in value position that needs
+// body) stays type-uniform, exactly like the Rust/C# compilers. Go has no
+// block/if/loop *expressions*, so anything used in value position that needs
 // statements is wrapped in an immediately-invoked function expression (IIFE),
-// `func() ballrt.Value { … }()` — the same device C++ uses (its IIFE lambdas).
+// `func() ballrt.Value { … }()` — the same device C++ uses. Crucially,
+// `return`/`break`/`continue`/`throw` compile to `ballrt` flow signals (panics)
+// recovered at the enclosing function/loop, so they cross IIFE boundaries
+// correctly — a bare Go `return` inside an IIFE could not (invariant #4).
 //
-// The seven Ball expression node types (invariant: call, literal, reference,
-// fieldAccess, messageCreation, block, lambda) are each handled by a
-// `compile*` method. The special reference name "input" is the current
-// function's single parameter (invariant #1). Control flow (`if`/`for`/`while`/
-// `for_in`) is a set of `std` base functions compiled to *native* Go control
-// flow evaluated lazily (never eagerly evaluating every branch — invariant #4);
-// `return`/`break`/`continue`/`throw` become `ballrt` flow signals so they cross
-// the IIFE boundaries (see `go/runtime/flow.go`).
+// # Two output modes
+//
+//   - Program mode (Compile) — a runnable `package main` with `func main()`
+//     inlining the entry function (the fixtures / user programs).
+//   - Library mode (CompileLibrary) — a named package with NO `func main()`,
+//     every function/class-member emitted as a flat top-level func, for the
+//     self-hosted engine (epic #426 Phase 4): the reference engine is itself a
+//     Ball program whose public surface is classes (BallEngine/StdModuleHandler)
+//     the wrapper constructs and drives.
 package compiler
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	ballv1 "github.com/ball-lang/ball/go/shared/gen/ball/v1"
@@ -38,34 +41,93 @@ const runtimeImportPath = "github.com/ball-lang/ball/go/runtime"
 type Compiler struct {
 	prog *ballv1.Program
 
+	// libraryMode emits a named package with no func main (the self-hosted
+	// engine); false emits a runnable `package main` (fixtures / user programs).
+	libraryMode bool
+	pkgName     string
+
 	// baseModules is the set of module names whose functions are all base
 	// (is_base = true) — e.g. "std", "std_collections". A call into one of
-	// these dispatches through compileBaseCall; a call into any other module
-	// (or the empty "current module") is a direct Go function call.
+	// these dispatches through compileBaseCall.
 	baseModules map[string]bool
 
-	// userFuncs is the set of sanitized names of every non-base, non-entry user
-	// function — the direct-call / tear-off targets.
+	// stubModules are import-only modules (declared but carrying no functions,
+	// types, or enums — e.g. dart.math/dart.io/protobuf, the external libraries
+	// the self-host source imports). A call into one is an unimplemented external
+	// base function (fail-loud), not a phantom class member.
+	stubModules map[string]bool
+
+	// userFuncs is the set of sanitized names of every callable top-level user
+	// function / class-member short name (the direct-call / tear-off targets).
 	userFuncs map[string]bool
 
-	// scopes is the lexical scope stack of sanitized local names (parameters,
-	// let-bindings, loop variables). Used to tell a reference to a local from a
-	// bare reference to a top-level function (a tear-off).
+	// instanceMethods is the set of sanitized instance-method short names — the
+	// implicit-`this` injection targets.
+	instanceMethods map[string]bool
+
+	// topLevelVars is the set of sanitized top-level variable/getter names (a
+	// bare reference invokes the nullary getter, not a function tear-off).
+	topLevelVars map[string]bool
+
+	// classMembers groups a class's members (methods/getters/setters/ctors) by
+	// their owner TypeDefinition.Name.
+	classMembers map[string][]*ballv1.FunctionDefinition
+	// classMemberOrder preserves first-seen owner order for deterministic output.
+	classMemberOrder []string
+
+	// typeDefsByShort maps a type's short name to its TypeDefinition.
+	typeDefsByShort map[string]*ballv1.TypeDefinition
+
+	// bodyCtorImpl maps a class short name to the impl func of its body-carrying
+	// constructor (if any) — the target CompileMessageCreation invokes.
+	bodyCtorImpl map[string]string
+
+	// volatileByOwner caches the reassigned-field set per owner TypeDefinition.
+	volatileByOwner map[string]map[string]bool
+
+	// scopes is the lexical scope stack of sanitized local names.
 	scopes []map[string]bool
 
-	// errs accumulates fail-loud compile errors (unsupported base functions,
-	// unhandled shapes). A non-empty errs makes Compile return an error rather
-	// than silently emitting degraded code (issue #55 doctrine).
+	// Per-body instance-method context (for implicit-`this` injection).
+	inInstanceMethod bool
+	selfRecvName     string
+	volatileFields   map[string]bool
+
+	// inputIsParam is true when the current function/method/lambda declares a
+	// parameter literally named "input" (e.g. _callBaseFunction(module, function,
+	// input)); a reference("input") then resolves to that bound local rather than
+	// the raw method-wrapper parameter.
+	inputIsParam bool
+
+	// errs accumulates fail-loud compile errors (issue #55 doctrine).
 	errs []string
+
+	tempCounter int
 }
 
-// New builds a Compiler for prog, scanning modules to classify base modules and
-// collect user function names.
-func New(prog *ballv1.Program) *Compiler {
+// New builds a Compiler for prog in program mode.
+func New(prog *ballv1.Program) *Compiler { return newCompiler(prog, false, "main") }
+
+// newLibrary builds a Compiler for prog in library mode targeting pkgName.
+func newLibrary(prog *ballv1.Program, pkgName string) *Compiler {
+	return newCompiler(prog, true, pkgName)
+}
+
+func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compiler {
 	c := &Compiler{
-		prog:        prog,
-		baseModules: map[string]bool{},
-		userFuncs:   map[string]bool{},
+		prog:            prog,
+		libraryMode:     libraryMode,
+		pkgName:         pkgName,
+		baseModules:     map[string]bool{},
+		stubModules:     map[string]bool{},
+		userFuncs:       map[string]bool{},
+		instanceMethods: map[string]bool{},
+		topLevelVars:    map[string]bool{},
+		classMembers:    map[string][]*ballv1.FunctionDefinition{},
+		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
+		bodyCtorImpl:    map[string]string{},
+		volatileByOwner: map[string]map[string]bool{},
+		volatileFields:  map[string]bool{},
 	}
 	for _, m := range prog.GetModules() {
 		fns := m.GetFunctions()
@@ -76,79 +138,119 @@ func New(prog *ballv1.Program) *Compiler {
 				break
 			}
 		}
-		if allBase {
+		switch {
+		case allBase:
 			c.baseModules[m.GetName()] = true
+		case len(fns) == 0 && len(m.GetTypeDefs()) == 0 && len(m.GetEnums()) == 0:
+			c.stubModules[m.GetName()] = true
 		}
 	}
 	for _, m := range prog.GetModules() {
-		if c.baseModules[m.GetName()] {
+		if c.baseModules[m.GetName()] || c.stubModules[m.GetName()] {
 			continue
+		}
+		for _, td := range m.GetTypeDefs() {
+			c.typeDefsByShort[typeShortName(td.GetName())] = td
 		}
 		for _, f := range m.GetFunctions() {
 			if f.GetIsBase() {
 				continue
 			}
-			if m.GetName() == prog.GetEntryModule() && f.GetName() == prog.GetEntryFunction() {
+			if owner, member, ok := splitMemberName(f.GetName()); ok {
+				if _, seen := c.classMembers[owner]; !seen {
+					c.classMemberOrder = append(c.classMemberOrder, owner)
+				}
+				c.classMembers[owner] = append(c.classMembers[owner], f)
+				c.userFuncs[sanitize(member)] = true
+				if metaString(f.GetMetadata(), "kind") != "constructor" && !metaBool(f.GetMetadata(), "is_static") {
+					c.instanceMethods[sanitize(member)] = true
+				}
 				continue
 			}
-			c.userFuncs[sanitize(f.GetName())] = true
+			// A standalone function (entry included — it is emitted too, just not
+			// as the direct callable in program mode).
+			if !(m.GetName() == prog.GetEntryModule() && f.GetName() == prog.GetEntryFunction()) {
+				c.userFuncs[sanitize(f.GetName())] = true
+			}
+			if metaString(f.GetMetadata(), "kind") == "top_level_variable" {
+				c.topLevelVars[sanitize(f.GetName())] = true
+			}
 		}
 	}
+	c.indexConstructors()
 	return c
 }
 
-// Compile compiles the whole Program to a formatted-ready Go source string
-// (package main). Returns an error if any expression shape or base function was
-// unsupported (fail-loud), listing every such site.
-func Compile(prog *ballv1.Program) (string, error) {
-	return New(prog).Compile()
+// Compile compiles the whole Program to a runnable Go source string (program
+// mode). Returns an error if any expression shape or base function was
+// unsupported (fail-loud).
+func Compile(prog *ballv1.Program) (string, error) { return New(prog).compile() }
+
+// CompileLibrary compiles the whole Program to a Go library in package pkgName
+// (no func main) — used for the self-hosted engine (epic #426 Phase 4).
+func CompileLibrary(prog *ballv1.Program, pkgName string) (string, error) {
+	return newLibrary(prog, pkgName).compile()
 }
 
-// Compile emits the Go source for the receiver's Program.
-func (c *Compiler) Compile() (string, error) {
-	entryMod, entryFn := c.entryPoint()
-	if entryFn == nil {
-		return "", fmt.Errorf("entry function %q not found in module %q",
-			c.prog.GetEntryFunction(), c.prog.GetEntryModule())
-	}
-
+func (c *Compiler) compile() (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "// Code generated by the Ball Go compiler from program %q v%s. DO NOT EDIT.\n",
-		c.prog.GetName(), c.prog.GetVersion())
-	b.WriteString("package main\n\n")
-	fmt.Fprintf(&b, "import ballrt %q\n\n", runtimeImportPath)
-
-	// Type definitions from every non-base module's typeDefs[].
-	for _, m := range c.prog.GetModules() {
-		if c.baseModules[m.GetName()] {
-			continue
+	if c.libraryMode {
+		fmt.Fprintf(&b, "// Code generated by the Ball Go compiler from program %q v%s. DO NOT EDIT.\n",
+			c.prog.GetName(), c.prog.GetVersion())
+		fmt.Fprintf(&b, "//go:build selfhost\n\npackage %s\n\n", c.pkgName)
+		fmt.Fprintf(&b, "import ballrt %q\n\n", runtimeImportPath)
+	} else {
+		entryMod, entryFn := c.entryPoint()
+		if entryFn == nil {
+			return "", fmt.Errorf("entry function %q not found in module %q",
+				c.prog.GetEntryFunction(), c.prog.GetEntryModule())
 		}
-		b.WriteString(c.compileModuleTypes(m))
+		_ = entryMod
+		fmt.Fprintf(&b, "// Code generated by the Ball Go compiler from program %q v%s. DO NOT EDIT.\n",
+			c.prog.GetName(), c.prog.GetVersion())
+		b.WriteString("package main\n\n")
+		fmt.Fprintf(&b, "import ballrt %q\n\n", runtimeImportPath)
 	}
 
-	// Every non-base, non-entry function as a free Go func.
+	// Enum namespaces + the subtype-hierarchy init (both modes).
+	b.WriteString(c.compileEnums())
+	b.WriteString(c.compileSubtypeInit())
+
+	// Standalone (non-base, non-member) functions.
 	for _, m := range c.prog.GetModules() {
-		if c.baseModules[m.GetName()] {
+		if c.baseModules[m.GetName()] || c.stubModules[m.GetName()] {
 			continue
 		}
 		for _, f := range m.GetFunctions() {
 			if f.GetIsBase() {
 				continue
 			}
-			if m.GetName() == entryMod.GetName() && f.GetName() == c.prog.GetEntryFunction() {
+			if _, _, ok := splitMemberName(f.GetName()); ok {
 				continue
+			}
+			if !c.libraryMode && m.GetName() == c.prog.GetEntryModule() && f.GetName() == c.prog.GetEntryFunction() {
+				continue // inlined into main below
 			}
 			b.WriteString(c.compileFunction(f))
 			b.WriteString("\n")
 		}
 	}
 
-	// The entry point, inlined into Go's func main via ballrt.RunEntry.
-	b.WriteString(c.compileEntry(entryFn))
+	// Class members (dispatchers + impls + constructors) for every owner.
+	b.WriteString(c.compileClassMembers())
+
+	// Oneof discriminator namespaces (Expression_Expr, …).
+	b.WriteString(c.compileOneofDiscriminators())
+
+	// The entry point (program mode only).
+	if !c.libraryMode {
+		_, entryFn := c.entryPoint()
+		b.WriteString(c.compileEntry(entryFn))
+	}
 
 	if len(c.errs) > 0 {
 		return b.String(), fmt.Errorf("ball→go: %d unsupported construct(s):\n  - %s",
-			len(c.errs), strings.Join(c.errs, "\n  - "))
+			len(c.errs), strings.Join(dedupe(c.errs), "\n  - "))
 	}
 	return b.String(), nil
 }
@@ -169,16 +271,16 @@ func (c *Compiler) entryPoint() (*ballv1.Module, *ballv1.FunctionDefinition) {
 
 // ── Function emission ───────────────────────────────────────────────────────
 
-// compileFunction emits a non-entry function as
-// `func name(input ballrt.Value) (__ret ballrt.Value) { … }` (invariant #1 —
-// one input, one output). A deferred ballrt.CatchReturn captures a std.return
-// that unwinds the body; a normal tail value flows through the named return.
+// compileFunction emits a standalone function as
+// `func name(input ballrt.Value) (__ret ballrt.Value) { … }` (invariant #1).
 func (c *Compiler) compileFunction(f *ballv1.FunctionDefinition) string {
 	name := sanitize(f.GetName())
 	c.pushScope()
-	c.bind("input")
+	prevInput := c.inputIsParam
+	c.inputIsParam = hasInputParam(f)
 	prologue := c.paramPrologue(f)
 	body := c.compileBody(f)
+	c.inputIsParam = prevInput
 	c.popScope()
 
 	var b strings.Builder
@@ -191,21 +293,20 @@ func (c *Compiler) compileFunction(f *ballv1.FunctionDefinition) string {
 	return b.String()
 }
 
-// compileEntry inlines the entry function's body into Go's func main, run via
-// ballrt.RunEntry (which swallows a top-level return and reports an uncaught
-// Ball exception).
+// compileEntry inlines the entry function's body into Go's func main.
 func (c *Compiler) compileEntry(f *ballv1.FunctionDefinition) string {
 	c.pushScope()
-	c.bind("input")
+	prevInput := c.inputIsParam
+	c.inputIsParam = hasInputParam(f)
 	prologue := c.paramPrologue(f)
 	body := c.compileBody(f)
+	c.inputIsParam = prevInput
 	c.popScope()
 
 	var b strings.Builder
 	b.WriteString("func main() {\n")
 	b.WriteString("\tballrt.RunEntry(func() ballrt.Value {\n")
 	if prologue != "" {
-		// Re-indent the prologue one extra level for the closure body.
 		b.WriteString(indent(prologue, "\t"))
 	}
 	fmt.Fprintf(&b, "\t\treturn %s\n", body)
@@ -220,11 +321,10 @@ func (c *Compiler) compileBody(f *ballv1.FunctionDefinition) string {
 	return c.compileExpr(f.GetBody())
 }
 
-// paramPrologue emits the `let`-style aliases that bind a function's declared
-// parameter names to its single `input` (invariant #1). One positional
-// parameter is passed directly (`n := input`); multiple parameters are the
-// encoder's anonymous-message convention, each read by name from the input
-// (`a := ballrt.FieldGet(input, "a")`).
+// paramPrologue emits the `let`-style aliases binding a function's declared
+// parameter names to its single `input` (invariant #1). One positional parameter
+// is passed directly; multiple parameters read by name-or-positional slot from
+// the packed input (ArgGet: prefer the name, fall back to argN).
 func (c *Compiler) paramPrologue(f *ballv1.FunctionDefinition) string {
 	params := funcParams(f)
 	if len(params) == 0 {
@@ -237,18 +337,16 @@ func (c *Compiler) paramPrologue(f *ballv1.FunctionDefinition) string {
 		fmt.Fprintf(&b, "\t%s := input\n\t_ = %s\n", n, n)
 		return b.String()
 	}
-	for _, p := range params {
+	for i, p := range params {
 		n := sanitize(p)
 		c.bind(p)
-		fmt.Fprintf(&b, "\t%s := ballrt.FieldGet(input, %q)\n\t_ = %s\n", n, p, n)
+		fmt.Fprintf(&b, "\t%s := ballrt.ArgGet(input, %q, %q)\n\t_ = %s\n", n, p, fmt.Sprintf("arg%d", i), n)
 	}
 	return b.String()
 }
 
 // ── Expression compilation (the 7 node types) ───────────────────────────────
 
-// compileExpr recursively compiles any Ball Expression to a Go expression
-// string that evaluates to a ballrt.Value.
 func (c *Compiler) compileExpr(e *ballv1.Expression) string {
 	if e == nil || e.GetExpr() == nil {
 		return "ballrt.Value(nil)"
@@ -274,7 +372,6 @@ func (c *Compiler) compileExpr(e *ballv1.Expression) string {
 	}
 }
 
-// compileLiteral emits a Go literal for each Ball literal value.
 func (c *Compiler) compileLiteral(l *ballv1.Literal) string {
 	switch v := l.GetValue().(type) {
 	case *ballv1.Literal_IntValue:
@@ -282,75 +379,96 @@ func (c *Compiler) compileLiteral(l *ballv1.Literal) string {
 	case *ballv1.Literal_DoubleValue:
 		return fmt.Sprintf("float64(%s)", goFloat(v.DoubleValue))
 	case *ballv1.Literal_StringValue:
-		return strconv.Quote(v.StringValue)
+		return quoteGo(v.StringValue)
 	case *ballv1.Literal_BoolValue:
-		return strconv.FormatBool(v.BoolValue)
+		return fmt.Sprintf("%t", v.BoolValue)
 	case *ballv1.Literal_BytesValue:
 		return goBytes(v.BytesValue)
 	case *ballv1.Literal_ListValue:
-		elems := v.ListValue.GetElements()
-		parts := make([]string, len(elems))
-		for i, el := range elems {
-			parts[i] = c.compileExpr(el)
-		}
-		return "ballrt.NewList(" + strings.Join(parts, ", ") + ")"
+		return c.compileListLiteral(v.ListValue)
 	default:
-		// Unset Literal.value oneof = Ball null.
 		return "ballrt.Value(nil)"
 	}
 }
 
 // noInitSentinel is the encoders' shared marker for an uninitialized
-// `late`/nullable local; a reference to it reads as Ball null.
+// late/nullable local; a reference to it reads as Ball null.
 const noInitSentinel = "__no_init__"
 
-// compileReference emits an identifier read. "input" is the function parameter;
-// a bare reference to a top-level user function used as a value becomes a
-// tear-off (*ballrt.Function).
 func (c *Compiler) compileReference(r *ballv1.Reference) string {
 	name := r.GetName()
 	if name == "input" {
+		// A local binding literally named `input` — a `let input = …` or a
+		// declared parameter `input` (e.g. _callBaseFunction(module, function,
+		// input), or `final input = _evalExpression(call.input)`) — shadows the
+		// raw method-wrapper parameter and is emitted as `ball_input`; resolve
+		// through it. Only when no such binding exists does `reference("input")`
+		// mean the raw single parameter (invariant #1).
+		if c.isLocal("input") {
+			return sanitize("input")
+		}
 		return "input"
 	}
 	if name == noInitSentinel {
 		return "ballrt.Value(nil)"
 	}
+	// `self` is the encoder's name for both `this` (implicit receiver) and any
+	// local literally named `self`. A bound local `self` (a `let self` or a
+	// declared `self` parameter) wins; otherwise, inside an instance method it is
+	// the receiver, emitted under the unshadowable internal name so a nested
+	// `let self` cannot capture it.
+	if name == "self" {
+		if !c.isLocal("self") && c.inInstanceMethod {
+			return c.selfRecvName
+		}
+		return "self"
+	}
+	// A bound local shadows everything else.
+	if c.isLocal(name) {
+		return sanitize(name)
+	}
+	// A reassigned (volatile) instance field is read live through the receiver.
+	if c.inInstanceMethod && c.selfRecvName != "" && c.volatileFields[name] {
+		return fmt.Sprintf("ballrt.FieldGet(%s, %q)", c.selfRecvName, name)
+	}
+	// A oneof-discriminator constant (Expression_Expr.call, …).
+	if _, ok := oneofDiscriminators[name]; ok {
+		return "ballOneof_" + sanitize(name)
+	}
+	// A bare Dart core type name used as a static receiver / type argument.
+	if builtinTypeNames[name] {
+		if _, isUser := c.typeDefsByShort[name]; !isUser {
+			return fmt.Sprintf("ballrt.TypeLiteral(%q)", name)
+		}
+	}
 	sn := sanitize(name)
-	if !c.isLocal(name) && c.userFuncs[sn] {
+	// A bare reference to a top-level variable/getter is a getter invocation.
+	if c.topLevelVars[sn] {
+		return fmt.Sprintf("%s(ballrt.Value(nil))", sn)
+	}
+	// A bare reference to an instance method from inside an instance method body
+	// is a bound method tear-off — weave the enclosing receiver into whatever
+	// argument the value is later called with.
+	if c.inInstanceMethod && c.instanceMethods[sn] {
+		self := c.selfRecvName
+		if self == "" {
+			self = "self"
+		}
+		return fmt.Sprintf("ballrt.Fn(%q, func(__arg ballrt.Value) ballrt.Value { return %s(ballrt.Arg0WithSelf(__arg, %s)) })", name, sn, self)
+	}
+	if c.userFuncs[sn] {
 		return fmt.Sprintf("ballrt.Fn(%q, %s)", name, sn)
 	}
-	return sn
+	// Unresolvable: fail loud at runtime rather than emit an undefined identifier
+	// (keeps the engine COMPILING; the base corpus never reaches these paths).
+	return fmt.Sprintf("ballrt.UnresolvedReference(%q)", name)
 }
 
-// compileFieldAccess emits object.field via the runtime helper (dynamic
-// *Message / *Map receiver).
 func (c *Compiler) compileFieldAccess(fa *ballv1.FieldAccess) string {
 	obj := c.compileExpr(fa.GetObject())
 	return fmt.Sprintf("ballrt.FieldGet(%s, %q)", obj, fa.GetField())
 }
 
-// compileMessageCreation constructs a runtime value from named field
-// expressions: an anonymous message (empty type_name — the shape base-function
-// inputs use, though those are normally consumed by compileBaseCall before ever
-// reaching here) becomes an ordered *Map; a named type becomes a *Message.
-func (c *Compiler) compileMessageCreation(mc *ballv1.MessageCreation) string {
-	var b strings.Builder
-	b.WriteString("func() ballrt.Value {\n")
-	b.WriteString("\t\t__m := ballrt.NewMap()\n")
-	for _, fv := range mc.GetFields() {
-		fmt.Fprintf(&b, "\t\t__m.Set(%q, %s)\n", fv.GetName(), c.compileExpr(fv.GetValue()))
-	}
-	if mc.GetTypeName() == "" {
-		b.WriteString("\t\treturn __m\n\t}()")
-	} else {
-		fmt.Fprintf(&b, "\t\treturn ballrt.NewMessage(%q, __m)\n\t}()", mc.GetTypeName())
-	}
-	return b.String()
-}
-
-// compileBlock emits a Go IIFE: let-bindings become `:=` declarations,
-// non-let statements are evaluated for effect, and the result expression is the
-// IIFE's return value (nil when a block has no result).
 func (c *Compiler) compileBlock(block *ballv1.Block) string {
 	c.pushScope()
 	defer c.popScope()
@@ -367,10 +485,6 @@ func (c *Compiler) compileBlock(block *ballv1.Block) string {
 	return b.String()
 }
 
-// compileStatements emits a block/loop-body's statements (no result). A let
-// binds a `:=` local (with a `_ = name` guard against Go's unused-variable
-// error and to keep the binding live for closures); a bare expression statement
-// is assigned to `_`.
 func (c *Compiler) compileStatements(stmts []*ballv1.Statement) string {
 	var b strings.Builder
 	for _, s := range stmts {
@@ -379,9 +493,6 @@ func (c *Compiler) compileStatements(stmts []*ballv1.Statement) string {
 			n := sanitize(st.Let.GetName())
 			val := c.compileExpr(st.Let.GetValue())
 			c.bind(st.Let.GetName())
-			// Declare every local as ballrt.Value (not the inferred concrete
-			// type) so a later std.assign — which yields a dynamic ballrt.Value —
-			// can reassign it without a Go type mismatch.
 			fmt.Fprintf(&b, "var %s ballrt.Value = %s\n_ = %s\n", n, val, n)
 		case *ballv1.Statement_Expression:
 			fmt.Fprintf(&b, "_ = %s\n", c.compileExpr(st.Expression))
@@ -392,13 +503,13 @@ func (c *Compiler) compileStatements(stmts []*ballv1.Statement) string {
 	return b.String()
 }
 
-// compileLambda emits an anonymous FunctionDefinition (name "") as a
-// *ballrt.Function value.
 func (c *Compiler) compileLambda(f *ballv1.FunctionDefinition) string {
 	c.pushScope()
-	c.bind("input")
+	prevInput := c.inputIsParam
+	c.inputIsParam = hasInputParam(f)
 	prologue := c.paramPrologue(f)
 	body := c.compileBody(f)
+	c.inputIsParam = prevInput
 	c.popScope()
 
 	var b strings.Builder
@@ -436,4 +547,28 @@ func (c *Compiler) isLocal(name string) bool {
 
 func (c *Compiler) fail(format string, args ...any) {
 	c.errs = append(c.errs, fmt.Sprintf(format, args...))
+}
+
+func (c *Compiler) uid() int { c.tempCounter++; return c.tempCounter }
+
+// hasInputParam reports whether f declares a parameter literally named "input".
+func hasInputParam(f *ballv1.FunctionDefinition) bool {
+	for _, p := range funcParams(f) {
+		if p == "input" {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupe(xs []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, x := range xs {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
 }

@@ -8,30 +8,7 @@ import (
 	ballv1 "github.com/ball-lang/ball/go/shared/gen/ball/v1"
 )
 
-// compileCall dispatches a FunctionCall: a call into a base module (std,
-// std_collections, …) goes to compileBaseCall; anything else is a direct call
-// to a user function `name(input)` (an empty module names the current module).
-func (c *Compiler) compileCall(call *ballv1.FunctionCall) string {
-	mod := call.GetModule()
-	if mod != "" && c.baseModules[mod] {
-		return c.compileBaseCall(call)
-	}
-	name := sanitize(call.GetFunction())
-	// A call through a first-class function *value* (a local bound to a
-	// *ballrt.Function) goes through ballrt.Call; a call to a known top-level
-	// function is a direct Go call.
-	input := "ballrt.Value(nil)"
-	if call.GetInput() != nil {
-		input = c.compileExpr(call.GetInput())
-	}
-	if c.isLocal(call.GetFunction()) && !c.userFuncs[name] {
-		return fmt.Sprintf("ballrt.Call(%s, %s)", name, input)
-	}
-	return fmt.Sprintf("%s(%s)", name, input)
-}
-
-// arg compiles a named input field of a base call, or a null placeholder if the
-// field is absent.
+// arg compiles a named input field of a base call, or a null placeholder.
 func (c *Compiler) arg(f map[string]*ballv1.Expression, names ...string) string {
 	for _, n := range names {
 		if e, ok := f[n]; ok {
@@ -51,18 +28,22 @@ func hasField(f map[string]*ballv1.Expression, names ...string) bool {
 	return false
 }
 
-// compileBaseCall is the base-function dispatch table — the heart of the
-// compiler. Control flow (if/for/while/for_in) compiles to NATIVE Go control
-// flow evaluated lazily (invariant #4); return/break/continue/throw become
-// ballrt flow signals. Arithmetic/comparison/logic map to ballrt ops. An
-// unknown base function is a fail-loud compile error (issue #55 doctrine) — it
-// still emits parseable Go so the recorded error, not a Go syntax error, is the
-// signal.
+// compileBaseCall is the base-function dispatch table. Control flow lowers to
+// native Go inside IIFEs evaluated lazily (invariant #4); return/break/continue/
+// throw become ballrt flow signals so they cross the IIFE boundaries. An unknown
+// base function is a fail-loud compile error (issue #55).
 func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
-	f := fieldMap(call)
+	mod := call.GetModule()
 	fn := call.GetFunction()
+	f := fieldMap(call)
 
-	// Binary/unary operand shorthands.
+	switch mod {
+	case "ball_proto":
+		return c.compileProtoCall(call, f)
+	case "std_collections":
+		return c.compileCollectionsCall(call, f)
+	}
+
 	L := func() string { return c.arg(f, "left") }
 	R := func() string { return c.arg(f, "right") }
 	V := func() string { return c.arg(f, "value") }
@@ -71,6 +52,8 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	// ── I/O ──────────────────────────────────────────────────────────────
 	case "print":
 		return fmt.Sprintf("ballrt.Print(%s)", c.arg(f, "message", "value"))
+	case "print_error":
+		return fmt.Sprintf("ballrt.PrintError(%s)", c.arg(f, "message", "value"))
 
 	// ── Arithmetic ───────────────────────────────────────────────────────
 	case "add":
@@ -88,7 +71,23 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	case "negate":
 		return fmt.Sprintf("ballrt.Negate(%s)", V())
 
-	// ── Comparison (produce Go bool, which is a valid ballrt.Value) ───────
+	// ── Bitwise ──────────────────────────────────────────────────────────
+	case "bitwise_and":
+		return fmt.Sprintf("ballrt.BitwiseAnd(%s, %s)", L(), R())
+	case "bitwise_or":
+		return fmt.Sprintf("ballrt.BitwiseOr(%s, %s)", L(), R())
+	case "bitwise_xor":
+		return fmt.Sprintf("ballrt.BitwiseXor(%s, %s)", L(), R())
+	case "bitwise_not":
+		return fmt.Sprintf("ballrt.BitwiseNot(%s)", V())
+	case "left_shift":
+		return fmt.Sprintf("ballrt.LeftShift(%s, %s)", L(), R())
+	case "right_shift":
+		return fmt.Sprintf("ballrt.RightShift(%s, %s)", L(), R())
+	case "unsigned_right_shift":
+		return fmt.Sprintf("ballrt.UnsignedRightShift(%s, %s)", L(), R())
+
+	// ── Comparison ────────────────────────────────────────────────────────
 	case "equals":
 		return fmt.Sprintf("ballrt.Eq(%s, %s)", L(), R())
 	case "not_equals":
@@ -97,22 +96,32 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.Lt(%s, %s)", L(), R())
 	case "greater_than":
 		return fmt.Sprintf("ballrt.Gt(%s, %s)", L(), R())
-	case "lte":
+	case "lte", "less_than_or_equal":
 		return fmt.Sprintf("ballrt.Lte(%s, %s)", L(), R())
-	case "gte":
+	case "gte", "greater_than_or_equal":
 		return fmt.Sprintf("ballrt.Gte(%s, %s)", L(), R())
 
-	// ── Logic (short-circuit via native Go && / ||) ──────────────────────
+	// ── Logic ─────────────────────────────────────────────────────────────
 	case "and":
 		return fmt.Sprintf("(ballrt.Truthy(%s) && ballrt.Truthy(%s))", L(), R())
 	case "or":
 		return fmt.Sprintf("(ballrt.Truthy(%s) || ballrt.Truthy(%s))", L(), R())
 	case "not":
 		return fmt.Sprintf("ballrt.Not(%s)", V())
+	case "null_coalesce":
+		return fmt.Sprintf("func() ballrt.Value { __l := %s; if __l != nil { return __l }; return %s }()", L(), R())
+
+	// ── Type ops ──────────────────────────────────────────────────────────
+	case "is_type", "is":
+		return fmt.Sprintf("ballrt.IsType(%s, %s)", c.arg(f, "value", "object"), c.typeName(f))
+	case "is_not_type", "is_not":
+		return fmt.Sprintf("ballrt.IsNotType(%s, %s)", c.arg(f, "value", "object"), c.typeName(f))
+	case "as_type", "as", "cast":
+		return fmt.Sprintf("ballrt.AsType(%s, %s)", c.arg(f, "value", "object"), c.typeName(f))
 
 	// ── Strings & conversion ─────────────────────────────────────────────
 	case "concat", "string_concat":
-		return fmt.Sprintf("ballrt.Concat(%s, %s)", L(), R())
+		return fmt.Sprintf("ballrt.Concat(%s, %s)", c.arg(f, "left", "value"), c.arg(f, "right", "other"))
 	case "to_string", "int_to_string", "double_to_string":
 		return fmt.Sprintf("ballrt.ToStr(%s)", V())
 	case "length", "string_length":
@@ -127,6 +136,12 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.StrLower(%s)", V())
 	case "string_trim":
 		return fmt.Sprintf("ballrt.StrTrim(%s)", V())
+	case "string_trim_start":
+		return fmt.Sprintf("ballrt.StrTrimStart(%s)", V())
+	case "string_trim_end":
+		return fmt.Sprintf("ballrt.StrTrimEnd(%s)", V())
+	case "string_runes":
+		return fmt.Sprintf("ballrt.StrRunes(%s)", V())
 	case "string_contains":
 		return fmt.Sprintf("ballrt.StrContains(%s, %s)", c.arg(f, "value", "left"), c.arg(f, "search", "right", "substring"))
 	case "string_starts_with":
@@ -140,18 +155,43 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	case "string_replace_all":
 		return fmt.Sprintf("ballrt.StrReplaceAll(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "from", "pattern"), c.arg(f, "to", "replacement"))
 	case "string_substring":
-		start := c.arg(f, "start")
 		end := "ballrt.Value(nil)"
 		if hasField(f, "end") {
 			end = c.arg(f, "end")
 		}
-		return fmt.Sprintf("ballrt.Substring(%s, %s, %s)", c.arg(f, "value"), start, end)
+		return fmt.Sprintf("ballrt.Substring(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "start"), end)
+	case "string_is_empty":
+		return fmt.Sprintf("ballrt.StrIsEmpty(%s)", V())
+	case "string_code_unit_at":
+		return fmt.Sprintf("ballrt.StrCodeUnitAt(%s, %s)", c.arg(f, "value"), c.arg(f, "index"))
+	case "string_last_index_of":
+		return fmt.Sprintf("ballrt.StrLastIndexOf(%s, %s)", c.arg(f, "value", "left"), c.arg(f, "search", "right", "substring"))
+	case "string_replace":
+		return fmt.Sprintf("ballrt.StrReplace(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "from", "pattern"), c.arg(f, "to", "replacement"))
+	case "string_pad_left":
+		return fmt.Sprintf("ballrt.StrPadLeft(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "width"), c.arg(f, "padding"))
+	case "string_pad_right":
+		return fmt.Sprintf("ballrt.StrPadRight(%s, %s, %s)", c.arg(f, "value"), c.arg(f, "width"), c.arg(f, "padding"))
+	case "compare_to":
+		return fmt.Sprintf("ballrt.CompareTo(%s, %s)", c.arg(f, "left", "value"), c.arg(f, "right", "other"))
+	case "null_check":
+		return fmt.Sprintf("ballrt.NullCheck(%s)", V())
 
-	// ── Numeric conversion ───────────────────────────────────────────────
+	// ── Numeric conversion + formatting ──────────────────────────────────
 	case "to_int":
 		return fmt.Sprintf("ballrt.ToInt(%s)", V())
 	case "to_double":
 		return fmt.Sprintf("ballrt.ToDouble(%s)", V())
+	case "to_string_as_fixed":
+		return fmt.Sprintf("ballrt.ToStringAsFixed(%s, %s)", V(), c.arg(f, "digits", "fractionDigits"))
+	case "to_string_as_exponential":
+		exp := "ballrt.Value(nil)"
+		if hasField(f, "digits", "fractionDigits") {
+			exp = c.arg(f, "digits", "fractionDigits")
+		}
+		return fmt.Sprintf("ballrt.ToStringAsExponential(%s, %s)", V(), exp)
+	case "to_string_as_precision":
+		return fmt.Sprintf("ballrt.ToStringAsPrecision(%s, %s)", V(), c.arg(f, "precision"))
 
 	// ── Math ─────────────────────────────────────────────────────────────
 	case "math_abs":
@@ -170,16 +210,85 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.MathMin(%s, %s)", L(), R())
 	case "math_max":
 		return fmt.Sprintf("ballrt.MathMax(%s, %s)", L(), R())
+	case "math_trunc":
+		return fmt.Sprintf("ballrt.MathTrunc(%s)", V())
+	case "math_sign":
+		return fmt.Sprintf("ballrt.MathSign(%s)", V())
+	case "math_is_finite":
+		return fmt.Sprintf("ballrt.MathIsFinite(%s)", V())
+	case "math_is_infinite":
+		return fmt.Sprintf("ballrt.MathIsInfinite(%s)", V())
+	case "math_clamp":
+		return fmt.Sprintf("ballrt.MathClamp(%s, %s, %s)", V(), c.arg(f, "min", "lower", "lowerLimit"), c.arg(f, "max", "upper", "upperLimit"))
+	case "math_gcd":
+		return fmt.Sprintf("ballrt.MathGcd(%s, %s)", c.arg(f, "value", "left", "a"), c.arg(f, "other", "right", "b"))
+	case "round_to_double":
+		return fmt.Sprintf("ballrt.RoundToDouble(%s)", V())
+	case "floor_to_double":
+		return fmt.Sprintf("ballrt.FloorToDouble(%s)", V())
+	case "ceil_to_double":
+		return fmt.Sprintf("ballrt.CeilToDouble(%s)", V())
+	case "truncate_to_double":
+		return fmt.Sprintf("ballrt.TruncateToDouble(%s)", V())
+
+	// ── std_convert ──────────────────────────────────────────────────────
+	case "json_encode":
+		return fmt.Sprintf("ballrt.JSONEncode(%s)", V())
+	case "json_decode":
+		return fmt.Sprintf("ballrt.JSONDecode(%s)", V())
+	case "utf8_encode":
+		return fmt.Sprintf("ballrt.UTF8Encode(%s)", V())
+	case "utf8_decode":
+		return fmt.Sprintf("ballrt.UTF8Decode(%s)", V())
+	case "base64_encode":
+		return fmt.Sprintf("ballrt.Base64Encode(%s)", V())
+	case "base64_decode":
+		return fmt.Sprintf("ballrt.Base64Decode(%s)", V())
 
 	// ── Indexing / field mutation ────────────────────────────────────────
-	case "index":
-		return fmt.Sprintf("ballrt.Index(%s, %s)", c.arg(f, "target", "value", "object"), c.arg(f, "index", "key"))
+	case "index", "null_aware_index":
+		return fmt.Sprintf("ballrt.IndexGet(%s, %s)", c.arg(f, "target", "value", "object"), c.arg(f, "index", "key"))
 	case "assign":
-		return c.compileAssign(f)
+		return c.compileAssign(call)
+	case "pre_increment":
+		return c.compilePreMutate(call, "+=")
+	case "post_increment":
+		return c.compilePostMutate(call, "+=")
+	case "pre_decrement":
+		return c.compilePreMutate(call, "-=")
+	case "post_decrement":
+		return c.compilePostMutate(call, "-=")
 
-	// ── Conditional expression / control flow ────────────────────────────
+	// ── Collection / value constructors ──────────────────────────────────
+	case "map_create":
+		return c.compileMapCreate(call)
+	case "map_add_entry":
+		return fmt.Sprintf("ballrt.MapAddEntry(%s, %s, %s)", c.arg(f, "map", "target"), c.arg(f, "key"), c.arg(f, "value"))
+	case "map_spread", "map_merge_into":
+		return fmt.Sprintf("ballrt.MapSpread(%s, %s)", c.arg(f, "map", "target"), c.arg(f, "value", "source", "other"))
+	case "set_create":
+		if hasField(f, "list", "elements", "set", "value") {
+			return fmt.Sprintf("ballrt.SetCreate(%s)", c.arg(f, "list", "elements", "set", "value"))
+		}
+		return "ballrt.SetCreate(ballrt.Value(nil))"
+	case "record":
+		return c.compileRecord(f)
+	case "spread":
+		return c.arg(f, "value")
+	case "paren", "await", "parenthesized":
+		return V()
+	case "invoke":
+		return fmt.Sprintf("ballrt.Invoke(%s, %s)", c.arg(f, "function", "target", "callee"), c.arg(f, "argument", "arg", "input", "value"))
+	case "typed_list", "list_literal":
+		return fmt.Sprintf("ballrt.ListCopy(%s)", c.arg(f, "list", "value"))
+
+	// ── Control flow ──────────────────────────────────────────────────────
 	case "if":
 		return c.compileIf(f)
+	case "switch":
+		return c.compileSwitch(call, f, false)
+	case "switch_expr":
+		return c.compileSwitch(call, f, true)
 	case "for":
 		return c.compileFor(f)
 	case "while":
@@ -188,6 +297,8 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return c.compileDoWhile(f)
 	case "for_in", "for_each":
 		return c.compileForIn(f)
+	case "try":
+		return c.compileTry(f)
 	case "return":
 		if hasField(f, "value") {
 			return fmt.Sprintf("ballrt.Return(%s)", c.arg(f, "value"))
@@ -199,24 +310,48 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.Continue(%s)", strconv.Quote(stringLiteralField(f, "label")))
 	case "throw":
 		return fmt.Sprintf("ballrt.Throw(%s)", c.arg(f, "value", "exception"))
-	case "invoke":
-		return fmt.Sprintf("ballrt.Call(%s, %s)", c.arg(f, "function", "target", "callee"), c.arg(f, "argument", "arg", "input", "value"))
+	case "rethrow":
+		return "ballrt.Rethrow()"
+	case "assert":
+		msg := "ballrt.Value(nil)"
+		if hasField(f, "message") {
+			msg = c.arg(f, "message")
+		}
+		return fmt.Sprintf("ballrt.Assert(%s, %s)", c.arg(f, "condition"), msg)
 
 	default:
-		c.fail("unsupported base function %s.%s", call.GetModule(), fn)
-		return "ballrt.Value(nil) /* unsupported: " + call.GetModule() + "." + fn + " */"
+		c.fail("unsupported base function %s.%s", mod, fn)
+		return "ballrt.Value(nil) /* unsupported: " + mod + "." + fn + " */"
 	}
 }
 
-// compileIf lowers std.if to a native Go if inside an IIFE (value position),
-// evaluating only the taken branch (lazy — invariant #4).
+// typeName extracts a base call's target type name (a string literal `type`
+// field), quoted for Go.
+func (c *Compiler) typeName(f map[string]*ballv1.Expression) string {
+	name := stringLiteralField(f, "type")
+	if name == "" {
+		name = stringLiteralField(f, "typeName")
+	}
+	return strconv.Quote(name)
+}
+
+// compileRecord builds an anonymous record as a *Map of its named fields.
+func (c *Compiler) compileRecord(f map[string]*ballv1.Expression) string {
+	var b strings.Builder
+	b.WriteString("func() ballrt.Value {\n\t\t__r := ballrt.NewMap()\n")
+	for name, e := range f {
+		fmt.Fprintf(&b, "\t\t__r.Set(%q, %s)\n", name, c.compileExpr(e))
+	}
+	b.WriteString("\t\treturn __r\n\t}()")
+	return b.String()
+}
+
+// compileIf lowers std.if to a native Go if inside an IIFE (lazy — invariant #4).
 func (c *Compiler) compileIf(f map[string]*ballv1.Expression) string {
-	cond := c.arg(f, "condition")
-	then := c.arg(f, "then")
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n")
-	fmt.Fprintf(&b, "\t\tif ballrt.Truthy(%s) {\n", cond)
-	fmt.Fprintf(&b, "\t\t\treturn %s\n\t\t}\n", then)
+	fmt.Fprintf(&b, "\t\tif ballrt.Truthy(%s) {\n", c.arg(f, "condition"))
+	fmt.Fprintf(&b, "\t\t\treturn %s\n\t\t}\n", c.arg(f, "then"))
 	if hasField(f, "else") {
 		fmt.Fprintf(&b, "\t\treturn %s\n", c.arg(f, "else"))
 	} else {
@@ -226,10 +361,10 @@ func (c *Compiler) compileIf(f map[string]*ballv1.Expression) string {
 	return b.String()
 }
 
-// compileFor lowers std.for to a native Go for loop inside an IIFE. init/update
-// are compiled as statements; the body's break/continue are recovered by
-// ballrt.RunLoopBody (so they cross the IIFE boundary).
+// compileFor lowers std.for to a native Go for loop inside an IIFE.
 func (c *Compiler) compileFor(f map[string]*ballv1.Expression) string {
+	c.pushScope()
+	defer c.popScope()
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n")
 	if e, ok := f["init"]; ok {
@@ -248,7 +383,6 @@ func (c *Compiler) compileFor(f map[string]*ballv1.Expression) string {
 	return b.String()
 }
 
-// compileWhile lowers std.while to a native Go for loop with a condition.
 func (c *Compiler) compileWhile(f map[string]*ballv1.Expression) string {
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n")
@@ -258,7 +392,6 @@ func (c *Compiler) compileWhile(f map[string]*ballv1.Expression) string {
 	return b.String()
 }
 
-// compileDoWhile lowers std.do_while (body runs at least once).
 func (c *Compiler) compileDoWhile(f map[string]*ballv1.Expression) string {
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n")
@@ -269,14 +402,13 @@ func (c *Compiler) compileDoWhile(f map[string]*ballv1.Expression) string {
 	return b.String()
 }
 
-// compileForIn lowers std.for_in / std.for_each to `for _, v := range
-// ballrt.Iterate(iterable)`, binding the loop variable.
 func (c *Compiler) compileForIn(f map[string]*ballv1.Expression) string {
 	variable := stringLiteralField(f, "variable")
 	if variable == "" {
 		variable = "__it"
 	}
 	vn := sanitize(variable)
+	iter := c.arg(f, "iterable", "collection", "list")
 	c.pushScope()
 	c.bind(variable)
 	body := c.loopBody(f)
@@ -284,15 +416,13 @@ func (c *Compiler) compileForIn(f map[string]*ballv1.Expression) string {
 
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n")
-	fmt.Fprintf(&b, "\t\tfor _, %s := range ballrt.Iterate(%s) {\n", vn, c.arg(f, "iterable", "collection", "list"))
+	fmt.Fprintf(&b, "\t\tfor _, %s := range ballrt.Iterate(%s) {\n", vn, iter)
 	fmt.Fprintf(&b, "\t\t\t_ = %s\n", vn)
 	fmt.Fprintf(&b, "\t\t\tif ballrt.RunLoopBody(%q, func() { _ = %s }) {\n\t\t\t\tbreak\n\t\t\t}\n", "", body)
 	b.WriteString("\t\t}\n\t\treturn ballrt.Value(nil)\n\t}()")
 	return b.String()
 }
 
-// loopBody compiles a loop's "body" field. It is bound inside compileForIn's
-// scope (so the loop variable is in scope for a for_in body).
 func (c *Compiler) loopBody(f map[string]*ballv1.Expression) string {
 	if e, ok := f["body"]; ok {
 		return c.compileExpr(e)
@@ -300,10 +430,6 @@ func (c *Compiler) loopBody(f map[string]*ballv1.Expression) string {
 	return "ballrt.Value(nil)"
 }
 
-// compileLoopInit compiles a for-loop's init clause as Go statements (rather
-// than a value): a block's let-bindings hoist into the loop's IIFE scope so the
-// condition/update/body can reference them; any other init is evaluated for
-// effect.
 func (c *Compiler) compileLoopInit(e *ballv1.Expression) string {
 	if blk := e.GetBlock(); blk != nil {
 		var b strings.Builder
@@ -316,32 +442,471 @@ func (c *Compiler) compileLoopInit(e *ballv1.Expression) string {
 	return fmt.Sprintf("_ = %s\n", c.compileExpr(e))
 }
 
-// compileAssign lowers std.assign. A reference target reassigns the (closure-
-// captured) Go local; a field/index target routes through the runtime
-// read-modify-write helpers.
-func (c *Compiler) compileAssign(f map[string]*ballv1.Expression) string {
+// compileSwitch lowers std.switch / std.switch_expr to an if-else chain inside an
+// IIFE. Fall-through (a body-less case sharing the next case's body) accumulates
+// conditions. In statement mode a matched body runs for effect; in expr mode a
+// matched body's value is returned.
+func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1.Expression, exprMode bool) string {
+	uid := c.uid()
+	subj := fmt.Sprintf("__subj%d", uid)
+	var b strings.Builder
+	b.WriteString("func() ballrt.Value {\n")
+	fmt.Fprintf(&b, "\t\t%s := %s\n\t\t_ = %s\n", subj, c.arg(f, "subject"), subj)
+
+	cases := messageList(f, "cases")
+	var defaultCase *ballv1.MessageCreation
+	var pending []string
+	first := true
+	for _, caseMc := range cases {
+		cf := messageCreationFields(caseMc)
+		if boolLiteralField(cf, "is_default") {
+			defaultCase = caseMc
+			continue
+		}
+		cond := c.compileCaseCondition(subj, cf)
+		bodyExpr, hasBody := cf["body"]
+		if !hasBody {
+			pending = append(pending, cond)
+			continue
+		}
+		pending = append(pending, cond)
+		combined := strings.Join(pending, " || ")
+		pending = nil
+		if exprMode {
+			fmt.Fprintf(&b, "\t\tif %s { return %s }\n", combined, c.compileExpr(bodyExpr))
+		} else {
+			fmt.Fprintf(&b, "\t\tif %s { _ = %s; return ballrt.Value(nil) }\n", combined, c.compileExpr(bodyExpr))
+		}
+		first = false
+	}
+	_ = first
+	if defaultCase != nil {
+		cf := messageCreationFields(defaultCase)
+		if bodyExpr, ok := cf["body"]; ok {
+			if exprMode {
+				fmt.Fprintf(&b, "\t\treturn %s\n", c.compileExpr(bodyExpr))
+			} else {
+				fmt.Fprintf(&b, "\t\t_ = %s\n", c.compileExpr(bodyExpr))
+			}
+		}
+	}
+	b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
+	return b.String()
+}
+
+// compileCaseCondition builds a boolean match condition for a switch case.
+func (c *Compiler) compileCaseCondition(subj string, cf map[string]*ballv1.Expression) string {
+	if pe, ok := cf["pattern_expr"]; ok {
+		return c.compileSwitchPattern(subj, pe)
+	}
+	return fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.arg(cf, "pattern", "value"))
+}
+
+func (c *Compiler) compileSwitchPattern(subj string, patternExpr *ballv1.Expression) string {
+	if mc := patternExpr.GetMessageCreation(); mc != nil {
+		fields := messageCreationFields(mc)
+		switch typeShortName(mc.GetTypeName()) {
+		case "WildcardPattern":
+			return "true"
+		case "LogicalOrPattern":
+			return fmt.Sprintf("(%s || %s)", c.compileSwitchPattern(subj, fields["left"]), c.compileSwitchPattern(subj, fields["right"]))
+		case "LogicalAndPattern":
+			return fmt.Sprintf("(%s && %s)", c.compileSwitchPattern(subj, fields["left"]), c.compileSwitchPattern(subj, fields["right"]))
+		case "ConstPattern":
+			return fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.arg(fields, "value"))
+		}
+	}
+	return fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.compileExpr(patternExpr))
+}
+
+// compileTry lowers std.try to ballrt.TryCatch (body/catch/finally closures). The
+// first catch clause's variable binds the thrown payload; a second stack-trace
+// variable binds the caught trace.
+func (c *Compiler) compileTry(f map[string]*ballv1.Expression) string {
+	body := c.loopBody(f)
+	catches := messageList(f, "catches")
+	catchFn := "nil"
+	if len(catches) > 0 {
+		cf := messageCreationFields(catches[0])
+		variable := stringField(cf, "variable")
+		stackVar := stringField(cf, "stack_trace")
+		c.pushScope()
+		var cb strings.Builder
+		cb.WriteString("func(__ex ballrt.Value) ballrt.Value {\n")
+		if variable != "" {
+			c.bind(variable)
+			fmt.Fprintf(&cb, "\t\t%s := __ex\n\t\t_ = %s\n", sanitize(variable), sanitize(variable))
+		}
+		if stackVar != "" {
+			c.bind(stackVar)
+			fmt.Fprintf(&cb, "\t\t%s := ballrt.CaughtStackTrace()\n\t\t_ = %s\n", sanitize(stackVar), sanitize(stackVar))
+		}
+		catchBody := "ballrt.Value(nil)"
+		if b, ok := cf["body"]; ok {
+			catchBody = c.compileExpr(b)
+		}
+		fmt.Fprintf(&cb, "\t\treturn %s\n\t}", catchBody)
+		c.popScope()
+		catchFn = cb.String()
+	}
+	finallyFn := "nil"
+	if e, ok := f["finally"]; ok {
+		finallyFn = fmt.Sprintf("func() { _ = %s }", c.compileExpr(e))
+	}
+	return fmt.Sprintf("ballrt.TryCatch(func() ballrt.Value { return %s }, %s, %s)", body, catchFn, finallyFn)
+}
+
+// ── Assignment / mutation ───────────────────────────────────────────────────
+
+// lvalue describes an assignment target.
+type lvalue struct {
+	kind string // "var", "field", "index", "null_index", "unsupported"
+	a, b string
+}
+
+func (c *Compiler) resolveLValue(target *ballv1.Expression) lvalue {
+	switch x := target.GetExpr().(type) {
+	case *ballv1.Expression_Reference:
+		name := x.Reference.GetName()
+		if c.isLocal(name) {
+			return lvalue{kind: "var", a: sanitize(name)}
+		}
+		if c.inInstanceMethod && c.selfRecvName != "" && c.volatileFields[name] {
+			return lvalue{kind: "field", a: c.selfRecvName, b: name}
+		}
+		return lvalue{kind: "var", a: sanitize(name)}
+	case *ballv1.Expression_FieldAccess:
+		obj := c.compileExpr(x.FieldAccess.GetObject())
+		return lvalue{kind: "field", a: obj, b: x.FieldAccess.GetField()}
+	case *ballv1.Expression_Call:
+		call := x.Call
+		if call.GetModule() == "std" && (call.GetFunction() == "index" || call.GetFunction() == "null_aware_index") {
+			idxFields := fieldMap(call)
+			kind := "index"
+			if call.GetFunction() == "null_aware_index" {
+				kind = "null_index"
+			}
+			return lvalue{kind: kind, a: c.arg(idxFields, "target", "value", "object"), b: c.arg(idxFields, "index", "key")}
+		}
+	}
+	return lvalue{kind: "unsupported"}
+}
+
+func (c *Compiler) compileAssign(call *ballv1.FunctionCall) string {
+	f := fieldMap(call)
+	op := stringLiteralField(f, "op")
+	if op == "" {
+		op = "="
+	}
+	value := c.arg(f, "value")
 	target, ok := f["target"]
 	if !ok {
 		c.fail("assign: missing target")
 		return "ballrt.Value(nil)"
 	}
-	value := c.arg(f, "value")
+	return c.emitMutation(c.resolveLValue(target), op, value)
+}
 
-	if ref := target.GetReference(); ref != nil {
-		tn := sanitize(ref.GetName())
-		return fmt.Sprintf("func() ballrt.Value { __v := %s; %s = __v; return __v }()", value, tn)
+// compilePreMutate is the value-position pre-increment/decrement (yields the new
+// value).
+func (c *Compiler) compilePreMutate(call *ballv1.FunctionCall, op string) string {
+	f := fieldMap(call)
+	target := c.mutateTarget(f)
+	return c.emitMutation(c.resolveLValue(target), op, "int64(1)")
+}
+
+// compilePostMutate is the value-position post-increment/decrement (yields the
+// old value).
+func (c *Compiler) compilePostMutate(call *ballv1.FunctionCall, op string) string {
+	f := fieldMap(call)
+	target := c.mutateTarget(f)
+	lv := c.resolveLValue(target)
+	if lv.kind == "var" {
+		return fmt.Sprintf("func() ballrt.Value { __old := %s; %s = %s; return __old }()", lv.a, lv.a, combineOp(op, lv.a, "int64(1)"))
 	}
-	if fa := target.GetFieldAccess(); fa != nil {
-		obj := c.compileExpr(fa.GetObject())
-		return fmt.Sprintf("ballrt.FieldSet(%s, %q, %s)", obj, fa.GetField(), value)
+	return "(" + c.emitMutation(lv, op, "int64(1)") + ")"
+}
+
+func (c *Compiler) mutateTarget(f map[string]*ballv1.Expression) *ballv1.Expression {
+	if t, ok := f["value"]; ok {
+		return t
 	}
-	// An index target: assign into target[index] = value. The Ball index node is
-	// a std.index call; recover its target/index from that call's input.
-	if call := target.GetCall(); call != nil && call.GetFunction() == "index" {
-		idxFields := fieldMap(call)
-		return fmt.Sprintf("ballrt.SetIndex(%s, %s, %s)",
-			c.arg(idxFields, "target", "value", "object"), c.arg(idxFields, "index", "key"), value)
+	if t, ok := f["target"]; ok {
+		return t
 	}
-	c.fail("assign: unsupported target shape %T", target.GetExpr())
+	return &ballv1.Expression{}
+}
+
+// emitMutation emits an assignment to a resolved lvalue as an IIFE expression
+// yielding the new value (Go assignments are statements, not expressions).
+func (c *Compiler) emitMutation(lv lvalue, op, value string) string {
+	switch lv.kind {
+	case "var":
+		return fmt.Sprintf("func() ballrt.Value { __v := %s; %s = __v; return __v }()", combineOp(op, lv.a, value), lv.a)
+	case "field":
+		cur := fmt.Sprintf("ballrt.FieldGet(%s, %q)", lv.a, lv.b)
+		return fmt.Sprintf("ballrt.FieldSet(%s, %q, %s)", lv.a, lv.b, combineOp(op, cur, value))
+	case "index":
+		cur := fmt.Sprintf("ballrt.IndexGet(%s, %s)", lv.a, lv.b)
+		return fmt.Sprintf("ballrt.IndexSet(%s, %s, %s)", lv.a, lv.b, combineOp(op, cur, value))
+	case "null_index":
+		uid := c.uid()
+		na := fmt.Sprintf("__na%d", uid)
+		cur := fmt.Sprintf("ballrt.IndexGet(%s, %s)", na, lv.b)
+		return fmt.Sprintf("func() ballrt.Value { %s := %s; if %s == nil { return ballrt.Value(nil) }; return ballrt.IndexSet(%s, %s, %s) }()",
+			na, lv.a, na, na, lv.b, combineOp(op, cur, value))
+	default:
+		return "ballrt.UnsupportedBaseCall(\"std\", \"assign\")"
+	}
+}
+
+// combineOp combines a read of left with right per the compound-assignment op.
+func combineOp(op, left, right string) string {
+	switch op {
+	case "=", "":
+		return right
+	case "+=":
+		return fmt.Sprintf("ballrt.Add(%s, %s)", left, right)
+	case "-=":
+		return fmt.Sprintf("ballrt.Sub(%s, %s)", left, right)
+	case "*=":
+		return fmt.Sprintf("ballrt.Mul(%s, %s)", left, right)
+	case "/=":
+		return fmt.Sprintf("ballrt.DivDouble(%s, %s)", left, right)
+	case "~/=":
+		return fmt.Sprintf("ballrt.IntDiv(%s, %s)", left, right)
+	case "%=":
+		return fmt.Sprintf("ballrt.Modulo(%s, %s)", left, right)
+	case "&=":
+		return fmt.Sprintf("ballrt.BitwiseAnd(%s, %s)", left, right)
+	case "|=":
+		return fmt.Sprintf("ballrt.BitwiseOr(%s, %s)", left, right)
+	case "^=":
+		return fmt.Sprintf("ballrt.BitwiseXor(%s, %s)", left, right)
+	case "<<=":
+		return fmt.Sprintf("ballrt.LeftShift(%s, %s)", left, right)
+	case ">>=":
+		return fmt.Sprintf("ballrt.RightShift(%s, %s)", left, right)
+	case ">>>=":
+		return fmt.Sprintf("ballrt.UnsignedRightShift(%s, %s)", left, right)
+	case "??=":
+		return fmt.Sprintf("ballrt.NullCoalesce(%s, %s)", left, right)
+	default:
+		return right
+	}
+}
+
+// ── std_collections ─────────────────────────────────────────────────────────
+
+func (c *Compiler) compileCollectionsCall(call *ballv1.FunctionCall, f map[string]*ballv1.Expression) string {
+	list := func() string { return c.arg(f, "list") }
+	set := func() string { return c.arg(f, "set") }
+	mp := func() string { return c.arg(f, "map") }
+	switch call.GetFunction() {
+	case "list_get":
+		return fmt.Sprintf("ballrt.ListGet(%s, %s)", list(), c.arg(f, "index"))
+	case "list_length":
+		return fmt.Sprintf("ballrt.ListLength(%s)", list())
+	case "list_is_empty":
+		return fmt.Sprintf("ballrt.ListIsEmpty(%s)", list())
+	case "list_first":
+		return fmt.Sprintf("ballrt.ListFirst(%s)", list())
+	case "list_last":
+		return fmt.Sprintf("ballrt.ListLast(%s)", list())
+	case "list_contains":
+		return fmt.Sprintf("ballrt.ListContains(%s, %s)", list(), c.arg(f, "value"))
+	case "list_index_of":
+		return fmt.Sprintf("ballrt.ListIndexOf(%s, %s)", list(), c.arg(f, "value"))
+	case "list_reverse":
+		return fmt.Sprintf("ballrt.ListReverse(%s)", list())
+	case "list_concat":
+		return fmt.Sprintf("ballrt.ListConcat(%s, %s)", list(), c.arg(f, "value", "index"))
+	case "list_slice":
+		return fmt.Sprintf("ballrt.ListSlice(%s, %s, %s)", list(), c.arg(f, "start"), c.arg(f, "end"))
+	case "list_take":
+		return fmt.Sprintf("ballrt.ListTake(%s, %s)", list(), c.arg(f, "index", "value", "count"))
+	case "list_drop":
+		return fmt.Sprintf("ballrt.ListDrop(%s, %s)", list(), c.arg(f, "index", "value", "count"))
+	case "list_push":
+		return fmt.Sprintf("ballrt.ListPush(%s, %s)", list(), c.arg(f, "value"))
+	case "list_pop":
+		return fmt.Sprintf("ballrt.ListPop(%s)", list())
+	case "list_insert":
+		return fmt.Sprintf("ballrt.ListInsert(%s, %s, %s)", list(), c.arg(f, "index"), c.arg(f, "value"))
+	case "list_remove_at":
+		return fmt.Sprintf("ballrt.ListRemoveAt(%s, %s)", list(), c.arg(f, "index"))
+	case "list_set":
+		return fmt.Sprintf("ballrt.ListSet(%s, %s, %s)", list(), c.arg(f, "index"), c.arg(f, "value"))
+	case "list_clear":
+		return fmt.Sprintf("ballrt.ListClear(%s)", list())
+	case "list_map":
+		return fmt.Sprintf("ballrt.ListMap(%s, %s)", list(), c.arg(f, "value", "callback"))
+	case "list_filter":
+		return fmt.Sprintf("ballrt.ListFilter(%s, %s)", list(), c.arg(f, "value", "callback"))
+	case "list_all":
+		return fmt.Sprintf("ballrt.ListAll(%s, %s)", list(), c.arg(f, "value", "callback"))
+	case "list_any":
+		return fmt.Sprintf("ballrt.ListAny(%s, %s)", list(), c.arg(f, "value", "callback"))
+	case "list_sort":
+		return fmt.Sprintf("ballrt.ListSort(%s, %s)", list(), c.arg(f, "value", "compare"))
+	case "list_join":
+		return fmt.Sprintf("ballrt.ListJoin(%s, %s)", list(), c.arg(f, "separator"))
+	case "list_to_list":
+		return fmt.Sprintf("ballrt.ListToList(%s)", list())
+	case "map_get":
+		return fmt.Sprintf("ballrt.MapGet(%s, %s)", mp(), c.arg(f, "key"))
+	case "map_set":
+		return fmt.Sprintf("ballrt.MapSet(%s, %s, %s)", mp(), c.arg(f, "key"), c.arg(f, "value"))
+	case "map_delete":
+		return fmt.Sprintf("ballrt.MapDelete(%s, %s)", mp(), c.arg(f, "key"))
+	case "map_contains_key":
+		return fmt.Sprintf("ballrt.MapContainsKey(%s, %s)", mp(), c.arg(f, "key"))
+	case "map_contains_value":
+		return fmt.Sprintf("ballrt.MapContainsValue(%s, %s)", mp(), c.arg(f, "value"))
+	case "map_keys":
+		return fmt.Sprintf("ballrt.MapKeys(%s)", mp())
+	case "map_values":
+		return fmt.Sprintf("ballrt.MapValues(%s)", mp())
+	case "map_length":
+		return fmt.Sprintf("ballrt.MapLength(%s)", mp())
+	case "map_is_empty":
+		return fmt.Sprintf("ballrt.MapIsEmpty(%s)", mp())
+	case "map_merge":
+		return fmt.Sprintf("ballrt.MapMerge(%s, %s)", mp(), c.arg(f, "value", "key"))
+	case "map_put_if_absent":
+		return fmt.Sprintf("ballrt.MapPutIfAbsent(%s, %s, %s)", mp(), c.arg(f, "key"), c.arg(f, "value"))
+	case "string_join":
+		return fmt.Sprintf("ballrt.StringJoin(%s, %s)", list(), c.arg(f, "separator"))
+	case "set_create":
+		return fmt.Sprintf("ballrt.SetCreate(%s)", c.arg(f, "list", "elements", "set"))
+	case "set_add":
+		return fmt.Sprintf("ballrt.SetAdd(%s, %s)", set(), c.arg(f, "value"))
+	case "set_remove":
+		return fmt.Sprintf("ballrt.SetRemove(%s, %s)", set(), c.arg(f, "value"))
+	case "set_contains":
+		return fmt.Sprintf("ballrt.SetContains(%s, %s)", set(), c.arg(f, "value"))
+	case "set_length":
+		return fmt.Sprintf("ballrt.SetLength(%s)", set())
+	case "set_is_empty":
+		return fmt.Sprintf("ballrt.SetIsEmpty(%s)", set())
+	case "set_to_list":
+		return fmt.Sprintf("ballrt.SetToList(%s)", set())
+	case "set_union":
+		return fmt.Sprintf("ballrt.SetUnion(%s, %s)", c.arg(f, "left", "set"), c.arg(f, "right", "other"))
+	case "set_intersection":
+		return fmt.Sprintf("ballrt.SetIntersection(%s, %s)", c.arg(f, "left", "set"), c.arg(f, "right", "other"))
+	case "set_difference":
+		return fmt.Sprintf("ballrt.SetDifference(%s, %s)", c.arg(f, "left", "set"), c.arg(f, "right", "other"))
+	default:
+		c.fail("unsupported base function std_collections.%s", call.GetFunction())
+		return "ballrt.Value(nil)"
+	}
+}
+
+// ── ball_proto ──────────────────────────────────────────────────────────────
+
+func (c *Compiler) compileProtoCall(call *ballv1.FunctionCall, f map[string]*ballv1.Expression) string {
+	obj := func() string { return c.arg(f, "obj") }
+	switch call.GetFunction() {
+	case "whichExpr":
+		return fmt.Sprintf("ballrt.WhichExpr(%s)", obj())
+	case "whichValue":
+		return fmt.Sprintf("ballrt.WhichValue(%s)", obj())
+	case "whichStmt":
+		return fmt.Sprintf("ballrt.WhichStmt(%s)", obj())
+	case "whichKind":
+		return fmt.Sprintf("ballrt.WhichKind(%s)", obj())
+	case "whichSource":
+		return fmt.Sprintf("ballrt.WhichSource(%s)", obj())
+	case "getField":
+		return fmt.Sprintf("ballrt.GetField(%s, %s)", obj(), c.arg(f, "name"))
+	case "getFieldOr":
+		return fmt.Sprintf("ballrt.GetFieldOr(%s, %s, %s)", obj(), c.arg(f, "name"), c.arg(f, "defaultValue"))
+	case "setField":
+		return fmt.Sprintf("ballrt.SetFieldValue(%s, %s, %s)", obj(), c.arg(f, "name"), c.arg(f, "value"))
+	case "getStructField":
+		return fmt.Sprintf("ballrt.GetStructField(%s, %s)", c.arg(f, "struct"), c.arg(f, "key"))
+	case "getStringField":
+		return fmt.Sprintf("ballrt.GetStringField(%s, %s)", c.arg(f, "struct"), c.arg(f, "key"))
+	case "getBoolField":
+		return fmt.Sprintf("ballrt.GetBoolField(%s, %s)", c.arg(f, "struct"), c.arg(f, "key"))
+	case "getListField":
+		return fmt.Sprintf("ballrt.GetListField(%s, %s)", c.arg(f, "struct"), c.arg(f, "key"))
+	case "getNumberField":
+		return fmt.Sprintf("ballrt.GetNumberField(%s, %s)", c.arg(f, "struct"), c.arg(f, "key"))
+	case "getStructFieldKeys":
+		return fmt.Sprintf("ballrt.GetStructFieldKeys(%s)", c.arg(f, "struct"))
+	case "ensureDefaults":
+		return fmt.Sprintf("ballrt.EnsureDefaults(%s, %s)", obj(), c.arg(f, "messageType"))
+	case "defaultString":
+		return "ballrt.DefaultString()"
+	case "defaultList":
+		return "ballrt.DefaultList()"
+	case "defaultBool":
+		return "ballrt.DefaultBool()"
+	case "defaultInt":
+		return "ballrt.DefaultInt()"
+	case "exprCase":
+		return fmt.Sprintf("ballrt.ExprCase(%s)", c.arg(f, "name"))
+	case "literalCase":
+		return fmt.Sprintf("ballrt.LiteralCase(%s)", c.arg(f, "name"))
+	case "stmtCase":
+		return fmt.Sprintf("ballrt.StmtCase(%s)", c.arg(f, "name"))
+	}
+	if strings.HasPrefix(call.GetFunction(), "has") && len(call.GetFunction()) > 3 {
+		field := lowerFirst(call.GetFunction()[3:])
+		return fmt.Sprintf("ballrt.HasField(%s, %q)", obj(), field)
+	}
+	c.fail("unsupported base function ball_proto.%s", call.GetFunction())
 	return "ballrt.Value(nil)"
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// ── Message-list helpers (switch cases / try catches) ───────────────────────
+
+func messageList(f map[string]*ballv1.Expression, key string) []*ballv1.MessageCreation {
+	var out []*ballv1.MessageCreation
+	e, ok := f[key]
+	if !ok {
+		return out
+	}
+	lit := e.GetLiteral()
+	if lit == nil || lit.GetListValue() == nil {
+		return out
+	}
+	for _, el := range lit.GetListValue().GetElements() {
+		if mc := el.GetMessageCreation(); mc != nil {
+			out = append(out, mc)
+		}
+	}
+	return out
+}
+
+func messageCreationFields(mc *ballv1.MessageCreation) map[string]*ballv1.Expression {
+	out := map[string]*ballv1.Expression{}
+	for _, fv := range mc.GetFields() {
+		out[fv.GetName()] = fv.GetValue()
+	}
+	return out
+}
+
+func stringField(f map[string]*ballv1.Expression, key string) string {
+	return stringLiteralField(f, key)
+}
+
+func boolLiteralField(f map[string]*ballv1.Expression, key string) bool {
+	e, ok := f[key]
+	if !ok {
+		return false
+	}
+	if lit := e.GetLiteral(); lit != nil {
+		return lit.GetBoolValue()
+	}
+	return false
 }

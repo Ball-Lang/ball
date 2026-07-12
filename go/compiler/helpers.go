@@ -17,10 +17,11 @@ var goKeywords = map[string]bool{
 	"select": true, "struct": true, "switch": true, "type": true, "var": true,
 }
 
-// reservedEmitted are identifiers the compiler itself emits; a user name that
-// sanitizes to one of these is prefixed to avoid capture.
+// reservedEmitted are identifiers the compiler itself emits, plus Go-special
+// names (`init`/`main`, which Go treats specially at package scope); a user name
+// that sanitizes to one of these is prefixed to avoid capture/collision.
 var reservedEmitted = map[string]bool{
-	"input": true, "ballrt": true, "main": true,
+	"input": true, "ballrt": true, "main": true, "init": true,
 	"__ret": true, "__m": true, "__v": true,
 }
 
@@ -46,6 +47,11 @@ func sanitize(name string) string {
 		}
 	}
 	s := b.String()
+	// A bare underscore is Go's blank identifier (not a real binding); a Dart
+	// var literally named "_" (a Dart-3 wildcard) needs a concrete name.
+	if s == "_" {
+		return "ball_blank"
+	}
 	if goKeywords[s] || reservedEmitted[s] {
 		return "ball_" + s
 	}
@@ -82,6 +88,92 @@ func funcParams(f *ballv1.FunctionDefinition) []string {
 		}
 	}
 	return out
+}
+
+// quoteGo renders a string as a Go double-quoted literal.
+func quoteGo(s string) string { return strconv.Quote(s) }
+
+// isPositionalArg reports whether name matches the encoder's positional-argument
+// convention (arg0, arg1, …).
+func isPositionalArg(name string) bool {
+	if !strings.HasPrefix(name, "arg") || len(name) <= 3 {
+		return false
+	}
+	for _, r := range name[3:] {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isIntLiteral reports whether s is a plain (optionally signed) integer literal.
+func isIntLiteral(s string) bool {
+	if s == "" {
+		return false
+	}
+	i := 0
+	if s[0] == '-' || s[0] == '+' {
+		i = 1
+	}
+	if i >= len(s) {
+		return false
+	}
+	for ; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isSimpleIdent reports whether s is a bare identifier (a class name in Type()
+// initializer text).
+func isSimpleIdent(s string) bool {
+	if s == "" || (s[0] >= '0' && s[0] <= '9') {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+// leadingIdent returns the leading identifier token of s (letters/digits/_).
+func leadingIdent(s string) string {
+	end := 0
+	for end < len(s) {
+		r := s[end]
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' {
+			end++
+			continue
+		}
+		break
+	}
+	return s[:end]
+}
+
+// stripGenericPrefix strips a leading Dart generic type-argument prefix
+// (<String, int>{} → {}).
+func stripGenericPrefix(s string) string {
+	if !strings.HasPrefix(s, "<") {
+		return s
+	}
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '<':
+			depth++
+		case '>':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(s[i+1:])
+			}
+		}
+	}
+	return s
 }
 
 // goFloat renders a float64 as a valid Go floating-point literal (always

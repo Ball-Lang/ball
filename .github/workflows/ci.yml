@@ -46,6 +46,7 @@ jobs:
       cpp: ${{ steps.f.outputs.cpp }}
       rust: ${{ steps.f.outputs.rust }}
       csharp: ${{ steps.f.outputs.csharp }}
+      go: ${{ steps.f.outputs.go }}
       infra: ${{ steps.f.outputs.infra }}
       # A self-hosted Dart source (dart/engine/lib/** or the cli_core.dart
       # library) changed — already folded into cpp/rust/csharp below (#416,
@@ -76,7 +77,7 @@ jobs:
             # changed_fixtures=ALL is the fail-open sentinel for the fixture
             # filter too — the typescript job runs the FULL full_e2e.ts sweep
             # rather than skip it, since we cannot compute what changed.
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "csharp=true"; echo "infra=true"; echo "self_host=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "csharp=true"; echo "go=true"; echo "infra=true"; echo "self_host=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot (merge-base) diff: ONLY this branch's own changes, never
@@ -102,21 +103,22 @@ jobs:
           # the C++, Rust, AND C# self-hosted artifacts, even though it lives
           # under dart/ (so it would otherwise flip only dart=true):
           #   * dart/engine/lib/**  -> engine_rt.cpp / compiled_engine.rs /
-          #     CompiledEngine.cs — the self-hosted ENGINE (engine.dart + its
-          #     part files), encoded by compile_engine_cpp.dart and
-          #     gen_engine_json.dart(+ball-engine-regen / Ball.Engine.Regen).
+          #     CompiledEngine.cs / compiled_engine.go — the self-hosted ENGINE
+          #     (engine.dart + its part files), encoded by compile_engine_cpp.dart
+          #     and gen_engine_json.dart(+ball-engine-regen / Ball.Engine.Regen /
+          #     go/engine's cmd/regen).
           #   * dart/shared/lib/cli_core.dart + its parts (capability_analyzer,
           #     capability_table, termination_analyzer) -> cli_rt.h /
           #     compiled_cli.rs / CompiledCli.cs — the self-hosted CLI core,
           #     encoded by gen_cli_cpp.dart and gen_cli_json.dart(+ball-cli-regen
           #     / Ball.Cli.Regen).
           # These artifacts are REGENERATED from these Dart sources at CI build
-          # time, so a Dart-only edit to them changes what the C++/Rust/C# jobs
+          # time, so a Dart-only edit to them changes what the C++/Rust/C#/Go jobs
           # compile and run — yet, mapped by top-level dir alone, sets only
-          # dart=true and SKIPS the cpp/rust/csharp self-host jobs. That exact
+          # dart=true and SKIPS the cpp/rust/csharp/go self-host jobs. That exact
           # blind spot let a C++ self-host break slip through PR CI in #398 (and
           # forced #413's manual verification lane). OR self_host into
-          # cpp/rust/csharp below so those jobs run whenever the self-host
+          # cpp/rust/csharp/go below so those jobs run whenever the self-host
           # sources change. (dart/compiler, dart/encoder, dart/cli are the
           # Dart-target toolchain, not self-host program inputs, so they are NOT
           # here — the C++/Rust/C# targets use their OWN compilers for the
@@ -152,6 +154,7 @@ jobs:
             if m '^cpp/'    || [ "$self_host" = true ]; then echo "cpp=true";    else echo "cpp=false";    fi
             if m '^rust/'   || [ "$self_host" = true ]; then echo "rust=true";   else echo "rust=false";   fi
             if m '^csharp/' || [ "$self_host" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
+            if m '^go/'     || [ "$self_host" = true ]; then echo "go=true";     else echo "go=false";     fi
             echo "infra=$infra"
             echo "self_host=$self_host"
             echo "changed_fixtures=$changed_fixtures"
@@ -932,6 +935,104 @@ jobs:
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
           if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
             echo "::error::C# self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
+            exit 1
+          fi
+
+  # ──────────────────────────────────────────────────
+  # Go — build + vet + gofmt + test + self-hosted engine conformance
+  # ──────────────────────────────────────────────────
+  go:
+    name: Go
+    needs: changes
+    if: ${{ needs.changes.outputs.go == 'true' || needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # go.mod pins `go 1.23`; the tree is authored/gofmt'd with the 1.25 line
+      # (go1.25.x resolves the latest 1.25 patch). setup-go's built-in cache keys
+      # on the committed go.sum files (runtime is stdlib-only, so it has none).
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: |
+            go/compiler/go.sum
+            go/encoder/go.sum
+            go/engine/go.sum
+            go/shared/go.sum
+
+      # The five modules are tied by go/go.work. The workspace-root `./...`
+      # pattern isn't valid (go/ is not itself a module), so each build/vet/test
+      # enumerates the module subdirs explicitly. The engine's self-host artifact
+      # (compiled/compiled_engine.go) is gitignored + `//go:build selfhost`-gated,
+      # so a default (no-tag) build stays green on the wrapper foundation alone.
+      - name: Build
+        run: cd go && go build ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+
+      - name: Vet
+        run: cd go && go vet ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+
+      - name: Format check
+        run: |
+          cd go
+          unformatted=$(gofmt -l compiler encoder engine runtime shared)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt found unformatted Go files — run 'gofmt -w' and commit:"
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "All Go sources are gofmt-clean."
+
+      - name: Test
+        run: cd go && go test ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+
+      # ── Self-hosted engine: regenerate + RUN (epic #426 Phase 4) ──
+      # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
+      # itself gitignored) compiled through go/compiler into the gitignored
+      # go/engine/compiled/compiled_engine.go. Regenerate both from source, then
+      # run the whole conformance corpus under `-tags selfhost` and assert Dart
+      # parity — the identical regen-then-run shape as the rust/csharp jobs (see
+      # go/engine/AGENTS.md's "Regenerate + run").
+      - name: Setup Dart (for engine.ball.json regeneration)
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      # gen_engine_json.dart writes dart/self_host/engine.ball.json; cmd/regen
+      # reads it (it prefers engine.ball.pb, absent here, and falls back to the
+      # JSON) and compiles it into compiled/compiled_engine.go.
+      - name: Regenerate self-hosted engine
+        run: |
+          dart pub get
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          cd ../go/engine && go run ./cmd/regen
+
+      # Whole-corpus conformance sweep — drives every tests/conformance/*.ball.json
+      # through the self-hosted Go engine and asserts the canonical
+      # `Results: N passed, M failed, T total` line shows every golden-having
+      # fixture passing (Dart parity). Currently
+      # "Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)" — the 4
+      # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
+      # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
+      # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
+      # REQUIRED: without it `go test` caches and discards a passing test's stdout,
+      # so the `Results:` line (a plain fmt.Printf) would never reach the log.
+      - name: "Self-host conformance sweep (Results: line)"
+        run: |
+          cd go/engine
+          set +e
+          output=$(go test -v -tags selfhost -run TestConformance -timeout 3600s ./conformance/ 2>&1)
+          exit_code=$?
+          echo "$output"
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          echo ""
+          echo "=== Go Self-Host ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+            echo "::error::Go self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
 

@@ -253,4 +253,59 @@ describe('cli_core parity: compiled TS cli-core vs the native Dart CLI', { skip:
     assert.match(dart.stdout, /Termination Analysis/, 'native audit should include a Termination Analysis section');
     assert.equal(ts.stdout, dart.stdout, 'audit stdout (with termination section) mismatch');
   });
+
+  // Issue #412: `ball audit --reachable-only` scopes only the capability report
+  // to the entry function's reachable closure, but termination analysis still
+  // runs on the WHOLE program (native runner.dart's `_audit`). The TS
+  // reachable-only branch previously emitted only `formatCapabilityReport`
+  // (no trailing newline, no termination section) — one newline short of native
+  // even for clean programs, and dropping the Termination Analysis section
+  // entirely. Both must now be byte-identical, including the section.
+  test('audit --reachable-only with a termination warning: TS matches the native Dart CLI (incl. the Termination Analysis section)', () => {
+    const loopProgram = {
+      '@type': 'type.googleapis.com/ball.v1.Program',
+      name: 'loopy',
+      version: '1.0.0',
+      entryModule: 'main',
+      entryFunction: 'main',
+      modules: [
+        { name: 'std', functions: [{ name: 'while', isBase: true }] },
+        {
+          name: 'main',
+          functions: [
+            {
+              name: 'main',
+              body: {
+                call: {
+                  module: 'std',
+                  function: 'while',
+                  input: {
+                    messageCreation: {
+                      typeName: 'WhileInput',
+                      fields: [
+                        { name: 'condition', value: { literal: { boolValue: true } } },
+                        { name: 'body', value: { reference: { name: 'x' } } },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const path = join(workDir, 'loopy_reachable.ball.json');
+    writeFileSync(path, JSON.stringify(loopProgram));
+
+    const dart = runDart(['audit', path, '--reachable-only']);
+    const ts = runTs(['audit', path, '--reachable-only']);
+    assert.equal(ts.status, dart.status, `exit code mismatch (dart=${dart.status}, ts=${ts.status})`);
+    assert.match(
+      dart.stdout,
+      /Termination Analysis/,
+      'native audit --reachable-only should include a Termination Analysis section',
+    );
+    assert.equal(ts.stdout, dart.stdout, 'audit --reachable-only stdout (with termination section) mismatch');
+  });
 });

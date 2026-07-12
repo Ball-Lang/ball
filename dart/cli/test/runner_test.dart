@@ -637,6 +637,20 @@ void main() {
       expect(out, contains('while(true) loop'));
     });
 
+    // --reachable-only scopes only the capability report to the entry closure;
+    // termination still runs on the WHOLE program, so the Termination Analysis
+    // section must still appear (issue #412 — the TS CLI dropped it here).
+    test('reports termination warnings under --reachable-only', () async {
+      final path = writeValidProgram(
+        name: 'loopy',
+        src: 'void main(){ while(true){ print(1); } }',
+      );
+      final (code, out, _) = await run(['audit', path, '--reachable-only']);
+      expect(code, 0);
+      expect(out, contains('Termination Analysis'));
+      expect(out, contains('while(true) loop'));
+    });
+
     test('missing input returns 1', () async {
       final (code, _, err) = await run(['audit', '--deny', 'io']);
       expect(code, 1);

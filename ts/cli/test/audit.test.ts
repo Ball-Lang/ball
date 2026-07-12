@@ -14,6 +14,8 @@ import {
   formatCapabilityReport,
   checkPolicy,
   auditReport,
+  analyzeTermination,
+  formatTerminationReport,
 } from '../src/cli_core.ts';
 
 // A program whose entry function's body threads every expression-node kind the
@@ -174,5 +176,61 @@ describe('cli_core.ts — audit (self-hosted capability + termination)', () => {
     const report = analyzeCapabilities(sparseProgram) as { functions: unknown[] };
     // Every non-base function in `main` is analyzed (empty/imp have none).
     assert.equal(report.functions.length, 9);
+  });
+
+  // A `while(true)` loop with a non-exiting body: the only shape the termination
+  // analyzer flags. `analyzeTermination`/`formatTerminationReport` are exposed
+  // separately from `auditReport` so the `--reachable-only` audit path (which
+  // scopes the capability report to the reachable closure but still runs
+  // termination on the WHOLE program) can append the section — issue #412.
+  const loopProgram = {
+    name: 'loopy',
+    version: '1.0.0',
+    entryModule: 'main',
+    entryFunction: 'main',
+    modules: [
+      { name: 'std', functions: [{ name: 'while', isBase: true }] },
+      {
+        name: 'main',
+        functions: [
+          {
+            name: 'main',
+            body: {
+              call: {
+                module: 'std',
+                function: 'while',
+                input: {
+                  messageCreation: {
+                    typeName: 'WhileInput',
+                    fields: [
+                      { name: 'condition', value: { literal: { boolValue: true } } },
+                      { name: 'body', value: { reference: { name: 'x' } } },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  test('analyzeTermination flags an infinite loop; formatTerminationReport renders it', () => {
+    const warnings = analyzeTermination(loopProgram);
+    assert.ok(warnings.length > 0, 'while(true) without break/return is flagged');
+
+    const text = formatTerminationReport(warnings);
+    assert.ok(text.includes('Termination Analysis'));
+    assert.ok(text.includes('Potential Infinite Loops'));
+    assert.ok(text.includes('while(true)'));
+  });
+
+  test('analyzeTermination returns no warnings for a clean program', () => {
+    // richProgram has no loops → an empty warning list, and the formatter still
+    // produces a (warning-free) section rather than throwing.
+    const warnings = analyzeTermination(richProgram);
+    assert.equal(warnings.length, 0);
+    assert.ok(formatTerminationReport(warnings).includes('Termination Analysis'));
   });
 });

@@ -709,6 +709,40 @@ extension BallEngineInvocation on BallEngine {
     final cached = _callCache[function];
     if (cached != null) return _callFunction(cached.module, cached.func, input);
 
+    // Module-unqualified fallback: resolve by bare function name across all
+    // modules. Guard the ambiguous-shadow case (issue #420) first: when the
+    // bare name is declared as BOTH a base function and a non-base user
+    // function, the intended target is genuinely ambiguous — the resolution
+    // scan below dispatches whichever module is indexed first, so a same-named
+    // decoy user function can hide (or, on a different module order, expose) a
+    // spoofed base call. Fail loud rather than dispatch an order-dependent
+    // guess. A legitimate unqualified call — where only a base function OR only
+    // user functions bear the name — is not ambiguous and resolves exactly as
+    // before. Detection is dispatch-time (not load-time): a load-time refusal
+    // would reject the benign, non-ambiguous reuse of a base name as a
+    // top-level function (e.g. a user `add` alongside `std.add`, each always
+    // reached by its exact module key), which real programs legitimately do.
+    var sawBase = false;
+    var sawUser = false;
+    for (final m in program.modules) {
+      for (final f in m.functions) {
+        if (f.name == function) {
+          if (f.isBase) {
+            sawBase = true;
+          } else {
+            sawUser = true;
+          }
+        }
+      }
+    }
+    if (sawBase && sawUser) {
+      throw BallRuntimeError(
+        'Ambiguous unqualified call to "$function": a user-defined function '
+        'shadows a base function of the same name. Qualify the call with an '
+        'explicit module to disambiguate (issue #420).',
+      );
+    }
+
     for (final m in program.modules) {
       for (final f in m.functions) {
         if (f.name == function) {

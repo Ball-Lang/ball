@@ -41,6 +41,25 @@ func CallMethod(name string, input Value) Value {
 	case "cast", "retype":
 		// `.cast<T>()` is a no-op reinterpret in the dynamic value model.
 		return self
+	case "identical":
+		// Dart's global `identical(a, b)` reaches here as a 2-arg call (no
+		// `self` field). Canonical primitives compare by value; aggregates by
+		// reference identity — matching engine_eval.dart's `identical(a, b)`.
+		return ballIdentical(a0, a1)
+	case "convert":
+		// A dart:convert codec's `.convert(x)` (`const JsonEncoder().convert`,
+		// `const JsonDecoder().convert`) — engine_std.dart's JSON encode/decode.
+		if m, ok := self.(*Message); ok {
+			switch messageShortName(m.TypeName) {
+			case "JsonEncoder":
+				return JSONEncode(a0)
+			case "JsonDecoder":
+				return JSONDecode(a0)
+			}
+		}
+		panic(Thrown{Value: "ball: .convert on unsupported codec " + ToStr(self)})
+	case "toIso8601String":
+		return dateTimeToIso8601(self)
 
 	// ── String ───────────────────────────────────────────────────────────────
 	case "toUpperCase":
@@ -365,6 +384,21 @@ func staticMethod(typeName, method string, a0, a1, a2 Value) Value {
 			return dateTimeNow()
 		case "fromMillisecondsSinceEpoch":
 			return dateTimeFromMillis(asInt64(a0))
+		case "parse":
+			return dateTimeParse(ToStr(a0))
+		}
+	case "Function":
+		switch method {
+		case "apply":
+			// Function.apply(fn, [arg]) — the engine (engine_std.dart's
+			// std.invoke) always passes a single-element positional list
+			// (`[value]`, `[null]`, or `[argsMap]`). Ball functions take one
+			// input, so call the callee with that sole element.
+			var arg Value
+			if l, ok := a1.(*List); ok && len(l.Items) >= 1 {
+				arg = l.Items[0]
+			}
+			return Call(a0, arg)
 		}
 	}
 	panic(Thrown{Value: fmt.Sprintf("ball: unimplemented static %s.%s", typeName, method)})
@@ -394,6 +428,17 @@ func methodArg(input Value, i int) Value {
 		return v
 	}
 	return nil
+}
+
+// ballIdentical implements Dart's `identical(a, b)`. Canonical primitives
+// (num/String/bool/null) are identical when equal; every other value (List /
+// Map / Set / Message / Function) compares by reference identity.
+func ballIdentical(a, b Value) bool {
+	switch a.(type) {
+	case nil, int64, float64, int, string, bool:
+		return Eq(a, b)
+	}
+	return a == b
 }
 
 func runtimeTypeName(v Value) string {

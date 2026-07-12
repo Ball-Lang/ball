@@ -14,7 +14,7 @@ func (e *BallEngine) run() ([]string, error) {
 	e.output = e.output[:0]
 	if err := compiled.RunProgram(e.view, func(line string) {
 		e.output = append(e.output, line)
-	}); err != nil {
+	}, e.TimeoutMs); err != nil {
 		return e.output, err
 	}
 	return e.output, nil

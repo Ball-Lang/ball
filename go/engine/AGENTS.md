@@ -68,6 +68,23 @@ go test -tags selfhost -run TestConformance -timeout 3600s ./conformance/
 # panic with a Go origin stack (locates the compiled-engine line).
 ```
 
+## Per-fixture timeout (issue #436)
+
+Go cannot kill a goroutine, so the conformance runner cannot stop a runaway
+fixture by abandoning it — a hung fixture's goroutine would keep spinning for the
+rest of the sweep, starving CPU. Instead the runner drives the compiled engine's
+**cooperative** execution-timeout guard: it sets `BallEngine.TimeoutMs` to the
+per-fixture budget (`perFixtureTimeout()`, 120 s default, `BALL_TIMEOUT_MS`
+override), and the compiled engine's per-expression `_checkExecutionTimeout`
+(`dart/engine/lib/engine.dart`) makes a runaway self-abort with
+`Execution timeout exceeded` once it has run that long — the goroutine then exits
+and the fixture is reported as a `timeout`. The `select` on `time.After(budget +
+hardDeadlineGrace)` is only a backstop for a runaway that never reaches an
+expression eval (e.g. a native loop in a runtime helper); that pathological case
+still can't be killed in-process. `TimeoutMs` is off (0, unbounded) by default,
+so the CLI/`Run()` path is unaffected. Regression test:
+`conformance/timeout_test.go`.
+
 ## Build-tag gating
 
 The generated `compiled_engine.go` is a gitignored artifact absent from a fresh

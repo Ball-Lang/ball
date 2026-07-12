@@ -16,7 +16,10 @@ import (
 
 // perFixtureTimeout bounds each fixture so a latent infinite loop cannot wedge
 // the whole sweep (matches the Rust/C# runners' 120 s budget). Override with
-// BALL_TIMEOUT_MS for faster iteration sweeps.
+// BALL_TIMEOUT_MS for faster iteration sweeps. This is the *cooperative* budget:
+// runOne feeds it to the compiled engine, whose per-expression timeout guard
+// makes a runaway self-abort at this point (issue #436) so its goroutine exits
+// rather than spinning for the rest of the sweep.
 func perFixtureTimeout() time.Duration {
 	if ms := os.Getenv("BALL_TIMEOUT_MS"); ms != "" {
 		if n, err := strconv.Atoi(ms); err == nil && n > 0 {
@@ -24,6 +27,25 @@ func perFixtureTimeout() time.Duration {
 		}
 	}
 	return 120 * time.Second
+}
+
+// hardDeadlineGrace is how much longer runOne waits past the cooperative budget
+// before falling back to the select backstop. In the common runaway case the
+// engine self-aborts at the budget, delivers its timeout on the buffered
+// channel, and the goroutine exits — well before this grace elapses. The
+// backstop only fires for a runaway that never reaches an expression eval (e.g.
+// a native loop inside a runtime helper, which cannot observe the cooperative
+// guard and which Go cannot kill in-process); it keeps the sweep moving but that
+// one goroutine may still leak — a distinct, far rarer failure mode than the
+// Ball-level infinite loop this hardening targets.
+const hardDeadlineGrace = 10 * time.Second
+
+// isExecutionTimeout reports whether err is the compiled engine's cooperative
+// execution-timeout self-abort (BallRuntimeError('Execution timeout exceeded'),
+// surfaced through the driver's panic recovery). Such a fixture is reported as a
+// "timeout", not a generic "error".
+func isExecutionTimeout(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Execution timeout exceeded")
 }
 
 // Result is one fixture's outcome.
@@ -87,6 +109,8 @@ func runOne(name, path, golden string) Result {
 		return Result{name, "error", err.Error()}
 	}
 
+	budget := perFixtureTimeout()
+
 	type outcome struct {
 		out []string
 		err error
@@ -103,6 +127,11 @@ func runOne(name, path, golden string) Result {
 			ch <- outcome{nil, err}
 			return
 		}
+		// Drive the compiled engine's cooperative execution-timeout guard so a
+		// runaway fixture self-aborts (and this goroutine then exits) instead of
+		// spinning for the rest of the sweep — Go cannot kill a goroutine, so the
+		// select backstop below alone would leak it (issue #436).
+		eng.TimeoutMs = budget.Milliseconds()
 		out, err := eng.Run()
 		ch <- outcome{out, err}
 	}()
@@ -110,6 +139,12 @@ func runOne(name, path, golden string) Result {
 	select {
 	case res := <-ch:
 		if res.err != nil {
+			// A cooperative self-abort at the budget reports as a timeout, not a
+			// generic error; the goroutine has already exited by the time we get
+			// here (it delivered on the buffered channel).
+			if isExecutionTimeout(res.err) {
+				return Result{name, "timeout", ""}
+			}
 			return Result{name, "error", firstLine(res.err.Error())}
 		}
 		actual := strings.TrimRight(strings.Join(res.out, "\n"), "\n\r")
@@ -118,8 +153,12 @@ func runOne(name, path, golden string) Result {
 			return Result{name, "pass", ""}
 		}
 		return Result{name, "fail", diffDetail(expected, actual)}
-	case <-time.After(perFixtureTimeout()):
-		return Result{name, "timeout", ""}
+	case <-time.After(budget + hardDeadlineGrace):
+		// Backstop: the engine never observed the cooperative guard (a runaway
+		// that never reaches an expression eval). Report the timeout and move on;
+		// this goroutine may still be running, but that is a native-loop bug, not
+		// the Ball-level runaway the cooperative budget already covers.
+		return Result{name, "timeout", "cooperative timeout not observed"}
 	}
 }
 

@@ -35,8 +35,17 @@ var ErrSelfHostPending = errors.New(
 // BallEngine is a loaded Ball program ready to run.
 type BallEngine struct {
 	Program *ballv1.Program
-	view    ballrt.Value
-	output  []string
+
+	// TimeoutMs, when > 0, bounds execution via the compiled engine's
+	// cooperative execution-timeout guard (checked on every expression eval): a
+	// runaway program self-aborts with an "Execution timeout exceeded" error
+	// instead of spinning forever, so the driver goroutine exits (Go cannot kill
+	// a goroutine — issue #436). 0 (the default) leaves execution unbounded. Set
+	// it before calling Run. Only honored under the `selfhost` build tag.
+	TimeoutMs int64
+
+	view   ballrt.Value
+	output []string
 }
 
 // FromJSON loads a program from proto3-JSON .ball.json source (the @type Any

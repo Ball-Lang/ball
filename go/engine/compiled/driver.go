@@ -21,11 +21,19 @@ var debugStack = os.Getenv("BALL_DEBUG_STACK") != ""
 // calls the compiled instance `run`. Mirrors csharp/engine's RunSelfHosted and
 // rust/engine's run_self_hosted.
 //
+// timeoutMs, when > 0, drives the compiled engine's cooperative
+// execution-timeout guard (dart/engine/lib/engine.dart's
+// `_checkExecutionTimeout`, run on every expression eval): a runaway program
+// self-aborts with an "Execution timeout exceeded" BallRuntimeError once it has
+// run that long, so the goroutine below exits instead of spinning forever (Go
+// cannot kill a goroutine — issue #436). 0 leaves execution unbounded (the CLI's
+// behavior).
+//
 // The compiled engine is a deep tree-walker whose methods each carry a large
 // frame (hundreds of field-alias locals), so the recursion budget is lifted well
 // past the default. Runs on its own goroutine so a Ball throw / flow signal that
 // escapes is recovered as an error rather than crashing the process.
-func RunProgram(view ballrt.Value, stdout func(string)) (err error) {
+func RunProgram(view ballrt.Value, stdout func(string), timeoutMs int64) (err error) {
 	debug.SetMaxStack(1 << 30) // 1 GiB — deep tree-walk-on-tree-walk frames.
 
 	done := make(chan struct{})
@@ -56,7 +64,11 @@ func RunProgram(view ballrt.Value, stdout func(string)) (err error) {
 		ctor.Set("args", ballrt.NewList())
 		ctor.Set("enableProfiling", false)
 		ctor.Set("maxRecursionDepth", int64(1000000))
-		ctor.Set("timeoutMs", nil)
+		if timeoutMs > 0 {
+			ctor.Set("timeoutMs", timeoutMs)
+		} else {
+			ctor.Set("timeoutMs", nil)
+		}
 		ctor.Set("maxMemoryBytes", nil)
 		ctor.Set("maxModules", int64(1000000))
 		ctor.Set("maxExpressionDepth", int64(1000000))

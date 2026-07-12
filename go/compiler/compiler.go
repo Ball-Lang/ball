@@ -283,6 +283,28 @@ func (c *Compiler) compileFunction(f *ballv1.FunctionDefinition) string {
 	c.inputIsParam = prevInput
 	c.popScope()
 
+	// A top-level variable (Dart `const`/`final`/`var` at library scope) is a
+	// SINGLETON: its initializer runs once and every read yields the SAME value.
+	// Compiling it to a plain function that re-evaluates the initializer on each
+	// read breaks reference identity — e.g. `const _sentinel = Object()`, used as
+	// the getter/setter "not found" marker via `result != _sentinel`, minted a
+	// fresh object each read, so the comparison was always true and the sentinel
+	// leaked out as a real field value (map `.length`/`.values` returned the
+	// sentinel `main:Object`). Memoize the first computed value; the engine runs
+	// on one goroutine, so no lock is needed.
+	if metaString(f.GetMetadata(), "kind") == "top_level_variable" {
+		var b strings.Builder
+		fmt.Fprintf(&b, "var %s__val ballrt.Value\nvar %s__init bool\n", name, name)
+		fmt.Fprintf(&b, "func %s(input ballrt.Value) ballrt.Value {\n\t_ = input\n", name)
+		fmt.Fprintf(&b, "\tif !%s__init {\n\t\t%s__init = true\n", name, name)
+		fmt.Fprintf(&b, "\t\t%s__val = func() (__ret ballrt.Value) {\n", name)
+		b.WriteString(indent(prologue, "\t\t"))
+		b.WriteString("\t\t\tdefer ballrt.CatchReturn(&__ret)\n")
+		fmt.Fprintf(&b, "\t\t\t__ret = %s\n\t\t\treturn\n\t\t}()\n\t}\n", body)
+		fmt.Fprintf(&b, "\treturn %s__val\n}\n", name)
+		return b.String()
+	}
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "func %s(input ballrt.Value) (__ret ballrt.Value) {\n", name)
 	b.WriteString("\t_ = input\n")

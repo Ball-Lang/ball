@@ -280,6 +280,19 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	case "invoke":
 		return fmt.Sprintf("ballrt.Invoke(%s, %s)", c.arg(f, "function", "target", "callee"), c.arg(f, "argument", "arg", "input", "value"))
 	case "typed_list", "list_literal":
+		// A typed list literal `<T>[a, ...spread, b]` carries its members in an
+		// `elements` listValue (with possible spread / collection_if /
+		// collection_for elements) — NOT a `list`/`value` field. Compile it as a
+		// list literal so spreads splice; the old `arg(f,"list","value")` path
+		// found neither field and produced `ListCopy(nil)` (an empty list),
+		// silently dropping every element — which wedged every set op that builds
+		// its result via `_ballSetOf(<Object?>[...])` (union/add/intersection).
+		if e, ok := f["elements"]; ok {
+			if lit := e.GetLiteral(); lit != nil && lit.GetListValue() != nil {
+				return c.compileListLiteral(lit.GetListValue())
+			}
+			return fmt.Sprintf("ballrt.ListCopy(%s)", c.compileExpr(e))
+		}
 		return fmt.Sprintf("ballrt.ListCopy(%s)", c.arg(f, "list", "value"))
 
 	// ── Control flow ──────────────────────────────────────────────────────

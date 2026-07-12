@@ -312,6 +312,15 @@ func CallMethod(name string, input Value) Value {
 		return nil
 	}
 
+	// Proto presence check: `x.hasFoo()` — a generated proto has-method the
+	// encoder left as a plain method call (e.g. `field.hasValue()`, which its
+	// ball_proto has* list omits) — is a field-presence test. Mirrors the
+	// compiler's ball_proto `has*` → HasField dispatch.
+	if len(name) > 3 && strings.HasPrefix(name, "has") && name[3] >= 'A' && name[3] <= 'Z' {
+		field := strings.ToLower(name[3:4]) + name[4:]
+		return HasField(self, field)
+	}
+
 	panic(Thrown{Value: "ball: unimplemented method ." + name})
 }
 

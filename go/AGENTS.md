@@ -75,12 +75,16 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only) so a
   hello_world, an arithmetic case (multi-param func + `:=`), a control-flow case
   (`for`/`if`/`else`/compound-assign/`++`), and a slice + `for … range` case (see
   `go/encoder/roundtrip_test.go` + `testdata/`).
-- Deferred to later phases: full std coverage (switch/try, regex, collections,
-  std_io/std_memory/…) and the encoder's own gaps (top-level types/const/var,
-  structs-as-TypeDefinitions, maps/sets, `std_collections`, multi-value
-  return/assign, `switch`/`defer`/goroutines, `fmt.Printf`); the self-hosted
-  engine (compiling `dart/self_host/engine.ball.json`), the `ball` CLI, the
-  conformance harness, and CI wiring.
+- **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
+  engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
+  the whole conformance corpus with Dart-identical output
+  (`Results: 320 passed, 0 failed, 320 total`; 4 golden-less
+  resource-limit/sandbox carve-outs). Behind the off-by-default `selfhost` build
+  tag. See `go/engine/AGENTS.md`.
+- Deferred to later phases: the `ball` CLI and CI wiring. Encoder gaps remain
+  (top-level types/const/var, structs-as-TypeDefinitions, maps/sets in the
+  encoder path, multi-value return/assign, `switch`/`defer`/goroutines,
+  `fmt.Printf`).
 
 ## For AI Agents
 - Verify maturity against CI (`.github/workflows/ci.yml`), not this prose.

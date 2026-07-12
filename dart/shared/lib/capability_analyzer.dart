@@ -91,6 +91,7 @@ Map<String, Object?> analyzeCapabilitiesReachable(Program program) {
     program.version,
     functionsOut,
     capSites,
+    _detectBaseFnShadows(program.modules, table),
   );
 }
 
@@ -207,6 +208,7 @@ Map<String, Object?> _analyzeCapabilitiesCore(Map ctx) {
     programVersion,
     functionsOut,
     capSites,
+    _detectBaseFnShadows(modules, table),
   );
 }
 
@@ -240,6 +242,47 @@ List<String> _collectUserFunctionNames(dynamic modules) {
     }
   }
   return names;
+}
+
+/// Detect non-base user functions whose bare name collides with a base
+/// function that carries a real (non-`pure`) capability — a *base-function
+/// shadow* (issue #420). A bare-name call to such a name dispatches to the user
+/// function, so the shadowed base function's capability silently drops out of
+/// the audit: without this pass a program declaring a decoy `mutex_create`
+/// would read as clean "NO RISK". Each entry names the colliding function and
+/// the capability the shadowed base function would carry.
+///
+/// Only bare (dot-free) top-level names can collide — a method/constructor name
+/// like `Foo.mutex_create` never equals the base's globally-unique bare name,
+/// so those are skipped (no false positives on methods). `pure` base names
+/// (e.g. a user `add` alongside `std.add`) carry no capability to hide and are
+/// benign name reuse, so they are not reported. Returns a list of
+/// `{module, function, baseModule, capability, riskLevel}` maps (engine-safe:
+/// plain Strings, dedup `List`, single pass).
+List<Object?> _detectBaseFnShadows(dynamic modules, Map table) {
+  final shadows = <Object?>[];
+  final seen = <String>[];
+  for (final module in modules) {
+    for (final f in module.functions) {
+      if (f.isBase) continue;
+      final name = f.name;
+      if (name.indexOf('.') >= 0) continue;
+      final cap = lookupCapabilityByName(table, name);
+      if (cap.isEmpty) continue;
+      if (cap == 'pure') continue;
+      final key = '${module.name}.$name';
+      if (seen.contains(key)) continue;
+      seen.add(key);
+      shadows.add({
+        'module': module.name,
+        'function': name,
+        'baseModule': lookupBaseModuleByName(table, name),
+        'capability': cap,
+        'riskLevel': capabilityRisk(cap),
+      });
+    }
+  }
+  return shadows;
 }
 
 /// Walk one expression, accumulating capabilities into `ctx['caps']` and call
@@ -448,6 +491,7 @@ Map<String, Object?> _buildReportFromFunctions(
   String programVersion,
   List functionsOut,
   Map capSites,
+  List shadows,
 ) {
   final allCaps = <String>[];
   var totalFns = 0;
@@ -540,6 +584,7 @@ Map<String, Object?> _buildReportFromFunctions(
     'programVersion': programVersion,
     'capabilities': capabilitiesOut,
     'functions': functionsOut,
+    'shadows': shadows,
     'summary': summary,
   };
 }
@@ -592,6 +637,29 @@ String formatCapabilityReport(Map report) {
     lines.add('  ✗ NONE: ${absent.join(', ')}');
   }
 
+  // Base-function shadows (issue #420): a bare-name call to a shadowed name
+  // dispatches to the user function, so the shadowed base capability is not
+  // itself exercised — but the collision is a review signal (a decoy can hide a
+  // capability's name), so it is surfaced explicitly and never as a bare "no
+  // risk". `shadows` is always populated by the analyzer; guard defensively for
+  // any hand-built report Map (mirrors the `containsKey` idiom used for
+  // `capSites` above — engine-safe, no `??`).
+  final List shadows = report.containsKey('shadows')
+      ? report['shadows']
+      : <Object?>[];
+  final hasShadows = shadows.isNotEmpty;
+  if (hasShadows) {
+    lines.add('');
+    lines.add('Shadowed base functions:');
+    for (final sh in shadows) {
+      lines.add(
+        '  ⚠ ${sh['module']}.${sh['function']} shadows '
+        '${sh['baseModule']}.${sh['function']} '
+        '(${sh['capability']}, ${sh['riskLevel']} risk)',
+      );
+    }
+  }
+
   lines.add('');
   final isPure = s['isPure'] == true;
   final controlsProcess = s['controlsProcess'] == true;
@@ -602,7 +670,13 @@ String formatCapabilityReport(Map report) {
   final usesConcurrency = s['usesConcurrency'] == true;
   String risk;
   if (isPure) {
-    risk = 'NO RISK — pure computation only';
+    // A program that only computes yet declares a base-function shadow is not
+    // cleanly "no risk" — the bare "pure computation only" line would be
+    // misleading, so escalate it to a review prompt (the shadow section above
+    // names the offending function and its capability).
+    risk = hasShadows
+        ? 'REVIEW REQUIRED — declares base-function shadows'
+        : 'NO RISK — pure computation only';
   } else if (controlsProcess || usesMemory || usesNetwork) {
     risk = 'HIGH RISK';
   } else if (rFs || wFs || usesConcurrency) {

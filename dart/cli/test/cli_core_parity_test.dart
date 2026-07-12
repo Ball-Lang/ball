@@ -213,6 +213,77 @@ void main() {
       });
     }
 
+    // #420 regression: a program declaring a non-base user function whose bare
+    // name collides with a capability base fn (a decoy `mutex_create`) must be
+    // surfaced as a base-function shadow, not read as clean "NO RISK" — and the
+    // shadow section + escalated summary must self-host byte-identically.
+    test('decoy shadow is surfaced — native == engine (#420)', () async {
+      final program = Program()
+        ..mergeFromProto3Json({
+          'name': 'decoy',
+          'version': '1.0.0',
+          'entryModule': 'main',
+          'entryFunction': 'main',
+          'modules': [
+            {
+              'name': 'std',
+              'functions': [
+                {'name': 'print', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                {
+                  'name': 'main',
+                  'outputType': 'void',
+                  'body': {
+                    'call': {
+                      'module': 'main',
+                      'function': 'mutex_create',
+                      'input': {
+                        'messageCreation': {'fields': <Object?>[]},
+                      },
+                    },
+                  },
+                },
+                {
+                  'name': 'mutex_create',
+                  'outputType': 'void',
+                  'body': {
+                    'literal': {'intValue': '0'},
+                  },
+                },
+              ],
+            },
+          ],
+        }, ignoreUnknownFields: true);
+      final input = protoToEngineMap(program);
+      final engine = newEngine();
+
+      final nativeText = cli.auditReport(program);
+      // The shadow is visible and the pure summary is escalated.
+      expect(nativeText, contains('Shadowed base functions:'));
+      expect(
+        nativeText,
+        contains(
+          'main.mutex_create shadows std_concurrency.mutex_create '
+          '(concurrency, medium risk)',
+        ),
+      );
+      expect(
+        nativeText,
+        contains('REVIEW REQUIRED — declares base-function shadows'),
+      );
+
+      final hostedText = await engine.callFunction(
+        'main',
+        'auditReport',
+        input,
+      );
+      expect(hostedText, equals(nativeText));
+    });
+
     test(
       'benign concurrency-free program stays clean — native == engine',
       () async {

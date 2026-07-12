@@ -62,6 +62,9 @@ func CallMethod(name string, input Value) Value {
 	case "split":
 		return StrSplit(ToStr(self), a0)
 	case "replaceAll":
+		if isRegExp(a0) {
+			return regexReplaceAll(self, compileRegex(regexPattern(a0)), ToStr(a1))
+		}
 		return strings.ReplaceAll(ToStr(self), ToStr(a0), ToStr(a1))
 	case "replaceFirst":
 		return strings.Replace(ToStr(self), ToStr(a0), ToStr(a1), 1)
@@ -78,6 +81,20 @@ func CallMethod(name string, input Value) Value {
 		return int64(u[i])
 	case "compareTo":
 		return int64(cmp(self, a0))
+
+	// ── RegExp / RegExpMatch ─────────────────────────────────────────────────
+	case "firstMatch":
+		return regexFirstMatch(self, a0)
+	case "hasMatch":
+		return regexHasMatch(self, a0)
+	case "allMatches":
+		return regexAllMatches(self, a0)
+	case "stringMatch":
+		return regexStringMatch(self, a0)
+	case "group":
+		return regexGroup(self, a0)
+	case "groups":
+		return regexGroups(self, a0)
 
 	// ── num / int / double ──────────────────────────────────────────────────
 	case "abs":

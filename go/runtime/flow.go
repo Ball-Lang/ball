@@ -197,6 +197,11 @@ func FieldGet(object Value, field string) Value {
 		if v, ok := o.Fields.Get(field); ok {
 			return v
 		}
+		if alias := fieldGetterAlias(field); alias != "" {
+			if v, ok := o.Fields.Get(alias); ok {
+				return v
+			}
+		}
 		if vp, ok := VirtualProperty(o.Fields, field); ok {
 			return vp
 		}
@@ -204,6 +209,11 @@ func FieldGet(object Value, field string) Value {
 	case *Map:
 		if v, ok := o.Get(field); ok {
 			return v
+		}
+		if alias := fieldGetterAlias(field); alias != "" {
+			if v, ok := o.Get(alias); ok {
+				return v
+			}
 		}
 		if vp, ok := VirtualProperty(o, field); ok {
 			return vp
@@ -214,6 +224,22 @@ func FieldGet(object Value, field string) Value {
 		return vp
 	}
 	panic(fmt.Sprintf("ball: field access .%s on non-message %T", field, object))
+}
+
+// fieldGetterAlias maps a Dart-protobuf-renamed getter to the canonical
+// proto3-JSON field name the engine loader's view uses. The Dart protobuf
+// codegen renames a getter that would collide with an Object member
+// (`FieldAccess.field` → `.field_2`, `TypeDefinition.descriptor` → `.descriptor_`),
+// and the engine reads the program through those getters; the view keys them by
+// the plain jsonName. Mirrors rust/shared/src/runtime.rs's field_2→field alias.
+func fieldGetterAlias(field string) string {
+	switch field {
+	case "field_2":
+		return "field"
+	case "descriptor_":
+		return "descriptor"
+	}
+	return ""
 }
 
 // FieldSet implements a field write (`object.field = value`). Returns value.

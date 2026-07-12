@@ -1,5 +1,5 @@
-//! `ball info`/`validate`/`tree` golden-parity gate (issue #365) — the Rust
-//! analog of `dart/cli/test/cli_core_parity_test.dart`.
+//! `ball info`/`validate`/`tree`/`audit` golden-parity gate (issue #365) — the
+//! Rust analog of `dart/cli/test/cli_core_parity_test.dart`.
 //!
 //! The Dart parity test can compare Dart-native `cli_core` output against the
 //! *same process*'s Ball-engine-run `cli.ball.json` output in-process. Rust
@@ -18,17 +18,30 @@
 //! Only needed when `dart/shared/lib/cli_core.dart`'s report format changes
 //! (a behavior change, not a routine regen — unlike `cli.ball.json`/
 //! `compiled_cli.rs`, these golden `.txt` files are **checked into git**).
-//! From the repo root, with a Dart SDK on `PATH`:
+//! From the repo root, on a system where the Dart CLI writes UTF-8 to stdout
+//! (Linux/macOS/WSL — a shell `>` redirect can mangle `audit`'s ✓/⚠/✗/→ glyphs
+//! on a non-UTF-8 Windows console):
 //!
 //! ```bash
 //! for f in 100_complex_control_flow 101_simple_class 111_cascade_operator \
 //!          116_map_iteration 118_set_operations; do
-//!   for verb in info validate tree; do
+//!   for verb in info validate tree audit; do
 //!     dart run dart/cli/bin/ball.dart "$verb" "tests/conformance/$f.ball.json" \
 //!       > "rust/cli/tests/golden/cli_core/$f.$verb.txt"
 //!   done
 //! done
 //! ```
+//!
+//! Each verb's `ball.dart` output is exactly what the built Rust `ball` binary
+//! emits, so the byte comparison holds: `info`/`validate`/`tree` reports carry
+//! no trailing newline of their own, and both CLIs add one (Dart `writeln`,
+//! Rust `println!`); `auditReport` already ends in `\n`, and both CLIs write it
+//! verbatim (Dart's `_audit` fast-path `write`, Rust's `src/commands/audit.rs`
+//! `print!`). On a Windows dev box, `dart run dart/cli/tool/gen_cli_parity_goldens.dart
+//! <out_dir>` is a UTF-8-safe alternative for `audit` specifically — it emits
+//! `<stem>.audit.txt` = `auditReport(program)` via `writeAsStringSync`, the
+//! same bytes (it does NOT add the `writeln` newline `info`/`validate`/`tree`
+//! need, so use it only for `audit`).
 //!
 //! `version` has no golden file — its entire logic is the one-line format
 //! `"ball " + version` (see `dart/shared/lib/cli_core.dart`'s `versionLine`),
@@ -54,7 +67,7 @@ const GOLDEN_FIXTURES: &[&str] = &[
     "118_set_operations",
 ];
 
-const VERBS: &[&str] = &["info", "validate", "tree"];
+const VERBS: &[&str] = &["info", "validate", "tree", "audit"];
 
 #[cfg(feature = "cli_core")]
 #[test]

@@ -1,13 +1,14 @@
 //! `ball` — the Ball language CLI (Rust toolchain).
 //!
 //! Subcommands: `run`, `compile`, `encode`, `check` (issue #41), plus the
-//! self-hosted cli-core verbs `info`, `validate`, `tree`, `version` (issue
-//! #365 — compiled from `dart/shared/lib/cli_core.dart`, see
+//! self-hosted cli-core verbs `info`, `validate`, `tree`, `audit`, `version`
+//! (issue #365 — compiled from `dart/shared/lib/cli_core.dart`, see
 //! `rust/cli/AGENTS.md`), mirroring the Dart/TS CLIs' shape (`dart/cli/`,
 //! `ts/cli/`) where it applies to the Rust toolchain's current surface (no
 //! package-registry commands like `dart/cli`'s `init`/`add`/`resolve`/
-//! `publish` yet, and no `audit` — its capability/termination analyzers
-//! don't self-host through the encoder yet; see issue #362).
+//! `publish` yet; `audit` here is the bare capability/termination report — the
+//! Dart CLI's `--deny`/`--exit-code`/`--reachable-only`/`--output` policy
+//! flags stay native-only, out of the cli-core parity surface).
 //!
 //! ## Exit codes
 //!
@@ -39,8 +40,8 @@ use error::CliError;
 #[command(
     name = "ball",
     version,
-    about = "Ball language CLI (Rust toolchain) — run/compile/encode/check/info/validate/tree/version.",
-    long_about = "Ball language CLI (Rust toolchain): run/compile/encode/check/info/validate/tree/version.\n\n\
+    about = "Ball language CLI (Rust toolchain) — run/compile/encode/check/info/validate/tree/audit/version.",
+    long_about = "Ball language CLI (Rust toolchain): run/compile/encode/check/info/validate/tree/audit/version.\n\n\
         NOTE on `run`: it drives the self-hosted engine, built in via \
         `ball-lang-cli`'s `self_host` Cargo feature (off by default — see \
         rust/cli/Cargo.toml). Without that feature every program honestly \
@@ -50,11 +51,11 @@ use error::CliError;
         engine currently executes simple acceptance programs (hello_world, \
         recursive fibonacci); anything beyond that surfaces the engine's own \
         error rather than pretending to succeed.\n\n\
-        NOTE on `info`/`validate`/`tree`: they drive the self-hosted cli-core, \
-        built in via `ball-lang-cli`'s `cli_core` Cargo feature (off by default — \
-        see rust/cli/Cargo.toml). Without that feature they honestly report a \
-        runtime error instead of silently doing nothing. `version` always \
-        works regardless of this feature."
+        NOTE on `info`/`validate`/`tree`/`audit`: they drive the self-hosted \
+        cli-core, built in via `ball-lang-cli`'s `cli_core` Cargo feature (off by \
+        default — see rust/cli/Cargo.toml). Without that feature they honestly \
+        report a runtime error instead of silently doing nothing. `version` \
+        always works regardless of this feature."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -112,6 +113,11 @@ enum Command {
         /// Path to the program: `.ball.json`/`.ball.bin`.
         program: PathBuf,
     },
+    /// Report a Ball program's capabilities and non-termination risks.
+    Audit {
+        /// Path to the program: `.ball.json`/`.ball.bin`.
+        program: PathBuf,
+    },
     /// Print the CLI's version.
     Version,
 }
@@ -133,6 +139,7 @@ fn main() {
         Command::Info { program } => commands::info::info(&program),
         Command::Validate { program } => commands::validate::validate(&program),
         Command::Tree { program } => commands::tree::tree(&program),
+        Command::Audit { program } => commands::audit::audit(&program),
         Command::Version => {
             commands::version::version();
             Ok(())

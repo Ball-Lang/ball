@@ -824,13 +824,13 @@ jobs:
           fi
 
       # ── cli-core: regenerate + golden-fixture parity gate (issue #365) ──
-      # dart/shared/lib/cli_core.dart's info/validate/tree/version verbs,
+      # dart/shared/lib/cli_core.dart's info/validate/tree/audit/version verbs,
       # compiled through ball-lang-compiler into the gitignored
       # rust/cli/src/compiled_cli.rs. Regenerate both from source, then build/test
       # under `--features cli_core`: `tests/cli_core_parity.rs` compares the built
-      # `ball` binary's info/validate/tree output against the golden `.txt` files
-      # checked into rust/cli/tests/golden/cli_core/ (generated once from the Dart
-      # CLI — see that test file's module doc comment for the regen command).
+      # `ball` binary's info/validate/tree/audit output against the golden `.txt`
+      # files checked into rust/cli/tests/golden/cli_core/ (generated once from the
+      # Dart CLI — see that test file's module doc comment for the regen command).
       - name: Regenerate self-hosted cli-core
         run: |
           cd dart && dart run compiler/tool/gen_cli_json.dart

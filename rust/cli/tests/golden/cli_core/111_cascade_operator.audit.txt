@@ -1,0 +1,17 @@
+Ball Capability Audit: encoded v1.0.0
+============================================================
+
+Capabilities:
+  ✓ pure (pure computation)
+  ⚠ io (2 call sites: main.main → std.print, main.main → std.print)
+  ✗ NONE: filesystem, network, process, memory, concurrency, random
+
+Summary: LOW RISK
+  4 functions: 3 pure, 1 effectful
+
+Per-function breakdown:
+  main.main:Builder.addPart → pure
+  main.main:Builder.reset → pure
+  main.main:Builder.build → pure
+  main.main → io
+

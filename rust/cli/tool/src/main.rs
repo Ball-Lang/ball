@@ -8,6 +8,14 @@
 //! `ball-lang-engine`'s `run_self_hosted` is needed; `rust/cli/src/commands/*.rs`
 //! calls the generated functions straight.
 //!
+//! The whole `main` module is compiled verbatim — including `auditReport` and
+//! its transitive capability/termination analyzer closure. Those analyzers are
+//! `part 'capability_analyzer.dart'` / `part 'termination_analyzer.dart'` of
+//! `cli_core.dart` (since #398), so `gen_cli_json.dart`'s `resolveDartLibrary`
+//! merges them into the same `main` module and every call they make resolves —
+//! there is no unsupported-function filter here (there was one for
+//! `auditReport` before #398 part-merged the analyzers; #365 removed it).
+//!
 //! Pipeline:
 //!   1. Read `dart/self_host/cli.ball.json` — a self-describing
 //!      `google.protobuf.Any` envelope (`{"@type":".../ball.v1.Program", …}`).
@@ -96,45 +104,13 @@ fn load_ball_program(path: &Path) -> Program {
         .expect("binary re-encoded from the DynamicMessage must decode as a typed ball.v1.Program")
 }
 
-/// Function names dropped from `cli_core`'s `main` module before compiling
-/// (issue #365; `#362` residual). `auditReport` calls
-/// `capability_analyzer`/`termination_analyzer` — separate Dart files pulled
-/// in via `import` (not `part`), which `gen_cli_json.dart`'s
-/// `resolveDartLibrary` does not merge, and which the Dart encoder therefore
-/// leaves as **empty import-stub modules** (0 functions) in `cli.ball.json`.
-/// The Dart-engine self-host parity test tolerates this silently (`audit` is
-/// simply never invoked — see the doc comment on `_goldenFixtures` in
-/// `dart/cli/test/cli_core_parity_test.dart`), but Rust performs whole-file
-/// AOT compilation: an unresolved call to `analyzeCapabilities`/
-/// `formatCapabilityReport`/`analyzeTermination`/`formatTerminationReport`/
-/// `writeln` is a hard `rustc` error, not a latent runtime gap. Dropping the
-/// function here (a Rust-target-only, well-documented filter — `cli_core.dart`
-/// and `ball-lang-compiler` itself are untouched) keeps the generated file
-/// compiling while `ball audit` stays out of the Rust CLI, exactly as issue
-/// #365 specifies. Remove this filter once #362 makes `auditReport` fully
-/// self-hostable (its Dart source needs no change either way).
-const SKIPPED_FUNCTIONS: &[&str] = &["auditReport"];
-
 fn main() {
     let root = repo_root();
     let cli_json = root.join("dart/self_host/cli.ball.json");
     let out_path = root.join("rust/cli/src/compiled_cli.rs");
 
     eprintln!("[regen-cli] loading {}", cli_json.display());
-    let mut program = load_ball_program(&cli_json);
-    for module in &mut program.modules {
-        let before = module.functions.len();
-        module
-            .functions
-            .retain(|f| !SKIPPED_FUNCTIONS.contains(&f.name.as_str()));
-        let dropped = before - module.functions.len();
-        if dropped > 0 {
-            eprintln!(
-                "[regen-cli] dropped {dropped} unsupported function(s) from module {:?}: {:?}",
-                module.name, SKIPPED_FUNCTIONS
-            );
-        }
-    }
+    let program = load_ball_program(&cli_json);
     eprintln!(
         "[regen-cli] compiling program {:?} v{} ({} modules)",
         program.name,

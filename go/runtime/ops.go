@@ -24,6 +24,12 @@ func asFloat(v Value) float64 {
 			return 1
 		}
 		return 0
+	case *Message:
+		if u := unwrap(n); u != Value(n) {
+			return asFloat(u)
+		}
+	case string:
+		panic(fmt.Sprintf("ball: expected a number, got string %q", n))
 	}
 	panic(fmt.Sprintf("ball: expected a number, got %T", v))
 }
@@ -246,7 +252,21 @@ func ToStr(v Value) string {
 		}
 		sb.WriteByte('}')
 		return sb.String()
+	case *Set:
+		var sb strings.Builder
+		sb.WriteByte('{')
+		for i, it := range x.Items {
+			if i > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(ToStr(it))
+		}
+		sb.WriteByte('}')
+		return sb.String()
 	case *Message:
+		if u := unwrap(x); u != Value(x) {
+			return ToStr(u)
+		}
 		return x.TypeName
 	case *Function:
 		return "Closure"

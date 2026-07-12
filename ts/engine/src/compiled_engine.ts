@@ -2896,6 +2896,22 @@ export class BallEngine {
     if (!__ball_eq(cached, null)) {
       return this._callFunction(cached.module, cached.func, input);
     }
+    let sawBase = false;
+    let sawUser = false;
+    for (const m of this.program.modules) {
+      for (const f of m.functions) {
+        if (__ball_eq(f.name, function_)) {
+          if (f.isBase) {
+            sawBase = true;
+          } else {
+            sawUser = true;
+          }
+        }
+      }
+    }
+    if ((sawBase && sawUser)) {
+      throw new BallRuntimeError((((('Ambiguous unqualified call to "' + __ball_to_string(function_)) + '": a user-defined function ') + 'shadows a base function of the same name. Qualify the call with an ') + 'explicit module to disambiguate (issue #420).'));
+    }
     for (const m of this.program.modules) {
       for (const f of m.functions) {
         if (__ball_eq(f.name, function_)) {

@@ -446,10 +446,13 @@ void main() {
       expect(checkPolicy(r, deny: {'concurrency'}), isNotEmpty);
     });
 
-    test('a user function that shadows a base name is NOT flagged', () {
+    test('a user function that shadows a base name is not a false capability '
+        'but IS surfaced as a shadow (#420)', () {
       // The program defines its OWN non-base `mutex_create` and calls it. The
-      // bare-name fallback must stay silent (no false positive) — only a
-      // MISSING declaration triggers by-name resolution.
+      // bare-name capability fallback must stay silent (no false `concurrency`
+      // capability — only a MISSING declaration triggers by-name resolution),
+      // but the declaration must NOT read as clean: it is surfaced explicitly
+      // as a base-function shadow (#420).
       final program = Program()
         ..mergeFromProto3Json({
           'name': 'shadow',
@@ -494,6 +497,137 @@ void main() {
       final r = analyzeCapabilities(program);
       expect(_sum(r)['usesConcurrency'], isFalse);
       expect(checkPolicy(r, deny: {'concurrency'}), isEmpty);
+      // …but the shadow is surfaced, so the program is not misleadingly clean.
+      final shadows = r['shadows'] as List;
+      expect(shadows, hasLength(1));
+      final sh = shadows.single as Map;
+      expect(sh['module'], 'main');
+      expect(sh['function'], 'mutex_create');
+      expect(sh['baseModule'], 'std_concurrency');
+      expect(sh['capability'], 'concurrency');
+      expect(sh['riskLevel'], 'medium');
+    });
+  });
+
+  // ── #420: base-function shadow detection ─────────────────────────────────
+  //
+  // A non-base user function whose bare name collides with a capability-bearing
+  // base function SHADOWS it: a bare-name call dispatches to the user function,
+  // so the base capability drops out of the audit. #402 deliberately suppresses
+  // the by-name capability fallback for such declarations (no false positive),
+  // which left a program declaring a decoy `mutex_create` reading as clean
+  // "NO RISK". These assert the declaration is now surfaced instead.
+  group('#420 base-fn shadows', () {
+    test('lookupBaseModuleByName resolves the owning base module', () {
+      expect(lookupBaseModuleByName(table, 'mutex_create'), 'std_concurrency');
+      expect(lookupBaseModuleByName(table, 'file_read'), 'std_fs');
+      expect(lookupBaseModuleByName(table, 'memory_alloc'), 'std_memory');
+      expect(lookupBaseModuleByName(table, 'print'), 'std');
+      expect(lookupBaseModuleByName(table, 'not_a_base_fn'), '');
+    });
+
+    test('a decoy shadowing a capability base fn is surfaced and escalates '
+        'the pure summary', () {
+      final r = analyzeCapabilities(
+        _buildMinimal(
+          functions: [
+            {
+              'name': 'memory_alloc',
+              'outputType': 'int',
+              'body': {
+                'literal': {'intValue': '0'},
+              },
+            },
+          ],
+        ),
+      );
+      final shadows = r['shadows'] as List;
+      expect(shadows, hasLength(1));
+      expect((shadows.single as Map)['capability'], 'memory');
+      expect((shadows.single as Map)['baseModule'], 'std_memory');
+
+      // The report is otherwise pure, but must not read as bare "no risk".
+      expect(_sum(r)['isPure'], isTrue);
+      final text = formatCapabilityReport(r);
+      expect(text, contains('Shadowed base functions:'));
+      expect(
+        text,
+        contains(
+          'main.memory_alloc shadows std_memory.memory_alloc '
+          '(memory, high risk)',
+        ),
+      );
+      expect(
+        text,
+        contains('REVIEW REQUIRED — declares base-function shadows'),
+      );
+      expect(text, isNot(contains('NO RISK')));
+    });
+
+    test('reuse of a PURE base name is benign — not a shadow', () {
+      final r = analyzeCapabilities(
+        _buildMinimal(
+          functions: [
+            {
+              'name': 'add',
+              'outputType': 'int',
+              'body': {
+                'literal': {'intValue': '0'},
+              },
+            },
+          ],
+        ),
+      );
+      expect(r['shadows'] as List, isEmpty);
+      final text = formatCapabilityReport(r);
+      expect(text, isNot(contains('Shadowed base functions:')));
+      expect(text, contains('NO RISK — pure computation only'));
+    });
+
+    test(
+      'a method/constructor name never collides (dotted) — not a shadow',
+      () {
+        final r = analyzeCapabilities(
+          _buildMinimal(
+            functions: [
+              {
+                'name': 'Vault.mutex_create',
+                'outputType': 'void',
+                'body': {
+                  'literal': {'intValue': '0'},
+                },
+              },
+            ],
+          ),
+        );
+        expect(r['shadows'] as List, isEmpty);
+      },
+    );
+
+    test('shadows are deduped and non-pure only', () {
+      final r = analyzeCapabilities(
+        _buildMinimal(
+          functions: [
+            {
+              'name': 'file_read',
+              'outputType': 'void',
+              'body': {
+                'literal': {'intValue': '0'},
+              },
+            },
+            {
+              'name': 'concat', // pure base name → not a shadow
+              'outputType': 'void',
+              'body': {
+                'literal': {'intValue': '0'},
+              },
+            },
+          ],
+        ),
+      );
+      final shadows = r['shadows'] as List;
+      expect(shadows, hasLength(1));
+      expect((shadows.single as Map)['function'], 'file_read');
     });
   });
 

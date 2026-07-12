@@ -96,6 +96,22 @@ String lookupCapabilityByName(Map table, String function) {
   return '';
 }
 
+/// The base module that declares bare [function], or `''` if none does.
+/// Companion to [lookupCapabilityByName] (same globally-unique-bare-name
+/// guarantee, so at most one module matches) — resolves the owning module so
+/// the audit can name the shadowed base function in full, e.g.
+/// `std_concurrency.mutex_create` (issue #420).
+String lookupBaseModuleByName(Map table, String function) {
+  final modules = capabilityModuleNames();
+  for (final m in modules) {
+    final cap = lookupCapability(table, m, function);
+    if (cap.isNotEmpty) {
+      return m;
+    }
+  }
+  return '';
+}
+
 /// Build the `"module.function" -> capability-name` table. Provably complete:
 /// every base function that can perform a side effect appears here.
 Map<String, String> buildCapabilityTable() {

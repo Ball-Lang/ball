@@ -5,8 +5,9 @@
 ## Purpose
 Ball → Go compiler (Phase 2 of epic #426), the Go → Ball encoder (Phase 3), the
 self-hosted Go engine (Phase 4), the `ball` CLI (Phase 5), the Go runtime value
-model the compiler targets, and the generated Go protobuf bindings. CI wiring
-(Phase 7) is a later phase.
+model the compiler targets, and the generated Go protobuf bindings. CI (Phase 7)
+is wired — the `go` job in `.github/workflows/ci.yml` plus the `go-engine` row in
+`conformance-matrix.yml`, both gating on 320/320 Dart parity.
 
 ## Layout (six Go modules, tied by `go/go.work`)
 | Dir | Module path | Description |
@@ -90,8 +91,16 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only) so a
   verb in-process, build `compile`/`encode` output with the real toolchain, and
   (under `-tags selfhost`) run conformance fixtures against their goldens. See
   `go/cli/AGENTS.md`.
-- Deferred to later phases: CI wiring (Phase 7) and the self-hosted cli-core
-  verbs (`info`/`validate`/`tree`/`version`). Encoder gaps remain (top-level
+- **CI (Phase 7): complete / CI-gated** — the `go` job in
+  `.github/workflows/ci.yml` (build/vet/gofmt/test across the six modules, then
+  regenerate the self-hosted engine and run the conformance sweep gated on 320/320
+  Dart parity) plus the `go-engine` row in `conformance-matrix.yml`. Both gate on
+  full parity, mirroring the `csharp`/`csharp-engine` jobs. The `go` output on the
+  "Detect changed stacks" filter runs the job on `go/**` changes or any self-host
+  Dart source change. NB: the selfhost sweep uses `go test -v` — without `-v`,
+  `go test` caches and discards a passing test's `Results:` stdout.
+- Deferred to a later phase: the self-hosted cli-core verbs
+  (`info`/`validate`/`tree`/`version`). Encoder gaps remain (top-level
   types/const/var, structs-as-TypeDefinitions, maps/sets in the encoder path,
   multi-value return/assign, `switch`/`defer`/goroutines, `fmt.Printf`).
 

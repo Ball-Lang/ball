@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What Ball Is
 
-Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the reference implementation (compiler + encoder + engine + CLI, broadest std coverage). **TypeScript** is a full pipeline too — compiler, self-hosted engine, and encoder — all CI-gated (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`, with no `ts_std`). **C++** has a compiler, encoder (Clang AST → Ball), and self-hosted engine, with the self-host conformance passing **every** fixture; it is now **libprotobuf-free** — #18 Stage 5 dropped the FetchContent Google protobuf entirely (closing #18/#25/#330/#333), loading Ball via the protobuf-free `ball::ir` (nlohmann/json) + Ball's own compiled protobuf runtime. **Rust** (epic #32, closed) is now a complete pipeline too: compiler (`rust/compiler/`, #36-38), encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`, #41); all CI-gated (the `rust` job in `ci.yml` plus a `rust-engine` row in `conformance-matrix.yml`, #40/#44 closed) — see `rust/AGENTS.md`.  **C#** (epic #377) is now a complete pipeline too: proto bindings + a runtime value model (`csharp/shared/`, #379-380), a Ball → C# compiler (`csharp/compiler/`, #381), a Roslyn-based C# → Ball encoder (`csharp/encoder/`, #382, syntax-only via `Microsoft.CodeAnalysis.CSharp`), a self-hosted engine that runs the whole conformance corpus at Dart parity (`csharp/engine/`, #383, `Results: 320 passed, 0 failed, 320 total`, behind the off-by-default `-p:SelfHost=true` MSBuild property since the generated `CompiledEngine.cs` isn't present in a fresh checkout), a committed conformance harness with engine/compiler/round-trip legs (`csharp/engine/conformance/`, #384), and a `ball` CLI (`csharp/cli/`, #385: `run`/`compile`/`encode`/`check` via `System.CommandLine` plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` behind `-p:CliCore=true`), all CI-gated (the `csharp` job in `ci.yml` — build/test/format + the regenerate-and-run self-hosted engine conformance sweep — plus a `csharp-engine` row in `conformance-matrix.yml`, #386) — see `csharp/AGENTS.md`. Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
+Ball is a programming language where every program is a Protocol Buffer message (`proto/ball/v1/ball.proto` is the single source of truth). Compilers translate Ball programs into target-language source, encoders do the reverse, and engines interpret Ball programs directly. Dart is the reference implementation (compiler + encoder + engine + CLI, broadest std coverage). **TypeScript** is a full pipeline too — compiler, self-hosted engine, and encoder — all CI-gated (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`, with no `ts_std`). **C++** has a compiler, encoder (Clang AST → Ball), and self-hosted engine, with the self-host conformance passing **every** fixture; it is now **libprotobuf-free** — #18 Stage 5 dropped the FetchContent Google protobuf entirely (closing #18/#25/#330/#333), loading Ball via the protobuf-free `ball::ir` (nlohmann/json) + Ball's own compiled protobuf runtime. **Rust** (epic #32, closed) is now a complete pipeline too: compiler (`rust/compiler/`, #36-38), encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`, #41); all CI-gated (the `rust` job in `ci.yml` plus a `rust-engine` row in `conformance-matrix.yml`, #40/#44 closed) — see `rust/AGENTS.md`.  **C#** (epic #377) is now a complete pipeline too: proto bindings + a runtime value model (`csharp/shared/`, #379-380), a Ball → C# compiler (`csharp/compiler/`, #381), a Roslyn-based C# → Ball encoder (`csharp/encoder/`, #382, syntax-only via `Microsoft.CodeAnalysis.CSharp`), a self-hosted engine that runs the whole conformance corpus at Dart parity (`csharp/engine/`, #383, `Results: 320 passed, 0 failed, 320 total`, behind the off-by-default `-p:SelfHost=true` MSBuild property since the generated `CompiledEngine.cs` isn't present in a fresh checkout), a committed conformance harness with engine/compiler/round-trip legs (`csharp/engine/conformance/`, #384), and a `ball` CLI (`csharp/cli/`, #385: `run`/`compile`/`encode`/`check` via `System.CommandLine` plus the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` behind `-p:CliCore=true`), all CI-gated (the `csharp` job in `ci.yml` — build/test/format + the regenerate-and-run self-hosted engine conformance sweep — plus a `csharp-engine` row in `conformance-matrix.yml`, #386) — see `csharp/AGENTS.md`.  **Go** (epic #426) is a compiler + encoder + self-hosted engine pipeline: generated proto bindings (`go/shared`, package `ballv1`) + a zero-dependency runtime value model (`go/runtime`, package `ballrt`), a Ball → Go compiler (`go/compiler/`, string emission — native Go control flow, statement-bearing constructs wrapped in IIFEs), a `go/parser` + `go/ast` Go → Ball encoder (`go/encoder/`, every construct through universal `std` — no `go_std`), and a self-hosted engine that runs the whole conformance corpus at Dart parity (`go/engine/`, `Results: 320 passed, 0 failed, 320 total`, behind the off-by-default `selfhost` build tag since the generated `compiled/compiled_engine.go` isn't present in a fresh checkout), all CI-gated (the `go` job in `ci.yml` — build/vet/gofmt/test + the regenerate-and-run self-hosted engine conformance sweep — plus a `go-engine` row in `conformance-matrix.yml`, #426 Phase 7) — see `go/AGENTS.md`. The unified `ball` Go CLI is still pending (only the `ballgoc`/`ballgoenc` component front-ends exist). Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
 
 
 **Every language is only "done" when it can compile AND encode AND execute the conformance corpus** — a compiler without an encoder (or vice-versa) is a half-implementation. Treat the cross-language conformance matrix (Dart/TS/C++/… × compile/encode/run) as the definition of done.
@@ -134,6 +134,24 @@ cd dart && dart run compiler/tool/gen_cli_json.dart
 cd ../csharp && dotnet run --project cli/tool/Ball.Cli.Regen.csproj
 dotnet test cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=true
 
+# Go — native `go` works on Windows (go1.25.x); the five modules are tied by
+# go/go.work. The workspace-root `./...` pattern is invalid (go/ is not itself a
+# module), so enumerate the module subdirs. `gofmt -l` lists every file locally
+# on Windows only because the working tree is CRLF while the git index is LF
+# (harmless — the LF checkout CI uses is clean).
+cd go && go build ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+go vet ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+go test ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+gofmt -l compiler encoder engine runtime shared           # must print nothing (LF)
+
+# Regenerate the Go self-hosted engine (dart/self_host/engine.ball.json ->
+# go/engine/compiled/compiled_engine.go, gitignored, only in the build under the
+# `selfhost` build tag — see go/engine/AGENTS.md). `-v` is REQUIRED on the sweep:
+# without it `go test` caches and discards a passing test's `Results:` stdout.
+cd dart && dart run compiler/tool/gen_engine_json.dart
+cd ../go/engine && go run ./cmd/regen
+go test -v -tags selfhost -run TestConformance -timeout 3600s ./conformance/
+
 # Proto — lint, breaking-change check, regenerate all bindings
 # NOTE: buf.yaml lives at proto/buf.yaml (not repo root), so `proto` MUST be
 # passed as the explicit input — a bare `buf generate`/`buf lint` run from
@@ -172,7 +190,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C# engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (gitignored; `go/engine/cmd/regen`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
 
 ## Architecture Big Picture
 
@@ -278,6 +296,38 @@ full status table and `.claude/rules/csharp.md` for key patterns:
 CI job (#386) is the `csharp` job in `.github/workflows/ci.yml` (build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep) plus the `csharp-engine` row in
 `conformance-matrix.yml` — both gate on full parity, mirroring the `rust`/`rust-engine` jobs.
+
+### Go workspace (`go/`)
+
+Five Go modules tied by `go/go.work` (epic #426) — see `go/AGENTS.md` for the full status table
+and `.claude/rules/go.md` for key patterns:
+
+- `go/runtime` (module `.../go/runtime`, package `ballrt`) — the runtime value model
+  (`Value`/`List`/ordered `Map`/`Set`/`Function`/`Message`) + base-op helpers + panic/recover flow
+  signals + the `ball_proto` access patterns, Dart-SDK method surface, and is/as class registry the
+  self-hosted engine calls. **Zero external dependencies** (Go stdlib only) so compiled programs
+  build and run offline.
+- `go/shared` (package `ballv1`, under `gen/`) — generated Go protobuf bindings (`buf generate`,
+  `buf.build/protocolbuffers/go`); never hand-edit.
+- `go/compiler` — Ball → Go. Emits Go source as strings (like the C++/Rust compilers); native Go
+  control flow, statement-bearing constructs wrapped in IIFEs (`func() ballrt.Value { … }()`),
+  base-function dispatch in `base_call.go`. `Compile` (runnable `package main`) + `CompileLibrary`
+  (the self-hosted engine's library shape). `cmd/ballgoc` is the front-end.
+- `go/encoder` — Go → Ball via `go/parser` + `go/ast`. No `go_std` base module — every construct
+  routes through universal `std`/`std_collections`. `cmd/ballgoenc` is the front-end.
+- `go/engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as TS/C++/Rust/C#:
+  compiles `dart/self_host/engine.ball.json` through `go/compiler` into the gitignored
+  `compiled/compiled_engine.go`. **Complete, at Dart parity**: the compiled engine runs the whole
+  conformance corpus with Dart-identical output (`Results: 320 passed, 0 failed, 320 total`; the 4
+  golden-less resource-limit/sandbox fixtures are documented carve-outs). Behind the off-by-default
+  `selfhost` build tag because `compiled_engine.go` is a gitignored artifact absent from a fresh
+  checkout — see `go/engine/AGENTS.md` for the regeneration workflow.
+
+The conformance harness is `go/engine/conformance/` (whole-corpus sweep, `-tags selfhost`; the
+`TestConformance` runner needs `go test -v` so its `Results:` line reaches stdout), and CI is the
+`go` job in `.github/workflows/ci.yml` plus the `go-engine` row in `conformance-matrix.yml` — both
+gate on full parity, mirroring the `csharp`/`csharp-engine` jobs. The unified `ball` Go CLI is a
+pending later phase (only the `ballgoc`/`ballgoenc` component front-ends exist).
 
 ### Standard library modules
 Eight universal modules ship in `dart/shared/lib/` (`std*.dart`): `std` (arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null_aware_access, invoke, spread, record, etc. — `dart/shared/std.json` is the canonical base-function inventory), `std_collections` (list/map/set), `std_io` (console/process/time/random), `std_memory` (linear-memory fns for C/C++ interop), `std_convert` (JSON/UTF-8/base64), `std_fs` (file/directory ops), `std_time` (clock, timestamp format/parse, duration arithmetic), and `std_concurrency` (threads, mutexes, atomics). The `dart_std`/`cpp_std`/`ts_std` modules have been eliminated — all functions now route through universal `std`.

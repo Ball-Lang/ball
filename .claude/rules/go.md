@@ -5,22 +5,22 @@ paths:
 
 # Go-Specific Instructions
 
-Go (epic #426) is a **compiler + encoder + self-hosted engine** pipeline — all three are in place
-and tested; a unified `ball` Go CLI is a pending later phase (only the `ballgoc`/`ballgoenc`
-component front-ends exist so far). The self-hosted engine runs the whole conformance corpus at
-**Dart parity** (`Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)`; the 4
-golden-less resource-limit/sandbox fixtures are documented carve-outs). Always verify maturity
-against CI (`.github/workflows/ci.yml`'s `go` job — build/vet/gofmt/test plus the
-regenerate-then-run self-hosted engine conformance sweep — and the `go-engine` row in
-`conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.
+Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the `ball`
+CLI (`run`/`compile`/`encode`/`check`, #437) are all in place and tested (the self-hosted cli-core
+verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported). The
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 320 passed,
+0 failed, 320 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
+build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance sweep — and the
+`go-engine` row in `conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.
 
 ## Build System
 
 - Native `go` works **on Windows** in this dev environment — no WSL needed (unlike Rust/C++). CI
   pins `go-version: "1.25.x"` via `actions/setup-go`; the `go.mod` files declare `go 1.23` (the
   minimum), and the tree is gofmt'd with the 1.25 line.
-- The five modules are tied by `go/go.work`: `runtime`, `shared`, `compiler`, `encoder`, `engine`
-  (module paths `github.com/ball-lang/ball/go/<name>`). Each commits a `go.sum` **except**
+- The six modules are tied by `go/go.work`: `runtime`, `shared`, `compiler`, `encoder`, `engine`,
+  `cli` (module paths `github.com/ball-lang/ball/go/<name>`). Each commits a `go.sum` **except**
   `runtime`, which is Go-stdlib-only (zero external deps).
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
@@ -28,10 +28,10 @@ regenerate-then-run self-hosted engine conformance sweep — and the `go-engine`
 
 ```bash
 cd go
-go build ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
-go vet   ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
-go test  ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
-gofmt -l compiler encoder engine runtime shared    # must print nothing
+go build ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+go vet   ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+go test  ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 ```
 
 - **gofmt + Windows CRLF gotcha:** on a Windows checkout `gofmt -l` lists *every* `.go` file,
@@ -63,6 +63,13 @@ gofmt -l compiler encoder engine runtime shared    # must print nothing
   `run_selfhost.go` / untagged `run_stub.go`) driving the generated, gitignored
   `compiled/compiled_engine.go`. `cmd/regen` regenerates it; `conformance/` is the whole-corpus
   sweep. See `go/engine/AGENTS.md`.
+- `go/cli` (package `cli`, `cmd/ball`) — the `ball` CLI (#437): `run`/`compile`/`encode`/`check`
+  over engine/compiler/encoder (the Go sibling of `rust/cli`/`csharp/cli`; no package-registry
+  commands, no `audit`). All logic is in package `cli` (`cli.Run`) so tests exercise every verb
+  in-process. `run` inherits the `selfhost` build tag through Go's tag propagation — a default
+  build compiles and returns `ErrSelfHostPending` (exit 1) at runtime, never a silent success;
+  `-tags selfhost` (after regenerating the compiled engine) executes for real. Exit-code contract
+  mirrors `rust/cli` (0 ok / 1 runtime / 2 invalid-or-usage / 3 I/O). See `go/cli/AGENTS.md`.
 
 ## Key Patterns
 
@@ -139,9 +146,10 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
 
 ## Testing
 
-- `go test ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...` (default, no tag)
-  runs the compiler end-to-end tests, encoder round-trip tests, and runtime unit tests, and stays
-  green without the gitignored `compiled_engine.go` (its consumers are `selfhost`-gated).
+- `go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...`
+  (default, no tag) runs the compiler end-to-end tests, encoder round-trip tests, runtime unit
+  tests, and the CLI's default-build tests (`run`'s honest-failure path), and stays green without
+  the gitignored `compiled_engine.go` (its consumers are `selfhost`-gated).
 - Prefer extending the compiler/encoder e2e fixtures (or `tests/conformance/*.ball.json`) over
   Go-only unit tests, per the repo-wide "prefer conformance tests" rule.
 - `go/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner — the `selfhost`

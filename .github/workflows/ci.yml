@@ -957,26 +957,29 @@ jobs:
         with:
           go-version: "1.25.x"
           cache-dependency-path: |
+            go/cli/go.sum
             go/compiler/go.sum
             go/encoder/go.sum
             go/engine/go.sum
             go/shared/go.sum
 
-      # The five modules are tied by go/go.work. The workspace-root `./...`
+      # The six modules are tied by go/go.work. The workspace-root `./...`
       # pattern isn't valid (go/ is not itself a module), so each build/vet/test
       # enumerates the module subdirs explicitly. The engine's self-host artifact
       # (compiled/compiled_engine.go) is gitignored + `//go:build selfhost`-gated,
-      # so a default (no-tag) build stays green on the wrapper foundation alone.
+      # so a default (no-tag) build stays green on the wrapper foundation alone
+      # (go/cli's `run` verb inherits that tag too — a default build compiles and
+      # reports a clear rebuild-with-selfhost error only at runtime).
       - name: Build
-        run: cd go && go build ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+        run: cd go && go build ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 
       - name: Vet
-        run: cd go && go vet ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+        run: cd go && go vet ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 
       - name: Format check
         run: |
           cd go
-          unformatted=$(gofmt -l compiler encoder engine runtime shared)
+          unformatted=$(gofmt -l cli compiler encoder engine runtime shared)
           if [ -n "$unformatted" ]; then
             echo "::error::gofmt found unformatted Go files — run 'gofmt -w' and commit:"
             echo "$unformatted"
@@ -985,7 +988,7 @@ jobs:
           echo "All Go sources are gofmt-clean."
 
       - name: Test
-        run: cd go && go test ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+        run: cd go && go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 
       # ── Self-hosted engine: regenerate + RUN (epic #426 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,

@@ -43,6 +43,18 @@ type Thrown struct {
 
 func (t Thrown) Error() string { return "Ball exception: " + ToStr(t.Value) }
 
+// dartError throws a Ball exception whose runtime type is typeName (e.g.
+// "FormatException", "RangeError") so the engine's typed `on T catch` clauses —
+// which match on the thrown value's runtimeType (engine_control_flow.dart's
+// _evalLazyTry) — can catch it. A raw `panic("...")` (a Go string) escapes the
+// engine's Dart-try→ballrt.TryCatch recover entirely, and even a Thrown with a
+// plain-string value reports runtimeType "String", matching no typed clause.
+func dartError(typeName, message string) {
+	fields := NewMap()
+	fields.Set("message", message)
+	panic(Thrown{Value: &Message{TypeName: typeName, Fields: fields}})
+}
+
 // Return implements std.return: unwind to the enclosing function wrapper,
 // yielding v. Typed as Value so it fits any expression position the compiler
 // emits it in; it never actually returns (it panics).
@@ -55,7 +67,10 @@ func Break(label string) Value { panic(flowSignal{kind: flowBreak, label: label}
 func Continue(label string) Value { panic(flowSignal{kind: flowContinue, label: label}) }
 
 // Throw implements std.throw.
-func Throw(v Value) Value { panic(Thrown{Value: v}) }
+func Throw(v Value) Value {
+	debugTrace()
+	panic(Thrown{Value: v})
+}
 
 // CatchReturn is deferred at the top of every compiled function body. If the
 // body unwinds with a std.return, it captures the returned value into the
@@ -97,6 +112,11 @@ func RunLoopBody(label string, body func()) (brk bool) {
 	return false
 }
 
+// activeExceptions is the stack of exceptions currently being handled, so
+// std.rethrow can re-raise the innermost caught one. The engine runs on a single
+// goroutine, so a package-level stack is sufficient.
+var activeExceptions []Value
+
 // TryCatch implements std.try. It runs body; if a Ball exception unwinds it and
 // catch is non-nil, catch is invoked with the thrown value. finally (if
 // non-nil) always runs. A return/break/continue that unwinds body still runs
@@ -108,6 +128,8 @@ func TryCatch(body func() Value, catch func(Value) Value, finally func()) (resul
 	defer func() {
 		if r := recover(); r != nil {
 			if t, ok := r.(Thrown); ok && catch != nil {
+				activeExceptions = append(activeExceptions, t.Value)
+				defer func() { activeExceptions = activeExceptions[:len(activeExceptions)-1] }()
 				result = catch(t.Value)
 				return
 			}
@@ -115,6 +137,43 @@ func TryCatch(body func() Value, catch func(Value) Value, finally func()) (resul
 		}
 	}()
 	return body()
+}
+
+// Rethrow re-raises the innermost exception currently being handled (std.rethrow).
+func Rethrow() Value {
+	if len(activeExceptions) == 0 {
+		panic(Thrown{Value: "Bad state: rethrow outside of catch"})
+	}
+	panic(Thrown{Value: activeExceptions[len(activeExceptions)-1]})
+}
+
+// Assert implements std.assert: on a falsy condition, throw an AssertionError
+// carrying the message (Dart's `dart run` runs with asserts enabled).
+func Assert(condition, message Value) Value {
+	if !Truthy(condition) {
+		msg := "assertion failed"
+		if message != nil {
+			msg = "Assertion failed: " + ToStr(message)
+		}
+		panic(Thrown{Value: msg})
+	}
+	return nil
+}
+
+// RunBody runs a constructor/void body, recovering a std.return that unwinds it
+// (its value discarded — a constructor implicitly returns its instance, a void
+// body returns nothing). Any other signal (break/continue that escaped, or a
+// Ball exception) propagates unchanged.
+func RunBody(fn func() Value) {
+	defer func() {
+		if r := recover(); r != nil {
+			if fs, ok := r.(flowSignal); ok && fs.kind == flowReturn {
+				return
+			}
+			panic(r)
+		}
+	}()
+	fn()
 }
 
 // RunEntry executes a program's entry function body. A top-level std.return is
@@ -139,17 +198,66 @@ func RunEntry(body func() Value) {
 
 // ── Field / index access & mutation ─────────────────────────────────────────
 
-// FieldGet implements a field read (`object.field`) against a *Message or *Map.
+// FieldGet implements a field read (`object.field`). A message/map returns the
+// stored field (or a virtual property, or null when absent — Dart's dynamic-map
+// behavior); a native value (list/string/set/…) resolves a virtual property
+// (.length/.first/…). A field access on a value with no such field or property
+// fails loud.
 func FieldGet(object Value, field string) Value {
 	switch o := object.(type) {
 	case *Message:
-		v, _ := o.Fields.Get(field)
-		return v
+		if v, ok := o.Fields.Get(field); ok {
+			return v
+		}
+		if alias := fieldGetterAlias(field); alias != "" {
+			if v, ok := o.Fields.Get(alias); ok {
+				return v
+			}
+		}
+		// `.runtimeType`/`.hashCode` resolve against the MESSAGE (its type name),
+		// not its field map — else `e.runtimeType` on a thrown FormatException
+		// yielded "Map" (the field map's type) and no `on T catch` clause matched.
+		if vp, ok := VirtualProperty(object, field); ok {
+			return vp
+		}
+		if vp, ok := VirtualProperty(o.Fields, field); ok {
+			return vp
+		}
+		return nil
 	case *Map:
-		v, _ := o.Get(field)
-		return v
+		if v, ok := o.Get(field); ok {
+			return v
+		}
+		if alias := fieldGetterAlias(field); alias != "" {
+			if v, ok := o.Get(alias); ok {
+				return v
+			}
+		}
+		if vp, ok := VirtualProperty(o, field); ok {
+			return vp
+		}
+		return nil
+	}
+	if vp, ok := VirtualProperty(object, field); ok {
+		return vp
 	}
 	panic(fmt.Sprintf("ball: field access .%s on non-message %T", field, object))
+}
+
+// fieldGetterAlias maps a Dart-protobuf-renamed getter to the canonical
+// proto3-JSON field name the engine loader's view uses. The Dart protobuf
+// codegen renames a getter that would collide with an Object member
+// (`FieldAccess.field` → `.field_2`, `TypeDefinition.descriptor` → `.descriptor_`),
+// and the engine reads the program through those getters; the view keys them by
+// the plain jsonName. Mirrors rust/shared/src/runtime.rs's field_2→field alias.
+func fieldGetterAlias(field string) string {
+	switch field {
+	case "field_2":
+		return "field"
+	case "descriptor_":
+		return "descriptor"
+	}
+	return ""
 }
 
 // FieldSet implements a field write (`object.field = value`). Returns value.
@@ -171,7 +279,7 @@ func Index(target, index Value) Value {
 	case *List:
 		i := int(asFloat(index))
 		if i < 0 || i >= len(t.Items) {
-			panic(fmt.Sprintf("ball: list index %d out of range (len %d)", i, len(t.Items)))
+			dartError("RangeError", fmt.Sprintf("Index out of range: index should be less than %d: %d", len(t.Items), i))
 		}
 		return t.Items[i]
 	case *Map:
@@ -182,7 +290,7 @@ func Index(target, index Value) Value {
 		i := int(asFloat(index))
 		r := []rune(t)
 		if i < 0 || i >= len(r) {
-			panic(fmt.Sprintf("ball: string index %d out of range", i))
+			dartError("RangeError", fmt.Sprintf("Index out of range: %d", i))
 		}
 		return string(r[i])
 	}
@@ -218,6 +326,8 @@ func Iterate(v Value) []Value {
 			out = append(out, k)
 		}
 		return out
+	case *Set:
+		return append([]Value(nil), x.Items...)
 	case string:
 		out := make([]Value, 0, len(x))
 		for _, r := range x {

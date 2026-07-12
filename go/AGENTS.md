@@ -1,19 +1,20 @@
 <!-- Parent: ../AGENTS.md -->
 
-# Go (compiler + encoder + runtime; proto bindings)
+# Go (compiler + encoder + engine + runtime; proto bindings)
 
 ## Purpose
 Ball → Go compiler (Phase 2 of epic #426), the Go → Ball encoder (Phase 3), the
-Go runtime value model the compiler targets, and the generated Go protobuf
-bindings. Self-hosted engine, CLI, conformance harness, and CI are later phases.
+self-hosted Go engine (Phase 4), the Go runtime value model the compiler targets,
+and the generated Go protobuf bindings. CLI and CI are later phases.
 
-## Layout (four Go modules, tied by `go/go.work`)
+## Layout (five Go modules, tied by `go/go.work`)
 | Dir | Module path | Description |
 |-----|-------------|-------------|
-| `runtime/` | `github.com/ball-lang/ball/go/runtime` | Package `ballrt`: the runtime value model (`Value`/`List`/ordered `Map`/`Function`/`Message`) + base-op helpers (`Add`, `Truthy`, `ToStr`, …) + flow signals (`Return`/`Break`/`Continue`/`Throw` via panic/recover). **Zero external dependencies** (Go stdlib only) so compiled programs build and run offline via a local `replace`. |
+| `runtime/` | `github.com/ball-lang/ball/go/runtime` | Package `ballrt`: the runtime value model (`Value`/`List`/ordered `Map`/`Set`/`Function`/`Message`) + base-op helpers (`Add`, `Truthy`, `ToStr`, …) + flow signals (`Return`/`Break`/`Continue`/`Throw`/`Rethrow` via panic/recover) + the `ball_proto` access patterns, Dart-SDK method surface (`CallMethod`), `std_collections`/`std_convert`, and the is/as class-hierarchy registry the self-hosted engine calls. **Zero external dependencies** (Go stdlib only) so compiled programs build and run offline via a local `replace`. |
 | `shared/` | `github.com/ball-lang/ball/go/shared` | Generated Go protobuf bindings (package `ballv1`, under `gen/`) — NEVER hand-edit; regenerate with `buf generate`. Requires `google.golang.org/protobuf`. |
-| `compiler/` | `github.com/ball-lang/ball/go/compiler` | Ball → Go compiler (string emission, mirroring `rust/compiler` / `cpp/compiler`). `cmd/ballgoc` is a thin front-end. |
+| `compiler/` | `github.com/ball-lang/ball/go/compiler` | Ball → Go compiler (string emission, mirroring `rust/compiler` / `csharp/compiler`). Two modes: `Compile` (runnable `package main`) and `CompileLibrary` (a named library package — class members as flat funcs, dispatchers, constructors, oneof discriminators — for the self-hosted engine). `cmd/ballgoc` is a thin front-end. |
 | `encoder/` | `github.com/ball-lang/ball/go/encoder` | Go → Ball encoder: `go/parser` + `go/ast` walk emitting a Ball `Program`. Every construct routes through the universal `std` base module — **no `go_std`** (the Rust encoder's "no rust_std" invariant). `cmd/ballgoenc` is a thin front-end. Test-only dependency on `compiler` for the round-trip proof. |
+| `engine/` | `github.com/ball-lang/ball/go/engine` | Self-hosted engine (Phase 4): compiles `dart/self_host/engine.ball.json` through `go/compiler` into the gitignored, `selfhost`-tagged `compiled/compiled_engine.go`, driven by a native wrapper (loader + `ball_proto` view). See `go/engine/AGENTS.md`. |
 
 ## Build & Test
 ```bash
@@ -74,12 +75,16 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only) so a
   hello_world, an arithmetic case (multi-param func + `:=`), a control-flow case
   (`for`/`if`/`else`/compound-assign/`++`), and a slice + `for … range` case (see
   `go/encoder/roundtrip_test.go` + `testdata/`).
-- Deferred to later phases: full std coverage (switch/try, regex, collections,
-  std_io/std_memory/…) and the encoder's own gaps (top-level types/const/var,
-  structs-as-TypeDefinitions, maps/sets, `std_collections`, multi-value
-  return/assign, `switch`/`defer`/goroutines, `fmt.Printf`); the self-hosted
-  engine (compiling `dart/self_host/engine.ball.json`), the `ball` CLI, the
-  conformance harness, and CI wiring.
+- **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
+  engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
+  the whole conformance corpus with Dart-identical output
+  (`Results: 320 passed, 0 failed, 320 total`; 4 golden-less
+  resource-limit/sandbox carve-outs). Behind the off-by-default `selfhost` build
+  tag. See `go/engine/AGENTS.md`.
+- Deferred to later phases: the `ball` CLI and CI wiring. Encoder gaps remain
+  (top-level types/const/var, structs-as-TypeDefinitions, maps/sets in the
+  encoder path, multi-value return/assign, `switch`/`defer`/goroutines,
+  `fmt.Printf`).
 
 ## For AI Agents
 - Verify maturity against CI (`.github/workflows/ci.yml`), not this prose.

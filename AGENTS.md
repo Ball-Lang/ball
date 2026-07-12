@@ -10,11 +10,12 @@ Ball is a programming language where code is structured protobuf messages. The p
 - **C++** — compiler, encoder (Clang JSON AST → Ball), self-hosted engine; the self-host conformance passes **every** fixture (no skip-list). Still FetchContents upstream protobuf v34.1 (#18/#25).
 - **Rust** (epic #32, closed) — a complete pipeline: compiler (`rust/compiler/`, #36-38) and encoder (`rust/encoder/`, #42-43), proto bindings + runtime value model (`rust/shared/`, #34-35), a self-hosted engine that runs the whole conformance corpus at Dart parity (`Results: 319 passed, 0 failed, 319 total`; #39/#300 closed), and a `ball` CLI (`run`/`compile`/`encode`/`check`; #41/#304 closed). Conformance harness (#40) and CI job (#44) both closed — see `rust/AGENTS.md`.
 - **C#** (epic #377) — a complete pipeline: proto bindings + runtime value model (`csharp/shared/`, #379-380), a Ball → C# compiler (`csharp/compiler/`, #381), a Roslyn C#→Ball encoder (`csharp/encoder/`, #382, syntax-only, verified against the Dart reference engine), a self-hosted engine that runs the whole conformance corpus at Dart parity (`csharp/engine/`, #383, `Results: 320 passed, 0 failed, 320 total`, behind `-p:SelfHost=true`), a committed conformance harness (`csharp/engine/conformance/`, #384), and a `ball` CLI (`csharp/cli/`, #385: `run`/`compile`/`encode`/`check` plus the self-hosted cli-core verbs). CI job (#386) is the `csharp` job in `ci.yml` plus a `csharp-engine` row in `conformance-matrix.yml` — see `csharp/AGENTS.md`.
-- **Proto bindings only** for Go, Python, Java.
+- **Go** (epic #426) — a complete pipeline: proto bindings (`go/shared`, package `ballv1`) + a zero-dependency runtime value model (`go/runtime`, package `ballrt`), a Ball → Go compiler (`go/compiler/`), a `go/parser`-based Go → Ball encoder (`go/encoder/`, universal `std`, no `go_std`), a self-hosted engine that runs the whole conformance corpus at Dart parity (`go/engine/`, `Results: 320 passed, 0 failed, 320 total`, behind the off-by-default `selfhost` build tag), and a `ball` CLI (`go/cli/`, #437: `run`/`compile`/`encode`/`check`; the self-hosted cli-core verbs `info`/`validate`/`tree`/`version` are still pending). CI is the `go` job in `ci.yml` (build/vet/gofmt/test + the regenerate-and-run self-hosted engine sweep) plus a `go-engine` row in `conformance-matrix.yml` (#426 Phase 7) — see `go/AGENTS.md`.
+- **Proto bindings only** for Python, Java.
 
-Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS, C++, Rust, and C# all have full compiler+encoder+engine pipelines gated in CI.
+Statuses drift — verify maturity against CI (`.github/workflows/ci.yml`), not this prose. "stub"/"prototype" labels in older docs were stale; TS, C++, Rust, C#, and Go all have full compiler+encoder+engine pipelines gated in CI.
 
-C++, TypeScript, Rust, and C# all run a **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS/Rust/C# engines. All four now compile and run the full conformance corpus at Dart parity.
+C++, TypeScript, Rust, C#, and Go all run a **self-hosted** engine (compiled from the Dart reference engine); there are no native C++/TS/Rust/C#/Go engines. All five now compile and run the full conformance corpus at Dart parity.
 
 ## Build & Test
 
@@ -42,6 +43,7 @@ Each implementation documents its own generated/editable files. See the per-lang
 | `dart/shared/lib/gen/` | Protobuf Dart types | NO — generated |
 | `rust/shared/gen/` | Protobuf Rust types (`buf.build/community/neoeinstein-prost`) | NO — generated |
 | `csharp/shared/gen/Ball.cs` | Protobuf C# types (`buf.build/protocolbuffers/csharp:v35.1`) | NO — generated |
+| `go/shared/gen/` | Protobuf Go types (`buf.build/protocolbuffers/go`) | NO — generated |
 | `csharp/engine/src/CompiledEngine.cs` | Self-hosted C# engine (runs the whole conformance corpus at Dart parity — #383/#384 closed) | NO — generated, gitignored |
 | `csharp/cli/src/CompiledCli.cs` | Self-hosted C# CLI core (`info`/`validate`/`tree`/`version`) | NO — generated, gitignored |
 | `dart/compiler/lib/compiler.dart` | Reference compiler | Yes |
@@ -51,6 +53,7 @@ Each implementation documents its own generated/editable files. See the per-lang
 | `dart/self_host/lib/engine_rt.cpp` | Self-hosted C++ engine | NO — generated from the Dart engine |
 | `ts/engine/src/compiled_engine.ts` | Self-hosted TS engine | NO — generated |
 | `rust/engine/src/compiled_engine.rs` | Self-hosted Rust engine (compiles and runs at Dart parity — #39/#300 closed) | NO — generated, gitignored |
+| `go/engine/compiled/compiled_engine.go` | Self-hosted Go engine (runs the whole conformance corpus at Dart parity — #426) | NO — generated, gitignored |
 | `ts/engine/src/index.ts` | TS engine wrapper / dispatch | Yes |
 | `ts/compiler/src/compiler.ts` | TypeScript compiler | Yes |
 | `cpp/shared/include/ball_dyn.h` + `ball_emit_runtime.h` | C++ runtime/type system (spliced into every emitted program) | Yes |

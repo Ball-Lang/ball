@@ -464,8 +464,18 @@ func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1
 			continue
 		}
 		cond := c.compileCaseCondition(subj, cf)
-		bodyExpr, hasBody := cf["body"]
-		if !hasBody {
+		bodyExpr, present := cf["body"]
+		// Dart fall-through (`case A: case B: body;`) encodes the leading
+		// labels as cases whose `body` is an EMPTY block (`{"block":{}}`) or a
+		// notSet literal — not an absent field. Such a case falls through to the
+		// next case that carries a real body: accumulate its match condition
+		// instead of emitting a terminal (no-op) arm. Without this, three of the
+		// four increment/decrement functions the engine routes through a shared
+		// fall-through (`post_increment`/`pre_increment`/`post_decrement` →
+		// `pre_decrement: _evalIncDec`) compiled to empty arms, silently
+		// no-op'ing `i++`/`i--` and wedging every for/while loop in an infinite
+		// spin. Mirrors the Rust compiler's `is_empty_switch_body` test.
+		if !present || isEmptySwitchBody(bodyExpr) {
 			pending = append(pending, cond)
 			continue
 		}
@@ -492,6 +502,23 @@ func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1
 	}
 	b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
 	return b.String()
+}
+
+// isEmptySwitchBody reports whether a switch case's `body` is an empty block or
+// a value-less (notSet) literal — the shape the Dart encoder emits for a
+// fall-through label (`case A:` with no statements before the next case).
+// Mirrors the Rust compiler's `is_empty_switch_body`.
+func isEmptySwitchBody(e *ballv1.Expression) bool {
+	if e == nil {
+		return true
+	}
+	if blk := e.GetBlock(); blk != nil {
+		return len(blk.GetStatements()) == 0 && blk.GetResult() == nil
+	}
+	if lit := e.GetLiteral(); lit != nil {
+		return lit.GetValue() == nil
+	}
+	return false
 }
 
 // compileCaseCondition builds a boolean match condition for a switch case.

@@ -1,3 +1,10 @@
+## [1.51.1](https://github.com/Ball-Lang/ball/compare/v1.51.0...v1.51.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* **audit:** [#420](https://github.com/Ball-Lang/ball/issues/420) base-fn shadow surfacing + engine ambiguity guard ([#434](https://github.com/Ball-Lang/ball/issues/434)) ([4e56897](https://github.com/Ball-Lang/ball/commit/4e56897f7bf3af84edfc4e0a93da0aabffa9ef80)), closes [#402](https://github.com/Ball-Lang/ball/issues/402) [#402](https://github.com/Ball-Lang/ball/issues/402)
+
 # [1.51.0](https://github.com/Ball-Lang/ball/compare/v1.50.0...v1.51.0) (2026-07-11)
 
 

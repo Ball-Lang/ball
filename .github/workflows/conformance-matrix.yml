@@ -141,6 +141,19 @@ jobs:
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
 
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
           echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
@@ -278,6 +291,19 @@ jobs:
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
 
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
           echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
@@ -346,6 +372,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -423,6 +462,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -503,6 +555,19 @@ jobs:
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
 
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
           echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
@@ -582,6 +647,19 @@ jobs:
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
 
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
           echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
@@ -658,6 +736,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -792,6 +883,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
           passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
 
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
@@ -893,6 +997,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
           passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
 
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
@@ -960,6 +1077,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
           passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
 
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
@@ -1030,6 +1160,19 @@ jobs:
           passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
           failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
           total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
           passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
 
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
@@ -1186,11 +1329,12 @@ jobs:
             summary_failed=1
           fi
 
-          # The ratcheted compile leg self-gates on its floor (a DROP fails
-          # the job), so its RESULT is the whole signal. It is intentionally
+          # Each ratcheted compile leg self-gates on its own floor (a DROP fails
+          # the job), so its RESULT is the whole signal. They are intentionally
           # absent from the failed-count loop below: that loop asserts FULL
-          # PARITY, which this leg does not have yet — feeding its honest 96
-          # in there would wire a known-red number into the parity gate.
+          # PARITY, and none of these four legs has it yet (C# 226/320, Rust
+          # 237, Go 243, Python 238) — feeding those honest failure counts in
+          # there would wire known-red numbers into the parity gate.
           for leg in \
             "C#:${{ needs.csharp-compiler.result }}" \
             "Rust:${{ needs.rust-compiler.result }}" \

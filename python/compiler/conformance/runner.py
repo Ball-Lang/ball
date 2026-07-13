@@ -184,6 +184,18 @@ def run_all(only: str = "") -> Summary:
             s.passed += 1
         else:
             s.failed += 1
+
+    # Positive floor. A sweep that ran nothing prints "Results: 0 passed, 0
+    # failed, 0 total" and exits 0 — which reads as green. That is not a
+    # hypothetical: a misspelled BALL_FIXTURE gets you exactly that. The Go
+    # runner errors and the Rust one asserts total > 0; this one used to do
+    # neither. A harness that cannot prove it measured something must fail.
+    if s.total == 0:
+        raise RuntimeError(
+            "the compiler leg ran zero fixtures — refusing to report a "
+            "vacuous pass (check the fixture filter; the corpus has 320 "
+            "golden-having fixtures)"
+        )
     return s
 
 

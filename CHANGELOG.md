@@ -1,3 +1,10 @@
+# [1.59.0](https://github.com/Ball-Lang/ball/compare/v1.58.0...v1.59.0) (2026-07-13)
+
+
+### Features
+
+* **python:** [#445](https://github.com/Ball-Lang/ball/issues/445) Phase 5 — the ball CLI (run/compile/encode/check) ([#449](https://github.com/Ball-Lang/ball/issues/449)) ([35a0b12](https://github.com/Ball-Lang/ball/commit/35a0b1200a418ac36fb367a68df66a424c950bf5))
+
 # [1.58.0](https://github.com/Ball-Lang/ball/compare/v1.57.0...v1.58.0) (2026-07-13)
 
 

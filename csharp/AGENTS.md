@@ -321,9 +321,30 @@ loops with the body inlined. Regression-tested with both-branches-side-effecting
 → a working dynamic enum namespace; instance methods (`owner:Type.member` + `metadata.kind`) →
 run-time dispatchers routing on the receiver's `type_name`. The runtime representation stays
 **dynamic** (`BallMessage`, like the Rust sibling), so class declarations are faithful field
-*shapes* — `message_creation` always builds the dynamic message. Body-carrying constructors,
-`super` chains, static members, and labelled `break`/`continue` are documented gaps for the
-self-host phase (#383).
+*shapes* — `message_creation` always builds the dynamic message. `super` chains and labelled
+`break`/`continue` are documented gaps for the self-host phase (#383).
+
+**Impl-method naming:** a class member is emitted as `Owner__member`, and a **setter** as
+`Owner__member__set`. The suffix is load-bearing: a getter and its setter carry the *same* Ball
+function name (`main:Temperature.celsius`) and are told apart only by `metadata.is_getter` /
+`is_setter`, while both impls have the one C# signature `BallValue(BallValue)` — Dart/TS emit
+native `get`/`set` members and C++ overloads on arity, but C# can do neither, so without the
+suffix the pair defines one method twice (CS0111).
+
+**Properties (getter/setter) — `compiler/src/Accessors.cs`:** a property is never *called*; the IR
+reaches it as a `field_access` (read) or an `std.assign` whose target is a `field_access` (write),
+exactly like a plain field. Both lower to the synthesized top-level `BallAccessors` class
+(`Get__x(obj)` / `Set__x(obj, value)`), which dispatches on the receiver's run-time `type_name` —
+resolving through the `metadata.superclass` chain, so a subclass inherits the property — and falls
+back to `BallRuntime.FieldGet`/`FieldSet` for any receiver that is *not* one of those classes (a
+map, a proto message, a core value), which is exactly what a field access already emitted. It is
+top-level (like `BallOneofs`) because a `field_access` carries no module, so one class is the only
+place that can hold every owner of a name; that is also why a getter/setter impl is emitted
+`public` while a plain method impl stays `private`. The setter accessor passes the assigned value
+**positionally** (`{self, arg0}`), so the setter's single parameter binds whatever it is named
+(#95, `341_setter_param_binding`). Only the getter joins the by-name method dispatcher (a
+first-class reference to it still resolves); a setter merely reserves the dispatcher name, so a
+stray by-name call fails loud instead of storing nothing.
 
 ### Formatting
 
@@ -598,7 +619,7 @@ Three legs, one runner, selected via `--leg=`:
   Roslyn (a small `CSharpRunner` duplicated from `csharp/compiler/test/TestSupport.cs`'s technique,
   generalized to the whole corpus and returning outcomes instead of throwing so one fixture's
   failure never aborts the sweep), and diffs stdout. No `SelfHost` needed — never touches the
-  self-hosted engine. Verified fresh: **`Results: 224 passed, 96 failed, 320 total`** — an honest
+  self-hosted engine. Verified fresh: **`Results: 226 passed, 94 failed, 320 total`** — an honest
   measurement of the Phase-4 compiler's own documented scope gaps (`super`/inheritance dispatch,
   static members, enums-as-types, generics reification, generators/`yield`, `std_time`/
   `std_convert` gaps, a handful of `Message`-vs-native-collection built-in methods like `.generate`/
@@ -621,8 +642,10 @@ Three legs, one runner, selected via `--leg=`:
   /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
 
 **CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
-row in `conformance-matrix.yml` runs the `compiler` leg on every push/PR, prints the honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `224`, the number
+row in `conformance-matrix.yml` runs the `compiler` leg on every push to `main` (plus the weekly
+cron and `workflow_dispatch` — the matrix does NOT trigger on `pull_request`, same as every other
+row in it), prints the honest count,
+and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `226`, the number
 above). This is deliberate. Gating it at full parity would just hold `main` red on 96 known gaps;
 leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
 regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
@@ -862,7 +885,7 @@ dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 320 passed, 0 failed, 320 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=compiler                    # Results: 224 passed, 96 failed, 320 total
+  -c Release --no-build -- --leg=compiler                    # Results: 226 passed, 94 failed, 320 total
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
 # --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture
@@ -997,7 +1020,7 @@ not specifically required for release #1 the way it is for crates.io.
   **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
   into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
   line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing
-  #383's acceptance bar), plus a `compiler` leg (`224 passed, 96 failed, 320 total` — the Phase-4
+  #383's acceptance bar), plus a `compiler` leg (`226 passed, 94 failed, 320 total` — the Phase-4
   compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
   an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize
   compiler-emitted `BallRuntime.*` shapes; see "Conformance harness" above). The `cli` package is

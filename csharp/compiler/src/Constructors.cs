@@ -69,13 +69,20 @@ public sealed partial class CSharpCompiler
     }
 
     /// <summary>
-    /// The impl method name for a class member (<c>Owner__member</c>). The member
-    /// component is keyword-unescaped (a bare <c>@</c> would be illegal mid-
-    /// identifier — a constructor is named <c>new</c>, which <see cref="Naming.Sanitize"/>
-    /// escapes to <c>@new</c>); the compound name is never itself a keyword.
+    /// The impl method name for a class member — <c>Owner__member</c>, or
+    /// <c>Owner__member__set</c> for a setter. The member component is keyword-
+    /// unescaped (a bare <c>@</c> would be illegal mid-identifier — a constructor
+    /// is named <c>new</c>, which <see cref="Naming.Sanitize"/> escapes to
+    /// <c>@new</c>); the compound name is never itself a keyword.
+    ///
+    /// <para>A getter and its setter share one Ball function name
+    /// (<c>main:Temperature.celsius</c>) and differ only in
+    /// <c>metadata.is_getter</c>/<c>is_setter</c>; both impls have the same C#
+    /// signature <c>BallValue(BallValue)</c>, so without the setter suffix the
+    /// pair defines one method twice (CS0111). See <c>Accessors.cs</c>.</para>
     /// </summary>
-    private static string MemberImplName(string ownerShort, string member) =>
-        $"{Naming.Sanitize(ownerShort)}__{Naming.Sanitize(member).TrimStart('@')}";
+    private static string MemberImplName(string ownerShort, string member, bool isSetter = false) =>
+        $"{Naming.Sanitize(ownerShort)}__{Naming.Sanitize(member).TrimStart('@')}{(isSetter ? "__set" : string.Empty)}";
 
     /// <summary>The impl method name of <paramref name="typeName"/>'s body-carrying constructor, or <c>null</c>.</summary>
     private string? BodyConstructorImpl(string typeName) =>
@@ -389,8 +396,10 @@ public sealed partial class CSharpCompiler
 
         var prevInInstance = _inInstanceMethod;
         var prevSelfRecv = _selfRecvName;
+        var prevOwnerTd = _currentOwnerTd;
         _inInstanceMethod = true;
         _selfRecvName = selfName;
+        _currentOwnerTd = ownerTd;
 
         // Bind each instance field as a local alias (own + inherited) so the
         // body's bare field references resolve (Dart implicit-`this`).
@@ -430,6 +439,7 @@ public sealed partial class CSharpCompiler
         sb.Append("    }\n");
         _inInstanceMethod = prevInInstance;
         _selfRecvName = prevSelfRecv;
+        _currentOwnerTd = prevOwnerTd;
         PopScope();
         PopInput();
         return sb.ToString();

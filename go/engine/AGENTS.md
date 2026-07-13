@@ -76,14 +76,23 @@ rest of the sweep, starving CPU. Instead the runner drives the compiled engine's
 **cooperative** execution-timeout guard: it sets `BallEngine.TimeoutMs` to the
 per-fixture budget (`perFixtureTimeout()`, 120 s default, `BALL_TIMEOUT_MS`
 override), and the compiled engine's per-expression `_checkExecutionTimeout`
-(`dart/engine/lib/engine.dart`) makes a runaway self-abort with
-`Execution timeout exceeded` once it has run that long — the goroutine then exits
-and the fixture is reported as a `timeout`. The `select` on `time.After(budget +
-hardDeadlineGrace)` is only a backstop for a runaway that never reaches an
-expression eval (e.g. a native loop in a runtime helper); that pathological case
-still can't be killed in-process. `TimeoutMs` is off (0, unbounded) by default,
-so the CLI/`Run()` path is unaffected. Regression test:
-`conformance/timeout_test.go`.
+(`dart/engine/lib/engine.dart`) makes a **flat-stack** runaway (an infinite
+`while`/`for`) self-abort with `Execution timeout exceeded` once it has run that
+long — the goroutine then exits and the fixture is reported as a `timeout`.
+
+**Known limitation — the cooperative guard does NOT reliably stop every
+runaway.** Two shapes escape it: a native loop inside a runtime helper (never
+returns to an expression eval, so the guard is never consulted), and
+**unbounded-stack Ball recursion** (guard checks run per level but were observed
+not to abort within the budget). Both only surface via the `select` backstop on
+`time.After(budget + hardDeadlineGrace)`, and in both cases the goroutine keeps
+running afterwards — it LEAKS, exactly the residual #436 describes — while
+unbounded recursion additionally risks a fatal Go stack overflow under the
+driver's 1 GiB `SetMaxStack` ceiling, which would kill the whole sweep binary.
+The hardening here fully covers flat-stack runaways (the shape that actually
+wedged sweeps); the recursion shape remains open. `TimeoutMs` is off
+(0, unbounded) by default, so the CLI/`Run()` path is unaffected. Regression
+test: `conformance/timeout_test.go`.
 
 ## Build-tag gating
 

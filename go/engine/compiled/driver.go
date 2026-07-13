@@ -23,11 +23,15 @@ var debugStack = os.Getenv("BALL_DEBUG_STACK") != ""
 //
 // timeoutMs, when > 0, drives the compiled engine's cooperative
 // execution-timeout guard (dart/engine/lib/engine.dart's
-// `_checkExecutionTimeout`, run on every expression eval): a runaway program
-// self-aborts with an "Execution timeout exceeded" BallRuntimeError once it has
-// run that long, so the goroutine below exits instead of spinning forever (Go
-// cannot kill a goroutine — issue #436). 0 leaves execution unbounded (the CLI's
-// behavior).
+// `_checkExecutionTimeout`, run on every expression eval): a FLAT-STACK runaway
+// (an infinite while/for) self-aborts with an "Execution timeout exceeded"
+// BallRuntimeError once it has run that long, so the goroutine below exits
+// instead of spinning forever (Go cannot kill a goroutine — issue #436).
+// Unbounded-stack Ball RECURSION is NOT reliably stopped by this guard — it was
+// observed to keep recursing past the budget, surfacing only via the runner's
+// select backstop while its goroutine leaks, and it risks a fatal Go stack
+// overflow under the 1 GiB SetMaxStack ceiling below (see
+// conformance/runner.go). 0 leaves execution unbounded (the CLI's behavior).
 //
 // The compiled engine is a deep tree-walker whose methods each carry a large
 // frame (hundreds of field-alias locals), so the recursion budget is lifted well

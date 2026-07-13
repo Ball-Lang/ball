@@ -11,11 +11,11 @@ name: Publish crates.io
 # https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet)
 #
 # Auth is crates.io Trusted Publishing (OIDC) via rust-lang/crates-io-auth-action
-# (https://github.com/rust-lang/crates-io-auth-action), with a CARGO_REGISTRY_TOKEN
-# secret fallback. crates.io only lets a Trusted Publisher be configured AFTER a
-# crate's first publish (RFC 3691), so the FIRST release of each new crate name
-# must use the token fallback; configure trusted publishing afterwards. See
-# rust/AGENTS.md § Publishing for the exact maintainer setup.
+# (https://github.com/rust-lang/crates-io-auth-action) — the ONLY auth path. The
+# CARGO_REGISTRY_TOKEN fallback that bootstrapped the 0.1.0 publish is retired:
+# crates.io only lets a Trusted Publisher be configured AFTER a crate's first
+# publish (RFC 3691), so release #1 needed a token; all five crates now have one
+# configured. See rust/AGENTS.md § Publishing.
 
 on:
   push:
@@ -90,7 +90,11 @@ jobs:
           echo ""
           echo "=== Rust Self-Host ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
-          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+          # `passed >= 1` floor (#439/#444): a bare `-z "$passed"` check accepts a
+          # literal "0 passed, 0 failed, 0 total" — 0 is non-empty and 0 == 0 — so
+          # a sweep that executed NOTHING would green-light a publish. #444
+          # hardened the ci.yml and conformance-matrix gates but not this one.
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
             echo "::error::Rust self-host conformance is not at full parity — refusing to publish"
             exit 1
           fi
@@ -120,15 +124,19 @@ jobs:
           grep -q '^default = \["self_host"\]' engine/Cargo.toml || { echo "::error::ball-lang-engine default-feature flip failed"; exit 1; }
           grep -q '^default = \["self_host", "cli_core"\]' cli/Cargo.toml || { echo "::error::ball-lang-cli default-feature flip failed"; exit 1; }
 
-      # ── Auth: crates.io Trusted Publishing (OIDC) with token fallback ──
+      # ── Auth: crates.io Trusted Publishing (OIDC) — REQUIRED ──
       # Exchanges the GitHub OIDC token for a short-lived (30-min) crates.io
-      # token, exposed as steps.auth.outputs.token; auto-revoked in the post
-      # step. `continue-on-error` so that on the FIRST-EVER publish of a crate
-      # (before a Trusted Publisher can be configured — RFC 3691) the job falls
-      # back to the CARGO_REGISTRY_TOKEN secret instead of hard-failing here.
+      # token, exposed as steps.auth.outputs.token; auto-revoked in the post step.
+      #
+      # This step used to carry `continue-on-error: true` with a
+      # CARGO_REGISTRY_TOKEN fallback, because crates.io only lets a Trusted
+      # Publisher be configured AFTER a crate's first publish (RFC 3691) — so the
+      # 0.1.0 bootstrap had to use a token. All five crates now have a Trusted
+      # Publisher configured, so the fallback is retired: a silent fallback would
+      # mask a broken/removed Trusted Publisher behind a green run, which is
+      # exactly the class of lying gate this repo refuses. If OIDC fails, fail here.
       - name: crates.io trusted publishing token (OIDC)
         id: auth
-        continue-on-error: true
         uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
 
       # Publish all publishable crates in ONE command. cargo computes the
@@ -142,10 +150,11 @@ jobs:
       # gitignored compiled_*.rs and the default-feature edits are exactly what
       # we want in the tarball).
       #
-      # Token resolution: the OIDC token when trusted publishing is configured,
-      # else the CARGO_REGISTRY_TOKEN secret fallback.
+      # Token: the short-lived OIDC token from the auth step above. No secret
+      # fallback — trusted publishing is the only auth path (see that step), so
+      # CARGO_REGISTRY_TOKEN can be deleted from the repo's secrets.
       - name: Publish workspace to crates.io
         working-directory: rust
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token || secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --workspace --allow-dirty

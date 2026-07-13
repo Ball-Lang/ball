@@ -171,6 +171,7 @@ public sealed partial class CSharpCompiler
             foreach (var td in module.TypeDefs)
             {
                 _typeDefsByShortName[Naming.TypeShortName(td.Name)] = td;
+                _moduleByTypeShortName[Naming.TypeShortName(td.Name)] = module.Name;
             }
 
             foreach (var func in module.Functions)
@@ -206,6 +207,7 @@ public sealed partial class CSharpCompiler
         }
 
         IndexConstructors();
+        IndexAccessors();
     }
 
     /// <summary>Compile <paramref name="program"/> into a complete C# source file.</summary>
@@ -268,6 +270,10 @@ public sealed partial class CSharpCompiler
         // The synthesized oneof-discriminator constants (Expression_Expr, …) the
         // engine's AST dispatch reads — top-level so every module sees them.
         sb.Append(CompileOneofDiscriminators());
+
+        // The synthesized property (getter/setter) accessors — top-level for the
+        // same reason: a `field_access` carries no module (see Accessors.cs).
+        sb.Append(CompileAccessors());
 
         return sb.ToString();
     }
@@ -679,6 +685,16 @@ public sealed partial class CSharpCompiler
             return $"BallRuntime.FieldGet({selfRead}, {Naming.StringLiteral(reference.Name)})";
         }
 
+        // A bare reference to one of the enclosing class's own getters is an
+        // implicit-`this` getter INVOCATION (Dart), not a method tear-off — the
+        // tear-off below would hand the body a function value where it expects
+        // the property's value.
+        if (_inInstanceMethod && _selfRecvName is { } selfGet && _currentOwnerTd is { } getterOwner
+            && ResolveAccessorImpl(getterOwner, reference.Name, setter: false) is not null)
+        {
+            return $"BallAccessors.{AccessorGetName(reference.Name)}({selfGet})";
+        }
+
         // A oneof-discriminator constant (Expression_Expr.call, …) — proto
         // codegen's synthesized enums, referenced by the engine's dispatch but
         // carrying no EnumDescriptorProto; resolve to the emitted namespace.
@@ -766,6 +782,18 @@ public sealed partial class CSharpCompiler
     private string CompileFieldAccess(FieldAccess fieldAccess)
     {
         var obj = fieldAccess.Object is null ? "BallValue.Null" : CompileExpression(fieldAccess.Object);
+
+        // `obj.celsius` where some class declares `get celsius` is a getter
+        // INVOCATION, not a field read — the instance has no `celsius` field (its
+        // backing store is `_celsius`), so a plain FieldGet silently returned
+        // null. The accessor dispatches on the receiver's run-time type and falls
+        // back to FieldGet for any receiver that is not one of those classes, so
+        // every other field access is unchanged (see Accessors.cs).
+        if (_getterMembers.Contains(fieldAccess.Field))
+        {
+            return $"BallAccessors.{AccessorGetName(fieldAccess.Field)}({obj})";
+        }
+
         return $"BallRuntime.FieldGet({obj}, {Naming.StringLiteral(fieldAccess.Field)})";
     }
 

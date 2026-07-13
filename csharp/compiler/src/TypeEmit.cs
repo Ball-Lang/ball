@@ -189,7 +189,9 @@ public sealed partial class CSharpCompiler
                 }
 
                 var shortMember = Naming.Sanitize(split.Value.Member);
-                var implName = MemberImplName(Naming.TypeShortName(owner), split.Value.Member);
+                var isGetter = MetaBool(member.Metadata, "is_getter");
+                var isSetter = MetaBool(member.Metadata, "is_setter");
+                var implName = MemberImplName(Naming.TypeShortName(owner), split.Value.Member, isSetter);
 
                 if (MetaString(member.Metadata, "kind") == "constructor")
                 {
@@ -217,11 +219,24 @@ public sealed partial class CSharpCompiler
                     continue;
                 }
 
-                impls.Append(CompileMethodImpl(implName, ownerTd, member));
+                // A getter/setter impl is `public` because the top-level
+                // BallAccessors class calls it (see Accessors.cs); every other
+                // method impl stays private to its module class.
+                impls.Append(CompileMethodImpl(implName, ownerTd, member, exported: isGetter || isSetter));
                 impls.Append('\n');
 
+                // A setter is never invoked as `obj.member(…)` — only an
+                // assignment reaches it, through BallAccessors — and dispatching
+                // it by name would run it with no value to store. It only
+                // *reserves* its dispatcher name (`_callableNames` holds it, so a
+                // stray by-name call must still resolve): a dispatcher with no
+                // target fails loud. A getter keeps its dispatcher, so a
+                // first-class reference / tear-off of it still works.
                 dispatchTargets.TryAdd(shortMember, new List<(string, string)>());
-                dispatchTargets[shortMember].Add((owner, implName));
+                if (!isSetter)
+                {
+                    dispatchTargets[shortMember].Add((owner, implName));
+                }
             }
         }
 
@@ -318,22 +333,27 @@ public sealed partial class CSharpCompiler
     /// A method implementation: binds the receiver (<c>self</c>) and each of
     /// the owner's fields as read aliases (so the body's bare field references
     /// resolve — Dart's implicit-<c>this</c> convention), plus the method's
-    /// declared parameters, then compiles the body.
+    /// declared parameters, then compiles the body. <paramref name="exported"/>
+    /// emits it <c>public</c> rather than <c>private</c> — a getter/setter impl,
+    /// which the top-level <c>BallAccessors</c> class calls (see Accessors.cs).
     /// </summary>
-    private string CompileMethodImpl(string implName, TypeDefinition ownerTd, FunctionDefinition member)
+    private string CompileMethodImpl(string implName, TypeDefinition ownerTd, FunctionDefinition member, bool exported)
     {
         var inName = PushInput();
         PushScope();
-        var sb = new StringBuilder($"    private static BallValue {implName}(BallValue {inName})\n    {{\n");
+        var visibility = exported ? "public" : "private";
+        var sb = new StringBuilder($"    {visibility} static BallValue {implName}(BallValue {inName})\n    {{\n");
         var selfName = BindLocal("self");
         sb.Append($"        var {selfName} = BallRuntime.FieldGet({inName}, \"self\");\n");
 
         var prevInInstance = _inInstanceMethod;
         var prevSelfRecv = _selfRecvName;
         var prevVolatile = _volatileFields;
+        var prevOwnerTd = _currentOwnerTd;
         _inInstanceMethod = true;
         _selfRecvName = selfName;
         _volatileFields = VolatileFieldsOf(ownerTd);
+        _currentOwnerTd = ownerTd;
 
         // A declared parameter shadows a same-named field inside the method body
         // (Dart semantics); the field alias would be dead, so skip it when a
@@ -416,6 +436,7 @@ public sealed partial class CSharpCompiler
         _inInstanceMethod = prevInInstance;
         _selfRecvName = prevSelfRecv;
         _volatileFields = prevVolatile;
+        _currentOwnerTd = prevOwnerTd;
         PopScope();
         return sb.ToString();
     }

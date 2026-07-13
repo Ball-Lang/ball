@@ -815,6 +815,9 @@ public sealed partial class CSharpCompiler
     {
         Var,
         Field,
+
+        /// <summary>A user-declared setter (<c>t.celsius = …</c>) — written through <c>BallAccessors</c>, not as a field (see Accessors.cs).</summary>
+        Property,
         Index,
         NullAwareIndex,
         Unsupported,
@@ -842,11 +845,28 @@ public sealed partial class CSharpCompiler
                     return new LValue(LValueKind.Field, selfWrite, target.Reference.Name);
                 }
 
+                // A bare `celsius = v` inside a class that declares `set celsius`
+                // is an implicit-`this` setter invocation (there is no such field
+                // to write, and no such C# local — this would emit a dangling
+                // identifier).
+                if (_inInstanceMethod && _selfRecvName is { } selfProp && _currentOwnerTd is { } setterOwner
+                    && ResolveAccessorImpl(setterOwner, target.Reference.Name, setter: true) is not null)
+                {
+                    return new LValue(LValueKind.Property, selfProp, target.Reference.Name);
+                }
+
                 return new LValue(LValueKind.Var, Naming.Sanitize(target.Reference.Name), string.Empty);
             case Expression.ExprOneofCase.FieldAccess:
                 var fa = target.FieldAccess;
                 var obj = fa.Object is null ? "BallValue.Null" : CompileExpression(fa.Object);
-                return new LValue(LValueKind.Field, obj, fa.Field);
+
+                // `t.celsius = v` where some class declares `set celsius` is a
+                // setter invocation, not a field write — a FieldSet would silently
+                // graft a bogus `celsius` field onto the instance and never run the
+                // setter's body (see Accessors.cs).
+                return _setterMembers.Contains(fa.Field)
+                    ? new LValue(LValueKind.Property, obj, fa.Field)
+                    : new LValue(LValueKind.Field, obj, fa.Field);
             case Expression.ExprOneofCase.Call
                 when target.Call.Module == "std"
                      && (target.Call.Function == "index" || target.Call.Function == "null_aware_index"):
@@ -922,6 +942,14 @@ public sealed partial class CSharpCompiler
             case LValueKind.Field:
                 var currentField = $"BallRuntime.FieldGet({lv.A}, {Naming.StringLiteral(lv.B)})";
                 return $"BallRuntime.FieldSet({lv.A}, {Naming.StringLiteral(lv.B)}, {CombineOp(op, currentField, valueCode)})";
+            case LValueKind.Property:
+                // Write through the setter; a compound op (`t.celsius += 1`) reads
+                // the current value back through the getter first — which is why
+                // Dart requires a matching getter for one (a setter-only property
+                // compiled with a compound op has no `Get__…` to call, and fails
+                // loud at build).
+                var currentProp = $"BallAccessors.{AccessorGetName(lv.B)}({lv.A})";
+                return $"BallAccessors.{AccessorSetName(lv.B)}({lv.A}, {CombineOp(op, currentProp, valueCode)})";
             case LValueKind.Index:
                 var currentIndex = $"BallRuntime.IndexGet({lv.A}, {lv.B})";
                 return $"BallRuntime.IndexSet({lv.A}, {lv.B}, {CombineOp(op, currentIndex, valueCode)})";

@@ -130,9 +130,29 @@ jobs:
           echo "$output"
 
           # The TS engine prints: "Results: N passed, M failed, T total"
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -260,9 +280,29 @@ jobs:
           # Parse "Results: N passed, M failed, T total" line (N/M/T exclude
           # the fixed-size carve-out list; a carve-out that starts passing or
           # a non-carved-out regression both make full_e2e.ts exit non-zero).
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -322,9 +362,29 @@ jobs:
           echo "$output"
 
           # Parse "Results: N passed, M failed, T total" line
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -392,9 +452,29 @@ jobs:
           # golden-having (executed) fixture count — the 4 golden-less
           # resource-limit/sandbox fixtures (196/197/201/202) are behavioral
           # carve-outs the runner skips, exactly like the Dart runner.
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -464,9 +544,29 @@ jobs:
           # golden-having (executed) fixture count — the 4 golden-less
           # resource-limit/sandbox fixtures are behavioral carve-outs the
           # runner skips, exactly like the Dart/Rust runners.
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -536,9 +636,29 @@ jobs:
           # golden-having (executed) fixture count — the 4 golden-less
           # resource-limit/sandbox fixtures are behavioral carve-outs the
           # runner skips, exactly like the Dart/Rust/C# runners.
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -606,9 +726,29 @@ jobs:
           # golden-having (executed) fixture count — the 4 golden-less
           # resource-limit/sandbox fixtures are behavioral carve-outs the
           # runner skips, exactly like the Dart/Rust/C#/Go runners.
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
 
           echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
           echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
@@ -733,9 +873,29 @@ jobs:
           exit_code=$?
           echo "$output"
 
-          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
-          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
-          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
           passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
 
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
@@ -776,6 +936,278 @@ jobs:
       floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
+  # Compiler legs — Ball -> <lang> -> build -> run, PER FIXTURE (#452)
+  #
+  # These are COMPILE legs, not engine legs, and every one is gated as a
+  # RATCHET rather than a parity gate. Read the C# row above for the full
+  # rationale; the short version:
+  #
+  #   A self-hosted engine only has to compile ONE Ball program
+  #   (engine.ball.json, a subset of the language). A compile leg sweeps all
+  #   320 fixture programs. The engine rows being green says NOTHING about the
+  #   compilers — and until now, Rust/Go/Python had no compile leg at all, so
+  #   their compilers were UNMEASURED, which is a different claim from passing.
+  #
+  # Measured on first run (each number reproduced independently twice):
+  #   Go 243/320   Python 238/320   Rust 237/320   C# 226/320
+  # For contrast, TS Compiled (Direct) and C++ Compiled are 320/320 — so the
+  # corpus IS fully compilable and the algorithms exist. These four are ports
+  # that are not finished.
+  #
+  # Gate on "the count did not go DOWN". Raise the floor in the SAME PR that
+  # closes a family, or the gain is not locked in. NEVER lower a floor to turn
+  # a red build green — preventing exactly that is what a ratchet is for.
+  # ──────────────────────────────────────────────────
+  rust-compiler:
+    name: Rust Compiler Leg (ratcheted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      RUST_COMPILER_FLOOR: "237"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # rustup ships preinstalled; `rustup show` installs the pinned toolchain
+      # from rust/rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      # No Dart bootstrap and no `self_host` feature: the compile leg drives
+      # ball-lang-compiler directly and never touches the self-hosted engine.
+      - name: Run compiler leg
+        id: conformance
+        working-directory: rust
+        run: |
+          set +e
+          output=$(cargo test -p ball-lang-compiler --test compiler_conformance -- --ignored --nocapture 2>&1)
+          exit_code=$?
+          echo "$output"
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+          echo "floor=$RUST_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Rust Compiler Leg ==="
+          echo "Results: $passed passed, $failed failed, $total total (floor: $RUST_COMPILER_FLOOR)"
+
+          # A harness that printed nothing must never read as a silent pass
+          # (#439/#444). Guard the parse separately from the ratchet floor.
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The Rust compiler leg reported no Results line — it ran no fixtures"
+            exit 1
+          fi
+
+          if [ "$passed" -lt "$RUST_COMPILER_FLOOR" ]; then
+            echo "::error::Rust compiler leg REGRESSED: $passed passed, below the floor of $RUST_COMPILER_FLOOR — a fixture that used to compile no longer does"
+            exit 1
+          fi
+
+          if [ "$passed" -gt "$RUST_COMPILER_FLOOR" ]; then
+            echo "::notice::Rust compiler leg IMPROVED: $passed passed (floor was $RUST_COMPILER_FLOOR). Raise RUST_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
+          fi
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
+
+  go-compiler:
+    name: Go Compiler Leg (ratcheted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      GO_COMPILER_FLOOR: "243"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+
+      # A `cmd`, not a `go test`: the leg shells out to the Go toolchain 320
+      # times, so keeping it out of `go test ./...` keeps the unit suite fast.
+      - name: Run compiler leg
+        id: conformance
+        working-directory: go/compiler
+        run: |
+          set +e
+          output=$(go run ./cmd/ballgoconf 2>&1)
+          exit_code=$?
+          echo "$output"
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+          echo "floor=$GO_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Go Compiler Leg ==="
+          echo "Results: $passed passed, $failed failed, $total total (floor: $GO_COMPILER_FLOOR)"
+
+          # A harness that printed nothing must never read as a silent pass
+          # (#439/#444). Guard the parse separately from the ratchet floor.
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The Go compiler leg reported no Results line — it ran no fixtures"
+            exit 1
+          fi
+
+          if [ "$passed" -lt "$GO_COMPILER_FLOOR" ]; then
+            echo "::error::Go compiler leg REGRESSED: $passed passed, below the floor of $GO_COMPILER_FLOOR — a fixture that used to compile no longer does"
+            exit 1
+          fi
+
+          if [ "$passed" -gt "$GO_COMPILER_FLOOR" ]; then
+            echo "::notice::Go compiler leg IMPROVED: $passed passed (floor was $GO_COMPILER_FLOOR). Raise GO_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
+          fi
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
+
+  python-compiler:
+    name: Python Compiler Leg (ratcheted)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PYTHON_COMPILER_FLOOR: "238"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: python -m pip install "protobuf>=5.29"
+
+      # Reads goldens and subprocess stdout as BYTES and normalizes only \r\n.
+      # Text mode collapses a lone \r, which silently corrupts golden
+      # comparison in BOTH directions — it has bitten two harnesses here.
+      - name: Run compiler leg
+        id: conformance
+        run: |
+          set +e
+          output=$(python -m python.compiler.conformance.runner 2>&1)
+          exit_code=$?
+          echo "$output"
+          # Parse counts from the FINAL `Results:` line ONLY — never a global
+          # grep over all output. A leg's own progress chatter can contain a
+          # second match (the Rust leg prints "320 fixtures emitted Rust, 0
+          # failed to compile"), which makes `grep -oP` return a MULTILINE
+          # value, splits the echo, and makes GITHUB_OUTPUT reject the write.
+          # Same summary-anchored idiom regression-gates.yml uses for dart test.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          # Assert each count is a single bare integer. A MULTILINE value would
+          # make `[ "$passed" -lt "$FLOOR" ]` error with exit 2 — and a failing
+          # `[` in an `if` SKIPS the branch, so the script would fall through to
+          # `exit 0`: a silently disabled gate. tail -1 above makes that
+          # unreachable; this asserts it rather than trusting it.
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+          passed=${passed:-0}; failed=${failed:-0}; total=${total:-0}
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+          echo "floor=$PYTHON_COMPILER_FLOOR" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Python Compiler Leg ==="
+          echo "Results: $passed passed, $failed failed, $total total (floor: $PYTHON_COMPILER_FLOOR)"
+
+          # A harness that printed nothing must never read as a silent pass
+          # (#439/#444). Guard the parse separately from the ratchet floor.
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The Python compiler leg reported no Results line — it ran no fixtures"
+            exit 1
+          fi
+
+          if [ "$passed" -lt "$PYTHON_COMPILER_FLOOR" ]; then
+            echo "::error::Python compiler leg REGRESSED: $passed passed, below the floor of $PYTHON_COMPILER_FLOOR — a fixture that used to compile no longer does"
+            exit 1
+          fi
+
+          if [ "$passed" -gt "$PYTHON_COMPILER_FLOOR" ]; then
+            echo "::notice::Python compiler leg IMPROVED: $passed passed (floor was $PYTHON_COMPILER_FLOOR). Raise PYTHON_COMPILER_FLOOR to $passed in this workflow to lock the gain in."
+          fi
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
+
+  # ──────────────────────────────────────────────────
   # Summary — parity matrix across all engines
   # ──────────────────────────────────────────────────
   summary:
@@ -783,7 +1215,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler]
+    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler]
     steps:
       - name: Print conformance matrix
         run: |
@@ -870,6 +1302,15 @@ jobs:
           csc_status="PASS"
           if [ "${{ needs.csharp-compiler.result }}" != "success" ]; then csc_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "C# Compiler (Ball -> C# -> Roslyn)" "${{ needs.csharp-compiler.outputs.passed }}" "${{ needs.csharp-compiler.outputs.failed }}" "${{ needs.csharp-compiler.outputs.total }}" "${{ needs.csharp-compiler.outputs.floor }}" "$csc_status"
+          rust_status="PASS"
+          if [ "${{ needs.rust-compiler.result }}" != "success" ]; then rust_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Rust Compiler (Ball -> Rust -> cargo)" "${{ needs.rust-compiler.outputs.passed }}" "${{ needs.rust-compiler.outputs.failed }}" "${{ needs.rust-compiler.outputs.total }}" "${{ needs.rust-compiler.outputs.floor }}" "$rust_status"
+          go_status="PASS"
+          if [ "${{ needs.go-compiler.result }}" != "success" ]; then go_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Go Compiler (Ball -> Go -> go build)" "${{ needs.go-compiler.outputs.passed }}" "${{ needs.go-compiler.outputs.failed }}" "${{ needs.go-compiler.outputs.total }}" "${{ needs.go-compiler.outputs.floor }}" "$go_status"
+          python_status="PASS"
+          if [ "${{ needs.python-compiler.result }}" != "success" ]; then python_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Compiler (Ball -> Python)" "${{ needs.python-compiler.outputs.passed }}" "${{ needs.python-compiler.outputs.failed }}" "${{ needs.python-compiler.outputs.total }}" "${{ needs.python-compiler.outputs.floor }}" "$python_status"
           echo ""
 
           # Fail the summary if any engine job did not succeed (primary gate).
@@ -888,16 +1329,24 @@ jobs:
             summary_failed=1
           fi
 
-          # The ratcheted compile leg self-gates on its floor (a DROP fails
-          # the job), so its RESULT is the whole signal. It is intentionally
+          # Each ratcheted compile leg self-gates on its own floor (a DROP fails
+          # the job), so its RESULT is the whole signal. They are intentionally
           # absent from the failed-count loop below: that loop asserts FULL
-          # PARITY, which this leg does not have yet — feeding its honest 96
-          # in there would wire a known-red number into the parity gate.
-          if [ "${{ needs.csharp-compiler.result }}" != "success" ]; then
-            echo ""
-            echo "The C# compiler leg regressed below its floor. See its job log."
-            summary_failed=1
-          fi
+          # PARITY, and none of these four legs has it yet (C# 226/320, Rust
+          # 237, Go 243, Python 238) — feeding those honest failure counts in
+          # there would wire known-red numbers into the parity gate.
+          for leg in \
+            "C#:${{ needs.csharp-compiler.result }}" \
+            "Rust:${{ needs.rust-compiler.result }}" \
+            "Go:${{ needs.go-compiler.result }}" \
+            "Python:${{ needs.python-compiler.result }}"; do
+            name="${leg%%:*}"; res="${leg#*:}"
+            if [ "$res" != "success" ]; then
+              echo ""
+              echo "The $name compiler leg regressed below its floor. See its job log."
+              summary_failed=1
+            fi
+          done
 
           # Defense-in-depth (F-CM-1): also fail if any engine reported a
           # non-zero parsed failure count, even if its job reported success —

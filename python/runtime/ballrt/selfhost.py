@@ -170,7 +170,10 @@ ty_Future = _TypeToken("Future")
 # ── Builtin static methods (int.tryParse, List.filled, …) ────────────────────
 
 def int_parse(s):
-    return int(str(s).strip())
+    try:
+        return int(str(s).strip())
+    except (ValueError, TypeError):
+        return throw(f"FormatException: {s!r}")
 
 
 def int_try_parse(s):
@@ -196,7 +199,10 @@ def num_try_parse(s):
 
 
 def double_parse(s):
-    return float(str(s).strip())
+    try:
+        return float(str(s).strip())
+    except (ValueError, TypeError):
+        return throw(f"FormatException: {s!r}")
 
 
 def double_try_parse(s):
@@ -309,7 +315,14 @@ class DateTime:
         return DateTime(self._dt.astimezone(_datetime.timezone.utc))
 
     def toIso8601String(self):
-        return self._dt.isoformat()
+        # Dart's format: always millisecond precision (microsecond if non-zero),
+        # and a `Z` suffix for UTC (no numeric offset).
+        dt = self._dt
+        base = dt.strftime("%Y-%m-%dT%H:%M:%S")
+        us = dt.microsecond
+        frac = ".%03d" % (us // 1000) if us % 1000 == 0 else ".%06d" % us
+        is_utc = dt.tzinfo is not None and dt.utcoffset() == _datetime.timedelta(0)
+        return base + frac + ("Z" if is_utc else "")
 
     def isBefore(self, other):
         return self._dt < other._dt

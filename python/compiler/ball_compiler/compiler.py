@@ -1714,21 +1714,85 @@ class Compiler:
         return self.fail(f"unsupported base function {mod}.{fn}")
 
     def map_create(self, call: dict) -> str:
-        """A map literal (``{k: v, …}`` / ``<K,V>{}``). The entries are repeated
-        ``entry`` fields (each a ``{key, value}`` message) on the ``map_create``
-        input — read from the raw field list, since same-named fields collapse in
-        the flattened ``fields()`` view. ``<K,V>{}`` has no ``entry`` → ``{}``."""
+        """A map literal / comprehension. Entries are ``entry`` fields (each a
+        ``{key, value}`` message); a comprehension has ``element`` fields whose
+        value is a ``collection_for``/``collection_if``/spread call. Read from the
+        raw field list (same-named fields collapse in the flattened view)."""
         inp = call.get("input") or {}
         mc = inp.get("messageCreation") or {}
-        pairs = []
-        for fv in mc.get("fields", []):
-            if fv.get("name") != "entry":
-                continue
-            ev = fv.get("value") or {}
-            ef = self.mc_fields(ev.get("messageCreation", {})) if "messageCreation" in ev else {}
+        fields = [fv for fv in mc.get("fields", []) if fv.get("name") not in _SYNTH_FIELDS]
+        # A plain map literal (all `entry`) is a dict literal; anything with an
+        # `element` (comprehension / spread) is built imperatively into a temp.
+        if all(fv.get("name") == "entry" for fv in fields):
+            pairs = []
+            for fv in fields:
+                ef = self._entry_kv(fv.get("value"))
+                if ef:
+                    pairs.append(ef)
+            return "{" + ", ".join(pairs) + "}"
+        t = self.newtemp()
+        self.line(f"{t} = {{}}")
+        for fv in fields:
+            self.emit_map_element(t, fv.get("value"))
+        return t
+
+    def _entry_kv(self, value):
+        ev = value or {}
+        ef = self.mc_fields(ev.get("messageCreation", {})) if "messageCreation" in ev else {}
+        if "key" in ef and "value" in ef:
+            return f"{self.value(ef['key'])}: {self.value(ef['value'])}"
+        return None
+
+    def emit_map_element(self, target: str, value):
+        """Emit one map-comprehension element into ``target`` (a dict temp): a
+        ``{key, value}`` entry, or a ``collection_for``/``collection_if``/spread."""
+        if isinstance(value, dict) and "messageCreation" in value:
+            ef = self.mc_fields(value["messageCreation"])
             if "key" in ef and "value" in ef:
-                pairs.append(f"{self.value(ef['key'])}: {self.value(ef['value'])}")
-        return "{" + ", ".join(pairs) + "}"
+                self.line(f"ballrt.index_set({target}, {self.value(ef['key'])}, {self.value(ef['value'])})")
+                return
+        c = value.get("call") if isinstance(value, dict) else None
+        if c is not None:
+            fn = c.get("function", "")
+            cf = self.fields(c)
+            if fn == "collection_for":
+                var = self.str_field(cf, "variable") or "item"
+                self.push_scope()
+                it = self.newtemp()
+                self.line(f"for {it} in ballrt.iterate({self.value_field(cf, 'iterable')}):")
+                with self.block():
+                    py = self.bind(var)
+                    self.line(f"{py} = {it}")
+                    if "body" in cf:
+                        self.emit_map_element(target, cf["body"])
+                    else:
+                        self.line("pass")
+                self.pop_scope()
+                return
+            if fn == "collection_if":
+                self.line(f"if ballrt.truthy({self.value_field(cf, 'condition')}):")
+                with self.block():
+                    if "then" in cf:
+                        self.emit_map_element(target, cf["then"])
+                    else:
+                        self.line("pass")
+                if "else" in cf:
+                    self.line("else:")
+                    with self.block():
+                        self.emit_map_element(target, cf["else"])
+                return
+            if fn in ("spread", "null_spread"):
+                src = self.value_field(cf, "value")
+                if fn == "null_spread":
+                    tmp = self.newtemp()
+                    self.line(f"{tmp} = {src}")
+                    self.line(f"if {tmp} is not None:")
+                    with self.block():
+                        self.line(f"{target}.update({tmp})")
+                else:
+                    self.line(f"{target}.update({src})")
+                return
+        self.errors.append("unsupported map-comprehension element")
 
     def convert_expr(self, fn: str, f: dict) -> str:
         val = self.value_field(f, "value", "input", "bytes", "string")

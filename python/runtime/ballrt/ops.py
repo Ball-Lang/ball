@@ -365,11 +365,19 @@ def string_code_unit_at(v, i):
 
 
 def string_to_int(v):
-    return int(v)
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        from .flow import throw
+        return throw(f"FormatException: {v!r}")
 
 
 def string_to_double(v):
-    return float(v)
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        from .flow import throw
+        return throw(f"FormatException: {v!r}")
 
 
 def string_pad_left(v, width, padding):

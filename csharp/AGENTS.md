@@ -620,6 +620,17 @@ Three legs, one runner, selected via `--leg=`:
   .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
   /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
 
+**CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
+row in `conformance-matrix.yml` runs the `compiler` leg on every push/PR, prints the honest count,
+and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `224`, the number
+above). This is deliberate. Gating it at full parity would just hold `main` red on 96 known gaps;
+leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
+regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
+only go up, and the job prints the exact new floor to commit when it does. **Raise the floor in
+the same PR that closes a family**, or the gain is not locked in. Never lower it to turn a red
+build green — preventing precisely that is what a ratchet is for. The `engine` leg stays a true
+parity gate (`failed == 0`), because it *is* at parity.
+
 **Regen seam for CI (issue #386, implemented):** the harness does not regenerate
 `CompiledEngine.cs` itself — same division of responsibility as `Ball.Engine.Tests`. A CI job
 runs the regen steps documented in "Build & Test" below (`compile_engine_cpp.dart` to produce

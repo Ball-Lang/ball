@@ -168,6 +168,13 @@ def getfield(obj, name):
             return list(reversed(obj))
         raise AttributeError(f"ball: unsupported list field {name!r}")
     if isinstance(obj, dict):
+        # An actual key wins over a Dart Map getter of the same name — the loaded
+        # proto view has literal fields named `values` (ListValue.values),
+        # `keys`, `entries`, `length`, so a proto message's own field must take
+        # precedence (the engine's `.values` on a plain Dart map has no such key
+        # and still falls through to the getter below).
+        if name in obj:
+            return obj[name]
         if name == "length":
             return len(obj)
         if name == "isEmpty":

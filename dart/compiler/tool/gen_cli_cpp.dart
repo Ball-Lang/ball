@@ -100,8 +100,8 @@ Future<void> main(List<String> args) async {
   }
   final program = decoded.program;
 
-  // Extract the `main` module (the portable verbs) and strip `auditReport`,
-  // whose analyzers are import stubs (see the doc comment above).
+  // Extract the `main` module (the portable verbs) — the whole module,
+  // including `auditReport` (see the doc comment above).
   Module? mainModule;
   for (final m in program.modules) {
     if (m.name == 'main') {

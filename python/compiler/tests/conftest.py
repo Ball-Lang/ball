@@ -8,6 +8,7 @@ The compiler package lives beside the runtime package; both are put on
 from __future__ import annotations
 
 import io
+import re
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -25,12 +26,16 @@ for p in (str(RUNTIME), str(COMPILER)):
 
 
 def run_source(source: str) -> str:
-    """Execute a compiled Python module's ``main`` entry, capturing stdout."""
+    """Execute a compiled Python module's entry function, capturing stdout.
+
+    The entry name is read from the emitted ``ballrt.run_entry(<name>)`` line
+    (the entry is ``sanitize(entryFunction)``, not necessarily ``main``)."""
     import ballrt
 
     ns: dict = {}
     exec(compile(source, "<compiled>", "exec"), ns)
-    entry = ns.get("main")
+    match = re.search(r"ballrt\.run_entry\((\w+)\)", source)
+    entry = ns.get(match.group(1)) if match else ns.get("main")
     buf = io.StringIO()
     try:
         with redirect_stdout(buf):
@@ -39,6 +44,16 @@ def run_source(source: str) -> str:
     except SystemExit:
         pass
     return buf.getvalue()
+
+
+def read_golden(path: Path) -> str:
+    """Read a golden file, normalising only CRLF line separators to LF.
+
+    A Windows checkout stores goldens with CRLF, but a fixture may legitimately
+    print an embedded lone CR (Dart ``'\\r'``). ``Path.read_text`` uses universal
+    newlines and would collapse that semantic CR to LF, so read bytes and strip
+    only ``\\r\\n`` pairs — the compiled program writes ``\\n`` line endings."""
+    return path.read_bytes().decode("utf-8").replace("\r\n", "\n")
 
 
 @pytest.fixture

@@ -4,7 +4,10 @@
 
 ## Purpose
 The Python Ball target. A **compiler + runtime + encoder + self-hosted engine +
-CLI** (Ball epic #445 Phases 2-5); CI wiring is a later phase.
+CLI** (Ball epic #445 Phases 2-5), **CI-gated** (Phase 7): the `python` job in
+`.github/workflows/ci.yml` (compiler/encoder/CLI pytest + `compileall` + the
+regenerate-and-run self-hosted engine conformance sweep) plus a `python-engine`
+row in `conformance-matrix.yml`, both gating on full Dart parity.
 
 ## Key Files / Contents
 | Dir | Description |
@@ -45,8 +48,8 @@ engine** runs the whole conformance corpus at **Dart parity**:
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
-maturity against tests, not prose — CI wiring is a later phase. Full design lives
-in `compiler/AGENTS.md`, `runtime/AGENTS.md`, `encoder/AGENTS.md`, and
+maturity against CI (the `python`/`python-engine` jobs, Phase 7), not prose. Full
+design lives in `compiler/AGENTS.md`, `runtime/AGENTS.md`, `encoder/AGENTS.md`, and
 `engine/AGENTS.md`.
 
 ## For AI Agents

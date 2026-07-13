@@ -46,6 +46,8 @@ import {
   analyzeCapabilitiesReachable as _analyzeCapabilitiesReachable,
   formatCapabilityReport as _formatCapabilityReport,
   checkPolicyViolations as _checkPolicyViolations,
+  analyzeTermination as _analyzeTermination,
+  formatTerminationReport as _formatTerminationReport,
 } from './compiled_cli.ts';
 
 // ── Ball program types (proto3 JSON shape) ──────────────────────────────────
@@ -324,4 +326,23 @@ export function checkPolicy(
 /** The full `ball audit` report text (capability report + termination). */
 export function auditReport(program: Program): string {
   return _auditReport(normalizeAuditProgram(program)) as string;
+}
+
+/**
+ * Whole-program termination analysis: the list of "Potential Infinite Loops"
+ * warnings the compiled analyzer produces. Like `auditReport`, it walks the
+ * fully-materialized expression tree — so it must be handed the normalized
+ * program, never the raw proto3-JSON one (which omits default fields). The
+ * `--reachable-only` audit path (index.ts) needs this separately from the
+ * capability report, because native `ball audit --reachable-only` scopes only
+ * the capability report to the reachable closure while running termination on
+ * the WHOLE program (runner.dart's `_audit`).
+ */
+export function analyzeTermination(program: Program): unknown[] {
+  return _analyzeTermination(normalizeAuditProgram(program)) as unknown[];
+}
+
+/** Render the termination warnings (from `analyzeTermination`) as text. */
+export function formatTerminationReport(warnings: unknown[]): string {
+  return _formatTerminationReport(warnings) as string;
 }

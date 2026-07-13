@@ -330,8 +330,19 @@ async function cmdAudit(args: ParsedArgs): Promise<number> {
   } else if (reachableOnly) {
     // Scoped text report: the capability report over the reachable closure
     // only (auditReport always analyzes the whole program, so it can't render
-    // the `--reachable-only` view).
-    process.stdout.write(cliCore.formatCapabilityReport(report));
+    // the `--reachable-only` view). Mirror native runner.dart's `_audit`
+    // (~540-549) byte-for-byte: `out.writeln(formatCapabilityReport(report))`
+    // — the `+ '\n'` reproduces writeln's trailing newline — then, when the
+    // termination analyzer finds warnings, a blank line plus the termination
+    // report. Termination is bound to the WHOLE program (runner.dart binds it
+    // to `analyzeTermination(program)`, not the reachable subset — only the
+    // capability report is reachable-scoped), so it is computed here, not read
+    // from the reachable-scoped `report`.
+    process.stdout.write(cliCore.formatCapabilityReport(report) + '\n');
+    const termWarnings = cliCore.analyzeTermination(program);
+    if (termWarnings.length > 0) {
+      process.stdout.write('\n' + cliCore.formatTerminationReport(termWarnings) + '\n');
+    }
   } else {
     // Default `ball audit <path>`: the full self-hosted report — capability
     // analysis PLUS termination analysis — byte-identical to the native Dart

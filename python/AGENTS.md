@@ -1,10 +1,10 @@
 <!-- Parent: ../AGENTS.md -->
 
-# Python (runtime + compiler + encoder + engine)
+# Python (runtime + compiler + encoder + engine + cli)
 
 ## Purpose
-The Python Ball target. A **compiler + runtime + encoder + self-hosted engine**
-(Ball epic #445 Phases 2-4); the full `ball` CLI and CI wiring are later phases.
+The Python Ball target. A **compiler + runtime + encoder + self-hosted engine +
+CLI** (Ball epic #445 Phases 2-5); CI wiring is a later phase.
 
 ## Key Files / Contents
 | Dir | Description |
@@ -14,6 +14,7 @@ The Python Ball target. A **compiler + runtime + encoder + self-hosted engine**
 | `compiler/` | `ball_compiler` — the Ball -> Python compiler (`compile` script mode + `compile_library` for the engine) + the `ballpyc` CLI. See `compiler/AGENTS.md`. |
 | `encoder/` | `ball_encoder` — the Python -> Ball encoder (stdlib `ast`) + the `ballpyenc` CLI. Proven by round-trips through the compiler. See `encoder/AGENTS.md`. |
 | `engine/` | `ball_engine` — the self-hosted engine: compiles `dart/self_host/engine.ball.json` through `compile_library` into the gitignored `compiled_engine.py`, driven by a native loader/driver; a subprocess-per-fixture conformance runner. See `engine/AGENTS.md`. |
+| `cli/` | `ball_cli` — the `ball` CLI: the four core verbs `run`/`compile`/`encode`/`check` over engine/compiler/encoder, all in-process via `ball_cli.run`. `run` needs the gitignored `compiled_engine.py` (honest exit-1 + regenerate hint when absent). See `cli/AGENTS.md`. |
 
 ## Build & Test
 ```bash
@@ -30,11 +31,15 @@ python -m ball_encoder <src.py> -o out.ball.json                      # encode P
 cd dart && dart run compiler/tool/gen_engine_json.dart                # self-host source
 cd ../python/engine && python -m ball_engine.regen                   # -> compiled_engine.py (gitignored)
 python -m conformance.runner                                          # prints the Results: line
+
+cd python/cli && python -m pytest -q                                  # CLI, in-process (every verb)
+python -m ball_cli check   <program.ball.json>                        # or compile / encode / run
 ```
 
 ## Status
-Compiler + runtime + encoder + self-hosted engine, Python >= 3.11. The
-**compiler** passes **52 tests** and the **encoder 42**. The **self-hosted
+Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
+**compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
+four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
 `Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the

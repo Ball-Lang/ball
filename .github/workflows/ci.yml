@@ -98,11 +98,16 @@ jobs:
           # cross-cutting forces every stack to run, so a path we forgot to map
           # can never silently skip a check (fail-safe by construction).
           infra=false
-          # EVERY language dir must be listed here. An omission does not skip a
-          # job (each stack job gates on its own output, plus self_host below) —
-          # it produces a false infra=true, dragging the whole ~25-min C++ matrix
-          # into a PR that cannot possibly affect it. `go/` was missed when #438
-          # wired Go up: fail-safe, but pure waste on every Go PR (#451).
+          # List every language dir THAT HAS ITS OWN `out <lang>` OUTPUT AND JOB
+          # BELOW — and only those. The two directions fail very differently:
+          #   * Omitting such a dir is merely wasteful: it yields a false
+          #     infra=true, dragging the whole ~25-min C++ matrix into a PR that
+          #     cannot possibly affect it. `go/` was missed when #438 wired Go up
+          #     (#451) — fail-safe, but pure waste on every Go PR.
+          #   * Adding a dir that has NO job (java/ today: bindings only, no CI
+          #     job) is UNSAFE — it would stop tripping infra without anything
+          #     else covering it, silently dropping that PR to proto-only checks.
+          # So java/ is correctly absent. Add it here only alongside a java job.
           if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<< "$files"; then infra=true; fi
 
           # self_host = the diff touches a Dart source that CROSS-COMPILES into

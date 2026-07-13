@@ -78,16 +78,41 @@ use ball_lang_shared::proto::ball::v1::{
     Expression, FieldValuePair, FunctionCall, ListLiteral, MessageCreation,
 };
 
+use crate::pattern::{PatternMatch, binding_decls};
 use crate::{Compiler, SwitchLabelCtx};
 
-/// [`Compiler::parse_switch_goto_cases`]'s return shape: `(arms, default
-/// body, label → arm index)` — each arm is `(match-value conditions, RAW
-/// case body)`. See that method's doc comment.
-type ParsedSwitchGotoCases = (
-    Vec<(Vec<String>, Expression)>,
-    Option<Expression>,
-    HashMap<String, usize>,
-);
+/// The local the subject is evaluated into — **once** — at the head of every
+/// lowered switch. Every arm's condition and every pattern accessor clones from
+/// it, so a side-effecting or expensive subject runs exactly one time.
+const SWITCH_SUBJECT: &str = "__switch_subject";
+
+/// One lowered switch arm — see [`Compiler::parse_switch_cases`].
+struct SwitchArm {
+    /// The arm's match condition(s): its own, plus those of any body-less cases
+    /// that fell through into it (OR'd — `case 'a': case 'b': body`).
+    conditions: Vec<String>,
+    /// The pattern's binders, `(Ball name, accessor expression)` — re-declared
+    /// as `let`s at the head of the matched block (and of the guard's block).
+    bindings: Vec<(String, String)>,
+    /// The `when` clause, if any — an ordinary Ball expression over the binders.
+    guard: Option<Expression>,
+    /// The case body, **uncompiled** — see [`Compiler::parse_switch_cases`].
+    body: Expression,
+}
+
+/// [`Compiler::parse_switch_cases`]'s result.
+#[derive(Default)]
+struct ParsedSwitch {
+    arms: Vec<SwitchArm>,
+    /// Whether the switch has a default/catch-all arm *at all* — distinct from
+    /// [`Self::default_body`], which is also `None` for a `default:` whose body
+    /// is empty.
+    has_default: bool,
+    default_body: Option<Expression>,
+    /// `label → arm index`, the goto-via-switch jump table (issue #346; see
+    /// [`crate::SwitchLabelCtx`]).
+    label_to_arm: HashMap<String, usize>,
+}
 
 impl Compiler<'_> {
     /// `call` — the shared entry point for both node types folded under
@@ -188,8 +213,8 @@ impl Compiler<'_> {
             "while" => return self.compile_while(call, None),
             "do_while" => return self.compile_do_while(call, None),
             "label" => return self.compile_label(call),
-            "switch" => return self.compile_switch(call),
-            "switch_expr" => return self.compile_switch(call),
+            "switch" => return self.compile_switch(call, false),
+            "switch_expr" => return self.compile_switch(call, true),
             "map_create" => return self.compile_map_create(call),
             "record" => return self.compile_record(call),
             "invoke" => return self.compile_invoke(call),
@@ -379,7 +404,7 @@ impl Compiler<'_> {
     // Field-extraction helpers
     // ════════════════════════════════════════════════════════════
 
-    fn field_or_null(&self, fields: &IndexMap<String, Expression>, key: &str) -> String {
+    pub(crate) fn field_or_null(&self, fields: &IndexMap<String, Expression>, key: &str) -> String {
         match fields.get(key) {
             Some(expr) => self.compile_expression(expr),
             None => "BallValue::Null".to_string(),
@@ -583,7 +608,11 @@ impl Compiler<'_> {
     /// string [`Expression`] inside the calling `MessageCreation` (see
     /// `dart/compiler/lib/compiler.dart`'s `_stringFieldValue`, which this
     /// mirrors exactly).
-    fn string_field(&self, fields: &IndexMap<String, Expression>, key: &str) -> Option<String> {
+    pub(crate) fn string_field(
+        &self,
+        fields: &IndexMap<String, Expression>,
+        key: &str,
+    ) -> Option<String> {
         match fields.get(key).map(|e| &e.expr) {
             Some(Some(Expr::Literal(literal))) => match &literal.value {
                 Some(LiteralValue::StringValue(value)) => Some(value.clone()),
@@ -1465,22 +1494,36 @@ impl Compiler<'_> {
         )
     }
 
-    /// `switch(subject, cases[])` — compiles to an **if-chain** (each case
-    /// value compared to `subject` via `ball_equals`), not a native Rust
-    /// `match`: case values are arbitrary compiled expressions (not
-    /// necessarily `match`-pattern-legal literals), matching the issue's own
-    /// "`match`/`if`-chain" phrasing.
+    /// `switch(subject, cases[])` / `switch_expr(...)` — compiles to an
+    /// **if-chain** (not a native Rust `match`: a Ball case's match condition is
+    /// an arbitrary compiled expression — a Dart-3 *pattern* — not a
+    /// `match`-pattern-legal literal). Each arm is
+    /// `if <pattern condition> [&& <guard>] { <binders>; <body> }`, and the
+    /// chain's trailing `else` is the default arm; the whole chain is a Rust
+    /// block expression, so one lowering serves both the statement `switch` and
+    /// the value-producing `switch_expr`.
+    ///
+    /// **Patterns** (`crate::pattern`): a case's `pattern_expr` compiles to a
+    /// boolean condition over `__switch_subject` plus a flat list of binders,
+    /// which this re-materializes as `let`s at the head of the matched block —
+    /// so the body's references to them resolve like any other local. The
+    /// subject is evaluated **once**, into `__switch_subject`; every condition
+    /// and accessor clones from it.
+    ///
+    /// **Guards** (`when`): a case whose pattern matches but whose guard is
+    /// false is **not** a match — control falls through to the next case. That
+    /// is exactly what an `else if` chain does, so the guard is simply the
+    /// right conjunct of the arm's condition (`&&` short-circuits, so the
+    /// binders it needs are only materialized once the pattern matched).
     ///
     /// **Fall-through:** Dart's label fall-through (`case A: case B: body;`)
-    /// encodes as consecutive cases where the leading ones carry *no* body
-    /// (or an empty body) and the last carries the shared body — exactly what
-    /// the reference Dart compiler's `_generateSwitch` relies on Dart's native
-    /// `switch` to handle. Because this target lowers to an `if`-chain rather
-    /// than a native `match`, fall-through is realized explicitly: body-less
-    /// cases *accumulate* their match values into the next case that has a real
-    /// body (`case 'post_increment': case 'pre_increment': … case
-    /// 'pre_decrement': return _evalIncDec(…)` → one arm matching any of the
-    /// four). Without this, a body-less fall-through case compiled to an empty
+    /// encodes as consecutive cases where the leading ones carry *no* body (or
+    /// an empty body) and the last carries the shared body. Because this target
+    /// lowers to an if-chain rather than a native `match`, fall-through is
+    /// realized explicitly: a body-less case's condition is *accumulated* into
+    /// the next case that has a real body (`case 'post_increment': case
+    /// 'pre_increment': … return _evalIncDec(…)` → one arm matching any of
+    /// them). Without this, a body-less case compiled to an empty
     /// `BallValue::Null` arm and the shared body was reached only for the *last*
     /// label — which silently no-op'd `i++`/`i--` (the engine routes three of
     /// the four increment/decrement functions through such a fall-through),
@@ -1492,97 +1535,117 @@ impl Compiler<'_> {
     /// engine's switches all `return`/fall through, never bare-`break`).
     ///
     /// **Labelled cases (issue #346):** a case carrying a `label` field
-    /// (`one: case 1: ...`) is Dart's *goto-via-switch* — a
-    /// `continue('one')` anywhere in the switch jumps straight to that
-    /// case's body with no subject re-check. That shape doesn't fit this
-    /// if-chain (a bare Rust `continue`/`break` inside it targets whatever
-    /// loop *encloses* the switch, not the switch itself), so any switch with
-    /// at least one labelled case is routed to
-    /// [`Compiler::compile_switch_goto`]'s state-machine lowering instead —
-    /// ported from `ts/compiler/src/compiler.ts`'s `emitGotoSwitchStmt`. A
-    /// switch with **no** labelled cases (the overwhelming common case) is
-    /// unaffected: it still compiles through this if-chain, byte-for-byte.
-    fn compile_switch(&self, call: &FunctionCall) -> String {
+    /// (`one: case 1: ...`) is Dart's *goto-via-switch* — a `continue('one')`
+    /// anywhere in the switch jumps straight to that case's body with no subject
+    /// re-check. That shape doesn't fit this if-chain (a bare Rust
+    /// `continue`/`break` inside it targets whatever loop *encloses* the switch,
+    /// not the switch itself), so any switch with at least one labelled case is
+    /// routed to [`Compiler::compile_switch_goto`]'s state-machine lowering
+    /// instead — ported from `ts/compiler/src/compiler.ts`'s
+    /// `emitGotoSwitchStmt`. A switch with **no** labelled cases (the
+    /// overwhelming common case) is unaffected.
+    fn compile_switch(&self, call: &FunctionCall, is_expr: bool) -> String {
         let f = extract_fields(call);
         let subject_code = self.field_or_null(&f, "subject");
         let cases = f
             .get("cases")
             .map(literal_list_elements)
             .unwrap_or_default();
-
-        if cases
+        let labelled = cases
             .iter()
-            .any(|case| self.switch_case_label(case).is_some())
-        {
-            return self.compile_switch_goto(subject_code, &cases);
+            .any(|case| self.switch_case_label(case).is_some());
+        let parsed = self.parse_switch_cases(&cases);
+        if labelled {
+            return self.compile_switch_goto(subject_code, parsed);
         }
 
-        let mut arms: Vec<(Vec<String>, String)> = Vec::new();
-        let mut default_body: Option<String> = None;
-        // Match values of body-less (fall-through) cases, carried forward until
-        // the next case that supplies a real body absorbs them.
-        let mut pending_values: Vec<String> = Vec::new();
-        for case in &cases {
-            let Some(Expr::MessageCreation(mc)) = &case.expr else {
-                continue;
-            };
-            let cf = self.message_creation_fields(mc);
-            let is_default = self.bool_field(&cf, "is_default");
-            // A case "has a body" only if `body` is present AND not an empty
-            // block/`notSet` literal — mirroring the Dart compiler's
-            // `_isEmptyBody` fall-through test. A missing/empty body means this
-            // label falls through to the next.
-            let real_body = cf
-                .get("body")
-                .filter(|b| !is_empty_switch_body(b))
-                .map(|b| self.compile_expression(b));
-
-            if !is_default {
-                pending_values.extend(self.switch_case_match_values(&cf));
-            }
-
-            let Some(body_code) = real_body else {
-                // Fall-through: keep accumulating (non-default) match values;
-                // a body-less `default` contributes nothing on its own.
-                continue;
-            };
-
-            if is_default {
-                default_body = Some(body_code);
-                // Any values that fell through *into* this default are already
-                // covered by the trailing `else` (default) arm, so drop them.
-                pending_values.clear();
-            } else {
-                let values = std::mem::take(&mut pending_values);
-                if !values.is_empty() {
-                    arms.push((values, body_code));
-                }
-            }
-        }
-
-        let mut out = String::from("{\nlet __switch_subject = ");
-        out.push_str(&subject_code);
-        out.push_str(";\n");
-        if arms.is_empty() {
-            out.push_str(default_body.as_deref().unwrap_or("BallValue::Null"));
-        } else {
-            for (index, (values, body_code)) in arms.iter().enumerate() {
-                if index > 0 {
-                    out.push_str(" else ");
-                }
-                // A case matches if the subject equals **any** of its values
-                // (a `LogicalOrPattern` — `case 'a' || 'b':` — contributes
-                // several; a plain value contributes one).
-                let condition = switch_values_condition(values);
-                out.push_str(&format!("if {condition} {{\n{body_code}\n}}"));
+        let mut out = format!("{{\nlet {SWITCH_SUBJECT} = {subject_code};\n");
+        for (index, arm) in parsed.arms.iter().enumerate() {
+            if index > 0 {
+                out.push_str(" else ");
             }
             out.push_str(&format!(
-                " else {{\n{}\n}}",
-                default_body.as_deref().unwrap_or("BallValue::Null")
+                "if {} {{\n{}\n}}",
+                self.switch_arm_condition(arm),
+                self.switch_arm_body(arm)
             ));
+        }
+        let tail = self.switch_default_code(&parsed, is_expr);
+        if parsed.arms.is_empty() {
+            out.push_str(&tail);
+        } else {
+            out.push_str(&format!(" else {{\n{tail}\n}}"));
         }
         out.push_str("\n}");
         out
+    }
+
+    /// The code the switch evaluates to when no arm matched: the `default:` /
+    /// catch-all (`_`) body when there is one, else `BallValue::Null` — for a
+    /// `switch_expr` exactly as for a statement `switch`.
+    ///
+    /// **A missing default is NOT an error, at either kind of switch.** An
+    /// earlier revision of this port made a defaultless `switch_expr` throw
+    /// `StateError('Non-exhaustive switch expression')`, reasoning that Dart's
+    /// exhaustiveness checker makes the fall-through unreachable. That is false
+    /// for Ball IR, and it broke the self-hosted engine: the engine's own oneof
+    /// dispatchers (`_evalExpression` on `whichExpr`, `_evalLiteral` on
+    /// `whichValue`) are defaultless switch *expressions* over the oneof's set
+    /// arms, and a Ball `null` literal is a `Literal` whose `value` oneof is
+    /// **notSet** — it legitimately matches no case and must fall through to
+    /// null. The throw fired there and killed the null/nullable fixtures.
+    ///
+    /// Fail-loud (issue #55) belongs at **compile time**, on an unhandled
+    /// pattern *kind* (`crate::pattern::Compiler::compile_pattern`'s `panic!`) —
+    /// not on a legitimate *runtime* fall-through in the IR. The reference TS
+    /// compiler agrees (`ts/compiler/src/compiler.ts`: `const tail = defaultBody
+    /// ? this.expr(defaultBody) : "undefined"`), as does the reference engine.
+    ///
+    /// `_is_expr` is kept in the signature to document that the statement and
+    /// expression switches deliberately share one tail.
+    fn switch_default_code(&self, parsed: &ParsedSwitch, _is_expr: bool) -> String {
+        match &parsed.default_body {
+            Some(body) => self.compile_expression(body),
+            None => "BallValue::Null".to_string(),
+        }
+    }
+
+    /// An arm's full match condition: its own pattern condition OR'd with those
+    /// of the body-less cases that fell through into it, AND — when the case has
+    /// a `when` clause — the guard, evaluated in its own block with the pattern's
+    /// binders re-materialized. `&&` short-circuits, so a binder accessor never
+    /// runs against a subject the pattern rejected.
+    ///
+    /// A guard that yields anything but `true` (a non-boolean, a null) is a
+    /// **non-match**, not an error — the reference engine's `r != true` test.
+    fn switch_arm_condition(&self, arm: &SwitchArm) -> String {
+        let matched = or_conditions(&arm.conditions);
+        let Some(guard) = &arm.guard else {
+            return matched;
+        };
+        self.push_scope();
+        for (name, _) in &arm.bindings {
+            self.bind_local(name);
+        }
+        let guard = self.compile_expression(guard);
+        self.pop_scope();
+        format!(
+            "({matched}) && ({{\n{}{guard} == BallValue::Bool(true)\n}})",
+            binding_decls(&arm.bindings)
+        )
+    }
+
+    /// An arm's body, preceded by the `let`s that re-materialize the pattern's
+    /// binders from the (already-matched) subject. The binders are in scope
+    /// while the body compiles, so a body reference to one resolves as a local.
+    fn switch_arm_body(&self, arm: &SwitchArm) -> String {
+        self.push_scope();
+        for (name, _) in &arm.bindings {
+            self.bind_local(name);
+        }
+        let body = self.compile_expression(&arm.body);
+        self.pop_scope();
+        format!("{}{body}", binding_decls(&arm.bindings))
     }
 
     /// A `SwitchCase`'s own non-empty `label` field, if any — the marker of
@@ -1608,6 +1671,8 @@ impl Compiler<'_> {
     /// [`Compiler::compile_continue`]/[`crate::Compiler::resolve_switch_goto`])
     /// re-enters at the labelled arm with **no** subject re-check, and a
     /// body that falls off its arm (or hits a plain `break`) exits the loop.
+    /// A pattern's binders are re-materialized at the head of *every* arm, so a
+    /// goto entry sees them too (recomputed from the subject).
     ///
     /// Unlike the JS/TS port, Rust's `match` does not intercept a bare
     /// `break` the way a JS `switch` does (only `loop`/`while`/`for` are
@@ -1637,24 +1702,23 @@ impl Compiler<'_> {
     /// (issue #346); `rust/compiler/tests/end_to_end.rs`'s
     /// `switch_continue_label_conformance_fixture_compiles_and_runs`
     /// compiles and runs it with real `rustc`.
-    fn compile_switch_goto(&self, subject_code: String, cases: &[Expression]) -> String {
-        let (arms, default_body, label_to_arm) = self.parse_switch_goto_cases(cases);
+    fn compile_switch_goto(&self, subject_code: String, parsed: ParsedSwitch) -> String {
         let uid = self.next_switch_uid();
         let loop_label = format!("swl{uid}");
         let state_var = format!("__swst{uid}");
-        let default_index = arms.len();
+        let default_index = parsed.arms.len();
 
         let mut out =
-            format!("{{\nlet __switch_subject = {subject_code};\nlet mut {state_var}: i64 = -1;\n");
+            format!("{{\nlet {SWITCH_SUBJECT} = {subject_code};\nlet mut {state_var}: i64 = -1;\n");
 
         // Phase 1 — entry-arm selection (non-default arms, in source order);
         // default only if nothing else matched.
-        for (index, (values, _)) in arms.iter().enumerate() {
-            let cond = switch_values_condition(values);
+        for (index, arm) in parsed.arms.iter().enumerate() {
             let kw = if index == 0 { "if" } else { "else if" };
-            out.push_str(&format!("{kw} {cond} {{ {state_var} = {index}; }}\n"));
+            let condition = self.switch_arm_condition(arm);
+            out.push_str(&format!("{kw} {condition} {{ {state_var} = {index}; }}\n"));
         }
-        if default_body.is_some() {
+        if parsed.has_default {
             out.push_str(&format!(
                 "if {state_var} == -1 {{ {state_var} = {default_index}; }}\n"
             ));
@@ -1672,19 +1736,22 @@ impl Compiler<'_> {
         self.push_switch_label_scope(SwitchLabelCtx {
             loop_label: loop_label.clone(),
             state_var: state_var.clone(),
-            label_to_arm,
+            label_to_arm: parsed.label_to_arm,
             flow_floor,
         });
-        for (index, (_, body)) in arms.iter().enumerate() {
-            let body_code = self.compile_expression(body);
+        for (index, arm) in parsed.arms.iter().enumerate() {
+            let body = self.switch_arm_body(arm);
             out.push_str(&format!(
-                "{index} => {{\n{body_code};\nbreak '{loop_label};\n}}\n"
+                "{index} => {{\n{body};\nbreak '{loop_label};\n}}\n"
             ));
         }
-        if let Some(default_body) = &default_body {
-            let body_code = self.compile_expression(default_body);
+        if parsed.has_default {
+            let body = match &parsed.default_body {
+                Some(body) => self.compile_expression(body),
+                None => "BallValue::Null".to_string(),
+            };
             out.push_str(&format!(
-                "{default_index} => {{\n{body_code};\nbreak '{loop_label};\n}}\n"
+                "{default_index} => {{\n{body};\nbreak '{loop_label};\n}}\n"
             ));
         }
         self.pop_switch_label_scope();
@@ -1700,129 +1767,129 @@ impl Compiler<'_> {
         out
     }
 
-    /// Parse a labelled switch's `cases[]` into arms — `(match-value
-    /// conditions, RAW case body)` pairs — plus the default body (if any)
-    /// and a `label → arm index` map (issue #346's registered-goto-target
-    /// table; see [`crate::SwitchLabelCtx`]). Mirrors `parseSwitchCases` in
-    /// `ts/compiler/src/compiler.ts`, including its fall-through-absorption
-    /// rule (a body-less case's match values — and any label on it — carry
-    /// forward onto the next case that *does* have a real body) and its
-    /// default-arm-index convention (`arms.len()` — one past the last real
-    /// case, computed only once every case has been scanned, so a case that
-    /// happens to follow `default` in the source still counts).
+    /// Parse a switch's `cases[]` into [`SwitchArm`]s — plus the default arm
+    /// and, for a goto-switch, the `label → arm index` table
+    /// ([`crate::SwitchLabelCtx`]). Mirrors `parseSwitchCases` in
+    /// `ts/compiler/src/compiler.ts`, including:
     ///
-    /// Each arm's body is returned **uncompiled** (a cloned [`Expression`],
-    /// not a compiled Rust string) — [`Compiler::compile_switch_goto`] only
-    /// compiles it after registering `label → arm index` via
-    /// [`Compiler::push_switch_label_scope`], so a `continue <label>;`
-    /// *inside* one arm's body can resolve a label defined by a *later* arm
-    /// (e.g. `case 0`'s body may `continue('one')` to a `case 1` that
-    /// hasn't been scanned yet when `case 0`'s text is written).
-    fn parse_switch_goto_cases(&self, cases: &[Expression]) -> ParsedSwitchGotoCases {
-        let mut arms: Vec<(Vec<String>, Expression)> = Vec::new();
-        let mut default_body: Option<Expression> = None;
-        // Match values of body-less (fall-through) cases, carried forward
+    /// - **fall-through absorption** — a body-less, *unguarded* case's match
+    ///   condition (and any label on it) carries forward onto the next case that
+    ///   *does* have a real body, joined with `||`;
+    /// - **catch-all promotion** — a case whose pattern condition is
+    ///   unconditionally `true` and which binds nothing and has no guard *is* the
+    ///   default arm, and every case after it is dead (Dart rejects them as
+    ///   unreachable). A catch-all **with** a guard (`case _ when n > 3:`) is
+    ///   still refutable and must NOT swallow the rest of the switch;
+    /// - the **default-arm-index convention** (`arms.len()` — one past the last
+    ///   real case, computed only once every case has been scanned).
+    ///
+    /// Each arm's body is kept **uncompiled** (a cloned [`Expression`], not a
+    /// compiled Rust string) — [`Compiler::compile_switch_goto`] only compiles
+    /// it after registering `label → arm index` via
+    /// [`Compiler::push_switch_label_scope`], so a `continue <label>;` *inside*
+    /// one arm's body can resolve a label defined by a *later* arm (e.g. `case
+    /// 0`'s body may `continue('one')` to a `case 1` that hasn't been scanned
+    /// yet when `case 0`'s text is written).
+    fn parse_switch_cases(&self, cases: &[Expression]) -> ParsedSwitch {
+        let mut parsed = ParsedSwitch::default();
+        // Match conditions of body-less (fall-through) cases, carried forward
         // until the next case that supplies a real body absorbs them.
-        let mut pending_values: Vec<String> = Vec::new();
+        let mut pending_conditions: Vec<String> = Vec::new();
         // Labels waiting to be bound to the arm that absorbs them.
         let mut pending_labels: Vec<String> = Vec::new();
         let mut default_labels: Vec<String> = Vec::new();
-        let mut label_to_arm: HashMap<String, usize> = HashMap::new();
 
         for case in cases {
             let Some(Expr::MessageCreation(mc)) = &case.expr else {
                 continue;
             };
             let cf = self.message_creation_fields(mc);
-            let is_default = self.bool_field(&cf, "is_default");
             if let Some(label) = self.string_field(&cf, "label").filter(|l| !l.is_empty()) {
                 pending_labels.push(label);
             }
             let body = cf.get("body").filter(|b| !is_empty_switch_body(b)).cloned();
+            let guard = cf.get("guard").cloned();
 
-            if is_default {
-                default_body = body;
+            if self.bool_field(&cf, "is_default") {
+                parsed.has_default = true;
+                parsed.default_body = body;
                 default_labels.append(&mut pending_labels);
+                pending_conditions.clear();
                 continue;
             }
-            pending_values.extend(self.switch_case_match_values(&cf));
-            let Some(body) = body else {
-                // Fall-through: keep accumulating match values and labels;
-                // they carry forward onto the next real-bodied case.
-                continue;
+
+            let matched = self.switch_case_match(&cf);
+            if matched.is_catch_all() && guard.is_none() {
+                parsed.has_default = true;
+                parsed.default_body = body;
+                default_labels.append(&mut pending_labels);
+                pending_conditions.clear();
+                break;
+            }
+
+            let body = match body {
+                Some(body) => body,
+                // Fall-through: keep accumulating conditions and labels; they
+                // carry forward onto the next real-bodied case. (A *guarded*
+                // case is never a fall-through — it is a real, empty-bodied arm.)
+                None if guard.is_none() => {
+                    pending_conditions.push(matched.condition);
+                    continue;
+                }
+                None => Expression::default(),
             };
-            let arm_index = arms.len();
+            let mut conditions = std::mem::take(&mut pending_conditions);
+            conditions.push(matched.condition);
+            let arm_index = parsed.arms.len();
             for label in pending_labels.drain(..) {
-                label_to_arm.insert(label, arm_index);
+                parsed.label_to_arm.insert(label, arm_index);
             }
-            arms.push((std::mem::take(&mut pending_values), body));
+            parsed.arms.push(SwitchArm {
+                conditions,
+                bindings: matched.bindings,
+                guard,
+                body,
+            });
         }
-        if default_body.is_some() {
-            let default_index = arms.len();
+        if parsed.has_default {
+            let default_index = parsed.arms.len();
             for label in default_labels {
-                label_to_arm.insert(label, default_index);
+                parsed.label_to_arm.insert(label, default_index);
             }
         }
-        (arms, default_body, label_to_arm)
+        parsed
     }
 
-    /// A `SwitchCase`'s comparison expression: prefer the plain `value`
-    /// field (the simple equality-switch shape most #37 fixtures use);
-    /// fall back to the *semantic* `pattern_expr` (Dart 3 pattern-matching
-    /// switches — e.g. `case Color.red:` on an enum encodes as
-    /// `pattern_expr: ConstPattern { value: <fieldAccess Color.red> }`, with
-    /// the case's own `pattern` field carrying only a cosmetic source-text
-    /// string). Mirrors `dart/compiler/lib/compiler.dart`'s
-    /// `_generateSwitchCase`, which prefers `pattern_expr` over the cosmetic
-    /// `pattern` the same way. Only the `ConstPattern` kind is recognized —
-    /// other structured-pattern kinds (destructuring/type patterns) fall
-    /// through to `None` (the case is skipped), the same documented-gap
-    /// shape as this function's own doc comment.
-    /// The compiled value(s) a switch case matches — usually one (a plain
-    /// `value`, or a `ConstPattern`), but **several** for a `LogicalOrPattern`
-    /// (`case 'std' || 'std_collections' || …:`, which the engine's
-    /// `StdModuleHandler.handles`/`_callBaseFunction` use). A `LogicalOrPattern`
-    /// is a (possibly nested) `{left, right}` tree of `ConstPattern` leaves;
-    /// this flattens it to the full set of constant alternatives. An
-    /// unrecognized structured pattern yields no values (the case is skipped —
-    /// the documented gap).
-    fn switch_case_match_values(&self, cf: &IndexMap<String, Expression>) -> Vec<String> {
+    /// What one non-default case matches on: the plain `value` field (the
+    /// simple equality-switch shape most #37 fixtures use), else the
+    /// **structured** `pattern_expr` — every Dart-3 pattern kind, compiled by
+    /// [`Compiler::compile_pattern`] into a condition plus binders. The
+    /// cosmetic `pattern` string (`"int n"`, `"[1, var x]"`) is never parsed;
+    /// it exists only for diagnostics.
+    ///
+    /// A case with neither field is a malformed IR — and *skipping* it (what
+    /// this used to do for every pattern kind but `ConstPattern`) is the
+    /// worst possible outcome: the switch compiles, runs, exits 0 and silently
+    /// takes the default arm. Fail loudly instead (issue #55).
+    fn switch_case_match(&self, cf: &IndexMap<String, Expression>) -> PatternMatch {
         if let Some(value) = cf.get("value") {
-            return vec![self.compile_expression(value)];
+            return PatternMatch {
+                condition: format!(
+                    "ball_equals({SWITCH_SUBJECT}.clone(), {}) == BallValue::Bool(true)",
+                    self.compile_expression(value)
+                ),
+                bindings: Vec::new(),
+            };
         }
         match cf.get("pattern_expr") {
-            Some(pattern_expr) => self.pattern_match_values(pattern_expr),
-            None => Vec::new(),
-        }
-    }
-
-    /// Flatten a `pattern_expr` to the constant value expression(s) it matches:
-    /// a `ConstPattern`'s own `value`, or the union of a `LogicalOrPattern`'s
-    /// `left`/`right` sub-patterns (recursively). Any other pattern kind
-    /// contributes nothing.
-    fn pattern_match_values(&self, pattern_expr: &Expression) -> Vec<String> {
-        let Some(Expr::MessageCreation(mc)) = &pattern_expr.expr else {
-            return Vec::new();
-        };
-        match mc.type_name.as_str() {
-            "ConstPattern" => {
-                let pf = self.message_creation_fields(mc);
-                pf.get("value")
-                    .map(|v| vec![self.compile_expression(v)])
-                    .unwrap_or_default()
+            Some(pattern_expr) => {
+                self.compile_pattern(pattern_expr, &format!("{SWITCH_SUBJECT}.clone()"))
             }
-            "LogicalOrPattern" => {
-                let pf = self.message_creation_fields(mc);
-                let mut values = Vec::new();
-                if let Some(left) = pf.get("left") {
-                    values.extend(self.pattern_match_values(left));
-                }
-                if let Some(right) = pf.get("right") {
-                    values.extend(self.pattern_match_values(right));
-                }
-                values
-            }
-            _ => Vec::new(),
+            None => panic!(
+                "ball-lang-compiler: switch case has neither a `value` nor a `pattern_expr` \
+                 (cosmetic pattern text: {:?}) — cannot compile its match condition",
+                self.string_field(cf, "pattern")
+            ),
         }
     }
 
@@ -1831,7 +1898,10 @@ impl Compiler<'_> {
     /// as list *elements*, not a `FunctionCall`'s own input, so
     /// `ball_lang_shared::extract_fields` — which takes a `&FunctionCall` — can't
     /// be reused directly).
-    fn message_creation_fields(&self, mc: &MessageCreation) -> IndexMap<String, Expression> {
+    pub(crate) fn message_creation_fields(
+        &self,
+        mc: &MessageCreation,
+    ) -> IndexMap<String, Expression> {
         mc.fields
             .iter()
             .map(|field| (field.name.clone(), field.value.clone().unwrap_or_default()))
@@ -2183,7 +2253,7 @@ fn sanitize_label(name: &str) -> String {
 /// `_generateSwitch`, which reads `cases.literal.listValue.elements` the
 /// same way). Any other shape (field absent, or present but not a list
 /// literal) yields no elements.
-fn literal_list_elements(expr: &Expression) -> Vec<Expression> {
+pub(crate) fn literal_list_elements(expr: &Expression) -> Vec<Expression> {
     match &expr.expr {
         Some(Expr::Literal(literal)) => match &literal.value {
             Some(LiteralValue::ListValue(list)) => list.elements.clone(),
@@ -2205,18 +2275,19 @@ fn is_empty_switch_body(expr: &Expression) -> bool {
     }
 }
 
-/// The Rust boolean condition matching a switch arm's compiled value(s)
-/// against `__switch_subject` — a case matches if the subject equals **any**
-/// of its values (a `LogicalOrPattern` — `case 'a' || 'b':` — contributes
-/// several; a plain value contributes one). Shared by the if/else-chain
-/// ([`Compiler::compile_switch`]) and goto-switch
-/// ([`Compiler::compile_switch_goto`]) lowerings.
-fn switch_values_condition(values: &[String]) -> String {
-    values
-        .iter()
-        .map(|value_code| {
-            format!("ball_equals(__switch_subject.clone(), {value_code}) == BallValue::Bool(true)")
-        })
-        .collect::<Vec<_>>()
-        .join(" || ")
+/// The Rust boolean condition an arm matches on — its own pattern condition,
+/// OR'd with those of the body-less cases that fell through into it (`case 'a':
+/// case 'b': body` → one arm matching either). Members are parenthesized so an
+/// alternative that is itself an `&&` chain (a list/map/record pattern) keeps
+/// its meaning under the `||`.
+fn or_conditions(conditions: &[String]) -> String {
+    match conditions.len() {
+        0 => "true".to_string(),
+        1 => conditions[0].clone(),
+        _ => conditions
+            .iter()
+            .map(|condition| format!("({condition})"))
+            .collect::<Vec<_>>()
+            .join(" || "),
+    }
 }

@@ -90,6 +90,7 @@ use ball_lang_shared::proto::ball::v1::{
 
 mod base_call;
 mod lvalue;
+mod pattern;
 mod type_emit;
 
 use type_emit::{is_class_member, split_member_name};

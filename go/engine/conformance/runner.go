@@ -16,7 +16,10 @@ import (
 
 // perFixtureTimeout bounds each fixture so a latent infinite loop cannot wedge
 // the whole sweep (matches the Rust/C# runners' 120 s budget). Override with
-// BALL_TIMEOUT_MS for faster iteration sweeps.
+// BALL_TIMEOUT_MS for faster iteration sweeps. This is the *cooperative* budget:
+// runOne feeds it to the compiled engine, whose per-expression timeout guard
+// makes a runaway self-abort at this point (issue #436) so its goroutine exits
+// rather than spinning for the rest of the sweep.
 func perFixtureTimeout() time.Duration {
 	if ms := os.Getenv("BALL_TIMEOUT_MS"); ms != "" {
 		if n, err := strconv.Atoi(ms); err == nil && n > 0 {
@@ -24,6 +27,29 @@ func perFixtureTimeout() time.Duration {
 		}
 	}
 	return 120 * time.Second
+}
+
+// hardDeadlineGrace is how much longer runOne waits past the cooperative budget
+// before falling back to the select backstop. In the flat-stack runaway case
+// (an infinite while/for) the engine self-aborts at the budget, delivers its
+// timeout on the buffered channel, and the goroutine exits — well before this
+// grace elapses. The backstop fires for the runaways the cooperative guard does
+// NOT reliably stop: (a) a native loop inside a runtime helper, which never
+// returns to an expression eval, and (b) unbounded-stack Ball RECURSION, whose
+// per-level guard checks were observed not to abort within the budget. In both
+// cases Go cannot kill the goroutine in-process, so it keeps spinning (leaks)
+// after the backstop reports the timeout — and unbounded recursion additionally
+// risks a fatal Go stack overflow under the driver's 1 GiB stack ceiling, which
+// would kill the whole sweep binary. Only flat-stack runaways are truly
+// self-aborting; the backstop keeps the sweep moving for the rest.
+const hardDeadlineGrace = 10 * time.Second
+
+// isExecutionTimeout reports whether err is the compiled engine's cooperative
+// execution-timeout self-abort (BallRuntimeError('Execution timeout exceeded'),
+// surfaced through the driver's panic recovery). Such a fixture is reported as a
+// "timeout", not a generic "error".
+func isExecutionTimeout(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "Execution timeout exceeded")
 }
 
 // Result is one fixture's outcome.
@@ -87,6 +113,8 @@ func runOne(name, path, golden string) Result {
 		return Result{name, "error", err.Error()}
 	}
 
+	budget := perFixtureTimeout()
+
 	type outcome struct {
 		out []string
 		err error
@@ -103,6 +131,11 @@ func runOne(name, path, golden string) Result {
 			ch <- outcome{nil, err}
 			return
 		}
+		// Drive the compiled engine's cooperative execution-timeout guard so a
+		// runaway fixture self-aborts (and this goroutine then exits) instead of
+		// spinning for the rest of the sweep — Go cannot kill a goroutine, so the
+		// select backstop below alone would leak it (issue #436).
+		eng.TimeoutMs = budget.Milliseconds()
 		out, err := eng.Run()
 		ch <- outcome{out, err}
 	}()
@@ -110,6 +143,12 @@ func runOne(name, path, golden string) Result {
 	select {
 	case res := <-ch:
 		if res.err != nil {
+			// A cooperative self-abort at the budget reports as a timeout, not a
+			// generic error; the goroutine has already exited by the time we get
+			// here (it delivered on the buffered channel).
+			if isExecutionTimeout(res.err) {
+				return Result{name, "timeout", ""}
+			}
 			return Result{name, "error", firstLine(res.err.Error())}
 		}
 		actual := strings.TrimRight(strings.Join(res.out, "\n"), "\n\r")
@@ -118,8 +157,15 @@ func runOne(name, path, golden string) Result {
 			return Result{name, "pass", ""}
 		}
 		return Result{name, "fail", diffDetail(expected, actual)}
-	case <-time.After(perFixtureTimeout()):
-		return Result{name, "timeout", ""}
+	case <-time.After(budget + hardDeadlineGrace):
+		// Backstop: the cooperative guard did not abort in time. This happens for
+		// a native loop inside a runtime helper (never returns to an expression
+		// eval) AND for unbounded-stack Ball recursion (guard checks run but were
+		// observed not to abort within the budget). Report the timeout and move
+		// on — but this goroutine is still running and LEAKS (Go cannot kill it),
+		// and a recursing one may yet fatal the sweep via Go stack overflow. Only
+		// flat-stack runaways (while/for) are reliably self-aborted upstream.
+		return Result{name, "timeout", "cooperative timeout not observed"}
 	}
 }
 

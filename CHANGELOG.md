@@ -1,3 +1,10 @@
+# [1.55.0](https://github.com/Ball-Lang/ball/compare/v1.54.0...v1.55.0) (2026-07-13)
+
+
+### Features
+
+* **cpp:** [#367](https://github.com/Ball-Lang/ball/issues/367) self-hosted ball audit — drop the stale auditReport skip ([#443](https://github.com/Ball-Lang/ball/issues/443)) ([53254eb](https://github.com/Ball-Lang/ball/commit/53254eb6692a55136bb32b99152773e840855977)), closes [#398](https://github.com/Ball-Lang/ball/issues/398)
+
 # [1.54.0](https://github.com/Ball-Lang/ball/compare/v1.53.1...v1.54.0) (2026-07-13)
 
 

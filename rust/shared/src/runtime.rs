@@ -1050,6 +1050,22 @@ pub fn ball_is(value: BallValue, type_name: &str) -> BallValue {
     BallValue::Bool(ball_is_type(&value, type_name))
 }
 
+/// A `CastPattern` (`case var x as int:`) **asserts** its type rather than
+/// refuting the case: a mismatch *throws*, it does not fall through to the next
+/// case (the reference engine throws `BallException('TypeError', 'type cast
+/// failed: not a $typeName')`; the TS/CLI targets carry the same
+/// `ball_cast_assert`). Catchable, so a `try`/`catch` around the switch sees it
+/// (fixture 302). Returns `true` so it can sit as a conjunct in the pattern's
+/// `&&` chain — where its position (after the sub-pattern's own condition) is
+/// what keeps `[var x as int]` from throwing on a subject that isn't even a
+/// 2-element list.
+pub fn ball_cast_assert(matched: bool, type_name: &str) -> bool {
+    if !matched {
+        ball_throw_typed("TypeError", format!("type cast failed: not a {type_name}"));
+    }
+    true
+}
+
 pub fn ball_is_not(value: BallValue, type_name: &str) -> BallValue {
     BallValue::Bool(!ball_is_type(&value, type_name))
 }

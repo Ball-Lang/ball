@@ -1316,10 +1316,12 @@ class Compiler:
     # are not emitted user classes. Returns None for an unrecognised type so the
     # caller falls back to an anonymous message.
     def runtime_construct(self, short: str, fields: list):
-        args = [self.value(fv["value"]) for fv in fields]
+        # `type_args` is a cosmetic generic annotation, not a constructor arg.
+        real = [fv for fv in fields if fv.get("name") != "type_args"]
+        args = [self.value(fv["value"]) for fv in real]
         first = args[0] if args else "None"
         fdict = "{" + ", ".join(
-            f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in fields) + "}"
+            f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in real) + "}"
         # ball_value.dart scalar/collection wrappers → the raw Python value, so a
         # wrapper never flows into arithmetic (the `is X || is BallX` guards in
         # the engine still match via the raw arm).

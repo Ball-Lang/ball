@@ -29,6 +29,13 @@ def _bootstrap_paths():
 
 
 def main(argv) -> int:
+    # Ball programs may print non-ASCII; force UTF-8 so a cp1252 Windows console
+    # does not raise UnicodeEncodeError (the runner decodes the pipe as UTF-8).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
     if len(argv) < 2:
         print("usage: python -m ball_engine <program.ball.json>", file=sys.stderr)
         return 2

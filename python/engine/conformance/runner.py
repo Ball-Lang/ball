@@ -70,6 +70,8 @@ def _run_one(name: str, path: str, golden: str) -> Result:
             env=env,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired:

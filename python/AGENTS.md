@@ -23,11 +23,13 @@ PYTHONPATH=../runtime python out.py                                   # run
 ```
 
 ## Status
-Compiler + runtime, Python >= 3.11. **179 `tests/conformance/*.ball.json`
-fixtures compile and run golden-exact** (arithmetic, control flow, loops with
-break/continue, recursion, closures, classes). Verify maturity against CI, not
-prose — CI wiring is a later phase. Full design lives in `compiler/AGENTS.md` and
-`runtime/AGENTS.md`.
+Compiler + runtime, Python >= 3.11. **186 `tests/conformance/*.ball.json`
+fixtures compile and run golden-exact** (arithmetic with 64-bit wrap, control
+flow, loops with break/continue, recursion, closures, classes with
+`@property` getters/setters and `toString`). Every non-passing fixture fails
+loud (CompileError or runtime raise) — no silent-wrong output. Verify maturity
+against CI, not prose — CI wiring is a later phase. Full design lives in
+`compiler/AGENTS.md` and `runtime/AGENTS.md`.
 
 ## For AI Agents
 - The compiler reads the raw proto3-JSON dict view (camelCase keys), not the

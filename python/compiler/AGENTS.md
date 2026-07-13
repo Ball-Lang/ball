@@ -39,7 +39,11 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
   to `None`) and its methods as `def name(self, _input=None)`. Field access is
   attribute access; a method call (`call` whose input carries a `self` field) is
   `receiver.method(args)` — Python's own dispatch. This is why instances are
-  ordinary objects, not a runtime message map.
+  ordinary objects, not a runtime message map. Dart getters/setters
+  (`metadata.is_getter`/`is_setter`) emit as `@property` / `@name.setter`, so
+  the `getfield`/`setfield` (getattr/setattr) paths invoke them transparently;
+  a `toString` override also emits `__str__` so `print`/`to_str` (`str(obj)`)
+  dispatch to it.
 
 - **Two emission contexts (Python has no statement-expressions).** `run(expr,
   dest)` emits Python *statements* sending a result to a destination
@@ -70,16 +74,18 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
 ## Status (Phase 2)
 
 Compiler + runtime only (no encoder/engine/CLI-beyond-compile, no CI — later
-phases). **179 of the `tests/conformance/*.ball.json` fixtures compile and run
+phases). **186 of the `tests/conformance/*.ball.json` fixtures compile and run
 golden-exact**, covering arithmetic (Dart-exact `~/`, non-negative `%`,
-int/double distinction, `toString`), comparison/logic (short-circuit),
-strings, control flow (if/for/while/do-while/for-in, break/continue with
-C-`for` update semantics, switch with const/or/wildcard patterns), recursion,
-closures, and classes. `tests/test_conformance.py` gates a curated proven
-subset.
+int/double distinction, 64-bit wrap, `toString`), comparison/logic
+(short-circuit), strings, control flow (if/for/while/do-while/for-in,
+break/continue with C-`for` update semantics, switch with const/or/wildcard
+patterns), recursion, closures, and classes (constructors, methods,
+`@property` getters/setters, `toString` override → `__str__`).
+`tests/test_conformance.py` gates a curated proven subset.
 
-Known gaps (fail loud or documented, deferred to a later hardening pass): getters
-/ setters, `toString`/`operator` overrides, `super`/mixins/factory & named
+**No silent-wrong output (issue #55):** every non-passing fixture is a
+`CompileError` or a loud runtime raise — never a wrong result at exit 0.
+
+Known gaps (all fail loud): `operator` overrides, `super`/mixins/factory & named
 constructors, enum/static members, map/set literals and most `std_collections`
-map ops, type/relational/destructuring switch patterns, and 64-bit integer wrap
-(Python ints are arbitrary-precision).
+map ops, and type/relational/destructuring switch patterns.

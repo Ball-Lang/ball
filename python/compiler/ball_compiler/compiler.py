@@ -183,6 +183,14 @@ class Compiler:
                     self.class_members[owner].append(f)
                     if (f.get("metadata", {}) or {}).get("kind") == "constructor":
                         self.constructors[owner] = f
+                        # A `this.field` constructor param names an instance field;
+                        # record it so getter/method bodies resolve bare references
+                        # to it even if the descriptor omits it.
+                        for p in (f.get("metadata", {}) or {}).get("params", []):
+                            if p.get("is_this"):
+                                flds = self.instance_fields.setdefault(owner, [])
+                                if p.get("name") not in flds:
+                                    flds.append(p.get("name", ""))
                 else:
                     self.user_funcs.add(sanitize(fname))
 
@@ -310,19 +318,36 @@ class Compiler:
         self.line("")
 
     def emit_class(self, short: str):
-        td = self.type_defs.get(short, {})
+        members = self.class_members.get(short, [])
+        getter_names = {sanitize(_member_short(m.get("name", "")))
+                        for m in members if (m.get("metadata", {}) or {}).get("is_getter")}
+        has_tostring = any(_member_short(m.get("name", "")) == "toString" for m in members)
         self.line(f"class {sanitize(short)}:")
         with self.block():
-            emitted = False
-            self.emit_constructor(short)
-            emitted = True
-            for m in self.class_members.get(short, []):
-                if (m.get("metadata", {}) or {}).get("kind") == "constructor":
+            self.emit_constructor(short)  # always emits __init__ (class never empty)
+            for m in members:
+                meta = m.get("metadata", {}) or {}
+                if meta.get("kind") == "constructor":
                     continue
-                self.emit_method(short, m)
-                emitted = True
-            if not emitted:
-                self.line("pass")
+                if meta.get("is_getter"):
+                    self.emit_accessor(short, m, "getter")
+                elif meta.get("is_setter"):
+                    nm = sanitize(_member_short(m.get("name", "")))
+                    # A property setter attaches to its getter; a lone setter has
+                    # nothing to attach to — fail loud rather than emit broken code.
+                    if nm not in getter_names:
+                        self.fail(f"setter without matching getter: {short}.{nm}")
+                        continue
+                    self.emit_accessor(short, m, "setter")
+                else:
+                    self.emit_method(short, m)
+            # A user `toString` override is what `print`/`to_str` must dispatch to;
+            # Python routes str(obj) through __str__.
+            if has_tostring:
+                self.line("def __str__(self):")
+                with self.block():
+                    self.line("return self.toString()")
+                self.line("")
         self.line("")
 
     def emit_constructor(self, short: str):
@@ -373,6 +398,37 @@ class Compiler:
         with self.block():
             self.emit_param_prologue(params)
             self.emit_body(m)
+        self.line("")
+        self.exit_method_ctx()
+        self.pop_scope()
+
+    def emit_accessor(self, short: str, m: dict, kind: str):
+        """Emit a Dart getter/setter as a Python @property / @name.setter.
+
+        A getter access is a `fieldAccess` (compiled to `getfield` -> getattr) and
+        a setter write is `assign(fieldAccess)` (compiled to `setfield` -> setattr),
+        so a @property/@setter is invoked transparently by those paths. Emitting the
+        pair also resolves the two-`def`-same-name collision (the setter decorates
+        the property object)."""
+        name = sanitize(_member_short(m.get("name", "")))
+        self.push_scope()
+        self.enter_method_ctx(short)
+        if kind == "getter":
+            self.reserved = {"self"}
+            self.line("@property")
+            self.line(f"def {name}(self):")
+            with self.block():
+                self.emit_body(m)
+        else:  # setter — one positional parameter (the assigned value)
+            params = [p.get("name", "") for p in self._param_meta(m)]
+            pname = params[0] if params else "value"
+            py = sanitize(pname)
+            self.reserved = {"self", py}
+            self.scopes[-1][pname] = py  # bind the Ball param name to the positional
+            self.line(f"@{name}.setter")
+            self.line(f"def {name}(self, {py}):")
+            with self.block():
+                self.emit_body(m)
         self.line("")
         self.exit_method_ctx()
         self.pop_scope()

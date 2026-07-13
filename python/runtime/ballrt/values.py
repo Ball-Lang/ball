@@ -293,7 +293,12 @@ def setfield(obj, name, value):
 
 def index_get(target, key):
     if isinstance(target, (list, str)):
-        return target[int(key)]
+        i = int(key)
+        if i < 0 or i >= len(target):
+            from .flow import throw
+            from .dart_errors import RangeError
+            return throw(RangeError(f"index {i} out of range for length {len(target)}"))
+        return target[i]
     if isinstance(target, dict):
         return target.get(key)
     if isinstance(target, BallMap):

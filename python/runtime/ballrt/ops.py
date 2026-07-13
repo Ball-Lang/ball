@@ -361,7 +361,15 @@ def string_substring(v, start, end):
 
 
 def string_code_unit_at(v, i):
-    return ord(v[int(i)])
+    """Dart ``String.codeUnitAt`` — the UTF-16 code unit (not code point) at
+    index i, so an astral char (surrogate pair) occupies two indices."""
+    units = v.encode("utf-16-le")
+    idx = int(i)
+    if idx < 0 or idx * 2 + 1 >= len(units):
+        from .flow import throw
+        from .dart_errors import RangeError
+        return throw(RangeError(f"index {idx} out of range"))
+    return units[idx * 2] | (units[idx * 2 + 1] << 8)
 
 
 def string_to_int(v):
@@ -369,7 +377,8 @@ def string_to_int(v):
         return int(v)
     except (ValueError, TypeError):
         from .flow import throw
-        return throw(f"FormatException: {v!r}")
+        from .dart_errors import FormatException
+        return throw(FormatException(repr(v)))
 
 
 def string_to_double(v):
@@ -377,7 +386,8 @@ def string_to_double(v):
         return float(v)
     except (ValueError, TypeError):
         from .flow import throw
-        return throw(f"FormatException: {v!r}")
+        from .dart_errors import FormatException
+        return throw(FormatException(repr(v)))
 
 
 def string_pad_left(v, width, padding):

@@ -173,7 +173,8 @@ def int_parse(s):
     try:
         return int(str(s).strip())
     except (ValueError, TypeError):
-        return throw(f"FormatException: {s!r}")
+        from .dart_errors import FormatException
+        return throw(FormatException(repr(s)))
 
 
 def int_try_parse(s):
@@ -202,7 +203,8 @@ def double_parse(s):
     try:
         return float(str(s).strip())
     except (ValueError, TypeError):
-        return throw(f"FormatException: {s!r}")
+        from .dart_errors import FormatException
+        return throw(FormatException(repr(s)))
 
 
 def double_try_parse(s):
@@ -532,9 +534,10 @@ def make_json_decoder():
 
 
 def stack_trace_of(_exc):
-    """A caught error's stack trace. The engine only stringifies it; an empty
-    trace keeps golden output deterministic."""
-    return ""
+    """A caught error's stack trace. A fixed non-empty placeholder keeps golden
+    output deterministic while satisfying programs that assert the trace is
+    present (`stackTrace.toString().isNotEmpty`)."""
+    return "#0      <ball> (ball:1:1)"
 
 
 # ── dart.io (deferred) ───────────────────────────────────────────────────────

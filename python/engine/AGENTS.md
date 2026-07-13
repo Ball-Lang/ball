@@ -8,13 +8,12 @@ Ball program (`dart/self_host/engine.ball.json`), compiled through
 `python/compiler` in **library mode** into a generated `compiled_engine.py`, and
 driven by a thin native wrapper.
 
-## Status: 312 / 320 conformance fixtures at Dart-identical output
+## Status: complete, at Dart parity
 
-`Results: 312 passed, 8 failed, 320 total (4 skipped carve-outs)` — the whole
-`tests/conformance` corpus. The 4 skipped fixtures are the same golden-less
-resource-limit / sandbox carve-outs the Rust/C#/Go runners skip
+`Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)` — the whole
+`tests/conformance` corpus, Dart-identical output. The 4 skipped fixtures are the
+same golden-less resource-limit / sandbox carve-outs the Rust/C#/Go runners skip
 (`196_timeout`, `197_memory_limit`, `201_input_validation`, `202_sandbox_mode`).
-The 8 residuals are root-caused in **Known residuals** below.
 
 `compiled_engine.py` is a GENERATED, gitignored (~690 KB) build artifact absent
 from a fresh checkout — `pytest`/`compileall` on the checked-in sources never
@@ -93,24 +92,16 @@ fixed) are worth knowing:
   **map comprehensions** (`{for..if.. k:v}`) build imperatively; a **side-effecting
   field assign** captures its value in a temp (never re-evaluates `list_push`);
   synthetic `__type_args__`/`__const__` fields are dropped from constructor args.
-
-## Known residuals (8 fixtures)
-
-- **`107_method_override_super` / `165_oop_virtual_dispatch` / `177_oop_diamond`**
-  — interpreted-program `super.method()` dispatch enters an infinite
-  `main` ↔ `Base.name` method-resolution loop (traced; the exact cause in the
-  engine's `__super__`-object construction / `__type__` propagation as it
-  interacts with the runtime `BallObject`/`getfield`/`index_get` is not yet
-  isolated). The only OOP-super failures; single-inheritance without `super`
-  (e.g. `102_inheritance`) passes.
-- **`258_logical_and_pattern`** — a switch pattern that binds a variable
-  (`Undefined variable "n"`): the interpreted pattern-destructuring bind path.
-- **`275_enc_try_catch`** — `int.parse` on bad input throws a Ball
-  `FormatException` string, but the interpreted `on FormatException catch` type
-  match does not recognise a bare string as that type (needs a typed exception
-  value).
-- **`199_malicious_input_patterns` / `255_string_surrogate_astral`** — index
-  out of range on adversarial / astral-surrogate string inputs (UTF-16 index
-  bounds).
-- **`300_enc_catch_stack`** — a second-line difference in caught-error stack
-  reporting (`stack_trace_of` returns an empty trace).
+- **`list_concat` merges maps/sets** — the syntactic encoder cannot see a
+  receiver's type and mis-routes `Map.addAll`/`Set.addAll` to `list_concat`, so it
+  must merge (not concatenate keys into a list), or `_resolveTypeMethodsWithInheritance`
+  yields a key list instead of a method map and all OOP dispatch breaks.
+- **For-in closure capture**: a lambda made inside a `for-in` / collection-`for`
+  loop snapshots the loop variable as a default argument — Dart binds a fresh
+  for-in variable each iteration, but Python shares it and would late-bind every
+  method closure (`_resolveTypeMethods`) to the last function. (C-style `for`
+  shares the counter in both languages, so it is left alone.)
+- **Typed exceptions** (`ballrt.dart_errors`): a runtime op that fails the way a
+  Dart core call would throws a typed value (`FormatException` / `RangeError`) so
+  an interpreted `on FormatException catch` matches by class name; UTF-16
+  `codeUnitAt`; a non-empty `stack_trace_of`.

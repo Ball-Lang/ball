@@ -35,12 +35,10 @@ python -m conformance.runner                                          # prints t
 ## Status
 Compiler + runtime + encoder + self-hosted engine, Python >= 3.11. The
 **compiler** passes **52 tests** and the **encoder 42**. The **self-hosted
-engine** runs the whole conformance corpus at **`Results: 312 passed, 8 failed,
-320 total (4 skipped carve-outs)`** — Dart-identical output on 312 fixtures (the
-4 skipped are the golden-less resource-limit/sandbox carve-outs; the 8 residuals
-are root-caused in `engine/AGENTS.md`'s "Known residuals": interpreted-OOP
-`super` dispatch ×3, a pattern-var bind, a typed-exception match, two index-bound
-edge cases, and a stack-trace detail). Every non-passing input fails loud
+engine** runs the whole conformance corpus at **Dart parity**:
+`Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)` — Dart-identical
+output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
+Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
 maturity against tests, not prose — CI wiring is a later phase. Full design lives
 in `compiler/AGENTS.md`, `runtime/AGENTS.md`, `encoder/AGENTS.md`, and

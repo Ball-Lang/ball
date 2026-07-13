@@ -75,7 +75,7 @@ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
 name = "ball-cli-regen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ball-lang-compiler",
  "ball-lang-shared",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "ball-engine-regen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ball-lang-compiler",
  "ball-lang-shared",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "ball-lang-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ball-lang-compiler",
  "ball-lang-encoder",
@@ -111,7 +111,7 @@ dependencies = [
 
 [[package]]
 name = "ball-lang-compiler"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ball-lang-shared",
  "indexmap",
@@ -122,7 +122,7 @@ dependencies = [
 
 [[package]]
 name = "ball-lang-encoder"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ball-lang-compiler",
  "ball-lang-shared",
@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "ball-lang-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ball-lang-shared",
  "prost",
@@ -143,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "ball-lang-shared"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "indexmap",
  "prost",

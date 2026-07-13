@@ -220,7 +220,7 @@ green run. If OIDC fails, the job fails.
 
 ### Maintainer setup (registry side) — DONE
 
-All five crates are published (0.1.0) and each has a Trusted Publisher configured
+All five crates are published and each has a Trusted Publisher configured
 (repository `Ball-Lang/ball`, workflow `publish-crates.yml`, environment blank).
 The `CARGO_REGISTRY_TOKEN` secret is no longer used by the workflow and can be
 deleted.

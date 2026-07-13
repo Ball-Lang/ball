@@ -10,7 +10,7 @@ A single `ball` binary with subcommands, the C++ analogue of `dart/cli`
 | `ball compile <in.ball.json>`   | `ball_cpp_compiler_lib` → C++ source (`cli_compile.cpp`) |
 | `ball encode  <clang_ast.json>` | `ball_cpp_encoder_lib` → proto3-JSON Ball (`cli_encode.cpp`) |
 | `ball run     <in.ball.json>`   | the self-hosted engine `engine_rt` (`cli_run.cpp`)   |
-| `ball info / validate / tree`   | self-hosted `cli_core` (`cli_verbs.cpp` → `cli_rt.h`)|
+| `ball info / validate / tree / audit` | self-hosted `cli_core` (`cli_verbs.cpp` → `cli_rt.h`)|
 | `ball version`                  | `cli_core.versionLine` / single-sourced fallback     |
 
 The standalone `ball_cpp_compile` / `ball_cpp_encode` binaries are **kept** as
@@ -32,9 +32,13 @@ cd dart && dart run compiler/tool/gen_cli_cpp.dart          # → lib/cli_rt.h (
 cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic  # → lib/engine_rt.cpp
 ```
 
-`gen_cli_cpp.dart` extracts the `main` module of `cli.ball.json`, drops
-`auditReport` (its capability/termination analyzers are import stubs — audit
-stays on #362), and library-compiles it into namespace `cli_core`.
+`gen_cli_cpp.dart` extracts the `main` module of `cli.ball.json` — the whole
+module, including `auditReport` — and library-compiles it into namespace
+`cli_core`. Its capability/termination analyzers became `part of cli_core.dart`
+in #398, so `gen_cli_json.dart` merges them into `main`; they use only
+first-order `std`/`std_collections` ops plus `ball_proto` `hasX` presence
+accessors (dispatched by `ball_cpp_compile`'s emitted preamble), so `auditReport`
+compiles with no undefined references.
 
 **Windows note:** the `ball_cpp_compile` step in those Dart tools runs a native
 binary — on Windows-with-WSL builds, run the emit directly in WSL:
@@ -70,6 +74,9 @@ exactly ONE TU (`cli_verbs.cpp`), and the engine's `BallEngine` lives only in
 
 `cpp/test/test_cli_parity.cpp` (the C++ mirror of
 `dart/cli/test/cli_core_parity_test.dart`) runs the compiled `cli_core` verbs
-over every `tests/conformance/*.ball.json` and asserts byte-identical output vs
-the Dart-native goldens from `dart/cli/tool/gen_cli_parity_goldens.dart`. It is
-built only when `cli_rt.h` is present.
+(`info`/`validate`/`tree`/`audit`) over every `tests/conformance/*.ball.json` and
+asserts byte-identical output vs the Dart-native goldens from
+`dart/cli/tool/gen_cli_parity_goldens.dart`. It is built only when `cli_rt.h` is
+present. `ball audit` prints the capability + termination report and exits `0`;
+the Dart-native `--deny`/`--exit-code`/`--reachable-only`/`--output` policy flags
+are a native-only extra, out of scope for the self-hosted verb.

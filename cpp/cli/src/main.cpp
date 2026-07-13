@@ -5,7 +5,7 @@
 //                       ball_cpp_encoder_lib (the standalone ball_cpp_compile /
 //                       ball_cpp_encode binaries remain as thin aliases);
 //   run               → the self-hosted engine (engine_rt);
-//   info/validate/tree/version → compiled from dart/self_host/cli.ball.json
+//   info/validate/tree/audit/version → compiled from dart/self_host/cli.ball.json
 //                       (the portable cli_core verbs) via ball_cpp_compile.
 //
 // This dispatcher is deliberately dependency-light: it includes only
@@ -33,6 +33,7 @@ void print_usage(std::ostream& err) {
         << "  encode   <clang_ast.json>    Encode a Clang JSON AST to a ball program\n"
         << "  run      <input.ball.json>   Execute ball program (self-hosted engine)\n"
         << "  tree     <input.ball.json>   Print module/import tree\n"
+        << "  audit    <input.ball.json>   Report capabilities + termination risks\n"
         << "  version                      Print version\n"
         << "  help                         Show this help\n\n"
         << "Options:\n"
@@ -60,6 +61,7 @@ int main(int argc, char** argv) {
     if (command == "encode") return ballcli::cmd_encode(rest);
     if (command == "run") return ballcli::cmd_run(rest);
     if (command == "tree") return ballcli::cmd_tree(rest);
+    if (command == "audit") return ballcli::cmd_audit(rest);
     if (command == "version" || command == "--version" || command == "-v")
         return ballcli::cmd_version(rest);
     if (command == "help" || command == "--help" || command == "-h") {

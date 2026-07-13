@@ -5,20 +5,22 @@
 /// This is the C++ counterpart of `compile_engine_cpp.dart` (which compiles the
 /// self-hosted *engine* to C++). It takes the `main` module of the generated
 /// `cli.ball.json` — the `infoReport` / `validateReport` / `treeReport` /
-/// `versionLine` verbs (issue #362 `cli_core`) — and library-compiles it through
-/// the existing `ball_cpp_compile` binary into a single callable C++ header in
-/// namespace `cli_core`. The C++ `ball` CLI (`cpp/cli/`) links that header so its
-/// portable verbs execute byte-identically to the Dart CLI (proven by
-/// `cpp/test/test_cli_parity.cpp`, the C++ mirror of
-/// `dart/cli/test/cli_core_parity_test.dart`).
+/// `auditReport` / `versionLine` verbs (issue #362 `cli_core`) — and
+/// library-compiles it through the existing `ball_cpp_compile` binary into a
+/// single callable C++ header in namespace `cli_core`. The C++ `ball` CLI
+/// (`cpp/cli/`) links that header so its portable verbs execute
+/// byte-identically to the Dart CLI (proven by `cpp/test/test_cli_parity.cpp`,
+/// the C++ mirror of `dart/cli/test/cli_core_parity_test.dart`).
 ///
 ///   1. `cd dart && dart run compiler/tool/gen_cli_json.dart`   (writes cli.ball.json)
 ///   2. `cd dart && dart run compiler/tool/gen_cli_cpp.dart`    (writes cli_rt.h)
 ///
-/// The `audit` verb is intentionally excluded: its capability/termination
-/// analyzers are not part of `cli_core.dart`'s resolved library (they are import
-/// stubs in `cli.ball.json`), so compiling `auditReport` would reference
-/// undefined functions. It stays on issue #362 until `cli_core` self-hosts it.
+/// The whole `main` module is compiled — including `audit`. Its capability/
+/// termination analyzers became `part of cli_core.dart` in #398, so
+/// `gen_cli_json.dart`'s `resolveDartLibrary` merges them into `main`; they use
+/// only first-order `std`/`std_collections` ops plus `ball_proto` `hasX`
+/// presence accessors (dispatched by `ball_cpp_compile`'s emitted preamble), so
+/// `auditReport` compiles with no undefined references.
 ///
 /// Like `engine_rt.cpp` and `cli.ball.json`, the outputs are generated build
 /// artifacts kept out of git (see `dart/self_host/.gitignore`) and regenerated
@@ -98,8 +100,8 @@ Future<void> main(List<String> args) async {
   }
   final program = decoded.program;
 
-  // Extract the `main` module (the portable verbs) and strip `auditReport`,
-  // whose analyzers are import stubs (see the doc comment above).
+  // Extract the `main` module (the portable verbs) — the whole module,
+  // including `auditReport` (see the doc comment above).
   Module? mainModule;
   for (final m in program.modules) {
     if (m.name == 'main') {
@@ -118,17 +120,11 @@ Future<void> main(List<String> args) async {
     ..moduleImports.addAll(mainModule.moduleImports)
     ..typeDefs.addAll(mainModule.typeDefs)
     ..typeAliases.addAll(mainModule.typeAliases)
-    ..enums.addAll(mainModule.enums);
-  for (final f in mainModule.functions) {
-    if (f.name == 'auditReport') continue;
-    libModule.functions.add(f);
-  }
+    ..enums.addAll(mainModule.enums)
+    ..functions.addAll(mainModule.functions);
   if (mainModule.hasMetadata()) libModule.metadata = mainModule.metadata;
 
-  stdout.writeln(
-    '  cli_core module: ${libModule.functions.length} fns '
-    '(audit excluded)',
-  );
+  stdout.writeln('  cli_core module: ${libModule.functions.length} fns');
 
   // Write the Module ball-file (self-describing @type envelope) as UTF-8 —
   // preserving the em-dash / arrow literals `tree` prints byte-for-byte.

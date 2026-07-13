@@ -61,7 +61,25 @@ def list_reverse(lst):
 
 
 def list_concat(lst, other):
-    return list(lst) + list(other)
+    # This is also the target of Dart's `Map.addAll` / `Set.addAll` (the
+    # syntactic encoder cannot see the receiver type and mis-routes them here).
+    # A map/set receiver therefore merges in place (Dart addAll mutates and the
+    # engine reassigns the result); only a genuine list receiver concatenates.
+    if isinstance(lst, dict):
+        if isinstance(other, dict):
+            lst.update(other)
+        else:
+            from .values import iterate
+            for k in iterate(other):
+                lst[k] = other[k] if isinstance(other, dict) else k
+        return lst
+    if isinstance(lst, BallSet):
+        from .values import iterate
+        for it in iterate(other):
+            lst.add(it)
+        return lst
+    from .values import iterate
+    return list(iterate(lst)) + list(iterate(other))
 
 
 def list_slice(lst, start, end):
@@ -182,8 +200,10 @@ def map_is_empty(mp):
 
 
 def map_put_if_absent(mp, key, value):
+    # Dart Map.putIfAbsent's second argument is an ifAbsent *callback*, invoked
+    # only when the key is missing (`map[key] = val is Function ? val() : val`).
     if key not in mp:
-        mp[key] = value
+        mp[key] = value(None) if callable(value) else value
     return mp[key]
 
 

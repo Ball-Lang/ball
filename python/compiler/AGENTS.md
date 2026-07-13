@@ -71,21 +71,26 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
   `CompileError` — never silently-wrong code. A silently-wrong output is a bug,
   not a gap.
 
-## Status (Phase 2)
+## Status (Phases 2 + 4)
 
-Compiler + runtime only (no encoder/engine/CLI-beyond-compile, no CI — later
-phases). **186 of the `tests/conformance/*.ball.json` fixtures compile and run
-golden-exact**, covering arithmetic (Dart-exact `~/`, non-negative `%`,
-int/double distinction, 64-bit wrap, `toString`), comparison/logic
-(short-circuit), strings, control flow (if/for/while/do-while/for-in,
-break/continue with C-`for` update semantics, switch with const/or/wildcard
-patterns), recursion, closures, and classes (constructors, methods,
-`@property` getters/setters, `toString` override → `__str__`).
-`tests/test_conformance.py` gates a curated proven subset.
+The compiler passes **52 tests** and — via **`compile_library` mode** (the
+Ball -> Python analog of Go's `CompileLibrary`) — compiles the whole self-hosted
+engine (`dart/self_host/engine.ball.json`), which runs the conformance corpus at
+**Dart parity** (`Results: 320 passed, 0 failed`; see `../engine/AGENTS.md`).
+Coverage spans arithmetic (Dart-exact `~/`, non-negative `%`, int/double, 64-bit
+wrap), comparison/logic (short-circuit), strings, control flow, recursion,
+closures, and full OOP (constructors incl. **named + optional params**, methods,
+`@property` getters/setters, `toString`, **inheritance + `super`**, named
+constructors as classmethod factories, top-level `const`s).
 
-**No silent-wrong output (issue #55):** every non-passing fixture is a
+**No silent-wrong output (issue #55):** every non-supported construct is a
 `CompileError` or a loud runtime raise — never a wrong result at exit 0.
 
-Known gaps (all fail loud): `operator` overrides, `super`/mixins/factory & named
-constructors, enum/static members, map/set literals and most `std_collections`
-map ops, and type/relational/destructuring switch patterns.
+Load-bearing engine-mode decisions (all needed to reach parity): implicit-`self`
+method calls, **named messageCreation fields → Python keyword args** (else return
+values are dropped), the proto oneof-case `arm` enums + `__no_init__` sentinel,
+`is`/`as` + Dart-SDK method routing through `ballrt`, and **per-iteration for-in
+closure capture** (loop variables snapshotted as default args, since Python
+shares a loop variable where Dart binds a fresh one each iteration). A rarely-
+reached builtin static / stub-module call is a loud runtime raise (not a compile
+error) so the library still compiles.

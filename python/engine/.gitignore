@@ -1,0 +1,6 @@
+# The self-hosted engine is a generated build artifact (see ball_engine/regen.py):
+# ~680 KB compiled from dart/self_host/engine.ball.json. Never committed — a
+# fresh checkout regenerates it. compileall/pytest gate on its existence.
+ball_engine/compiled_engine.py
+__pycache__/
+*.pyc

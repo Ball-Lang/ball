@@ -67,14 +67,26 @@ def multiply(a, b):
 def intdiv(a, b):
     """Dart ``~/`` — truncating (toward zero) integer division."""
     if _both_int(a, b):
+        if b == 0:
+            from .flow import throw
+            return throw("IntegerDivisionByZeroException")
         q = abs(a) // abs(b)
         return _wrap64(-q if (a < 0) != (b < 0) else q)
-    return int(_as_float(a) / _as_float(b))
+    bf = _as_float(b)
+    if bf == 0.0:
+        from .flow import throw
+        return throw("Unsupported operation: Result of truncating division is Infinity")
+    return int(_as_float(a) / bf)
 
 
 def divide_double(a, b):
-    """Dart ``/`` — always a double."""
-    return _as_float(a) / _as_float(b)
+    """Dart ``/`` — always a double; division by zero yields Infinity/-Infinity/NaN."""
+    af, bf = _as_float(a), _as_float(b)
+    if bf == 0.0:
+        if af == 0.0:
+            return math.nan
+        return math.copysign(math.inf, af) * math.copysign(1.0, bf)
+    return af / bf
 
 
 def modulo(a, b):
@@ -85,6 +97,8 @@ def modulo(a, b):
             m = m - b if b < 0 else m + b
         return m
     af, bf = _as_float(a), _as_float(b)
+    if bf == 0.0:
+        return math.nan
     m = math.fmod(af, bf)
     if m < 0:
         m += abs(bf)
@@ -347,15 +361,33 @@ def string_substring(v, start, end):
 
 
 def string_code_unit_at(v, i):
-    return ord(v[int(i)])
+    """Dart ``String.codeUnitAt`` — the UTF-16 code unit (not code point) at
+    index i, so an astral char (surrogate pair) occupies two indices."""
+    units = v.encode("utf-16-le")
+    idx = int(i)
+    if idx < 0 or idx * 2 + 1 >= len(units):
+        from .flow import throw
+        from .dart_errors import RangeError
+        return throw(RangeError(f"index {idx} out of range"))
+    return units[idx * 2] | (units[idx * 2 + 1] << 8)
 
 
 def string_to_int(v):
-    return int(v)
+    try:
+        return int(v)
+    except (ValueError, TypeError):
+        from .flow import throw
+        from .dart_errors import FormatException
+        return throw(FormatException(repr(v)))
 
 
 def string_to_double(v):
-    return float(v)
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        from .flow import throw
+        from .dart_errors import FormatException
+        return throw(FormatException(repr(v)))
 
 
 def string_pad_left(v, width, padding):
@@ -584,3 +616,45 @@ def math_trunc(v):
 def math_sign(v):
     n = _as_float(v)
     return 0 if n == 0 else (1 if n > 0 else -1)
+
+
+def math_clamp(v, lo, hi):
+    """Dart ``num.clamp(lo, hi)`` — clamp v to [lo, hi], preserving int/double."""
+    if _cmp(v, lo) < 0:
+        return lo
+    if _cmp(v, hi) > 0:
+        return hi
+    return v
+
+
+def math_is_finite(v):
+    return math.isfinite(_as_float(v))
+
+
+def math_is_infinite(v):
+    return math.isinf(_as_float(v))
+
+
+def math_gcd(a, b):
+    return math.gcd(int(a), int(b))
+
+
+def round_to_double(v):
+    return float(math_round(v))
+
+
+def floor_to_double(v):
+    return float(math.floor(v))
+
+
+def ceil_to_double(v):
+    return float(math.ceil(v))
+
+
+def truncate_to_double(v):
+    return float(math.trunc(v))
+
+
+def string_runes(v):
+    """Dart ``String.runes`` — the Unicode code points (not UTF-16 units)."""
+    return [ord(ch) for ch in v]

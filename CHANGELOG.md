@@ -1,3 +1,10 @@
+# [1.56.0](https://github.com/Ball-Lang/ball/compare/v1.55.0...v1.56.0) (2026-07-13)
+
+
+### Features
+
+* **python:** [#445](https://github.com/Ball-Lang/ball/issues/445) Phase 2 — Ball → Python compiler + ballrt runtime ([#446](https://github.com/Ball-Lang/ball/issues/446)) ([b1123a0](https://github.com/Ball-Lang/ball/commit/b1123a0e87dea5686cdab373a220d39f2bf8b2c1)), closes [#4](https://github.com/Ball-Lang/ball/issues/4) [#55](https://github.com/Ball-Lang/ball/issues/55)
+
 # [1.55.0](https://github.com/Ball-Lang/ball/compare/v1.54.0...v1.55.0) (2026-07-13)
 
 

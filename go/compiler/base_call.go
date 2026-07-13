@@ -324,6 +324,17 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 	case "break":
 		return fmt.Sprintf("ballrt.Break(%s)", strconv.Quote(stringLiteralField(f, "label")))
 	case "continue":
+		// `continue <caseLabel>` inside a labelled switch is Dart's goto: jump to
+		// that case's arm with no subject re-check. Innermost enclosing goto-switch
+		// wins; a label naming no case is an ordinary labelled-loop continue.
+		if lbl := stringLiteralField(f, "label"); lbl != "" {
+			for i := len(c.gotoSwitches) - 1; i >= 0; i-- {
+				gs := c.gotoSwitches[i]
+				if idx, ok := gs.labels[lbl]; ok {
+					return fmt.Sprintf("func() ballrt.Value { %s = %d; return ballrt.Break(%q) }()", gs.stateVar, idx, gs.label)
+				}
+			}
+		}
 		return fmt.Sprintf("ballrt.Continue(%s)", strconv.Quote(stringLiteralField(f, "label")))
 	case "throw":
 		return fmt.Sprintf("ballrt.Throw(%s)", c.arg(f, "value", "exception"))
@@ -462,25 +473,29 @@ func (c *Compiler) compileLoopInit(e *ballv1.Expression) string {
 // compileSwitch lowers std.switch / std.switch_expr to an if-else chain inside an
 // IIFE. Fall-through (a body-less case sharing the next case's body) accumulates
 // conditions. In statement mode a matched body runs for effect; in expr mode a
-// matched body's value is returned.
+// matched body's value is returned. A statement switch carrying case labels is a
+// goto-switch and lowers to a state machine instead.
 func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1.Expression, exprMode bool) string {
+	cases := messageList(f, "cases")
+	if !exprMode && hasCaseLabels(cases) {
+		return c.compileGotoSwitch(f, cases)
+	}
+
 	uid := c.uid()
 	subj := fmt.Sprintf("__subj%d", uid)
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n")
 	fmt.Fprintf(&b, "\t\t%s := %s\n\t\t_ = %s\n", subj, c.arg(f, "subject"), subj)
 
-	cases := messageList(f, "cases")
 	var defaultCase *ballv1.MessageCreation
 	var pending []string
-	first := true
 	for _, caseMc := range cases {
 		cf := messageCreationFields(caseMc)
 		if boolLiteralField(cf, "is_default") {
 			defaultCase = caseMc
 			continue
 		}
-		cond := c.compileCaseCondition(subj, cf)
+		res := c.compileCasePattern(subj, cf)
 		bodyExpr, present := cf["body"]
 		// Dart fall-through (`case A: case B: body;`) encodes the leading
 		// labels as cases whose `body` is an EMPTY block (`{"block":{}}`) or a
@@ -492,31 +507,219 @@ func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1
 		// `pre_decrement: _evalIncDec`) compiled to empty arms, silently
 		// no-op'ing `i++`/`i--` and wedging every for/while loop in an infinite
 		// spin. Mirrors the Rust compiler's `is_empty_switch_body` test.
-		if !present || isEmptySwitchBody(bodyExpr) {
-			pending = append(pending, cond)
+		//
+		// A case with a `when` guard is never an empty fall-through, even with an
+		// empty body: its guard still has to run.
+		//
+		// STATEMENT MODE ONLY. A switch EXPRESSION has no fall-through — every arm
+		// carries a value — and Ball encodes the `null` literal as a value-less
+		// Literal (encoder: `Expression()..literal = Literal()`), the very shape
+		// isEmptySwitchBody reads as "empty". Applied to an expression, the test
+		// DELETES every `_ => null` arm and folds its condition into the next one,
+		// so a non-final `=> null` arm returns the FOLLOWING arm's value: the
+		// engine's own `unwrap` (`BallNull() => null` ahead of `_ => val`) handed
+		// back the wrapper instead of null. Compiles, exits 0, wrong answer.
+		if (!present || (!exprMode && isEmptySwitchBody(bodyExpr))) && !hasField(cf, "guard") {
+			pending = append(pending, res.cond)
 			continue
 		}
-		pending = append(pending, cond)
-		combined := strings.Join(pending, " || ")
+		pending = append(pending, res.cond)
+		combined := "(" + strings.Join(pending, " || ") + ")"
 		pending = nil
-		if exprMode {
-			fmt.Fprintf(&b, "\t\tif %s { return %s }\n", combined, c.compileExpr(bodyExpr))
-		} else {
-			fmt.Fprintf(&b, "\t\tif %s { _ = %s; return ballrt.Value(nil) }\n", combined, c.compileExpr(bodyExpr))
-		}
-		first = false
+		b.WriteString(c.emitSwitchArm(combined, res.bindings, cf, bodyExpr, exprMode))
 	}
-	_ = first
+
 	if defaultCase != nil {
 		cf := messageCreationFields(defaultCase)
-		if bodyExpr, ok := cf["body"]; ok {
-			if exprMode {
-				fmt.Fprintf(&b, "\t\treturn %s\n", c.compileExpr(bodyExpr))
-			} else {
-				fmt.Fprintf(&b, "\t\t_ = %s\n", c.compileExpr(bodyExpr))
-			}
+		bodyExpr, ok := cf["body"]
+		if ok && exprMode {
+			fmt.Fprintf(&b, "\t\treturn %s\n\t}()", c.compileExpr(bodyExpr))
+			return b.String()
+		}
+		if ok {
+			fmt.Fprintf(&b, "\t\t_ = %s\n", c.compileExpr(bodyExpr))
+		}
+		b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
+		return b.String()
+	}
+	// A switch that matched no arm evaluates to Ball null — the same tail the TS
+	// compiler emits (`defaultBody ? … : "undefined"`). It must NOT throw: the
+	// engine's own oneof dispatchers rely on the null tail, and #55's fail-loud
+	// rule is about a pattern KIND the compiler cannot lower (a compile-time
+	// c.fail in pattern.go), not about a legal runtime fall-through in the IR.
+	b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
+	return b.String()
+}
+
+// emitSwitchArm emits one matched arm: the condition (plus its guard), the
+// binders re-materialized as locals, then the body.
+func (c *Compiler) emitSwitchArm(cond string, binds []patternBinding, cf map[string]*ballv1.Expression, bodyExpr *ballv1.Expression, exprMode bool) string {
+	c.pushScope()
+	defer c.popScope()
+	for _, bd := range binds {
+		c.bind(bd.name)
+	}
+	decls := c.bindDecls(binds)
+
+	full := cond
+	if g, ok := cf["guard"]; ok {
+		// A pattern that matches but whose guard is false is NOT a match: control
+		// falls through to the next case. Because the guard is just another
+		// conjunct of this arm's `if`, that fall-through is free. Go's &&
+		// short-circuits, so the binders are only computed once the pattern matched.
+		full = fmt.Sprintf("%s && ballrt.Truthy(func() ballrt.Value {\n%s\t\t\treturn %s\n\t\t}())",
+			cond, indent(decls, "\t\t\t"), c.compileExpr(g))
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "\t\tif %s {\n", full)
+	b.WriteString(indent(decls, "\t\t\t"))
+	if exprMode {
+		fmt.Fprintf(&b, "\t\t\treturn %s\n\t\t}\n", c.compileExpr(bodyExpr))
+	} else {
+		fmt.Fprintf(&b, "\t\t\t_ = %s\n\t\t\treturn ballrt.Value(nil)\n\t\t}\n", c.compileExpr(bodyExpr))
+	}
+	return b.String()
+}
+
+// gotoArm is one arm of a goto-switch state machine.
+type gotoArm struct {
+	cond      string
+	binds     []patternBinding
+	body      *ballv1.Expression
+	guard     *ballv1.Expression
+	isDefault bool
+}
+
+// hasCaseLabels reports whether any case carries a label — Dart's
+// `one: case 1:`, the target of a `continue one;` goto.
+func hasCaseLabels(cases []*ballv1.MessageCreation) bool {
+	for _, mc := range cases {
+		if stringField(messageCreationFields(mc), "label") != "" {
+			return true
 		}
 	}
+	return false
+}
+
+// compileGotoSwitch lowers a labelled switch to a state machine.
+//
+// Dart's `continue <caseLabel>` is a GOTO: it transfers control to that case's
+// body with no subject re-check. An if-else chain cannot express that, so the
+// arms become numbered states driven by a loop:
+//
+//	state = <first matching arm, else the default>
+//	for state >= 0 { cur, state = state, -1; run arm[cur] }
+//
+// An arm that runs to completion leaves state at -1 and the switch exits (arms
+// never fall through). `continue one` sets state to that arm's index and unwinds
+// to the driver with a break carrying this switch's synthetic label; a bare
+// `break` unwinds with the empty label. ballrt.RunLoopBody recovers both (and
+// re-panics anything else — a return, or a labelled jump aimed at an enclosing
+// loop), which is also what keeps a case-body `break` from escaping into the
+// enclosing loop.
+func (c *Compiler) compileGotoSwitch(f map[string]*ballv1.Expression, cases []*ballv1.MessageCreation) string {
+	uid := c.uid()
+	subj := fmt.Sprintf("__subj%d", uid)
+	stateVar := fmt.Sprintf("__state%d", uid)
+	swLabel := fmt.Sprintf("__sw%d", uid)
+
+	// Pass 1: arms, and the label → arm-index map. Bodies are compiled only in
+	// pass 2, because a body may `continue` to a label defined by a LATER case.
+	var arms []gotoArm
+	labelToArm := map[string]int{}
+	var pendingLabels []string
+	var pendingConds []string
+	defaultArm := -1
+
+	for _, mc := range cases {
+		cf := messageCreationFields(mc)
+		if lbl := stringField(cf, "label"); lbl != "" {
+			pendingLabels = append(pendingLabels, lbl)
+		}
+		if boolLiteralField(cf, "is_default") {
+			defaultArm = len(arms)
+			arms = append(arms, gotoArm{cond: "true", body: cf["body"], isDefault: true})
+			for _, l := range pendingLabels {
+				labelToArm[l] = defaultArm
+			}
+			pendingLabels = nil
+			continue
+		}
+		res := c.compileCasePattern(subj, cf)
+		bodyExpr, present := cf["body"]
+		guard, hasGuard := cf["guard"]
+		if (!present || isEmptySwitchBody(bodyExpr)) && !hasGuard {
+			// An empty fall-through case: its condition merges into the next arm, and
+			// a label on it targets that same absorbing arm (jumping there and
+			// falling through to it are the same thing).
+			pendingConds = append(pendingConds, res.cond)
+			continue
+		}
+		pendingConds = append(pendingConds, res.cond)
+		idx := len(arms)
+		arms = append(arms, gotoArm{
+			cond:  "(" + strings.Join(pendingConds, " || ") + ")",
+			binds: res.bindings,
+			body:  bodyExpr,
+			guard: guard,
+		})
+		pendingConds = nil
+		for _, l := range pendingLabels {
+			labelToArm[l] = idx
+		}
+		pendingLabels = nil
+	}
+
+	var b strings.Builder
+	b.WriteString("func() ballrt.Value {\n")
+	fmt.Fprintf(&b, "\t\t%s := %s\n\t\t_ = %s\n", subj, c.arg(f, "subject"), subj)
+	fmt.Fprintf(&b, "\t\t%s := -1\n", stateVar)
+
+	// Entry-arm selection, in source order. The default is not a candidate here —
+	// it is the fallback when nothing matched.
+	for i, a := range arms {
+		if a.isDefault {
+			continue
+		}
+		cond := a.cond
+		if a.guard != nil {
+			c.pushScope()
+			for _, bd := range a.binds {
+				c.bind(bd.name)
+			}
+			cond = fmt.Sprintf("%s && ballrt.Truthy(func() ballrt.Value {\n%s\t\t\treturn %s\n\t\t}())",
+				cond, indent(c.bindDecls(a.binds), "\t\t\t"), c.compileExpr(a.guard))
+			c.popScope()
+		}
+		fmt.Fprintf(&b, "\t\tif %s < 0 && %s {\n\t\t\t%s = %d\n\t\t}\n", stateVar, cond, stateVar, i)
+	}
+	if defaultArm >= 0 {
+		fmt.Fprintf(&b, "\t\tif %s < 0 {\n\t\t\t%s = %d\n\t\t}\n", stateVar, stateVar, defaultArm)
+	}
+
+	// Pass 2: the arm bodies, with the goto context live so `continue <label>`
+	// resolves to a state assignment rather than a loop continue.
+	c.gotoSwitches = append(c.gotoSwitches, gotoSwitch{stateVar: stateVar, label: swLabel, labels: labelToArm})
+	var armSrc strings.Builder
+	for i, a := range arms {
+		fmt.Fprintf(&armSrc, "\t\t\tcase %d:\n", i)
+		c.pushScope()
+		for _, bd := range a.binds {
+			c.bind(bd.name)
+		}
+		armSrc.WriteString(indent(c.bindDecls(a.binds), "\t\t\t\t"))
+		fmt.Fprintf(&armSrc, "\t\t\t\t_ = %s\n", c.compileExpr(a.body))
+		c.popScope()
+	}
+	c.gotoSwitches = c.gotoSwitches[:len(c.gotoSwitches)-1]
+
+	fmt.Fprintf(&b, "\t\tfor %s >= 0 {\n", stateVar)
+	fmt.Fprintf(&b, "\t\t\t__cur%d := %s\n\t\t\t%s = -1\n", uid, stateVar, stateVar)
+	fmt.Fprintf(&b, "\t\t\t_ = ballrt.RunLoopBody(%q, func() {\n", swLabel)
+	fmt.Fprintf(&b, "\t\t\t\tswitch __cur%d {\n", uid)
+	b.WriteString(indent(armSrc.String(), "\t"))
+	b.WriteString("\t\t\t\t}\n\t\t\t})\n\t\t}\n")
 	b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
 	return b.String()
 }
@@ -538,29 +741,14 @@ func isEmptySwitchBody(e *ballv1.Expression) bool {
 	return false
 }
 
-// compileCaseCondition builds a boolean match condition for a switch case.
-func (c *Compiler) compileCaseCondition(subj string, cf map[string]*ballv1.Expression) string {
+// compileCasePattern builds a switch case's match condition and its binders. A
+// case always carries a structured `pattern_expr`; the bare `pattern`/`value`
+// fallback is for a case the encoder could not encode structurally.
+func (c *Compiler) compileCasePattern(subj string, cf map[string]*ballv1.Expression) patternResult {
 	if pe, ok := cf["pattern_expr"]; ok {
-		return c.compileSwitchPattern(subj, pe)
+		return c.compilePattern(subj, pe)
 	}
-	return fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.arg(cf, "pattern", "value"))
-}
-
-func (c *Compiler) compileSwitchPattern(subj string, patternExpr *ballv1.Expression) string {
-	if mc := patternExpr.GetMessageCreation(); mc != nil {
-		fields := messageCreationFields(mc)
-		switch typeShortName(mc.GetTypeName()) {
-		case "WildcardPattern":
-			return "true"
-		case "LogicalOrPattern":
-			return fmt.Sprintf("(%s || %s)", c.compileSwitchPattern(subj, fields["left"]), c.compileSwitchPattern(subj, fields["right"]))
-		case "LogicalAndPattern":
-			return fmt.Sprintf("(%s && %s)", c.compileSwitchPattern(subj, fields["left"]), c.compileSwitchPattern(subj, fields["right"]))
-		case "ConstPattern":
-			return fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.arg(fields, "value"))
-		}
-	}
-	return fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.compileExpr(patternExpr))
+	return patternResult{cond: fmt.Sprintf("ballrt.Truthy(ballrt.Eq(%s, %s))", subj, c.arg(cf, "pattern", "value"))}
 }
 
 // compileTry lowers std.try to ballrt.TryCatch (body/catch/finally closures). The

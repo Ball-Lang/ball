@@ -1,0 +1,6 @@
+# Development dependencies for the `ball` Python CLI.
+# The CLI's runtime dep is protobuf (for `run`, via python/engine's loader); the
+# sibling ball_* packages come from the checkout via PYTHONPATH. pytest runs the
+# suite.
+pytest>=8.3,<10
+protobuf>=5.29

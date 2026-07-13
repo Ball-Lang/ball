@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ball-cli"
+version = "0.1.0"
+description = "The `ball` CLI for the Python toolchain (run / compile / encode / check)."
+readme = "AGENTS.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+# `run` drives python/engine, whose loader materialises proto3 defaults through
+# the generated protobuf binding. The sibling ball_* packages (compiler, encoder,
+# engine, runtime, shared/gen) are consumed from the checkout via PYTHONPATH
+# (ball_cli.paths.bootstrap_sys_path) — the repo's isolated-package convention —
+# not as pip dependencies here.
+dependencies = ["protobuf>=5.29"]
+
+[project.scripts]
+ball = "ball_cli.__main__:main"
+
+[tool.setuptools]
+packages = ["ball_cli", "ball_cli.commands"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

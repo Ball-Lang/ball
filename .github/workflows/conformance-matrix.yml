@@ -15,6 +15,7 @@ on:
       - "rust/**"
       - "csharp/**"
       - "go/**"
+      - "python/**"
       - "dart/self_host/**"
   schedule:
     - cron: "0 6 * * 1" # Weekly on Monday at 06:00 UTC
@@ -535,6 +536,76 @@ jobs:
       total: ${{ steps.conformance.outputs.total }}
 
   # ──────────────────────────────────────────────────
+  # Python self-hosted engine (Ball → Python → run)
+  # ──────────────────────────────────────────────────
+  python-engine:
+    name: Python Self-Hosted Engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      # The engine loader materialises proto3 defaults through the generated
+      # protobuf binding (python/shared/gen), so the protobuf runtime is required.
+      - name: Install dependencies
+        run: python -m pip install "protobuf>=5.29"
+
+      # The self-hosted engine is a Ball program compiled through python/compiler,
+      # so regenerate engine.ball.json (Dart) then compiled_engine.py
+      # (ball_engine.regen) first — same regen chain as ci.yml's python job (see
+      # python/engine/AGENTS.md).
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Regenerate self-hosted engine
+        run: |
+          dart pub get
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          cd ../python/engine && python -m ball_engine.regen
+
+      - name: Run conformance tests
+        id: conformance
+        run: |
+          cd python/engine
+          set +e
+          output=$(python -m conformance.runner 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse "Results: N passed, M failed, T total" line. T is the
+          # golden-having (executed) fixture count — the 4 golden-less
+          # resource-limit/sandbox fixtures are behavioral carve-outs the
+          # runner skips, exactly like the Dart/Rust/C#/Go runners.
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+
+          echo "passed=${passed:-0}" >> "$GITHUB_OUTPUT"
+          echo "failed=${failed:-0}" >> "$GITHUB_OUTPUT"
+          echo "total=${total:-0}" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Python Self-Hosted Engine ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+
+          # Fail on a non-zero runner exit OR any parsed test failure (F-CM-1).
+          if [ "$exit_code" -ne 0 ] || [ "${failed:-0}" -gt 0 ] || [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::Python Self-Hosted Engine conformance failed (exit=$exit_code, failed=${failed:-0})"
+            exit 1
+          fi
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  # ──────────────────────────────────────────────────
   # NEW LANGUAGE ENGINE TEMPLATE — copy and customize
   # ──────────────────────────────────────────────────
   # <lang>-engine:
@@ -598,7 +669,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine]
+    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine]
     steps:
       - name: Print conformance matrix
         run: |
@@ -664,6 +735,12 @@ jobs:
             "${{ needs.go-engine.outputs.total }}" \
             "${{ needs.go-engine.result }}"
 
+          print_row "Python Self-Hosted Engine" \
+            "${{ needs.python-engine.outputs.passed }}" \
+            "${{ needs.python-engine.outputs.failed }}" \
+            "${{ needs.python-engine.outputs.total }}" \
+            "${{ needs.python-engine.result }}"
+
           echo "╚══════════════════════════════╩════════╩════════╩════════╩════════╝"
 
           # Fail the summary if any engine job did not succeed (primary gate).
@@ -675,7 +752,8 @@ jobs:
              [ "${{ needs.cpp-compiled.result }}" != "success" ] || \
              [ "${{ needs.rust-engine.result }}" != "success" ] || \
              [ "${{ needs.csharp-engine.result }}" != "success" ] || \
-             [ "${{ needs.go-engine.result }}" != "success" ]; then
+             [ "${{ needs.go-engine.result }}" != "success" ] || \
+             [ "${{ needs.python-engine.result }}" != "success" ]; then
             echo ""
             echo "One or more engine jobs did not succeed. See individual job logs above."
             summary_failed=1
@@ -692,7 +770,8 @@ jobs:
             "C++ Compiled:${{ needs.cpp-compiled.outputs.failed }}" \
             "Rust Self-Hosted Engine:${{ needs.rust-engine.outputs.failed }}" \
             "C# Self-Hosted Engine:${{ needs.csharp-engine.outputs.failed }}" \
-            "Go Self-Hosted Engine:${{ needs.go-engine.outputs.failed }}"; do
+            "Go Self-Hosted Engine:${{ needs.go-engine.outputs.failed }}" \
+            "Python Self-Hosted Engine:${{ needs.python-engine.outputs.failed }}"; do
             name="${entry%%:*}"
             count="${entry##*:}"
             # Normalize empty/non-numeric (e.g. a skipped job) to 0 so the

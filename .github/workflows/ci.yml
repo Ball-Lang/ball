@@ -47,6 +47,7 @@ jobs:
       rust: ${{ steps.f.outputs.rust }}
       csharp: ${{ steps.f.outputs.csharp }}
       go: ${{ steps.f.outputs.go }}
+      python: ${{ steps.f.outputs.python }}
       infra: ${{ steps.f.outputs.infra }}
       # A self-hosted Dart source (dart/engine/lib/** or the cli_core.dart
       # library) changed — already folded into cpp/rust/csharp below (#416,
@@ -77,7 +78,7 @@ jobs:
             # changed_fixtures=ALL is the fail-open sentinel for the fixture
             # filter too — the typescript job runs the FULL full_e2e.ts sweep
             # rather than skip it, since we cannot compute what changed.
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "csharp=true"; echo "go=true"; echo "infra=true"; echo "self_host=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
+            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "csharp=true"; echo "go=true"; echo "python=true"; echo "infra=true"; echo "self_host=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # Three-dot (merge-base) diff: ONLY this branch's own changes, never
@@ -92,12 +93,12 @@ jobs:
           # SIGPIPE when grep -q early-exits on a large file list.
           m() { grep -qE "$1" <<< "$files"; }
           out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
-          # infra = ANY changed file OUTSIDE the four single-stack dirs — proto/,
+          # infra = ANY changed file OUTSIDE the single-stack dirs — proto/,
           # tests/, tools/, examples/, root configs, this workflow, etc. Anything
           # cross-cutting forces every stack to run, so a path we forgot to map
           # can never silently skip a check (fail-safe by construction).
           infra=false
-          if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/)' <<< "$files"; then infra=true; fi
+          if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|python/)' <<< "$files"; then infra=true; fi
 
           # self_host = the diff touches a Dart source that CROSS-COMPILES into
           # the C++, Rust, AND C# self-hosted artifacts, even though it lives
@@ -147,14 +148,16 @@ jobs:
           {
             out dart '^dart/'
             out ts   '^ts/'
-            # cpp/rust/csharp run on their own dir changes OR any self-host Dart
-            # source change (self_host above — #416, #386): those sources
-            # cross-compile into the C++/Rust/C# self-host artifacts even though
-            # they live under dart/.
+            # cpp/rust/csharp/go/python run on their own dir changes OR any
+            # self-host Dart source change (self_host above — #416, #386): those
+            # sources cross-compile into the C++/Rust/C#/Go/Python self-host
+            # artifacts even though they live under dart/ (python's engine regen
+            # reads dart/self_host/engine.ball.json, generated from dart/engine).
             if m '^cpp/'    || [ "$self_host" = true ]; then echo "cpp=true";    else echo "cpp=false";    fi
             if m '^rust/'   || [ "$self_host" = true ]; then echo "rust=true";   else echo "rust=false";   fi
             if m '^csharp/' || [ "$self_host" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
             if m '^go/'     || [ "$self_host" = true ]; then echo "go=true";     else echo "go=false";     fi
+            if m '^python/' || [ "$self_host" = true ]; then echo "python=true"; else echo "python=false"; fi
             echo "infra=$infra"
             echo "self_host=$self_host"
             echo "changed_fixtures=$changed_fixtures"
@@ -1036,6 +1039,109 @@ jobs:
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
           if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
             echo "::error::Go self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
+            exit 1
+          fi
+
+  # ──────────────────────────────────────────────────
+  # Python — pytest + compileall + self-hosted engine conformance
+  # ──────────────────────────────────────────────────
+  python:
+    name: Python
+    needs: changes
+    if: ${{ needs.changes.outputs.python == 'true' || needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Every python/*/pyproject.toml declares `requires-python = ">=3.11"` (the
+      # floor); CI pins the current 3.13 line — the same "manifest declares the
+      # floor, CI runs the latest line" split the go job uses (go.mod `go 1.23`
+      # floor vs setup-go `1.25.x`).
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      # The engine loader materialises proto3 defaults through the generated
+      # protobuf binding (python/shared/gen), which needs the protobuf runtime;
+      # pytest drives the suites. Both pinned to the floors the pyproject /
+      # requirements-dev files already declare (protobuf>=5.29, pytest>=8.3,<10).
+      - name: Install dependencies
+        run: python -m pip install "protobuf>=5.29" "pytest>=8.3,<10"
+
+      # The five packages are isolated (no workspace manager); each suite's
+      # conftest.py bootstraps its sibling sources onto sys.path, so every suite
+      # runs from its own package dir (the canonical invocation).
+      - name: Compiler tests
+        run: cd python/compiler && python -m pytest -q
+
+      - name: Encoder tests
+        run: cd python/encoder && python -m pytest -q
+
+      # Runs BEFORE the self-host regen below, so compiled_engine.py is absent
+      # here and the CLI's honest-failure `run` path (exit 1 + regenerate hint)
+      # is actually exercised — the natural state of a fresh checkout.
+      - name: CLI tests
+        run: cd python/cli && python -m pytest -q
+
+      # Byte-compile every checked-in source as a syntax gate (the Python analog
+      # of the go job's build + vet). compiled_engine.py is a gitignored,
+      # generated artifact not present at this point; `-x` excludes it
+      # defensively so a re-run (where regen already ran) can't slow this to a
+      # ~690 KB compile.
+      - name: Compile-all (syntax gate)
+        run: |
+          python -m compileall -q -x 'compiled_engine\.py' \
+            python/runtime/ballrt python/compiler/ball_compiler \
+            python/encoder/ball_encoder python/engine/ball_engine \
+            python/cli/ball_cli python/shared/gen
+
+      # ── Self-hosted engine: regenerate + RUN (epic #445 Phase 4) ──
+      # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
+      # itself gitignored) compiled through python/compiler into the gitignored
+      # python/engine/ball_engine/compiled_engine.py. Regenerate both from source,
+      # then run the whole conformance corpus and assert Dart parity — the
+      # identical regen-then-run shape as the go/rust/csharp jobs (see
+      # python/engine/AGENTS.md's "Regenerate + run").
+      - name: Setup Dart (for engine.ball.json regeneration)
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      # gen_engine_json.dart writes dart/self_host/engine.ball.json; the
+      # `ball_engine.regen` module reads it and compiles it into
+      # ball_engine/compiled_engine.py.
+      - name: Regenerate self-hosted engine
+        run: |
+          dart pub get
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          cd ../python/engine && python -m ball_engine.regen
+
+      # Whole-corpus conformance sweep — drives every tests/conformance/*.ball.json
+      # through the self-hosted Python engine and asserts the canonical
+      # `Results: N passed, M failed, T total` line shows every golden-having
+      # fixture passing (Dart parity). Currently
+      # "Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)" — the 4
+      # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
+      # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
+      # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,
+      # mirroring the go/rust/csharp gates byte-for-byte so the corpus can grow
+      # without editing this workflow.
+      - name: "Self-host conformance sweep (Results: line)"
+        run: |
+          cd python/engine
+          set +e
+          output=$(python -m conformance.runner 2>&1)
+          exit_code=$?
+          echo "$output"
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          echo ""
+          echo "=== Python Self-Host ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
+            echo "::error::Python self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
 

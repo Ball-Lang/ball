@@ -35,7 +35,7 @@ import 'package:ball_engine/engine.dart';
 import 'package:ball_resolver/ball_resolver.dart';
 import 'package:yaml/yaml.dart';
 
-import '../version.g.dart';
+import 'version.g.dart';
 
 /// The CLI version reported by `ball version`. Single-sourced from
 /// `pubspec.yaml` (issue #363) via `dart run tool/gen_version.dart`; the CI

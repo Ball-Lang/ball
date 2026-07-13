@@ -209,12 +209,12 @@ seeded packages it is fast.)
    per dispatch (the ts configs already pass `-f package=<name>`; **the current
    `publish-npm.yml` has no such input yet** — this split is a cutover task, and
    the `publishCmd` never runs before cutover so it is not a live break).
-3. `ball_cli` only: `dart/cli/lib/version.g.dart` is generated from
+3. `ball_cli` only: `dart/cli/lib/src/version.g.dart` is generated from
    `dart/cli/pubspec.yaml` (issue #363) and is guarded by a CI `gen_version.dart
    --check`. A `ball_cli` version bump must regenerate it, or that guard fails on
    the next push. At cutover, add Dart SDK setup (+ `dart pub get`) to the release
    job and extend `ball_cli.releaserc.json`'s `prepareCmd` with
-   `dart run tool/gen_version.dart`, adding `dart/cli/lib/version.g.dart` to its
+   `dart run tool/gen_version.dart`, adding `dart/cli/lib/src/version.g.dart` to its
    `@semantic-release/git` assets. (Left out here so all 9 Dart configs stay
    uniform while the release job has no Dart toolchain.)
 4. Set `RELEASE_V2=true`, rename `release-v2.yml` → `release.yml`, and in the

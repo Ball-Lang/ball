@@ -1,13 +1,13 @@
 /// Single-source the `ball` CLI version from `pubspec.yaml` (issue #363).
 ///
 /// Reads `version:` from `dart/cli/pubspec.yaml` and writes
-/// `lib/version.g.dart` (`const ballCliVersion = '<version>';`). Run from the
+/// `lib/src/version.g.dart` (`const ballCliVersion = '<version>';`). Run from the
 /// package root:
 ///
 ///   cd dart/cli && dart run tool/gen_version.dart
 ///
 /// Pass `--check` for the CI drift guard: exits non-zero (without writing) if
-/// `lib/version.g.dart` is missing or out of date, so a melos version bump can
+/// `lib/src/version.g.dart` is missing or out of date, so a melos version bump can
 /// never leave `ball version` reporting a stale number.
 library;
 
@@ -31,26 +31,28 @@ void main(List<String> args) {
   }
   final version = doc['version'].toString();
 
-  final outFile = File('$root/lib/version.g.dart');
+  final outFile = File('$root/lib/src/version.g.dart');
   final expected = _render(version);
 
   if (check) {
     final actual = outFile.existsSync() ? outFile.readAsStringSync() : '';
     if (actual != expected) {
       stderr.writeln(
-        'gen_version: lib/version.g.dart is stale (pubspec version '
+        'gen_version: lib/src/version.g.dart is stale (pubspec version '
         '"$version"). Run: cd dart/cli && dart run tool/gen_version.dart',
       );
       exit(1);
     }
     stdout.writeln(
-      'gen_version: lib/version.g.dart matches pubspec ($version)',
+      'gen_version: lib/src/version.g.dart matches pubspec ($version)',
     );
     return;
   }
 
   outFile.writeAsStringSync(expected);
-  stdout.writeln('gen_version: wrote lib/version.g.dart (version $version)');
+  stdout.writeln(
+    'gen_version: wrote lib/src/version.g.dart (version $version)',
+  );
 }
 
 String _render(String version) =>

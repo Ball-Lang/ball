@@ -853,7 +853,7 @@ jobs:
       # Fixtures the Ball → C# compiler currently emits correctly. NEVER lower
       # this to turn a red build green — preventing exactly that is the whole
       # point of a ratchet. Open families are catalogued in #452.
-      CSHARP_COMPILER_FLOOR: "226"
+      CSHARP_COMPILER_FLOOR: "245"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

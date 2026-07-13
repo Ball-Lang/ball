@@ -88,7 +88,8 @@ Windows note: the CLI's error prefix and all diagnostics are ASCII; run with
 Supported: module-level scripts and `def main()`; free functions (0/1/2+ params)
 and calls; nested `def`s + `lambda` (read-only closure capture); arithmetic /
 bitwise / comparison / boolean-logic operators; `if`/`elif`/`else`; `while`;
-`for` over `range(...)` (1-3 args, constant step) and over a list/iterable;
+`for` over `range(...)` (1-3 args, constant step — ascending or descending) and
+over a list/iterable;
 `break`/`continue`/`return`; list literals and indexing (`x[i]`); local
 assignment (`=`, `+=`-family, `x: T = v`); `print` (0/1/N args, space-joined);
 f-strings (plain `{expr}`); `len`/`str`/`int`/`float`/`abs`; the ternary
@@ -112,14 +113,23 @@ conversions/format-specs.
   zero (Dart `~/`). Identical for non-negative operands; differs in sign only.
 - **`%` on negatives.** Python `%` follows the divisor's sign; Ball's `modulo` is
   always non-negative (Dart). Identical for non-negative operands.
-- **Loop-variable leak.** Python leaks a `for` variable's last value after the
-  loop; the encoded form leaves it at its hoisted `null` (or, for `for_in`, the
-  loop-scoped binding does not escape). Reads after the loop are the gap.
+- **Reading a conditionally-unassigned local.** Because every local is hoisted to
+  `null`, reading a name that Python would consider unbound on the taken path
+  yields `null` where native Python raises `UnboundLocalError`. This only diverges
+  for programs that are *already* erroneous in Python (a read before any
+  assignment reaches it); a correct program assigns before it reads.
+- **Loop-variable value after the loop.** The general case above, specialised to
+  a `for` variable read after the loop (both leak, but not the same value): a
+  `range` loop lowers to a C-style counter, so the variable holds the **terminal
+  counter** that failed the test (e.g. `3` after `for i in range(3)`, vs Python's
+  last yielded `2`); a `for_in` loop's variable is loop-scoped and does not
+  escape, so it reads back as its hoisted `null`.
 
 ## Status (Phase 3)
 
-Encoder complete for the surface above; **8 round-trip programs** verified three
+Encoder complete for the surface above; **9 round-trip programs** verified three
 ways (native Python == encode -> compile(`python/compiler`) -> run == golden):
 `hello_world`, `arithmetic`, `control_flow`, `list_loop`, `fizzbuzz`,
-`recursion`, `closures`, `strings`. No engine/CLI-beyond-encode and no CI wiring
-(later phases). Verify maturity against tests, not this prose.
+`recursion`, `closures`, `strings`, `descending_range`. No engine/CLI-beyond-
+encode and no CI wiring (later phases). Verify maturity against tests, not this
+prose.

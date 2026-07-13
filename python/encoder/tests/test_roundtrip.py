@@ -26,6 +26,7 @@ CASES = [
     ("recursion.py", "120\n1\n"),
     ("closures.py", "15\n30\n"),
     ("strings.py", "Hello, Ball!\n12\nHello, Ball! has 12 chars\n"),
+    ("descending_range.py", "5\n4\n3\n2\n1\n"),
 ]
 
 

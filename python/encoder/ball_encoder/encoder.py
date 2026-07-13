@@ -431,18 +431,27 @@ class _Encoder:
         start, stop, step = rng
         start_e = self.encode_expr(start) if start is not None else b.int_lit(0)
         stop_e = self.encode_expr(stop)
-        step_e = self.encode_expr(step) if step is not None else b.int_lit(1)
 
-        # Direction is taken from a literal step's sign; a non-literal step can't
-        # pick a comparison direction syntactically, so require a constant.
+        # The loop direction is the sign of the step, which must be known at
+        # encode time to pick the counting comparison (`<` ascending, `>`
+        # descending). A negative literal step parses as `UnaryOp(USub,
+        # Constant)`, never a bare `Constant`, so `_const_int` unwraps the unary
+        # sign — otherwise `range(5, 0, -1)` would (wrongly) look non-constant.
         descending = False
-        if step is not None:
-            if not (isinstance(step, ast.Constant) and isinstance(step.value, int)):
-                self.fail("range() with a non-constant step is not supported")
-            elif step.value < 0:
-                descending = True
-            elif step.value == 0:
+        if step is None:
+            step_e = b.int_lit(1)
+        else:
+            step_val = _const_int(step)
+            if step_val is None:
+                self.fail("range() with a non-constant step is not supported "
+                          "(the step's sign must be known at encode time)")
+                step_e = self.encode_expr(step)
+            elif step_val == 0:
                 self.fail("range() step must not be zero")
+                step_e = b.int_lit(0)
+            else:
+                descending = step_val < 0
+                step_e = b.int_lit(step_val)
 
         cmp_fn = "greater_than" if descending else "less_than"
         init = b.block_expr([b.expr_stmt(self.assign_to(b.ref(var), start_e))])
@@ -717,6 +726,23 @@ class _Encoder:
 
     def fail(self, message: str) -> None:
         self.errors.append(message)
+
+
+# ── Compile-time constant helpers ────────────────────────────────────────────
+
+
+def _const_int(node: ast.expr) -> int | None:
+    """The integer value of a compile-time integer constant, unwrapping a unary
+    sign (``-1`` parses as ``UnaryOp(USub, Constant(1))``). Returns ``None`` for
+    anything not statically an ``int`` (a name, a call, a float …). ``bool`` is
+    excluded — a `range(..., True)` step is not a meaningful integer step."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        inner = _const_int(node.operand)
+        if inner is not None:
+            return -inner if isinstance(node.op, ast.USub) else inner
+    return None
 
 
 # ── Local-variable collection (for hoisting) ─────────────────────────────────

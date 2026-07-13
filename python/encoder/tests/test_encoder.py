@@ -172,6 +172,28 @@ def test_for_in_list_encodes_as_std_for_in():
     assert any(c.get("module") == "std" and c["function"] == "for_in" for c in all_calls(prog))
 
 
+def test_descending_range_counts_down_with_greater_than():
+    # A negative literal step parses as UnaryOp(USub, Constant); the encoder must
+    # unwrap it and emit a `>` counting comparison (not fail as "non-constant").
+    prog = encode("for i in range(5, 0, -1):\n    print(i)")
+    fns = {c["function"] for c in all_calls(prog) if c.get("module") == "std"}
+    assert "for" in fns
+    assert "greater_than" in fns  # descending direction, the previously-dead path
+    assert "less_than" not in fns
+
+
+def test_ascending_range_counts_up_with_less_than():
+    prog = encode("for i in range(0, 5):\n    print(i)")
+    fns = {c["function"] for c in all_calls(prog) if c.get("module") == "std"}
+    assert "less_than" in fns and "greater_than" not in fns
+
+
+def test_non_constant_range_step_fails_loud():
+    with pytest.raises(EncodeError) as ei:
+        encode("s = 2\nfor i in range(0, 10, s):\n    print(i)")
+    assert "non-constant step" in str(ei.value)
+
+
 def test_short_circuit_and_or_stay_std_calls():
     prog = encode("x = 1\ny = 2\nprint(x > 0 and y > 0)")
     fns = {c["function"] for c in all_calls(prog) if c.get("module") == "std"}

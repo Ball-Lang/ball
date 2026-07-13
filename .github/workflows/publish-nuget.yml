@@ -105,7 +105,10 @@ jobs:
           echo ""
           echo "=== C# Self-Host ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
-          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+          # `passed >= 1` floor (#439/#444): a bare `-z "$passed"` check accepts a
+          # literal "0 passed, 0 failed, 0 total" — 0 is non-empty and 0 == 0 — so
+          # a sweep that executed NOTHING would green-light a publish to NuGet.
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
             echo "::error::C# self-host conformance is not at full parity — refusing to publish"
             exit 1
           fi

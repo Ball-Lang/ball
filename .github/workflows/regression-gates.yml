@@ -190,6 +190,13 @@ jobs:
             echo "::error::Could not parse the 'Results: N passed, M failed, T total' line from TS engine output"
             exit 1
           fi
+          # `passed >= 1` floor (#439/#444): "0 passed, 0 failed" satisfies both the
+          # -z guard (0 is non-empty) and the failed-check below, so a suite that ran
+          # NOTHING would report green. A gate that measures nothing is not a gate.
+          if [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::TS engine ran 0 tests — refusing to pass a gate that measured nothing"
+            exit 1
+          fi
 
           echo "TS engine: $passed passed, $failed failed, $total total"
           if [ "$failed" != "0" ]; then
@@ -225,6 +232,11 @@ jobs:
 
           if [ -z "$passed" ] || [ -z "$failed" ]; then
             echo "::error::Could not parse the '# pass N' / '# fail N' summary from TS compiler output"
+            exit 1
+          fi
+          # `passed >= 1` floor (#439/#444) — see the TS engine gate above.
+          if [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::TS compiler ran 0 tests — refusing to pass a gate that measured nothing"
             exit 1
           fi
           skipped=${skipped:-0}
@@ -290,8 +302,11 @@ jobs:
           skipped=$(echo "$summary" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
-          if [ -z "$passed" ]; then
-            echo "::error::Could not parse Dart engine pass count"
+          # `passed >= 1` floor (#439/#444): this also subsumes the old -z check —
+          # an empty parse defaults to 0 and trips the floor. "0 passed, 0 failed"
+          # would otherwise sail through both this and the failed-check below.
+          if [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::Dart engine reported 0 passing tests (parse failure, or the suite ran nothing)"
             exit 1
           fi
 
@@ -327,8 +342,11 @@ jobs:
           skipped=$(echo "$summary" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
-          if [ -z "$passed" ]; then
-            echo "::error::Could not parse Dart encoder pass count"
+          # `passed >= 1` floor (#439/#444): this also subsumes the old -z check —
+          # an empty parse defaults to 0 and trips the floor. "0 passed, 0 failed"
+          # would otherwise sail through both this and the failed-check below.
+          if [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::Dart encoder reported 0 passing tests (parse failure, or the suite ran nothing)"
             exit 1
           fi
 
@@ -364,8 +382,11 @@ jobs:
           skipped=$(echo "$summary" | grep -oP '~\K\d+'             | tail -1 || true)
           failed=${failed:-0}; skipped=${skipped:-0}
 
-          if [ -z "$passed" ]; then
-            echo "::error::Could not parse Dart compiler pass count"
+          # `passed >= 1` floor (#439/#444): this also subsumes the old -z check —
+          # an empty parse defaults to 0 and trips the floor. "0 passed, 0 failed"
+          # would otherwise sail through both this and the failed-check below.
+          if [ "${passed:-0}" -lt 1 ]; then
+            echo "::error::Dart compiler reported 0 passing tests (parse failure, or the suite ran nothing)"
             exit 1
           fi
 

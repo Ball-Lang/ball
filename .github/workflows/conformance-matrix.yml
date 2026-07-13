@@ -62,13 +62,22 @@ jobs:
           exit_code=$?
           echo "$output"
 
-          # Expanded reporter prints "00:05 +324: All tests passed!" (and
-          # "00:05 +320 -4: Some tests failed." on failure) — the counters are
-          # NOT at line start, so these greps must stay unanchored.
-          passed=$(echo "$output" | grep -oP '\+\K\d+' | tail -1 || echo "0")
-          failed=$(echo "$output" | grep -oP '\s-\K\d+' | tail -1 || echo "0")
+          # Parse counts from the reporter's FINAL summary line ONLY — never the
+          # whole output. A test name or printed value containing `-N` otherwise
+          # gets picked up by a global `grep ... | tail -1`, producing an
+          # order-dependent FALSE failure count. Same idiom as the dart-engine
+          # gate in regression-gates.yml, which documents this hazard.
+          # Summary is "00:05 +324: All tests passed!" or "+320 -4: Some tests
+          # failed." — counters carry a time prefix, so the greps stay unanchored
+          # but are scoped to the summary line. `(?<![+~])-` avoids matching the
+          # `-` of a `+N`/`~N` counter. `|| true`: a grep with no match exits
+          # non-zero, which must not abort the step before the checks run.
+          summary=$(echo "$output" | grep -E 'All tests passed!|Some tests failed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP '\+\K\d+'         | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP '(?<![+~])-\K\d+'  | tail -1 || true)
+          passed=${passed:-0}; failed=${failed:-0}
 
-          total=$(( ${passed:-0} + ${failed:-0} ))
+          total=$(( passed + failed ))
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"

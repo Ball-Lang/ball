@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ── Single-sourced version (issue #363) ───────────────────────────────────────
 # Read the CLI version from the Dart CLI's pubspec so `ball version` can never
 # drift from the published package version (the Dart CLI does the same via
-# dart/cli/lib/version.g.dart).
+# dart/cli/lib/src/version.g.dart).
 set(_pubspec "${CMAKE_CURRENT_SOURCE_DIR}/../../dart/cli/pubspec.yaml")
 set(BALL_CLI_VERSION "0.0.0")
 if(EXISTS "${_pubspec}")

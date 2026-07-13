@@ -1,3 +1,10 @@
+## [1.53.1](https://github.com/Ball-Lang/ball/compare/v1.53.0...v1.53.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **ts:** [#412](https://github.com/Ball-Lang/ball/issues/412) — ball audit --reachable-only emits the termination section ([#440](https://github.com/Ball-Lang/ball/issues/440)) ([664935c](https://github.com/Ball-Lang/ball/commit/664935c6518a929ed17d83e7c5e5d324188f4dec))
+
 # [1.53.0](https://github.com/Ball-Lang/ball/compare/v1.52.0...v1.53.0) (2026-07-12)
 
 

@@ -52,23 +52,32 @@ jobs:
         run: |
           cd dart/engine
           set +e
-          output=$(dart test test/conformance_test.dart 2>&1)
+          # --reporter=expanded is REQUIRED: `dart test` auto-detects GitHub
+          # Actions and switches to its `github` reporter, which prints
+          # "✅ <name>" / "🎉 N tests passed." — NOT the "+N -M" counters this
+          # step parses. Without the pin, passed parsed as 0 while 324 tests
+          # actually passed, and the row reported a green no-op until the
+          # `passed < 1` floor (#439/#444) caught it. Pin the format.
+          output=$(dart test --reporter=expanded test/conformance_test.dart 2>&1)
           exit_code=$?
           echo "$output"
 
-          # Parse pass/fail from dart test output
-          passed=$(echo "$output" | grep -oP '^\+(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
-          # Dart test prints "+N -M" for failures or "+N" for all pass
-          failed=$(echo "$output" | grep -oP '~?-(\d+)' | tail -1 | grep -oP '\d+' || echo "0")
+          # Parse counts from the reporter's FINAL summary line ONLY — never the
+          # whole output. A test name or printed value containing `-N` otherwise
+          # gets picked up by a global `grep ... | tail -1`, producing an
+          # order-dependent FALSE failure count. Same idiom as the dart-engine
+          # gate in regression-gates.yml, which documents this hazard.
+          # Summary is "00:05 +324: All tests passed!" or "+320 -4: Some tests
+          # failed." — counters carry a time prefix, so the greps stay unanchored
+          # but are scoped to the summary line. `(?<![+~])-` avoids matching the
+          # `-` of a `+N`/`~N` counter. `|| true`: a grep with no match exits
+          # non-zero, which must not abort the step before the checks run.
+          summary=$(echo "$output" | grep -E 'All tests passed!|Some tests failed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP '\+\K\d+'         | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP '(?<![+~])-\K\d+'  | tail -1 || true)
+          passed=${passed:-0}; failed=${failed:-0}
 
-          # Fallback: count from "All tests passed" or the summary line
-          if echo "$output" | grep -q "All tests passed"; then
-            total=$(echo "$output" | grep -oP '\+(\d+)' | tail -1 | grep -oP '\d+')
-            passed="$total"
-            failed="0"
-          fi
-
-          total=$((passed + failed))
+          total=$(( passed + failed ))
           echo "passed=$passed" >> "$GITHUB_OUTPUT"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
@@ -160,6 +169,22 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: ts/compiler/package-lock.json
+
+      # engine_runtime.test.ts checks existsSync(engine.ball.json) at module
+      # load and SKIPS every conformance subtest if it is missing — and the file
+      # is gitignored. Without this regen the row ran ZERO fixtures and still
+      # reported green ("# pass 0, # skipped 1"), until the `passed < 1` floor
+      # (#439/#444) caught it. Mirrors the ts-regression job in
+      # regression-gates.yml, which generates it for the same reason.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (roundtrip_engine)
+        run: cd dart && dart pub get
+
+      - name: Generate engine.ball.json (self-host source)
+        run: cd dart && dart run encoder/tool/roundtrip_engine.dart --skip-analyze --save-program self_host/engine.ball.json
 
       - name: Install dependencies
         run: cd ts/compiler && npm ci

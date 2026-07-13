@@ -56,7 +56,8 @@ jobs:
   # Same native-git-diff logic as ci.yml's `changes` job (kept inline rather
   # than a shared composite action because it is small + stable; extract to
   # .github/actions/ if it grows). FAIL-OPEN (no usable base => all true) and
-  # FAIL-SAFE (any file outside dart/ ts/ cpp/ => infra=true => run everything).
+  # FAIL-SAFE (any file outside the language dirs => infra=true => run
+  # everything).
   # ──────────────────────────────────────────────────
   changes:
     name: Detect changed stacks
@@ -100,7 +101,12 @@ jobs:
           m() { grep -qE "$1" <<< "$files"; }
           out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
           infra=false
-          if grep -qvE '^(dart/|ts/|cpp/)' <<< "$files"; then infra=true; fi
+          # Every language dir is listed, not just the three these gates cover:
+          # an unlisted dir yields a false infra=true, so a rust/csharp/go/python-
+          # only PR would run all three Dart/TS/C++ gates it cannot affect (#451,
+          # same defect as ci.yml's copy). A genuinely cross-cutting file (proto/,
+          # tests/, tools/, root configs, this workflow) still trips infra=true.
+          if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<< "$files"; then infra=true; fi
           # self_host = the diff touches a Dart source that CROSS-COMPILES into
           # the C++ self-hosted artifacts the cpp-selfhost-tally job regenerates
           # and runs, even though it lives under dart/ (so it would otherwise

@@ -262,7 +262,7 @@ jobs:
         run: cd dart/resolver && dart test
 
       # The `ball` CLI version is single-sourced from pubspec.yaml (#363);
-      # fail if the generated lib/version.g.dart drifted from the package.
+      # fail if the generated lib/src/version.g.dart drifted from the package.
       - name: CLI version drift check (#363)
         run: cd dart/cli && dart run tool/gen_version.dart --check
 

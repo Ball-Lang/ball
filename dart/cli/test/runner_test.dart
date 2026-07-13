@@ -16,7 +16,7 @@ import 'package:ball_base/ball_base.dart'
     show encodeBallFileBinary, encodeBallFileJson;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_cli/src/runner.dart';
-import 'package:ball_cli/version.g.dart';
+import 'package:ball_cli/src/version.g.dart';
 import 'package:ball_encoder/encoder.dart';
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';

@@ -30,7 +30,7 @@ import 'dart:io';
 
 import 'package:ball_base/ball_base.dart' show decodeProgramJson;
 import 'package:ball_base/cli_core.dart' as cli_core;
-import 'package:ball_cli/version.g.dart';
+import 'package:ball_cli/src/version.g.dart';
 
 String _findRepoRoot() {
   var dir = Directory.current;

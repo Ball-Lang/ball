@@ -1880,8 +1880,16 @@ class Compiler:
         lv = self.lvalue(target)
         val = self.value(f["value"])
         combined = self.combine_op(op, self.lvalue_read(lv), val)
-        self.emit_store(lv, combined)
-        return lv[1] if lv[0] == "var" else combined
+        if lv[0] == "var":
+            self.emit_store(lv, combined)
+            return lv[1]
+        # A field/index store whose value has side effects (e.g. list_push, which
+        # mutates) must be evaluated once: capture it in a temp, then both store
+        # and return the temp — never re-evaluate the value expression.
+        t = self.newtemp()
+        self.line(f"{t} = {combined}")
+        self.emit_store(lv, t)
+        return t
 
     def value_assign(self, call) -> str:
         return self.stmt_assign(call)

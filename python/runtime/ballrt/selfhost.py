@@ -332,7 +332,7 @@ def datetime_parse(s):
     return DateTime(_datetime.datetime.fromisoformat(str(s)))
 
 
-def datetime_from_ms(ms):
+def datetime_from_ms(ms, *_):
     return DateTime(_datetime.datetime.fromtimestamp(int(ms) / 1000, _datetime.timezone.utc))
 
 

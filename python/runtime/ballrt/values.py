@@ -149,6 +149,37 @@ def call_fn(fn, argument):
 _STR_PROPS = {"length", "isEmpty", "isNotEmpty"}
 
 
+import math as _math
+
+_NO_GETTER = object()
+
+
+def _num_getter(v, name):
+    """Dart ``num`` virtual getters (``x.isNegative`` / ``.isNaN`` / ``.isEven`` …)."""
+    if name == "isNegative":
+        # Dart: -0.0.isNegative is true; use the sign bit for doubles.
+        if isinstance(v, float):
+            return _math.copysign(1.0, v) < 0
+        return v < 0
+    if name == "isNaN":
+        return isinstance(v, float) and _math.isnan(v)
+    if name == "isFinite":
+        return _math.isfinite(v)
+    if name == "isInfinite":
+        return isinstance(v, float) and _math.isinf(v)
+    if name == "isEven":
+        return isinstance(v, int) and v % 2 == 0
+    if name == "isOdd":
+        return isinstance(v, int) and v % 2 != 0
+    if name == "sign":
+        if isinstance(v, float):
+            if _math.isnan(v):
+                return v
+            return float((v > 0) - (v < 0))
+        return (v > 0) - (v < 0)
+    return _NO_GETTER
+
+
 def _runtime_type_name(obj):
     """Dart ``value.runtimeType`` — the type's name (used by the engine in error
     messages and type reporting). A user instance reports its class name."""
@@ -176,6 +207,10 @@ def getfield(obj, name):
         return _runtime_type_name(obj)
     if obj is None:
         raise AttributeError(f"ball: field {name!r} on null")
+    if isinstance(obj, (int, float)) and not isinstance(obj, bool):
+        r = _num_getter(obj, name)
+        if r is not _NO_GETTER:
+            return r
     if isinstance(obj, str):
         if name == "length":
             return ops.utf16_length(obj)

@@ -1,3 +1,10 @@
+## [1.59.3](https://github.com/Ball-Lang/ball/compare/v1.59.2...v1.59.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **csharp:** port the 14-kind pattern-matching algorithm (advances [#452](https://github.com/Ball-Lang/ball/issues/452)) ([#466](https://github.com/Ball-Lang/ball/issues/466)) ([241c649](https://github.com/Ball-Lang/ball/commit/241c64985a622a91c3cd7cd6341fc1182b3f5ad9)), closes [#464](https://github.com/Ball-Lang/ball/issues/464) [#465](https://github.com/Ball-Lang/ball/issues/465) [#463](https://github.com/Ball-Lang/ball/issues/463)
+
 ## [1.59.2](https://github.com/Ball-Lang/ball/compare/v1.59.1...v1.59.2) (2026-07-13)
 
 

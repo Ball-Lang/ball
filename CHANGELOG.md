@@ -1,3 +1,10 @@
+## [1.59.2](https://github.com/Ball-Lang/ball/compare/v1.59.1...v1.59.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* **csharp:** emit distinct methods for a getter/setter pair (advances [#452](https://github.com/Ball-Lang/ball/issues/452)) ([#460](https://github.com/Ball-Lang/ball/issues/460)) ([ac54ed6](https://github.com/Ball-Lang/ball/commit/ac54ed6efe9404ba36f9d7d0df475d65c236e2e2)), closes [#459](https://github.com/Ball-Lang/ball/issues/459) [#459](https://github.com/Ball-Lang/ball/issues/459)
+
 ## [1.59.1](https://github.com/Ball-Lang/ball/compare/v1.59.0...v1.59.1) (2026-07-13)
 
 

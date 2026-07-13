@@ -27,6 +27,15 @@ def run_entry(entry):
     """
     from .flow import BallThrow
 
+    # A compiled module run standalone (`python out.py`) may print non-ASCII;
+    # force UTF-8 so a cp1252 Windows console does not raise UnicodeEncodeError.
+    # Mirrors ball_cli/__main__.py so both entry paths share one contract.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
     try:
         entry(None)
     except BallThrow as ex:

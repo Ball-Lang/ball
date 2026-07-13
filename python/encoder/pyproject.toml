@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ball-encoder"
+version = "0.1.0"
+description = "Python -> Ball encoder (parses Python with the stdlib ast, emits a Ball program)."
+readme = "AGENTS.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+ballpyenc = "ball_encoder.__main__:main"
+
+[tool.setuptools]
+packages = ["ball_encoder"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

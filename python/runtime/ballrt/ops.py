@@ -584,3 +584,45 @@ def math_trunc(v):
 def math_sign(v):
     n = _as_float(v)
     return 0 if n == 0 else (1 if n > 0 else -1)
+
+
+def math_clamp(v, lo, hi):
+    """Dart ``num.clamp(lo, hi)`` — clamp v to [lo, hi], preserving int/double."""
+    if _cmp(v, lo) < 0:
+        return lo
+    if _cmp(v, hi) > 0:
+        return hi
+    return v
+
+
+def math_is_finite(v):
+    return math.isfinite(_as_float(v))
+
+
+def math_is_infinite(v):
+    return math.isinf(_as_float(v))
+
+
+def math_gcd(a, b):
+    return math.gcd(int(a), int(b))
+
+
+def round_to_double(v):
+    return float(math_round(v))
+
+
+def floor_to_double(v):
+    return float(math.floor(v))
+
+
+def ceil_to_double(v):
+    return float(math.ceil(v))
+
+
+def truncate_to_double(v):
+    return float(math.trunc(v))
+
+
+def string_runes(v):
+    """Dart ``String.runes`` — the Unicode code points (not UTF-16 units)."""
+    return [ord(ch) for ch in v]

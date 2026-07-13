@@ -49,6 +49,65 @@ class BallSet:
         return "{" + ", ".join(ops.to_str(x) for x in self._items) + "}"
 
 
+class BallValue:
+    """Root of the engine's runtime value hierarchy (``ball_value.dart``).
+
+    A stub/abstract base: the self-hosted engine declares its internal classes
+    (``_FlowSignal``, ``BallGenerator``, …) as ``extends BallValue``, but the
+    scalar wrappers (BallInt/BallDouble/…) are *not* materialised — their
+    constructors return the raw Python value (see ``selfhost.ball_*``), so
+    arithmetic never sees a wrapper. Only :class:`BallMap` is a real subclass,
+    because ``BallObject`` (a live class instance) extends it."""
+
+    __slots__ = ()
+
+
+class BallMap(BallValue):
+    """The engine's map value (``ball_value.dart``). Backs ``BallObject`` (a Ball
+    class instance), whose methods read/write the inherited ``entries`` map and
+    override ``operator []=`` (emitted as ``__op_set_index__``).
+
+    ``entries`` is a lazily-created attribute so a subclass constructor that does
+    not chain ``super()`` (the compiler does not emit super calls) still has it."""
+
+    @property
+    def entries(self):
+        d = self.__dict__.get("_entries")
+        if d is None:
+            d = {}
+            self.__dict__["_entries"] = d
+        return d
+
+    def __getitem__(self, key):
+        return self.entries.get(key)
+
+    def __setitem__(self, key, value):
+        self.entries[key] = value
+
+    def __str__(self):
+        return "{" + ", ".join(f"{ops.to_str(k)}: {ops.to_str(v)}" for k, v in self.entries.items()) + "}"
+
+
+def make_ball_map(entries=None):
+    m = BallMap()
+    if entries:
+        m.entries.update(entries)
+    return m
+
+
+class MapEntry:
+    """A Dart ``MapEntry`` — what ``Map.entries`` yields (``.key`` / ``.value``)."""
+
+    __slots__ = ("key", "value")
+
+    def __init__(self, key, value):
+        self.key = key
+        self.value = value
+
+    def __str__(self):
+        return f"MapEntry({ops.to_str(self.key)}: {ops.to_str(self.value)})"
+
+
 NULL = None
 
 
@@ -119,9 +178,13 @@ def getfield(obj, name):
             return list(obj.keys())
         if name == "values":
             return list(obj.values())
-        if name in obj:
-            return obj[name]
-        raise AttributeError(f"ball: unsupported map field {name!r}")
+        if name == "entries":
+            return [MapEntry(k, v) for k, v in obj.items()]
+        # Proto-message field access on the loaded program view: an absent field
+        # reads as its proto3 default. Returning None (and letting iterate(None)
+        # -> [] and truthy(None) -> false handle repeated/scalar defaults) matches
+        # how the reference loaders materialise defaults.
+        return obj.get(name)
     if isinstance(obj, BallSet):
         if name == "length":
             return len(obj)
@@ -129,6 +192,19 @@ def getfield(obj, name):
             return len(obj) == 0
         if name == "isNotEmpty":
             return len(obj) > 0
+    if isinstance(obj, BallMap):
+        ent = obj.entries
+        if name == "length":
+            return len(ent)
+        if name == "isEmpty":
+            return len(ent) == 0
+        if name == "isNotEmpty":
+            return len(ent) > 0
+        if name == "keys":
+            return list(ent.keys())
+        if name == "values":
+            return list(ent.values())
+        # fall through to attribute access (entries, and BallObject fields).
     return getattr(obj, name)
 
 
@@ -144,6 +220,8 @@ def index_get(target, key):
         return target[int(key)]
     if isinstance(target, dict):
         return target.get(key)
+    if isinstance(target, BallMap):
+        return target.entries.get(key)
     raise TypeError(f"ball: cannot index {type(target).__name__}")
 
 
@@ -153,6 +231,15 @@ def index_set(target, key, value):
         return value
     if isinstance(target, dict):
         target[key] = value
+        return value
+    # A class instance overriding `operator []=` (emitted as __op_set_index__);
+    # dispatch to it so BallObject's field bookkeeping runs.
+    op = getattr(target, "__op_set_index__", None)
+    if op is not None:
+        op({"key": key, "value": value})
+        return value
+    if isinstance(target, BallMap):
+        target.entries[key] = value
         return value
     raise TypeError(f"ball: cannot index-assign {type(target).__name__}")
 
@@ -168,6 +255,8 @@ def iterate(value):
         return list(value)
     if isinstance(value, dict):
         return list(value.keys())
+    if isinstance(value, BallMap):
+        return list(value.entries.keys())
     if value is None:
         return []
     return list(value)

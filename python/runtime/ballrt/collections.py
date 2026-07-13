@@ -182,8 +182,10 @@ def map_is_empty(mp):
 
 
 def map_put_if_absent(mp, key, value):
+    # Dart Map.putIfAbsent's second argument is an ifAbsent *callback*, invoked
+    # only when the key is missing (`map[key] = val is Function ? val() : val`).
     if key not in mp:
-        mp[key] = value
+        mp[key] = value(None) if callable(value) else value
     return mp[key]
 
 

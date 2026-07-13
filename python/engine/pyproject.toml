@@ -1,0 +1,12 @@
+[project]
+name = "ball-engine"
+version = "0.1.0"
+description = "Self-hosted Python Ball engine (epic #445 Phase 4)"
+requires-python = ">=3.11"
+# The zero-dependency ballrt runtime and the ball_compiler are consumed from the
+# sibling python/ packages (on PYTHONPATH); the loader uses the generated
+# protobuf bindings to materialise proto3 defaults in the program view.
+dependencies = ["protobuf>=5.29"]
+
+[tool.pytest.ini_options]
+testpaths = ["conformance"]

@@ -49,7 +49,16 @@ from .ops import (
     math_ceil,
     math_floor,
     math_max,
+    ceil_to_double,
+    floor_to_double,
+    math_clamp,
+    math_gcd,
+    math_is_finite,
+    math_is_infinite,
     math_min,
+    round_to_double,
+    string_runes,
+    truncate_to_double,
     math_pow,
     math_round,
     math_sign,
@@ -98,7 +107,9 @@ from .ops import (
 )
 from .values import (
     NULL,
+    BallMap,
     BallSet,
+    BallValue,
     arg,
     call_fn,
     getfield,
@@ -106,11 +117,71 @@ from .values import (
     index_set,
     invoke,
     iterate,
+    make_ball_map,
     setfield,
 )
+from .methods import call_method, identical
+from .selfhost import (
+    RegExp,
+    StateError,
+    StringBuffer,
+    arm,
+    as_type,
+    dm,
+    datetime_from_ms,
+    datetime_now,
+    datetime_parse,
+    make_ball_bool,
+    make_ball_double,
+    make_ball_int,
+    make_ball_list,
+    make_ball_string,
+    make_duration,
+    make_json_decoder,
+    make_json_encoder,
+    make_regexp,
+    make_state_error,
+    make_string_buffer,
+    stack_trace_of,
+    double_infinity,
+    double_max_finite,
+    double_min_positive,
+    double_nan,
+    double_negative_infinity,
+    double_parse,
+    double_try_parse,
+    function_apply,
+    int_parse,
+    int_try_parse,
+    io_stub,
+    is_type,
+    list_filled,
+    list_generate,
+    map_unmodifiable,
+    num_parse,
+    num_try_parse,
+    set_unmodifiable,
+    string_from_char_code,
+    string_from_char_codes,
+    ty_DateTime,
+    ty_Function,
+    ty_Future,
+    ty_List,
+    ty_Map,
+    ty_Set,
+    ty_String,
+    ty_double,
+    ty_int,
+    ty_num,
+)
 from . import collections as _collections
+from . import convert as _convert
+from . import proto as _proto
 
-# std_collections ops are namespaced under ballrt.col.* in emitted code.
+# std_collections ops are namespaced under ballrt.col.* in emitted code;
+# std_convert under ballrt.cvt.*; ball_proto access patterns under ballrt.proto.*.
 col = _collections
+cvt = _convert
+proto = _proto
 
 __all__ = [name for name in globals() if not name.startswith("_")]

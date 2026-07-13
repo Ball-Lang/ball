@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import json
 import keyword
+import re
 
 # Expression node kinds, in the order the proto oneof declares them.
 _EXPR_KINDS = ("call", "literal", "reference", "fieldAccess", "messageCreation", "block", "lambda")
@@ -56,6 +57,15 @@ _INCDEC = {"pre_increment", "post_increment", "pre_decrement", "post_decrement"}
 _FLOW = {"return", "break", "continue", "throw", "rethrow"}
 
 _PY_RESERVED = set(keyword.kwlist) | {"ballrt", "True", "False", "None", "match", "case"}
+
+# Dart builtin type names that appear as static-member receivers (`int.tryParse`,
+# `double.infinity`, …). A bare reference resolves to a runtime type token; a
+# static call/field is dispatched to a dedicated runtime helper.
+_BUILTIN_TYPES = frozenset({"int", "num", "double", "String", "List", "Map", "Set", "Function", "DateTime", "Future"})
+
+# Superclass names supplied by the runtime (ball_value.dart) rather than emitted
+# as Python classes — a subclass inherits `ballrt.<name>`.
+_RUNTIME_BASES = frozenset({"BallValue", "BallMap"})
 
 
 class CompileError(Exception):
@@ -148,10 +158,13 @@ class Compiler:
         self.base_modules: set[str] = set()
         self.stub_modules: set[str] = set()
         self.user_funcs: set[str] = set()
+        self.top_level_vars: list[dict] = []
+        self.top_var_names: set[str] = set()
         self.type_defs: dict[str, dict] = {}
         self.class_members: dict[str, list[dict]] = {}
         self.class_order: list[str] = []
         self.constructors: dict[str, dict] = {}
+        self.named_ctors: dict[str, list[dict]] = {}
         self.instance_fields: dict[str, list[str]] = {}
 
         for m in self.prog.get("modules", []):
@@ -182,7 +195,13 @@ class Compiler:
                         self.class_members[owner] = []
                     self.class_members[owner].append(f)
                     if (f.get("metadata", {}) or {}).get("kind") == "constructor":
-                        self.constructors[owner] = f
+                        mshort = _member_short(fname)
+                        # The unnamed constructor (`.new`) is the primary __init__;
+                        # named ones (`.subset`, …) become classmethod factories.
+                        if mshort == "new" or owner not in self.constructors:
+                            self.constructors[owner] = f
+                        if mshort != "new":
+                            self.named_ctors.setdefault(owner, []).append(f)
                         # A `this.field` constructor param names an instance field;
                         # record it so getter/method bodies resolve bare references
                         # to it even if the descriptor omits it.
@@ -191,8 +210,37 @@ class Compiler:
                                 flds = self.instance_fields.setdefault(owner, [])
                                 if p.get("name") not in flds:
                                     flds.append(p.get("name", ""))
+                elif (f.get("metadata", {}) or {}).get("kind") == "top_level_variable":
+                    # A top-level `const`/`final` (encoded as a 0-param function):
+                    # emitted as a module-level variable, referenced by name.
+                    self.top_level_vars.append(f)
+                    self.top_var_names.add(sanitize(fname))
                 else:
                     self.user_funcs.add(sanitize(fname))
+
+        # A global set of every (non-constructor) method's bare name, and the
+        # superclass map. Used by ``value_call`` to route an implicit-``self``
+        # method call (a module-less call, no ``self`` field, whose function is a
+        # method of the enclosing class) to ``self.method(...)``, and by
+        # ``emit_class`` to emit real Python inheritance for a user superclass.
+        # Method names and free-function names do not collide in the self-hosted
+        # engine (verified), so a global membership test is unambiguous.
+        self.all_method_names: set[str] = set()
+        self.extends: dict[str, str] = {}
+        for m in self.prog.get("modules", []):
+            name = m.get("name", "")
+            if name in self.base_modules or name in self.stub_modules:
+                continue
+            for td in m.get("typeDefs", []):
+                meta = td.get("metadata", {}) or {}
+                sup = meta.get("superclass") or meta.get("extends") or meta.get("super")
+                if isinstance(sup, str) and sup:
+                    self.extends[_short(td.get("name", ""))] = _short(sup)
+        for owner, members in self.class_members.items():
+            for mem in members:
+                if (mem.get("metadata", {}) or {}).get("kind") == "constructor":
+                    continue
+                self.all_method_names.add(sanitize(_member_short(mem.get("name", ""))))
 
     # ── Emission helpers ─────────────────────────────────────────────────────
 
@@ -278,7 +326,12 @@ class Compiler:
                     continue
                 if ":" in f.get("name", "") and "." in _short(f.get("name", "")):
                     continue  # class member, emitted with its class
+                if (f.get("metadata", {}) or {}).get("kind") == "top_level_variable":
+                    continue  # emitted below as a module-level variable
                 self.emit_function(f)
+
+        for v in self.top_level_vars:
+            self.emit_top_level_var(v)
 
         entry = self._entry_py_name(entry_mod, entry_fn)
         if entry is None:
@@ -294,6 +347,68 @@ class Compiler:
                 + "\n  - ".join(dict.fromkeys(self.errors))
             )
         return "\n".join(self.lines) + "\n"
+
+    def compile_library(self) -> str:
+        """Compile the program as an importable library (no entry-point driver).
+
+        The self-hosted engine (``dart/self_host/engine.ball.json``) is a
+        multi-module ``Program`` whose public surface is its classes
+        (``BallEngine``/``StdModuleHandler``/…), not a runnable ``main`` — the
+        native driver constructs ``BallEngine`` and calls ``run`` itself. This
+        emits every enum/class/free-function exactly as :meth:`compile` does but
+        omits the ``if __name__ == "__main__"`` block. The Python analog of Go's
+        ``CompileLibrary`` / C#'s engine regen. Fails loud on any unsupported
+        construct (issue #55)."""
+        self.line("# Code generated by the Ball -> Python compiler (library mode). DO NOT EDIT.")
+        self.line(f"# Program: {self.prog.get('name', '')} v{self.prog.get('version', '')}")
+        self.line("import ballrt")
+        self.line("")
+
+        for m in self.prog.get("modules", []):
+            name = m.get("name", "")
+            if name in self.base_modules or name in self.stub_modules:
+                continue
+            for en in m.get("enums", []):
+                self.emit_enum(en)
+            for short in [_short(td.get("name", "")) for td in m.get("typeDefs", [])]:
+                self.emit_class(short)
+
+        for m in self.prog.get("modules", []):
+            name = m.get("name", "")
+            if name in self.base_modules or name in self.stub_modules:
+                continue
+            for fdef in m.get("functions", []):
+                if fdef.get("isBase"):
+                    continue
+                if ":" in fdef.get("name", "") and "." in _short(fdef.get("name", "")):
+                    continue  # class member, emitted with its class
+                if (fdef.get("metadata", {}) or {}).get("kind") == "top_level_variable":
+                    continue  # emitted below as a module-level variable
+                self.emit_function(fdef)
+
+        for v in self.top_level_vars:
+            self.emit_top_level_var(v)
+
+        if self.errors:
+            raise CompileError(
+                f"{len(self.errors)} unsupported construct(s):\n  - "
+                + "\n  - ".join(dict.fromkeys(self.errors))
+            )
+        return "\n".join(self.lines) + "\n"
+
+    def emit_top_level_var(self, f: dict):
+        """A top-level ``const``/``final`` (kind ``top_level_variable``) becomes a
+        module-level assignment, emitted after functions/classes so its
+        initializer may reference them."""
+        name = sanitize(f.get("name", ""))
+        body = f.get("body")
+        self.push_scope()
+        self.reserved = set()
+        if not body or _which(body) is None:
+            self.line(f"{name} = None")
+        else:
+            self.line(f"{name} = {self.value(body)}")
+        self.pop_scope()
 
     def _entry_py_name(self, entry_mod, entry_fn):
         for m in self.prog.get("modules", []):
@@ -322,7 +437,18 @@ class Compiler:
         getter_names = {sanitize(_member_short(m.get("name", "")))
                         for m in members if (m.get("metadata", {}) or {}).get("is_getter")}
         has_tostring = any(_member_short(m.get("name", "")) == "toString" for m in members)
-        self.line(f"class {sanitize(short)}:")
+        # Emit real Python inheritance only when the superclass is another user
+        # class we emit; a runtime base type (BallValue/BallMap …) is not a
+        # Python class here, so those extends are dropped (dynamic dispatch does
+        # not need them). The critical one is StdModuleHandler -> BallModuleHandler.
+        sup = self.extends.get(short)
+        if sup and sup in self.type_defs:
+            base = f"({sanitize(sup)})"
+        elif sup in _RUNTIME_BASES:
+            base = f"(ballrt.{sup})"
+        else:
+            base = ""
+        self.line(f"class {sanitize(short)}{base}:")
         with self.block():
             self.emit_constructor(short)  # always emits __init__ (class never empty)
             for m in members:
@@ -341,6 +467,8 @@ class Compiler:
                     self.emit_accessor(short, m, "setter")
                 else:
                     self.emit_method(short, m)
+            for nc in self.named_ctors.get(short, []):
+                self.emit_named_ctor(short, nc)
             # A user `toString` override is what `print`/`to_str` must dispatch to;
             # Python routes str(obj) through __str__.
             if has_tostring:
@@ -350,40 +478,184 @@ class Compiler:
                 self.line("")
         self.line("")
 
+    def _field_inits(self, short: str) -> dict:
+        """Field-level default initializers (``final Map _x = {}``) from the
+        typeDef metadata, as ``{fieldName: rawDartInitializer}``."""
+        td = self.type_defs.get(short, {})
+        meta = td.get("metadata", {}) or {}
+        out = {}
+        for fm in meta.get("fields", []) or []:
+            if fm.get("initializer") is not None:
+                out[fm.get("name", "")] = fm.get("initializer")
+        return out
+
+    def _all_field_names(self, short: str) -> list[str]:
+        """Every declared field of a class (descriptor + metadata + this-params)."""
+        names = list(self.instance_fields.get(short, []))
+        td = self.type_defs.get(short, {})
+        for fm in (td.get("metadata", {}) or {}).get("fields", []) or []:
+            n = fm.get("name", "")
+            if n and n not in names:
+                names.append(n)
+        return names
+
     def emit_constructor(self, short: str):
         ctor = self.constructors.get(short)
-        fields = self.instance_fields.get(short, [])
+        fields = self._all_field_names(short)
+        field_inits = self._field_inits(short)
         if ctor is None:
-            # Synthesise an __init__ that accepts each field positionally.
-            params = list(fields)
+            # Synthesise an __init__ accepting each field positionally, applying
+            # field-level defaults for fields with an initializer.
+            self.push_scope()
+            self.reserved = {"self"}
+            params = [f for f in fields if f not in field_inits]
+            for p in params:
+                self.bind(p)
             self.line(f"def __init__(self, {', '.join(sanitize(p) for p in params)}):"
                       if params else "def __init__(self):")
             with self.block():
-                for p in params:
-                    self.line(f"self.{p} = {sanitize(p)}")
-                if not params:
+                for fld in fields:
+                    if fld in field_inits:
+                        self.line(f"self.{fld} = {self._lower_init(field_inits[fld])}")
+                    else:
+                        self.line(f"self.{fld} = {sanitize(fld)}")
+                if not fields:
                     self.line("pass")
             self.line("")
+            self.pop_scope()
             return
 
         param_meta = self._param_meta(ctor)
         names = [p.get("name", "") for p in param_meta]
+        initializers = (ctor.get("metadata", {}) or {}).get("initializers", []) or []
+        init_fields = {i.get("name") for i in initializers if i.get("kind") == "field"}
         self.push_scope()
         self.enter_method_ctx(short)
         self.reserved = {"self"}
-        sig = ", ".join(["self"] + [sanitize(n) for n in names])
+        sig = ", ".join(["self"] + [self._param_decl(p) for p in param_meta])
         self.line(f"def __init__({sig}):")
         with self.block():
             for p in param_meta:
+                self.bind(p.get("name", ""))
+            for p in param_meta:
                 pn = p.get("name", "")
-                self.bind(pn)
                 if p.get("is_this"):
                     self.line(f"self.{pn} = {sanitize(pn)}")
-            # Any declared field not initialised by a `this.` param defaults to None.
+            # Constructor initializer-list field bindings (`fields = fields ?? {}`).
+            for init in initializers:
+                if init.get("kind") == "field":
+                    self.line(f"self.{init.get('name')} = {self._lower_init(init.get('value'))}")
+            # Any remaining declared field: its field-level default, else None.
             for fld in fields:
-                if not any(p.get("name") == fld and p.get("is_this") for p in param_meta):
+                if fld in init_fields:
+                    continue
+                if any(p.get("name") == fld and p.get("is_this") for p in param_meta):
+                    continue
+                if fld in field_inits:
+                    self.line(f"self.{fld} = {self._lower_init(field_inits[fld])}")
+                else:
                     self.line(f"self.{fld} = None")
             self.emit_body(ctor, DISCARD_BODY=True)
+        self.line("")
+        self.exit_method_ctx()
+        self.pop_scope()
+
+    def _lower_init(self, src) -> str:
+        """Lower a raw Dart field/initializer source string to a Python
+        expression (the common shapes — the Python analog of Go's
+        ``lowerFieldInitializer``). References resolve against bound params."""
+        if src is None:
+            return "None"
+        s = str(src).strip()
+        if "??" in s:
+            left, right = self._split_coalesce(s)
+            if right:
+                return f"ballrt.null_coalesce({self._lower_init(left)}, {self._lower_init(right)})"
+        s = re.sub(r"^<[^<>]*(?:<[^<>]*>[^<>]*)*>(?=[\[{])", "", s.strip())
+        if s == "{}":
+            return "{}"
+        if s == "[]":
+            return "[]"
+        if s in ("''", '""'):
+            return "''"
+        if s == "true":
+            return "True"
+        if s == "false":
+            return "False"
+        if s == "null":
+            return "None"
+        if re.fullmatch(r"-?\d+", s):
+            return s
+        if re.fullmatch(r"-?\d+\.\d+", s):
+            return s
+        if re.fullmatch(r"[A-Za-z_]\w*", s):
+            local = self.lookup(s)
+            if local:
+                return local
+            if s in self.top_var_names or s in self.user_funcs or sanitize(s) in self.user_funcs:
+                return sanitize(s)
+        # A zero-arg constructor initializer (`_Scope()` / `StringBuffer()`).
+        ctor = re.fullmatch(r"([A-Za-z_]\w*)\(\)", s)
+        if ctor:
+            cls = ctor.group(1)
+            if cls in self.type_defs:
+                return f"{sanitize(cls)}()"
+            rc = self.runtime_construct(cls, [])
+            if rc is not None:
+                return rc
+        # An initializer shape we do not lower: default to null rather than emit
+        # broken code (these are cosmetic defaults; the body sets real values).
+        return "None"
+
+    def _split_coalesce(self, s: str):
+        depth = 0
+        i = 0
+        while i < len(s) - 1:
+            ch = s[i]
+            if ch in "([{<":
+                depth += 1
+            elif ch in ")]}>":
+                depth -= 1
+            elif depth == 0 and s[i:i + 2] == "??":
+                return s[:i].strip(), s[i + 2:].strip()
+            i += 1
+        return s, ""
+
+    def emit_named_ctor(self, short: str, ctor: dict):
+        """A named constructor (`Foo.bar(...)`) becomes a classmethod factory that
+        builds the instance without re-running the primary ``__init__``."""
+        name = sanitize(_member_short(ctor.get("name", "")))
+        param_meta = self._param_meta(ctor)
+        params = [p.get("name", "") for p in param_meta]
+        fields = self._all_field_names(short)
+        field_inits = self._field_inits(short)
+        initializers = (ctor.get("metadata", {}) or {}).get("initializers", []) or []
+        init_fields = {i.get("name") for i in initializers if i.get("kind") == "field"}
+        self.push_scope()
+        self.enter_method_ctx(short)
+        self.reserved = {"cls", "self", "_input"}
+        self.line("@classmethod")
+        self.line(f"def {name}(cls, _input=None):")
+        with self.block():
+            self.line("self = cls.__new__(cls)")
+            self.emit_param_prologue(params)
+            for p in param_meta:
+                if p.get("is_this"):
+                    self.line(f"self.{p.get('name')} = {sanitize(p.get('name'))}")
+            for init in initializers:
+                if init.get("kind") == "field":
+                    self.line(f"self.{init.get('name')} = {self._lower_init(init.get('value'))}")
+            for fld in fields:
+                if fld in init_fields:
+                    continue
+                if any(p.get("name") == fld and p.get("is_this") for p in param_meta):
+                    continue
+                if fld in field_inits:
+                    self.line(f"self.{fld} = {self._lower_init(field_inits[fld])}")
+                else:
+                    self.line(f"self.{fld} = None")
+            self.emit_body(ctor, DISCARD_BODY=True)
+            self.line("return self")
         self.line("")
         self.exit_method_ctx()
         self.pop_scope()
@@ -433,10 +705,25 @@ class Compiler:
         self.exit_method_ctx()
         self.pop_scope()
 
+    def _inherited_fields(self, short: str) -> set[str]:
+        """All fields visible in ``short``'s methods, including those inherited
+        from user superclasses and the runtime ``BallMap`` base (``entries``)."""
+        out: set[str] = set()
+        cur = short
+        seen: set[str] = set()
+        while cur and cur not in seen:
+            seen.add(cur)
+            out.update(self._all_field_names(cur))
+            sup = self.extends.get(cur)
+            if sup == "BallMap":
+                out.add("entries")
+            cur = sup if (sup and sup in self.type_defs) else None
+        return out
+
     def enter_method_ctx(self, short):
         self.in_method = True
         self.cur_class = short
-        self.cur_fields = set(self.instance_fields.get(short, []))
+        self.cur_fields = self._inherited_fields(short)
 
     def exit_method_ctx(self):
         self.in_method = False
@@ -500,6 +787,14 @@ class Compiler:
     def _param_meta(self, f: dict) -> list[dict]:
         meta = f.get("metadata", {}) or {}
         return meta.get("params", []) or []
+
+    def _param_decl(self, p: dict) -> str:
+        """A positional constructor parameter declaration; an optional/named
+        param defaults to None so a shorter constructor call still works."""
+        name = sanitize(p.get("name", ""))
+        if p.get("is_optional") or p.get("is_named") or p.get("has_default"):
+            return f"{name}=None"
+        return name
 
     # ── run(expr, dest): statement context ───────────────────────────────────
 
@@ -796,6 +1091,10 @@ class Compiler:
                     if var:
                         py = self.bind(var)
                         self.line(f"{py} = _ex.value")
+                    st = self.str_field(cf, "stack_trace")
+                    if st:
+                        pst = self.bind(st)
+                        self.line(f"{pst} = ballrt.stack_trace_of(_ex)")
                     before = len(self.lines)
                     if "body" in cf:
                         self.run(cf["body"], DISCARD if dest[0] == "discard" else dest)
@@ -836,6 +1135,10 @@ class Compiler:
             return self.reference(e["reference"])
         if k == "fieldAccess":
             fa = e["fieldAccess"]
+            obj = fa["object"]
+            objref = obj.get("reference", {}).get("name", "") if isinstance(obj, dict) else ""
+            if objref in _BUILTIN_TYPES:
+                return self.builtin_static_field(objref, fa["field"])
             return f"ballrt.getfield({self.value(fa['object'])}, {pystr(fa['field'])})"
         if k == "messageCreation":
             return self.value_msgcreation(e["messageCreation"])
@@ -942,10 +1245,25 @@ class Compiler:
                     self.line("pass")
             self.pop_scope()
 
+    # Proto oneof "which"-case enums (protoc-dart names <Message>_<Oneof>). Their
+    # values are the camelCase arm names that the ball_proto discriminators
+    # return, so a single runtime object whose attribute access yields the
+    # attribute name resolves all of them (`Expression_Expr.call` -> "call").
+    _ARM_ENUMS = frozenset({
+        "Expression_Expr", "Literal_Value", "Statement_Stmt",
+        "ModuleImport_Source", "Value_Kind", "structpb.Value_Kind",
+    })
+
     def reference(self, ref: dict) -> str:
         name = ref.get("name", "")
         if name == "input":
             return self.lookup("input") or "_input"
+        # A `__no_init__` placeholder is the encoder's marker for a declared-but-
+        # uninitialised (late / nullable) variable; it reads as null.
+        if name == "__no_init__":
+            return "None"
+        if name in self._ARM_ENUMS or name == "io.FileMode":
+            return "ballrt.arm"
         if name in ("self", "this"):
             local = self.lookup(name)
             if local:
@@ -958,7 +1276,16 @@ class Compiler:
             return local
         if self.in_method and name in self.cur_fields:
             return f"self.{name}"
+        # A bare method name inside a method is a tear-off of `self`'s bound
+        # method (e.g. `list.map(_toJsonSafe)`); Python's bound method carries the
+        # receiver, so calling it with one element works.
+        if self.in_method and sanitize(name) in self.all_method_names:
+            return f"self.{sanitize(name)}"
+        if name in _BUILTIN_TYPES:
+            return f"ballrt.ty_{name}"
         sn = sanitize(name)
+        if sn in self.top_var_names:
+            return sn
         if sn in self.user_funcs:
             return sn
         # Unresolved reference: fail loud (issue #55) but keep the module valid.
@@ -973,9 +1300,55 @@ class Compiler:
             # A user-class constructor call: pass positional args in field order.
             args = [self.value(fv["value"]) for fv in fields]
             return f"{sanitize(short)}({', '.join(args)})"
+        if tn:
+            rc = self.runtime_construct(short, fields)
+            if rc is not None:
+                return rc
         # An anonymous / argument / record message → a plain dict.
         parts = [f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in fields]
         return "{" + ", ".join(parts) + "}"
+
+    # Constructions of runtime/stub types (ball_value wrappers, RegExp, …) that
+    # are not emitted user classes. Returns None for an unrecognised type so the
+    # caller falls back to an anonymous message.
+    def runtime_construct(self, short: str, fields: list):
+        args = [self.value(fv["value"]) for fv in fields]
+        first = args[0] if args else "None"
+        fdict = "{" + ", ".join(
+            f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in fields) + "}"
+        # ball_value.dart scalar/collection wrappers → the raw Python value, so a
+        # wrapper never flows into arithmetic (the `is X || is BallX` guards in
+        # the engine still match via the raw arm).
+        wrappers = {
+            "BallList": "ballrt.make_ball_list", "BallMap": "ballrt.make_ball_map",
+            "BallDouble": "ballrt.make_ball_double", "BallInt": "ballrt.make_ball_int",
+            "BallString": "ballrt.make_ball_string", "BallBool": "ballrt.make_ball_bool",
+        }
+        if short in wrappers:
+            return f"{wrappers[short]}({first})"
+        if short == "RegExp":
+            return f"ballrt.make_regexp({fdict})"
+        if short == "StringBuffer":
+            return f"ballrt.make_string_buffer({first if args else ''})"
+        if short == "StateError":
+            return f"ballrt.make_state_error({first})"
+        if short == "Duration":
+            return f"ballrt.make_duration({fdict})"
+        if short in ("LinkedHashMap", "Map"):
+            return "{}"
+        if short == "Object":
+            return "object()"
+        if short == "JsonEncoder":
+            return "ballrt.make_json_encoder()"
+        if short == "JsonDecoder":
+            return "ballrt.make_json_decoder()"
+        if short == "Map.from":
+            return f"dict({first})"
+        if short == "List.of":
+            return f"list(ballrt.iterate({first}))"
+        if short == "List.filled":
+            return f"ballrt.list_filled({args[0]}, {args[1]})" if len(args) >= 2 else "[]"
+        return None
 
     def value_lambda(self, lam: dict) -> str:
         params = [p.get("name", "") for p in self._param_meta(lam)]
@@ -993,20 +1366,43 @@ class Compiler:
 
     def value_call(self, call: dict) -> str:
         mod, fn = call.get("module", ""), call.get("function", "")
-        if mod in self.stub_modules:
-            return self.fail(f"unsupported external call {mod}.{fn}")
         inp = call.get("input")
         mc = inp.get("messageCreation") if inp else None
         # A call carrying `self` in its input is a method call on the receiver.
         if mc is not None and any(fv.get("name") == "self" for fv in mc.get("fields", [])):
             self_expr = "None"
+            self_raw = None
             rest = []
             for fv in mc.get("fields", []):
                 if fv.get("name") == "self":
+                    self_raw = fv["value"]
                     self_expr = self.value(fv["value"])
                 else:
                     rest.append(fv)
+            # A static call on a builtin type (int.tryParse, List.filled, …):
+            # route to a dedicated runtime helper with cleanly-extracted args.
+            sr = self_raw.get("reference", {}).get("name", "") if isinstance(self_raw, dict) else ""
+            if sr in _BUILTIN_TYPES:
+                return self.builtin_static(sr, fn, rest)
             method = sanitize(fn)
+            # A static / named-constructor call on the class itself
+            # (`StdModuleHandler.subset(x)`), not an instance method.
+            if sr in self.type_defs and not self.lookup(sr):
+                if not rest:
+                    return f"{sanitize(sr)}.{method}()"
+                if len(rest) == 1:
+                    return f"{sanitize(sr)}.{method}({self.value(rest[0]['value'])})"
+                packed = "{" + ", ".join(
+                    f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in rest) + "}"
+                return f"{sanitize(sr)}.{method}({packed})"
+            # A Dart-SDK method on a value (not a user method): route to the
+            # runtime dispatcher, which applies Dart (not Python) semantics on a
+            # builtin receiver and calls a runtime/user object's own method
+            # otherwise. User-method and SDK-method names never collide here.
+            if method not in self.all_method_names:
+                sdk_args = ", ".join(self.value(fv["value"]) for fv in rest)
+                sep = ", " if rest else ""
+                return f"ballrt.call_method({self_expr}, {pystr(fn)}{sep}{sdk_args})"
             if not rest:
                 return f"{self_expr}.{method}()"
             if len(rest) == 1:
@@ -1014,16 +1410,102 @@ class Compiler:
             packed = "{" + ", ".join(
                 f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in rest) + "}"
             return f"{self_expr}.{method}({packed})"
+        # External (stub-module) calls we bridge to the runtime (dart.math, …).
+        if mod in self.stub_modules:
+            return self.stub_call(mod, fn, inp)
         # A bare local holding a first-class function value.
         if self.lookup(fn):
             return f"ballrt.call_fn({self.lookup(fn)}, {self.value(inp) if inp else 'None'})"
         name = sanitize(fn)
-        if name not in self.user_funcs and not (mod and mod == self.prog.get("entryModule")):
-            # Unknown callee that is not a user function → a built-in method call
-            # is out of Phase-2 scope; fail loud rather than emit an undefined name.
-            if name not in self.user_funcs:
-                self.errors.append(f"unknown call target {mod}.{fn}")
-        return f"{name}({self.value(inp) if inp else 'None'})"
+        argstr = self.value(inp) if inp else "None"
+        module_less = not mod or mod == self.prog.get("entryModule")
+        # `identical(a, b)` — Dart reference identity (a top-level function).
+        if module_less and fn == "identical":
+            a = self._call_args(inp)
+            return f"ballrt.identical({a[0] if a else 'None'}, {a[1] if len(a) > 1 else 'None'})"
+        # An implicit call of a function-typed field (`stdout(line)` inside a
+        # method): apply the field's stored callable.
+        if self.in_method and module_less and name in self.cur_fields:
+            return f"ballrt.call_fn(self.{name}, {argstr})"
+        # An implicit-`self` method call: inside a method, module-less, and the
+        # function is a known (own-or-inherited) method — Python dispatches it.
+        # (Method and free-function names do not collide in the engine.)
+        if self.in_method and module_less and name in self.all_method_names:
+            return f"self.{name}({argstr})"
+        if name in self.user_funcs:
+            return f"{name}({argstr})"
+        # Unknown callee: fail loud (issue #55).
+        self.errors.append(f"unknown call target {mod}.{fn}")
+        return f"{name}({argstr})"
+
+    def _call_args(self, inp) -> list[str]:
+        """Positional argument expressions of a call input (invariant #1):
+        a bare value is a single argument; an anonymous message is unpacked in
+        field order."""
+        if not inp:
+            return []
+        mc = inp.get("messageCreation")
+        if mc is not None and not mc.get("typeName"):
+            return [self.value(fv["value"]) for fv in mc.get("fields", [])]
+        return [self.value(inp)]
+
+    def stub_call(self, mod: str, fn: str, inp) -> str:
+        """Bridge a call into a stubbed external module to the runtime.
+
+        Only the surface the self-hosted engine actually reaches is mapped
+        (``dart.math`` transcendentals, ``dart.io`` file/dir ops); anything else
+        is a loud runtime raise (never silent-wrong)."""
+        args = self._call_args(inp)
+        if mod == "dart.math":
+            two = {"pow", "atan2"}
+            if fn in two and len(args) >= 2:
+                return f"ballrt.dm.{fn}({args[0]}, {args[1]})"
+            if args:
+                return f"ballrt.dm.{fn}({args[0]})"
+            return f"ballrt.dm.{fn}()"
+        if mod == "dart.io":
+            return f"ballrt.io_stub({pystr(fn)}, [{', '.join(args)}])"
+        # A stub module we do not bridge: raise at run time, not compile time —
+        # the library still compiles (the path may be unreachable in a fixture).
+        return f"ballrt.throw({pystr('unsupported external call ' + mod + '.' + fn)})"
+
+    # Static members of Dart builtin types, mapped to runtime helpers.
+    _BUILTIN_STATIC = {
+        "int.tryParse": "ballrt.int_try_parse", "int.parse": "ballrt.int_parse",
+        "num.parse": "ballrt.num_parse", "num.tryParse": "ballrt.num_try_parse",
+        "double.parse": "ballrt.double_parse", "double.tryParse": "ballrt.double_try_parse",
+        "String.fromCharCode": "ballrt.string_from_char_code",
+        "String.fromCharCodes": "ballrt.string_from_char_codes",
+        "List.filled": "ballrt.list_filled", "List.generate": "ballrt.list_generate",
+        "Map.unmodifiable": "ballrt.map_unmodifiable", "Set.unmodifiable": "ballrt.set_unmodifiable",
+        "Function.apply": "ballrt.function_apply",
+        "DateTime.now": "ballrt.datetime_now", "DateTime.parse": "ballrt.datetime_parse",
+        "DateTime.fromMillisecondsSinceEpoch": "ballrt.datetime_from_ms",
+    }
+
+    def builtin_static(self, typ: str, method: str, rest: list) -> str:
+        """A static call on a Dart builtin type (int.tryParse, List.filled …)."""
+        args = [self.value(fv["value"]) for fv in rest]
+        helper = self._BUILTIN_STATIC.get(f"{typ}.{method}")
+        if helper is None:
+            # A rarely-reached static (async/File …): raise at run time so the
+            # library still compiles; never a silent-wrong result (issue #55).
+            return f"ballrt.throw({pystr('unsupported static ' + typ + '.' + method)})"
+        return f"{helper}({', '.join(args)})"
+
+    def builtin_static_field(self, typ: str, field: str) -> str:
+        """A static constant of a Dart builtin type (double.infinity/nan …)."""
+        table = {
+            "double.infinity": "ballrt.double_infinity",
+            "double.negativeInfinity": "ballrt.double_negative_infinity",
+            "double.nan": "ballrt.double_nan",
+            "double.maxFinite": "ballrt.double_max_finite",
+            "double.minPositive": "ballrt.double_min_positive",
+        }
+        val = table.get(f"{typ}.{field}")
+        if val is None:
+            return f"ballrt.throw({pystr('unsupported static field ' + typ + '.' + field)})"
+        return val
 
     # ── Base-function dispatch (pure expressions) ────────────────────────────
 
@@ -1032,9 +1514,38 @@ class Compiler:
         f = self.fields(call)
         if mod == "std_collections":
             return self.collections_expr(fn, f)
+        if mod == "ball_proto":
+            return f"ballrt.proto.{fn}({self.value_field(f, 'obj', 'value')})"
+        if mod == "std_convert":
+            return self.convert_expr(fn, f)
 
         def a(*names):
             return self.value_field(f, *names)
+
+        # Type test / cast (is / is! / as). The `type` field is a string literal.
+        if fn in ("is", "is_not", "as"):
+            val = a("value")
+            typ = self.str_field(f, "type")
+            if fn == "is":
+                return f"ballrt.is_type({val}, {pystr(typ)})"
+            if fn == "is_not":
+                return f"(not ballrt.is_type({val}, {pystr(typ)}))"
+            return f"ballrt.as_type({val}, {pystr(typ)})"
+
+        # Collection literals routed through std (map/set literals, typed lists).
+        if fn == "map_create":
+            return self.map_create(call)
+        if fn == "set_create":
+            if any(k in f for k in ("list", "elements", "set")):
+                return f"ballrt.col.set_create({self.value_field(f, 'list', 'elements', 'set')})"
+            return "ballrt.col.set_create(None)"
+        if fn == "typed_list":
+            el = f.get("elements")
+            if isinstance(el, dict) and "literal" in el and "listValue" in el["literal"]:
+                return self.list_literal(el["literal"]["listValue"])
+            if el is not None:
+                return self.value(el)
+            return "[]"
 
         L = lambda: a("left")
         R = lambda: a("right")
@@ -1148,8 +1659,54 @@ class Compiler:
             return f"ballrt.math_min({L()}, {R()})"
         if fn == "math_max":
             return f"ballrt.math_max({L()}, {R()})"
+        if fn == "math_clamp":
+            return f"ballrt.math_clamp({V()}, {a('lower', 'lowerLimit', 'min', 'low')}, {a('upper', 'upperLimit', 'max', 'high')})"
+        if fn == "math_gcd":
+            return f"ballrt.math_gcd({a('left', 'value')}, {a('right', 'other')})"
+        if fn in ("round_to_double", "floor_to_double", "ceil_to_double", "truncate_to_double"):
+            return f"ballrt.{fn}({V()})"
+        if fn == "string_runes":
+            return f"ballrt.string_runes({V()})"
+        if fn == "math_is_finite":
+            return f"ballrt.math_is_finite({V()})"
+        if fn == "math_is_infinite":
+            return f"ballrt.math_is_infinite({V()})"
+        if fn == "string_pad_left":
+            pad = a("padding", "pad", "char") if any(k in f for k in ("padding", "pad", "char")) else pystr(" ")
+            return f"ballrt.string_pad_left({a('value', 'left')}, {a('width', 'length', 'count')}, {pad})"
+        if fn == "string_pad_right":
+            pad = a("padding", "pad", "char") if any(k in f for k in ("padding", "pad", "char")) else pystr(" ")
+            return f"ballrt.string_pad_right({a('value', 'left')}, {a('width', 'length', 'count')}, {pad})"
 
         return self.fail(f"unsupported base function {mod}.{fn}")
+
+    def map_create(self, call: dict) -> str:
+        """A map literal (``{k: v, …}`` / ``<K,V>{}``). The entries are repeated
+        ``entry`` fields (each a ``{key, value}`` message) on the ``map_create``
+        input — read from the raw field list, since same-named fields collapse in
+        the flattened ``fields()`` view. ``<K,V>{}`` has no ``entry`` → ``{}``."""
+        inp = call.get("input") or {}
+        mc = inp.get("messageCreation") or {}
+        pairs = []
+        for fv in mc.get("fields", []):
+            if fv.get("name") != "entry":
+                continue
+            ev = fv.get("value") or {}
+            ef = self.mc_fields(ev.get("messageCreation", {})) if "messageCreation" in ev else {}
+            if "key" in ef and "value" in ef:
+                pairs.append(f"{self.value(ef['key'])}: {self.value(ef['value'])}")
+        return "{" + ", ".join(pairs) + "}"
+
+    def convert_expr(self, fn: str, f: dict) -> str:
+        val = self.value_field(f, "value", "input", "bytes", "string")
+        table = {
+            "utf8_encode": "utf8_encode", "utf8_decode": "utf8_decode",
+            "base64_encode": "base64_encode", "base64_decode": "base64_decode",
+            "json_encode": "json_encode", "json_decode": "json_decode",
+        }
+        if fn in table:
+            return f"ballrt.cvt.{table[fn]}({val})"
+        return self.fail(f"unsupported base function std_convert.{fn}")
 
     def collections_expr(self, fn: str, f: dict) -> str:
         def a(*names):
@@ -1271,7 +1828,23 @@ class Compiler:
     def stmt_assign(self, call) -> str:
         f = self.fields(call)
         op = self.str_field(f, "op") or "="
-        lv = self.lvalue(f["target"])
+        target = f["target"]
+        # Null-aware index assignment (`a?[k] = v`): a no-op when the receiver is
+        # null, and the value is not evaluated in that case (Dart short-circuit).
+        tk = _which(target)
+        if tk == "call" and target["call"].get("function") == "null_aware_index":
+            tf = self.fields(target["call"])
+            recv = self.value_field(tf, "target", "value", "object")
+            tmp = self.newtemp()
+            self.line(f"{tmp} = {recv}")
+            self.line(f"if {tmp} is not None:")
+            with self.block():
+                key = self.value_field(tf, "index", "key")
+                val = self.value(f["value"])
+                combined = self.combine_op(op, f"ballrt.index_get({tmp}, {key})", val)
+                self.line(f"ballrt.index_set({tmp}, {key}, {combined})")
+            return "None"
+        lv = self.lvalue(target)
         val = self.value(f["value"])
         combined = self.combine_op(op, self.lvalue_read(lv), val)
         self.emit_store(lv, combined)
@@ -1352,3 +1925,9 @@ class Compiler:
 
 def compile_program(program: dict) -> str:
     return Compiler(program).compile()
+
+
+def compile_library(program: dict) -> str:
+    """Compile ``program`` as an importable Python library (see
+    :meth:`Compiler.compile_library`) — used by the self-hosted engine regen."""
+    return Compiler(program).compile_library()

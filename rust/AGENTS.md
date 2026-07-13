@@ -203,30 +203,30 @@ TypeScript, the pubspec version for Dart), rather than carrying a shared
 cross-target toolchain string. There is intentionally **no** combined
 `ball <pkg> (toolchain <repo-release>)` string.
 
-### Auth: crates.io Trusted Publishing (OIDC) + token fallback
+### Auth: crates.io Trusted Publishing (OIDC) — required
 
 Auth uses [`rust-lang/crates-io-auth-action@v1`](https://github.com/rust-lang/crates-io-auth-action)
 (pinned to the v1.0.5 SHA): it exchanges the GitHub OIDC token
 (`permissions: id-token: write`) for a short-lived crates.io token exposed as
 `steps.auth.outputs.token` and auto-revoked in its post step. That token is
-passed to `cargo publish` via `CARGO_REGISTRY_TOKEN`. The auth step is
-`continue-on-error: true` and the env falls back to a `CARGO_REGISTRY_TOKEN`
-**secret** — required because crates.io only allows a Trusted Publisher to be
-configured **after** a crate's first publish (RFC 3691), so the first-ever
-release of each new crate name must use the token fallback.
+passed to `cargo publish` via `CARGO_REGISTRY_TOKEN`.
 
-### Maintainer setup (one-time, registry side)
+There is **no secret fallback**. The `continue-on-error` + `CARGO_REGISTRY_TOKEN`
+**secret** path existed only to bootstrap release #1, because crates.io does not
+allow a Trusted Publisher to be configured **until after** a crate's first publish
+(RFC 3691). All five crates now have a Trusted Publisher, so the fallback is gone:
+a silent fallback would let a broken or removed Trusted Publisher hide behind a
+green run. If OIDC fails, the job fails.
 
-Before the first `rust-crates/v*` tag, a crates.io owner must:
+### Maintainer setup (registry side) — DONE
 
-1. **Own a crates.io account** with publish rights, linked to the GitHub org.
-2. **Claim the five names** by publishing them once — the workflow's token
-   fallback does this if you add a `CARGO_REGISTRY_TOKEN` repo secret (an API
-   token from <https://crates.io/settings/tokens> scoped to publish-new +
-   publish-update). Trusted Publishing **cannot** be configured before a crate's
-   first publish (RFC 3691), so this token step is mandatory for release #1.
-3. **After the first publish**, configure Trusted Publishing per crate at
-   `https://crates.io/crates/<crate>/settings` → *Trusted Publishing* → add
-   GitHub: repository `Ball-Lang/ball`, workflow `publish-crates.yml`
-   (leave the environment blank). Repeat for all five crates. Subsequent
-   releases then use OIDC and the token secret can be removed.
+All five crates are published and each has a Trusted Publisher configured
+(repository `Ball-Lang/ball`, workflow `publish-crates.yml`, environment blank).
+The `CARGO_REGISTRY_TOKEN` secret is no longer used by the workflow and can be
+deleted.
+
+Historical note, for anyone adding a SIXTH crate: crates.io does not allow a
+Trusted Publisher to be configured until **after** a crate's first publish
+(RFC 3691). A brand-new crate name therefore has to be claimed once with an API
+token before OIDC can take over — which is why the workflow briefly carried a
+`continue-on-error` auth step and a `CARGO_REGISTRY_TOKEN` fallback.

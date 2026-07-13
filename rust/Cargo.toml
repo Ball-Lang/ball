@@ -8,7 +8,7 @@ members = ["shared", "compiler", "encoder", "engine", "engine/tool", "cli", "cli
 # CLI #41) have a real dependency graph to build on.
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Ball-Lang/ball"
@@ -26,12 +26,12 @@ rust-version = "1.85"
 # lock-step with `[workspace.package] version` above — the publish workflow
 # (.github/workflows/publish-crates.yml) publishes all five crates at the same
 # version in dependency order (shared -> compiler/encoder -> engine -> cli), so
-# each `^0.1.0` range is satisfied by the sibling published in the same run.
+# each `^0.1.x` range is satisfied by the sibling published in the same run.
 [workspace.dependencies]
-ball-lang-shared = { path = "shared", version = "0.1.0" }
-ball-lang-compiler = { path = "compiler", version = "0.1.0" }
-ball-lang-encoder = { path = "encoder", version = "0.1.0" }
-ball-lang-engine = { path = "engine", version = "0.1.0" }
+ball-lang-shared = { path = "shared", version = "0.1.1" }
+ball-lang-compiler = { path = "compiler", version = "0.1.1" }
+ball-lang-encoder = { path = "encoder", version = "0.1.1" }
+ball-lang-engine = { path = "engine", version = "0.1.1" }
 
 # Protobuf runtime (issue #34): pinned to these exact versions because
 # prost-reflect's DescriptorPool/DynamicMessage are required for later

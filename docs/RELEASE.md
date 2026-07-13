@@ -195,8 +195,10 @@ seeded packages it is fast.)
 2. **pub.dev Automated-publishing** for the uploader-only packages `ball_rpc`,
    `ball_protobuf_gen`, `ball_protobuf` (issue #152): repo `Ball-Lang/ball`, tag
    pattern `<pkg>-v{{version}}` — required before their `publishCmd` can publish.
-3. **crates.io bootstrap** (issue #366): first publish of the `ball-lang-*` crates
-   uses `CARGO_REGISTRY_TOKEN`; configure Trusted Publishing per crate afterward.
+3. **crates.io** (issue #366): done. The `ball-lang-*` crates were bootstrapped at
+   0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is now configured for all
+   five and the token fallback has been removed (OIDC is the only auth path), so
+   the `CARGO_REGISTRY_TOKEN` secret can be deleted.
 4. **Confirm the release bot may push** `chore(release): … [skip ci]` commits +
    tags to `main` with `GITHUB_TOKEN` (the live npm semantic-release already
    does). `RELEASE_PAT` is likely **removable** — it existed only for the deleted

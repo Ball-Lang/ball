@@ -1,18 +1,19 @@
 <!-- Parent: ../AGENTS.md -->
 
-# Python (runtime + compiler + encoder)
+# Python (runtime + compiler + encoder + engine)
 
 ## Purpose
-The Python Ball target. Currently a **compiler + runtime + encoder** (Ball epic
-#445 Phases 2-3); the self-hosted engine and full `ball` CLI are later phases.
+The Python Ball target. A **compiler + runtime + encoder + self-hosted engine**
+(Ball epic #445 Phases 2-4); the full `ball` CLI and CI wiring are later phases.
 
 ## Key Files / Contents
 | Dir | Description |
 |-----|-------------|
-| `shared/` | Generated Python protobuf bindings (`buf.gen.yaml`) — NEVER edit by hand. Neither the compiler nor the encoder use them; both walk the raw proto3-JSON dict view. |
-| `runtime/` | `ballrt` — the zero-dependency runtime (value model, Dart-exact ops, flow-signal exceptions, stdout). See `runtime/AGENTS.md`. |
-| `compiler/` | `ball_compiler` — the Ball -> Python compiler + the `ballpyc` CLI. See `compiler/AGENTS.md`. |
+| `shared/` | Generated Python protobuf bindings (`buf.gen.yaml`) — NEVER edit by hand. The compiler and encoder walk the raw proto3-JSON dict view and do not use them; the **engine loader** does, to materialise proto3 defaults in the target-program view. |
+| `runtime/` | `ballrt` — the zero-dependency runtime (value model, Dart-exact ops, flow-signal exceptions, stdout, ball_proto access patterns, Dart-SDK method dispatch, ball_value base classes). See `runtime/AGENTS.md`. |
+| `compiler/` | `ball_compiler` — the Ball -> Python compiler (`compile` script mode + `compile_library` for the engine) + the `ballpyc` CLI. See `compiler/AGENTS.md`. |
 | `encoder/` | `ball_encoder` — the Python -> Ball encoder (stdlib `ast`) + the `ballpyenc` CLI. Proven by round-trips through the compiler. See `encoder/AGENTS.md`. |
+| `engine/` | `ball_engine` — the self-hosted engine: compiles `dart/self_host/engine.ball.json` through `compile_library` into the gitignored `compiled_engine.py`, driven by a native loader/driver; a subprocess-per-fixture conformance runner. See `engine/AGENTS.md`. |
 
 ## Build & Test
 ```bash
@@ -24,19 +25,26 @@ PYTHONPATH=../runtime python out.py                                   # run
 
 cd python/encoder && python -m pytest -q                              # structural + round-trip
 python -m ball_encoder <src.py> -o out.ball.json                      # encode Python -> Ball
+
+# Engine (self-hosted): regenerate the compiled engine, then sweep the corpus.
+cd dart && dart run compiler/tool/gen_engine_json.dart                # self-host source
+cd ../python/engine && python -m ball_engine.regen                   # -> compiled_engine.py (gitignored)
+python -m conformance.runner                                          # prints the Results: line
 ```
 
 ## Status
-Compiler + runtime + encoder, Python >= 3.11. The **compiler** runs **186
-`tests/conformance/*.ball.json` fixtures golden-exact** (arithmetic with 64-bit
-wrap, control flow, loops with break/continue, recursion, closures, classes with
-`@property` getters/setters and `toString`). The **encoder** (stdlib `ast` ->
-universal `std`, no `python_std`) is proven by **8 round-trip programs** verified
-three ways (native Python == encode -> compile -> run == golden). Every
-non-passing input fails loud (`CompileError`/`EncodeError` or runtime raise) — no
-silent-wrong output. Verify maturity against tests, not prose — CI wiring is a
-later phase. Full design lives in `compiler/AGENTS.md`, `runtime/AGENTS.md`, and
-`encoder/AGENTS.md`.
+Compiler + runtime + encoder + self-hosted engine, Python >= 3.11. The
+**compiler** passes **52 tests** and the **encoder 42**. The **self-hosted
+engine** runs the whole conformance corpus at **`Results: 312 passed, 8 failed,
+320 total (4 skipped carve-outs)`** — Dart-identical output on 312 fixtures (the
+4 skipped are the golden-less resource-limit/sandbox carve-outs; the 8 residuals
+are root-caused in `engine/AGENTS.md`'s "Known residuals": interpreted-OOP
+`super` dispatch ×3, a pattern-var bind, a typed-exception match, two index-bound
+edge cases, and a stack-trace detail). Every non-passing input fails loud
+(`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify
+maturity against tests, not prose — CI wiring is a later phase. Full design lives
+in `compiler/AGENTS.md`, `runtime/AGENTS.md`, `encoder/AGENTS.md`, and
+`engine/AGENTS.md`.
 
 ## For AI Agents
 - The compiler and encoder both use the raw proto3-JSON dict view (camelCase

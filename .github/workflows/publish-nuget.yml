@@ -14,13 +14,21 @@ name: Publish NuGet
 # https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet)
 #
 # Auth is nuget.org Trusted Publishing (OIDC) via NuGet/login
-# (https://github.com/NuGet/login), with a NUGET_API_KEY secret fallback —
-# see csharp/AGENTS.md § Publishing for the exact maintainer setup. Unlike
-# crates.io (RFC 3691), nuget.org Trusted Publishing policies CAN be created
-# before a package's first publish (verified against
-# https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing,
-# 2026-07-12), so the token fallback here only matters until that policy is
-# configured — not specifically for release #1.
+# (https://github.com/NuGet/login) — the ONLY auth path. Unlike crates.io
+# (RFC 3691), nuget.org Trusted Publishing policies CAN be created BEFORE a
+# package's first publish
+# (https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing), so
+# no bootstrap token was ever needed here. The policy is now configured (owner
+# Ball-Lang #134133652, repo ball #640792174, workflow publish-nuget.yml), so
+# the NUGET_API_KEY fallback is retired: a silent fallback can only mask a
+# broken or removed Trusted Publisher behind a green run — the exact failure
+# the crates.io channel retired its own fallback to prevent (#455). See
+# csharp/AGENTS.md § Publishing for the maintainer setup.
+#
+# There is no way to rehearse the OIDC exchange: `Derive package version from
+# tag` runs BEFORE the login step and hard-fails without a tag, so a
+# workflow_dispatch run can never reach it. Acceptable — with no fallback, a
+# bad policy fails the job loudly AT the login step and nothing is pushed.
 
 on:
   push:
@@ -156,25 +164,36 @@ jobs:
       - name: List package contents
         run: unzip -l csharp/nupkg/*.nupkg
 
-      # ── Auth: nuget.org Trusted Publishing (OIDC) with API-key fallback ──
-      # Exchanges the GitHub OIDC token for a short-lived (1-hour) nuget.org
-      # API key, exposed as steps.login.outputs.NUGET_API_KEY.
-      # `continue-on-error` so that before a Trusted Publishing policy is
-      # configured on nuget.org (or if NUGET_USER isn't set yet) the job
-      # falls back to the NUGET_API_KEY secret instead of hard-failing here.
+      # ── Auth: nuget.org Trusted Publishing (OIDC) — REQUIRED ──
+      # Exchanges the GitHub OIDC token for a short-lived nuget.org API key,
+      # valid ONE HOUR, exposed as steps.login.outputs.NUGET_API_KEY. This step
+      # sits immediately before the push on purpose: request the key late, or it
+      # can expire before it is used.
+      #
+      # `secrets.NUGET_USER` is the nuget.org ACCOUNT USERNAME (profile name) —
+      # not an email address, and not the package owner (`ball-lang`), which is
+      # a separate field on the Trusted Publishing policy.
+      #
+      # This step used to carry `continue-on-error: true` plus a NUGET_API_KEY
+      # fallback. The Trusted Publisher is configured now, so the fallback is
+      # retired — it could only ever mask a broken publisher behind a green run.
       - name: nuget.org Trusted Publishing login (OIDC)
         id: login
-        continue-on-error: true
         uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
         with:
           user: ${{ secrets.NUGET_USER }}
 
-      # Token resolution: the short-lived OIDC-exchanged key when Trusted
-      # Publishing is configured, else the NUGET_API_KEY secret fallback.
+      # An empty key means the token exchange silently produced nothing. Never
+      # hand that to `dotnet nuget push` — it would fail with an opaque 401
+      # instead of naming the real cause.
       - name: Push to nuget.org
         env:
-          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY || secrets.NUGET_API_KEY }}
+          NUGET_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
+          if [ -z "$NUGET_KEY" ]; then
+            echo "::error::Trusted Publishing returned no API key — refusing to push. Check the nuget.org policy (owner Ball-Lang, repo ball, workflow publish-nuget.yml) and the NUGET_USER secret."
+            exit 1
+          fi
           dotnet nuget push csharp/nupkg/*.nupkg \
             --api-key "$NUGET_KEY" \
             --source https://api.nuget.org/v3/index.json

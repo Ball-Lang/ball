@@ -960,21 +960,30 @@ Version>` placeholder. `ball version` reports the informational version baked in
 target's CLI reports its own registry's version (crates.io for Rust, npm's semantic-release line
 for TypeScript, the pubspec version for Dart — see `rust/AGENTS.md`'s "Version policy").
 
-### Auth: nuget.org Trusted Publishing (OIDC) + API-key fallback
+### Auth: nuget.org Trusted Publishing (OIDC) — the only auth path
 
 Auth uses [`NuGet/login@v1`](https://github.com/NuGet/login) (pinned to the v1.2.0 SHA): it
-exchanges the GitHub OIDC token (`permissions: id-token: write`) for a short-lived (1-hour)
-nuget.org API key exposed as `steps.login.outputs.NUGET_API_KEY`. That key is passed to
-`dotnet nuget push` via an env var, falling back to a `NUGET_API_KEY` **secret** when the OIDC
-exchange fails (`continue-on-error: true` on the login step) — e.g. before a Trusted Publishing
-policy is configured, or before the `NUGET_USER` secret is set.
+exchanges the GitHub OIDC token (`permissions: id-token: write`) for a short-lived (**1-hour**)
+nuget.org API key exposed as `steps.login.outputs.NUGET_API_KEY`, which the push step consumes
+directly. The login step sits immediately before the push on purpose — request the key late, or it
+can expire before it is used.
 
 Unlike crates.io (RFC 3691, `rust/AGENTS.md`), nuget.org Trusted Publishing policies **can** be
 created before a package's first publish (verified against
-<https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing>, 2026-07-12) — a policy for
-a not-yet-existing package id starts "temporarily active for 7 days" and becomes permanent on
-first successful publish. So the token fallback here is a bridge until the policy is configured,
-not specifically required for release #1 the way it is for crates.io.
+<https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing>) — so no bootstrap token was
+ever needed here.
+
+**There is no API-key fallback, by design.** The login step used to carry `continue-on-error: true`
+with a `NUGET_API_KEY` secret behind it. The policy is configured now (owner `Ball-Lang`
+#134133652, repo `ball` #640792174, workflow `publish-nuget.yml`), so the fallback is retired: it
+could only ever mask a broken or removed Trusted Publisher behind a green run — the exact failure
+mode the crates.io channel retired its own fallback to prevent (#455). A push with an empty key is
+refused with a message naming the likely cause, rather than an opaque 401 from `dotnet nuget push`.
+
+**The OIDC exchange cannot be rehearsed.** `Derive package version from tag` runs *before* the
+login step and hard-fails without a tag, so a `workflow_dispatch` run can never reach it. That is
+acceptable: with no fallback, a bad policy fails the job loudly *at* the login step and nothing is
+pushed. The first tag is therefore also the first real test of the policy.
 
 ### Maintainer setup (one-time, registry side) — required before the first tag
 
@@ -986,14 +995,19 @@ not specifically required for release #1 the way it is for crates.io.
    policy — Repository Owner `Ball-Lang`, Repository `ball`, Workflow File `publish-nuget.yml`
    (file name only, no `.github/workflows/` path), Environment left blank. Owner: the account or
    org that will own the `Ball.Cli` package.
-4. **Set the `NUGET_USER` repo secret** to that nuget.org account's profile username (not email) —
-   consumed by the `NuGet/login` step's `user:` input.
-5. **(Fallback) Set the `NUGET_API_KEY` repo secret**: nuget.org → API Keys → Create, scope Push,
-   glob pattern `Ball.Cli` (or `Ball.*`), an expiry. Needed until step 3's policy is confirmed
-   active (check the nuget.org UI after the first publish — a policy can silently expire after 7
-   days if no publish happens in a private-repo scenario, though `Ball-Lang/ball` is public so this
-   should activate on the first successful push).
-6. **Push the first tag**: `git tag csharp-nuget/v0.1.0 && git push origin csharp-nuget/v0.1.0`.
+4. **Set the `NUGET_USER` repo secret** to that nuget.org account's **profile username** — not an
+   email address, and not the package owner (`ball-lang`), which is a separate field on the policy.
+   Consumed by the `NuGet/login` step's `user:` input. This is the single most common way the
+   exchange fails silently.
+5. **Push the first tag**: `git tag csharp-nuget/v0.1.0 && git push origin csharp-nuget/v0.1.0`.
+
+There is deliberately no API-key step: see "Auth" above. The first tag is the first real exercise
+of the policy, because the OIDC exchange cannot be reached by a `workflow_dispatch` run.
+
+**Status (2026-07-13): the policy is live** — owner `Ball-Lang` (#134133652), repository `ball`
+(#640792174), workflow `publish-nuget.yml`, package owner `ball-lang`. The GitHub owner/repo IDs
+were cross-checked against `gh api repos/Ball-Lang/ball`, and `Ball.Cli` was confirmed unregistered
+on nuget.org (registration API → HTTP 404), so the first publish reserves the id.
 
 ## For AI Agents
 

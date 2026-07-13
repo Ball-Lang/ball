@@ -818,7 +818,7 @@ jobs:
           echo ""
           echo "=== Rust Self-Host ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
-          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
             echo "::error::Rust self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
@@ -933,7 +933,7 @@ jobs:
           echo ""
           echo "=== C# Self-Host ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
-          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
             echo "::error::C# self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
@@ -1034,7 +1034,7 @@ jobs:
           echo ""
           echo "=== Go Self-Host ==="
           echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
-          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ -z "${passed}" ] || [ "${passed}" != "${total}" ]; then
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
             echo "::error::Go self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi

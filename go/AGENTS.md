@@ -71,9 +71,45 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only) so a
 - **Fail-loud** (issue #55): an unsupported base function / expression shape is a
   compile error, never silent bad code.
 
+## Compiler conformance leg (`go/compiler/conformance` + `cmd/ballgoconf`)
+The **engine** leg (`go/engine/conformance`, `-tags selfhost`) measures the
+self-hosted engine. The **compiler** leg measures a different claim: that
+`go/compiler` emits Go that prints the right answer. It compiles every
+`tests/conformance/*.ball.json`, builds and runs the emitted Go with the real
+toolchain (one throwaway module, one package per fixture, shared build cache,
+`GOWORK=off`/`GOPROXY=off`), and byte-compares stdout to the golden.
+
+```bash
+cd go/compiler
+go run ./cmd/ballgoconf                # whole corpus; prints the Results: line, exit 1 on any failure
+go run ./cmd/ballgoconf 101_simple_class   # one fixture, full expected/actual dump
+```
+
+- **Honest count**: a fixture the compiler cannot emit is a **failure**, not a
+  skip and not a crash — a compiler panic is recovered into that fixture's error
+  so it cannot shrink the denominator. Only the 4 golden-less carve-outs skip.
+- Per-fixture execution budget (`BALL_TIMEOUT_MS`, default 120 s) and build budget
+  (`BALL_BUILD_TIMEOUT_MS`, default 180 s) — each fixture is a separate OS process,
+  so a runaway is *killed* (unlike the engine leg's in-process goroutine, which leaks).
+- It is a **command, not a test**, so the default `go test ./compiler/...` stays
+  fast. `runner_test.go` keeps a positive floor: one fixture must actually pass, and
+  an empty sweep is an error (a "0 passed, 0 failed" line must never read as green).
+
 ## Status / deferred
 - Compiler runs end-to-end (compile → `go run`): `hello_world`, `fibonacci`, a
   while-loop, and a `for_in` loop (see `go/compiler/compiler_test.go` + `testdata/`).
+- **Compiler vs the whole corpus (measured, not assumed):**
+  `Results: 243 passed, 77 failed, 320 total (4 skipped carve-outs)` via
+  `go run ./cmd/ballgoconf`. The engine's 320/320 says nothing about this number —
+  they are different legs. Top gaps: unsupported base functions (`std.yield*`,
+  `std.labeled`/`std.label`, `std_collections.list_foreach`/`list_reduce`,
+  `std.math_is_nan`, `std.type_literal`, `std.symbol`, `std_time.*`), pattern
+  matching / switch-expression semantics (~20 wrong-output fixtures), class features
+  (getter+setter name collision, named/factory constructors, `super`, statics, enum
+  values, mixins), and **assignment to a module-level variable** — those are emitted
+  as a lazily-initialized *function* (`func moves(input) Value` + `moves__val`), so a
+  write emits `moves = ballrt.Add(moves, 1)`, i.e. an assignment to a package-level
+  func (`89_tower_of_hanoi`, `151_recursive_descent_parser` fail to build).
 - Encoder round-trips Go → Ball → (compile + `go run`) ≡ native Go for
   hello_world, an arithmetic case (multi-param func + `:=`), a control-flow case
   (`for`/`if`/`else`/compound-assign/`++`), and a slice + `for … range` case (see

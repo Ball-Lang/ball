@@ -1581,22 +1581,32 @@ impl Compiler<'_> {
     }
 
     /// The code the switch evaluates to when no arm matched: the `default:` /
-    /// catch-all (`_`) body when there is one, else `BallValue::Null` for a
-    /// *statement* switch (Dart simply falls out of it).
+    /// catch-all (`_`) body when there is one, else `BallValue::Null` — for a
+    /// `switch_expr` exactly as for a statement `switch`.
     ///
-    /// A **switch expression** with no default has no value to produce. Dart's
-    /// exhaustiveness checker makes that unreachable, so reaching it means the
-    /// compiled patterns disagree with the source — throw (the reference engine
-    /// throws the same `Non-exhaustive switch expression`) rather than yield a
-    /// placeholder that would print a wrong answer and still exit 0.
-    fn switch_default_code(&self, parsed: &ParsedSwitch, is_expr: bool) -> String {
+    /// **A missing default is NOT an error, at either kind of switch.** An
+    /// earlier revision of this port made a defaultless `switch_expr` throw
+    /// `StateError('Non-exhaustive switch expression')`, reasoning that Dart's
+    /// exhaustiveness checker makes the fall-through unreachable. That is false
+    /// for Ball IR, and it broke the self-hosted engine: the engine's own oneof
+    /// dispatchers (`_evalExpression` on `whichExpr`, `_evalLiteral` on
+    /// `whichValue`) are defaultless switch *expressions* over the oneof's set
+    /// arms, and a Ball `null` literal is a `Literal` whose `value` oneof is
+    /// **notSet** — it legitimately matches no case and must fall through to
+    /// null. The throw fired there and killed the null/nullable fixtures.
+    ///
+    /// Fail-loud (issue #55) belongs at **compile time**, on an unhandled
+    /// pattern *kind* (`crate::pattern::Compiler::compile_pattern`'s `panic!`) —
+    /// not on a legitimate *runtime* fall-through in the IR. The reference TS
+    /// compiler agrees (`ts/compiler/src/compiler.ts`: `const tail = defaultBody
+    /// ? this.expr(defaultBody) : "undefined"`), as does the reference engine.
+    ///
+    /// `_is_expr` is kept in the signature to document that the statement and
+    /// expression switches deliberately share one tail.
+    fn switch_default_code(&self, parsed: &ParsedSwitch, _is_expr: bool) -> String {
         match &parsed.default_body {
             Some(body) => self.compile_expression(body),
-            None if parsed.has_default || !is_expr => "BallValue::Null".to_string(),
-            None => {
-                "ball_throw_typed(\"StateError\", \"Non-exhaustive switch expression\".to_string())"
-                    .to_string()
-            }
+            None => "BallValue::Null".to_string(),
         }
     }
 

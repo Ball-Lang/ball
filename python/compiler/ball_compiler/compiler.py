@@ -1947,9 +1947,13 @@ class Compiler:
         if lv[0] == "var":
             self.emit_store(lv, combined)
             return lv[1]
-        # A field/index store whose value has side effects (e.g. list_push, which
-        # mutates) must be evaluated once: capture it in a temp, then both store
-        # and return the temp — never re-evaluate the value expression.
+        # A field/index store returns the assigned value. A plain atom (literal /
+        # name) is safe to reuse directly; a value that calls something may have
+        # side effects (e.g. list_push mutates), so it must be evaluated once —
+        # capture it in a temp and both store and return the temp.
+        if "(" not in combined:
+            self.emit_store(lv, combined)
+            return combined
         t = self.newtemp()
         self.line(f"{t} = {combined}")
         self.emit_store(lv, t)

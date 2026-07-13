@@ -1,3 +1,10 @@
+## [1.59.1](https://github.com/Ball-Lang/ball/compare/v1.59.0...v1.59.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **cli:** move version.g.dart under lib/src so pub publish stops warning ([#454](https://github.com/Ball-Lang/ball/issues/454)) ([4b6e4e7](https://github.com/Ball-Lang/ball/commit/4b6e4e761446e264dfb93169c1caf6c08d5408d8))
+
 # [1.59.0](https://github.com/Ball-Lang/ball/compare/v1.58.0...v1.59.0) (2026-07-13)
 
 

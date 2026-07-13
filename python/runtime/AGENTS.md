@@ -25,6 +25,9 @@ ordinary Python objects (the compiler emits real classes).
 - `intdiv` (`~/`) truncates toward zero; Python `//` floors.
 - `modulo` (`%`) is always in `[0, |b|)`; Python `%` follows the divisor sign.
 - `int + int` stays `int`; `int + double` promotes to `float`.
+- Integer arithmetic (`add`/`subtract`/`multiply`/`negate`/`intdiv`/`math_abs`)
+  wraps to signed 64-bit (Dart ints are 64-bit two's-complement), and
+  `to_int` on a double truncates toward zero then clamps to the int64 range.
 - `to_str` on an integral double keeps `.0`; non-finite -> `Infinity`/`-Infinity`/`NaN`.
 - `equals` does not conflate `bool` with `1`/`0` (Python treats `bool` as `int`).
 - `length`/`String.length` counts **UTF-16 code units** (a non-BMP char is 2).

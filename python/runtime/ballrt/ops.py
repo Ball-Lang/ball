@@ -48,19 +48,19 @@ def add(a, b):
     if isinstance(a, list) and isinstance(b, list):
         return a + b
     if _both_int(a, b):
-        return a + b
+        return _wrap64(a + b)
     return _as_float(a) + _as_float(b)
 
 
 def subtract(a, b):
     if _both_int(a, b):
-        return a - b
+        return _wrap64(a - b)
     return _as_float(a) - _as_float(b)
 
 
 def multiply(a, b):
     if _both_int(a, b):
-        return a * b
+        return _wrap64(a * b)
     return _as_float(a) * _as_float(b)
 
 
@@ -68,7 +68,7 @@ def intdiv(a, b):
     """Dart ``~/`` — truncating (toward zero) integer division."""
     if _both_int(a, b):
         q = abs(a) // abs(b)
-        return -q if (a < 0) != (b < 0) else q
+        return _wrap64(-q if (a < 0) != (b < 0) else q)
     return int(_as_float(a) / _as_float(b))
 
 
@@ -93,13 +93,15 @@ def modulo(a, b):
 
 def negate(v):
     if isinstance(v, int) and not isinstance(v, bool):
-        return -v
+        return _wrap64(-v)
     return -_as_float(v)
 
 
 # ── Bitwise (64-bit, Dart int) ──────────────────────────────────────────────
 
 _MASK = (1 << 64) - 1
+_INT64_MIN = -(1 << 63)
+_INT64_MAX = (1 << 63) - 1
 
 
 def _as_int(v) -> int:
@@ -380,7 +382,18 @@ def to_int(v):
     if isinstance(v, int):
         return v
     if isinstance(v, float):
-        return int(v)  # truncates toward zero
+        # Dart's double.toInt() truncates toward zero then clamps to the int64
+        # range (a double >= 2^63 saturates to MAX_INT64, not the unbounded
+        # Python bignum). NaN / Infinity are unrepresentable.
+        if math.isnan(v) or math.isinf(v):
+            from .flow import throw
+            throw("Infinity or NaN toInt")
+        t = math.trunc(v)
+        if t > _INT64_MAX:
+            return _INT64_MAX
+        if t < _INT64_MIN:
+            return _INT64_MIN
+        return int(t)
     if isinstance(v, str):
         return int(v)
     raise TypeError(f"ball: to_int: unsupported operand {type(v).__name__}")
@@ -526,6 +539,9 @@ def to_string_as_precision(v, precision):
 # ── Math ────────────────────────────────────────────────────────────────────
 
 def math_abs(v):
+    # abs(MIN_INT64) overflows back to MIN_INT64 under Dart's 64-bit wrap.
+    if isinstance(v, int) and not isinstance(v, bool):
+        return _wrap64(abs(v))
     return abs(v)
 
 

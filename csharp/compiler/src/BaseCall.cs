@@ -63,7 +63,7 @@ public sealed partial class CSharpCompiler
             case "break":
                 return "break;";
             case "continue":
-                return "continue;";
+                return CompileContinueStatement(call);
             case "throw":
                 return $"throw new BallThrow({FieldOrNull(Fields.Extract(call), "value")});";
             case "rethrow":
@@ -587,67 +587,53 @@ public sealed partial class CSharpCompiler
     }
 
     /// <summary>
-    /// <c>switch(subject, cases)</c> → an if-else chain over
-    /// <see cref="BallValue.ValueEquals"/> (no fallthrough — matching Dart),
-    /// wrapped in a <c>do { … } while (false)</c> so a case body's explicit
-    /// <c>break</c> exits the switch. Labelled goto-case is a documented gap.
+    /// One lowered switch arm: the condition that selects it (its pattern, any
+    /// fall-through labels OR-ed in, and its <c>when</c> guard folded in as the
+    /// trailing conjunct), the binders to re-materialize at its head, and its
+    /// body.
+    /// </summary>
+    private readonly record struct SwitchArm(
+        string Condition,
+        List<(string Name, string Accessor)> Bindings,
+        Expression? Body,
+        bool IsDefault);
+
+    /// <summary>
+    /// An enclosing goto-switch — a <c>switch</c> carrying case labels. Dart's
+    /// <c>continue &lt;caseLabel&gt;</c> transfers control to that case's body with
+    /// NO subject re-check (it is a goto, not a loop continue), which C# has no
+    /// direct construct for: the switch is lowered to a state machine, and the
+    /// jump becomes <c>state = &lt;arm&gt;; goto &lt;dispatch&gt;;</c>.
+    /// </summary>
+    private sealed record SwitchLabelFrame(
+        Dictionary<string, int> LabelToArm,
+        string StateVar,
+        string DispatchLabel);
+
+    /// <summary>Enclosing goto-switches, innermost last (a <c>continue &lt;label&gt;</c> searches it innermost-first).</summary>
+    private readonly List<SwitchLabelFrame> _switchLabelStack = new();
+
+    /// <summary>
+    /// <c>switch(subject, cases)</c> → an if/else chain over the cases' compiled
+    /// patterns, wrapped in a <c>do { … } while (false)</c> so a case body's
+    /// explicit <c>break</c> exits the switch (and not an enclosing loop). A
+    /// switch carrying case <b>labels</b> is instead lowered to a state machine,
+    /// the only shape that can express Dart's <c>continue &lt;caseLabel&gt;</c> goto.
+    /// The subject is evaluated exactly once, into a temp every condition and
+    /// binder accessor reads.
     /// </summary>
     private string CompileSwitchStatement(FunctionCall call)
     {
         var f = Fields.Extract(call);
         var subject = FieldOrNull(f, "subject");
-        var cases = MessageList(f, "cases");
         // A unique subject temp — nested switches share the same `do {…} while(false)`
         // block nesting, so a fixed name would collide (CS0136).
-        var subjVar = $"__subj{_tempCounter++}";
+        var uid = _tempCounter++;
+        var subjVar = $"__subj{uid}";
+        var (arms, labels) = ParseSwitchCases(subjVar, MessageList(f, "cases"));
+
         var sb = new StringBuilder($"do\n{{\nvar {subjVar} = {subject};\n");
-        var first = true;
-        MessageCreation? defaultCase = null;
-        // Dart switch cases fall through when a case carries NO body: an
-        // encoded `case 'a': case 'b': <stmt>` gives 'a'/'b' empty bodies and
-        // attaches <stmt> only to the last label. Emitting each as an
-        // independent if/else-if drops that shared body — a bare `case 'a':`
-        // would match and do nothing (this silently broke every `++`/`--`,
-        // whose engine dispatch is one such multi-label case). Accumulate the
-        // empty-body labels and OR them into the next body-carrying case.
-        var pending = new List<string>();
-        foreach (var caseMc in cases)
-        {
-            var cf = MessageCreationFields(caseMc);
-            if (BoolField(cf, "is_default"))
-            {
-                defaultCase = caseMc;
-                continue;
-            }
-
-            var condition = CompileCaseCondition(subjVar, cf);
-            var body = cf.TryGetValue("body", out var b) ? EmitStatementUnwrapped(b) : string.Empty;
-            if (string.IsNullOrWhiteSpace(body))
-            {
-                // Fall-through label — Dart encodes a bare `case 'a':` (that shares
-                // the next case's statements) with an empty body. Defer its
-                // condition to the next body-carrying case.
-                pending.Add(condition);
-                continue;
-            }
-
-            pending.Add(condition);
-            var combined = string.Join(" || ", pending);
-            pending.Clear();
-            sb.Append($"{(first ? "if" : "else if")} ({combined})\n{{\n{body}\n}}\n");
-            first = false;
-        }
-        // Any trailing fall-through labels with no following body fall through to
-        // the `else` default (or are a no-op when there is none) — exactly the C#
-        // control flow when their conditions are simply omitted here.
-
-        if (defaultCase is not null)
-        {
-            var cf = MessageCreationFields(defaultCase);
-            var body = cf.TryGetValue("body", out var b) ? EmitStatementUnwrapped(b) : ";";
-            sb.Append($"else\n{{\n{body}\n}}\n");
-        }
-
+        sb.Append(labels.Count > 0 ? EmitGotoSwitchArms(uid, arms, labels) : EmitIfElseArms(arms));
         sb.Append("}\nwhile (false);");
         return sb.ToString();
     }
@@ -655,85 +641,269 @@ public sealed partial class CSharpCompiler
     /// <summary>
     /// <c>switch_expr(subject, cases)</c> in value position — a <c>Run</c> IIFE
     /// that <c>return</c>s the first matching case's body value (a Dart switch
-    /// <em>expression</em>). Cases carry a <c>pattern</c> (the constant to match)
-    /// and a <c>body</c> (the result expression); the default case (<c>is_default</c>)
-    /// is the trailing fallback.
+    /// <em>expression</em>). A switch expression has no <c>is_default</c>: its
+    /// <c>_ =&gt;</c> arm arrives as an untyped wildcard and is promoted to the
+    /// default by <see cref="ParseSwitchCases"/>. With no default arm at all the
+    /// switch is non-exhaustive — <b>throw</b>, never return a null tail, which
+    /// would print a wrong answer and exit 0.
     /// </summary>
     private string CompileSwitchExpression(FunctionCall call)
     {
         var f = Fields.Extract(call);
         var subject = FieldOrNull(f, "subject");
-        var cases = MessageList(f, "cases");
         var subjVar = $"__subj{_tempCounter++}";
+        var (arms, _) = ParseSwitchCases(subjVar, MessageList(f, "cases"));
+
         var sb = new StringBuilder($"Run(() =>\n{{\nvar {subjVar} = {subject};\n");
-        MessageCreation? defaultCase = null;
-        foreach (var caseMc in cases)
+        SwitchArm? defaultArm = null;
+        foreach (var arm in arms)
         {
-            var cf = MessageCreationFields(caseMc);
-            if (BoolField(cf, "is_default"))
+            if (arm.IsDefault)
             {
-                defaultCase = caseMc;
+                defaultArm = arm;
                 continue;
             }
 
-            var condition = CompileCaseCondition(subjVar, cf);
-            var body = cf.TryGetValue("body", out var b) ? CompileExpression(b) : "BallValue.Null";
-            sb.Append($"if ({condition}) return {body};\n");
+            sb.Append($"if ({arm.Condition})\n{{\n{EmitArmResult(arm)}}}\n");
         }
 
-        if (defaultCase is not null)
-        {
-            var cf = MessageCreationFields(defaultCase);
-            sb.Append($"return {(cf.TryGetValue("body", out var db) ? CompileExpression(db) : "BallValue.Null")};\n");
-        }
-        else
-        {
-            sb.Append("return BallValue.Null;\n");
-        }
-
+        sb.Append(defaultArm is { } fallback
+            ? EmitArmResult(fallback)
+            : "throw new BallRuntimeException(\"Non-exhaustive switch expression\");\n");
         sb.Append("})");
         return sb.ToString();
     }
 
     /// <summary>
-    /// A C# boolean match condition for a switch case over <paramref name="subjVar"/>.
-    /// Prefers the semantic <c>pattern_expr</c> (a Dart-3 structured pattern —
-    /// <c>WildcardPattern</c>/<c>LogicalOrPattern</c>/<c>ConstPattern</c>) over
-    /// the cosmetic source-text <c>pattern</c> (which the encoder stores as a raw
-    /// string like <c>"'std' || 'std_collections'"</c> that would never match).
+    /// Lower a switch's cases to arms: compile each case's structured pattern
+    /// (plus its guard) into a selection condition, resolve the two Dart
+    /// fall-through rules, and map each case label to the arm it lands on.
+    ///
+    /// <list type="bullet">
+    /// <item><b>Empty-body fall-through</b> — Dart's <c>case 'a': case 'b': stmt</c>
+    /// encodes 'a' with an empty body and attaches the statements to 'b'.
+    /// Emitting each as its own arm would make <c>'a'</c> match and do nothing;
+    /// its condition is instead OR-ed into the next body-carrying arm. A case
+    /// with a <c>when</c> guard is never such a label, even with an empty body.</item>
+    /// <item><b>Catch-all promotion</b> — a case whose pattern matches
+    /// unconditionally and carries no guard IS the default arm; every later case
+    /// is unreachable in Dart, so parsing stops. This is only sound because a
+    /// TYPED wildcard/binder compiles to a real type test (see Patterns.cs) —
+    /// otherwise <c>case int _:</c> would be promoted and the switch would
+    /// collapse onto it.</item>
+    /// </list>
     /// </summary>
-    private string CompileCaseCondition(string subjVar, OrderedDictionary<string, Expression> cf)
+    private (List<SwitchArm> Arms, Dictionary<string, int> Labels) ParseSwitchCases(
+        string subjVar,
+        List<MessageCreation> cases)
+    {
+        var arms = new List<SwitchArm>();
+        var labels = new Dictionary<string, int>(StringComparer.Ordinal);
+        var pendingConds = new List<string>();
+        var pendingLabels = new List<string>();
+
+        void AddArm(SwitchArm arm)
+        {
+            arms.Add(arm);
+            foreach (var label in pendingLabels)
+            {
+                labels[label] = arms.Count - 1;
+            }
+
+            pendingLabels.Clear();
+        }
+
+        foreach (var caseMc in cases)
+        {
+            var cf = MessageCreationFields(caseMc);
+            if (StringField(cf, "label") is { } caseLabel)
+            {
+                // A label on an empty fall-through case maps to the arm that absorbs
+                // it (jumping there and falling through are equivalent), so pending
+                // labels are only drained when an arm is actually pushed.
+                pendingLabels.Add(caseLabel);
+            }
+
+            var body = cf.TryGetValue("body", out var b) ? b : null;
+            if (BoolField(cf, "is_default"))
+            {
+                AddArm(new SwitchArm("true", new List<(string, string)>(), body, true));
+                continue;
+            }
+
+            var pattern = CompilePattern(subjVar, CasePatternExpr(cf));
+            var guard = cf.TryGetValue("guard", out var g) ? g : null;
+
+            if (guard is null && IsEmptyCaseBody(body))
+            {
+                pendingConds.Add(pattern.Condition);
+                continue;
+            }
+
+            var condition = pattern.Condition;
+            if (guard is not null)
+            {
+                condition = $"({condition} && {GuardCondition(guard, pattern.Bindings)})";
+            }
+            else if (condition == "true" && pendingConds.Count == 0)
+            {
+                AddArm(new SwitchArm("true", pattern.Bindings, body, true));
+                break;
+            }
+
+            pendingConds.Add(condition);
+            AddArm(new SwitchArm(JoinAlternatives(pendingConds), pattern.Bindings, body, false));
+            pendingConds.Clear();
+        }
+
+        return (arms, labels);
+    }
+
+    /// <summary>The case's structured pattern. Every case the encoder emits carries one; a case without is a shape this compiler cannot match — fail loud rather than emit a condition that is silently never true.</summary>
+    private static Expression CasePatternExpr(OrderedDictionary<string, Expression> cf)
     {
         if (cf.TryGetValue("pattern_expr", out var patternExpr))
         {
-            return CompileSwitchPattern(subjVar, patternExpr);
+            return patternExpr;
         }
 
-        return $"BallValue.ValueEquals({subjVar}, {FieldAliasOrNull(cf, new[] { "pattern", "value" })})";
+        var text = StringField(cf, "pattern") ?? "<none>";
+        throw new InvalidOperationException(
+            $"C# compiler: switch case '{text}' carries no pattern_expr (the encoder could not encode this pattern)");
     }
 
-    /// <summary>Compile a Dart-3 structured pattern into a C# boolean match condition over <paramref name="subjVar"/>.</summary>
-    private string CompileSwitchPattern(string subjVar, Expression patternExpr)
+    /// <summary>Whether a case carries no statements of its own — Dart's shared-body <c>case 'a': case 'b': …</c> label.</summary>
+    private static bool IsEmptyCaseBody(Expression? body) =>
+        body is null
+        || (body.ExprCase == Expression.ExprOneofCase.Block
+            && body.Block.Statements.Count == 0
+            && body.Block.Result is null);
+
+    private static string JoinAlternatives(List<string> conditions) =>
+        conditions.Count == 1
+            ? conditions[0]
+            : "(" + string.Join(") || (", conditions) + ")";
+
+    /// <summary>The plain lowering: an if/else-if chain, the default arm as the trailing <c>else</c>.</summary>
+    private string EmitIfElseArms(List<SwitchArm> arms)
     {
-        if (patternExpr.ExprCase == Expression.ExprOneofCase.MessageCreation)
+        var sb = new StringBuilder();
+        var first = true;
+        SwitchArm? defaultArm = null;
+        foreach (var arm in arms)
         {
-            var mc = patternExpr.MessageCreation;
-            var fields = MessageCreationFields(mc);
-            switch (Naming.TypeShortName(mc.TypeName))
+            if (arm.IsDefault)
             {
-                case "WildcardPattern":
-                    return "true";
-                case "LogicalOrPattern":
-                    return $"({CompileSwitchPattern(subjVar, fields["left"])} || {CompileSwitchPattern(subjVar, fields["right"])})";
-                case "LogicalAndPattern":
-                    return $"({CompileSwitchPattern(subjVar, fields["left"])} && {CompileSwitchPattern(subjVar, fields["right"])})";
-                case "ConstPattern":
-                    return $"BallValue.ValueEquals({subjVar}, {(fields.TryGetValue("value", out var cv) ? CompileExpression(cv) : "BallValue.Null")})";
+                defaultArm = arm;
+                continue;
+            }
+
+            sb.Append($"{(first ? "if" : "else if")} ({arm.Condition})\n{{\n{EmitArmBody(arm)}}}\n");
+            first = false;
+        }
+
+        if (defaultArm is { } fallback)
+        {
+            sb.Append(first ? $"{{\n{EmitArmBody(fallback)}}}\n" : $"else\n{{\n{EmitArmBody(fallback)}}}\n");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// The goto lowering, for a switch carrying case labels: select the entry arm
+    /// once (in source order), then dispatch on the state. An arm never falls
+    /// into the next one, and a <c>continue &lt;caseLabel&gt;</c> in a body
+    /// re-enters the dispatch at another arm — with the subject NOT re-checked
+    /// and that arm's binders recomputed from it.
+    /// </summary>
+    private string EmitGotoSwitchArms(int uid, List<SwitchArm> arms, Dictionary<string, int> labels)
+    {
+        var stateVar = $"__state{uid}";
+        var dispatch = $"__case{uid}";
+        var sb = new StringBuilder($"var {stateVar} = -1;\n");
+
+        var first = true;
+        for (var i = 0; i < arms.Count; i++)
+        {
+            if (arms[i].IsDefault)
+            {
+                continue;
+            }
+
+            sb.Append($"{(first ? "if" : "else if")} ({arms[i].Condition}) {stateVar} = {i};\n");
+            first = false;
+        }
+
+        var defaultIndex = arms.FindIndex(a => a.IsDefault);
+        if (defaultIndex >= 0)
+        {
+            sb.Append(first ? $"{stateVar} = {defaultIndex};\n" : $"else {stateVar} = {defaultIndex};\n");
+        }
+
+        // The bodies are compiled with this frame pushed, so a `continue <label>`
+        // inside one resolves to this switch's state variable and dispatch label.
+        _switchLabelStack.Add(new SwitchLabelFrame(labels, stateVar, dispatch));
+        var bodies = arms.Select(EmitArmBody).ToList();
+        _switchLabelStack.RemoveAt(_switchLabelStack.Count - 1);
+
+        if (bodies.Count == 0)
+        {
+            sb.Append($"{dispatch}: ;\n");
+            return sb.ToString();
+        }
+
+        sb.Append($"{dispatch}:\n");
+        for (var i = 0; i < bodies.Count; i++)
+        {
+            sb.Append($"{(i == 0 ? "if" : "else if")} ({stateVar} == {i})\n{{\n{bodies[i]}}}\n");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>An arm's statements, preceded by its binders — declared INSIDE the matched block, so an accessor is never evaluated on a subject the condition rejected.</summary>
+    private string EmitArmBody(SwitchArm arm)
+    {
+        PushScope();
+        var sb = new StringBuilder(EmitPatternBindings(arm.Bindings));
+        sb.Append(arm.Body is null ? ";" : EmitStatementUnwrapped(arm.Body));
+        sb.Append('\n');
+        PopScope();
+        return sb.ToString();
+    }
+
+    /// <summary>A switch-expression arm: its binders, then its result expression as the IIFE's <c>return</c>.</summary>
+    private string EmitArmResult(SwitchArm arm)
+    {
+        PushScope();
+        var sb = new StringBuilder(EmitPatternBindings(arm.Bindings));
+        sb.Append($"return {(arm.Body is null ? "BallValue.Null" : CompileExpression(arm.Body))};\n");
+        PopScope();
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// <c>continue</c> — a bare loop continue, or (when it names a case label of
+    /// an enclosing goto-switch) Dart's goto: jump to that arm's body without
+    /// re-testing the subject. A label that names no enclosing case is a loop
+    /// label and keeps the plain <c>continue</c>.
+    /// </summary>
+    private string CompileContinueStatement(FunctionCall call)
+    {
+        if (StringField(Fields.Extract(call), "label") is { } label)
+        {
+            for (var i = _switchLabelStack.Count - 1; i >= 0; i--)
+            {
+                if (_switchLabelStack[i].LabelToArm.TryGetValue(label, out var arm))
+                {
+                    var frame = _switchLabelStack[i];
+                    return $"{frame.StateVar} = {arm};\ngoto {frame.DispatchLabel};";
+                }
             }
         }
 
-        // An unstructured / unrecognized pattern: compare the subject to its value.
-        return $"BallValue.ValueEquals({subjVar}, {CompileExpression(patternExpr)})";
+        return "continue;";
     }
 
     /// <summary>

@@ -1,3 +1,10 @@
+# [1.58.0](https://github.com/Ball-Lang/ball/compare/v1.57.0...v1.58.0) (2026-07-13)
+
+
+### Features
+
+* **python:** [#445](https://github.com/Ball-Lang/ball/issues/445) Phase 4 — self-hosted Python engine at Dart parity (320/320) ([#448](https://github.com/Ball-Lang/ball/issues/448)) ([62df4ca](https://github.com/Ball-Lang/ball/commit/62df4cabcf426243c903fbce9aac6a193b567c79))
+
 # [1.57.0](https://github.com/Ball-Lang/ball/compare/v1.56.0...v1.57.0) (2026-07-13)
 
 

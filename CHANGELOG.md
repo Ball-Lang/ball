@@ -1,3 +1,10 @@
+# [1.57.0](https://github.com/Ball-Lang/ball/compare/v1.56.0...v1.57.0) (2026-07-13)
+
+
+### Features
+
+* **python:** [#445](https://github.com/Ball-Lang/ball/issues/445) Phase 3 — Python → Ball encoder ([#447](https://github.com/Ball-Lang/ball/issues/447)) ([8968f23](https://github.com/Ball-Lang/ball/commit/8968f23aa6b7754128dc1011224c6638c6048452)), closes [#1](https://github.com/Ball-Lang/ball/issues/1) [#4](https://github.com/Ball-Lang/ball/issues/4) [#55](https://github.com/Ball-Lang/ball/issues/55)
+
 # [1.56.0](https://github.com/Ball-Lang/ball/compare/v1.55.0...v1.56.0) (2026-07-13)
 
 

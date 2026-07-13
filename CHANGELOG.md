@@ -1,3 +1,15 @@
+# [1.54.0](https://github.com/Ball-Lang/ball/compare/v1.53.1...v1.54.0) (2026-07-13)
+
+
+### Bug Fixes
+
+* **go:** [#436](https://github.com/Ball-Lang/ball/issues/436) bound runaway conformance fixtures via cooperative engine timeout ([#442](https://github.com/Ball-Lang/ball/issues/442)) ([bc9da18](https://github.com/Ball-Lang/ball/commit/bc9da1899c4c29394188e7b2755142d9e30c4396))
+
+
+### Features
+
+* **rust:** [#365](https://github.com/Ball-Lang/ball/issues/365) — self-host cli_core.auditReport, wire `ball audit` ([#441](https://github.com/Ball-Lang/ball/issues/441)) ([8ac38c7](https://github.com/Ball-Lang/ball/commit/8ac38c73337f4a7cc9eb8fd38529965fe9e90b81)), closes [#398](https://github.com/Ball-Lang/ball/issues/398)
+
 ## [1.53.1](https://github.com/Ball-Lang/ball/compare/v1.53.0...v1.53.1) (2026-07-13)
 
 

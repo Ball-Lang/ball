@@ -4,11 +4,11 @@
 
 The binary `ball` (crate `ball-lang-cli`): `run`/`compile`/`encode`/`check` subcommands over
 `ball-lang-engine`/`ball-lang-compiler`/`ball-lang-encoder` (issue #41), plus the self-hosted cli-core verbs
-`info`/`validate`/`tree`/`version` (issue #365, compiled from `dart/shared/lib/cli_core.dart` —
+`info`/`validate`/`tree`/`audit`/`version` (issue #365, compiled from `dart/shared/lib/cli_core.dart` —
 see "cli-core adoption" below). Mirrors `dart/cli/` and `ts/cli/` where their subcommand shapes
 overlap; narrower than `dart/cli` (no package-registry commands — `init`/`add`/`resolve`/
-`publish` — and no `audit`, whose capability/termination analyzers don't self-host through the
-encoder yet, see issue #362).
+`publish` — and `audit` here is the bare capability/termination report only, without `dart/cli`'s
+native-only `--deny`/`--exit-code`/`--reachable-only`/`--output` policy flags).
 
 ## Layout
 
@@ -29,7 +29,7 @@ encoder yet, see issue #362).
 - `src/output.rs` — `write_text`/`write_bytes`: `--output <file>` vs. stdout, shared by
   `compile` and `encode`.
 - `src/compiled_cli.rs` — **generated, gitignored**; see "cli-core adoption" below.
-- `src/commands/{run,compile,encode,check,info,validate,tree,version}.rs` — one module per
+- `src/commands/{run,compile,encode,check,info,validate,tree,audit,version}.rs` — one module per
   subcommand.
 
 ## Exit-code contract (issue #41, extended by #365)
@@ -74,18 +74,17 @@ that codegen step.
 `compile`/`encode`/`check` are unaffected by this feature — they never touch the self-hosted
 engine.
 
-## `info`/`validate`/`tree`/`version` and the `cli_core` Cargo feature (issue #365)
+## `info`/`validate`/`tree`/`audit`/`version` and the `cli_core` Cargo feature (issue #365)
 
 `dart/shared/lib/cli_core.dart` is a Ball-portable library of `Program -> String` report
 functions (`versionLine`/`infoReport`/`validationErrors`/`validateOk`/`validateReport`/
-`treeReport` — plus `auditReport`, which is **not** wired here, see below) — the single source
-of truth `dart/cli/lib/src/runner.dart`'s `info`/`validate`/`tree`/`version` verbs already call
-natively. `cargo run -p ball-cli-regen` (`rust/cli/tool/`, mirroring `ball-engine-regen` almost
-exactly) compiles it via `ball-lang-compiler` in **library mode** into `src/compiled_cli.rs`: since
-`cli_core` is a plain function library (no classes, no interpreter loop, unlike the self-hosted
-*engine*), the compiled output is directly-callable native Rust — `pub fn infoReport(input:
-BallValue) -> BallValue`, etc. — no runtime-driving wrapper like `ball-lang-engine`'s
-`run_self_hosted` is needed.
+`treeReport`/`auditReport`) — the single source of truth `dart/cli/lib/src/runner.dart`'s
+`info`/`validate`/`tree`/`audit`/`version` verbs already call natively. `cargo run -p
+ball-cli-regen` (`rust/cli/tool/`, mirroring `ball-engine-regen` almost exactly) compiles it via
+`ball-lang-compiler` in **library mode** into `src/compiled_cli.rs`: since `cli_core` is a plain
+function library (no classes, no interpreter loop, unlike the self-hosted *engine*), the compiled
+output is directly-callable native Rust — `pub fn infoReport(input: BallValue) -> BallValue`, etc.
+— no runtime-driving wrapper like `ball-lang-engine`'s `run_self_hosted` is needed.
 
 ```bash
 cd dart && dart run compiler/tool/gen_cli_json.dart   # regen dart/self_host/cli.ball.json
@@ -103,29 +102,31 @@ cd ../rust && cargo run -p ball-cli-regen             # regen src/compiled_cli.r
     arm. `version` is the one exception: its whole logic is the one-line format `"ball " +
     version`, so `src/commands/version.rs` keeps a tiny always-on fallback (proven identical to
     the compiled path by `commands::version::tests::compiled_version_line_matches_dart_cli_core_format`).
-  - **`--features cli_core`** (after the two regen commands above): all four verbs produce
+  - **`--features cli_core`** (after the two regen commands above): all five verbs produce
     output byte-identical to the Dart CLI — proven by the golden-fixture parity gate below.
-- **`auditReport` is intentionally excluded** from `compiled_cli.rs` (issue #365, `#362`
-  residual): it calls `capability_analyzer`/`termination_analyzer`, separate Dart files pulled in
-  via `import` (not `part`), which `gen_cli_json.dart`'s `resolveDartLibrary` does not merge —
-  the Dart encoder leaves them as **empty import-stub modules** in `cli.ball.json`. The Dart
-  parity test (`dart/cli/test/cli_core_parity_test.dart`) tolerates this by simply never calling
-  `auditReport`; Rust cannot — an unresolved `analyzeCapabilities`/`writeln`/… call is a hard
-  `rustc` error under whole-file AOT compilation, not a latent runtime gap. `rust/cli/tool/src/main.rs`'s
-  `SKIPPED_FUNCTIONS` filter drops `auditReport` from the loaded `Program` before compiling — a
-  Rust-target-only, well-documented workaround that touches neither `cli_core.dart` (shared by
-  every language) nor `ball-lang-compiler` (general-purpose). No `ball audit` subcommand exists in
-  `ball-lang-cli`.
+- **`auditReport` self-hosts too** (issue #365). It rides along in the compiled `main` module with
+  no filter: its capability + termination analyzers are `part 'capability_analyzer.dart'` /
+  `part 'termination_analyzer.dart'` of `cli_core.dart` (since #398), so `gen_cli_json.dart`'s
+  `resolveDartLibrary` merges them into the same module and every call resolves — the analyzers use
+  no lambdas/class hierarchies, so nothing trips a compiler gap. `src/commands/audit.rs` prints
+  `auditReport` with `print!` (not `println!`): unlike `infoReport`/`validateReport`/`treeReport`,
+  `auditReport` already ends in a trailing `\n`, matching the Dart CLI's `_audit` fast path, which
+  `write`s (not `writeln`s) the same string. The `--deny`/`--exit-code`/`--reachable-only`/
+  `--output` policy flags of `dart/cli`'s native `audit` are out of scope (native-only extras) —
+  the bare report is what the Dart/TS parity gates check.
 
 ### Golden-fixture parity gate
 
 `tests/cli_core_parity.rs` compares the **built `ball` binary's** stdout for `info`/`validate`/
-`tree` against golden `.txt` files checked into `tests/golden/cli_core/`, generated once from the
-real Dart CLI (`dart run dart/cli/bin/ball.dart <verb> <fixture>`) — the exact regen command is
-documented in that test file's module doc comment. This avoids depending on a `dart` toolchain at
-`cargo test` time (unlike the Dart-native `cli_core_parity_test.dart`, which compares
+`tree`/`audit` against golden `.txt` files checked into `tests/golden/cli_core/`, generated once
+from the real Dart CLI (`dart run dart/cli/bin/ball.dart <verb> <fixture>`) — the exact regen
+command is documented in that test file's module doc comment. This avoids depending on a `dart`
+toolchain at `cargo test` time (unlike the Dart-native `cli_core_parity_test.dart`, which compares
 in-process against the Ball-engine-run `cli.ball.json`). `version` has no golden file — its
-compiled-vs-fallback identity is checked directly (see above).
+compiled-vs-fallback identity is checked directly (see above). The `audit` goldens are UTF-8
+(the report uses ✓/⚠/✗ and `→`); regenerate them on a UTF-8 stdout host (Linux/macOS/WSL), or use
+`dart/cli/tool/gen_cli_parity_goldens.dart` on Windows (its `writeAsStringSync` keeps the glyphs
+byte-exact — see the test's module doc comment).
 
 ## Testing
 
@@ -152,7 +153,9 @@ on `ball-lang-shared`, reusing the workspace `target/` dir — the same harness
 
 - No package-registry commands (`dart/cli`'s `init`/`add`/`resolve`/`publish`/`build`) — out of
   scope for issue #41.
-- No `ball audit` — see "`auditReport` is intentionally excluded" above (issue #362 residual).
+- `ball audit` covers the bare capability/termination report only — `dart/cli`'s native-only
+  `--deny`/`--exit-code`/`--reachable-only`/`--output` policy flags are out of scope (they match
+  what the Dart/TS parity gates check). See "cli-core adoption" above.
 - `check` does not attempt to run the program — only `ball-lang-compiler`-shaped structural
   validation, plus an opt-in `--compile` dry-run. It never drives `ball-lang-engine`. (It predates
   `cli_core` adoption and is deliberately kept as the Rust-target-specific stronger check;

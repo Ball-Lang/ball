@@ -2,18 +2,23 @@
 /// truth for the C++ parity gate (`cpp/test/test_cli_parity.cpp`, the C++ mirror
 /// of `dart/cli/test/cli_core_parity_test.dart`).
 ///
-/// For every `tests/conformance/*.ball.json`, writes three files into the output
+/// For every `tests/conformance/*.ball.json`, writes four files into the output
 /// directory:
 ///   - `<stem>.info.txt`      = cli_core.infoReport(program)
 ///   - `<stem>.validate.txt`  = cli_core.validateReport(program)
 ///   - `<stem>.tree.txt`      = cli_core.treeReport(program)
+///   - `<stem>.audit.txt`     = cli_core.auditReport(program)
 ///
 /// plus a single `version.txt` = cli_core.versionLine(cli version).
 ///
-/// The C++ `test_cli_parity` runs the *compiled* `cli_core` (`dart/self_host/lib/
-/// cli_rt.h`, produced by `gen_cli_cpp.dart`) over the same fixtures and asserts
-/// byte-identical output — so the C++ `ball` verbs and the Dart CLI are proven to
-/// compute the same reports. `audit` is excluded (see `gen_cli_cpp.dart`).
+/// The C++/Rust `test_cli_parity` gates run the *compiled* `cli_core`
+/// (C++'s `dart/self_host/lib/cli_rt.h` from `gen_cli_cpp.dart`; Rust's
+/// `rust/cli/src/compiled_cli.rs` from `ball-cli-regen`) over the same fixtures
+/// and assert byte-identical output — so the compiled `ball` verbs and the Dart
+/// CLI are proven to compute the same reports. `<stem>.audit.txt` mirrors the
+/// exact bytes a bare `ball audit <program>` (default options) prints — its
+/// fast path in `runner.dart`'s `_audit` writes `cli_core.auditReport(program)`
+/// verbatim (`writeAsStringSync` here keeps the ✓/⚠/✗/→ glyphs UTF-8-exact).
 ///
 ///   cd dart && dart run cli/tool/gen_cli_parity_goldens.dart OUT_DIR
 ///
@@ -72,6 +77,9 @@ void main(List<String> args) {
     File(
       '${outDir.path}/$stem.tree.txt',
     ).writeAsStringSync(cli_core.treeReport(program));
+    File(
+      '${outDir.path}/$stem.audit.txt',
+    ).writeAsStringSync(cli_core.auditReport(program));
     count++;
   }
 

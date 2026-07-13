@@ -510,7 +510,16 @@ func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1
 		//
 		// A case with a `when` guard is never an empty fall-through, even with an
 		// empty body: its guard still has to run.
-		if (!present || isEmptySwitchBody(bodyExpr)) && !hasField(cf, "guard") {
+		//
+		// STATEMENT MODE ONLY. A switch EXPRESSION has no fall-through — every arm
+		// carries a value — and Ball encodes the `null` literal as a value-less
+		// Literal (encoder: `Expression()..literal = Literal()`), the very shape
+		// isEmptySwitchBody reads as "empty". Applied to an expression, the test
+		// DELETES every `_ => null` arm and folds its condition into the next one,
+		// so a non-final `=> null` arm returns the FOLLOWING arm's value: the
+		// engine's own `unwrap` (`BallNull() => null` ahead of `_ => val`) handed
+		// back the wrapper instead of null. Compiles, exits 0, wrong answer.
+		if (!present || (!exprMode && isEmptySwitchBody(bodyExpr))) && !hasField(cf, "guard") {
 			pending = append(pending, res.cond)
 			continue
 		}
@@ -533,13 +542,11 @@ func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1
 		b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
 		return b.String()
 	}
-	if exprMode {
-		// A switch EXPRESSION that matched no arm has no value. Returning a silent
-		// null here would print the zero value instead of failing (issue #55);
-		// throw, as the reference engine does. Dart's exhaustiveness check makes
-		// this unreachable in a valid program.
-		b.WriteString("\t\tballrt.Throw(\"Non-exhaustive switch expression\")\n")
-	}
+	// A switch that matched no arm evaluates to Ball null — the same tail the TS
+	// compiler emits (`defaultBody ? … : "undefined"`). It must NOT throw: the
+	// engine's own oneof dispatchers rely on the null tail, and #55's fail-loud
+	// rule is about a pattern KIND the compiler cannot lower (a compile-time
+	// c.fail in pattern.go), not about a legal runtime fall-through in the IR.
 	b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
 	return b.String()
 }

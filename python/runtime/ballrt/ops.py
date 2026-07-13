@@ -67,14 +67,26 @@ def multiply(a, b):
 def intdiv(a, b):
     """Dart ``~/`` — truncating (toward zero) integer division."""
     if _both_int(a, b):
+        if b == 0:
+            from .flow import throw
+            return throw("IntegerDivisionByZeroException")
         q = abs(a) // abs(b)
         return _wrap64(-q if (a < 0) != (b < 0) else q)
-    return int(_as_float(a) / _as_float(b))
+    bf = _as_float(b)
+    if bf == 0.0:
+        from .flow import throw
+        return throw("Unsupported operation: Result of truncating division is Infinity")
+    return int(_as_float(a) / bf)
 
 
 def divide_double(a, b):
-    """Dart ``/`` — always a double."""
-    return _as_float(a) / _as_float(b)
+    """Dart ``/`` — always a double; division by zero yields Infinity/-Infinity/NaN."""
+    af, bf = _as_float(a), _as_float(b)
+    if bf == 0.0:
+        if af == 0.0:
+            return math.nan
+        return math.copysign(math.inf, af) * math.copysign(1.0, bf)
+    return af / bf
 
 
 def modulo(a, b):
@@ -85,6 +97,8 @@ def modulo(a, b):
             m = m - b if b < 0 else m + b
         return m
     af, bf = _as_float(a), _as_float(b)
+    if bf == 0.0:
+        return math.nan
     m = math.fmod(af, bf)
     if m < 0:
         m += abs(bf)

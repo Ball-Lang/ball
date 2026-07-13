@@ -110,6 +110,13 @@ class MapEntry:
 
 NULL = None
 
+# The Dart protobuf codegen renames a generated getter that would collide with an
+# Object member (`FieldAccess.field` -> `.field_2`, `TypeDefinition.descriptor` ->
+# `.descriptor_`); the engine reads the program through those renamed getters, but
+# the loaded proto3-JSON view keys fields by their plain jsonName. Mirrors the
+# Go/Rust/TS engines' aliases.
+_FIELD_ALIAS = {"field_2": "field", "descriptor_": "descriptor"}
+
 
 # ── Argument messages (the packed input of a multi-parameter call) ───────────
 
@@ -142,7 +149,31 @@ def call_fn(fn, argument):
 _STR_PROPS = {"length", "isEmpty", "isNotEmpty"}
 
 
+def _runtime_type_name(obj):
+    """Dart ``value.runtimeType`` — the type's name (used by the engine in error
+    messages and type reporting). A user instance reports its class name."""
+    if obj is None:
+        return "Null"
+    if isinstance(obj, bool):
+        return "bool"
+    if isinstance(obj, int):
+        return "int"
+    if isinstance(obj, float):
+        return "double"
+    if isinstance(obj, str):
+        return "String"
+    if isinstance(obj, list):
+        return "List"
+    if isinstance(obj, dict):
+        return "Map"
+    if isinstance(obj, BallSet):
+        return "Set"
+    return type(obj).__name__
+
+
 def getfield(obj, name):
+    if name == "runtimeType":
+        return _runtime_type_name(obj)
     if obj is None:
         raise AttributeError(f"ball: field {name!r} on null")
     if isinstance(obj, str):
@@ -175,6 +206,9 @@ def getfield(obj, name):
         # and still falls through to the getter below).
         if name in obj:
             return obj[name]
+        alias = _FIELD_ALIAS.get(name)
+        if alias is not None and alias in obj:
+            return obj[alias]
         if name == "length":
             return len(obj)
         if name == "isEmpty":

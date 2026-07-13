@@ -313,6 +313,7 @@ def _as_map(recv, *_):
 
 
 _DISPATCH = {
+    "toString": lambda r, *a: ops.to_str(r),
     "remove": _remove,
     "addAll": _add_all,
     "clear": _clear,

@@ -67,6 +67,10 @@ _BUILTIN_TYPES = frozenset({"int", "num", "double", "String", "List", "Map", "Se
 # as Python classes — a subclass inherits `ballrt.<name>`.
 _RUNTIME_BASES = frozenset({"BallValue", "BallMap"})
 
+# Methods every Dart object has; a user class may override them, but the receiver
+# can also be a builtin at run time — always route these through call_method.
+_UNIVERSAL_METHODS = frozenset({"toString", "hashCode", "noSuchMethod"})
+
 
 class CompileError(Exception):
     """A Ball construct the compiler does not support (fail-loud, issue #55)."""
@@ -1399,7 +1403,10 @@ class Compiler:
             # runtime dispatcher, which applies Dart (not Python) semantics on a
             # builtin receiver and calls a runtime/user object's own method
             # otherwise. User-method and SDK-method names never collide here.
-            if method not in self.all_method_names:
+            # Universally-overridable methods (toString/hashCode/…) also route
+            # through the dispatcher even though a user class declares them, since
+            # the receiver may be a builtin at run time.
+            if method not in self.all_method_names or fn in _UNIVERSAL_METHODS:
                 sdk_args = ", ".join(self.value(fv["value"]) for fv in rest)
                 sep = ", " if rest else ""
                 return f"ballrt.call_method({self_expr}, {pystr(fn)}{sep}{sdk_args})"

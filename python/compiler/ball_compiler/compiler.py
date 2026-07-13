@@ -1305,10 +1305,12 @@ class Compiler:
         short = _short(tn)
         fields = mc.get("fields", [])
         if tn and short in self.type_defs:
-            # A user-class constructor call: pass positional args in field order,
-            # skipping synthetic type-arg / const annotations.
-            args = [self.value(fv["value"]) for fv in fields if fv.get("name") not in _SYNTH_FIELDS]
-            return f"{sanitize(short)}({', '.join(args)})"
+            # A user-class constructor call. A positional field (`arg0`/`arg1`/…)
+            # maps to a positional argument; a named field maps to a Python
+            # keyword argument, so a Dart named constructor argument
+            # (`_FlowSignal('return', value: x)`) reaches the right parameter
+            # rather than landing in the wrong positional slot.
+            return f"{sanitize(short)}({self._ctor_args(fields)})"
         if tn:
             rc = self.runtime_construct(short, fields)
             if rc is not None:
@@ -1360,6 +1362,23 @@ class Compiler:
         if short == "List.filled":
             return f"ballrt.list_filled({args[0]}, {args[1]})" if len(args) >= 2 else "[]"
         return None
+
+    def _ctor_args(self, fields: list) -> str:
+        """Build a constructor/call argument list from messageCreation fields:
+        positional (``argN``) fields first, then named fields as Python keyword
+        arguments (matching the parameter's name). Synthetic type/const
+        annotations are dropped."""
+        pos, kw = [], []
+        for fv in fields:
+            n = fv.get("name", "")
+            if n in _SYNTH_FIELDS:
+                continue
+            v = self.value(fv["value"])
+            if _is_positional(n) or not n:
+                pos.append(v)
+            else:
+                kw.append(f"{sanitize(n)}={v}")
+        return ", ".join(pos + kw)
 
     def value_lambda(self, lam: dict) -> str:
         params = [p.get("name", "") for p in self._param_meta(lam)]

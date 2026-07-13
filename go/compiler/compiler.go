@@ -88,6 +88,10 @@ type Compiler struct {
 	// scopes is the lexical scope stack of sanitized local names.
 	scopes []map[string]bool
 
+	// gotoSwitches is the stack of enclosing labelled (goto) switches, innermost
+	// last — the targets a `continue <caseLabel>` can jump to.
+	gotoSwitches []gotoSwitch
+
 	// Per-body instance-method context (for implicit-`this` injection).
 	inInstanceMethod bool
 	selfRecvName     string
@@ -103,6 +107,15 @@ type Compiler struct {
 	errs []string
 
 	tempCounter int
+}
+
+// gotoSwitch is one enclosing labelled switch being compiled: the state variable
+// its arms are selected by, the synthetic break label its driver recovers, and
+// the Ball case label → arm index map a `continue <label>` resolves through.
+type gotoSwitch struct {
+	stateVar string
+	label    string
+	labels   map[string]int
 }
 
 // New builds a Compiler for prog in program mode.

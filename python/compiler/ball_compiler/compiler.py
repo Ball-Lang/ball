@@ -71,6 +71,10 @@ _RUNTIME_BASES = frozenset({"BallValue", "BallMap"})
 # can also be a builtin at run time — always route these through call_method.
 _UNIVERSAL_METHODS = frozenset({"toString", "hashCode", "noSuchMethod"})
 
+# Synthetic messageCreation fields carrying cosmetic generic/const annotations,
+# never real constructor arguments.
+_SYNTH_FIELDS = frozenset({"__type_args__", "type_args", "__const__"})
+
 
 class CompileError(Exception):
     """A Ball construct the compiler does not support (fail-loud, issue #55)."""
@@ -1301,8 +1305,9 @@ class Compiler:
         short = _short(tn)
         fields = mc.get("fields", [])
         if tn and short in self.type_defs:
-            # A user-class constructor call: pass positional args in field order.
-            args = [self.value(fv["value"]) for fv in fields]
+            # A user-class constructor call: pass positional args in field order,
+            # skipping synthetic type-arg / const annotations.
+            args = [self.value(fv["value"]) for fv in fields if fv.get("name") not in _SYNTH_FIELDS]
             return f"{sanitize(short)}({', '.join(args)})"
         if tn:
             rc = self.runtime_construct(short, fields)
@@ -1316,8 +1321,8 @@ class Compiler:
     # are not emitted user classes. Returns None for an unrecognised type so the
     # caller falls back to an anonymous message.
     def runtime_construct(self, short: str, fields: list):
-        # `type_args` is a cosmetic generic annotation, not a constructor arg.
-        real = [fv for fv in fields if fv.get("name") != "type_args"]
+        # Synthetic type-arg / const annotations are not constructor args.
+        real = [fv for fv in fields if fv.get("name") not in _SYNTH_FIELDS]
         args = [self.value(fv["value"]) for fv in real]
         first = args[0] if args else "None"
         fdict = "{" + ", ".join(

@@ -153,6 +153,13 @@ class Compiler:
         self.scopes: list[dict[str, str]] = []
         self.reserved: set[str] = set()
 
+        # Python-names of loop variables in the currently-open for/for-in loops.
+        # A lambda created inside a loop snapshots them as default arguments, so
+        # each closure captures the per-iteration VALUE — Dart's for-in binds a
+        # fresh variable each iteration, but Python's loop variable is shared and
+        # would otherwise late-bind every closure to the final value.
+        self.loop_vars: list[str] = []
+
         # Per-method context for implicit-`self` field references.
         self.cur_class: str | None = None
         self.cur_fields: set[str] = set()
@@ -978,6 +985,7 @@ class Compiler:
         with self.block():
             py = self.bind(var)
             self.line(f"{py} = {it}")
+            self.loop_vars.append(py)
             self.line("try:")
             with self.block():
                 before = len(self.lines)
@@ -992,6 +1000,7 @@ class Compiler:
             self.line("except ballrt.BallContinue as _cnt:")
             with self.block():
                 self.line("if _cnt.label: raise")
+            self.loop_vars.pop()
         self.pop_scope()
         if dest[0] != "discard":
             self.dispatch(dest, "None")
@@ -1247,10 +1256,12 @@ class Compiler:
             with self.block():
                 py = self.bind(var)
                 self.line(f"{py} = {it}")
+                self.loop_vars.append(py)
                 if "body" in f:
                     self.emit_collection_element(target, f["body"])
                 else:
                     self.line("pass")
+                self.loop_vars.pop()
             self.pop_scope()
 
     # Proto oneof "which"-case enums (protoc-dart names <Message>_<Oneof>). Their
@@ -1386,7 +1397,12 @@ class Compiler:
         self.push_scope()
         saved = self.reserved
         self.reserved = set(self.reserved) | {"_input"}
-        self.line(f"def {name}(_input=None):")
+        # Snapshot enclosing loop variables as default arguments so a closure made
+        # inside a loop captures the current iteration's value (see loop_vars).
+        param_pys = {sanitize(p) for p in params}
+        caps = [lv for lv in dict.fromkeys(self.loop_vars) if lv != "_input" and lv not in param_pys]
+        sig = "_input=None" + "".join(f", {c}={c}" for c in caps)
+        self.line(f"def {name}({sig}):")
         with self.block():
             self.emit_param_prologue(params)
             self.emit_body(lam)
@@ -1763,10 +1779,12 @@ class Compiler:
                 with self.block():
                     py = self.bind(var)
                     self.line(f"{py} = {it}")
+                    self.loop_vars.append(py)
                     if "body" in cf:
                         self.emit_map_element(target, cf["body"])
                     else:
                         self.line("pass")
+                    self.loop_vars.pop()
                 self.pop_scope()
                 return
             if fn == "collection_if":

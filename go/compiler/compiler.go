@@ -78,6 +78,11 @@ type Compiler struct {
 	// typeDefsByShort maps a type's short name to its TypeDefinition.
 	typeDefsByShort map[string]*ballv1.TypeDefinition
 
+	// enumShortNames is the set of user-enum short names (e.g. "Color"). A bare
+	// reference to one resolves to the emitted `ballEnum_<short>` namespace value
+	// (mirrors the oneof-discriminator branch); compileEnumNamespace emits that var.
+	enumShortNames map[string]bool
+
 	// bodyCtorImpl maps a class short name to the impl func of its body-carrying
 	// constructor (if any) — the target CompileMessageCreation invokes.
 	bodyCtorImpl map[string]string
@@ -138,6 +143,7 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		topLevelVars:    map[string]bool{},
 		classMembers:    map[string][]*ballv1.FunctionDefinition{},
 		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
+		enumShortNames:  map[string]bool{},
 		bodyCtorImpl:    map[string]string{},
 		volatileByOwner: map[string]map[string]bool{},
 		volatileFields:  map[string]bool{},
@@ -164,6 +170,9 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		}
 		for _, td := range m.GetTypeDefs() {
 			c.typeDefsByShort[typeShortName(td.GetName())] = td
+		}
+		for _, en := range m.GetEnums() {
+			c.enumShortNames[typeShortName(en.GetName())] = true
 		}
 		for _, f := range m.GetFunctions() {
 			if f.GetIsBase() {
@@ -469,6 +478,11 @@ func (c *Compiler) compileReference(r *ballv1.Reference) string {
 	// A oneof-discriminator constant (Expression_Expr.call, …).
 	if _, ok := oneofDiscriminators[name]; ok {
 		return "ballOneof_" + sanitize(name)
+	}
+	// A bare user-enum type name used as a namespace receiver (Color.red,
+	// Color.values) — resolves to the emitted enum namespace value.
+	if c.enumShortNames[name] {
+		return "ballEnum_" + sanitize(name)
 	}
 	// A bare Dart core type name used as a static receiver / type argument.
 	if builtinTypeNames[name] {

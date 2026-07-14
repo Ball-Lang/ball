@@ -1,3 +1,10 @@
+## [1.59.8](https://github.com/Ball-Lang/ball/compare/v1.59.7...v1.59.8) (2026-07-14)
+
+
+### Bug Fixes
+
+* **go:** resolve a user-enum type reference (fixes 109_enum_values) ([#472](https://github.com/Ball-Lang/ball/issues/472)) ([6e07ad0](https://github.com/Ball-Lang/ball/commit/6e07ad0f87a3c88a1158db62bae6279e2ab29622)), closes [#471](https://github.com/Ball-Lang/ball/issues/471) [#55](https://github.com/Ball-Lang/ball/issues/55)
+
 ## [1.59.7](https://github.com/Ball-Lang/ball/compare/v1.59.6...v1.59.7) (2026-07-14)
 
 

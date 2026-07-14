@@ -106,6 +106,18 @@ public sealed partial class CSharpCompiler
     private readonly Dictionary<string, TypeDefinition> _typeDefsByShortName = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// Every user enum's sanitized short name → the fully-qualified emitted
+    /// static that holds its namespace message (e.g. <c>Color</c> →
+    /// <c>BallProgram.Color</c>). <see cref="CompileEnum"/> emits the static into
+    /// its module's class (the entry module on <c>BallProgram</c>, every other
+    /// module on its own class), so a bare <c>reference("Color")</c> — the
+    /// <c>object</c> of a <c>Color.red</c>/<c>Color.values</c> field access —
+    /// resolves through this map in <see cref="CompileReference"/>, mirroring how
+    /// <see cref="OneofDiscriminators"/> resolves to <c>BallOneofs.*</c>.
+    /// </summary>
+    private readonly Dictionary<string, string> _enumStaticsByShortName = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Lexical scope stack. Each frame maps a Ball local's sanitized name to the
     /// C# identifier it is actually emitted as. They usually match, but when a
     /// binding would shadow a name already visible in an enclosing scope — legal
@@ -172,6 +184,17 @@ public sealed partial class CSharpCompiler
             {
                 _typeDefsByShortName[Naming.TypeShortName(td.Name)] = td;
                 _moduleByTypeShortName[Naming.TypeShortName(td.Name)] = module.Name;
+            }
+
+            // A user enum's namespace static (CompileEnum) lands in its module's
+            // class — the entry module directly on BallProgram, every other module
+            // on its own class — so record the fully-qualified path a bare
+            // reference to the enum type name must resolve to.
+            var ownerClass = module.Name == _entryModule ? "BallProgram" : Naming.Sanitize(module.Name);
+            foreach (var enumDef in module.Enums)
+            {
+                var enumShort = Naming.Sanitize(Naming.TypeShortName(enumDef.Name));
+                _enumStaticsByShortName[enumShort] = $"{ownerClass}.{enumShort}";
             }
 
             foreach (var func in module.Functions)
@@ -701,6 +724,16 @@ public sealed partial class CSharpCompiler
         if (OneofDiscriminators.ContainsKey(reference.Name))
         {
             return $"BallOneofs.{Naming.Sanitize(reference.Name)}";
+        }
+
+        // A bare reference to a user-declared enum type name (`Color`) — the
+        // `object` of a `Color.red`/`Color.values` field access — resolves to the
+        // emitted enum-namespace static (a `{red:{index,name}, …, values:[…]}`
+        // message). It is qualified with its owning module's class, since the
+        // reference may be compiled from a method in a different class.
+        if (_enumStaticsByShortName.TryGetValue(Naming.Sanitize(reference.Name), out var enumStatic))
+        {
+            return enumStatic;
         }
 
         // A bare reference to a Dart core type name (num/int/DateTime/…), used as

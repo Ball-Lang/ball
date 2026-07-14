@@ -1,3 +1,10 @@
+## [1.59.6](https://github.com/Ball-Lang/ball/compare/v1.59.5...v1.59.6) (2026-07-14)
+
+
+### Bug Fixes
+
+* **go:** a defaultless switch expression that matches nothing throws (advances [#467](https://github.com/Ball-Lang/ball/issues/467)) ([#469](https://github.com/Ball-Lang/ball/issues/469)) ([3b3dadc](https://github.com/Ball-Lang/ball/commit/3b3dadc56afba402eb3e0db6c5100665a4118d85)), closes [#464](https://github.com/Ball-Lang/ball/issues/464)
+
 ## [1.59.5](https://github.com/Ball-Lang/ball/compare/v1.59.4...v1.59.5) (2026-07-13)
 
 

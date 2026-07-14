@@ -1,3 +1,12 @@
+## 0.3.1
+
+ - **FIX**(audit): [#420](https://github.com/ball-lang/ball/issues/420) base-fn shadow surfacing + engine ambiguity guard ([#434](https://github.com/ball-lang/ball/issues/434)). ([4e56897f](https://github.com/ball-lang/ball/commit/4e56897f7bf3af84edfc4e0a93da0aabffa9ef80))
+ - **FIX**(ci): unblock the release pipeline (dart analyze warning) + make PR analyze strict ([#418](https://github.com/ball-lang/ball/issues/418)). ([f8a9e7d1](https://github.com/ball-lang/ball/commit/f8a9e7d1fe5207ca8ca1e7ac3389f8e199da08fe))
+ - **FIX**(engine): remove redundant BallDouble double-wrap ([#237](https://github.com/ball-lang/ball/issues/237)) + unique lambda paramCache key ([#246](https://github.com/ball-lang/ball/issues/246)) ([#274](https://github.com/ball-lang/ball/issues/274)). ([430f37c1](https://github.com/ball-lang/ball/commit/430f37c11c91f4501fe163a9080faf8c1860d282))
+ - **FIX**(engine): Phase-2c coverage residual triage (issue [#261](https://github.com/ball-lang/ball/issues/261)) ([#271](https://github.com/ball-lang/ball/issues/271)). ([265c3c5e](https://github.com/ball-lang/ball/commit/265c3c5e27c098abe360cf4de6a24b07107d03ab))
+ - **FEAT**(cli): self-host cli_core.auditReport (advances [#362](https://github.com/ball-lang/ball/issues/362)) ([#398](https://github.com/ball-lang/ball/issues/398)). ([6b824906](https://github.com/ball-lang/ball/commit/6b824906168008242cfbceb2c595a37b8204eb82))
+ - **FEAT**(engine): continue-to-labelled-switch-case (goto-via-switch) ([#321](https://github.com/ball-lang/ball/issues/321)) ([#337](https://github.com/ball-lang/ball/issues/337)). ([2bc21116](https://github.com/ball-lang/ball/commit/2bc211168b45c38472d4f5580f351453daa4bdd7))
+
 ## 0.3.0+6
 
  - **FIX**(engine): typeDef-less constructor must preserve explicit non-this fields ([#198](https://github.com/ball-lang/ball/issues/198)) ([#216](https://github.com/ball-lang/ball/issues/216)). ([4cf4747e](https://github.com/ball-lang/ball/commit/4cf4747e5792771362071e4880a4fff8f124efc1))

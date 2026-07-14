@@ -542,11 +542,17 @@ func (c *Compiler) compileSwitch(call *ballv1.FunctionCall, f map[string]*ballv1
 		b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
 		return b.String()
 	}
-	// A switch that matched no arm evaluates to Ball null — the same tail the TS
-	// compiler emits (`defaultBody ? … : "undefined"`). It must NOT throw: the
-	// engine's own oneof dispatchers rely on the null tail, and #55's fail-loud
-	// rule is about a pattern KIND the compiler cannot lower (a compile-time
-	// c.fail in pattern.go), not about a legal runtime fall-through in the IR.
+	// A defaultless switch EXPRESSION that matched no arm is non-exhaustive:
+	// Dart makes that a compile-time error and C# throws at runtime
+	// (csharp/compiler/src/BaseCall.cs); align to them. Verified engine-safe —
+	// the engine's own oneof dispatchers ARE exhaustive (they carry an explicit
+	// `notSet` arm that matches on its own merits), so this tail is unreachable
+	// there; restoring the throw kept the self-hosted engine at 320/320. A
+	// statement switch, by contrast, legally does nothing when no case matches.
+	if exprMode {
+		b.WriteString("\t\treturn ballrt.Throw(ballrt.Value(\"Non-exhaustive switch expression\"))\n\t}()")
+		return b.String()
+	}
 	b.WriteString("\t\treturn ballrt.Value(nil)\n\t}()")
 	return b.String()
 }

@@ -20,14 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # IMPORTANT: do NOT pass `registry-url:` here — that makes setup-node
       # write an .npmrc with `_authToken=${NODE_AUTH_TOKEN}` and export
       # NPM_CONFIG_USERCONFIG. With an unset/empty token npm falls back to
       # token-auth with an empty token instead of negotiating OIDC, producing
       # ENEEDAUTH / E404. OIDC trusted publishing needs no .npmrc at all.
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: 22
 
@@ -36,7 +36,7 @@ jobs:
       # regenerate engine.ball.json (same reason ci.yml's TypeScript job
       # bootstraps the Dart workspace). Without it the v1.3.3 publish died
       # with `dart: not found`.
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@7654d458321ee25acccccfdb86cd48bd95768ff1 # v1.8.0
         with:
           sdk: stable
 

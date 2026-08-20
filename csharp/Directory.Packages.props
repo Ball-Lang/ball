@@ -14,7 +14,7 @@
     <!-- Protobuf runtime consumed by csharp/shared/gen/Ball.cs (buf plugin
          buf.build/protocolbuffers/csharp:v35.1 — pin the matching Google.Protobuf
          runtime line so generated code and runtime stay in sync). -->
-    <PackageVersion Include="Google.Protobuf" Version="3.35.1" />
+    <PackageVersion Include="Google.Protobuf" Version="3.36.0" />
 
     <!-- Roslyn C# syntax API, shared by csharp/encoder (issue #382 — official
          AST parser, CSharpSyntaxTree.ParseText, syntax-only, mirroring the
@@ -26,19 +26,19 @@
          Exactly ONE PackageVersion for this id may exist — the Wave-C lanes
          each added their own pin and the git auto-merge kept both, leaving
          resolution to NuGet's silent duplicate handling. -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.9.0" />
 
     <!-- csharp/cli's arg parser (issue #385). System.CommandLine went GA (stable
          2.0.0) on 2025-11-11 after years of beta/RC; verified latest stable on
          nuget.org 2026-07-11 via the v3-flatcontainer index (51 versions listed,
          highest non-preview = 2.0.9; the newest entry overall,
          3.0.0-preview.5.26302.115, is a preview and deliberately not used here). -->
-    <PackageVersion Include="System.CommandLine" Version="2.0.9" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.11" />
 
     <!-- xUnit.net v3 — the current generation (dotnet new xunit3 template),
          self-executing test apps bridged to `dotnet test` via the VSTest
          adapter (xunit.runner.visualstudio). -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />

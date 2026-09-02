@@ -1,3 +1,17 @@
+## [1.60.1](https://github.com/Ball-Lang/ball/compare/v1.60.0...v1.60.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **dart:** arity-gate the encoder's name-only method dispatch, encode null-aware collection elements, and land the Tier A real-code coverage study (closes [#494](https://github.com/Ball-Lang/ball/issues/494)) ([#510](https://github.com/Ball-Lang/ball/issues/510)) ([6496257](https://github.com/Ball-Lang/ball/commit/64962571f0234df21b12c7d76275eb6a8f2ff5c8)), closes [#488](https://github.com/Ball-Lang/ball/issues/488) [#488](https://github.com/Ball-Lang/ball/issues/488) [#493](https://github.com/Ball-Lang/ball/issues/493) [#488](https://github.com/Ball-Lang/ball/issues/488) [#493](https://github.com/Ball-Lang/ball/issues/493) [#491](https://github.com/Ball-Lang/ball/issues/491) [#492](https://github.com/Ball-Lang/ball/issues/492) [#489](https://github.com/Ball-Lang/ball/issues/489) [491/#492](https://github.com/Ball-Lang/ball/issues/492) [#493](https://github.com/Ball-Lang/ball/issues/493) [#488](https://github.com/Ball-Lang/ball/issues/488) [#493](https://github.com/Ball-Lang/ball/issues/493) [#511](https://github.com/Ball-Lang/ball/issues/511) [#511](https://github.com/Ball-Lang/ball/issues/511) [#511](https://github.com/Ball-Lang/ball/issues/511) [#69](https://github.com/Ball-Lang/ball/issues/69) [#352](https://github.com/Ball-Lang/ball/issues/352) [#511](https://github.com/Ball-Lang/ball/issues/511) [#511](https://github.com/Ball-Lang/ball/issues/511) [#501](https://github.com/Ball-Lang/ball/issues/501) [#511](https://github.com/Ball-Lang/ball/issues/511)
+
+# [1.60.0](https://github.com/Ball-Lang/ball/compare/v1.59.12...v1.60.0) (2026-09-02)
+
+
+### Features
+
+* **encoder:** add library mode to the Rust and C# encoders and wire round-trip measurement legs for Rust/Go/Python ([#507](https://github.com/Ball-Lang/ball/issues/507)) ([32ae5f0](https://github.com/Ball-Lang/ball/commit/32ae5f02598807d6edeec7e187cd912d46c16ada)), closes [#491](https://github.com/Ball-Lang/ball/issues/491) [#491](https://github.com/Ball-Lang/ball/issues/491) [#497](https://github.com/Ball-Lang/ball/issues/497) [#492](https://github.com/Ball-Lang/ball/issues/492) [#495](https://github.com/Ball-Lang/ball/issues/495) [#491](https://github.com/Ball-Lang/ball/issues/491) [#452](https://github.com/Ball-Lang/ball/issues/452)
+
 ## [1.59.12](https://github.com/Ball-Lang/ball/compare/v1.59.11...v1.59.12) (2026-09-02)
 
 

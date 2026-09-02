@@ -50,6 +50,17 @@ avoid constructs that need receiver-type info:
   dest[e.key] = e.value;`). Same caution for other methods shared by `List`/`Map`
   (`clear`, `remove`) and the bare `.keys` getter. (This is the portability trap
   that the issue-#55 spread fix had to route around.)
+- **A method-name route only fires when the ARGUMENT COUNT fits** (issue #494 /
+  the arity subset of #488). Each entry in `collectionRoutes` carries the
+  `(minArgs, maxArgs)` window of the real Dart method it stands for; a call
+  outside that window falls through to the generic user-method encoding
+  (`function: <name>`, `self` field). So a user class may safely declare
+  `int split()`, `int indexOf()` or `int toInt(int, int)` — they no longer get
+  rerouted into `std.string_split` / `list_index_of` / `to_int`. What the gate
+  canNOT see is the RECEIVER TYPE, so a same-arity collision (`Set.add` vs
+  `List.add`, `Map.toList` vs `List.toList`) is still misrouted — that is
+  #488's remaining, resolver-backed half. `unaryRoutes` needs no window: its
+  whole branch is already guarded by `args.isEmpty`.
 - **Constructor vs function call** is decided by the first *letter* (skipping a
   leading `_`): `Foo()`/`_Foo()` → `MessageCreation`; `foo()`/`_foo()` → `call`.
   (A prior bug treated every `_`-prefixed name as a constructor — `'_'.toUpperCase()`
@@ -58,6 +69,20 @@ avoid constructs that need receiver-type info:
 - Prefer plain `Map`/`List`/`String`/`int` data and top-level functions; avoid heavy
   class hierarchies. When something runs as Dart unit tests but misbehaves through
   the engine, suspect a syntactic-encoding mismatch and diff the encoded program.
+
+#### Null-aware collection elements (Dart 3.8 `?x`)
+
+`[1, ?x]`, `{1, ?x}`, `{?k: v}` and `{k: ?v}` all encode (issue #494 Bug B).
+`_encodeCollectionElement` desugars them to `collection_if(x != null, x)` — the
+same shape `[if (x != null) x]` produces — so no engine needed a new base
+function. Dart evaluates a null-aware operand **exactly once** and
+**short-circuits** (`{?k: v()}` does not evaluate `v()` when `k` is null), so an
+operand that is not syntactically pure is first bound with a synthetic
+`collection_for` over a one-element list; a pure operand (identifier, property
+access, literal, `this`, `!`, `as`) is simply repeated in the guard. The map
+forms carry their `?` on the `MapLiteralEntry` itself (`keyQuestion` /
+`valueQuestion`), not on a distinct node type — before #494 those markers were
+silently DROPPED, so `{?k: 20}` with a null key produced the entry `null: 20`.
 
 ### Engine
 - `BallEngine.run(Program)` → executes, returns captured stdout

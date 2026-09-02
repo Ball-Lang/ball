@@ -35,6 +35,12 @@ cd dart && dart run compiler/tool/gen_engine_json.dart                # self-hos
 cd ../python/engine && python -m ball_engine.regen                   # -> compiled_engine.py (gitignored)
 python -m conformance.runner                                          # prints the Results: line
 
+# Round-trip leg (measurement only, #452 item 3): Ball -> Python -> Ball -> the
+# DART reference engine -> golden diff. Needs `dart` on PATH (or BALL_DART), NOT
+# the compiled engine. Runs from the repo root too, as CI invokes it.
+cd python/engine && python -m conformance.roundtrip                   # prints the Results: line
+python -m python.engine.conformance.roundtrip                         # ...from the repo root
+
 cd python/cli && python -m pytest -q                                  # CLI, in-process (every verb)
 python -m ball_cli check   <program.ball.json>                        # or compile / encode / run
 ```
@@ -51,6 +57,27 @@ Rust/C#/Go runners also skip). Every non-passing input fails loud
 maturity against CI (the `python`/`python-engine` jobs, Phase 7), not prose. Full
 design lives in `compiler/AGENTS.md`, `runtime/AGENTS.md`, `encoder/AGENTS.md`, and
 `engine/AGENTS.md`.
+
+### Round-trip leg (`python/engine/conformance/roundtrip.py`, #452 item 3)
+A third, **measurement-only** sweep beside the engine and compiler legs: can the
+encoder read back what the compiler emits? Per fixture it compiles Ball → Python,
+re-encodes that source back to Ball, runs the **RE-ENCODED** program on the **Dart
+reference engine** (ground truth — Python's own engine would only prove the
+pipeline agrees with itself), and byte-diffs the golden.
+
+Honest baseline **`Results: 0 passed, 321 failed, 321 total`** (55 compile-error,
+266 encode-error; measured 2026-09-02). That zero is expected BY CONSTRUCTION and
+is the product: the compiler emits a flat module dispatching through `ballrt.*`
+helpers, a shape the syntactic `ast` encoder was never built to re-parse. It
+mirrors `csharp/engine/conformance/RoundTripLeg.cs`. **Do not make it green by
+weakening either side.** Gated only on harness health (a sweep that ran zero
+fixtures raises), never on the failure count. Reads goldens and subprocess stdout
+as **bytes**, normalising only CRLF.
+
+CI home: the `python-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
+**That workflow has no `pull_request:` trigger**, so the row is ABSENT (not green)
+on a PR — `gh workflow run conformance-matrix.yml --ref <branch>` and read the run
+before merging a change to this leg.
 
 ## For AI Agents
 - The compiler and encoder both use the raw proto3-JSON dict view (camelCase

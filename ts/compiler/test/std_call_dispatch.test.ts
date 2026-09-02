@@ -341,10 +341,12 @@ const cases: Case[] = [
   {
     name: "mapContainsKey",
     body: std("map_contains_key", { map: ref("m"), key: lit("k") }),
-    // Wrapped in __ball_require_map so a List/primitive fails loud instead
-    // of `in` silently checking array-index membership or throwing an
-    // unhelpful native error (#257).
-    expect: [/\('k' in __ball_require_map\(m, 'map_contains_key'\)\)/],
+    // Routed through __ball_map_has, which keeps #257's require-map guard
+    // (a List/primitive fails loud instead of `in` silently checking
+    // array-index membership) AND stops the raw `in` operator's prototype
+    // walk from reporting every Dart-SDK method name the preamble patches
+    // onto Object.prototype as a map key (issue #494 / fixture 416).
+    expect: [/__ball_map_has\(m, 'map_contains_key', 'k'\)/],
   },
   {
     name: "mapKeys",
@@ -1008,6 +1010,70 @@ describe("compiler — remaining map_* base functions fail loud on a non-Map rec
       // Real-Map successes (9 lines) then 9 "threw" lines for the non-Map cases.
       assert.equal(lines.length, 18, `expected 18 output lines, got:\n${out}`);
       assert.deepEqual(lines.slice(9), Array(9).fill("threw"));
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  });
+});
+
+describe("compiler — map_contains_key is not fooled by the preamble's Object.prototype polyfills (#494)", () => {
+  test("a Dart-SDK method name is NOT a key of an empty map, plain-object or real Map", () => {
+    // preamble.ts installs the whole Dart-SDK method surface (putIfAbsent,
+    // addAll, toList, firstWhere, ...) onto Object.prototype so compiled Dart
+    // can call them on plain values. The old lowering of map_contains_key was
+    // the raw `key in map`, which walks the prototype chain — so
+    // `map.containsKey('putIfAbsent')` was TRUE for every map, as were
+    // 'toString'/'constructor'/'hasOwnProperty'.
+    //
+    // In the self-hosted engine that made `_Scope.has(name)` claim any such
+    // identifier was a bound variable and then hand back the polyfill instead
+    // of the user's own function or method: conformance fixture
+    // 416_user_method_name_arity_collision (a user class with a
+    // `putIfAbsent(String)` method) died with
+    // "Cannot use 'in' operator to search for '#<Object>' in undefined".
+    //
+    // The same lowering had a second, opposite defect this test also pins:
+    // Map ENTRIES are not properties, so `key in realMap` was ALWAYS false —
+    // map_contains_key never found a key of a genuine `Map` (what typed_map
+    // emits) at all.
+    const probes = ["putIfAbsent", "addAll", "toString", "hasOwnProperty"];
+    const program: Program = {
+      name: "map_contains_key_prototype_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] },
+        {
+          name: "main",
+          functions: [
+            {
+              name: "main",
+              body: block([
+                // map_create emits a plain object; typed_map emits a real Map.
+                { let: { name: "plain", value: std("map_create", { entry: mc({ key: lit("a"), value: lit(1) }) }) } },
+                { let: { name: "real", value: std("typed_map", { entries: listLit([mc({ key: lit("a"), value: lit(1) })]) }) } },
+                ...probes.flatMap((p) => [
+                  { expression: std("print", { message: std("map_contains_key", { map: ref("plain"), key: lit(p) }) }) },
+                  { expression: std("print", { message: std("map_contains_key", { map: ref("real"), key: lit(p) }) }) },
+                ]),
+                // A real key must still be found in both shapes.
+                { expression: std("print", { message: std("map_contains_key", { map: ref("plain"), key: lit("a") }) }) },
+                { expression: std("print", { message: std("map_contains_key", { map: ref("real"), key: lit("a") }) }) },
+              ]),
+            },
+          ],
+        },
+      ],
+    };
+    const tmpPath = join(tmpdir(), `ball_map_contains_key_proto_${process.pid}.ts`);
+    writeFileSync(tmpPath, compile(program));
+    try {
+      const out = execSync(`node --experimental-strip-types "${tmpPath}"`, { encoding: "utf8" }).trim();
+      assert.deepEqual(
+        out.split("\n"),
+        [...Array(probes.length * 2).fill("false"), "true", "true"],
+        `map_contains_key must ignore Object.prototype, got:\n${out}`,
+      );
     } finally {
       try { unlinkSync(tmpPath); } catch { /* ignore */ }
     }

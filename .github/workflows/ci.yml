@@ -235,6 +235,14 @@ jobs:
       - name: Self-host parity (conformance via round-tripped engine)
         run: cd dart/self_host && dart test
 
+      # The Tier A coverage-study harness (#493) is itself a measuring
+      # instrument, so its own correctness IS gated here even though the study
+      # it drives (coverage-study.yml) is report-only. The self-test proves the
+      # harness scores `main`-less, cross-file library files instead of quietly
+      # skipping them — the exact blind spot #493 exists to close.
+      - name: Coverage-study harness self-test (#493)
+        run: dart run tools/coverage-study/test/rq1_study_self_test.dart
+
   # ──────────────────────────────────────────────────
   # Ball artifact freshness — every committed Ball artifact must be GENERATED
   # from its Dart source, never hand-edited. Regenerate the deterministic shared

@@ -132,10 +132,9 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > engine, but the Ball → C++ **compiled** leg — a different leg, and a required
 > PR check — emitted a call to the hidden getter and `g++` rejected it. The
 > fixture was withdrawn and the gap filed as
-> [#501](https://github.com/Ball-Lang/ball/issues/501) rather than carved out:
-> `CPP_COMPILE_CARVEOUTS` is empty and keeping it that way is worth more than one
-> fixture. When you add a fixture, enumerate the legs it must pass — the engine
-> rows and the compiled rows are not the same set.
+> [#501](https://github.com/Ball-Lang/ball/issues/501) rather than carved out.
+> When you add a fixture, enumerate the legs it must pass — the engine rows and
+> the compiled rows are not the same set.
 >
 > *Resolved:* #501 fixed the C++ emitter (a shadowing field now becomes a private
 > renamed backing member plus a public `virtual` accessor pair over a virtualised
@@ -144,19 +143,71 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 
 > **One fixture per defect, not one per defect *family*.** 406 exercises only the
 > READ side of a shadowed accessor, through a receiver whose static and runtime
-> types agree. Two more fixtures were needed to pin the rest of the family, and
+> types agree. Three more fixtures were needed to pin the rest of the family, and
 > each found something 406 could not:
 > `431_shadowed_getter_dynamic_dispatch` reads through a base-declared method, so
 > a fix that resolved the accessor against the receiver's *static* class — the
 > wording #501's own body suggested — would compile and pass 406 while silently
-> printing the base value here; and `432_shadowed_getter_setter_write` gives the
+> printing the base value here; `432_shadowed_getter_setter_write` gives the
 > ancestor a `set x` as well, which is the only way to reach the emitter's
-> `has_setter` branch at all. 432 also went red on all six **engines**, exposing
-> a separate, previously unknown defect: `_trySetterDispatch` ran an inherited
-> setter for a field the instance declares itself, while the read path had always
-> preferred the instance's own field — so the write was silently dropped and the
-> read answered with the stale value. A fixture that only covers the shape you
-> already fixed proves the fix, not the rule.
+> `has_setter` branch at all; and `433_shadowed_field_self_write_and_local` writes
+> the shadowing field *unqualified from inside its own class* and reads a
+> method-local of the same name — the two shapes one step to the left of 406,
+> where the first draft of the #501 fix emitted `ball_assign(x(), v)` (g++:
+> "cannot bind non-const lvalue reference … to an rvalue") and `x()` on a plain
+> local (which *builds*, because `BallDyn` has `operator()`, and silently
+> answers `null`). 432 also went red on all six **engines**, exposing a separate,
+> previously unknown defect: `_trySetterDispatch` ran an inherited setter for a
+> field the instance declares itself, while the read path had always preferred
+> the instance's own field — so the write was silently dropped and the read
+> answered with the stale value. A fixture that only covers the shape you already
+> fixed proves the fix, not the rule.
+>
+> **A silent-wrong-answer regression hides from a byte-diff blast-radius proof.**
+> The corpus is the blast radius only for shapes the corpus contains. Both
+> defects above were found by a reviewer compiling hand-written probe programs,
+> not by the 328-fixture diff — so when a codegen change adds a new emission
+> rule, write the probe programs for the shapes *adjacent* to the one you fixed
+> and turn the ones that break into fixtures.
+
+> **Withdraw or carve out?** Withdraw when the fixture's coverage exists
+> elsewhere: 406's bug was already locked by
+> `csharp/compiler/test/AccessorEdgeCaseTests.cs`, so dropping it cost nothing.
+> Carve out — with the entry justified inline and referencing a filed issue —
+> when the fixture is the *only* cross-target lock on behavior being fixed in
+> that same PR. `416_user_method_name_arity_collision` is that case: it is the
+> regression test for #494's arity fix, it is what caught the TS engine's
+> `map_contains_key` prototype-pollution bug, and it lifts all four compiler-leg
+> ratchets — withdrawing it would delete six engines' worth of coverage to keep
+> a list empty. The Ball → C++ gap it exposes is
+> [#511](https://github.com/Ball-Lang/ball/issues/511). Either way the answer is
+> never "leave the leg red".
+>
+> A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
+> `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out
+> would have exited 0 having compiled nothing. It now asserts a positive floor
+> (`passed=0/failed=0` is an error). Adding a carve-out means re-checking that
+> the gate around it can still fail.
+
+### 2c. Every gate above is scoped to code WE wrote
+The whole `tests/conformance/` corpus is hand-authored, single-file,
+`main`-shaped Dart written to avoid the encoder's known syntactic traps, and
+both the completeness gate and `conformance-matrix.yml` only ever look at it.
+Nothing in CI has ever run the pipeline over a third-party package — which is
+how a Rust encoder converting 0/196 real files (#491), a C# encoder converting
+0/200 (#492), a TS compiler failing 37/129 (#489), and a Dart compiler emitting
+unparseable Dart on real library files (#494) all shipped past 18 green required
+checks on the same day.
+
+`tools/coverage-study/` (issue #493) is the instrument for that gap; the
+methodology, the two load-bearing harness settings, the current baseline and the
+honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **report-only**
+— `coverage-study.yml` has no `pull_request:` trigger — because a floor set
+before a baseline exists either goes permanently red and gets ignored or is set
+so low it means nothing. The harness's **own** self-test is gated on every PR
+(`ci.yml`'s Dart job), so the instrument cannot silently start skipping the file
+shapes it exists to look at.
+
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
@@ -297,6 +348,9 @@ could not parse a summary at all).
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
+| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | push to main + weekly + dispatch — **NOT a PR gate** (no floor either: an honest 0/321 is the product) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
+| **Third-party code (§2c)** — Dart Tier A | `tools/coverage-study/rq1_study.dart` via `coverage-study.yml` | weekly + manual — **report-only, NOT a PR gate** (issue #493 slice 1) |
+| Coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` | every PR (`Dart`) |
 | Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |

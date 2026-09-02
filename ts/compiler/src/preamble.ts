@@ -1191,6 +1191,28 @@ function __ball_require_map(v: any, opName: string): any {
   return v;
 }
 
+// map_contains_key. The obvious lowering, "key in map", walks the PROTOTYPE
+// CHAIN -- and this preamble installs the whole Dart-SDK method surface
+// (putIfAbsent, addAll, toList, firstWhere, ...) onto Object.prototype, so
+// "'putIfAbsent' in {}" is true for EVERY object. That made
+// map.containsKey(name) answer true for any Dart-SDK method name (and for
+// 'toString'/'constructor'/'hasOwnProperty'), which in the self-hosted engine
+// made _Scope.has(name) claim every such identifier was a bound variable and
+// then hand back the polyfill instead of the user's own function or method
+// (issue #494's fixture 416 hit this on a user method named putIfAbsent).
+// A hit that exists ONLY as an own property of Object.prototype is prototype
+// pollution, not a map entry.
+function __ball_map_has(v: any, opName: string, k: any): boolean {
+  const m = __ball_require_map(v, opName);
+  if (m instanceof Map) return m.has(k);
+  if (!(k in m)) return false;
+  if (Object.prototype.hasOwnProperty.call(Object.prototype, k) &&
+      !Object.prototype.hasOwnProperty.call(m, k)) {
+    return false;
+  }
+  return true;
+}
+
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //
 // Dart's protobuf runtime wraps google.protobuf.Struct as a class

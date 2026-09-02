@@ -4074,7 +4074,23 @@ class DartCompiler {
         f['arg'] ??
         f['other'] ??
         f['arg0'];
-    if (l == null || r == null) return '/* invalid $method() */';
+    // Fail loud (issue #494): emitting `/* invalid $method() */` put a bare
+    // comment into an EXPRESSION position, producing Dart that does not
+    // parse (`(_) => /* invalid split() */`) — the symptom only surfaced
+    // downstream as a dart_style FormatterException, or, through
+    // `compile()`'s formatter fallback, as a silently corrupt program. A
+    // two-operand base function reaching here means the encoder produced a
+    // call it cannot satisfy, which is an encoder bug to fix, not to paper
+    // over.
+    if (l == null || r == null) {
+      throw StateError(
+        'Compiler: $method() base call is missing its '
+        '${l == null ? 'receiver' : 'argument'} operand — got fields '
+        '[${(f.keys.toList()..sort()).join(', ')}]. This is an encoder bug: '
+        'the call was routed to a two-operand std base function it cannot '
+        'satisfy.',
+      );
+    }
     // Parenthesize a prefix/infix receiver so `-1000.0.toStringAsFixed(2)` is
     // `(-1000.0).toStringAsFixed(2)`, not `-(1000.0.toStringAsFixed(2))`.
     // Without the parens a re-encode reads the `-` as negating the STRING

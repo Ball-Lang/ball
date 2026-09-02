@@ -49,6 +49,10 @@ fn encodes_to_binary_format() {
     assert!(serde_json::from_slice::<serde_json::Value>(&output.stdout).is_err());
 }
 
+/// The **default** (no `--lib`) contract: source without a `fn main()` is
+/// rejected. Since issue #491's library-mode slice this is opt-out — see
+/// [`encode_lib_flag_allows_missing_main`] for the `ball encode --lib` path
+/// that deliberately accepts exactly this source.
 #[test]
 fn missing_fn_main_exits_2() {
     let path = write_scratch_file("encode_no_main", "source.rs", "fn not_main() {}");
@@ -95,4 +99,87 @@ fn encode_writes_to_an_output_file_instead_of_stdout() {
     assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
     assert!(stdout(&output).is_empty(), "--output must suppress stdout");
     assert!(written.contains("to a file"));
+}
+
+/// A library-shaped Rust file: no `fn main()`, one `pub` and one private
+/// top-level function. `ball encode` rejects it by default (see
+/// [`missing_fn_main_exits_2`]); `--lib` is the opt-out (issue #491).
+const LIBRARY_SOURCE: &str =
+    "pub fn double(n: i64) -> i64 { n * 2 }\nfn triple(n: i64) -> i64 { n * 3 }\n";
+
+#[test]
+fn encode_lib_flag_allows_missing_main() {
+    let path = write_scratch_file("encode_lib_flag", "source.rs", LIBRARY_SOURCE);
+
+    let output = ball(&["encode", "--lib", path.to_str().unwrap()]);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    assert_eq!(exit_code(&output), 0, "stderr: {}", stderr(&output));
+    let json = stdout(&output);
+    assert!(json.contains("\"@type\": \"type.googleapis.com/ball.v1.Program\""));
+
+    let parsed: serde_json::Value = serde_json::from_str(&json).expect("must be valid JSON");
+    // `entryModule` still names the module `compile_library` inlines at the
+    // crate root; `entryFunction` is deliberately empty (proto3 JSON omits an
+    // empty string entirely), so the program is non-runnable by design.
+    assert_eq!(parsed["entryModule"], "main");
+    assert!(
+        parsed.get("entryFunction").map(|v| v == "").unwrap_or(true),
+        "library mode must leave entryFunction empty, got {:?}",
+        parsed.get("entryFunction")
+    );
+
+    let modules = parsed["modules"]
+        .as_array()
+        .expect("modules must be an array");
+    let main_module = modules
+        .iter()
+        .find(|m| m["name"] == "main")
+        .expect("the encoded program must contain the `main` module");
+    let functions = main_module["functions"]
+        .as_array()
+        .expect("functions must be an array");
+    let fn_names: Vec<&str> = functions
+        .iter()
+        .map(|f| f["name"].as_str().expect("a function name"))
+        .collect();
+    assert_eq!(fn_names, ["double", "triple"]);
+
+    let double = functions
+        .iter()
+        .find(|f| f["name"] == "double")
+        .expect("`double` must be encoded");
+    assert_eq!(
+        double["metadata"]["is_public"], true,
+        "a `pub fn` must round-trip metadata.is_public"
+    );
+}
+
+#[test]
+fn a_library_mode_program_is_rejected_by_check_as_non_runnable() {
+    let path = write_scratch_file("encode_lib_then_check", "source.rs", LIBRARY_SOURCE);
+    let out_path = path.parent().unwrap().join("lib.ball.json");
+
+    let encoded = ball(&[
+        "encode",
+        "--lib",
+        path.to_str().unwrap(),
+        "--output",
+        out_path.to_str().unwrap(),
+    ]);
+    assert_eq!(exit_code(&encoded), 0, "stderr: {}", stderr(&encoded));
+
+    // The documented boundary: a library-mode program has no entry function,
+    // so `ball check` must refuse it rather than any code path silently
+    // synthesising a fake entry point. Mirrored exactly by the C# encoder's
+    // `EncodeLibrary` + `ball check` ("missing entry_function").
+    let checked = ball(&["check", out_path.to_str().unwrap()]);
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+
+    assert_eq!(exit_code(&checked), 2, "stdout: {}", stdout(&checked));
+    assert!(
+        stderr(&checked).contains("missing entry_function"),
+        "stderr: {}",
+        stderr(&checked)
+    );
 }

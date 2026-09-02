@@ -111,14 +111,52 @@ use ball_lang_shared::proto::google::protobuf::{ListValue, Struct, Value};
 /// main()` (the entry point every Ball `Program` needs) — fails loud
 /// (panics) if one isn't present, or if the source contains a construct
 /// outside this crate's documented Phase 3a scope, rather than silently
-/// dropping semantic content (see the module doc comment).
+/// dropping semantic content (see the module doc comment). Source with no
+/// entry point — a library crate — is encoded by [`encode_library`]
+/// instead (`ball encode --lib`).
 pub fn encode(source: &str) -> Program {
     let (main_module, has_main) = encode_main_module(source);
     assert!(
         has_main,
         "ball-lang-encoder: a Ball Program requires a `fn main()` entry point"
     );
+    assemble_program(main_module, "main")
+}
 
+/// Encode a Rust **library** source file into a Ball [`Program`] — the same
+/// encoding as [`encode`], minus the `fn main()` requirement (issue #491).
+/// Real library crates have no entry point, so `encode` rejects every one of
+/// them; this is the opt-in that accepts them (`ball encode --lib`).
+///
+/// Every top-level item is encoded regardless of reachability (that is
+/// already true of [`encode`]), and visibility round-trips as cosmetic
+/// `metadata.is_public` — so nothing extra is needed to "export" the `pub`
+/// surface.
+///
+/// ## Deliberately non-runnable
+///
+/// The returned `Program` carries `entry_module = "main"` — which
+/// `ball-lang-compiler`'s [`compile_library`] needs, since it inlines that
+/// module's items at the crate root — but an **empty `entry_function`**.
+/// `Program.entry_function` is an unconstrained proto3 string
+/// (`proto/ball/v1/ball.proto`), so an empty one is structurally legal and
+/// deliberately not runnable: `ball check` reports "missing entry_function"
+/// and `ball run` has nothing to call. That is the documented boundary,
+/// mirroring the C# encoder's `EncodeLibrary` exactly — never paper over it
+/// by synthesising a fake entry function.
+///
+/// [`compile_library`]: https://docs.rs/ball-lang-compiler
+pub fn encode_library(source: &str) -> Program {
+    let (main_module, _has_main) = encode_main_module(source);
+    assemble_program(main_module, "")
+}
+
+/// Wrap an encoded `main` [`Module`] in a [`Program`], accumulating the
+/// `std`/`std_collections`/… base modules the module's functions actually
+/// call. Shared by [`encode`] and [`encode_library`]; `entry_function` is
+/// the *only* difference between the two (`"main"` vs. `""` — see
+/// [`encode_library`]'s "Deliberately non-runnable").
+fn assemble_program(main_module: Module, entry_function: &str) -> Program {
     let mut used: HashMap<String, BTreeSet<String>> = HashMap::new();
     for func in &main_module.functions {
         if let Some(body) = &func.body {
@@ -145,7 +183,7 @@ pub fn encode(source: &str) -> Program {
         version: "1.0.0".to_string(),
         modules,
         entry_module: "main".to_string(),
-        entry_function: "main".to_string(),
+        entry_function: entry_function.to_string(),
         metadata: None,
     }
 }
@@ -259,7 +297,8 @@ fn build_used_module(name: &str, fn_names: BTreeSet<String>) -> Module {
 /// to inspect the encoded `FunctionDefinition`/`Expression` tree structure
 /// directly (e.g. asserting a specific function's body shape) without
 /// needing a complete, runnable program. [`encode`] is the entry point for
-/// producing an actually-runnable [`Program`].
+/// producing an actually-runnable [`Program`]; [`encode_library`] produces
+/// the same `Program` shape for entry-point-less library source.
 pub fn encode_module_only(source: &str) -> Module {
     encode_main_module(source).0
 }

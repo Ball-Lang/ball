@@ -87,6 +87,12 @@ enum Command {
         /// Output format.
         #[arg(long, value_enum, default_value = "json")]
         format: Format,
+        /// Encode library source: no `fn main()` required (issue #491). The
+        /// emitted program has an empty `entry_function` and is therefore
+        /// deliberately not runnable — `ball check` reports "missing
+        /// entry_function".
+        #[arg(long)]
+        lib: bool,
     },
     /// Parse and validate a Ball program without running it.
     Check {
@@ -134,7 +140,8 @@ fn main() {
             source,
             output,
             format,
-        } => commands::encode::encode(&source, output.as_deref(), format),
+            lib,
+        } => commands::encode::encode(&source, output.as_deref(), format, lib),
         Command::Check { program, compile } => commands::check::check(&program, compile),
         Command::Info { program } => commands::info::info(&program),
         Command::Validate { program } => commands::validate::validate(&program),

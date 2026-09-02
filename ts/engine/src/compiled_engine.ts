@@ -1178,6 +1178,28 @@ function __ball_require_map(v: any, opName: string): any {
   return v;
 }
 
+// map_contains_key. The obvious lowering, "key in map", walks the PROTOTYPE
+// CHAIN -- and this preamble installs the whole Dart-SDK method surface
+// (putIfAbsent, addAll, toList, firstWhere, ...) onto Object.prototype, so
+// "'putIfAbsent' in {}" is true for EVERY object. That made
+// map.containsKey(name) answer true for any Dart-SDK method name (and for
+// 'toString'/'constructor'/'hasOwnProperty'), which in the self-hosted engine
+// made _Scope.has(name) claim every such identifier was a bound variable and
+// then hand back the polyfill instead of the user's own function or method
+// (issue #494's fixture 416 hit this on a user method named putIfAbsent).
+// A hit that exists ONLY as an own property of Object.prototype is prototype
+// pollution, not a map entry.
+function __ball_map_has(v: any, opName: string, k: any): boolean {
+  const m = __ball_require_map(v, opName);
+  if (m instanceof Map) return m.has(k);
+  if (!(k in m)) return false;
+  if (Object.prototype.hasOwnProperty.call(Object.prototype, k) &&
+      !Object.prototype.hasOwnProperty.call(m, k)) {
+    return false;
+  }
+  return true;
+}
+
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //
 // Dart's protobuf runtime wraps google.protobuf.Struct as a class
@@ -1929,7 +1951,7 @@ export class BallEngine {
 
   _resolveInstanceMethodDispatch(typeName: any, methodName: any): any {
     let cacheKey = BallEngine._typeMethodKey(typeName, methodName);
-    if ((cacheKey in __ball_require_map(this._instanceMethodCache, 'map_contains_key'))) {
+    if (__ball_map_has(this._instanceMethodCache, 'map_contains_key', cacheKey)) {
       return __ball_index(this._instanceMethodCache, cacheKey);
     }
     let resolved = (this._resolveMethod(typeName, methodName) ?? this._lookupTypeMethodWithInheritance(typeName, methodName));
@@ -2106,7 +2128,7 @@ export class BallEngine {
         let dotIdx = func.name.indexOf('.');
         let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
         let isFactory = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_factory')));
-        if (((!isFactory && (__ball_eq(constructorInput, null) || !('self' in __ball_require_map(constructorInput, 'map_contains_key')))) && !__ball_eq(this._findTypeDef(typeName), null))) {
+        if (((!isFactory && (__ball_eq(constructorInput, null) || !__ball_map_has(constructorInput, 'map_contains_key', 'self'))) && !__ball_eq(this._findTypeDef(typeName), null))) {
           return await this._callObjectConstructor(moduleName, func, input);
         }
       }
@@ -2119,11 +2141,11 @@ export class BallEngine {
       let params = (!(func.name.length === 0) ? (__ball_index(this._paramCache, ((__ball_to_string(moduleName) + '.') + __ball_to_string(func.name))) ?? ((hasMetadata(func) ? this._extractParams(func.metadata) : []))) : ((hasMetadata(func) ? this._extractParams(func.metadata) : [])));
       let inputMap = this._asMap(input);
       if (!(params.length === 0)) {
-        if ((__ball_eq(params.length, 1) && !(!__ball_eq(inputMap, null) && ('self' in __ball_require_map(inputMap, 'map_contains_key'))))) {
-          if ((!__ball_eq(inputMap, null) && (__ball_index(params, 0) in __ball_require_map(inputMap, 'map_contains_key')))) {
+        if ((__ball_eq(params.length, 1) && !(!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', 'self')))) {
+          if ((!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
             scope.bind(__ball_index(params, 0), __ball_index(inputMap, __ball_index(params, 0)));
           } else {
-            if (((!__ball_eq(inputMap, null) && ('arg0' in __ball_require_map(inputMap, 'map_contains_key'))) && !(__ball_index(params, 0) in __ball_require_map(inputMap, 'map_contains_key')))) {
+            if (((!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', 'arg0')) && !__ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
               scope.bind(__ball_index(params, 0), __ball_index(inputMap, 'arg0'));
             } else {
               scope.bind(__ball_index(params, 0), input);
@@ -2133,13 +2155,13 @@ export class BallEngine {
           if (!__ball_eq(inputMap, null)) {
             for (let i = 0; __ball_lt(i, params.length); (i++)) {
               let p = __ball_index(params, i);
-              if ((p in __ball_require_map(inputMap, 'map_contains_key'))) {
+              if (__ball_map_has(inputMap, 'map_contains_key', p)) {
                 scope.bind(p, __ball_index(inputMap, p));
               } else {
-                if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
+                if (__ball_map_has(inputMap, 'map_contains_key', ('arg' + __ball_to_string(i)))) {
                   scope.bind(p, __ball_index(inputMap, ('arg' + __ball_to_string(i))));
                 } else {
-                  if ((((__ball_eq(i, 0) && __ball_eq(params.length, 1)) && ('value' in __ball_require_map(inputMap, 'map_contains_key'))) && this._isSetter(func))) {
+                  if ((((__ball_eq(i, 0) && __ball_eq(params.length, 1)) && __ball_map_has(inputMap, 'map_contains_key', 'value')) && this._isSetter(func))) {
                     scope.bind(p, __ball_index(inputMap, 'value'));
                   }
                 }
@@ -2154,7 +2176,7 @@ export class BallEngine {
           }
         }
       }
-      if ((!__ball_eq(inputMap, null) && ('self' in __ball_require_map(inputMap, 'map_contains_key')))) {
+      if ((!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', 'self'))) {
         let self = __ball_index(inputMap, 'self');
         scope.bind('self', self);
         let selfMap = this._asMap(self);
@@ -2216,7 +2238,7 @@ export class BallEngine {
       } else {
         let result = await this._evalExpression(func.body, scope);
         this._currentModule = prevModule;
-        if (((__ball_eq(kind, 'constructor') && !__ball_eq(inputMap, null)) && ('self' in __ball_require_map(inputMap, 'map_contains_key')))) {
+        if (((__ball_eq(kind, 'constructor') && !__ball_eq(inputMap, null)) && __ball_map_has(inputMap, 'map_contains_key', 'self'))) {
           let isFactory = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_factory')));
           if (((result instanceof _FlowSignal) && __ball_eq(result.kind, 'return'))) {
             finalResult = result.value;
@@ -2284,14 +2306,14 @@ export class BallEngine {
     for (let i = 0; __ball_lt(i, params.length); (i++)) {
       let param = __ball_index(params, i);
       let value;
-      if ((param in __ball_require_map(inputMap, 'map_contains_key'))) {
+      if (__ball_map_has(inputMap, 'map_contains_key', param)) {
         value = __ball_index(inputMap, param);
       } else {
-        if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
+        if (__ball_map_has(inputMap, 'map_contains_key', ('arg' + __ball_to_string(i)))) {
           value = __ball_index(inputMap, ('arg' + __ball_to_string(i)));
         }
       }
-      if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_require_map(__ball_index(paramsMeta, i), 'map_contains_key')))) {
+      if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && __ball_map_has(__ball_index(paramsMeta, i), 'map_contains_key', 'default'))) {
         value = __ball_index(__ball_index(paramsMeta, i), 'default');
       }
       resolvedParams[param] = value;
@@ -2322,7 +2344,7 @@ export class BallEngine {
     })();
     let constructed = await this._callFunction(moduleName, func, ctorInput);
     let constructedMap = this._asMap(constructed);
-    if ((!__ball_eq(constructedMap, null) && ('__type__' in __ball_require_map(constructedMap, 'map_contains_key')))) {
+    if ((!__ball_eq(constructedMap, null) && __ball_map_has(constructedMap, 'map_contains_key', '__type__'))) {
       return constructed;
     }
     return instance;
@@ -2413,10 +2435,10 @@ export class BallEngine {
         let p = __ball_index(params, i);
         let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
         let val;
-        if ((p in __ball_require_map(inputMap, 'map_contains_key'))) {
+        if (__ball_map_has(inputMap, 'map_contains_key', p)) {
           val = __ball_index(inputMap, p);
         } else {
-          if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
+          if (__ball_map_has(inputMap, 'map_contains_key', ('arg' + __ball_to_string(i)))) {
             val = __ball_index(inputMap, ('arg' + __ball_to_string(i)));
           } else {
             val = (__ball_lt(i, paramsMeta.length) ? __ball_index(__ball_index(paramsMeta, i), 'default') : null);
@@ -2452,7 +2474,7 @@ export class BallEngine {
         if (!__ball_eq(superMap, null)) {
           instance['__super__'] = superInstance;
           for (const e of superMap.entries) {
-            if ((!e.key.startsWith('__') && !(e.key in __ball_require_map(instance, 'map_contains_key')))) {
+            if ((!e.key.startsWith('__') && !__ball_map_has(instance, 'map_contains_key', e.key))) {
               instance[e.key] = e.value;
             }
           }
@@ -2495,7 +2517,7 @@ export class BallEngine {
             let superInput = {};
             for (let i = 0; __ball_lt(i, argNames.length); (i++)) {
               let token = __ball_index(argNames, i);
-              if ((token in __ball_require_map(resolvedParams, 'map_contains_key'))) {
+              if (__ball_map_has(resolvedParams, 'map_contains_key', token)) {
                 superInput[('arg' + __ball_to_string(i))] = __ball_index(resolvedParams, token);
               } else {
                 if (((token.startsWith('\'') && token.endsWith('\'')) || (token.startsWith('"') && token.endsWith('"')))) {
@@ -3114,7 +3136,7 @@ export class BallEngine {
 
   static _extractMetadataTypeArgs(msg: any): any {
     const input = msg;
-    if ((!hasMetadata(msg) || !('type_args' in __ball_require_map(msg.metadata.fields, 'map_contains_key')))) {
+    if ((!hasMetadata(msg) || !__ball_map_has(msg.metadata.fields, 'map_contains_key', 'type_args'))) {
       return null;
     }
     return [...__ball_index(msg.metadata.fields, 'type_args').listValue.values.map(BallEngine._typeRefValueToString)];
@@ -3297,7 +3319,7 @@ export class BallEngine {
       }
     }
     let inputMap = this._asMap(input);
-    if ((!__ball_eq(inputMap, null) && ('self' in __ball_require_map(inputMap, 'map_contains_key')))) {
+    if ((!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', 'self'))) {
       let self = __ball_index(inputMap, 'self');
       let selfMap = this._asMap(self);
       if (!__ball_eq(selfMap, null)) {
@@ -3334,7 +3356,7 @@ export class BallEngine {
           let methodOwner = selfMap;
           while (!__ball_eq(methodOwner, null)) {
             let methods = __ball_index(methodOwner, '__methods__');
-            if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && (call.function in __ball_require_map(methods, 'map_contains_key')))) {
+            if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && __ball_map_has(methods, 'map_contains_key', call.function))) {
               let method = __ball_index(methods, call.function);
               if ((typeof method === 'function')) {
                 let result = method(input);
@@ -3358,7 +3380,7 @@ export class BallEngine {
       }
     }
     let fallbackMap = this._asMap(input);
-    if ((!__ball_eq(fallbackMap, null) && ('self' in __ball_require_map(fallbackMap, 'map_contains_key')))) {
+    if ((!__ball_eq(fallbackMap, null) && __ball_map_has(fallbackMap, 'map_contains_key', 'self'))) {
       let selfFallback = __ball_index(fallbackMap, 'self');
       let selfFallbackMap = this._asMap(selfFallback);
       if (!__ball_eq(selfFallbackMap, null)) {
@@ -3688,12 +3710,12 @@ export class BallEngine {
     }
     if (!_builtinTypeNames.includes(name)) {
       let qualifiedName = ((__ball_to_string(this._currentModule) + ':') + __ball_to_string(name));
-      let hasCtor = ((name in __ball_require_map(this._constructors, 'map_contains_key')) || (qualifiedName in __ball_require_map(this._constructors, 'map_contains_key')));
+      let hasCtor = (__ball_map_has(this._constructors, 'map_contains_key', name) || __ball_map_has(this._constructors, 'map_contains_key', qualifiedName));
       let hasStaticMethods = this._functions.keys.some(((k) => {
         const input = k;
         return (k.startsWith((((__ball_to_string(this._currentModule) + '.') + __ball_to_string(qualifiedName)) + '.')) || k.startsWith((((__ball_to_string(this._currentModule) + '.') + __ball_to_string(name)) + '.')));
       }));
-      let typeExists = ((name in __ball_require_map(this._types, 'map_contains_key')) || (qualifiedName in __ball_require_map(this._types, 'map_contains_key')));
+      let typeExists = (__ball_map_has(this._types, 'map_contains_key', name) || __ball_map_has(this._types, 'map_contains_key', qualifiedName));
       if ((typeExists && (hasCtor || hasStaticMethods))) {
         return { ['__class_ref__']: name, ['__type__']: '__class__' };
       }
@@ -3713,7 +3735,7 @@ export class BallEngine {
     if (!__ball_eq(selfForGetter, null)) {
       let selfMap = this._asMap(selfForGetter);
       if (!__ball_eq(selfMap, null)) {
-        if ((name in __ball_require_map(selfMap, 'map_contains_key'))) {
+        if (__ball_map_has(selfMap, 'map_contains_key', name)) {
           let direct = __ball_index(selfMap, name);
           if (!__ball_eq(direct, null)) {
             return direct;
@@ -3722,7 +3744,7 @@ export class BallEngine {
         let superObj = __ball_index(selfMap, '__super__');
         let superMap = this._asMap(superObj);
         while (!__ball_eq(superMap, null)) {
-          if ((name in __ball_require_map(superMap, 'map_contains_key'))) {
+          if (__ball_map_has(superMap, 'map_contains_key', name)) {
             let inherited = __ball_index(superMap, name);
             if (!__ball_eq(inherited, null)) {
               return inherited;
@@ -3848,25 +3870,25 @@ export class BallEngine {
         });
       }
       let enumVals = (__ball_index(this._enumValues, className) ?? __ball_index(this._enumValues, qualifiedName));
-      if ((!__ball_eq(enumVals, null) && (fieldName in __ball_require_map(enumVals, 'map_contains_key')))) {
+      if ((!__ball_eq(enumVals, null) && __ball_map_has(enumVals, 'map_contains_key', fieldName))) {
         return __ball_index(enumVals, fieldName);
       }
     }
     if (!__ball_eq(objectMap, null)) {
-      if ((fieldName in __ball_require_map(objectMap, 'map_contains_key'))) {
+      if (__ball_map_has(objectMap, 'map_contains_key', fieldName)) {
         return __ball_index(objectMap, fieldName);
       }
       let superObj = __ball_index(objectMap, '__super__');
       let superMap = this._asMap(superObj);
       while (!__ball_eq(superMap, null)) {
-        if ((fieldName in __ball_require_map(superMap, 'map_contains_key'))) {
+        if (__ball_map_has(superMap, 'map_contains_key', fieldName)) {
           return __ball_index(superMap, fieldName);
         }
         superObj = __ball_index(superMap, '__super__');
         superMap = this._asMap(superObj);
       }
       let methods = __ball_index(objectMap, '__methods__');
-      if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && (fieldName in __ball_require_map(methods, 'map_contains_key')))) {
+      if (((typeof methods === 'object' && methods !== null && !Array.isArray(methods) && !(methods instanceof BallDouble) && !(methods instanceof Set)) && __ball_map_has(methods, 'map_contains_key', fieldName))) {
         let method = __ball_index(methods, fieldName);
         if ((typeof method === 'function')) {
           return method;
@@ -3876,7 +3898,7 @@ export class BallEngine {
       superMap = this._asMap(superObj);
       while (!__ball_eq(superMap, null)) {
         let superMethods = __ball_index(superMap, '__methods__');
-        if (((typeof superMethods === 'object' && superMethods !== null && !Array.isArray(superMethods) && !(superMethods instanceof BallDouble) && !(superMethods instanceof Set)) && (fieldName in __ball_require_map(superMethods, 'map_contains_key')))) {
+        if (((typeof superMethods === 'object' && superMethods !== null && !Array.isArray(superMethods) && !(superMethods instanceof BallDouble) && !(superMethods instanceof Set)) && __ball_map_has(superMethods, 'map_contains_key', fieldName))) {
           let method = __ball_index(superMethods, fieldName);
           if ((typeof method === 'function')) {
             return method;
@@ -3904,7 +3926,7 @@ export class BallEngine {
           }))];
           if ((!(vals.length === 0) && vals.every(((v) => {
             const input = v;
-            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && ('index' in __ball_require_map(v, 'map_contains_key'))) && ('__type__' in __ball_require_map(v, 'map_contains_key')));
+            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && __ball_map_has(v, 'map_contains_key', 'index')) && __ball_map_has(v, 'map_contains_key', '__type__'));
           })))) {
             vals = [...vals].sort(((a, b) => {
               return (__ball_index(a, 'index') < __ball_index(b, 'index') ? -1 : __ball_index(a, 'index') > __ball_index(b, 'index') ? 1 : 0);
@@ -4021,7 +4043,7 @@ export class BallEngine {
           }))];
           if ((!(vals.length === 0) && vals.every(((v) => {
             const input = v;
-            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && ('index' in __ball_require_map(v, 'map_contains_key'))) && ('__type__' in __ball_require_map(v, 'map_contains_key')));
+            return (((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && __ball_map_has(v, 'map_contains_key', 'index')) && __ball_map_has(v, 'map_contains_key', '__type__'));
           })))) {
             vals = [...vals].sort(((a, b) => {
               return (__ball_index(a, 'index') < __ball_index(b, 'index') ? -1 : __ball_index(a, 'index') > __ball_index(b, 'index') ? 1 : 0);
@@ -4211,11 +4233,11 @@ export class BallEngine {
       return;
     }
     let backing = ('_' + __ball_to_string(fieldName));
-    if ((backing in __ball_require_map(object, 'map_contains_key'))) {
+    if (__ball_map_has(object, 'map_contains_key', backing)) {
       ballObjectSetField(object, backing, assignedValue);
       return;
     }
-    if (('_celsius' in __ball_require_map(object, 'map_contains_key'))) {
+    if (__ball_map_has(object, 'map_contains_key', '_celsius')) {
       ballObjectSetField(object, '_celsius', assignedValue);
     }
   }
@@ -4231,7 +4253,7 @@ export class BallEngine {
       let superObj = __ball_index(selfMap, '__super__');
       let superMap = this._asMap(superObj);
       while (!__ball_eq(superMap, null)) {
-        if ((fieldName in __ball_require_map(superMap, 'map_contains_key'))) {
+        if (__ball_map_has(superMap, 'map_contains_key', fieldName)) {
           ballObjectSetField(superObj, fieldName, val);
         }
         superObj = __ball_index(superMap, '__super__');
@@ -4246,7 +4268,7 @@ export class BallEngine {
     let fields = {};
     for (const pair of msg.fields) {
       let val = await this._evalExpression(pair.value, scope);
-      if ((pair.name in __ball_require_map(fields, 'map_contains_key'))) {
+      if (__ball_map_has(fields, 'map_contains_key', pair.name)) {
         let existing = __ball_index(fields, pair.name);
         if (Array.isArray(existing)) {
           let merged = ([...existing]);
@@ -4279,7 +4301,7 @@ export class BallEngine {
         }
         this._initFieldDefaults(msg.typeName, instanceFields);
         for (const fieldName of typeDef.fieldNames) {
-          if (!(fieldName in __ball_require_map(instanceFields, 'map_contains_key'))) {
+          if (!__ball_map_has(instanceFields, 'map_contains_key', fieldName)) {
             instanceFields[fieldName] = null;
           }
         }
@@ -4291,14 +4313,14 @@ export class BallEngine {
           for (let i = 0; __ball_lt(i, params.length); (i++)) {
             let param = __ball_index(params, i);
             let value;
-            if ((param in __ball_require_map(fields, 'map_contains_key'))) {
+            if (__ball_map_has(fields, 'map_contains_key', param)) {
               value = __ball_index(fields, param);
             } else {
-              if ((('arg' + __ball_to_string(i)) in __ball_require_map(fields, 'map_contains_key'))) {
+              if (__ball_map_has(fields, 'map_contains_key', ('arg' + __ball_to_string(i)))) {
                 value = __ball_index(fields, ('arg' + __ball_to_string(i)));
               }
             }
-            if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && ('default' in __ball_require_map(__ball_index(paramsMeta, i), 'map_contains_key')))) {
+            if (((__ball_eq(value, null) && __ball_lt(i, paramsMeta.length)) && __ball_map_has(__ball_index(paramsMeta, i), 'map_contains_key', 'default'))) {
               value = __ball_index(__ball_index(paramsMeta, i), 'default');
             }
             resolvedParams[param] = value;
@@ -4321,7 +4343,7 @@ export class BallEngine {
           superObject = (__ball_eq(ctorEntry, null) ? null : await this._invokeSuperConstructor(ctorEntry.func, superclass, resolvedParams));
           superObject ??= this._buildSuperObject(superclass, instanceFields);
         }
-        if (!('__type_args__' in __ball_require_map(instanceFields, 'map_contains_key'))) {
+        if (!__ball_map_has(instanceFields, 'map_contains_key', '__type_args__')) {
           let metaTypeArgs = BallEngine._extractMetadataTypeArgs(msg);
           if (!__ball_eq(metaTypeArgs, null)) {
             instanceFields['__type_args__'] = metaTypeArgs;
@@ -4359,7 +4381,7 @@ export class BallEngine {
           })();
           let constructed = await this._callFunction(ctorEntry.module, ctorEntry.func, ctorInput);
           let constructedMap = this._asMap(constructed);
-          if ((!__ball_eq(constructedMap, null) && ('__type__' in __ball_require_map(constructedMap, 'map_contains_key')))) {
+          if ((!__ball_eq(constructedMap, null) && __ball_map_has(constructedMap, 'map_contains_key', '__type__'))) {
             return constructed;
           }
           return instance;
@@ -4380,7 +4402,7 @@ export class BallEngine {
               instanceFields[entry.key] = entry.value;
             }
           }
-          if (!('__type_args__' in __ball_require_map(instanceFields, 'map_contains_key'))) {
+          if (!__ball_map_has(instanceFields, 'map_contains_key', '__type_args__')) {
             let metaTA = BallEngine._extractMetadataTypeArgs(msg);
             if (!__ball_eq(metaTA, null)) {
               instanceFields['__type_args__'] = metaTA;
@@ -4396,13 +4418,13 @@ export class BallEngine {
           })();
           let constructed = await this._callFunction(ctorEntry.module, ctorEntry.func, ctorInput);
           let constructedMap = this._asMap(constructed);
-          if ((!__ball_eq(constructedMap, null) && ('__type__' in __ball_require_map(constructedMap, 'map_contains_key')))) {
+          if ((!__ball_eq(constructedMap, null) && __ball_map_has(constructedMap, 'map_contains_key', '__type__'))) {
             return constructed;
           }
           return instance;
         }
         fields['__type__'] = msg.typeName;
-        if (!('__type_args__' in __ball_require_map(fields, 'map_contains_key'))) {
+        if (!__ball_map_has(fields, 'map_contains_key', '__type_args__')) {
           let metaTA2 = BallEngine._extractMetadataTypeArgs(msg);
           if (!__ball_eq(metaTA2, null)) {
             fields['__type_args__'] = metaTA2;
@@ -4524,7 +4546,7 @@ export class BallEngine {
                   let __naa_10 = __ball_index(fv.structValue.fields, 'name');
                   return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
                 })();
-                if ((__ball_eq(fname, null) || (fname in __ball_require_map(fields, 'map_contains_key')))) {
+                if ((__ball_eq(fname, null) || __ball_map_has(fields, 'map_contains_key', fname))) {
                   continue;
                 }
                 let init = (() => {
@@ -4630,13 +4652,13 @@ export class BallEngine {
     let parentTypeDef = this._findTypeDef(superclass);
     if (!__ball_eq(parentTypeDef, null)) {
       for (const fname of parentTypeDef.fieldNames) {
-        if ((fname in __ball_require_map(childFields, 'map_contains_key'))) {
+        if (__ball_map_has(childFields, 'map_contains_key', fname)) {
           superFields[fname] = __ball_index(childFields, fname);
         }
       }
       this._initFieldDefaults(superclass, superFields);
       for (const fname of parentTypeDef.fieldNames) {
-        if (!(fname in __ball_require_map(superFields, 'map_contains_key'))) {
+        if (!__ball_map_has(superFields, 'map_contains_key', fname)) {
           superFields[fname] = null;
         }
       }
@@ -4795,10 +4817,10 @@ export class BallEngine {
           for (let i = 0; __ball_lt(i, paramNames.length); (i++)) {
             let p = __ball_index(paramNames, i);
             if (!lambdaScope.has(p)) {
-              if ((p in __ball_require_map(inputMap, 'map_contains_key'))) {
+              if (__ball_map_has(inputMap, 'map_contains_key', p)) {
                 lambdaScope.bind(p, __ball_index(inputMap, p));
               } else {
-                if ((('arg' + __ball_to_string(i)) in __ball_require_map(inputMap, 'map_contains_key'))) {
+                if (__ball_map_has(inputMap, 'map_contains_key', ('arg' + __ball_to_string(i)))) {
                   lambdaScope.bind(p, __ball_index(inputMap, ('arg' + __ball_to_string(i))));
                 }
               }
@@ -4979,7 +5001,7 @@ export class BallEngine {
                     propVal = obj.length;
                   } else {
                     let map = this._cfAsMap(obj);
-                    if ((!__ball_eq(map, null) && (prop in __ball_require_map(map, 'map_contains_key')))) {
+                    if ((!__ball_eq(map, null) && __ball_map_has(map, 'map_contains_key', prop))) {
                       let v = __ball_index(map, prop);
                       if ((typeof v === 'number' || v instanceof BallDouble)) {
                         propVal = v;
@@ -5049,7 +5071,7 @@ export class BallEngine {
           return obj.length;
         }
         let map = this._cfAsMap(obj);
-        if ((!__ball_eq(map, null) && (prop in __ball_require_map(map, 'map_contains_key')))) {
+        if ((!__ball_eq(map, null) && __ball_map_has(map, 'map_contains_key', prop))) {
           return __ball_index(map, prop);
         }
       }
@@ -5365,7 +5387,7 @@ export class BallEngine {
         }
       }
       let enumVals = __ball_index(this._enumValues, enumType);
-      if ((!__ball_eq(enumVals, null) && (enumValue in __ball_require_map(enumVals, 'map_contains_key')))) {
+      if ((!__ball_eq(enumVals, null) && __ball_map_has(enumVals, 'map_contains_key', enumValue))) {
         let resolved = __ball_index(enumVals, enumValue);
         let resolvedMap = this._cfAsMap(resolved);
         if ((!__ball_eq(subjectMap, null) && !__ball_eq(resolvedMap, null))) {
@@ -5374,7 +5396,7 @@ export class BallEngine {
       }
       let qualifiedEnumType = ((__ball_to_string(this._currentModule) + ':') + __ball_to_string(enumType));
       let qualEnumVals = __ball_index(this._enumValues, qualifiedEnumType);
-      if ((!__ball_eq(qualEnumVals, null) && (enumValue in __ball_require_map(qualEnumVals, 'map_contains_key')))) {
+      if ((!__ball_eq(qualEnumVals, null) && __ball_map_has(qualEnumVals, 'map_contains_key', enumValue))) {
         let resolved = __ball_index(qualEnumVals, enumValue);
         let resolvedMap = this._cfAsMap(resolved);
         if ((!__ball_eq(subjectMap, null) && !__ball_eq(resolvedMap, null))) {
@@ -6545,13 +6567,13 @@ export class BallEngine {
           let seen = {};
           let result = [];
           for (const item of self) {
-            if (!(item in __ball_require_map(seen, 'map_contains_key'))) {
+            if (!__ball_map_has(seen, 'map_contains_key', item)) {
               seen[item] = item;
               result = (result.push(item), result);
             }
           }
           for (const item of other) {
-            if (!(item in __ball_require_map(seen, 'map_contains_key'))) {
+            if (!__ball_map_has(seen, 'map_contains_key', item)) {
               seen[item] = item;
               result = (result.push(item), result);
             }
@@ -6808,7 +6830,7 @@ export class BallEngine {
       } while (false);
     }
     let selfMap = this._cfAsMap(self);
-    if ((!__ball_eq(selfMap, null) && ('__type__' in __ball_require_map(selfMap, 'map_contains_key')))) {
+    if ((!__ball_eq(selfMap, null) && __ball_map_has(selfMap, 'map_contains_key', '__type__'))) {
       let typeName = __ball_index(selfMap, '__type__');
       if ((!__ball_eq(typeName, null) && (typeName.endsWith(':StringBuffer') || __ball_eq(typeName, 'StringBuffer')))) {
         do {
@@ -6924,7 +6946,7 @@ export class BallEngine {
       right = __ball_index(m, 'right');
     }
     let leftMap = this._stdAsMap(left);
-    if ((__ball_eq(leftMap, null) || !('__type__' in __ball_require_map(leftMap, 'map_contains_key')))) {
+    if ((__ball_eq(leftMap, null) || !__ball_map_has(leftMap, 'map_contains_key', '__type__'))) {
       return null;
     }
     let typeName = __ball_index(leftMap, '__type__');
@@ -6991,7 +7013,7 @@ export class BallEngine {
   }
 
   async _callBaseFunction(module: any, function_: any, input: any): Promise<any> {
-    if ((function_ in __ball_require_map(_stdFunctionToOperator, 'map_contains_key'))) {
+    if (__ball_map_has(_stdFunctionToOperator, 'map_contains_key', function_)) {
       let override = await this._tryOperatorOverride(function_, input);
       if (!__ball_eq(override, null)) {
         return this._consumeGeneratorFlow(override);
@@ -7535,15 +7557,15 @@ export class BallEngine {
         let list = this._stdAsList(__ball_index(m, 'list'));
         let s;
         let e;
-        if (('start' in __ball_require_map(m, 'map_contains_key'))) {
+        if (__ball_map_has(m, 'map_contains_key', 'start')) {
           s = this._toInt(__ball_index(m, 'start'));
           e = (!__ball_eq(__ball_index(m, 'end'), null) ? this._toInt(__ball_index(m, 'end')) : null);
         } else {
-          if ((('arg0' in __ball_require_map(m, 'map_contains_key')) && ('arg1' in __ball_require_map(m, 'map_contains_key')))) {
+          if ((__ball_map_has(m, 'map_contains_key', 'arg0') && __ball_map_has(m, 'map_contains_key', 'arg1'))) {
             s = this._toInt(__ball_index(m, 'arg0'));
             e = this._toInt(__ball_index(m, 'arg1'));
           } else {
-            if (('value' in __ball_require_map(m, 'map_contains_key'))) {
+            if (__ball_map_has(m, 'map_contains_key', 'value')) {
               let v = __ball_index(m, 'value');
               if ((Array.isArray(v) && __ball_ge(v.length, 2))) {
                 s = this._toInt(__ball_index(v, 0));
@@ -7746,7 +7768,7 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let map = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
         let key = __ball_index(m, 'key');
-        if (!(key in __ball_require_map(map, 'map_contains_key'))) {
+        if (!__ball_map_has(map, 'map_contains_key', key)) {
           this._trackMemoryAllocation(_ballMapEntryBytes);
           let val = __ball_index(m, 'value');
           map[key] = ((typeof val === 'function') ? val() : val);
@@ -7940,7 +7962,7 @@ export class BallEngine {
         let valMap = this._stdAsMap(val);
         if (!__ball_eq(valMap, null)) {
           typeName = ((__ball_index(valMap, '__type__') ?? __ball_index(valMap, '__type')) ?? 'Exception');
-          if ((!('message' in __ball_require_map(valMap, 'map_contains_key')) && ('arg0' in __ball_require_map(valMap, 'map_contains_key')))) {
+          if ((!__ball_map_has(valMap, 'map_contains_key', 'message') && __ball_map_has(valMap, 'map_contains_key', 'arg0'))) {
             valMap['message'] = __ball_index(valMap, 'arg0');
           }
         }
@@ -8544,7 +8566,7 @@ export class BallEngine {
 
   async _stdPrint(input: any): Promise<any> {
     let m = this._stdAsMap(input);
-    if ((!__ball_eq(m, null) && ((('message' in __ball_require_map(m, 'map_contains_key')) || ('arg0' in __ball_require_map(m, 'map_contains_key'))) || ('value' in __ball_require_map(m, 'map_contains_key'))))) {
+    if ((!__ball_eq(m, null) && ((__ball_map_has(m, 'map_contains_key', 'message') || __ball_map_has(m, 'map_contains_key', 'arg0')) || __ball_map_has(m, 'map_contains_key', 'value')))) {
       let message = ((__ball_index(m, 'message') ?? __ball_index(m, 'arg0')) ?? __ball_index(m, 'value'));
       this.stdout(await this._ballToStringAsync(message));
       return null;
@@ -8637,7 +8659,7 @@ export class BallEngine {
           }
           return (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
         }
-        if (('__tostring_guard__' in __ball_require_map(map, 'map_contains_key'))) {
+        if (__ball_map_has(map, 'map_contains_key', '__tostring_guard__')) {
           let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
           return (__ball_to_string(shortType) + '{...}');
         }
@@ -9261,7 +9283,7 @@ export class BallEngine {
             return false;
           }
           let key = __ball_index(entryMap, 'key');
-          if (!(key in __ball_require_map(rawMap, 'map_contains_key'))) {
+          if (!__ball_map_has(rawMap, 'map_contains_key', key)) {
             return false;
           }
           if (!this._matchPattern(__ball_index(rawMap, key), __ball_index(entryMap, 'value'), bindings)) {
@@ -9301,7 +9323,7 @@ export class BallEngine {
           return false;
         }
         for (const entry of recFields.entries) {
-          if (!(entry.key in __ball_require_map(recMap, 'map_contains_key'))) {
+          if (!__ball_map_has(recMap, 'map_contains_key', entry.key)) {
             return false;
           }
           let fieldVal = __ball_index(recMap, entry.key);
@@ -9466,7 +9488,7 @@ export class BallEngine {
     let map = this._stdAsMap(v);
     if (!__ball_eq(map, null)) {
       let typeName = __ball_index(map, '__type__');
-      if ((!__ball_eq(typeName, null) && (typeName in __ball_require_map(this._enumValues, 'map_contains_key')))) {
+      if ((!__ball_eq(typeName, null) && __ball_map_has(this._enumValues, 'map_contains_key', typeName))) {
         let shortType = (typeName.includes(':') ? typeName.substring(__ball_add(typeName.lastIndexOf(':'), 1)) : typeName);
         let valName = __ball_index(map, 'name');
         if (!__ball_eq(valName, null)) {
@@ -10092,7 +10114,7 @@ export class _Scope {
 
   lookup(name: any): any {
     const input = name;
-    if ((name in __ball_require_map(this._bindings, 'map_contains_key'))) {
+    if (__ball_map_has(this._bindings, 'map_contains_key', name)) {
       return __ball_index(this._bindings, name);
     }
     if (!__ball_eq(this._parent, null)) {
@@ -10107,14 +10129,14 @@ export class _Scope {
 
   has(name: any): any {
     const input = name;
-    if ((name in __ball_require_map(this._bindings, 'map_contains_key'))) {
+    if (__ball_map_has(this._bindings, 'map_contains_key', name)) {
       return true;
     }
     return ((__ball_eq(this._parent, null) ? null : this._parent.has(name)) ?? false);
   }
 
   set(name: any, value: any): any {
-    if ((name in __ball_require_map(this._bindings, 'map_contains_key'))) {
+    if (__ball_map_has(this._bindings, 'map_contains_key', name)) {
       this._bindings[name] = value;
       return;
     }
@@ -10232,7 +10254,7 @@ export class StdModuleHandler extends BallModuleHandler {
       if (this._tombstones.includes(entry.key)) {
         continue;
       }
-      if ((entry.key in __ball_require_map(this._composedDispatch, 'map_contains_key'))) {
+      if (__ball_map_has(this._composedDispatch, 'map_contains_key', entry.key)) {
         continue;
       }
       if ((!__ball_eq(allowlist, null) && !allowlist.includes(entry.key))) {
@@ -10345,7 +10367,7 @@ function _ballToDouble(value: any): any {
 
 function _ballValueIsSet(v: any): any {
   const input = v;
-  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && (_kBallSetTag in __ball_require_map(v, 'map_contains_key')));
+  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && __ball_map_has(v, 'map_contains_key', _kBallSetTag));
 }
 
 function _ballIsInt(v: any): any {
@@ -10422,7 +10444,7 @@ function _ballMapValuesDyn(map: any): any {
 function _ballMapContainsKeyDyn(map: any, key: any): any {
   let handle = _ballMapHandleEntries(map);
   if ((typeof handle === 'object' && handle !== null && !Array.isArray(handle) && !(handle instanceof BallDouble) && !(handle instanceof Set))) {
-    return (key in __ball_require_map(handle, 'map_contains_key'));
+    return __ball_map_has(handle, 'map_contains_key', key);
   }
   return false;
 }
@@ -10440,12 +10462,12 @@ function ballObjectSetField(target: any, fieldName: any, val: any): any {
     return;
   }
   if (false /* BallMap is Map in TS */) {
-    if (('__type__' in __ball_require_map(target.entries, 'map_contains_key'))) {
+    if (__ball_map_has(target.entries, 'map_contains_key', '__type__')) {
       target[fieldName] = val;
     }
     return;
   }
-  if ((__ball_is_type(target, "Map<String, Object?>") && ('__type__' in __ball_require_map(target, 'map_contains_key')))) {
+  if ((__ball_is_type(target, "Map<String, Object?>") && __ball_map_has(target, 'map_contains_key', '__type__'))) {
     target[fieldName] = val;
   }
 }
@@ -10546,7 +10568,7 @@ function _unwrapBallFuture(value: any): any {
   const input = value;
   if (_isBallFuture(value)) {
     let map = value;
-    if (('error' in __ball_require_map(map, 'map_contains_key'))) {
+    if (__ball_map_has(map, 'map_contains_key', 'error')) {
       let error = __ball_index(map, 'error');
       if ((error instanceof BallException)) {
         throw error;

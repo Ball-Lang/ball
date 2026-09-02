@@ -82,6 +82,40 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ./build/test/Debug/test_selfhost_conformance.exe 01_hello_world
 ```
 
+### Fast local `test_compiler` without CMake
+
+The full CMake build is 40+ minutes and does not work on native Windows, which
+is why C++ work is usually gated on CI alone. `test_compiler` does not need it:
+it links only `compiler.cpp`, `ball_shared.cpp` and `ball_rt_decode.cpp`, and the
+only generated inputs are the two embed headers. That is a ~2-minute compile
+with any C++20 compiler (clang++ works on Windows against the MSVC toolchain),
+which turns a 40-minute CI round trip into a local edit/run loop — including
+proving a unit test RED before a fix and green after.
+
+```bash
+T=$(mktemp -d)                       # scratch: embed headers + the binary
+mkdir -p "$T/gen" "$T/include/nlohmann"
+cmake -DIN=cpp/shared/include/ball_emit_runtime.h \
+      -DOUT="$T/gen/ball_emit_runtime_embed.h" \
+      -P cpp/shared/cmake/EmbedRuntimeHeader.cmake
+cmake -DIN=cpp/shared/include/ball_dyn.h -DOUT="$T/gen/ball_dyn_embed.h" \
+      -DVAR_NAME=BALL_DYN_SOURCE -P cpp/shared/cmake/EmbedRuntimeHeader.cmake
+curl -sSL -o "$T/include/nlohmann/json.hpp" \
+  https://raw.githubusercontent.com/nlohmann/json/v3.11.3/single_include/nlohmann/json.hpp
+
+clang++ -std=c++20 -O0 -w \
+  -I cpp/compiler/include -I cpp/shared/include -I cpp/shared \
+  -I "$T/gen" -I "$T/include" \
+  -DBALL_CONFORMANCE_DIR="\"$PWD/tests/conformance\"" \
+  cpp/test/test_compiler.cpp cpp/compiler/src/compiler.cpp \
+  cpp/shared/src/ball_shared.cpp cpp/shared/ball_rt_decode.cpp \
+  -o "$T/test_compiler" && "$T/test_compiler"
+```
+
+This covers `test_compiler` only. The compiled-fixture e2e and the self-hosted
+engine still need the real build (CI), so it shortens the loop rather than
+replacing the gate.
+
 Two CI-plumbing shell tests need no C++ toolchain at all (sub-second, and run in
 ci.yml's always-on `proto` job, so they gate every PR):
 

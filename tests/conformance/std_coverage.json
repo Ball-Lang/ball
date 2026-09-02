@@ -1830,7 +1830,8 @@
       "inputType": "BinaryInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "124_frequency_counter"
+        "124_frequency_counter",
+        "401_switch_expr_null_arm"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2234,6 +2235,7 @@
         "399_bytes_literal",
         "39_compound_assign",
         "400_switch_continue_label",
+        "401_switch_expr_null_arm",
         "40_increment_decrement",
         "41_for_sum",
         "42_nested_functions",

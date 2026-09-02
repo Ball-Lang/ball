@@ -67,6 +67,19 @@ cargo fmt --check && cargo clippy --workspace
   tail-expression-valued) — unlike C++'s immediately-invoked lambda pattern for blocks.
 - Control flow (`if`/`and`/`or`/`for`/`for_in`/`while`/`do_while`) compiles to native Rust
   control flow, never a function call — lazy evaluation per invariant #4.
+- **`switch` vs. `switch_expr` are two different lowerings, and the difference is load-bearing.**
+  `base_call.rs` dispatches the two literal call names to `compile_switch(call, is_expr)`, and
+  `is_expr` must be threaded all the way through `parse_switch_cases`:
+  - The fall-through/empty-body heuristic (`is_empty_switch_body`) is **statement mode only**. Ball
+    encodes `null` as a value-less `Literal` — the exact shape that heuristic reads as "empty" — so
+    in expression mode it would delete every `=> null` arm and leak its condition (issue #470; it
+    silently ate the self-hosted engine's own `Literal_Value.notSet` arm). Mirrors
+    `go/compiler/base_call.go:514-522`.
+  - A defaultless switch **expression** that matches nothing throws
+    `Non-exhaustive switch expression` via `ball_throw` (issue #467, aligning with Go/C#/Dart); a
+    statement `switch` still legally falls through to `BallValue::Null`. That throw is only safe
+    *because* the arm-dropping fix landed first — restoring it alone regresses the self-host sweep
+    320 → 315.
 - Arithmetic semantics must match the Dart reference engine, not "whatever Rust's operator
   does": `modulo` is Euclidean (sign of divisor, via `ball_lang_shared::runtime`), int ops use
   wrapping arithmetic (Dart's fixed-width 64-bit `int`, no overflow panics), `equals`/

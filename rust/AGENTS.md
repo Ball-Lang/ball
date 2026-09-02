@@ -128,6 +128,32 @@ instructions.
   enum variants, tuple/unit structs, etc.) — read those module doc comments before assuming a
   construct is unsupported by accident vs. by design.
 
+### Real-code coverage study (issue #491)
+
+Issue #491 drove 196 files from 10 popular crates (anyhow, thiserror, semver, itertools, base64,
+hex, smallvec, indexmap, once_cell, memchr) through `ball_lang_encoder::encode` and got **0/196**:
+real library code is virtually never a single file with `fn main()`, and every failure landed on
+one of the encoder's documented fail-loud panics. That is a **scope gap, not a defect** — but
+nothing in CI ever *observed* those panics, because `rust/encoder/tests/end_to_end.rs`'s fixtures
+are all single-file `fn main` programs (the shared conformance corpus is single-file-main-only by
+construction).
+
+`rust/encoder/tests/documented_gaps.rs` closes that observation gap: one `#[should_panic]`
+characterization test per gap category (tuple/unit structs, data-carrying enum variants,
+receiver-less associated functions in `impl` and `trait` blocks, cross-file call targets,
+item-level `const`/`static`/`type`, unmapped macro invocations), each pinning the shortest stable
+substring of today's panic. It runs on the required `Rust` CI check via `cargo test --workspace`.
+**Keep it in sync with the module doc comments** — when a slice closes a gap, flip that test from
+`#[should_panic]` to a real "encodes and round-trips" assertion in the same PR, so the module-doc
+gap list and the enforced-in-CI list cannot drift apart again.
+
+Two items are deliberately *not* pinned there, and the file says why: the no-`fn main` case is
+already covered end-to-end on the same leg by `rust/cli/tests/cli_encode.rs::
+missing_fn_main_exits_2`, and the *compiler* side of receiver-less associated functions already
+works (`type_emit.rs::method_prologue`'s `is_static` bypass, fixture
+`tests/conformance/105_static_methods.ball.json`, issue #288) — the remaining work there is
+encoder-side mapping only.
+
 ## Key Differences from Dart
 
 - Rust has no garbage-collected dynamic `Object?` — `BallValue` is a hand-written `enum` so the

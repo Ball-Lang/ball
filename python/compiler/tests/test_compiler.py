@@ -67,6 +67,51 @@ def test_simple_program_runs():
     assert run_source(compile_program(prog)) == "hi\n"
 
 
+# ── switch_expr null arms (issue #470) ───────────────────────────────────────
+
+def _switch_case(value_expr: dict, body: dict) -> dict:
+    return {"messageCreation": {"typeName": "SwitchCase", "fields": [
+        {"name": "value", "value": value_expr},
+        {"name": "is_default", "value": {"literal": {"boolValue": False}}},
+        {"name": "body", "value": body},
+    ]}}
+
+
+def _switch_default(body: dict) -> dict:
+    return {"messageCreation": {"typeName": "SwitchCase", "fields": [
+        {"name": "is_default", "value": {"literal": {"boolValue": True}}},
+        {"name": "body", "value": body},
+    ]}}
+
+
+def _switch_expr(subject: dict, cases: list[dict]) -> dict:
+    return {"call": {"module": "std", "function": "switch_expr", "input": {
+        "messageCreation": {"fields": [
+            {"name": "subject", "value": subject},
+            {"name": "cases", "value": {"literal": {"listValue": {"elements": cases}}}},
+        ]}}}}
+
+
+def test_switch_expr_null_arm_is_not_dropped():
+    """A ``switch_expr`` arm whose whole body is the bare ``null`` literal is a
+    real arm carrying ``None`` — never a body-less fall-through label.
+
+    Ball encodes ``null`` as a value-less ``Literal`` (``{"literal": {}}``),
+    exactly the shape ``is_empty_switch_body`` reads as "empty". Applied in
+    expression mode (where nothing falls through) the heuristic deletes the arm
+    and leaks its condition into the next one, so subject ``2`` answers with the
+    DEFAULT arm's value instead of its own ``null`` (issue #470; Go gates the
+    same heuristic on statement mode)."""
+    body = {"block": {"statements": [
+        {"expression": _print(_switch_expr({"literal": {"intValue": 2}}, [
+            _switch_case({"literal": {"intValue": 1}}, _lit_str("one")),
+            _switch_case({"literal": {"intValue": 2}}, {"literal": {}}),
+            _switch_default(_lit_str("other")),
+        ]))},
+    ]}}
+    assert run_source(compile_program(_program(body))) == "null\n"
+
+
 # ── Fail-loud (issue #55) ────────────────────────────────────────────────────
 
 def test_unsupported_base_function_fails_loud():

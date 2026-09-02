@@ -1053,6 +1053,291 @@ jobs:
       total: ${{ steps.conformance.outputs.total }}
 
   # ──────────────────────────────────────────────────
+  # Round-trip legs for Python / Go / Rust (#452 item 3) — MEASUREMENT ONLY.
+  #
+  # Same shape and the same rationale as `csharp-roundtrip` above, in the three
+  # remaining self-hosted-compiler targets. Each one does, per fixture:
+  #   Ball -> <lang> (that language's compiler)
+  #        -> Ball   (that language's own encoder)
+  #        -> run the RE-ENCODED program on the DART reference engine
+  #        -> byte-diff the golden.
+  # Running it on the language's own engine would only prove the pipeline agrees
+  # with itself; Dart is the ground truth.
+  #
+  # NO FLOOR GATE, deliberately: a near-zero baseline is honest and expected
+  # BY CONSTRUCTION. Every one of these compilers emits a flat program
+  # dispatching through its own runtime's helpers over its own Ball-value type,
+  # a shape none of the syntactic/AST-based encoders was built to re-parse.
+  # A ratchet on 0 is meaningless. What these jobs DO gate is harness health: a
+  # `Results:` line must be produced, its counts must be bare integers, and
+  # total must be >= 1. Each leg's own exit code is EXPECTED to be non-zero
+  # while fixtures fail.
+  #
+  # NOT A PR GATE, and that is the actual limitation, not a softening: this
+  # workflow has NO `pull_request:` trigger, so these rows run on push-to-main,
+  # the weekly schedule, or manual dispatch only. On a PR they are ABSENT, and
+  # an absent check reads as green — always `gh workflow run
+  # conformance-matrix.yml --ref <branch>` and read the run before merging a
+  # change to any of them.
+  # ──────────────────────────────────────────────────
+  python-roundtrip:
+    name: Python Round-Trip Leg (measurement)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      # Ground truth is the Dart CLI: the leg shells out to
+      # `dart run dart/cli/bin/ball.dart run <reencoded.ball.json>` per fixture
+      # that survives re-encoding, so the Dart workspace has to be resolved even
+      # though today every fixture fails earlier.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (reference engine)
+        run: dart pub get
+
+      - name: Install dependencies
+        run: python -m pip install "protobuf>=5.29"
+
+      # Reads goldens and subprocess stdout as BYTES and normalizes only \r\n.
+      # Text mode collapses a lone \r, which silently corrupts golden
+      # comparison in BOTH directions — it has bitten two harnesses here.
+      - name: Run round-trip leg
+        id: conformance
+        run: |
+          set +e
+          output=$(python -m python.engine.conformance.roundtrip 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse the FINAL `Results:` line ONLY — never a global grep over all
+          # output. A multiline capture makes `[ "$total" -lt 1 ]` exit 2, and a
+          # failing `[` inside an `if` SKIPS the branch and falls through to
+          # exit 0: the gate would be silently DISABLED. `tail -1` makes that
+          # unreachable; the integer guard below asserts it rather than trusting
+          # it. (This leg's line carries a trailing " (N skipped carve-outs)"
+          # suffix — the `(?= total)` lookahead is unaffected.)
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Python Round-Trip Leg (measurement only — no floor) ==="
+          echo "Results: $passed passed, $failed failed, $total total"
+
+          # Positive floor. A harness that printed nothing, or discovered no
+          # fixtures, must NEVER read as a silent pass (#439/#444) — and since
+          # this leg has no ratchet, this is the ONLY thing standing between
+          # "the harness rotted" and a green job.
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
+            exit 1
+          fi
+
+          {
+            echo "### Python round-trip leg (measurement only — issue #452 item 3)"
+            echo ""
+            echo "**$passed/$total** fixtures round-trip Ball -> Python -> Ball -> Dart engine."
+            echo ""
+            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
+            echo "\`ballrt.*\`-shaped Python the syntactic \`ast\` encoder does not recognise)."
+            echo "This row exists to keep the number live and to catch the harness itself breaking."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # The leg's own exit code is expected to be non-zero while fixtures
+          # fail; it is reported, not gated on.
+          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  go-roundtrip:
+    name: Go Round-Trip Leg (measurement)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (reference engine)
+        run: dart pub get
+
+      # No `-tags selfhost` and no engine regeneration: the round-trip leg never
+      # touches the compiled engine (its shared helpers live in the untagged
+      # conformance/support.go for exactly this reason). `-v` is REQUIRED —
+      # without it `go test` caches and discards a passing test's stdout, so the
+      # `Results:` line this job parses would never reach the log.
+      - name: Run round-trip leg
+        id: conformance
+        working-directory: go/engine
+        run: |
+          set +e
+          output=$(go test -v -run TestRoundTrip -timeout 3600s ./conformance/ 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse the FINAL `Results:` line ONLY — see the Python row above for
+          # why a global grep here is a silently-disabled gate.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Go Round-Trip Leg (measurement only — no floor) ==="
+          echo "Results: $passed passed, $failed failed, $total total"
+
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
+            exit 1
+          fi
+
+          {
+            echo "### Go round-trip leg (measurement only — issue #452 item 3)"
+            echo ""
+            echo "**$passed/$total** fixtures round-trip Ball -> Go -> Ball -> Dart engine."
+            echo ""
+            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
+            echo "\`ballrt.*\`-shaped Go the syntactic \`go/ast\` encoder does not recognise)."
+            echo "This row exists to keep the number live and to catch the harness itself breaking."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  rust-roundtrip:
+    name: Rust Round-Trip Leg (measurement)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # rustup ships preinstalled; `rustup show` installs the pinned toolchain
+      # from rust/rust-toolchain.toml.
+      - name: Install Rust toolchain
+        run: rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (reference engine)
+        run: dart pub get
+
+      # No `self_host` feature and no 320 `cargo build`s: both the compile and
+      # the re-encode step run IN-PROCESS on the emitted Rust as text (the same
+      # thing RoundTripLeg.cs does with its emitted C#), so rustc is never
+      # invoked per fixture. The whole sweep is seconds. `--ignored` because the
+      # test is `#[ignore]` so `cargo test --workspace` in the PR-gated `Rust`
+      # job never picks it up.
+      - name: Run round-trip leg
+        id: conformance
+        working-directory: rust
+        run: |
+          set +e
+          output=$(cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse the FINAL `Results:` line ONLY — see the Python row above for
+          # why a global grep here is a silently-disabled gate.
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== Rust Round-Trip Leg (measurement only — no floor) ==="
+          echo "Results: $passed passed, $failed failed, $total total"
+
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
+            exit 1
+          fi
+
+          {
+            echo "### Rust round-trip leg (measurement only — issue #452 item 3)"
+            echo ""
+            echo "**$passed/$total** fixtures round-trip Ball -> Rust -> Ball -> Dart engine."
+            echo ""
+            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
+            echo "\`ball_lang_shared::runtime::*\`-shaped Rust the syntactic \`syn\` encoder does"
+            echo "not recognise — and it has no \`fn main()\` shape the encoder's default path"
+            echo "accepts). This row keeps the number live and catches the harness itself breaking."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  # ──────────────────────────────────────────────────
   # Compiler legs — Ball -> <lang> -> build -> run, PER FIXTURE (#452)
   #
   # These are COMPILE legs, not engine legs, and every one is gated as a
@@ -1332,7 +1617,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip]
+    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip, python-roundtrip, go-roundtrip, rust-roundtrip]
     steps:
       - name: Print conformance matrix
         run: |
@@ -1435,12 +1720,21 @@ jobs:
           # stays live instead of decaying into a doc comment. STATUS here means
           # "the harness ran and reported a trustworthy count", NOT "the leg
           # passes" — 0/320 is the expected baseline for the round trip (#452).
-          echo "Measurement leg (no floor - the count is the product)"
+          echo "Measurement legs (no floor - the count is the product)"
           echo ""
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "HARNESS"
           csrt_status="OK"
           if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="BROKEN"; fi
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "$csrt_status"
+          pyrt_status="OK"
+          if [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="BROKEN"; fi
+          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Python Round-Trip (Ball -> Py -> Ball)" "${{ needs.python-roundtrip.outputs.passed }}" "${{ needs.python-roundtrip.outputs.failed }}" "${{ needs.python-roundtrip.outputs.total }}" "$pyrt_status"
+          gort_status="OK"
+          if [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="BROKEN"; fi
+          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Go Round-Trip (Ball -> Go -> Ball)" "${{ needs.go-roundtrip.outputs.passed }}" "${{ needs.go-roundtrip.outputs.failed }}" "${{ needs.go-roundtrip.outputs.total }}" "$gort_status"
+          rsrt_status="OK"
+          if [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="BROKEN"; fi
+          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Rust Round-Trip (Ball -> Rust -> Ball)" "${{ needs.rust-roundtrip.outputs.passed }}" "${{ needs.rust-roundtrip.outputs.failed }}" "${{ needs.rust-roundtrip.outputs.total }}" "$rsrt_status"
           echo ""
 
           # Fail the summary if any engine job did not succeed (primary gate).
@@ -1478,17 +1772,24 @@ jobs:
             fi
           done
 
-          # The round-trip measurement leg has no floor, so its RESULT is the
-          # only signal it carries: the job fails solely when the harness itself
-          # broke (no parseable Results line, a non-integer count, or zero
-          # fixtures discovered). Its FAILURE COUNT is deliberately NOT fed into
-          # the parity loop below — 0/320 passing is the honest, expected
-          # baseline, and wiring that in would hard-red every run.
-          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then
-            echo ""
-            echo "The C# round-trip harness did not report a trustworthy count. See its job log."
-            summary_failed=1
-          fi
+          # The round-trip measurement legs have no floor, so each one's RESULT
+          # is the only signal it carries: the job fails solely when the harness
+          # itself broke (no parseable Results line, a non-integer count, or zero
+          # fixtures discovered). Their FAILURE COUNTS are deliberately NOT fed
+          # into the parity loop below — 0/321 passing is the honest, expected
+          # baseline in all four, and wiring that in would hard-red every run.
+          for leg in \
+            "C#:${{ needs.csharp-roundtrip.result }}" \
+            "Python:${{ needs.python-roundtrip.result }}" \
+            "Go:${{ needs.go-roundtrip.result }}" \
+            "Rust:${{ needs.rust-roundtrip.result }}"; do
+            name="${leg%%:*}"; res="${leg#*:}"
+            if [ "$res" != "success" ]; then
+              echo ""
+              echo "The $name round-trip harness did not report a trustworthy count. See its job log."
+              summary_failed=1
+            fi
+          done
 
           # Defense-in-depth (F-CM-1): also fail if any engine reported a
           # non-zero parsed failure count, even if its job reported success —

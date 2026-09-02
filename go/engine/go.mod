@@ -4,14 +4,16 @@
 // native wrapper. The Go sibling of rust/engine, csharp/engine, ts/engine.
 //
 // Depends on go/shared for the proto types, go/runtime (ballrt) for the value
-// model + base-op helpers the compiled engine calls, and go/compiler for the
-// regeneration tool. The compiled engine artifact lives under compiled/ and is
-// built only under the `selfhost` build tag (see engine/AGENTS.md).
+// model + base-op helpers the compiled engine calls, go/compiler for the
+// regeneration tool, and go/encoder for the conformance round-trip leg
+// (conformance/roundtrip.go). The compiled engine artifact lives under compiled/
+// and is built only under the `selfhost` build tag (see engine/AGENTS.md).
 module github.com/ball-lang/ball/go/engine
 
 go 1.23
 
 require (
+	github.com/ball-lang/ball/go/encoder v0.0.0
 	github.com/ball-lang/ball/go/compiler v0.0.0
 	github.com/ball-lang/ball/go/runtime v0.0.0
 	github.com/ball-lang/ball/go/shared v0.0.0
@@ -23,3 +25,5 @@ replace github.com/ball-lang/ball/go/shared => ../shared
 replace github.com/ball-lang/ball/go/runtime => ../runtime
 
 replace github.com/ball-lang/ball/go/compiler => ../compiler
+
+replace github.com/ball-lang/ball/go/encoder => ../encoder

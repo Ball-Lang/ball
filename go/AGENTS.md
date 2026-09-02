@@ -95,6 +95,38 @@ go run ./cmd/ballgoconf 101_simple_class   # one fixture, full expected/actual d
   fast. `runner_test.go` keeps a positive floor: one fixture must actually pass, and
   an empty sweep is an error (a "0 passed, 0 failed" line must never read as green).
 
+## Round-trip conformance leg (`go/engine/conformance/roundtrip.go`, issue #452 item 3)
+The third question, after the engine and compiler legs: **can `go/encoder` read
+back what `go/compiler` emits?** Per fixture it compiles Ball → Go, re-encodes
+that Go source back to Ball, runs the **RE-ENCODED** program on the **Dart
+reference engine** (`dart run dart/cli/bin/ball.dart run <file>` — ground truth;
+running it on Go's own engine would only prove the pipeline agrees with itself),
+and byte-diffs the golden.
+
+```bash
+cd go/engine
+go test -v -run TestRoundTrip -timeout 3600s ./conformance/   # -v is REQUIRED: see the note above
+BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
+```
+
+- **No `-tags selfhost`**: this leg never touches the compiled engine. That is
+  why `Result`/`Summary`/`conformanceDir`/`diffDetail` moved out of the tagged
+  `runner.go` into the untagged `support.go` — keep new shared helpers there.
+- **Honest baseline `Results: 0 passed, 321 failed, 321 total`** (23
+  compile-error, 298 encode-error, measured 2026-09-02). That zero is expected
+  BY CONSTRUCTION and is the product: the compiler emits a flat package
+  dispatching through `ballrt.*` over `ballrt.Value`, a shape the syntactic
+  `go/ast` encoder was never built to re-parse. It mirrors
+  `csharp/engine/conformance/RoundTripLeg.cs` exactly. **Do not make it green by
+  weakening either side** — raising it is encoder/compiler work.
+- Gated only on harness health (`total >= 1`), never on the failure count. Needs
+  `dart` on PATH (or `BALL_DART`); it skips loudly rather than reporting a fake
+  zero when Dart is missing.
+- CI home: the `go-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
+  **That workflow has no `pull_request:` trigger**, so the row is ABSENT (not
+  green) on a PR — `gh workflow run conformance-matrix.yml --ref <branch>` and
+  read the run before merging a change to this leg.
+
 ## Status / deferred
 - Compiler runs end-to-end (compile → `go run`): `hello_world`, `fibonacci`, a
   while-loop, and a `for_in` loop (see `go/compiler/compiler_test.go` + `testdata/`).

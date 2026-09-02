@@ -172,3 +172,11 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
 - `go/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner — the `selfhost`
   `TestConformance` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained
   count.
+- `go/engine/conformance/roundtrip.go` (`go test -v -run TestRoundTrip ./conformance/`) is a
+  **measurement-only** sweep (#452 item 3): Ball → Go → Ball → the **Dart** reference engine →
+  golden diff. Deliberately **untagged** (it never touches the compiled engine — which is why the
+  shared `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in the untagged
+  `support.go`). Honest baseline **0/321**, expected by construction and mirroring
+  `csharp-roundtrip`; gated only on `total >= 1`, never on the failure count. Its CI home is the
+  `go-roundtrip` row in `conformance-matrix.yml`, which has **no `pull_request` trigger** — the row
+  is absent, not green, on a PR; dispatch the workflow and read the run.

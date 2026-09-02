@@ -52,21 +52,9 @@ func isExecutionTimeout(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Execution timeout exceeded")
 }
 
-// Result is one fixture's outcome.
-type Result struct {
-	Name   string
-	Status string // "pass", "fail", "timeout", "error"
-	Detail string
-}
-
-// Summary is a whole-corpus sweep outcome.
-type Summary struct {
-	Passed  int
-	Failed  int
-	Total   int
-	Skipped int // golden-less carve-outs
-	Results []Result
-}
+// Result, Summary, conformanceDir, diffDetail and firstLine are shared with the
+// round-trip leg and live in the untagged support.go, so that leg stays runnable
+// without the compiled engine.
 
 // RunAll drives every tests/conformance/*.ball.json fixture through the compiled
 // self-hosted engine and compares stdout to its .expected_output.txt golden. A
@@ -169,30 +157,6 @@ func runOne(name, path, golden string) Result {
 	}
 }
 
-func diffDetail(expected, actual string) string {
-	el := strings.Split(expected, "\n")
-	al := strings.Split(actual, "\n")
-	if os.Getenv("BALL_FIXTURE") != "" {
-		return "\n--- expected (" + strconv.Itoa(len(el)) + ") ---\n" + expected +
-			"\n--- actual (" + strconv.Itoa(len(al)) + ") ---\n" + actual
-	}
-	return "expected(" + strconv.Itoa(len(el)) + "): " + first(el) + " | actual(" + strconv.Itoa(len(al)) + "): " + first(al)
-}
-
-func first(xs []string) string {
-	if len(xs) == 0 {
-		return "<none>"
-	}
-	return xs[0]
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
-}
-
 func asError(r any) error {
 	if e, ok := r.(error); ok {
 		return e
@@ -203,23 +167,3 @@ func asError(r any) error {
 type recoveredError struct{ v any }
 
 func (e *recoveredError) Error() string { return fmt.Sprint(e.v) }
-
-// conformanceDir walks up from the test's working directory to the repo root and
-// returns tests/conformance.
-func conformanceDir() (string, error) {
-	dir, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	for {
-		candidate := filepath.Join(dir, "tests", "conformance")
-		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
-			return candidate, nil
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", os.ErrNotExist
-		}
-		dir = parent
-	}
-}

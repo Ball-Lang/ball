@@ -860,7 +860,7 @@ jobs:
       # the floor is re-ratcheted from this branch's own dispatched matrix run,
       # never from memory. 431 and 432 do NOT compile on this leg yet and are
       # correctly NOT counted; Rust/Go/Python measured no change and keep theirs.
-      CSHARP_COMPILER_FLOOR: "248"
+      CSHARP_COMPILER_FLOOR: "250"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

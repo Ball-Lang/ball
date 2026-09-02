@@ -26,6 +26,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../Ball.Engine.csproj" />
+    <!-- The conformance harness is a console app, not a test project (it must
+         print its `Results:` line on real stdout). Its own failure-reporting
+         helper still needs a regression test, so reference it here and let it
+         expose internals to this assembly (see its InternalsVisibleTo). -->
+    <ProjectReference Include="../conformance/Ball.Engine.Conformance.csproj" />
   </ItemGroup>
 
 </Project>

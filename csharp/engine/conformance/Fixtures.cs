@@ -74,6 +74,45 @@ internal static class Fixtures
     public static IReadOnlyList<string> ActualLines(IEnumerable<string> prints) =>
         SplitLines(string.Concat(prints.Select(s => s + "\n")));
 
+    /// <summary>
+    /// Describe an expected-vs-actual line mismatch by the FIRST line that
+    /// actually differs, never by line 0. Printing only line 0 (what every leg
+    /// used to do) renders a mismatch on any later line as a self-contradictory
+    /// diff — <c>expected (3): 1</c> / <c>actual (3): 1</c> on a Fail — which
+    /// reads as if the two matched and hides where they diverge.
+    /// </summary>
+    public static string DescribeMismatch(IReadOnlyList<string> expected, IReadOnlyList<string> actual)
+    {
+        var shared = Math.Min(expected.Count, actual.Count);
+        for (var i = 0; i < shared; i++)
+        {
+            if (!string.Equals(expected[i], actual[i], StringComparison.Ordinal))
+            {
+                return $"line {i + 1} differs (expected {expected.Count} line(s), actual {actual.Count}): "
+                    + $"expected {Quote(expected[i])} | actual {Quote(actual[i])}";
+            }
+        }
+
+        // Every shared line matched, so one side is a strict prefix of the other.
+        if (actual.Count > expected.Count)
+        {
+            return $"actual has {actual.Count} line(s), expected {expected.Count}; "
+                + $"first extra line {Quote(actual[expected.Count])}";
+        }
+
+        if (actual.Count < expected.Count)
+        {
+            return $"actual has {actual.Count} line(s), expected {expected.Count}; "
+                + $"first missing line {Quote(expected[actual.Count])}";
+        }
+
+        // Unreachable for a real mismatch (identical length + identical lines is
+        // a pass) — say so rather than inventing a diff.
+        return $"no line differs (expected and actual are both {expected.Count} identical line(s))";
+    }
+
+    private static string Quote(string s) => '"' + (s.Length <= 120 ? s : s[..120] + "…") + '"';
+
     // A handful of fixtures nest deeply enough (labeled loops, nested try-catch)
     // to exceed both System.Text.Json's default 64-level read cap and
     // Google.Protobuf's default 100-level JsonParser recursion limit (127/146/148

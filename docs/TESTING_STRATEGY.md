@@ -155,6 +155,22 @@ See [.claude/rules/dart.md](../.claude/rules/dart.md).
 5. Regenerate the self-host engines and run the conformance matrix
    (`dart/engine`, `ts/engine`, `cpp` `full_e2e.sh`).
 
+## Toolchain-drift canary (weekly `ci.yml` run on `main`)
+
+Every CI job installs a **floating** toolchain (`dart-lang/setup-dart` with
+`sdk: stable`, `actions/setup-node`, …). A toolchain release can therefore turn
+`main` red with **zero commits** — and with only `push`/`pull_request` triggers
+that red is first seen on the next contributor's *unrelated* PR. That is what
+happened on 2026-09-02: a newly-stable Dart lint
+(`unawaited_return_in_try_block`) failed the warnings-fatal `dart analyze dart/`
+step on a C#-only PR, seven weeks after `main`'s last full run. `ci.yml` now
+also runs on a weekly `schedule` (plus `workflow_dispatch`), so drift surfaces on
+`main` itself; the `changes` job has no diff base on those events and fails
+OPEN, so every stack runs. Treat a red scheduled run exactly like a red PR: fix
+the code (never pin the SDK or suppress the lint to get green — the lint above
+was pointing at a real frame-accounting bug in the engine, see
+`dart/engine/test/constructor_frame_test.dart`).
+
 ## Coverage ratchet (toward 100% line coverage)
 
 Beyond construct-completeness (§2), we measure **line coverage** and ratchet it

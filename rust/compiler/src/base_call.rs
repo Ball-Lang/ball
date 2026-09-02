@@ -1554,7 +1554,7 @@ impl Compiler<'_> {
         let labelled = cases
             .iter()
             .any(|case| self.switch_case_label(case).is_some());
-        let parsed = self.parse_switch_cases(&cases);
+        let parsed = self.parse_switch_cases(&cases, is_expr);
         if labelled {
             return self.compile_switch_goto(subject_code, parsed);
         }
@@ -1581,31 +1581,38 @@ impl Compiler<'_> {
     }
 
     /// The code the switch evaluates to when no arm matched: the `default:` /
-    /// catch-all (`_`) body when there is one, else `BallValue::Null` — for a
-    /// `switch_expr` exactly as for a statement `switch`.
+    /// catch-all (`_`) body when there is one, else — depending on the kind of
+    /// switch — a runtime throw or `BallValue::Null`.
     ///
-    /// **A missing default is NOT an error, at either kind of switch.** An
-    /// earlier revision of this port made a defaultless `switch_expr` throw
-    /// `StateError('Non-exhaustive switch expression')`, reasoning that Dart's
-    /// exhaustiveness checker makes the fall-through unreachable. That is false
-    /// for Ball IR, and it broke the self-hosted engine: the engine's own oneof
+    /// A defaultless switch **expression** that matched nothing is
+    /// **non-exhaustive**: Dart makes that a compile-time error, C# throws
+    /// (`csharp/compiler/src/BaseCall.cs`) and Go throws
+    /// (`go/compiler/base_call.go`'s `ballrt.Throw(...)`); align to them
+    /// (issue #467).
+    ///
+    /// This tail is engine-safe *only* because the engine's own oneof
     /// dispatchers (`_evalExpression` on `whichExpr`, `_evalLiteral` on
-    /// `whichValue`) are defaultless switch *expressions* over the oneof's set
-    /// arms, and a Ball `null` literal is a `Literal` whose `value` oneof is
-    /// **notSet** — it legitimately matches no case and must fall through to
-    /// null. The throw fired there and killed the null/nullable fixtures.
+    /// `whichValue`) really are exhaustive — each carries an explicit `notSet`
+    /// arm that matches on its own merits, so the tail is unreachable there. An
+    /// earlier revision restored this throw *without* that being true: the
+    /// `notSet` arm's body is the bare `null` literal, which
+    /// [`Compiler::parse_switch_cases`] then misread as a body-less
+    /// fall-through and deleted, so the throw fired on every null literal and
+    /// killed the null/nullable fixtures (320 → 315). Issue #470 fixed the arm
+    /// dropping; this throw is only correct on top of that fix.
     ///
-    /// Fail-loud (issue #55) belongs at **compile time**, on an unhandled
-    /// pattern *kind* (`crate::pattern::Compiler::compile_pattern`'s `panic!`) —
-    /// not on a legitimate *runtime* fall-through in the IR. The reference TS
-    /// compiler agrees (`ts/compiler/src/compiler.ts`: `const tail = defaultBody
-    /// ? this.expr(defaultBody) : "undefined"`), as does the reference engine.
-    ///
-    /// `_is_expr` is kept in the signature to document that the statement and
-    /// expression switches deliberately share one tail.
-    fn switch_default_code(&self, parsed: &ParsedSwitch, _is_expr: bool) -> String {
+    /// A statement `switch`, by contrast, legally does nothing when no case
+    /// matches, so it still falls through to `BallValue::Null`.
+    fn switch_default_code(&self, parsed: &ParsedSwitch, is_expr: bool) -> String {
         match &parsed.default_body {
             Some(body) => self.compile_expression(body),
+            // Only a switch with no `default` case AT ALL is non-exhaustive; a
+            // `default:` that carries no body still catches (mirrors Go's
+            // `if defaultCase != nil { … return ballrt.Value(nil) }`).
+            None if is_expr && !parsed.has_default => {
+                "ball_throw(BallValue::String(\"Non-exhaustive switch expression\".to_string()))"
+                    .to_string()
+            }
             None => "BallValue::Null".to_string(),
         }
     }
@@ -1790,7 +1797,18 @@ impl Compiler<'_> {
     /// one arm's body can resolve a label defined by a *later* arm (e.g. `case
     /// 0`'s body may `continue('one')` to a `case 1` that hasn't been scanned
     /// yet when `case 0`'s text is written).
-    fn parse_switch_cases(&self, cases: &[Expression]) -> ParsedSwitch {
+    ///
+    /// `is_expr` gates the **fall-through absorption** above to statement mode.
+    /// A switch *expression* has no fall-through — every arm carries a value —
+    /// and Ball encodes `null` as a value-less `Literal`, the very shape
+    /// [`is_empty_switch_body`] reads as "empty". Applied to an expression, the
+    /// emptiness test deletes every `=> null` arm and leaks its condition into
+    /// the next one (or, for the last case, drops it entirely): it compiles,
+    /// exits 0, and answers wrong (issue #470 — the self-hosted engine's own
+    /// `_evalLiteral` lost its `Literal_Value.notSet` arm this way). Mirrors
+    /// `go/compiler/base_call.go`'s `!exprMode && isEmptySwitchBody(...)` gate
+    /// (lines 514-522), which documents the identical failure mode.
+    fn parse_switch_cases(&self, cases: &[Expression], is_expr: bool) -> ParsedSwitch {
         let mut parsed = ParsedSwitch::default();
         // Match conditions of body-less (fall-through) cases, carried forward
         // until the next case that supplies a real body absorbs them.
@@ -1807,7 +1825,13 @@ impl Compiler<'_> {
             if let Some(label) = self.string_field(&cf, "label").filter(|l| !l.is_empty()) {
                 pending_labels.push(label);
             }
-            let body = cf.get("body").filter(|b| !is_empty_switch_body(b)).cloned();
+            // STATEMENT MODE ONLY — see this function's doc comment and
+            // [`is_empty_switch_body`]: in expression mode an explicitly
+            // present `body` is always a real value, never a fall-through.
+            let body = cf
+                .get("body")
+                .filter(|b| is_expr || !is_empty_switch_body(b))
+                .cloned();
             let guard = cf.get("guard").cloned();
 
             if self.bool_field(&cf, "is_default") {
@@ -2267,6 +2291,14 @@ pub(crate) fn literal_list_elements(expr: &Expression) -> Vec<Expression> {
 /// statements, no result) or a `notSet` literal — the signal (alongside an
 /// absent `body`) that the case falls through to the next label's body. Mirrors
 /// the reference Dart compiler's `_isEmptyBody`.
+///
+/// **Only meaningful for a statement `switch`.** A `notSet` literal is also
+/// exactly how Ball encodes the *value* `null`, so in a switch **expression**
+/// — where every arm carries a value and nothing falls through — this test
+/// cannot distinguish `case X:` (a fall-through label) from `case X => null`
+/// (a real arm). [`Compiler::parse_switch_cases`] therefore applies it only
+/// when `is_expr` is false, mirroring `go/compiler/base_call.go:514-522`
+/// (issue #470).
 fn is_empty_switch_body(expr: &Expression) -> bool {
     match &expr.expr {
         Some(Expr::Block(block)) => block.statements.is_empty() && block.result.is_none(),

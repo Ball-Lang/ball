@@ -257,6 +257,16 @@ fn bool_lit(value: bool) -> Expression {
     }
 }
 
+/// Ball's `null` literal — a `Literal` whose `value` oneof is **unset**
+/// (`Literal_Value.notSet`). This is the shape `is_empty_switch_body` reads as
+/// "empty", which is why a `switch_expr` arm whose whole body is `null` needs
+/// its own regression test (issue #470).
+fn null_lit() -> Expression {
+    Expression {
+        expr: Some(Expr::Literal(Literal { value: None })),
+    }
+}
+
 fn list_lit(elements: Vec<Expression>) -> Expression {
     Expression {
         expr: Some(Expr::Literal(Literal {
@@ -417,10 +427,23 @@ fn switch_default(body: Expression) -> Expression {
     )
 }
 
+/// A **statement**-mode switch (`std.switch`) — despite the helper's name,
+/// which predates the expression-mode helper below.
 fn switch_expr(subject: Expression, cases: Vec<Expression>) -> Expression {
     call(
         "std",
         "switch",
+        Some(args(vec![("subject", subject), ("cases", list_lit(cases))])),
+    )
+}
+
+/// An **expression**-mode switch — the literal call name `std.switch_expr`
+/// that `base_call.rs`'s dispatch table routes to `compile_switch(call, true)`.
+/// Every arm carries a value and there is no fall-through (issues #470/#467).
+fn switch_expr_call(subject: Expression, cases: Vec<Expression>) -> Expression {
+    call(
+        "std",
+        "switch_expr",
         Some(args(vec![("subject", subject), ("cases", list_lit(cases))])),
     )
 }
@@ -631,6 +654,91 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
 
     let _ = fs::remove_dir_all(&fixture_dir);
     String::from_utf8(output.stdout).expect("fixture stdout must be valid UTF-8")
+}
+
+/// The failure-tolerant sibling of [`compile_and_run`]: builds and runs the
+/// same throwaway Cargo package but returns `(exit_success, stdout, stderr)`
+/// instead of asserting success, so a fixture whose *point* is a runtime abort
+/// can be asserted on. A **compile** failure is still a hard panic — only a
+/// non-zero exit from the built binary is a legitimate outcome here.
+fn compile_and_run_capturing(fixture_name: &str, rust_src: &str) -> (bool, String, String) {
+    let workspace_root = workspace_root();
+    let target_dir = workspace_root.join("target");
+    let unique = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let fixture_dir = std::env::temp_dir().join(format!(
+        "ball_rustc_fixture_{fixture_name}_{}_{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| {
+        panic!(
+            "failed to create fixture dir {}: {err}",
+            fixture_dir.display()
+        )
+    });
+
+    let shared_path = workspace_root.join("shared");
+    let manifest = format!(
+        "[package]\nname = \"ball_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
+         [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
+         [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
+        shared_path
+    );
+    fs::write(fixture_dir.join("Cargo.toml"), manifest)
+        .expect("failed to write fixture Cargo.toml");
+    fs::write(fixture_dir.join("main.rs"), rust_src).expect("failed to write fixture main.rs");
+
+    let manifest_path = fixture_dir.join("Cargo.toml");
+    let build = Command::new("cargo")
+        .args(["build", "--quiet"])
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .output()
+        .expect("failed to spawn `cargo build` — is cargo on PATH?");
+    if !build.status.success() {
+        panic!(
+            "fixture '{fixture_name}' failed to COMPILE (a runtime abort was expected, not a build error).\n\
+             --- generated main.rs ---\n{rust_src}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&build.stderr),
+        );
+    }
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet"])
+        .arg("--manifest-path")
+        .arg(&manifest_path)
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .output()
+        .expect("failed to spawn `cargo run` — is cargo on PATH?");
+
+    let _ = fs::remove_dir_all(&fixture_dir);
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
+/// Asserts the compiled program **aborts** (non-zero exit) instead of
+/// producing a value — the shape a `ball_throw` (`std::panic::panic_any`, see
+/// `rust/shared/src/runtime.rs`) produces outside a `try`/`catch_unwind`.
+///
+/// Only the exit status is asserted, never the stderr text: `panic_any` carries
+/// a `BallValue` payload, and Rust's default panic hook renders a non-`&str`/
+/// non-`String` payload as `Box<dyn Any>` — the thrown message never reaches
+/// stderr. The *message* is asserted end-to-end by catching the throw with
+/// `std.try` and printing it (see
+/// `switch_expr_non_exhaustive_throw_is_catchable_and_carries_its_message`).
+fn assert_program_aborts(fixture_name: &str, program: &Program) {
+    let compiled = Compiler::new(program).compile();
+    let (success, stdout, _stderr) = compile_and_run_capturing(fixture_name, &compiled);
+    assert!(
+        !success,
+        "fixture '{fixture_name}' exited 0 but was expected to abort.\n\
+         --- stdout ---\n{stdout}\n--- generated main.rs ---\n{compiled}"
+    );
 }
 
 fn assert_program_prints(fixture_name: &str, program: &Program, expected_stdout: &str) {
@@ -1100,6 +1208,81 @@ fn switch_dispatches_to_the_matching_case() {
     ));
     let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
     assert_program_prints("switch", &program, "two");
+}
+
+/// Issue #470 — a `switch_expr` arm whose entire body is the bare `null`
+/// literal is a **real arm carrying the value null**, never a body-less Dart
+/// fall-through label. `is_empty_switch_body` cannot tell the two apart (both
+/// are a `Literal` with an unset `value` oneof), so the emptiness heuristic
+/// must be gated on statement mode — exactly as `go/compiler/base_call.go`
+/// already does.
+///
+/// Subject `2` must print `null`, not `"other"`: the case-2 arm's own value.
+#[test]
+fn switch_expr_null_arm_is_not_dropped() {
+    let main_body = print_to_string(switch_expr_call(
+        int_lit(2),
+        vec![
+            switch_case(int_lit(1), string_lit("one")),
+            switch_case(int_lit(2), null_lit()),
+            switch_default(string_lit("other")),
+        ],
+    ));
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("switch_expr_null_arm", &program, "null");
+}
+
+/// Issue #467 — a defaultless `switch_expr` whose subject matches no case is
+/// **non-exhaustive**: Dart makes it a compile-time error, C# and Go throw at
+/// runtime, and Rust must align. Uncaught, that throw aborts the process
+/// instead of quietly yielding `null`.
+#[test]
+fn switch_expr_non_exhaustive_throws_at_runtime() {
+    let main_body = print_to_string(switch_expr_call(
+        int_lit(5),
+        vec![switch_case(int_lit(1), string_lit("one"))],
+    ));
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_aborts("switch_expr_non_exhaustive", &program);
+}
+
+/// The same throw, observed by value: `std.try` catches it (`catch_unwind`)
+/// and the bound variable carries the exact message the other targets throw
+/// (`go/compiler/base_call.go`, `csharp/compiler/src/BaseCall.cs`).
+#[test]
+fn switch_expr_non_exhaustive_throw_is_catchable_and_carries_its_message() {
+    let main_body = print_to_string(try_expr(
+        block(
+            vec![expr_stmt(switch_expr_call(
+                int_lit(5),
+                vec![switch_case(int_lit(1), string_lit("one"))],
+            ))],
+            int_lit(0),
+        ),
+        vec![catch_clause("e", reference("e"))],
+    ));
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints(
+        "switch_expr_non_exhaustive_caught",
+        &program,
+        "Non-exhaustive switch expression",
+    );
+}
+
+/// A defaultless *statement* `switch` that matches nothing is legal and must
+/// stay silent — the guard that keeps #467's expression-mode throw from
+/// leaking into statement mode.
+#[test]
+fn switch_statement_without_default_matching_nothing_is_a_no_op() {
+    let main_body = block(
+        vec![expr_stmt(switch_expr(
+            int_lit(5),
+            vec![switch_case(int_lit(1), print_to_string(string_lit("one")))],
+        ))],
+        print_to_string(string_lit("done")),
+    );
+    let program = program_with_main(vec![user_fn("main", "", "void", main_body, None)]);
+    assert_program_prints("switch_stmt_no_default", &program, "done");
 }
 
 /// `tests/conformance/400_switch_continue_label.ball.json` — Dart's

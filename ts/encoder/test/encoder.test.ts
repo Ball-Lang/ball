@@ -322,12 +322,15 @@ describe("TsEncoder", () => {
   });
 
   test("encodes method calls", () => {
-    // arr.push(1) maps to std.list_add({ list: arr, value: 1 })
+    // arr.push(1) maps to std_collections.list_push({ list: arr, value: 1 }) —
+    // the canonical name ts/compiler's compileStdCall dispatches on. The old
+    // "list_add" spelling exists nowhere in the Dart reference implementation
+    // and threw "std.list_add is not implemented" in the compiler (#489).
     const program = encode(`function main() { arr.push(1); }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const call = mainFn.body!.block!.statements[0].expression!.call!;
-    assert.equal(call.function, "list_add");
-    assert.equal(call.module, "std");
+    assert.equal(call.function, "list_push");
+    assert.equal(call.module, "std_collections");
     const listField = call.input!.messageCreation!.fields.find(f => f.name === "list");
     assert.ok(listField);
     const valueField = call.input!.messageCreation!.fields.find(f => f.name === "value");
@@ -380,16 +383,24 @@ describe("TsEncoder", () => {
     const program = encode(`function main() { const x = obj?.prop; }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const val = mainFn.body!.block!.statements[0].let!.value!;
-    assert.equal(val.call!.function, "optional_access");
+    // Canonical name + field shape (target/field), matching compileStdCall's
+    // `case "null_aware_access"` and dart/compiler's own emission (#489).
+    assert.equal(val.call!.function, "null_aware_access");
     assert.equal(val.call!.module, "std");
+    const fields = val.call!.input!.messageCreation!.fields;
+    assert.equal(fields.find(f => f.name === "target")!.value.reference!.name, "obj");
+    assert.equal(fields.find(f => f.name === "field")!.value.literal!.stringValue, "prop");
   });
 
   test("encodes optional chaining method call", () => {
     const program = encode(`function main() { const x = obj?.method(1); }`);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
     const val = mainFn.body!.block!.statements[0].let!.value!;
-    assert.equal(val.call!.function, "optional_call");
+    assert.equal(val.call!.function, "null_aware_call");
     assert.equal(val.call!.module, "std");
+    const fields = val.call!.input!.messageCreation!.fields;
+    assert.equal(fields.find(f => f.name === "target")!.value.reference!.name, "obj");
+    assert.equal(fields.find(f => f.name === "method")!.value.literal!.stringValue, "method");
   });
 
   test("encodes rest parameters", () => {
@@ -712,16 +723,49 @@ describe("TsEncoder", () => {
     assert.equal(warnings.length, 0);
   });
 
-  test("an unhandled EXPRESSION kind (delete) warns and falls back to a placeholder literal", () => {
-    // The `with` tests above exercise encodeStatement's unhandled-kind
-    // fallback; `delete` is a distinct TS node kind (DeleteExpression, not
-    // a PrefixUnaryExpression) with no Ball mapping, so it exercises
-    // encodeExpr's OWN unhandled-kind fallback instead.
+  // Was a bug-locking test (#490): it asserted that `delete` warned and left a
+  // `/* unhandled: DeleteExpression */` placeholder string in the program, so
+  // the gap was under active regression protection instead of being fixed.
+  // Rewritten to assert the real encoding — std_collections.map_delete has been
+  // declared and Dart-engine-implemented all along, just never emitted.
+  test("delete obj.prop encodes to std_collections.map_delete with no warnings", () => {
     const { program, warnings } = encodeWithWarnings(`function main() { delete obj.prop; }`);
-    assert.ok(warnings.some(w => w.includes("DeleteExpression")));
+    assert.deepEqual(warnings, []);
     const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
-    const stmt = mainFn.body!.block!.statements[0].expression!.literal!.stringValue!;
-    assert.ok(stmt.includes("unhandled: DeleteExpression"));
+    const call = mainFn.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "map_delete");
+    assert.equal(call.module, "std_collections");
+    const fields = call.input!.messageCreation!.fields;
+    assert.equal(fields.find(f => f.name === "map")!.value.reference!.name, "obj");
+    assert.equal(fields.find(f => f.name === "key")!.value.literal!.stringValue, "prop");
+  });
+
+  test("delete obj[expr] encodes the computed key through map_delete", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { delete obj[k]; }`);
+    assert.deepEqual(warnings, []);
+    const mainFn = program.modules.find(m => m.name === "main")!.functions.find(f => f.name === "main")!;
+    const call = mainFn.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "map_delete");
+    const fields = call.input!.messageCreation!.fields;
+    assert.equal(fields.find(f => f.name === "key")!.value.reference!.name, "k");
+  });
+
+  test("super.method() encodes the receiver as reference{name:'super'}", () => {
+    const { program, warnings } = encodeWithWarnings(
+      `class A { greet() { return "a"; } }\nclass B extends A { greet() { return super.greet(); } }`,
+    );
+    assert.deepEqual(warnings, []);
+    const mod = program.modules.find(m => m.name === "main")!;
+    const greet = mod.functions.find(f => f.name === "B.greet")!;
+    // `return <expr>` encodes as std.return(value: <expr>) — unwrap it first.
+    const ret = greet.body!.block!.statements[0].expression!.call!;
+    assert.equal(ret.function, "return");
+    const call = ret.input!.messageCreation!.fields.find(f => f.name === "value")!.value.call!;
+    assert.equal(call.function, "greet");
+    const self = call.input!.messageCreation!.fields.find(f => f.name === "self")!;
+    // Mirrors dart/encoder/lib/encoder.dart's SuperExpression encoding exactly,
+    // the shape conformance fixture 107_method_override_super already proves.
+    assert.deepEqual(self.value, { reference: { name: "super" } });
   });
 
   test("full encode produces valid Program structure", () => {

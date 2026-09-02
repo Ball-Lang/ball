@@ -56,6 +56,32 @@ executed conformance fixture, or be a documented carve-out in
 direction that was missing for #55. `check_conformance_sources.dart` enforces
 the reverse (every `.ball.json` has a source).
 
+> **That gate is scoped to `dart/encoder/lib/encoder.dart` only** — it literally
+> scans that one file's emit sites. It has no notion of `ts/encoder`,
+> `rust/encoder`, `go/encoder`, `csharp/encoder` or `python/encoder`. Issues #489
+> and #490 lived in exactly that blind spot: the TS encoder emitted fifteen std
+> names no compiler implements, and left six syntax kinds unhandled, with the
+> full "TypeScript" CI job green. The per-language equivalent is
+> `ts/compiler/test/std_name_consistency.test.ts` (statically enumerate every
+> name that encoder can emit, then compile each one) plus a documented carve-out
+> file (`ts/encoder/ENCODER_CARVEOUTS.md`). A new language encoder needs both.
+
+### 2b. A name-shape assertion is not a test
+An encoder unit test that asserts `call.function === "list_add"` proves only that
+the encoder is self-consistent. It passes *because* the bug exists, and it makes
+the bug harder to fix, because the assertion has to be rewritten before the fix
+can go green. #489/#490 shipped six such bug-locking tests — three of which
+asserted an unhandled construct's `/* unhandled: ... */` placeholder as the
+expected output, one of them under a comment admitting "this is a genuine
+TS-encoder gap".
+
+The counter-measure is that every construct must be exercised by a leg that
+**executes** it end to end: `ts/encoder/test/roundtrip.test.ts`
+(`encode() → compile() → run both → diff stdout`) for TS, the conformance corpus
+for Dart. Both mismatched names and mismatched *field* names die there and
+nowhere else — `string_replace` fed the wrong field names compiled silently to
+`''`, which no name assertion can see.
+
 > Coverage measured by *function-name presence* (the old 67% number tracked in
 > [issue #134](https://github.com/Ball-Lang/ball/issues/134)) is **not**
 > completeness: it counted
@@ -242,7 +268,10 @@ could not parse a summary at all).
 |---|---|---|
 | Oracle = native Dart | `generate_conformance.dart` + drift check | every PR (`ball-freshness`) |
 | Reverse sourcing | `check_conformance_sources.dart` | every PR |
-| **Completeness (§2)** | `check_encoder_completeness.dart` | every PR |
+| **Completeness (§2)** — Dart encoder only | `check_encoder_completeness.dart` | every PR |
+| **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
+| **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
+| **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |

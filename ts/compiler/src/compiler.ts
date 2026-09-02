@@ -3900,6 +3900,18 @@ function __isUnknownFnError(e: any): boolean {
       const idx = field(c, "index");
       if (t && idx) return `${this.expr(t)}[${this.expr(idx)}]`;
     }
+    // `null_aware_index` in ASSIGNMENT-TARGET position must be a plain `[…]`:
+    // `a?.[i] = v` is a SyntaxError ("the left-hand side of an assignment
+    // expression must be a variable or a property access"), which is why the
+    // read path emitting `?.[` alone broke the whole self-hosted engine. Dart's
+    // `a?[i] = v` short-circuits when `a` is null; JS has no such form, so the
+    // plain index is the closest faithful lowering for the write path.
+    if (c && (c.function === "null_aware_index") &&
+        (c.module === "" || c.module === "std")) {
+      const t = field(c, "self") ?? field(c, "target");
+      const idx = field(c, "index") ?? field(c, "key");
+      if (t && idx) return `${this.expr(t)}[${this.expr(idx)}]`;
+    }
     return this.expr(e);
   }
 
@@ -4835,7 +4847,13 @@ function __isUnknownFnError(e: any): boolean {
         if (!self_ || !idx) {
           throw new Error("TS compiler: null_aware_index requires a \"self\"/\"target\" and an \"index\"/\"key\" field");
         }
-        return `${this.expr(self_)}[${this.expr(idx)}]`;
+        // `?.[` — NOT a plain `[`. Emitting `target[index]` threw
+        // "Cannot read properties of null" for exactly the null receiver the
+        // construct exists to guard against, which is the opposite of what
+        // `a?.[i]` means. Caught by the optional-element-access round-trip
+        // fixture added with #489 (no encoder emitted this shape before, so
+        // nothing had ever executed it).
+        return `${this.expr(self_)}?.[${this.expr(idx)}]`;
       }
       case "null_aware_access": {
         const target = f.get("target");
@@ -5076,6 +5094,23 @@ function __isUnknownFnError(e: any): boolean {
         if (v && from && to) return `${this.expr(v)}.replace(${this.expr(from)}, ${this.expr(to)})`;
         return "''";
       }
+      // ── Regex (std) ───────────────────────────────────────────────────
+      // Field shapes mirror the Dart reference engine exactly
+      // (dart/engine/lib/engine_std.dart): match/find/find_all take
+      // left = subject, right = pattern; replace/replace_all take
+      // value/from/to. The pattern is always a plain string — the std regex
+      // functions model no flags, so the TS encoder reports a dropped flag as
+      // a behaviour-affecting warning rather than encoding it (#490).
+      case "regex_match":
+        return `new RegExp(${this.expr(fg("right", "pattern", "arg1")!)}).test(${this.expr(fg("left", "value", "arg0")!)})`;
+      case "regex_find":
+        return `(${this.expr(fg("left", "value", "arg0")!)}.match(new RegExp(${this.expr(fg("right", "pattern", "arg1")!)})) ?? [null])[0]`;
+      case "regex_find_all":
+        return `(${this.expr(fg("left", "value", "arg0")!)}.match(new RegExp(${this.expr(fg("right", "pattern", "arg1")!)}, 'g')) ?? [])`;
+      case "regex_replace":
+        return `${this.expr(f.get("value")!)}.replace(new RegExp(${this.expr(f.get("from")!)}), ${this.expr(f.get("to")!)})`;
+      case "regex_replace_all":
+        return `${this.expr(f.get("value")!)}.replace(new RegExp(${this.expr(f.get("from")!)}, 'g'), ${this.expr(f.get("to")!)})`;
       case "string_replace_all": {
         const v = f.get("value") ?? f.get("string");
         const from = f.get("from") ?? f.get("pattern");
@@ -5427,6 +5462,11 @@ function __isUnknownFnError(e: any): boolean {
           }
           case "list_any": return `${this.expr(f.get("list")!)}.some(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_all": return `${this.expr(f.get("list")!)}.every(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          // Dart's Iterable.firstWhere / JS Array.find. Declared in
+          // dart/shared/lib/std_collections.dart and implemented by the Dart
+          // engine, but never reachable from TS before (#489).
+          case "list_find": return `${this.expr(f.get("list")!)}.find(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          case "list_flat_map": return `${this.expr(f.get("list")!)}.flatMap(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_to_list": return `[...${this.expr(f.get("list")!)}]`;
           case "list_foreach": return `${this.expr(f.get("list")!)}.forEach(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "map_foreach": {
@@ -5758,6 +5798,10 @@ function __isUnknownFnError(e: any): boolean {
     const subjectStr = this.expr(subjectExpr);
     const caseExprs = casesField.literal?.listValue?.elements ?? [];
     let defaultBody: Expression | undefined;
+    // Tracked separately from `defaultBody`: a `default:` arm that carries no
+    // body still CATCHES (it just evaluates to nothing), so it is not a
+    // non-exhaustive switch. Only "no default arm at all" is.
+    let hasDefault = false;
     // Each branch carries its match condition, the pattern's bindings, the
     // body expression and an optional `when` guard. The guard references the
     // bound variables, so it must be evaluated where those bindings are in
@@ -5788,6 +5832,7 @@ function __isUnknownFnError(e: any): boolean {
       // Check for is_default flag
       if (isDefaultFlag) {
         defaultBody = body;
+        hasDefault = true;
         continue;
       }
       if (!body) continue;
@@ -5799,6 +5844,7 @@ function __isUnknownFnError(e: any): boolean {
           // refutable branch (the guard can still fall through).
           if (result.condition === "true" && result.bindings.length === 0 && !guardField) {
             defaultBody = body;
+            hasDefault = true;
             break;
           }
           branches.push({ cond: result.condition, bindings: result.bindings, body, guard: guardField });
@@ -5811,6 +5857,7 @@ function __isUnknownFnError(e: any): boolean {
       const caseMatch = pattern ?? valueField;
       if (!caseMatch) {
         defaultBody = body;
+        hasDefault = true;
         continue;
       }
       const patText = patternLiteralText(caseMatch);
@@ -5826,13 +5873,41 @@ function __isUnknownFnError(e: any): boolean {
       const cond = patternToTsCondition(patText, subjectStr);
       if (cond === "true" && !guardField) {
         defaultBody = body;
+        hasDefault = true;
         break;
       }
       // Check if the pattern introduces variable bindings.
       const bindings = patternBindings(patText, subjectStr);
       branches.push({ cond, bindings, body, guard: guardField });
     }
-    const tail = defaultBody ? this.expr(defaultBody) : "undefined";
+    // What the switch evaluates to when nothing matched.
+    //
+    // A defaultless switch EXPRESSION that matched nothing is non-exhaustive.
+    // Dart's engine throws BallRuntimeError('Non-exhaustive switch expression')
+    // (dart/engine/lib/engine_control_flow.dart), C# throws
+    // BallRuntimeException with the same text (csharp/compiler/src/BaseCall.cs),
+    // and Go/Rust throw it too (issue #467). TypeScript answered `undefined`
+    // instead — a silent wrong value where every other target fails loud, and
+    // exactly the silent-degradation shape CLAUDE.md's fail-loud rule forbids.
+    //
+    // Two guards keep this faithful, both mirroring the Rust port:
+    //  - only a switch EXPRESSION throws. A statement `switch` legally does
+    //    nothing when no case matches, so it still yields `undefined`.
+    //  - only "no `default` arm AT ALL" is non-exhaustive; a `default:` that
+    //    carries no body still catches.
+    //
+    // Engine-safety: the self-hosted engine's own oneof dispatchers
+    // (`_evalExpression` on whichExpr, `_evalLiteral` on whichValue) are
+    // defaultless switch expressions, but each carries an explicit `notSet`
+    // arm, so this tail is unreachable there. Measured, not assumed —
+    // engine_runtime.test.ts runs the whole conformance corpus through the
+    // engine compiled by THIS compiler.
+    const nonExhaustive = call.function === "switch_expr" && !hasDefault;
+    const tail = defaultBody
+      ? this.expr(defaultBody)
+      : nonExhaustive
+        ? "(() => { throw 'Non-exhaustive switch expression'; })()"
+        : "undefined";
     if (branches.length === 0) return tail;
     let result = tail;
     for (const { cond, bindings, body, guard } of [...branches].reverse()) {

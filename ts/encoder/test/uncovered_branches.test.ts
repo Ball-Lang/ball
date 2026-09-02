@@ -126,7 +126,12 @@ describe("encoder statement kinds", () => {
 });
 
 describe("encoder expression kinds", () => {
-  test("typeof maps to std.type_of", () => {
+  // `type_of` is a DOCUMENTED, deliberate gap (#489): JS `typeof` has no
+  // universal std equivalent, and inventing one means a new base function
+  // across every target. The encoder keeps emitting the honest name so the
+  // compiler fails loud and names the construct — see ENCODER_CARVEOUTS.md and
+  // the KNOWN_GAPS table in ts/compiler/test/std_name_consistency.test.ts.
+  test("typeof maps to std.type_of (documented gap — no compiler support yet)", () => {
     const program = encode(`function main() { const t = typeof x; }`);
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
@@ -173,23 +178,27 @@ describe("encoder expression kinds", () => {
     assert.equal(field.value.reference!.name, "a");
   });
 
-  test("optional element access maps to std.optional_access", () => {
+  // Optional ELEMENT access has its own compiler case (null_aware_index); the
+  // encoder used to conflate it with property access under the invented
+  // "optional_access" name, whose `field` the compiler reads as a literal
+  // string (#489).
+  test("optional element access maps to std.null_aware_index", () => {
     const program = encode(`function main() { const v = arr?.[0]; }`);
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     const call = main.body!.block!.statements[0].let!.value!.call!;
-    assert.equal(call.function, "optional_access");
+    assert.equal(call.function, "null_aware_index");
     const fields = call.input!.messageCreation!.fields;
-    assert.equal(fields.find((f) => f.name === "object")!.value.reference!.name, "arr");
-    assert.equal(fields.find((f) => f.name === "field")!.value.literal!.intValue, "0");
+    assert.equal(fields.find((f) => f.name === "target")!.value.reference!.name, "arr");
+    assert.equal(fields.find((f) => f.name === "index")!.value.literal!.intValue, "0");
   });
 
-  test("the `in` operator maps to std_collections.contains_key", () => {
+  test("the `in` operator maps to std_collections.map_contains_key", () => {
     const program = encode(`function main() { const has = 'a' in obj; }`);
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     const call = main.body!.block!.statements[0].let!.value!.call!;
-    assert.equal(call.function, "contains_key");
+    assert.equal(call.function, "map_contains_key");
     assert.equal(call.module, "std_collections");
     const fields = call.input!.messageCreation!.fields;
     assert.equal(fields.find((f) => f.name === "map")!.value.reference!.name, "obj");
@@ -243,26 +252,216 @@ describe("encoder expression kinds", () => {
     assert.equal(main.body!.block!.statements[0].let!.value!.literal!.intValue, "5");
   });
 
-  test("an unhandled prefix operator (unary +) warns and falls back to the bare operand", () => {
-    const program = encode(`function main() { const z = +5; }`);
-    const mod = userModule(program);
-    const main = mod.functions.find((f) => f.name === "main")!;
-    assert.equal(main.body!.block!.statements[0].let!.value!.literal!.intValue, "5");
-  });
-
-  // `**` (exponentiation) has no entry in BINARY_OPS — unlike the Dart
-  // encoder, which maps it (and `>>>`) to a std base function. This is a
-  // genuine TS-encoder gap, not a fixture-of-convenience: both operators fall
-  // through to the same "Unhandled binary operator" warn() + placeholder path.
-  test("an unhandled binary operator (**) warns and falls back to a placeholder literal", () => {
-    const { program, warnings } = encodeWithWarnings(`function main() { const z = 2 ** 3; }`);
+  // Was a bug-locking test (#490): it asserted that `+5` kept intValue "5",
+  // i.e. that the encoder silently DROPPED the numeric coercion and returned
+  // the untouched operand — the one unhandled path that emitted no placeholder
+  // at all, so `+"5"` stayed the string "5". Ball has no universal
+  // coerce-to-number base function (only string_to_int/string_to_double, which
+  // are wrong for a non-string operand), so inventing a routing here would be a
+  // guess. Rewritten to assert the honest behaviour: a behaviour-affecting
+  // warning plus a placeholder, and a hard EncodeError under strict mode.
+  test("unary + fails loud instead of silently dropping the coercion", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { const z = +5; }`);
+    assert.ok(
+      warnings.some((w) => w.includes("Unhandled prefix operator: PlusToken")),
+      "should warn about the unsupported coercion",
+    );
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     const value = main.body!.block!.statements[0].let!.value!;
-    assert.ok(value.literal!.stringValue?.includes("binary:"), "falls back to a placeholder literal");
     assert.ok(
-      warnings.some((w) => w.includes("Unhandled binary operator")),
-      "should warn about the unhandled operator",
+      value.literal!.stringValue?.includes("unary: PlusToken"),
+      "emits a placeholder rather than silently returning the bare operand",
+    );
+    assert.throws(
+      () => encode(`function main() { const z = +5; }`, { strict: true }),
+      /PlusToken/,
+    );
+  });
+
+  // Was a bug-locking test (#490): it asserted `**` warned and fell back to a
+  // placeholder, and its own comment admitted "This is a genuine TS-encoder
+  // gap" — a known gap shipped as a passing green test. `math_pow` is a
+  // declared, Dart-engine-implemented std base function; it just had no
+  // encoder anywhere emitting it.
+  test("exponentiation ** encodes to std.math_pow with no warnings", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { const z = 2 ** 3; }`);
+    assert.deepEqual(warnings, []);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "math_pow");
+    assert.equal(call.module, "std");
+    const fields = call.input!.messageCreation!.fields;
+    assert.equal(fields.find((f) => f.name === "left")!.value.literal!.intValue, "2");
+    assert.equal(fields.find((f) => f.name === "right")!.value.literal!.intValue, "3");
+  });
+
+  test("compound exponentiation **= encodes to a std.assign with op '**='", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { let n = 2; n **= 3; }`);
+    assert.deepEqual(warnings, []);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[1].expression!.call!;
+    assert.equal(call.function, "assign");
+    const op = call.input!.messageCreation!.fields.find((f) => f.name === "op")!;
+    assert.equal(op.value.literal!.stringValue, "**=");
+  });
+
+  test("a regex literal encodes to its pattern source; flags are flagged as lossy", () => {
+    const plain = encodeWithWarnings(`function main() { const ok = /^[a-z]+$/.test("abc"); }`);
+    assert.deepEqual(plain.warnings, []);
+    const mod = userModule(plain.program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "regex_match");
+    assert.equal(call.module, "std");
+    const fields = call.input!.messageCreation!.fields;
+    assert.equal(fields.find((f) => f.name === "left")!.value.literal!.stringValue, "abc");
+    assert.equal(fields.find((f) => f.name === "right")!.value.literal!.stringValue, "^[a-z]+$");
+
+    // The std regex_* functions take the pattern as a plain string and model no
+    // flags at all, so dropping `i` genuinely changes behaviour — it must warn.
+    const flagged = encodeWithWarnings(`function main() { const ok = /abc/i.test("ABC"); }`);
+    assert.ok(
+      flagged.warnings.some((w) => w.includes("regular-expression flags")),
+      `expected a dropped-flag warning, got ${JSON.stringify(flagged.warnings)}`,
+    );
+  });
+
+  test("import.meta is a documented carve-out that warns rather than mis-encoding", () => {
+    const { warnings } = encodeWithWarnings(`function main() { const u = import.meta.url; }`);
+    assert.ok(
+      warnings.some((w) => w.includes("MetaProperty")),
+      "Ball has no ES module system, so import.meta must fail loud",
+    );
+    assert.throws(
+      () => encode(`function main() { const u = import.meta.url; }`, { strict: true }),
+      /MetaProperty/,
+    );
+  });
+
+  test("`satisfies` is erased like an `as` cast", () => {
+    const { program, warnings } = encodeWithWarnings(
+      `function main() { const x = 5 satisfies number; }`,
+    );
+    assert.deepEqual(warnings, []);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    assert.equal(main.body!.block!.statements[0].let!.value!.literal!.intValue, "5");
+    // Because the erasure is silent, `satisfies` reaches NEITHER strict mode.
+    // It therefore has no `ERASURE_ONLY_KINDS` entry — an entry would be dead
+    // code, and ENCODER_CARVEOUTS.md says so. Locking both modes here keeps the
+    // doc, the set and the behaviour from drifting apart again.
+    assert.doesNotThrow(() =>
+      encode(`function main() { const x = 5 satisfies number; }`, { strict: true }),
+    );
+    assert.doesNotThrow(() =>
+      encode(`function main() { const x = 5 satisfies number; }`, {
+        strictBehaviorAffecting: true,
+      }),
+    );
+  });
+
+  test("a standalone regex literal encodes to its pattern source", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { const re = /a\\/b/; }`);
+    assert.deepEqual(warnings, []);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    // The closing delimiter is the LAST unescaped slash, so an escaped slash
+    // inside the pattern survives.
+    assert.equal(main.body!.block!.statements[0].let!.value!.literal!.stringValue, "a\\/b");
+  });
+
+  test("a standalone flagged regex literal warns about the dropped flags", () => {
+    const { warnings } = encodeWithWarnings(`function main() { const re = /abc/gi; }`);
+    assert.ok(
+      warnings.some((w) => w.includes("regular-expression flags")),
+      `expected a dropped-flag warning, got ${JSON.stringify(warnings)}`,
+    );
+  });
+
+  test("delete on a bare binding (not a property) fails loud", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { delete x; }`);
+    assert.ok(warnings.some((w) => w.includes("Unhandled delete target")));
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    assert.ok(
+      main.body!.block!.statements[0].expression!.literal!.stringValue!
+        .includes("unhandled delete"),
+    );
+  });
+
+  test("Array.flat() desugars to list_flat_map with an identity callback", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { const f = xs.flat(); }`);
+    assert.deepEqual(warnings, []);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].let!.value!.call!;
+    assert.equal(call.function, "list_flat_map");
+    assert.equal(call.module, "std_collections");
+    const cb = call.input!.messageCreation!.fields.find((f) => f.name === "function")!;
+    // `flatMap(x => x)` IS `flat()`; there is no canonical `list_flatten`.
+    assert.equal(cb.value.lambda!.body!.reference!.name, "__ball_flat_item");
+  });
+
+  test("forEach with a multi-parameter callback reports the lost index/array params", () => {
+    const { warnings } = encodeWithWarnings(
+      `function main() { xs.forEach((v, i) => console.log(i)); }`,
+    );
+    assert.ok(
+      warnings.some((w) => w.includes("std.for_each yields only the element")),
+      `expected a lost-parameter warning, got ${JSON.stringify(warnings)}`,
+    );
+  });
+
+  test("forEach with a callback REFERENCE binds a synthetic variable and invokes it", () => {
+    const { program, warnings } = encodeWithWarnings(`function main() { xs.forEach(handler); }`);
+    assert.deepEqual(warnings, []);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    const call = main.body!.block!.statements[0].expression!.call!;
+    assert.equal(call.function, "for_each");
+    const fields = call.input!.messageCreation!.fields;
+    const varName = fields.find((f) => f.name === "variable")!.value.literal!.stringValue!;
+    assert.match(varName, /^__ball_foreach_\d+$/);
+    const body = fields.find((f) => f.name === "body")!.value.call!;
+    assert.equal(body.function, "invoke");
+    const bodyFields = body.input!.messageCreation!.fields;
+    assert.equal(bodyFields.find((f) => f.name === "callee")!.value.reference!.name, "handler");
+    assert.equal(bodyFields.find((f) => f.name === "arg0")!.value.reference!.name, varName);
+  });
+
+  test("String.match without the `g` flag is reported as shape-changing", () => {
+    const { program, warnings } = encodeWithWarnings(
+      `function main() { const m = "a1".match(/[0-9]/); }`,
+    );
+    assert.ok(
+      warnings.some((w) => w.includes("without the \"g\" flag")),
+      `expected a non-global match warning, got ${JSON.stringify(warnings)}`,
+    );
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    assert.equal(main.body!.block!.statements[0].let!.value!.call!.function, "regex_find");
+  });
+
+  test("regex .exec() routes to std.regex_find", () => {
+    const { program } = encodeWithWarnings(`function main() { const m = /[0-9]/.exec("a1"); }`);
+    const mod = userModule(program);
+    const main = mod.functions.find((f) => f.name === "main")!;
+    assert.equal(main.body!.block!.statements[0].let!.value!.call!.function, "regex_find");
+  });
+
+  test("strictBehaviorAffecting throws for lossy constructs but not for erasure-only ones", () => {
+    // Erasure-only: a type alias contributes nothing to what the program
+    // computes, so dropping it is safe and must NOT throw.
+    assert.doesNotThrow(() =>
+      encode(`function main() { type T = number; const x = 1; }`, { strictBehaviorAffecting: true }),
+    );
+    // Behaviour-affecting: import.meta silently becomes a placeholder string.
+    assert.throws(
+      () => encode(`function main() { const u = import.meta.url; }`, { strictBehaviorAffecting: true }),
+      /MetaProperty/,
     );
   });
 });
@@ -570,18 +769,35 @@ describe("encoder misc expression/declaration kinds (wave 2)", () => {
   });
 
   // `splice` (unlike `slice`) has no STR_METHODS entry, so it can only
-  // resolve through ARR_METHODS — a reliable way to reach the multi-arg
-  // naming branch without the encoder's string/array method maps colliding
-  // (both maps happen to have a `slice` entry, and STR_METHODS is checked
-  // first, so `arr.slice(...)` alone would silently test the STRING path).
-  test("a multi-argument array method call (splice(index, count)) names args arg1, arg2, ...", () => {
-    const program = encode(`function main() { const s = arr.splice(1, 2); }`);
+  // resolve through ARR_METHODS — a reliable way to reach the argument-naming
+  // branch without the encoder's string/array method maps colliding (both maps
+  // happen to have a `slice` entry, and STR_METHODS is checked first, so
+  // `arr.slice(...)` alone would silently test the STRING path).
+  //
+  // Arguments are now named after the fields compileStdCall actually reads
+  // (`index` for list_remove_at), not positionally — the positional
+  // value/arg1/arg2 scheme is what made `string_replace` compile to `''` and
+  // `string_substring` crash (#489). Only `splice(i, 1)` maps cleanly, so any
+  // other count is reported as lossy instead of silently dropped.
+  test("an array method call names its arguments after the compiler's own fields", () => {
+    const program = encode(`function main() { const s = arr.splice(1, 1); }`);
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     const call = main.body!.block!.statements[0].let!.value!.call!;
     assert.equal(call.function, "list_remove_at");
+    assert.equal(call.module, "std_collections");
     const fields = call.input!.messageCreation!.fields;
-    assert.equal(fields.find((f) => f.name === "value")!.value.literal!.intValue, "1");
-    assert.equal(fields.find((f) => f.name === "arg1")!.value.literal!.intValue, "2");
+    assert.equal(fields.find((f) => f.name === "list")!.value.reference!.name, "arr");
+    assert.equal(fields.find((f) => f.name === "index")!.value.literal!.intValue, "1");
+    // An argument past the named list still gets a positional fallback name.
+    assert.equal(fields.find((f) => f.name === "arg1")!.value.literal!.intValue, "1");
+  });
+
+  test("splice with a count other than 1 is reported as lossy", () => {
+    const { warnings } = encodeWithWarnings(`function main() { const s = arr.splice(1, 2); }`);
+    assert.ok(
+      warnings.some((w) => w.includes("Array.splice is only representable")),
+      `expected a lossy-splice warning, got ${JSON.stringify(warnings)}`,
+    );
   });
 });

@@ -831,6 +831,12 @@ export function createEngineSetup(mod: EngineModule) {
     _r('list_reversed', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; return Array.isArray(l) ? [...l].reverse() : []; });
     _r('list_sublist', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const s = Number(m['start'] ?? m['arg0'] ?? 0); const e = m['end'] ?? m['arg1']; return Array.isArray(l) ? l.slice(s, e != null ? Number(e) : undefined) : []; });
     _r('list_index_of', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const v = m['value'] ?? m['element']; if (typeof l === 'string') return l.indexOf(String(v)); return Array.isArray(l) ? l.indexOf(v) : -1; });
+    // LEGACY ALIAS (#489): `list_add` is not a canonical Ball base function —
+    // dart/shared/lib/std_collections.dart declares `list_push`. It was added
+    // here ad hoc so the TS encoder's (non-canonical) output would run on this
+    // engine, which is precisely why the encoder/compiler vocabulary drift went
+    // unnoticed. The encoder now emits `list_push`; this registration is kept
+    // only so Ball programs encoded by an older @ball-lang/encoder still run.
     _r('list_add', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const v = m['value'] ?? m['element']; if (l instanceof Set) { l.add(v); return null; } if (Array.isArray(l)) l.push(v); return null; });
     _r('list_add_all', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const o = m['other'] ?? m['elements'] ?? []; if (Array.isArray(l) && Array.isArray(o)) l.push(...o); return null; });
     _r('list_remove_at', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); return Array.isArray(l) ? l.splice(idx, 1)[0] : null; });
@@ -963,6 +969,10 @@ export function createEngineSetup(mod: EngineModule) {
     _r('string_contains', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').includes(String(m['substring'] ?? m['pattern'] ?? m['other'] ?? '')); });
     _r('string_length', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').length; });
     _r('string_index_of', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? m['left'] ?? m['arg0'] ?? '').indexOf(String(m['substring'] ?? m['pattern'] ?? m['right'] ?? m['arg1'] ?? '')); });
+    // LEGACY ALIASES (#489), same story as `list_add` above: the canonical
+    // names are `string_to_upper`/`string_to_lower` (dart/shared/lib/std.dart),
+    // which the encoder now emits. Kept for programs encoded by an older
+    // @ball-lang/encoder.
     _r('string_to_upper_case', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').toUpperCase(); });
     _r('string_to_lower_case', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').toLowerCase(); });
     _r('string_trim', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').trim(); });

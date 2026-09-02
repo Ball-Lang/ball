@@ -139,10 +139,24 @@ describe("Phase 2.7b: compiled engine runtime parity", () => {
   // Compile engine.dart once for all tests.
   const engineBallJsonPath = resolve(root, "dart/self_host/engine.ball.json");
 
-  // Skip the whole suite if engine.ball.json doesn't exist.
-  if (!existsSync(engineBallJsonPath)) {
-    test.skip("engine.ball.json not found — run roundtrip_engine.dart first", () => {});
-    return;
+  // `engine.ball.json` is a gitignored build artifact, so it is ABSENT from a
+  // fresh checkout — including CI's. This suite used to skip itself in that
+  // case, which made it a fake green: it is the only leg that compiles the
+  // self-hosted engine with THIS compiler and runs the whole conformance
+  // corpus through it, and a compiler change that broke all 321 fixtures would
+  // have merged with the suite reporting zero tests. (Exactly that happened
+  // while fixing #489: making `null_aware_index` null-safe in read position
+  // emitted `a?.[i] = v` in WRITE position, a JS SyntaxError that killed the
+  // entire engine — invisible to every other leg.) Regenerate on demand
+  // instead, the same way engine_parse.test.ts already does, writing to a
+  // process-unique path so a concurrently-running test file cannot race us.
+  let ballJsonPath = engineBallJsonPath;
+  if (!existsSync(ballJsonPath)) {
+    ballJsonPath = join(tmpdir(), `ball_engine_program_${process.pid}.ball.json`);
+    execSync(
+      `dart run dart/encoder/tool/roundtrip_engine.dart --skip-analyze --save-program ${ballJsonPath}`,
+      { cwd: root, stdio: "pipe" },
+    );
   }
 
   // The shared engine-setup factory (single source of truth for the
@@ -150,13 +164,10 @@ describe("Phase 2.7b: compiled engine runtime parity", () => {
   // working compiled engine needs). Lives in ts/engine; we reuse it so this
   // harness can never drift from the known-good ts/engine setup.
   const setupPath = resolve(root, "ts/engine/src/engine_setup.ts");
-  if (!existsSync(setupPath)) {
-    test.skip("ts/engine/src/engine_setup.ts not found", () => {});
-    return;
-  }
+  assert.ok(existsSync(setupPath), `ts/engine/src/engine_setup.ts not found at ${setupPath}`);
 
   const program: Program = unwrapBallFile(
-    JSON.parse(readFileSync(engineBallJsonPath, "utf8")),
+    JSON.parse(readFileSync(ballJsonPath, "utf8")),
   );
   const engineTs = compile(program);
 
@@ -170,6 +181,15 @@ describe("Phase 2.7b: compiled engine runtime parity", () => {
   const conformanceFiles = readdirSync(conformanceDir)
     .filter((f) => f.endsWith(".ball.json"))
     .sort();
+
+  // Positive floor: "0 failed" over "0 ran" is not a pass. A harness that stops
+  // finding fixtures must fail here rather than report an empty green suite.
+  test("the conformance corpus is actually present", () => {
+    assert.ok(
+      conformanceFiles.length >= 300,
+      `expected >= 300 conformance fixtures, found ${conformanceFiles.length}`,
+    );
+  });
 
   for (const file of conformanceFiles) {
     const name = file.replace(/\.ball\.json$/, "");

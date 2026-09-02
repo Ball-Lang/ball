@@ -346,6 +346,42 @@ place that can hold every owner of a name; that is also why a getter/setter impl
 first-class reference to it still resolves); a setter merely reserves the dispatcher name, so a
 stray by-name call fails loud instead of storing nothing.
 
+Two resolution rules in that table are load-bearing and were both silent bugs until #461:
+
+- **An own plain field shadows an inherited accessor.** `ResolveAccessorImpl`'s superclass walk
+  consults `current.Descriptor_.Field` before advancing, so `class B extends A { @override int x
+  = 5; }` over `A`'s `get x` reads B's own field. Without that check the walk went straight to
+  `A`'s getter and B's field was permanently unreadable — silently wrong output, no diagnostic.
+  A cross-language conformance fixture for this shape was attempted and **withdrawn**: every
+  engine (Dart/TS/Rust/Go/Python/C#, and the C++ *self-hosted* engine) runs it correctly, but the
+  Ball → **C++ compiled** path emits a call to the hidden getter method and `g++` rejects it
+  (`expression cannot be used as a function`) — tracked as #501, with the exact source, golden and
+  CI output, and the acceptance step that restores the fixture. Until then the C# guarantee is
+  proved only by `compiler/test/AccessorEdgeCaseTests.cs`.
+- **Writing a getter-only property fails loud.** `_getterMembers`/`_setterMembers` are **global**
+  name sets, not per-class, so the check cannot live in `ResolveLValue` (an unrelated map or class
+  with a field called `x`/`value`/`name` would false-throw). Instead `CompileAccessors` synthesizes
+  a `Set__<member>` for every name in `_getterMembers \ _setterMembers` whose body throws
+  `InvalidOperationException` **only** for receivers matching a class that declares that getter
+  (the same `TypeNameTest(td)` guard `CompileSetterAccessor` emits) and otherwise falls through to
+  `BallRuntime.FieldSet`. `ResolveLValue` then routes a getter-only name through
+  `LValueKind.Property` too. Before this, the write lowered to an unconditional
+  `BallRuntime.FieldSet` — a silent field graft that compiled, ran and exited 0.
+  **What that buys, precisely:** the guarantee is *"fails loud when the write is reached"*, not
+  *"rejected at compile time"*. Because the receiver's class is only known at run time (the name
+  sets are global), the throw lives in the emitted `Set__<member>` body, so a program that
+  contains a getter-only write on a code path it never executes still compiles and exits 0. A
+  compile-time check is not available without per-class accessor scoping — see the regression
+  guard `AssignToUnrelatedTypeFieldSharingGetterName_StillWrites`, which pins the behaviour a
+  compile-time check would break.
+
+Neither shape can reach the conformance corpus's *compiler* path by accident: assigning to a Dart
+getter-only member is a Dart compile-time error, and every fixture is generated from a
+`tests/conformance/src/*.dart` that must first run under `dart run`. `compiler/test/
+AccessorEdgeCaseTests.cs` hand-builds both IR shapes directly (plus the two regression guards:
+a subclass that legitimately *inherits* an accessor, and an unrelated type whose plain field
+merely shares the name).
+
 ### Formatting
 
 The emitter emits structurally-correct but minimally-indented C#; run `dotnet format whitespace`
@@ -359,6 +395,13 @@ xUnit v3. `EndToEndTests` compile `hello_world`/`28_fibonacci`/`57_recursion_fac
 `TestSupport.cs`); `LazyControlFlowTests` prove single-branch evaluation; `BaseDispatchTests`
 cover the dispatch categories; `TypeEmitTests`/`LambdaTests` cover types + closures. `Ast.cs`
 builds Ball trees in-code for the targeted tests.
+
+`EndToEndTests` is **four hardcoded fixtures**, not a corpus sweep — do not reach for it as
+"the gate that covers the compiler". The only leg that compiles the whole corpus through
+`CSharpCompiler` + Roslyn is `engine/conformance --leg=compiler`, and that is a ratchet on a
+workflow with no `pull_request` trigger (see "Conformance harness"). Anything whose correctness
+depends on a specific IR shape needs its own test here; `AccessorEdgeCaseTests` (#461) is the
+worked example.
 
 ## Encoder (issue #382)
 
@@ -418,6 +461,45 @@ multiple constructors per class; local functions; sized array allocation without
 interpolation alignment/format specifiers (`{x,5:F2}`). A few method names are inherently
 ambiguous without a semantic model and bias toward one route (documented in `Methods.cs`'s module
 doc comment): `.Contains`/`.IndexOf` → string ops; `.Remove` → `map_delete`.
+
+### Real-world sweep (issue #492, slice 1) — a ratchet, not a gate
+
+`encoder/test/RealWorldSweepTests.cs` + `encoder/test/fixtures/realworld/` measure how much
+*real-world-shaped* C# this encoder accepts. #492 ran 200 real library files through it and got 0;
+this sweep is that measurement committed, one hand-authored fixture per taxonomy bucket — (a) a
+namespaced class library with no `Main`, (b) an interface with a method, (c) a class with two
+constructors, (d) a call into a type declared in a sibling file, (e) a lambda/`PredefinedType`-heavy
+expression, (f) target-typed `new()`, (g) an abstract method with no body. Hand-authored on
+purpose: no network fetch and no third-party licensing (vendoring real packages is #493's scope).
+It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
+workflow edit.
+
+Baseline: **`Results: 0 passed, 7 failed, 7 total`**. That number is printed, never asserted on —
+asserting `N > 0` would make it a permanently-red gate, and asserting `N == 0` would block the very
+slices that fix these buckets. What it *does* assert is a positive floor (a sweep that ran nothing
+cannot read as green), that the shipped fixture directory is **exactly** the declared taxonomy, and
+that every failure is a deliberate `EncoderException` rather than a crash. Each later slice raises
+the printed number; quote the sweep's line, never a hand-maintained count.
+
+The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
+table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
+ever agree with itself, and an assertion that cannot fail documents an intent without enforcing it.
+Concretely: dropping a `.cs` into `encoder/test/fixtures/realworld/` without wiring it into the
+table now fails the sweep, where before it was silently ignored. Adding a bucket therefore means
+editing the table *and* committing the fixture.
+
+**Throw-site taxonomy (#492's issue text gets this wrong — do not repeat it).** An `interface`
+does *not* hit `CSharpEncoder.cs`'s "unsupported type declaration kind" throw:
+`InterfaceDeclarationSyntax` derives from `TypeDeclarationSyntax`, so it passes that check and
+reaches `EncodeTypeDeclaration`, failing only at `Types.cs`'s "method has no body". A member-less
+interface therefore encodes fine — an interface fixture **must** carry a method or it silently
+inflates the passed count. A `delegate` is not a `BaseTypeDeclarationSyntax` at all and hits the
+earlier "unsupported top-level declaration" throw. Only `enum` actually reaches the
+"unsupported type declaration kind" site.
+
+Still open on #492 after this slice: library mode (promote the `internal EncodeModuleOnly` to a
+supported API plus a CLI flag), cross-file symbol resolution, interfaces/abstract members, and
+multiple constructors.
 
 ### Proof (verified 2026-07-11 against the DART reference engine — no C# engine exists yet, #383)
 
@@ -619,7 +701,7 @@ Three legs, one runner, selected via `--leg=`:
   Roslyn (a small `CSharpRunner` duplicated from `csharp/compiler/test/TestSupport.cs`'s technique,
   generalized to the whole corpus and returning outcomes instead of throwing so one fixture's
   failure never aborts the sweep), and diffs stdout. No `SelfHost` needed — never touches the
-  self-hosted engine. Verified fresh: **`Results: 226 passed, 94 failed, 320 total`** — an honest
+  self-hosted engine. Verified fresh: **`Results: 246 passed, 74 failed, 320 total`** — an honest
   measurement of the Phase-4 compiler's own documented scope gaps (`super`/inheritance dispatch,
   static members, enums-as-types, generics reification, generators/`yield`, `std_time`/
   `std_convert` gaps, a handful of `Message`-vs-native-collection built-in methods like `.generate`/
@@ -641,12 +723,20 @@ Three legs, one runner, selected via `--leg=`:
   .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
   /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
 
+**Failure reporting is itself tested.** All three legs describe an expected-vs-actual mismatch
+through the shared `Fixtures.DescribeMismatch`, which names the **first line that actually
+differs** (or the length difference), never line 0. The old per-leg formatting printed line 0 of
+each side, so a divergence anywhere later rendered as a self-contradictory diff — a `Fail` reading
+`expected (3): 1` / `actual (3): 1`, which looks like a match and hides where the two parted.
+`engine/test/MismatchDescriptionTests.cs` pins the invariant (the harness is a console app, so it
+exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly this).
+
 **CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
 row in `conformance-matrix.yml` runs the `compiler` leg on every push to `main` (plus the weekly
 cron and `workflow_dispatch` — the matrix does NOT trigger on `pull_request`, same as every other
 row in it), prints the honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `226`, the number
-above). This is deliberate. Gating it at full parity would just hold `main` red on 96 known gaps;
+and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `246`, the number
+above). This is deliberate. Gating it at full parity would just hold `main` red on 74 known gaps;
 leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
 regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
 only go up, and the job prints the exact new floor to commit when it does. **Raise the floor in
@@ -885,7 +975,7 @@ dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 320 passed, 0 failed, 320 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=compiler                    # Results: 226 passed, 94 failed, 320 total
+  -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
 # --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture
@@ -1034,7 +1124,7 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
   into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
   line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing
-  #383's acceptance bar), plus a `compiler` leg (`226 passed, 94 failed, 320 total` — the Phase-4
+  #383's acceptance bar), plus a `compiler` leg (`246 passed, 74 failed, 320 total` — the Phase-4
   compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
   an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize
   compiler-emitted `BallRuntime.*` shapes; see "Conformance harness" above). The `cli` package is

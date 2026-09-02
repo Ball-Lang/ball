@@ -38,6 +38,13 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
   </ItemGroup>
 
+  <!-- The harness's own failure reporting is regression-tested from
+       Ball.Engine.Tests (MismatchDescriptionTests); everything here is
+       deliberately internal to the harness otherwise. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ball.Engine.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="../Ball.Engine.csproj" />
     <ProjectReference Include="../../compiler/Ball.Compiler.csproj" />

@@ -133,10 +133,7 @@ internal static class RoundTripLeg
             return new FixtureResult(name, FixtureStatus.Pass);
         }
 
-        var detail =
-            $"expected ({expected.Count}): {(expected.Count == 0 ? "<none>" : expected[0])}\n" +
-            $"actual   ({actual.Count}): {(actual.Count == 0 ? "<none>" : actual[0])}";
-        return new FixtureResult(name, FixtureStatus.Fail, detail);
+        return new FixtureResult(name, FixtureStatus.Fail, Fixtures.DescribeMismatch(expected, actual));
     }
 
     /// <summary>

@@ -129,6 +129,16 @@ public sealed partial class CSharpCompiler
                 }
             }
 
+            // A class that declares its own plain field of this name SHADOWS any
+            // inherited accessor (ordinary Dart/OOP override semantics —
+            // `class B extends A { @override int x = 5; }` over `A`'s `get x`).
+            // Without this the walk ran straight past B's descriptor to A's
+            // getter, so B's own field was permanently unreadable (issue #461).
+            if (current.Descriptor_ is { } descriptor && descriptor.Field.Any(f => f.Name == member))
+            {
+                return null;
+            }
+
             if (SuperclassOf(current) is not { } superName
                 || !_typeDefsByShortName.TryGetValue(Naming.TypeShortName(superName), out var superTd))
             {
@@ -183,6 +193,18 @@ public sealed partial class CSharpCompiler
             sb.Append(CompileSetterAccessor(member));
         }
 
+        // A property declared as a getter with no setter ANYWHERE still needs a
+        // `Set__…` entry point, because a write to it lowers to one (see
+        // ResolveLValue) — and that entry point must fail loud rather than graft
+        // a bogus field onto the instance (issue #461).
+        foreach (var member in _getterMembers)
+        {
+            if (!_setterMembers.Contains(member))
+            {
+                sb.Append(CompileGetterOnlySetAccessor(member));
+            }
+        }
+
         sb.Append("}\n");
         return sb.ToString();
     }
@@ -219,6 +241,37 @@ public sealed partial class CSharpCompiler
         foreach (var (td, impl) in AccessorTargets(member, setter: true))
         {
             sb.Append($"        if ({TypeNameTest(td)}) {{ {impl}(BallRuntime.Arg0WithSelf(__value, __obj)); return __value; }}\n");
+        }
+
+        sb.Append($"        return BallRuntime.FieldSet(__obj, {Naming.StringLiteral(member)}, __value);\n");
+        sb.Append("    }\n");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// A write to a property no class declares a setter for: fail loud for the
+    /// classes that <em>do</em> declare it as a getter, and write the plain field
+    /// for every other receiver.
+    ///
+    /// <para>The per-receiver guard is the whole point. <see cref="_getterMembers"/>
+    /// is a <b>global</b> name set — an unrelated map, proto message or class with
+    /// a plain field called <c>x</c>/<c>value</c>/<c>name</c> must keep writing
+    /// that field, exactly as it did before this accessor existed. Throwing on the
+    /// name alone would break every such program.</para>
+    ///
+    /// <para>Before this existed, the write lowered straight to
+    /// <see cref="BallRuntime.FieldSet"/>: the program compiled, ran to
+    /// completion and exited 0 while silently grafting a shadow field the getter
+    /// never reads (issue #461).</para>
+    /// </summary>
+    private string CompileGetterOnlySetAccessor(string member)
+    {
+        var sb = new StringBuilder($"    public static BallValue {AccessorSetName(member)}(BallValue __obj, BallValue __value)\n    {{\n");
+        sb.Append("        var __t = BallRuntime.MessageTypeName(__obj);\n");
+        foreach (var (td, _) in AccessorTargets(member, setter: false))
+        {
+            var message = $"cannot assign to `{member}`: {td.Name} declares it as a getter with no setter";
+            sb.Append($"        if ({TypeNameTest(td)}) throw new InvalidOperationException({Naming.StringLiteral(message)});\n");
         }
 
         sb.Append($"        return BallRuntime.FieldSet(__obj, {Naming.StringLiteral(member)}, __value);\n");

@@ -120,6 +120,14 @@ compile items so the sibling projects never double-compile each other's files.
   `csharp/AGENTS.md`'s "Encoder" section): target-typed `new(...)`, `enum` declarations,
   `goto`/switch pattern-matching labels/catch exception filters, chained `?.` beyond one level,
   multiple constructors per class, local functions, interpolation alignment/format specifiers.
+- **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
+  feeds one hand-authored fixture per taxonomy bucket through `Encode` and prints
+  `Results: 0 passed, 7 failed, 7 total`. It is a ratchet — it never asserts on the passed count
+  (only a positive floor and a fixture set checked against a real directory listing, so adding a
+  fixture without wiring it in fails), so do not "fix" it by weakening a fixture.
+  Note the corrected throw-site taxonomy in `csharp/AGENTS.md`: an interface fails at
+  `Types.cs`'s "method has no body", not at the "unsupported type declaration kind" site, so an
+  interface fixture must carry a method.
 
 ### Engine
 
@@ -140,7 +148,7 @@ compile items so the sibling projects never double-compile each other's files.
   (`BallRuntime`/`BallProto`) — **never** hand-edit `CompiledEngine.cs`.
 - The committed conformance harness (`csharp/engine/conformance/`, a standalone console app, not
   an xunit project — needs a reliable `Results:` line on stdout regardless of pass/fail) has three
-  legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated), `compiler` (224/320 —
+  legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated), `compiler` (246/320 —
   the compiler's own honest scope-gap count, not CI-gated), `roundtrip` (0/320 — an honest,
   expected zero given the syntactic encoder doesn't yet recognize compiler-emitted
   `BallRuntime.*` shapes, not CI-gated). See `csharp/AGENTS.md`'s "Conformance harness" section
@@ -178,9 +186,16 @@ compile items so the sibling projects never double-compile each other's files.
   this stays green without requiring the generated, gitignored `CompiledEngine.cs`/`CompiledCli.cs`.
 - `csharp/compiler/test/` — xUnit v3. `EndToEndTests` compile-and-run real fixtures via
   in-memory Roslyn and assert **byte-exact** stdout; prefer extending these (or conformance
-  fixtures) over C#-only unit tests, per the repo-wide "prefer conformance tests" rule.
+  fixtures) over C#-only unit tests, per the repo-wide "prefer conformance tests" rule. But note
+  `EndToEndTests` is **four hardcoded fixtures**, not a corpus sweep — the only leg that compiles
+  the whole corpus through `CSharpCompiler` is `engine/conformance --leg=compiler`, a ratchet on a
+  workflow with no `pull_request` trigger. A rule that depends on a specific IR shape needs a
+  targeted test (`AccessorEdgeCaseTests.cs`, #461, is the worked example — both its shapes are
+  unreachable from any generated fixture).
 - `csharp/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner (#384) —
   the `engine` leg is what CI gates on; quote its `Results:` line, not a hand-maintained count.
+  Its mismatch reporting goes through `Fixtures.DescribeMismatch` (first **differing** line, never
+  line 0) and is pinned by `engine/test/MismatchDescriptionTests.cs`.
 - `csharp/cli/test/CliCoreParityTests.cs` is the golden-fixture parity gate against the real Dart
   CLI (checked-in `.txt` goldens in `test/golden/cli_core/`) — the C# analog of
   `rust/cli/tests/cli_core_parity.rs`.

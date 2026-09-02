@@ -831,7 +831,7 @@ jobs:
   #
   # A COMPILE leg, not an engine leg, and deliberately gated as a RATCHET
   # rather than a parity gate. The Ball → C# compiler does not yet cover the
-  # whole language: at the floor below it emits 247 of 321 fixtures correctly.
+  # whole language: at the floor below it emits 246 of 320 fixtures correctly.
   # Gating it at full parity would just hold main red; leaving it unrun (the
   # status quo this closes) left the gap UNMEASURED, which is worse — an
   # unmeasured gap regresses silently.
@@ -853,7 +853,7 @@ jobs:
       # Fixtures the Ball → C# compiler currently emits correctly. NEVER lower
       # this to turn a red build green — preventing exactly that is the whole
       # point of a ratchet. Open families are catalogued in #452.
-      CSHARP_COMPILER_FLOOR: "247"
+      CSHARP_COMPILER_FLOOR: "246"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

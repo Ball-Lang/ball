@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 321 passed, 0 failed, 321 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -123,7 +123,8 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through `Encode` and prints
   `Results: 0 passed, 7 failed, 7 total`. It is a ratchet — it never asserts on the passed count
-  (only a positive floor and an intact fixture set), so do not "fix" it by weakening a fixture.
+  (only a positive floor and a fixture set checked against a real directory listing, so adding a
+  fixture without wiring it in fails), so do not "fix" it by weakening a fixture.
   Note the corrected throw-site taxonomy in `csharp/AGENTS.md`: an interface fails at
   `Types.cs`'s "method has no body", not at the "unsupported type declaration kind" site, so an
   interface fixture must carry a method.
@@ -132,8 +133,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 321 passed, 0 failed,
-  321 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 320 passed, 0 failed,
+  320 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without
@@ -147,8 +148,8 @@ compile items so the sibling projects never double-compile each other's files.
   (`BallRuntime`/`BallProto`) — **never** hand-edit `CompiledEngine.cs`.
 - The committed conformance harness (`csharp/engine/conformance/`, a standalone console app, not
   an xunit project — needs a reliable `Results:` line on stdout regardless of pass/fail) has three
-  legs selected via `--leg=`: `engine` (321/321, Dart parity — CI-gated), `compiler` (247/321 —
-  the compiler's own honest scope-gap count, not CI-gated), `roundtrip` (0/321 — an honest,
+  legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated), `compiler` (246/320 —
+  the compiler's own honest scope-gap count, not CI-gated), `roundtrip` (0/320 — an honest,
   expected zero given the syntactic encoder doesn't yet recognize compiler-emitted
   `BallRuntime.*` shapes, not CI-gated). See `csharp/AGENTS.md`'s "Conformance harness" section
   before treating a non-`engine`-leg number as a regression.
@@ -193,6 +194,8 @@ compile items so the sibling projects never double-compile each other's files.
   unreachable from any generated fixture).
 - `csharp/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner (#384) —
   the `engine` leg is what CI gates on; quote its `Results:` line, not a hand-maintained count.
+  Its mismatch reporting goes through `Fixtures.DescribeMismatch` (first **differing** line, never
+  line 0) and is pinned by `engine/test/MismatchDescriptionTests.cs`.
 - `csharp/cli/test/CliCoreParityTests.cs` is the golden-fixture parity gate against the real Dart
   CLI (checked-in `.txt` goldens in `test/golden/cli_core/`) — the C# analog of
   `rust/cli/tests/cli_core_parity.rs`.

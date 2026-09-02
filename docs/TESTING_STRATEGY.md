@@ -83,6 +83,34 @@ the reverse (every `.ball.json` has a source).
 > already tolerates its known gaps. "A gate exists" and "a gate runs on your PR
 > and would have gone red" are different claims.
 
+> **An assertion that cannot fail documents an intent; it does not enforce it.**
+> Before adding an assertion, name the concrete change that would make it red. A
+> loop that appends one result per entry of a static table and then asserts
+> `results.Count == Table.Length` is checking the table against itself — that was
+> the C# encoder sweep's "intact fixture set" claim until it was rewritten to
+> compare the table against a real directory listing, in both directions. Same
+> family as the positive-floor rule ("0 failed" over "0 ran" is a fake green),
+> and same fix: assert against something *outside* the thing under test.
+
+> **A failing test's own diagnostics are part of the test.** All three C#
+> conformance legs described a mismatch by printing line 0 of each side, so a
+> divergence on any later line rendered as `expected (3): 1` / `actual (3): 1` —
+> a `Fail` whose diff reads like a match. `Fixtures.DescribeMismatch` now names
+> the first line that actually differs, pinned by
+> `csharp/engine/test/MismatchDescriptionTests.cs`. Silent degradation in a
+> diagnostic costs the next debugger hours; treat it as a bug, not cosmetics.
+
+> **A new fixture must clear every required PR check, on every target.**
+> `406_subclass_field_over_getter` (a subclass field shadowing an inherited
+> getter) ran correctly on Dart/TS/Rust/Go/Python/C# and the C++ *self-hosted*
+> engine, but the Ball → C++ **compiled** leg — a different leg, and a required
+> PR check — emitted a call to the hidden getter and `g++` rejected it. The
+> fixture was withdrawn and the gap filed as
+> [#501](https://github.com/Ball-Lang/ball/issues/501) rather than carved out:
+> `CPP_COMPILE_CARVEOUTS` is empty and keeping it that way is worth more than one
+> fixture. When you add a fixture, enumerate the legs it must pass — the engine
+> rows and the compiled rows are not the same set.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier

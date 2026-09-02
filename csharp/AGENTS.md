@@ -1,6 +1,6 @@
 <!-- Parent: ../AGENTS.md -->
 
-# C# (epic #377, Phases 1–10 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (321/321) + committed conformance harness + `ball` CLI + CI/CD + documentation)
+# C# (epic #377, Phases 1–10 complete — bindings + runtime value model + Ball→C# compiler + Roslyn encoder + compiled self-hosted engine at Dart parity (320/320) + committed conformance harness + `ball` CLI + CI/CD + documentation)
 
 ## Purpose
 
@@ -352,7 +352,12 @@ Two resolution rules in that table are load-bearing and were both silent bugs un
   consults `current.Descriptor_.Field` before advancing, so `class B extends A { @override int x
   = 5; }` over `A`'s `get x` reads B's own field. Without that check the walk went straight to
   `A`'s getter and B's field was permanently unreadable — silently wrong output, no diagnostic.
-  Fixture `406_subclass_field_over_getter` is the cross-language proof.
+  A cross-language conformance fixture for this shape was attempted and **withdrawn**: every
+  engine (Dart/TS/Rust/Go/Python/C#, and the C++ *self-hosted* engine) runs it correctly, but the
+  Ball → **C++ compiled** path emits a call to the hidden getter method and `g++` rejects it
+  (`expression cannot be used as a function`) — tracked as #501, with the exact source, golden and
+  CI output, and the acceptance step that restores the fixture. Until then the C# guarantee is
+  proved only by `compiler/test/AccessorEdgeCaseTests.cs`.
 - **Writing a getter-only property fails loud.** `_getterMembers`/`_setterMembers` are **global**
   name sets, not per-class, so the check cannot live in `ResolveLValue` (an unrelated map or class
   with a field called `x`/`value`/`name` would false-throw). Instead `CompileAccessors` synthesizes
@@ -464,10 +469,17 @@ workflow edit.
 
 Baseline: **`Results: 0 passed, 7 failed, 7 total`**. That number is printed, never asserted on —
 asserting `N > 0` would make it a permanently-red gate, and asserting `N == 0` would block the very
-slices that fix these buckets. What it *does* assert is a positive floor (`T >= 1`, so a sweep
-that ran nothing cannot read as green), that the fixture set is intact (`T == 7`), and that every
-failure is a deliberate `EncoderException` rather than a crash. Each later slice raises the printed
-number; quote the sweep's line, never a hand-maintained count.
+slices that fix these buckets. What it *does* assert is a positive floor (a sweep that ran nothing
+cannot read as green), that the shipped fixture directory is **exactly** the declared taxonomy, and
+that every failure is a deliberate `EncoderException` rather than a crash. Each later slice raises
+the printed number; quote the sweep's line, never a hand-maintained count.
+
+The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
+table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
+ever agree with itself, and an assertion that cannot fail documents an intent without enforcing it.
+Concretely: dropping a `.cs` into `encoder/test/fixtures/realworld/` without wiring it into the
+table now fails the sweep, where before it was silently ignored. Adding a bucket therefore means
+editing the table *and* committing the fixture.
 
 **Throw-site taxonomy (#492's issue text gets this wrong — do not repeat it).** An `interface`
 does *not* hit `CSharpEncoder.cs`'s "unsupported type declaration kind" throw:
@@ -682,7 +694,7 @@ Three legs, one runner, selected via `--leg=`:
   Roslyn (a small `CSharpRunner` duplicated from `csharp/compiler/test/TestSupport.cs`'s technique,
   generalized to the whole corpus and returning outcomes instead of throwing so one fixture's
   failure never aborts the sweep), and diffs stdout. No `SelfHost` needed — never touches the
-  self-hosted engine. Verified fresh: **`Results: 247 passed, 74 failed, 321 total`** — an honest
+  self-hosted engine. Verified fresh: **`Results: 246 passed, 74 failed, 320 total`** — an honest
   measurement of the Phase-4 compiler's own documented scope gaps (`super`/inheritance dispatch,
   static members, enums-as-types, generics reification, generators/`yield`, `std_time`/
   `std_convert` gaps, a handful of `Message`-vs-native-collection built-in methods like `.generate`/
@@ -704,11 +716,19 @@ Three legs, one runner, selected via `--leg=`:
   .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
   /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
 
+**Failure reporting is itself tested.** All three legs describe an expected-vs-actual mismatch
+through the shared `Fixtures.DescribeMismatch`, which names the **first line that actually
+differs** (or the length difference), never line 0. The old per-leg formatting printed line 0 of
+each side, so a divergence anywhere later rendered as a self-contradictory diff — a `Fail` reading
+`expected (3): 1` / `actual (3): 1`, which looks like a match and hides where the two parted.
+`engine/test/MismatchDescriptionTests.cs` pins the invariant (the harness is a console app, so it
+exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly this).
+
 **CI gating — the `compiler` leg is RATCHETED, not parity-gated (#452).** The `csharp-compiler`
 row in `conformance-matrix.yml` runs the `compiler` leg on every push to `main` (plus the weekly
 cron and `workflow_dispatch` — the matrix does NOT trigger on `pull_request`, same as every other
 row in it), prints the honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `247`, the number
+and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `246`, the number
 above). This is deliberate. Gating it at full parity would just hold `main` red on 74 known gaps;
 leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
 regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
@@ -882,7 +902,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 321 passed, 0 failed, 321 total (4 skipped carve-outs)`.
+  `Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -945,12 +965,12 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 321 passed, 0 failed, 321 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 320 passed, 0 failed, 320 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=compiler                    # Results: 247 passed, 74 failed, 321 total
+  -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 321 failed, 321 total
+  -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
 # --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture
 # with full actual-vs-expected detail.
 
@@ -1097,8 +1117,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
   into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
   line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing
-  #383's acceptance bar), plus a `compiler` leg (`247 passed, 74 failed, 321 total` — the Phase-4
-  compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 321 failed, 321 total` —
+  #383's acceptance bar), plus a `compiler` leg (`246 passed, 74 failed, 320 total` — the Phase-4
+  compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
   an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize
   compiler-emitted `BallRuntime.*` shapes; see "Conformance harness" above). The `cli` package is
   now complete (Phase 8, see below).

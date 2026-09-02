@@ -474,12 +474,21 @@ purpose: no network fetch and no third-party licensing (vendoring real packages 
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline: **`Results: 0 passed, 7 failed, 7 total`**. That number is printed, never asserted on —
-asserting `N > 0` would make it a permanently-red gate, and asserting `N == 0` would block the very
-slices that fix these buckets. What it *does* assert is a positive floor (a sweep that ran nothing
-cannot read as green), that the shipped fixture directory is **exactly** the declared taxonomy, and
-that every failure is a deliberate `EncoderException` rather than a crash. Each later slice raises
-the printed number; quote the sweep's line, never a hand-maintained count.
+Baseline after slice 2 (library mode): **`Results: 1 passed, 6 failed, 7 total`** (slice 1's was
+`0 passed, 7 failed, 7 total`). The **global** passed count is printed, never asserted on —
+asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets
+remain open, and asserting `N == 0` would block the very slices that fix them. What it *does*
+assert is a positive floor (a sweep that ran nothing cannot read as green), that the shipped
+fixture directory is **exactly** the declared taxonomy, and that every failure is a deliberate
+`EncoderException` rather than a crash. Each later slice raises the printed number; quote the
+sweep's line, never a hand-maintained count.
+
+**Per bucket it does assert, and must.** Each taxonomy row declares the encoder entry point that
+shape is supported by today (`EncodeMode.Program` → `Encode`, `EncodeMode.Library` →
+`EncodeLibrary`) plus a `MustEncode` flag. Slice 2 flipped bucket (a) to
+`Library`/`MustEncode: true`, so a regression in library mode now fails the suite. "The printed
+baseline moved" is not evidence on its own — nothing asserted it — so **every closed bucket gets a
+real assertion here**, and the sweep additionally asserts `passed >= (number of closed buckets)`.
 
 The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
 table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
@@ -497,9 +506,29 @@ inflates the passed count. A `delegate` is not a `BaseTypeDeclarationSyntax` at 
 earlier "unsupported top-level declaration" throw. Only `enum` actually reaches the
 "unsupported type declaration kind" site.
 
-Still open on #492 after this slice: library mode (promote the `internal EncodeModuleOnly` to a
-supported API plus a CLI flag), cross-file symbol resolution, interfaces/abstract members, and
-multiple constructors.
+### Library mode — `EncodeLibrary` / `ball encode --library` (issue #492, slice 2)
+
+`CSharpEncoder.Encode` requires a `Main` entry point; real class libraries have none, which is
+bucket (a) and the single largest bucket (38/200) in #492's study.
+`CSharpEncoder.EncodeLibrary(source)` is the opt-in that drops **only** that requirement — same
+Roslyn walk, same std accumulation (both now share the private `AssembleProgram` helper), same
+fail-loud `EncoderException` on every other documented gap. `ball encode --library <source.cs>` is
+its CLI surface.
+
+**A library-mode `Program` is deliberately not runnable.** It carries `EntryModule = "main"` and an
+**empty `EntryFunction`**. `Program.entry_function` is an unconstrained proto3 string, so that is
+structurally legal, and `ball check` correctly reports `missing entry_function`
+(`Commands/CheckCommand.cs`), pinned by
+`cli/test/CliEncodeTests.cs::Library_flag_encodes_a_main_less_source_and_check_rejects_it`.
+**Never "fix" that by synthesising a fake entry function** — the Rust encoder's `encode_library`
+makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must stay consistent.
+
+`internal EncodeModuleOnly` still exists as the bare-`Module` primitive both public entry points
+build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
+attached.
+
+Still open on #492 after this slice: cross-file symbol resolution, interfaces/abstract members,
+multiple constructors, and the expression-kind long tail.
 
 ### Proof (verified 2026-07-11 against the DART reference engine — no C# engine exists yet, #383)
 
@@ -724,6 +753,12 @@ Three legs, one runner, selected via `--leg=`:
   `Process.Start` cannot launch directly (`CreateProcess` does not apply `PATHEXT`, a well-known
   .NET-on-Windows gap for batch-script tools like `npm`/`dart`) — the leg routes through `cmd.exe
   /c` on Windows only; every other platform (CI, `ubuntu-latest`) invokes `dart` directly.
+  Since #452 item 3 this leg has three siblings, built to the same shape and reporting the same
+  honest zero: `python/engine/conformance/roundtrip.py`, `go/engine/conformance/roundtrip.go`, and
+  `rust/engine/tests/roundtrip_conformance.rs` (`python-roundtrip`/`go-roundtrip`/`rust-roundtrip`
+  rows). **None of the four gates a PR** — `conformance-matrix.yml` has no `pull_request:`
+  trigger, so on a PR they are ABSENT, and an absent check reads as green; dispatch the workflow
+  and read the run before merging a change to any of them.
 
 **Failure reporting is itself tested.** All three legs describe an expected-vs-actual mismatch
 through the shared `Fixtures.DescribeMismatch`, which names the **first line that actually

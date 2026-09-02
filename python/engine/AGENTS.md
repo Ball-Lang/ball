@@ -28,6 +28,7 @@ need it; only the conformance runner (which regenerates it first) does.
 | `ball_engine/regen.py` | `python -m ball_engine.regen` — reads `engine.ball.json`, compiles via `ball_compiler.compile_library`, writes `compiled_engine.py`. |
 | `ball_engine/__main__.py` | `python -m ball_engine <program.ball.json>` — runs one program, prints its stdout. Forces UTF-8 IO. The killable subprocess the conformance runner spawns. |
 | `conformance/runner.py` | Whole-corpus sweep. Prints `Results: N passed, M failed, T total (K skipped carve-outs)` + a `FAILING [name] status detail` line per failure. |
+| `conformance/roundtrip.py` | Whole-corpus **round-trip** sweep (issue #452 item 3, measurement only): Ball → `ball_compiler` → `ball_encoder` → the **DART** reference engine → golden diff. Needs `dart` on PATH (or `BALL_DART`), **not** `compiled_engine.py`. Honest baseline `Results: 0 passed, 321 failed, 321 total` — expected by construction; see `python/AGENTS.md`'s "Round-trip leg". |
 
 ## Regenerate + run
 
@@ -43,6 +44,11 @@ cd python/engine && python -m conformance.runner
 #   -> prints the CI-parseable `Results:` line.
 # BALL_FIXTURE=<name> runs a single fixture with a full diff;
 # BALL_TIMEOUT_S=<s> sets the per-fixture kill budget; BALL_WORKERS=<n> parallelism.
+
+# Round-trip leg (measurement only, #452 item 3) — no compiled engine needed,
+# but `dart` must be on PATH (or set BALL_DART):
+cd python/engine && python -m conformance.roundtrip
+python -m python.engine.conformance.roundtrip     # ...from the repo root, as CI runs it
 ```
 
 The runner and `__main__` bootstrap `python/runtime` (ballrt) and

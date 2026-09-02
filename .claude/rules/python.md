@@ -206,3 +206,11 @@ python -m conformance.runner                             # prints the CI-parseab
   unit tests, per the repo-wide "prefer conformance tests" rule.
 - `python/engine/conformance/runner.py` is the committed `tests/conformance/*.ball.json` runner — the
   `python-engine` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained count.
+- `python/engine/conformance/roundtrip.py` (`python -m conformance.roundtrip`, or
+  `python -m python.engine.conformance.roundtrip` from the repo root) is a **measurement-only**
+  sweep (#452 item 3): Ball → Python → Ball → the **Dart** reference engine → golden diff. Needs
+  `dart` on PATH (or `BALL_DART`), not the compiled engine. Honest baseline **0/321**, expected by
+  construction and mirroring `csharp-roundtrip`; gated only on "the sweep ran something", never on
+  the failure count. Its CI home is the `python-roundtrip` row in `conformance-matrix.yml`, which
+  has **no `pull_request` trigger** — the row is absent, not green, on a PR; dispatch the workflow
+  and read the run.

@@ -38,8 +38,15 @@ checkout (see Build-tag gating below).
   compiled `run`; `compiled_engine.go` (`//go:build selfhost`, **GENERATED,
   gitignored**) is the compiled engine itself.
 - `cmd/regen` — the regeneration entry point.
-- `conformance/` — the whole-corpus sweep (`runner.go` + `conformance_test.go`,
-  both `//go:build selfhost`; `doc.go` untagged).
+- `conformance/` — the whole-corpus sweeps. The **engine** leg (`runner.go` +
+  `conformance_test.go`) is `//go:build selfhost`; the **round-trip** leg
+  (`roundtrip.go` + `roundtrip_test.go`, issue #452 item 3) is deliberately
+  untagged, because it never touches the compiled engine — it goes Ball →
+  `go/compiler` → `go/encoder` → the **Dart** reference engine → golden diff.
+  Their shared `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers therefore
+  live in the untagged `support.go`; `doc.go` is untagged too. Honest round-trip
+  baseline: `Results: 0 passed, 321 failed, 321 total` — expected by
+  construction (see `go/AGENTS.md`'s "Round-trip conformance leg").
 - `ball_proto` access patterns + the base-op / Dart-SDK runtime the compiled
   engine calls live in `go/runtime` (package `ballrt`), not here.
 

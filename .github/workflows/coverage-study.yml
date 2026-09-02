@@ -1,0 +1,127 @@
+# Third-party coverage study — Tier A (issue #493, slice 1).
+#
+# WHY THIS EXISTS: every gate the project has is scoped to code the project
+# itself wrote. `check_encoder_completeness.dart` asserts that each std base
+# function the encoder can emit appears in one of the hand-authored fixtures
+# under tests/conformance/src, and conformance-matrix.yml runs every engine
+# over that same corpus. Neither has ever seen a third-party package — which is
+# how a Rust encoder converting 0/196 real files (#491), a C# encoder
+# converting 0/200 (#492), a TS compiler failing 37/129 (#489) and a Dart
+# compiler emitting unparseable Dart on real library files (#494) all shipped
+# past 18 green required checks.
+#
+# WHAT THIS IS NOT: a gate. This workflow has NO `pull_request:` trigger and is
+# not a required check, so a regression it finds does NOT block the PR that
+# caused it. That is deliberate — measure before gating (the project has been
+# burned by floors set before a baseline existed). Slice 2 adds the floor once
+# a few scheduled runs have established one; until then the Tier A percentage
+# is reported and the job exits 0.
+#
+# The ONE thing that does fail here is a broken harness: a run that scored zero
+# files is a checkout/harness failure, not a 0% result, and the harness's own
+# self-test (which proves it does not silently skip `main`-less library files)
+# runs as a gated step in ci.yml's Dart job.
+#
+# See tests/conformance/COVERAGE_STUDY.md for the methodology and the two
+# load-bearing harness settings.
+
+name: Coverage Study
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays, two hours after conformance-matrix.yml's own weekly run.
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-study-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dart-tier-a:
+    name: Tier A (Dart)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # The harness measures other people's code, so prove the harness first.
+      - name: Harness self-test
+        run: dart run tools/coverage-study/test/rq1_study_self_test.dart
+
+      # Shallow-clone each pin at its recorded commit. A pin that cannot be
+      # fetched is reported as "unreachable" by the harness and is NOT scored —
+      # a network hiccup must never read as an encoder regression.
+      - name: Clone pinned packages
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/checkouts"
+          python3 - <<'PY' > "$RUNNER_TEMP/pins.txt"
+          import json
+          with open('tools/coverage-study/packages/dart.json') as f:
+              for p in json.load(f)['packages']:
+                  print(p['name'], p['repo'], p['ref'])
+          PY
+          while read -r name repo ref; do
+            dest="$RUNNER_TEMP/checkouts/$name"
+            if git init -q "$dest" \
+               && git -C "$dest" remote add origin "$repo" \
+               && git -C "$dest" fetch -q --depth 1 origin "$ref" \
+               && git -C "$dest" checkout -q FETCH_HEAD; then
+              echo "cloned $name @ $ref"
+            else
+              echo "::warning::could not fetch pin $name @ $ref — it will be reported as unreachable, not scored"
+              rm -rf "$dest"
+            fi
+          done < "$RUNNER_TEMP/pins.txt"
+
+      - name: Run Tier A
+        id: tier_a
+        run: |
+          set -euo pipefail
+          dart run tools/coverage-study/rq1_study.dart \
+            --pins tools/coverage-study/packages/dart.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
+
+          summary="$(grep -m1 '^Tier A: ' "$RUNNER_TEMP/tier_a.log" || true)"
+          results="$(grep -m1 '^Results: ' "$RUNNER_TEMP/tier_a.log" || true)"
+          if [ -z "$summary" ] || [ -z "$results" ]; then
+            echo "::error::the Tier A harness printed no summary line — treat this as a harness failure, not a 0% result"
+            exit 1
+          fi
+
+          # Positive floor: a run that scored nothing proves nothing.
+          scored="$(printf '%s' "$results" | sed -E 's/^Results: [0-9]+ passed, [0-9]+ failed, ([0-9]+) total.*$/\1/')"
+          if ! printf '%s' "$scored" | grep -Eq '^[0-9]+$' || [ "$scored" -lt 1 ]; then
+            echo "::error::Tier A scored $scored files — no package checkout was readable"
+            exit 1
+          fi
+
+          {
+            echo "## Coverage study — Tier A (Dart)"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/tier_a.log"
+            echo '```'
+            echo
+            echo "Report-only: no floor is enforced until a baseline exists (issue #493, slice 2)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Tier A report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-a
+          path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn

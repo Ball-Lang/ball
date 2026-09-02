@@ -47,3 +47,11 @@ ball-lang-shared = { workspace = true }
 prost = { workspace = true }
 prost-reflect = { workspace = true, features = ["serde"] }
 serde_json = "1"
+
+# Test-only: the round-trip conformance leg (tests/roundtrip_conformance.rs,
+# issue #452 item 3) drives Ball -> Rust -> Ball in-process before handing the
+# re-encoded program to the Dart reference engine. Dev-only on purpose — the
+# engine itself never depends on the compiler or the encoder at run time.
+[dev-dependencies]
+ball-lang-compiler = { workspace = true }
+ball-lang-encoder = { workspace = true }

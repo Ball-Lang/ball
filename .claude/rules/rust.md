@@ -118,6 +118,17 @@ cargo fmt --check && cargo clippy --workspace
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs`): tuple/unit structs,
   data-carrying enum variants, receiver-less associated functions (`Point::new(...)` — would
   silently panic in `ball-lang-compiler`'s `method_prologue`, so it's rejected rather than encoded).
+  Each is pinned by a `#[should_panic]` characterization test in
+  `rust/encoder/tests/documented_gaps.rs` (#491 slice 1) — flip it to a positive assertion in the
+  same PR that closes the gap.
+- **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
+  `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
+  A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
+  looks that module up) and an **empty `entry_function`**, so it is deliberately NOT runnable:
+  `ball check` reports `missing entry_function`, and that is the correct, documented boundary —
+  never synthesise a fake entry function to silence it. The C# encoder's `EncodeLibrary` makes the
+  identical call; keep the two consistent. Proof: `rust/encoder/tests/library_mode.rs` compiles the
+  encoded program through `compile_library` and asserts `cargo build` accepts it as a real `[lib]`.
 
 ### Engine
 
@@ -148,6 +159,13 @@ cargo fmt --check && cargo clippy --workspace
 
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
+- `rust/engine/tests/roundtrip_conformance.rs` is a **measurement-only** whole-corpus sweep
+  (#452 item 3): Ball → Rust → Ball → the **Dart** reference engine → golden diff, all in-process
+  except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). Honest baseline **0/321**,
+  like the C# leg it mirrors. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
+  `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`. Its CI
+  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which has **no `pull_request`
+  trigger** — the row is absent, not green, on a PR; dispatch the workflow and read the run.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

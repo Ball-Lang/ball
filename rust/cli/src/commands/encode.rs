@@ -27,10 +27,28 @@ pub enum Format {
 /// 3a/3b scope — see `rust/encoder/src/lib.rs`'s module doc comment) —
 /// [`catch_panic_message`] converts that into a [`CliError::Parse`] (exit
 /// `2`) instead of aborting the process.
-pub fn encode(path: &Path, output: Option<&Path>, format: Format) -> Result<(), CliError> {
+///
+/// With `library` set (`ball encode --lib`, issue #491) the source is encoded
+/// through `ball_lang_encoder::encode_library` instead: no `fn main()` is
+/// required, and the emitted `Program` has an empty `entry_function`, so it is
+/// deliberately not runnable (`ball check` reports "missing entry_function").
+/// Every *other* documented-gap panic still surfaces as the same clean exit
+/// `2` — the flag relaxes the entry-point requirement, nothing else.
+pub fn encode(
+    path: &Path,
+    output: Option<&Path>,
+    format: Format,
+    library: bool,
+) -> Result<(), CliError> {
     let source = std::fs::read_to_string(path)
         .map_err(|e| CliError::Io(format!("could not read {}: {e}", path.display())))?;
-    let program = catch_panic_message(|| ball_lang_encoder::encode(&source))?;
+    let program = catch_panic_message(|| {
+        if library {
+            ball_lang_encoder::encode_library(&source)
+        } else {
+            ball_lang_encoder::encode(&source)
+        }
+    })?;
     match format {
         Format::Json => write_text(output, &program_to_json(&program)?),
         Format::Binary => write_bytes(output, &program_to_binary(&program)),

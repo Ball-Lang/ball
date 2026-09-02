@@ -1,0 +1,1171 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "string_is_empty",
+          "isBase": true
+        },
+        {
+          "name": "not",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "string_split",
+          "isBase": true
+        },
+        {
+          "name": "list_index_of",
+          "isBase": true
+        },
+        {
+          "name": "string_starts_with",
+          "isBase": true
+        },
+        {
+          "name": "string_substring",
+          "isBase": true
+        },
+        {
+          "name": "math_clamp",
+          "isBase": true
+        },
+        {
+          "name": "to_int",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_index_of",
+          "isBase": true
+        },
+        {
+          "name": "list_to_list",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:Bag.new",
+          "outputType": "main:Bag",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "items",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Bag.split",
+          "outputType": "List<int>",
+          "body": {
+            "reference": {
+              "name": "items"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Bag.indexOf",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "items"
+                }
+              },
+              "field": "length"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Bag.startsWith",
+          "outputType": "bool",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "not",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "string_is_empty",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "items"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Bag.substring",
+          "outputType": "String",
+          "body": {
+            "literal": {
+              "stringValue": "whole"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Bag.clamp",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "multiply",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "only"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "literal": {
+                          "intValue": "10"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "only",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Bag.putIfAbsent",
+          "inputType": "String",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "key"
+                }
+              },
+              "field": "length"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "key",
+                "type": "String"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Bag.toInt",
+          "inputType": "int",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "a"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "reference": {
+                          "name": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "a",
+                "type": "int"
+              },
+              {
+                "name": "b",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Bag.toList",
+          "inputType": "int",
+          "outputType": "List<int>",
+          "body": {
+            "literal": {
+              "listValue": {
+                "elements": [
+                  {
+                    "reference": {
+                      "name": "a"
+                    }
+                  },
+                  {
+                    "reference": {
+                      "name": "b"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true,
+            "params": [
+              {
+                "name": "a",
+                "type": "int"
+              },
+              {
+                "name": "b",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "bag",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Bag",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "listValue": {
+                                  "elements": [
+                                    {
+                                      "literal": {
+                                        "intValue": "4"
+                                      }
+                                    },
+                                    {
+                                      "literal": {
+                                        "intValue": "5"
+                                      }
+                                    },
+                                    {
+                                      "literal": {
+                                        "intValue": "6"
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "split",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "indexOf",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "startsWith",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "substring",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "clamp",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "7"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "putIfAbsent",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "abcd"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "toInt",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "2"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "3"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "toList",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "bag"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "8"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "9"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_split",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "a,b,c"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "separator",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": ","
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_index_of",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "literal": {
+                                              "listValue": {
+                                                "elements": [
+                                                  {
+                                                    "literal": {
+                                                      "intValue": "10"
+                                                    }
+                                                  },
+                                                  {
+                                                    "literal": {
+                                                      "intValue": "20"
+                                                    }
+                                                  },
+                                                  {
+                                                    "literal": {
+                                                      "intValue": "30"
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "20"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_starts_with",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "abc"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "a"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_substring",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "abcdef"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "start",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "1"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "end",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "3"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "math_clamp",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "5"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "min",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "1"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "max",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "3"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_int",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "doubleValue": 2.7
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "list_to_list",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "list",
+                                          "value": {
+                                            "literal": {
+                                              "listValue": {
+                                                "elements": [
+                                                  {
+                                                    "literal": {
+                                                      "intValue": "1"
+                                                    }
+                                                  },
+                                                  {
+                                                    "literal": {
+                                                      "intValue": "2"
+                                                    }
+                                                  }
+                                                ]
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Bag",
+          "descriptor": {
+            "name": "main:Bag",
+            "field": [
+              {
+                "name": "items",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Bag",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "items",
+                "type": "List<int>",
+                "is_final": true
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

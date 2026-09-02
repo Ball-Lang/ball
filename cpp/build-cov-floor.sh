@@ -3,13 +3,15 @@
 # code (issue #63). Run after build-cov-report.sh has produced the
 # per-target build-cov/cpp.<target>.lcov files.
 #
-# Still not GATED in CI. .github/workflows/coverage.yml's cpp job now splits
-# the merged tracefile per target and REPORTS each target's percentage next to
-# the floors below (issue #63), but does not fail on them: those numbers have
-# never been measured by CI, and a false red on main is worse than an
-# unenforced number. Once two runs establish a baseline, that report step
-# becomes the gate — and it must also assert all three tracefiles exist (see
-# the SKIP branch below).
+# GATED IN CI. .github/workflows/coverage.yml's cpp job splits the merged
+# tracefile into build-cov/cpp.<target>.lcov and runs THIS SCRIPT; its exit
+# code is that step's exit code (issues #63 / #59). The step also asserts each
+# extracted tracefile is non-empty and that exactly three `OK ` lines come
+# back, because the missing-tracefile branch below is a deliberate non-fatal
+# SKIP — a gate that silently checked nothing would otherwise pass.
+# cpp/test/test_cov_floor_ci_wiring.sh pins that wiring; the parser and exit
+# codes are pinned by cpp/test/test_build_cov_floor_parsing.sh. Both run in
+# ci.yml's always-on `proto` job.
 #
 # Usage: ./build-cov-floor.sh
 #   Exits 1 and prints every target under its floor, or whose coverage summary
@@ -153,10 +155,29 @@ cd "$(dirname "$0")"
 # coverage.yml's CI floor is ratcheted 83 -> 86 against the 88.1% overall.
 # Floors below are set a couple points under the measured per-target numbers to
 # absorb CI variance.
+#
+# Re-derived 2026-09-02 (issues #63 / #59) when this script became the actual CI
+# gate. Every earlier number in this header came from a LOCAL build-cov run; the
+# floors below are the first ones derived from CI's own measurement, taken from
+# two consecutive successful coverage.yml runs on main that printed an identical
+# triple (so the reading is stable, not a single sample):
+#   run 33614144984  main @ edf9f6c6  2026-09-02T09:39Z
+#   run 33617428731  main @ 5b8c7b18  2026-09-02T10:16Z
+#     cpp/compiler: 92.3%   cpp/encoder: 89.1%   cpp/shared: 81.8%
+# minus this project's ~2pt CI-variance buffer, rounded down to whole points:
+#   compiler  88 -> 90   (+2 ratchet: 92.3 - 2 = 90.3)
+#   encoder   88 -> 87   (89.1 - 2 = 87.1; the old 88 left only +1.1pt, thinner
+#                         than the convention, and was flagged on #63 as needing
+#                         re-derivation BEFORE gating — an unenforced 88 that
+#                         false-reds the moment it is switched on protects less
+#                         than an enforced 87)
+#   shared    81 -> 79   (81.8 - 2 = 79.8; same reasoning, old margin +0.8pt)
+# RAISE these as tests land — that is the ratchet's whole point. They are a
+# regression floor, never a completion target; #63's target is 100%.
 declare -A FLOORS=(
-  [compiler]=88
-  [encoder]=88
-  [shared]=81
+  [compiler]=90
+  [encoder]=87
+  [shared]=79
 )
 
 fail=0

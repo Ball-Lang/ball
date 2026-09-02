@@ -135,6 +135,8 @@ dependencies = [
 name = "ball-lang-engine"
 version = "0.1.1"
 dependencies = [
+ "ball-lang-compiler",
+ "ball-lang-encoder",
  "ball-lang-shared",
  "prost",
  "prost-reflect",

@@ -124,6 +124,13 @@ jobs:
       - name: C++ coverage-floor parser test (#63)
         run: bash cpp/test/test_build_cov_floor_parsing.sh
 
+      # The parser test above proves build-cov-floor.sh's comparison and exit
+      # codes; it runs the script directly and therefore cannot notice that
+      # coverage.yml used to RE-IMPLEMENT that comparison inline and never call
+      # it (#63/#59). This one asserts the wiring itself.
+      - name: C++ coverage-floor CI wiring test (#63)
+        run: bash cpp/test/test_cov_floor_ci_wiring.sh
+
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────
@@ -227,6 +234,14 @@ jobs:
 
       - name: Self-host parity (conformance via round-tripped engine)
         run: cd dart/self_host && dart test
+
+      # The Tier A coverage-study harness (#493) is itself a measuring
+      # instrument, so its own correctness IS gated here even though the study
+      # it drives (coverage-study.yml) is report-only. The self-test proves the
+      # harness scores `main`-less, cross-file library files instead of quietly
+      # skipping them — the exact blind spot #493 exists to close.
+      - name: Coverage-study harness self-test (#493)
+        run: dart run tools/coverage-study/test/rq1_study_self_test.dart
 
   # ──────────────────────────────────────────────────
   # Ball artifact freshness — every committed Ball artifact must be GENERATED

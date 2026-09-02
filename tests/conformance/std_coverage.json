@@ -120,6 +120,8 @@
         "36_string_interpolation",
         "390_goto_label",
         "398_const_constructor",
+        "416_user_method_name_arity_collision",
+        "417_null_aware_collection_elements",
         "42_nested_functions",
         "59_deep_recursion",
         "60_collatz",
@@ -271,7 +273,11 @@
         "393_untyped_empty_braces_map",
         "39_compound_assign",
         "400_switch_continue_label",
+        "406_subclass_field_over_getter",
         "41_for_sum",
+        "431_shadowed_getter_dynamic_dispatch",
+        "432_shadowed_getter_setter_write",
+        "433_shadowed_field_self_write_and_local",
         "43_countdown",
         "55_scope_variable",
         "60_collatz",
@@ -498,6 +504,7 @@
         "395_map_keys_values_fail_loud",
         "396_switch_case_fallthrough",
         "397_map_values",
+        "431_shadowed_getter_dynamic_dispatch",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -652,6 +659,7 @@
         "340_type_literal",
         "345_inherited_field_type_name_collision",
         "384_list_filter_where",
+        "417_null_aware_collection_elements",
         "48_break_continue",
         "58_mutual_recursion",
         "59_deep_recursion",
@@ -1205,6 +1213,7 @@
         "312_collection_for_capture",
         "33_comparison_chain",
         "390_goto_label",
+        "417_null_aware_collection_elements",
         "44_for_loop_basic",
         "48_break_continue",
         "54_abs_value",
@@ -1352,8 +1361,8 @@
       "inputType": "MathClampInput",
       "encoderEmittable": true,
       "coveredByFixtures": [
-        "105_static_methods",
-        "259_math_functions"
+        "259_math_functions",
+        "416_user_method_name_arity_collision"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -1695,7 +1704,9 @@
         "32_arithmetic_negative",
         "341_setter_param_binding",
         "356_own_field_named_collection_type",
+        "416_user_method_name_arity_collision",
         "42_nested_functions",
+        "432_shadowed_getter_setter_write",
         "49_nested_loops",
         "57_recursion_factorial",
         "60_collatz",
@@ -1782,6 +1793,7 @@
         "278_enc_bool_logic",
         "34_boolean_logic",
         "350_set_value",
+        "416_user_method_name_arity_collision",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -1803,6 +1815,7 @@
         "272_enc_comparison",
         "317_primitive_number_getters",
         "33_comparison_chain",
+        "417_null_aware_collection_elements",
         "60_collatz",
         "72_gcd"
       ],
@@ -1913,6 +1926,7 @@
         "310_set_map_comprehension",
         "312_collection_for_capture",
         "40_increment_decrement",
+        "417_null_aware_collection_elements",
         "41_for_sum",
         "44_for_loop_basic",
         "46_while_loop",
@@ -2236,9 +2250,15 @@
         "39_compound_assign",
         "400_switch_continue_label",
         "401_switch_expr_null_arm",
+        "406_subclass_field_over_getter",
         "40_increment_decrement",
+        "416_user_method_name_arity_collision",
+        "417_null_aware_collection_elements",
         "41_for_sum",
         "42_nested_functions",
+        "431_shadowed_getter_dynamic_dispatch",
+        "432_shadowed_getter_setter_write",
+        "433_shadowed_field_self_write_and_local",
         "43_countdown",
         "44_for_loop_basic",
         "45_for_in_loop",
@@ -2526,6 +2546,7 @@
         "249_string_control_char_edges",
         "262_getter_properties",
         "350_set_value",
+        "416_user_method_name_arity_collision",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2627,7 +2648,8 @@
       "encoderEmittable": true,
       "coveredByFixtures": [
         "124_frequency_counter",
-        "264_string_replace_ops"
+        "264_string_replace_ops",
+        "416_user_method_name_arity_collision"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2639,7 +2661,8 @@
       "encoderEmittable": true,
       "coveredByFixtures": [
         "260_string_functions",
-        "382_list_all_every"
+        "382_list_all_every",
+        "416_user_method_name_arity_collision"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2655,7 +2678,8 @@
         "204_string_operations",
         "213_string_edge_cases",
         "228_unicode_grapheme_edges",
-        "264_string_replace_ops"
+        "264_string_replace_ops",
+        "416_user_method_name_arity_collision"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3016,6 +3040,7 @@
         "40_increment_decrement",
         "41_for_sum",
         "42_nested_functions",
+        "431_shadowed_getter_dynamic_dispatch",
         "43_countdown",
         "44_for_loop_basic",
         "46_while_loop",
@@ -3260,7 +3285,8 @@
       "encoderEmittable": true,
       "coveredByFixtures": [
         "204_string_operations",
-        "213_string_edge_cases"
+        "213_string_edge_cases",
+        "416_user_method_name_arity_collision"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3641,7 +3667,8 @@
         "310_set_map_comprehension",
         "350_set_value",
         "392_empty_set_literal",
-        "394_mappattern_excludes_set"
+        "394_mappattern_excludes_set",
+        "417_null_aware_collection_elements"
       ],
       "engineImplementedDart": true,
       "carvedOut": false

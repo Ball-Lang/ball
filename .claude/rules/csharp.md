@@ -120,11 +120,21 @@ compile items so the sibling projects never double-compile each other's files.
   `csharp/AGENTS.md`'s "Encoder" section): target-typed `new(...)`, `enum` declarations,
   `goto`/switch pattern-matching labels/catch exception filters, chained `?.` beyond one level,
   multiple constructors per class, local functions, interpolation alignment/format specifiers.
+- **Library mode (#492 slice 2).** `Encode` requires a `Main` entry point; `EncodeLibrary` (CLI:
+  `ball encode --library`) drops **only** that requirement — every other documented gap still
+  throws `EncoderException`. Both share the private `AssembleProgram` helper. A library-mode
+  `Program` carries `EntryModule = "main"` and an **empty `EntryFunction`**, so it is deliberately
+  NOT runnable: `ball check` reports `missing entry_function`, which is the correct, documented
+  boundary — never synthesise a fake entry function to silence it. The Rust encoder's
+  `encode_library` makes the identical call; keep the two consistent.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
-  feeds one hand-authored fixture per taxonomy bucket through `Encode` and prints
-  `Results: 0 passed, 7 failed, 7 total`. It is a ratchet — it never asserts on the passed count
-  (only a positive floor and a fixture set checked against a real directory listing, so adding a
-  fixture without wiring it in fails), so do not "fix" it by weakening a fixture.
+  feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
+  (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
+  `Results: 1 passed, 6 failed, 7 total` (slice 1's baseline was `0 passed, 7 failed`). It never
+  asserts the **global** passed count (only a positive floor and a fixture set checked against a
+  real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
+  slice has CLOSED carries a real per-bucket `MustEncode` assertion, so a regression fails rather
+  than quietly lowering the printed baseline. Do not "fix" it by weakening a fixture.
   Note the corrected throw-site taxonomy in `csharp/AGENTS.md`: an interface fails at
   `Types.cs`'s "method has no body", not at the "unsupported type declaration kind" site, so an
   interface fixture must carry a method.
@@ -155,7 +165,9 @@ compile items so the sibling projects never double-compile each other's files.
   the syntactic encoder doesn't yet recognize compiler-emitted `BallRuntime.*` shapes). Since #452
   item 1 the round-trip leg is ALSO run in CI, by the `csharp-roundtrip` measurement row: no floor
   (a ratchet on 0 is meaningless), but it asserts the harness produced a parseable `Results:` line
-  with integer counts and `total >= 1`, so the leg can no longer silently rot. Do not treat the
+  with integer counts and `total >= 1`, so the leg can no longer silently rot. Since #452 item 3
+  the Python/Go/Rust targets have identical rows (`python-roundtrip`/`go-roundtrip`/
+  `rust-roundtrip`) built to the same shape and reporting the same honest zero. Do not treat the
   numbers here as live — read them off those rows. NOTE: every row in `conformance-matrix.yml`
   (these, the engine rows, and the `*_COMPILER_FLOOR` ratchets alike) runs on push-to-main, the
   weekly schedule, or manual dispatch — that file has no `pull_request:` trigger, so none of them

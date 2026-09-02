@@ -716,3 +716,89 @@ describe("compiler — bracket-invoking a string-literal operator method (#252)"
     assert.equal(runCompiled(program), "3");
   });
 });
+
+describe("compiler — a method-local shadows a same-named class member (#501 family)", () => {
+  // In Dart a method-local shadows every class member, so a bare reference to
+  // it must compile to the LOCAL and never to `this.<name>`. Two things had to
+  // be true for that, and neither was:
+  //
+  //  1. `expr()`'s reference branch consulted only `currentMethodParams`, so a
+  //     declared local named after a field or getter still took the
+  //     `this.<name>` branch;
+  //  2. `emitBlock` restored the enclosing scope BEFORE compiling a function
+  //     body's tail `result` expression, so even with (1) fixed the `return x;`
+  //     of `{ int x = 99; return x; }` was compiled against a scope in which
+  //     `x` had never been declared.
+  //
+  // The failure is a SILENT WRONG ANSWER — `this.x` is a perfectly valid
+  // property read — which is why it survived until conformance
+  // 433_shadowed_field_self_write_and_local drove it end to end.
+  test("a local named after a getter is read as the local, not as this.<name>", () => {
+    const program = programWithClasses({
+      typeDefs: [{ name: "main:A", metadata: { kind: "class" } }],
+      functions: [
+        {
+          name: "main:A.x",
+          metadata: { kind: "method", is_getter: true },
+          body: { literal: { intValue: 1 } },
+        },
+        {
+          name: "main:A.localOverGetter",
+          metadata: { kind: "method" },
+          body: {
+            block: {
+              statements: [{ let: { name: "x", value: { literal: { intValue: 99 } } } }],
+              result: { reference: { name: "x" } },
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const m = /localOverGetter\s*\([^)]*\)\s*:\s*any\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(m, "localOverGetter() method found");
+    assert.match(m![1], /let x = 99;/);
+    assert.match(m![1], /return x;/);
+    assert.doesNotMatch(m![1], /return this\.x;/);
+  });
+
+  test("a local named after a field is read as the local, and the field is untouched", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        {
+          name: "main:B",
+          descriptor: { name: "main:B", field: [{ name: "x", type: "TYPE_INT64" }] },
+          metadata: { kind: "class", fields: [{ name: "x", type: "int", initializer: "5" }] },
+        },
+      ],
+      functions: [
+        { name: "main:B.new", metadata: { kind: "constructor", params: [{ name: "input" }] } },
+        {
+          name: "main:B.shadowLocal",
+          metadata: { kind: "method" },
+          body: {
+            block: {
+              statements: [{ let: { name: "x", value: { literal: { intValue: 99 } } } }],
+              result: { reference: { name: "x" } },
+            },
+          },
+        },
+        {
+          name: "main:B.readField",
+          metadata: { kind: "method" },
+          body: { reference: { name: "x" } },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    const local = /shadowLocal\s*\([^)]*\)\s*:\s*any\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(local, "shadowLocal() method found");
+    assert.match(local![1], /return x;/);
+    assert.doesNotMatch(local![1], /this\.x/);
+    // The field read in a method with NO local of that name still resolves to
+    // the member — the fix must not disable field resolution generally.
+    const field = /readField\s*\([^)]*\)\s*:\s*any\s*\{([\s\S]*?)\n\s*\}/.exec(ts);
+    assert.ok(field, "readField() method found");
+    assert.match(field![1], /return this\.x;/);
+  });
+});

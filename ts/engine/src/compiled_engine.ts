@@ -4192,7 +4192,7 @@ export class BallEngine {
     if (__ball_eq(typeName, null)) {
       return _sentinel;
     }
-    if ((fieldName in __ball_require_map(object, 'map_contains_key'))) {
+    if (__ball_map_has(object, 'map_contains_key', fieldName)) {
       return _sentinel;
     }
     let colonIdx = typeName.indexOf(':');

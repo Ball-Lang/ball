@@ -3064,9 +3064,6 @@ function __isUnknownFnError(e: any): boolean {
       this.renameStack = [];
     }
     for (const s of block.statements ?? []) this.emitStatement(s);
-    // Restore previous scope state when leaving a function body.
-    if (savedScope !== null) this.scopeDeclaredVars = savedScope;
-    if (savedRenames !== null) this.renameStack = savedRenames;
     if (block.result !== undefined && isFunctionBody) {
       const r = block.result;
       // notSet literal → skip.
@@ -3082,6 +3079,15 @@ function __isUnknownFnError(e: any): boolean {
     } else if (block.result !== undefined) {
       this.writeln(`${this.expr(block.result)};`);
     }
+    // Restore previous scope state when leaving a function body — AFTER the
+    // result expression, which is part of this body and must see the locals
+    // its own statements declared. Restoring first made the tail expression
+    // compile against the ENCLOSING scope, so a method-local was invisible to
+    // it: `int x = 99; return x;` inside a class that also declares `x`
+    // emitted `let x = 99; return this.x;` and silently answered with the
+    // member (conformance 433_shadowed_field_self_write_and_local).
+    if (savedScope !== null) this.scopeDeclaredVars = savedScope;
+    if (savedRenames !== null) this.renameStack = savedRenames;
   }
 
   /**
@@ -3983,7 +3989,19 @@ function __isUnknownFnError(e: any): boolean {
       // Inside a class method: bare references to fields need this.
       // prefix. Method references also need .bind(this) because Dart
       // tear-offs auto-bind but JS method references do not.
-      if (!this.currentMethodParams.has(name)) {
+      //
+      // A method-LOCAL of the same name shadows every class member in Dart, so
+      // neither branch below may fire for it — exactly the guard the `self`
+      // case above already applies. Without it, `int x = 99; return x;` inside
+      // a class that also declares a field or getter `x` compiled to
+      // `return this.x;` and silently answered with the MEMBER's value: a
+      // wrong answer, not a crash (conformance
+      // 433_shadowed_field_self_write_and_local, which prints 1 and 10 instead
+      // of 99 for `A.localOverGetter` / `B.shadowLocal` without this). The
+      // declaration is registered by emitStatement BEFORE the statements that
+      // read it are compiled, so the lookup is ordered correctly.
+      if (!this.currentMethodParams.has(name) &&
+          !this.scopeDeclaredVars.has(this.resolveVarName(sanitize(name)))) {
         if (this.currentClassFields.has(name)) {
           return `this.${sanitize(name)}`;
         }

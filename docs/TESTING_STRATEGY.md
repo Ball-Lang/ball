@@ -160,7 +160,12 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > previously unknown defect: `_trySetterDispatch` ran an inherited setter for a
 > field the instance declares itself, while the read path had always preferred
 > the instance's own field — so the write was silently dropped and the read
-> answered with the stale value. A fixture that only covers the shape you already
+> answered with the stale value. 433 in turn went red on the **TypeScript
+> compiler** leg for a defect with no C++ content at all: a bare reference to a
+> method-local named after a class member compiled to `this.<name>`, so the
+> method silently answered with the MEMBER's value, and a function body's tail
+> `result` was compiled after its scope had already been restored, hiding the
+> local a second way. A fixture that only covers the shape you already
 > fixed proves the fix, not the rule.
 >
 > **A silent-wrong-answer regression hides from a byte-diff blast-radius proof.**

@@ -3883,7 +3883,34 @@ TEST(unqualified_write_to_shadowing_field_goes_through_the_setter) {
                })))}),
         "void");
 
-    auto prog = cov_class_program({a_td, b_td}, {getter, bump, add_to});
+    // The two compound operators with their own lowering (`~/=` truncating
+    // divide, `>>>=` unsigned right shift). Fixture 433 covers `=` and `+=`
+    // end to end; these two share the same new branch but have no fixture, so
+    // pin their emitted shape here rather than leave the branch unexercised.
+    json idiv_meta;
+    idiv_meta["kind"] = "method";
+    auto idiv = cov_class_fn(
+        "main:B.idiv", std::move(idiv_meta),
+        block({stmt_expr(std_call("assign", make_msg("", {
+                   {"target", ref("x")},
+                   {"value", lit_int(2)},
+                   {"op", lit_string("~/=")},
+               })))}),
+        "void");
+
+    json ushr_meta;
+    ushr_meta["kind"] = "method";
+    auto ushr = cov_class_fn(
+        "main:B.ushr", std::move(ushr_meta),
+        block({stmt_expr(std_call("assign", make_msg("", {
+                   {"target", ref("x")},
+                   {"value", lit_int(1)},
+                   {"op", lit_string(">>>=")},
+               })))}),
+        "void");
+
+    auto prog =
+        cov_class_program({a_td, b_td}, {getter, bump, add_to, idiv, ushr});
     auto out = compile_program(prog);
 
     // The write is a setter CALL on the implicit receiver, so the vtable still
@@ -3897,6 +3924,11 @@ TEST(unqualified_write_to_shadowing_field_goes_through_the_setter) {
     ASSERT_NOT_CONTAINS(out, "ball_assign(x()");
     ASSERT_NOT_CONTAINS(out, "x() +=");
     ASSERT_NOT_CONTAINS(out, "(x() = ");
+    // `~/=` and `>>>=` keep their own lowering and still write through the
+    // setter — never `(x() = …)`, which is what the pre-fix fall-through
+    // produced.
+    ASSERT_CONTAINS(out, "static_cast<int64_t>(BallDyn(x()) / BallDyn(");
+    ASSERT_CONTAINS(out, "static_cast<uint64_t>(static_cast<int64_t>(x()))");
 }
 
 // Shape 2 — a method-LOCAL named after a member. In Dart a local shadows every

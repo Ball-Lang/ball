@@ -136,6 +136,27 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > `CPP_COMPILE_CARVEOUTS` is empty and keeping it that way is worth more than one
 > fixture. When you add a fixture, enumerate the legs it must pass — the engine
 > rows and the compiled rows are not the same set.
+>
+> *Resolved:* #501 fixed the C++ emitter (a shadowing field now becomes a private
+> renamed backing member plus a public `virtual` accessor pair over a virtualised
+> ancestor getter, so the vtable — not a compile-time type guess — resolves it)
+> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` is still empty.
+
+> **One fixture per defect, not one per defect *family*.** 406 exercises only the
+> READ side of a shadowed accessor, through a receiver whose static and runtime
+> types agree. Two more fixtures were needed to pin the rest of the family, and
+> each found something 406 could not:
+> `431_shadowed_getter_dynamic_dispatch` reads through a base-declared method, so
+> a fix that resolved the accessor against the receiver's *static* class — the
+> wording #501's own body suggested — would compile and pass 406 while silently
+> printing the base value here; and `432_shadowed_getter_setter_write` gives the
+> ancestor a `set x` as well, which is the only way to reach the emitter's
+> `has_setter` branch at all. 432 also went red on all six **engines**, exposing
+> a separate, previously unknown defect: `_trySetterDispatch` ran an inherited
+> setter for a field the instance declares itself, while the read path had always
+> preferred the instance's own field — so the write was silently dropped and the
+> read answered with the stale value. A fixture that only covers the shape you
+> already fixed proves the fix, not the rule.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not

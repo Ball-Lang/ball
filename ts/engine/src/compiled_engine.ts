@@ -4170,6 +4170,9 @@ export class BallEngine {
     if (__ball_eq(typeName, null)) {
       return _sentinel;
     }
+    if ((fieldName in __ball_require_map(object, 'map_contains_key'))) {
+      return _sentinel;
+    }
     let colonIdx = typeName.indexOf(':');
     let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
     let setterKey = (((((__ball_to_string(modPart) + '.') + __ball_to_string(typeName)) + '.') + __ball_to_string(fieldName)) + '=');

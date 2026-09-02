@@ -1260,6 +1260,20 @@ extension BallEngineEval on BallEngine {
     final typeName = object['__type__'] as String?;
     if (typeName == null) return _sentinel;
 
+    // A field the instance carries ITSELF shadows any accessor of the same
+    // name declared further up the chain: `class B extends A { @override
+    // int x = 5; }` over `class A { int get x => 1; set x(v) {…} }` is legal
+    // Dart, and B's implicit field accessors override BOTH of A's. The READ
+    // path already gives the instance's own field precedence (_evalFieldAccess
+    // returns `objectMap[fieldName]` before it ever reaches getter dispatch),
+    // but the write path did not — so `b.x = 7` ran A's INHERITED setter,
+    // which wrote A's private backing field and left B's own `x` at 5, while
+    // the read still answered with that stale 5. The write was silently
+    // dropped. Returning the sentinel here hands the assignment back to the
+    // plain map write, restoring read/write symmetry (#501, conformance
+    // 432_shadowed_getter_setter_write).
+    if (object.containsKey(fieldName)) return _sentinel;
+
     final colonIdx = typeName.indexOf(':');
     final modPart = colonIdx >= 0
         ? typeName.substring(0, colonIdx)

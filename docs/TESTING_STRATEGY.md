@@ -63,6 +63,26 @@ the reverse (every `.ball.json` has a source).
 > the broken C-style variant and to wrong *values*. The gate measures
 > **executed** emission instead.
 
+> **The corpus can only reach IR some encoder can emit.** Valid Ball IR is a
+> strict superset of that. A rule about a *shape no source language can express*
+> is therefore structurally unreachable from a fixture and needs a targeted test
+> that hand-builds the IR. Worked example: assigning to a getter-only property is
+> a Dart **compile-time** error, so no `src/*.dart` (which must first run under
+> `dart run`) can ever produce that IR — the C# compiler grafted a silent shadow
+> field on it for months (#461). `csharp/compiler/test/AccessorEdgeCaseTests.cs`
+> is the shape of the fix: build the `Program` in code, compile it, run it,
+> assert. Before reaching for "add a fixture", check the shape is *emittable*.
+
+> **Name the leg precisely when you ask "why didn't a test catch this?"** The
+> obvious candidate is often not a corpus sweep at all. `csharp/compiler/test/
+> EndToEndTests.cs`, for instance, hardcodes four fixtures — it was never in a
+> position to catch a corpus-wide regression. The leg that *does* compile the
+> whole corpus through the C# compiler is `csharp/engine/conformance --leg=
+> compiler`, which lives in `conformance-matrix.yml` — a workflow with **no
+> `pull_request` trigger** — and is a ratchet (`CSHARP_COMPILER_FLOOR`) that
+> already tolerates its known gaps. "A gate exists" and "a gate runs on your PR
+> and would have gone red" are different claims.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier

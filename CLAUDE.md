@@ -185,9 +185,19 @@ cd dart && dart run compiler/tool/gen_engine_json.dart
 cd ../python/engine && python -m ball_engine.regen
 python -m conformance.runner                           # Results: 320 passed, 0 failed, 320 total
 
-# The `ball` Python CLI (python/cli): run/compile/encode/check. `run` needs the
-# gitignored compiled_engine.py (honest exit-1 + regenerate hint when absent).
+# The `ball` Python CLI (python/cli): run/compile/encode/check plus a --version
+# FLAG. `run` uses the gitignored compiled_engine.py when present, else compiles
+# the bundled/checkout self-host source into a cache dir (ball_engine/bootstrap.py);
+# an honest exit-1 + regenerate hint when neither is available.
 cd python/cli && python -m ball_cli check <program.ball.json>   # or compile / encode / run
+
+# The redistributable `ball-lang` wheel (#496): ONE distribution bundling
+# python/{runtime,compiler,encoder,engine,cli} + the generated ball.v1 binding.
+# wheel_smoke.py is the PR gate — it builds the wheel, installs it into a venv
+# OUTSIDE the repo (no PYTHONPATH), and runs --version/check/compile/encode/run,
+# diffing `run` against a conformance golden as BYTES.
+python -m pip install "build>=1.2"
+python python/tool/wheel_smoke.py
 
 # Proto — lint, breaking-change check, regenerate all bindings
 # NOTE: buf.yaml lives at proto/buf.yaml (not repo root), so `proto` MUST be
@@ -227,7 +237,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `python/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (gitignored; `go/engine/cmd/regen`), `python/engine/ball_engine/compiled_engine.py` (gitignored; `python -m ball_engine.regen`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/src/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go/Python engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `python/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (gitignored; `go/engine/cmd/regen`), `python/engine/ball_engine/compiled_engine.py` (gitignored; `python -m ball_engine.regen`), `python/engine/ball_engine/_selfhost/engine.ball.json.gz` (gitignored; `python/engine/tool/bundle_selfhost.py`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/src/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go/Python engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
 
 ## Architecture Big Picture
 
@@ -420,7 +430,13 @@ The conformance harness is `python/engine/conformance/runner.py` (whole-corpus s
 runs as its own killable `python -m ball_engine` subprocess, so a runaway is simply killed — the
 Python analog of Go's cooperative goroutine-timeout guard), and CI is the `python` job in
 `.github/workflows/ci.yml` plus the `python-engine` row in `conformance-matrix.yml` — both gate on
-full parity, mirroring the `go`/`go-engine` jobs.
+full parity, mirroring the `go`/`go-engine` jobs. **Distribution** (#496): the redistributable shape
+is ONE wheel, `ball-lang` (`python/pyproject.toml`), bundling all five packages plus the generated
+`ball.v1` binding, released by `.github/workflows/publish-pypi.yml` (tag-gated on
+`python-pypi/vX.Y.Z`, PyPI Trusted Publishing). No generated code ships: the wheel carries the
+engine's Ball *source* and `ball_engine/bootstrap.py` compiles it into a per-user cache dir on the
+first `ball run`. `python/tool/wheel_smoke.py` (PR-gated in the `python` job) builds the wheel,
+installs it into a clean venv outside the repo, and runs every verb.
 
 ### Standard library modules
 Eight universal modules ship in `dart/shared/lib/` (`std*.dart`): `std` (arithmetic, comparison, logic, bitwise, strings, math, control flow, type ops, cascade, null_aware_access, invoke, spread, record, etc. — `dart/shared/std.json` is the canonical base-function inventory), `std_collections` (list/map/set), `std_io` (console/process/time/random), `std_memory` (linear-memory fns for C/C++ interop), `std_convert` (JSON/UTF-8/base64), `std_fs` (file/directory ops), `std_time` (clock, timestamp format/parse, duration arithmetic), and `std_concurrency` (threads, mutexes, atomics). The `dart_std`/`cpp_std`/`ts_std` modules have been eliminated — all functions now route through universal `std`.

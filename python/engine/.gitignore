@@ -2,5 +2,11 @@
 # ~680 KB compiled from dart/self_host/engine.ball.json. Never committed — a
 # fresh checkout regenerates it. compileall/pytest gate on its existence.
 ball_engine/compiled_engine.py
+
+# The self-host Ball SOURCE bundled into the ball-lang wheel as package data
+# (python/engine/tool/bundle_selfhost.py, issue #496) — a build artifact gzipped
+# from the equally-gitignored dart/self_host/engine.ball.json.
+ball_engine/_selfhost/
+
 __pycache__/
 *.pyc

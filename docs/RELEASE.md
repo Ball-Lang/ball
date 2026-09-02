@@ -74,6 +74,62 @@ A package's very first publish must be manual (`dart pub publish` from its
 directory) — the admin page doesn't exist before that. See issue #152 for
 the two packages still awaiting the config (ball_rpc, ball_protobuf_gen).
 
+## PyPI lane (`ball-lang` — the whole Python toolchain in ONE wheel)
+
+```
+push a tag  python-pypi/vX.Y.Z            ← the ONLY trigger (plus workflow_dispatch)
+  └► publish-pypi.yml
+       ├─ setup Python 3.13 + Dart, `gen_engine_json.dart`
+       ├─ self-host conformance sweep at full Dart parity   ← publish bar
+       ├─ derive X.Y.Z from the tag, inject it into python/pyproject.toml
+       ├─ bundle_selfhost.py  → ball_engine/_selfhost/engine.ball.json.gz
+       ├─ python -m build python/      (sdist + wheel)
+       ├─ wheel_smoke.py               ← clean-venv install + all five verbs
+       └─ pypa/gh-action-pypi-publish  (Trusted Publishing, OIDC, no token)
+  └► verify-published (separate job)
+       └─ pip install ball-lang==X.Y.Z FROM PyPI in a fresh venv, then
+          --version / check / run against a conformance golden
+```
+
+**One distribution, not five.** `python/pyproject.toml` bundles
+`python/{runtime,compiler,encoder,engine,cli}` plus the generated `ball.v1`
+binding into a single `ball-lang` wheel with a `ball` console script. The five
+per-package `pyproject.toml`s stay as they are — ci.yml still runs each suite
+from its own directory.
+
+**No generated code ships.** The wheel carries the engine's Ball *source*
+(gzipped package data); `ball run` compiles it into a per-user cache dir on
+first use (`BALL_CACHE_DIR` overrides the location). See
+`python/engine/ball_engine/bootstrap.py`.
+
+**Maintainer setup (one-time, before the first tag):** create a PyPI **pending
+publisher** at <https://pypi.org/manage/account/publishing/> — project
+`ball-lang`, owner `Ball-Lang`, repository `ball`, workflow `publish-pypi.yml`,
+environment `pypi`. PyPI allows this before the project exists (unlike
+crates.io). There is no API-token fallback: without the publisher the OIDC
+exchange fails loudly and nothing is pushed.
+
+**Unlike npm/crates/nuget, this lane is also PR-gated**: ci.yml's `python` job
+builds the wheel and installs it into a clean venv on every PR, so a broken
+combining distribution is caught before a tag is ever cut.
+
+## Go modules lane (`go/<module>/vX.Y.Z`)
+
+The six Go modules are consumed straight from the module proxy — there is no
+registry account and nothing to upload; a tag *is* the release. `release-tag.yml`'s
+`tag-go-modules` job cuts all six tags on the release commit **in one push** (a
+dependent must never resolve to a version that does not exist yet), at the
+version single-sourced from the `go/*/go.mod` requires
+(`tools/go-module-proxy/build_local_proxy.py --print-version`, which also asserts
+all six agree and that no go.mod carries a `replace` directive). It is idempotent
+when the tags already exist and refuses to act on a half-tagged set.
+
+Bumping the Go module line is therefore a normal PR that edits those `require`
+lines; the next release commit publishes it. `tools/go-module-proxy/smoke.sh`
+(gating in ci.yml's `go` job) proves `go install
+github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
+proxy before any tag exists.
+
 ## Failure recovery
 
 - **publish-npm failed mid-run:** nothing published (all publishes run after

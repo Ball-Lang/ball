@@ -1187,7 +1187,8 @@ jobs:
           python -m compileall -q -x 'compiled_engine\.py' \
             python/runtime/ballrt python/compiler/ball_compiler \
             python/encoder/ball_encoder python/engine/ball_engine \
-            python/cli/ball_cli python/shared/gen
+            python/cli/ball_cli python/shared/gen \
+            python/tool python/engine/tool
 
       # ── Self-hosted engine: regenerate + RUN (epic #445 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
@@ -1237,6 +1238,38 @@ jobs:
             echo "::error::Python self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
+
+      # ── The `ball-lang` wheel (issue #496) ──
+      # Everything above proves "the checkout works": each suite runs from its own
+      # package dir with the sibling sources bootstrapped onto sys.path. A
+      # pip-installed distribution is a different thing entirely, and nothing
+      # tested it — there was no distribution to install.
+      #
+      # These two steps run AFTER the self-host regeneration above, because both
+      # need dart/self_host/engine.ball.json: the bootstrap tests compile it, and
+      # the wheel bundles it as package data (`ball run` in an installed wheel
+      # compiles it into a user cache dir on first use — the generated
+      # compiled_engine.py is never shipped and never committed).
+      #
+      # BALL_REQUIRE_SELFHOST_SOURCE=1 turns "no self-host source" from a skip
+      # (right on a fresh developer checkout) into a failure here, so the regen
+      # step silently not running can't reduce this gate to a no-op.
+      - name: Engine bootstrap tests (compile-on-first-use)
+        env:
+          BALL_REQUIRE_SELFHOST_SOURCE: "1"
+        run: cd python/engine && python -m pytest -q
+
+      # Builds the wheel, installs it into a venv OUTSIDE the repo with no repo
+      # path on PYTHONPATH, and runs --version / check / compile / encode / run —
+      # `run` comparing stdout against the fixture's golden as BYTES. This is
+      # deliberately MORE rigorous than the npm/crates/nuget publish paths, which
+      # are tag-triggered and have no PR-gated install smoke at all; the asymmetry
+      # is intentional, since a broken combining distribution is otherwise
+      # invisible until someone pip-installs it.
+      - name: Wheel build + clean-venv install smoke
+        run: |
+          python -m pip install "build>=1.2"
+          python python/tool/wheel_smoke.py
 
   # ──────────────────────────────────────────────────
   # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language

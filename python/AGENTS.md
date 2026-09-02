@@ -52,6 +52,40 @@ maturity against CI (the `python`/`python-engine` jobs, Phase 7), not prose. Ful
 design lives in `compiler/AGENTS.md`, `runtime/AGENTS.md`, `encoder/AGENTS.md`, and
 `engine/AGENTS.md`.
 
+## Publishing (PyPI)
+
+The whole Python toolchain ships as **one** distribution, `ball-lang` (issue
+#496): `python/pyproject.toml` bundles `python/{runtime,compiler,encoder,engine,
+cli}` plus the generated `ball.v1` binding into a single wheel with a `ball`
+console script. The five per-package `pyproject.toml`s are untouched — ci.yml
+still runs each suite from its own directory.
+
+```bash
+python python/engine/tool/bundle_selfhost.py   # gzip the self-host Ball source
+python -m build python/                        # sdist + wheel -> python/dist/
+python python/tool/wheel_smoke.py              # build + clean-venv install + all 5 verbs
+```
+
+- **No generated code ships.** `compiled_engine.py` is never bundled and never
+  committed. The wheel carries the engine's Ball SOURCE as package data
+  (`ball_engine/_selfhost/engine.ball.json.gz`, gitignored build output of
+  `bundle_selfhost.py`), and `ball_engine/bootstrap.py` compiles it into a
+  per-user cache dir on the first `ball run` (~0.25 s; `BALL_CACHE_DIR`
+  overrides the location, cache key = distribution version + Python minor +
+  source digest).
+- **`ball.v1` packaging survives `buf generate proto`.** It is a PEP 420
+  implicit-namespace directory with no `__init__.py` anywhere; the combining
+  pyproject lists `ball` / `ball.v1` explicitly with a `package-dir` mapping, so
+  nothing is added inside `python/shared/gen/` for a regen to delete.
+- **Release:** `.github/workflows/publish-pypi.yml`, tag-gated on
+  `python-pypi/vX.Y.Z`, PyPI Trusted Publishing (OIDC, no token fallback),
+  version derived from the tag, self-host conformance sweep as the publish bar,
+  a pre-publish wheel smoke, and a post-publish `pip install ball-lang==X.Y.Z`
+  round trip from the real index. See `docs/RELEASE.md`.
+- **Maintainer one-time step:** create the PyPI *pending publisher* (project
+  `ball-lang`, owner `Ball-Lang`, repo `ball`, workflow `publish-pypi.yml`,
+  environment `pypi`). Without it the OIDC exchange fails loudly.
+
 ## For AI Agents
 - The compiler and encoder both use the raw proto3-JSON dict view (camelCase
   keys), not the generated bindings — no protobuf runtime dependency.

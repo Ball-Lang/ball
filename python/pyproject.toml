@@ -1,0 +1,90 @@
+# The single redistributable Python artifact: `ball-lang` on PyPI (issue #496).
+#
+# python/{runtime,compiler,encoder,engine,cli} are five deliberately isolated
+# packages, each with its own pyproject.toml, consumed from a checkout through a
+# sys.path bootstrap (ball_cli.paths / each suite's conftest.py). That shape is
+# unchanged — ci.yml still runs each suite from its own directory — but it can
+# only ever prove "the checkout works". This file is the combining distribution
+# that makes `pip install ball-lang` work: ONE wheel bundling all five source
+# trees plus the generated protobuf binding the engine loader needs.
+#
+# The generated compiled_engine.py is NEVER shipped and never committed. Instead
+# the wheel carries the self-host Ball SOURCE as package data
+# (ball_engine/_selfhost/engine.ball.json.gz, produced at build time by
+# python/engine/tool/bundle_selfhost.py) and `ball run` compiles it into a user
+# cache dir on first use — see ball_engine/bootstrap.py.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ball-lang"
+# Bumped by .github/workflows/publish-pypi.yml from the `python-pypi/vX.Y.Z`
+# tag it is triggered by; the checked-in value is the development baseline.
+version = "0.1.0"
+description = "Ball — a programming language where every program is a Protocol Buffer message. Python toolchain: compiler, encoder, self-hosted engine, and the `ball` CLI."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Ball-Lang" }]
+keywords = ["ball", "protobuf", "compiler", "interpreter", "language"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Compilers",
+  "Topic :: Software Development :: Interpreters",
+]
+# The only runtime dependency: the engine loader materialises proto3 defaults
+# through the generated ball.v1 binding. The runtime, compiler and encoder are
+# all Python-stdlib-only.
+dependencies = ["protobuf>=5.29"]
+
+[project.urls]
+Homepage = "https://github.com/Ball-Lang/ball"
+Repository = "https://github.com/Ball-Lang/ball"
+Issues = "https://github.com/Ball-Lang/ball/issues"
+
+[project.scripts]
+ball = "ball_cli.__main__:main"
+
+# Explicit packages + package-dir, not `packages.find`: the five source trees
+# live in sibling directories with no common root, and `ball.v1` is a PEP 420
+# implicit-namespace directory (python/shared/gen/ball/v1, regenerated wholesale
+# by `buf generate proto`, no __init__.py anywhere). Listing it here — rather
+# than adding __init__.py files under shared/gen/ — is what makes the packaging
+# survive the next `buf generate proto`: nothing inside the generated tree is
+# touched, so nothing can be deleted by a regen.
+[tool.setuptools]
+packages = [
+  "ballrt",
+  "ball_compiler",
+  "ball_encoder",
+  "ball_engine",
+  "ball_cli",
+  "ball_cli.commands",
+  "ball",
+  "ball.v1",
+]
+
+[tool.setuptools.package-dir]
+ballrt = "runtime/ballrt"
+ball_compiler = "compiler/ball_compiler"
+ball_encoder = "encoder/ball_encoder"
+ball_engine = "engine/ball_engine"
+ball_cli = "cli/ball_cli"
+"ball_cli.commands" = "cli/ball_cli/commands"
+ball = "shared/gen/ball"
+"ball.v1" = "shared/gen/ball/v1"
+
+# setuptools does NOT auto-include non-.py files. The bundled self-host Ball
+# source is a build artifact (gitignored, written by
+# python/engine/tool/bundle_selfhost.py before `python -m build python/`); its
+# absence is caught by the packaging smoke, which runs `ball run` on a real
+# fixture from the installed wheel.
+[tool.setuptools.package-data]
+ball_engine = ["_selfhost/*.gz"]

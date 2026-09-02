@@ -490,6 +490,99 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────
+  # vcpkg overlay-port install smoke (issue #368)
+  # ──────────────────────────────────────────────────
+  # tools/vcpkg-port/ports/ball-lang/ is staged for submission to
+  # microsoft/vcpkg, but nothing has ever run vcpkg against it — its portfile
+  # still carries `SHA512 0 # PLACEHOLDER`, which is vcpkg's own tell that the
+  # recipe has never been resolved or built by any tool, human or automated.
+  # This is NOT a regression a gate should have caught: the port was staged
+  # deliberately inert. It is new infrastructure, so that an external vcpkg
+  # maintainer is not the first person to discover the recipe does not build.
+  #
+  # It exercises vcpkg_cmake_configure / vcpkg_cmake_install / vcpkg_copy_tools /
+  # vcpkg_install_copyright end-to-end — strictly more than the plain
+  # `cmake --install` smoke in the cpp job above — and would catch a rename of
+  # the `ball` target, a removed `install(TARGETS ball ...)` rule, a dropped
+  # BALL_BUILD_* option, or a vcpkg_copy_tools TOOL_NAMES mismatch.
+  #
+  # The overlay is GENERATED at job time from the real port (only the
+  # vcpkg_from_github download block is swapped for a local SOURCE_PATH), so a
+  # hand-maintained duplicate cannot rot out of sync with the submission file.
+  # The real port files are never modified — the real SHA512 and the version
+  # bump stay maintainer-only submission steps.
+  #
+  # Linux/x64 only for this first cut, matching the existing Linux-only
+  # BALL_BUILD_PROTOBUF_RT precedent in the cpp job; Windows/macOS triplets
+  # (where MSVC/AppleClang flag interactions under vcpkg's toolchain differ) are
+  # a known residual gap that only real upstream review would catch today.
+  # Path-filtered on the same signal as the cpp job (cpp/** directly;
+  # tools/vcpkg-port/** via `infra`), because it re-runs a full cpp/ CMake
+  # configure+build inside vcpkg's sandbox.
+  vcpkg:
+    name: vcpkg port smoke (x64-linux)
+    needs: changes
+    if: ${{ needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Pinned to the 2026.07.29 release tag's commit for reproducibility — a
+      # floating microsoft/vcpkg would let an upstream change turn this red with
+      # no commit here. Bump deliberately.
+      - name: Bootstrap vcpkg (pinned)
+        env:
+          VCPKG_TAG: "2026.07.29"
+          VCPKG_SHA: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VCPKG_TAG" https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          got="$(git -C "$RUNNER_TEMP/vcpkg" rev-parse HEAD)"
+          if [ "$got" != "$VCPKG_SHA" ]; then
+            echo "::error::vcpkg tag $VCPKG_TAG resolved to $got, expected $VCPKG_SHA — a moved tag is not a pin"
+            exit 1
+          fi
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          "$RUNNER_TEMP/vcpkg/vcpkg" version
+
+      - name: Generate the CI overlay port
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/vcpkg-port/make_ci_overlay.py "$RUNNER_TEMP/overlay" "$GITHUB_WORKSPACE"
+          echo "--- overlay portfile.cmake differs from the submission port ONLY in the download block:"
+          diff tools/vcpkg-port/ports/ball-lang/portfile.cmake "$RUNNER_TEMP/overlay/ball-lang/portfile.cmake" || true
+
+      - name: vcpkg install ball-lang
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          "$RUNNER_TEMP/vcpkg/vcpkg" install ball-lang \
+            --overlay-ports="$RUNNER_TEMP/overlay" \
+            --triplet x64-linux
+          echo "VCPKG_INSTALL_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
+
+      # Mirrors the cpp job's Install-smoke assertions: the tool actually lands
+      # where vcpkg_copy_tools put it, and it actually runs.
+      - name: Installed-binary smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/vcpkg/installed/x64-linux/tools/ball-lang/ball"
+          [ -x "$bin" ] || { echo "::error::vcpkg installed no ball binary at $bin"; exit 1; }
+          out="$("$bin" version)"
+          [ -n "$out" ] || { echo "::error::vcpkg-installed ball printed nothing for 'ball version'"; exit 1; }
+          echo "vcpkg-installed ball version: $out"
+          {
+            echo "vcpkg overlay-port smoke (issue #368): x64-linux OK"
+            echo "- \`ball version\` -> $out"
+            echo "- \`vcpkg install\` wall clock: ${VCPKG_INSTALL_SECONDS}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
   # through the REAL protobuf conformance_test_runner for the proto2, proto3,
   # and edition2023 TestAllTypes messages (every registered test must pass — no

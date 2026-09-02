@@ -144,6 +144,12 @@ go vet ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./share
 go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 gofmt -l cli compiler encoder engine runtime shared       # must print nothing (LF)
 
+# External-consumer module resolution (#361), the same gate ci.yml's `go` job
+# runs. Synthesizes the file:// module proxy the `go/<module>/v0.1.0` tags will
+# produce, builds all six modules standalone (no go.work, no siblings), then
+# `go install`s the CLI into a clean GOPATH and runs it. Needs go + python3.
+bash tools/go-module-proxy/smoke.sh
+
 # The `ball` Go CLI (go/cli, #437): run/compile/encode/check over engine/compiler/
 # encoder. Default build produces the binary + default tests (run's honest-failure
 # path); `run` executes for real only under -tags selfhost AFTER regenerating the
@@ -363,7 +369,14 @@ and `.claude/rules/go.md` for key patterns:
 The conformance harness is `go/engine/conformance/` (whole-corpus sweep, `-tags selfhost`; the
 `TestConformance` runner needs `go test -v` so its `Results:` line reaches stdout), and CI is the
 `go` job in `.github/workflows/ci.yml` plus the `go-engine` row in `conformance-matrix.yml` — both
-gate on full parity, mirroring the `csharp`/`csharp-engine` jobs.
+gate on full parity, mirroring the `csharp`/`csharp-engine` jobs. **External-consumer module
+resolution is gated too** (#361): no `go/*/go.mod` may carry a `replace` directive (`go install`
+rejects those outright) — each module `require`s its intra-repo dependencies at `v0.1.0` and the
+local pins live in `go/go.work`'s versioned `replace` block. `tools/go-module-proxy/smoke.sh`, run
+by the `go` job, synthesizes the proxy the `go/<module>/v0.1.0` tags will produce, builds every
+module in isolation, and `go install`s the CLI into a clean GOPATH. Off the *public* proxy,
+`go install github.com/ball-lang/ball/go/cli/cmd/ball@…` resolves only once those six tags are
+pushed.
 
 ### Python workspace (`python/`)
 

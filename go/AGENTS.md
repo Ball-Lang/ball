@@ -29,8 +29,29 @@ cd go/compiler && go run ./cmd/ballgoc   <program.ball.json>        # compile Ba
 cd go/encoder  && go run ./cmd/ballgoenc <program.go>               # encode Go → Ball
 ```
 Native `go` (Windows) is used in this environment; WSL `go` works too. Each
-module commits a `go.sum` (except `runtime`, which is stdlib-only) so a
-`GOWORK=off` per-module build resolves without the workspace.
+module commits a `go.sum` (except `runtime`, which is stdlib-only).
+
+### Distribution / module shape (issue #361)
+
+**No `go/*/go.mod` may carry a `replace` directive** — the Go module proxy serves
+a nested module as its own directory tree only (never its siblings), and
+`go install` refuses a module whose go.mod has one. Each module therefore
+`require`s its intra-repo dependencies at the real published version (`v0.1.0`),
+and the local pins live in `go/go.work`'s **versioned** `replace ... v0.1.0 =>
+./<dep>` block, which is never published. A bare `use` block is not enough: Go
+still loads the module graph, so an unpublished `require` fails with
+`unknown revision go/<m>/v0.1.0` even inside the workspace.
+
+```bash
+bash tools/go-module-proxy/smoke.sh   # the gate ci.yml's `go` job runs
+```
+
+It synthesizes the `file://` proxy the `go/<module>/v0.1.0` tags will produce
+(from this commit's tracked files, so the module hashes match what
+proxy.golang.org will compute), builds each module standalone with no `go.work`
+and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
+GOPATH and runs the binary. Off the *public* proxy this resolves only once the
+six `go/<module>/v0.1.0` tags are pushed on one commit.
 
 ## Encoder design (see `go/encoder/encoder.go` doc comment)
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks

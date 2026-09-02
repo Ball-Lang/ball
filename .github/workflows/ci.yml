@@ -951,49 +951,47 @@ jobs:
       - name: Test
         run: cd go && go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 
-      # ── Go module isolation (issue #361) — MEASUREMENT ONLY, non-gating ──
-      # Every step above runs inside the full monorepo checkout, where go.work's
-      # `use` block satisfies every module regardless of what its own go.mod
-      # says — so the filesystem-relative `replace ... => ../<dep>` directives
-      # in go/{cli,compiler,encoder,engine}/go.mod ALWAYS resolve and the defect
-      # they cause is structurally invisible from this vantage point. It is very
-      # visible to anyone outside the checkout: the Go module proxy serves a
-      # nested module as its OWN directory tree only, never its siblings, so
-      # `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` fails with
-      # "The go.mod file for the module providing named packages contains one or
-      # more replace directives." Epic #361's Go row claimed this was "already
-      # done by construction (go install)"; it is not, and nothing asserted it.
-      # This step copies each module into an isolated tmp dir (no go.work, no
-      # siblings) and reports which ones build. NON-GATING on purpose: today's
-      # honest answer is 2/6, and the real fix (per-module tagging + dropping
-      # the replace directives) is separate, larger work — a per-module build
-      # failure is COUNTED, never propagated (the `go build` runs inside an `if`,
-      # and the body sets `-uo pipefail`, never `-e`). What the step DOES fail on
-      # is its own positive floor: a sweep that ran zero modules. That floor is
-      # only real without `continue-on-error`, which would swallow the `exit 1`
-      # and reduce it to an annotation — so this step deliberately has none.
-      # Turning the per-module failures into a gate is the follow-up that lands
-      # with the replace-directive fix; do that by asserting `fail -eq 0` here,
-      # not by re-adding continue-on-error.
-      - name: Go module isolation build (issue #361 — measurement only, non-gating)
+      # ── External-consumer module resolution (issue #361) — GATING ──
+      # Every step above runs inside the full monorepo checkout, where go.work
+      # pins every intra-repo dependency back to the local tree — so the defect
+      # an outside consumer hits is structurally invisible from this vantage
+      # point. #495 added a measurement-only version of this sweep; it reported
+      # an honest 2/6 because go/{cli,compiler,encoder,engine}/go.mod each
+      # carried a filesystem-relative `replace ... => ../<dep>`, which the Go
+      # module proxy can never satisfy (it serves a nested module as its OWN
+      # directory tree, never its siblings) and which `go install` rejects
+      # outright: "The go.mod file for the module providing named packages
+      # contains one or more replace directives."
+      #
+      # Those replace directives are now gone: each module `require`s its
+      # intra-repo dependencies at v0.1.0 (the first published Go module tag
+      # set), and go/go.work carries versioned `replace ... v0.1.0 => ./<dep>`
+      # pins so local dev/CI keeps resolving against this tree. go.work is never
+      # published, so the go.mod files stay proxy-clean.
+      #
+      # tools/go-module-proxy/smoke.sh proves that end-to-end WITHOUT needing
+      # the tags to exist yet: it synthesizes the exact file:// module proxy the
+      # `go/<module>/v0.1.0` tags will produce (from the tracked files of this
+      # commit, so the module hashes match what proxy.golang.org will compute),
+      # then (leg 1) builds each module standalone with no go.work and no
+      # siblings, and (leg 2) runs `go install .../go/cli/cmd/ball@v0.1.0` into
+      # a clean GOPATH/GOMODCACHE and executes the installed binary against a
+      # real conformance fixture. Both legs gate: leg 1 asserts fail == 0 over a
+      # non-empty module set (bare-integer counts + a positive floor), leg 2
+      # asserts the binary exists and produces output. No continue-on-error —
+      # that would reduce the exit 1 to an annotation.
+      #
+      # After the six tags are pushed, the follow-up is to point the same script
+      # at the real proxy (drop the synthesized one) — the assertions stay.
+      - name: Go module external-consumer smoke (issue #361)
         shell: bash
         run: |
-          set -uo pipefail
-          pass=0; fail=0
-          for m in shared runtime compiler encoder engine cli; do
-            d="$(mktemp -d)"; cp -r "go/$m" "$d/$m"
-            if (cd "$d/$m" && GOFLAGS=-mod=mod go build ./... 2>"$d/err"); then
-              echo "OK    go/$m"; pass=$((pass+1))
-            else
-              echo "FAIL  go/$m: $(head -1 "$d/err")"; fail=$((fail+1))
-            fi
-          done
-          total=$((pass+fail))
-          # Positive floor: an exit code plus a failure count cannot tell
-          # "all passed" from "nothing ran".
-          [ "$total" -ge 1 ] || { echo "::error::isolation sweep ran zero modules"; exit 1; }
-          echo "Results: $pass passed, $fail failed, $total total"
-          echo "Go module isolation: $pass/$total buildable outside the monorepo (today 2/6 — shared+runtime only; the other four carry filesystem-relative replace directives, issue #361)" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          bash tools/go-module-proxy/smoke.sh | tee /tmp/go-proxy-smoke.log
+          {
+            echo "Go module external-consumer smoke (issue #361):"
+            grep -E '^(Results:|go install |ball check )' /tmp/go-proxy-smoke.log
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── Self-hosted engine: regenerate + RUN (epic #426 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,

@@ -1,3 +1,10 @@
+## [1.59.10](https://github.com/Ball-Lang/ball/compare/v1.59.9...v1.59.10) (2026-09-02)
+
+
+### Bug Fixes
+
+* **csharp:** fail loud on getter-only assignment, let a subclass field shadow an inherited getter, and measure the encoder against real-world C# ([#497](https://github.com/Ball-Lang/ball/issues/497)) ([7592c40](https://github.com/Ball-Lang/ball/commit/7592c40baa3afe45e03335bb283856c27e62bf6d)), closes [#461](https://github.com/Ball-Lang/ball/issues/461) [#492](https://github.com/Ball-Lang/ball/issues/492) [#492](https://github.com/Ball-Lang/ball/issues/492) [#461](https://github.com/Ball-Lang/ball/issues/461) [#492](https://github.com/Ball-Lang/ball/issues/492) [#461](https://github.com/Ball-Lang/ball/issues/461) [#492](https://github.com/Ball-Lang/ball/issues/492) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#492](https://github.com/Ball-Lang/ball/issues/492)
+
 ## [1.59.9](https://github.com/Ball-Lang/ball/compare/v1.59.8...v1.59.9) (2026-09-02)
 
 

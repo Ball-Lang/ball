@@ -198,6 +198,16 @@ public class RealWorldSweepTests(ITestOutputHelper output)
     /// Every <c>.cs</c> file shipped beside the test binary under
     /// <c>fixtures/realworld/</c>, sorted. Reading the directory (rather than
     /// trusting the table) is what lets a missing or unexpected fixture fail.
+    ///
+    /// <para><b>Local gotcha:</b> this reads
+    /// <see cref="AppContext.BaseDirectory"/> — the copy under
+    /// <c>bin/&lt;cfg&gt;/net10.0/fixtures/realworld/</c>, not the repo tree. MSBuild
+    /// copies fixtures in but never deletes ones removed from the repo, so on an
+    /// <em>incremental</em> local build a deleted fixture can linger in
+    /// <c>bin/</c> and keep this check green. CI always builds fresh, so the gate
+    /// is sound there; locally, delete the stale <c>bin/</c> copy (or
+    /// <c>dotnet clean</c>) when verifying that removing a fixture really
+    /// fails.</para>
     /// </summary>
     private static List<string> DiscoverFixtureFiles()
     {

@@ -367,6 +367,13 @@ Two resolution rules in that table are load-bearing and were both silent bugs un
   `BallRuntime.FieldSet`. `ResolveLValue` then routes a getter-only name through
   `LValueKind.Property` too. Before this, the write lowered to an unconditional
   `BallRuntime.FieldSet` — a silent field graft that compiled, ran and exited 0.
+  **What that buys, precisely:** the guarantee is *"fails loud when the write is reached"*, not
+  *"rejected at compile time"*. Because the receiver's class is only known at run time (the name
+  sets are global), the throw lives in the emitted `Set__<member>` body, so a program that
+  contains a getter-only write on a code path it never executes still compiles and exits 0. A
+  compile-time check is not available without per-class accessor scoping — see the regression
+  guard `AssignToUnrelatedTypeFieldSharingGetterName_StillWrites`, which pins the behaviour a
+  compile-time check would break.
 
 Neither shape can reach the conformance corpus's *compiler* path by accident: assigning to a Dart
 getter-only member is a Dart compile-time error, and every fixture is generated from a

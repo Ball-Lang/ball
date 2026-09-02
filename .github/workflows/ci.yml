@@ -124,6 +124,13 @@ jobs:
       - name: C++ coverage-floor parser test (#63)
         run: bash cpp/test/test_build_cov_floor_parsing.sh
 
+      # The parser test above proves build-cov-floor.sh's comparison and exit
+      # codes; it runs the script directly and therefore cannot notice that
+      # coverage.yml used to RE-IMPLEMENT that comparison inline and never call
+      # it (#63/#59). This one asserts the wiring itself.
+      - name: C++ coverage-floor CI wiring test (#63)
+        run: bash cpp/test/test_cov_floor_ci_wiring.sh
+
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────

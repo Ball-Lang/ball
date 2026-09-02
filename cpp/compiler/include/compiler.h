@@ -168,6 +168,42 @@ private:
     std::unordered_map<std::string, std::unordered_set<std::string>> class_getters_;
     // Maps class name to the set of setter basenames.
     std::unordered_map<std::string, std::unordered_set<std::string>> class_setters_;
+    // Sanitized names of plain descriptor FIELDS that shadow a getter declared
+    // by an ANCESTOR class — legal Dart (`class B extends A { @override int x = 5; }`
+    // where `A` declares `int get x`), and the shape behind #501. Every accessor
+    // read compiles to `recv.x()`; emitting a same-named data member on B makes
+    // C++ member HIDING resolve `b.x` to the data member, so `b.x()` is a data
+    // member called as a function and g++ rejects it with "expression cannot be
+    // used as a function". Names in this set are emitted as a private renamed
+    // backing member plus public `virtual` accessors, so C++'s own vtable
+    // resolves the read and the write by the receiver's RUNTIME type — which is
+    // what Dart does, and what a receiver-static-type shortcut would get wrong
+    // (see conformance 431_shadowed_getter_dynamic_dispatch).
+    std::unordered_set<std::string> shadowed_getter_names_;
+    // Maps a class key (e.g. "main:B") to the subset of ITS OWN field names that
+    // shadow an inherited getter. Only these classes swap a plain data member
+    // for the backing-member + accessor pair; every other class is emitted
+    // byte-identically to before.
+    std::unordered_map<std::string, std::unordered_set<std::string>> class_shadowed_fields_;
+    // Maps a class key to the C++ type each of its shadowing fields must be
+    // stored and re-exposed with: the type the SHADOWED ancestor getter is
+    // emitted with. Overriding a `virtual T x()` with a `U x()` is a covariant-
+    // return error in C++ whenever U is not T, and Dart's coarse-to-C++ type
+    // mapping can widen (`num get x` shadowed by `int x`), so the backing member
+    // and the accessor pair both take the ancestor's type rather than the
+    // field's own — the override then always binds.
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>>
+        class_shadowed_field_types_;
+    // Maps a class key to each of its getters' FunctionDefinitions, so the
+    // shadow pass can resolve the ancestor accessor's EMITTED return type
+    // through map_return_type — which is what the declaration actually uses.
+    // It answers BallDyn for everything that is not a concrete user class or
+    // void, so reading the Ball `outputType` directly would guess `int64_t`
+    // for `int get x` and emit an unbindable covariant override.
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string,
+                                          const ball::ir::FunctionDefinition*>>
+        class_getter_defs_;
     // Set of all user-defined class names (sanitized, e.g. "Point").
     std::unordered_set<std::string> user_class_names_;
     // Sanitized bare names of void-returning user functions. Call sites use
@@ -312,6 +348,14 @@ private:
         std::replace(r.begin(), r.end(), '-', '_');
         return r;
     }
+    // Name of the private backing member emitted in place of a plain data
+    // member for a field that shadows an inherited getter (#501). Renaming is
+    // what stops the data member from hiding the inherited accessor; the public
+    // `virtual` accessor pair emitted alongside it keeps the member NAME
+    // resolving through the vtable.
+    static std::string shadow_backing_name(const std::string& sanitized_field) {
+        return "_ball_shadow_" + sanitized_field;
+    }
     // Emit the make_<Class> factory + per-method closure free functions for a
     // dynamic class, plus a ball_to_string overload routing to toString.
     void emit_dynamic_class(const ball::ir::TypeDefinition& td,
@@ -332,6 +376,23 @@ private:
     // (messageCreation with __type_args__). Field access on these must use
     // bracket notation, not struct member syntax.
     std::unordered_set<std::string> generic_locals_;
+
+    // Raw let-name -> the sanitized CONCRETE user class the local was emitted
+    // with. C++ locals of class type have VALUE semantics, so declaring one
+    // with a base type and initialising it from a subclass value SLICES: the
+    // derived part (and the vtable pointer with it) is dropped, and every
+    // virtual call answers with the base implementation. Dart has no slicing —
+    // `A viaBase = b;` still dispatches on b's runtime type. Carrying the
+    // initialiser's concrete class over to the declaration is what keeps the
+    // two agreeing (conformance 433_shadowed_field_self_write_and_local's
+    // `viaBase.x`, which answered with the ancestor getter's 1 instead of the
+    // shadowing field's 10). Cleared with declared_locals_, per function body.
+    std::unordered_map<std::string, std::string> local_class_types_;
+
+    // True when `derived` is `base`, or descends from it through
+    // class_superclass_. Both arguments are sanitized BARE class names.
+    bool class_is_or_descends_from(const std::string& derived,
+                                  const std::string& base);
 
     // True when compiling a sync*/async* generator function body.
     // yield/yield_each emit __gen.yield_/__gen.yieldAll calls instead of

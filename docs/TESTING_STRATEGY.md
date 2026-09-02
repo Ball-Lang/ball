@@ -136,6 +136,45 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > When you add a fixture, enumerate the legs it must pass — the engine rows and
 > the compiled rows are not the same set.
 >
+> *Resolved:* #501 fixed the C++ emitter (a shadowing field now becomes a private
+> renamed backing member plus a public `virtual` accessor pair over a virtualised
+> ancestor getter, so the vtable — not a compile-time type guess — resolves it)
+> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` is still empty.
+
+> **One fixture per defect, not one per defect *family*.** 406 exercises only the
+> READ side of a shadowed accessor, through a receiver whose static and runtime
+> types agree. Three more fixtures were needed to pin the rest of the family, and
+> each found something 406 could not:
+> `431_shadowed_getter_dynamic_dispatch` reads through a base-declared method, so
+> a fix that resolved the accessor against the receiver's *static* class — the
+> wording #501's own body suggested — would compile and pass 406 while silently
+> printing the base value here; `432_shadowed_getter_setter_write` gives the
+> ancestor a `set x` as well, which is the only way to reach the emitter's
+> `has_setter` branch at all; and `433_shadowed_field_self_write_and_local` writes
+> the shadowing field *unqualified from inside its own class* and reads a
+> method-local of the same name — the two shapes one step to the left of 406,
+> where the first draft of the #501 fix emitted `ball_assign(x(), v)` (g++:
+> "cannot bind non-const lvalue reference … to an rvalue") and `x()` on a plain
+> local (which *builds*, because `BallDyn` has `operator()`, and silently
+> answers `null`). 432 also went red on all six **engines**, exposing a separate,
+> previously unknown defect: `_trySetterDispatch` ran an inherited setter for a
+> field the instance declares itself, while the read path had always preferred
+> the instance's own field — so the write was silently dropped and the read
+> answered with the stale value. 433 in turn went red on the **TypeScript
+> compiler** leg for a defect with no C++ content at all: a bare reference to a
+> method-local named after a class member compiled to `this.<name>`, so the
+> method silently answered with the MEMBER's value, and a function body's tail
+> `result` was compiled after its scope had already been restored, hiding the
+> local a second way. A fixture that only covers the shape you already
+> fixed proves the fix, not the rule.
+>
+> **A silent-wrong-answer regression hides from a byte-diff blast-radius proof.**
+> The corpus is the blast radius only for shapes the corpus contains. Both
+> defects above were found by a reviewer compiling hand-written probe programs,
+> not by the 328-fixture diff — so when a codegen change adds a new emission
+> rule, write the probe programs for the shapes *adjacent* to the one you fixed
+> and turn the ones that break into fixtures.
+
 > **Withdraw or carve out?** Withdraw when the fixture's coverage exists
 > elsewhere: 406's bug was already locked by
 > `csharp/compiler/test/AccessorEdgeCaseTests.cs`, so dropping it cost nothing.
@@ -173,6 +212,7 @@ before a baseline exists either goes permanently red and gets ignored or is set
 so low it means nothing. The harness's **own** self-test is gated on every PR
 (`ci.yml`'s Dart job), so the instrument cannot silently start skipping the file
 shapes it exists to look at.
+
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not

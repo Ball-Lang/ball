@@ -60,6 +60,17 @@ const json = toJson(ProgramSchema, program);
   variable, so a user function or method with such a name got the polyfill
   instead of itself.
 
+- **A method-LOCAL shadows every class member.** `expr()`'s reference branch
+  turns a bare name into `this.<field>` / `this.<method>.bind(this)` /
+  `this.<getter>`, and must yield when `scopeDeclaredVars` (resolved through
+  `renameStack`) holds that name — Dart resolves a local ahead of any member.
+  Relatedly, `emitBlock` must restore the enclosing scope only AFTER compiling a
+  function body's tail `result`: the result belongs to the body and has to see
+  the locals the body's own statements declared. Both were wrong until
+  conformance `433_shadowed_field_self_write_and_local`, and neither failed
+  loudly — `this.x` is a valid property read, so a method-local silently
+  answered with the MEMBER's value (#501 family).
+
 ### Engine
 
 - `compiled_engine.ts` — auto-generated, NEVER edit

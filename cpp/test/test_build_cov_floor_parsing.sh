@@ -31,8 +31,10 @@ pass=0
 fail=0
 
 # Real floors, mirrored from build-cov-floor.sh's FLOORS map, so the cases below
-# read as "above"/"below" without duplicating the numbers' meaning.
-#   compiler 88, encoder 88, shared 81
+# read as "above"/"below" without duplicating the numbers' meaning. Re-derived
+# 2026-09-02 from two consecutive coverage.yml runs on main (92.3 / 89.1 / 81.8)
+# minus the ~2pt CI-variance buffer, when the script became CI's actual gate.
+#   compiler 90, encoder 87, shared 79
 
 # summary_line <pct> — one line in the exact shape `lcov --summary` prints.
 summary_line() { printf '  lines......: %s%% (1000 of 1100 lines)\n' "$1"; }

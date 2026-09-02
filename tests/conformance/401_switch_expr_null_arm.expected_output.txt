@@ -1,0 +1,9 @@
+was-null
+zero
+other
+one
+<null>
+other
+two
+<null>
+other

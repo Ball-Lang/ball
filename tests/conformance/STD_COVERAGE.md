@@ -95,13 +95,13 @@ Universal standard library base module. Every function here represents a languag
 | `not` | ✅ | ✅ 12 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +9 more | ✅ |
 | `not_equals` | ✅ | ✅ 11 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +8 more | ✅ |
 | `null_check` | ✅ | ✅ 5 fixture(s): `106_factory_constructor`, `119_nested_maps`, `125_group_by` +2 more | ✅ |
-| `null_coalesce` | ✅ | ✅ 1 fixture(s): `124_frequency_counter` | ✅ |
+| `null_coalesce` | ✅ | ✅ 2 fixture(s): `124_frequency_counter`, `401_switch_expr_null_arm` | ✅ |
 | `or` | ✅ | ✅ 8 fixture(s): `135_linear_search_sentinel`, `151_recursive_descent_parser`, `153_memoized_recursive` +5 more | ✅ |
 | `post_decrement` | ✅ | ✅ 6 fixture(s): `131_insertion_sort`, `308_list_comprehension_cstyle`, `40_increment_decrement` +3 more | ✅ |
 | `post_increment` | ✅ | ✅ 66 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +63 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 321 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +318 more | ✅ |
+| `print` | ✅ | ✅ 322 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +319 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |

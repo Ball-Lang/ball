@@ -82,6 +82,30 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ./build/test/Debug/test_selfhost_conformance.exe 01_hello_world
 ```
 
+Two CI-plumbing shell tests need no C++ toolchain at all (sub-second, and run in
+ci.yml's always-on `proto` job, so they gate every PR):
+
+```bash
+bash cpp/test/test_build_cov_floor_parsing.sh   # build-cov-floor.sh's parser + exit codes
+bash cpp/test/test_cov_floor_ci_wiring.sh       # that coverage.yml actually RUNS it (#63/#59)
+```
+
+## Coverage floors
+
+`cpp/build-cov-floor.sh` owns the per-target line-coverage floors for
+cpp/{compiler,encoder,shared}, and since #63/#59 `.github/workflows/coverage.yml`'s
+cpp job **invokes it** — its exit code fails the step. The floors are a
+regression ratchet derived from CI's own measurement minus a ~2pt variance
+buffer, not a completion target (#63's target is 100%). Raise them as tests land;
+never lower one to clear a red. The workflow step also asserts each per-target
+tracefile is non-empty and that all three targets reported, because the script's
+missing-tracefile branch is a deliberate non-fatal SKIP.
+
+A fast, CI-equivalent local measurement (no nested per-fixture g++ builds) is the
+`corpus_driver` target wired into `build-cov-build.sh` / `build-cov-run.sh` /
+`build-cov-report.sh`. Read the aggregate from `lcov --summary`, never
+`lcov --list` — its per-file Rate column is unreliable on a merged tracefile.
+
 **Always add tests alongside every C++ change.** Conformance tests automatically pick up new programs added to `tests/conformance/`.
 
 ## When Adding Features

@@ -131,7 +131,11 @@ const cases: Case[] = [
   {
     name: "nullAwareIndex",
     body: std("null_aware_index", { self: ref("obj"), index: lit(0) }),
-    expect: [/obj\[0\]/],
+    // Was a bug-locking assertion: it expected the plain `obj[0]` the compiler
+    // used to emit, which throws "Cannot read properties of null" for exactly
+    // the null receiver `a?.[i]` exists to guard against. No encoder emitted
+    // null_aware_index before #489, so nothing had ever executed the output.
+    expect: [/obj\?\.\[0\]/],
   },
   {
     name: "nullAwareAccess",

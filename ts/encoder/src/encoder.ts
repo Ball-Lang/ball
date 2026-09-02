@@ -8,10 +8,35 @@ import type {
 export interface EncodeOptions {
   moduleName?: string;
   entryFunction?: string;
+  /** Throw an `EncodeError` on ANY unhandled construct, lossy or not. */
   strict?: boolean;
+  /**
+   * Throw an `EncodeError` only for warnings that change what the program
+   * computes, while tolerating erasure-only ones (a type alias, an empty
+   * statement, a `satisfies` clause — none of which contribute to the
+   * program's value).
+   *
+   * `strict` is the blunt instrument: it rejects a file for a stray `;`.
+   * This mode is the one worth running over third-party code, because every
+   * warning it raises is a real semantic difference between the source and
+   * the encoded Ball program.
+   */
+  strictBehaviorAffecting?: boolean;
 }
 
 type StdRef = { module: string; function: string };
+
+/**
+ * TS constructs whose only role is type-level or syntactic: dropping them
+ * cannot change what the program computes, so they never trip
+ * `strictBehaviorAffecting`. Everything else that reaches `warn()` does.
+ */
+const ERASURE_ONLY_KINDS: ReadonlySet<string> = new Set([
+  "TypeAliasDeclaration",
+  "InterfaceDeclaration",
+  "EmptyStatement",
+  "SatisfiesExpression",
+]);
 
 const BINARY_OPS: Record<number, StdRef> = {
   [ts.SyntaxKind.PlusToken]:                  { module: "std", function: "add" },
@@ -36,6 +61,10 @@ const BINARY_OPS: Record<number, StdRef> = {
   [ts.SyntaxKind.BarBarToken]:                { module: "std", function: "or" },
   [ts.SyntaxKind.QuestionQuestionToken]:      { module: "std", function: "null_coalesce" },
   [ts.SyntaxKind.InstanceOfKeyword]:          { module: "std", function: "is" },
+  // `**` used to fall through to the "Unhandled binary operator" placeholder
+  // (#490). math_pow is a declared, Dart-engine-implemented std base function
+  // that simply had no encoder emitting it.
+  [ts.SyntaxKind.AsteriskAsteriskToken]:      { module: "std", function: "math_pow" },
 };
 
 const COMPOUND_OPS: Record<number, string> = {
@@ -50,12 +79,16 @@ const COMPOUND_OPS: Record<number, string> = {
   [ts.SyntaxKind.LessThanLessThanEqualsToken]: "<<=",
   [ts.SyntaxKind.GreaterThanGreaterThanEqualsToken]: ">>=",
   [ts.SyntaxKind.QuestionQuestionEqualsToken]: "??=",
+  [ts.SyntaxKind.AsteriskAsteriskEqualsToken]: "**=",
 };
 
 export class TsEncoder {
   private stdFunctions = new Set<string>();
   private warnings: string[] = [];
   private strict = false;
+  private strictBehaviorAffecting = false;
+  /** Monotonic counter for the synthetic loop variables `.forEach` desugars to. */
+  private desugarCounter = 0;
 
   // Maps an operator lexeme to the canonical, language-agnostic Ball method
   // name every compiler already understands for operator overloads — mirrors
@@ -90,6 +123,7 @@ export class TsEncoder {
     const modName = options.moduleName ?? "main";
     const entryFn = options.entryFunction ?? "main";
     this.strict = options.strict ?? false;
+    this.strictBehaviorAffecting = options.strictBehaviorAffecting ?? false;
 
     const sourceFile = ts.createSourceFile(
       "input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
@@ -353,7 +387,7 @@ export class TsEncoder {
         },
       }];
     }
-    this.warn(`Unhandled statement kind: ${ts.SyntaxKind[node.kind]}`);
+    this.warn(`Unhandled statement kind: ${ts.SyntaxKind[node.kind]}`, ts.SyntaxKind[node.kind]);
     return [{ expression: { literal: { stringValue: `/* unhandled: ${ts.SyntaxKind[node.kind]} */` } } }];
   }
 
@@ -376,6 +410,14 @@ export class TsEncoder {
     }
     if (node.kind === ts.SyntaxKind.NullKeyword || node.kind === ts.SyntaxKind.UndefinedKeyword) {
       return this.nullLiteral();
+    }
+    if (node.kind === ts.SyntaxKind.SuperKeyword) {
+      // Mirrors dart/encoder's SuperExpression handling exactly: a bare
+      // reference named "super". ts/compiler already resolves that reference
+      // back to a real super-chain call, and conformance fixture
+      // 107_method_override_super proves the shape end to end — the TS encoder
+      // was simply the one place that never produced it (#490).
+      return { reference: { name: "super" } };
     }
     if (node.kind === ts.SyntaxKind.ThisKeyword) {
       // Mirrors dart/encoder's ThisExpression handling exactly: a bare
@@ -409,8 +451,12 @@ export class TsEncoder {
     }
     if (ts.isPropertyAccessExpression(node)) {
       if (node.questionDotToken) {
-        return this.stdCall("optional_access", [
-          { name: "object", value: this.encodeExpr(node.expression) },
+        // Canonical name + field shape: compileStdCall's `case
+        // "null_aware_access"` reads `target` and a literal-string `field`
+        // (and so does dart/compiler). The old "optional_access" spelling with
+        // an `object` field existed in no compiler or engine (#489).
+        return this.stdCall("null_aware_access", [
+          { name: "target", value: this.encodeExpr(node.expression) },
           { name: "field", value: { literal: { stringValue: node.name.text } } },
         ]);
       }
@@ -418,9 +464,13 @@ export class TsEncoder {
     }
     if (ts.isElementAccessExpression(node)) {
       if (node.questionDotToken) {
-        return this.stdCall("optional_access", [
-          { name: "object", value: this.encodeExpr(node.expression) },
-          { name: "field", value: this.encodeExpr(node.argumentExpression) },
+        // Optional ELEMENT access is a different shape: the index is an
+        // arbitrary expression, not a literal field name, so it routes through
+        // the compiler's dedicated `null_aware_index` case rather than being
+        // conflated with property access (#489).
+        return this.stdCall("null_aware_index", [
+          { name: "target", value: this.encodeExpr(node.expression) },
+          { name: "index", value: this.encodeExpr(node.argumentExpression) },
         ]);
       }
       return this.stdCall("index", [
@@ -518,8 +568,64 @@ export class TsEncoder {
     if (ts.isTaggedTemplateExpression(node)) {
       return this.encodeTaggedTemplate(node);
     }
-    this.warn(`Unhandled expression kind: ${ts.SyntaxKind[node.kind]}`);
+    if (ts.isSatisfiesExpression(node)) {
+      // `x satisfies T` is a pure type-level assertion — erase it, exactly as
+      // `as`/`<T>` casts are erased above.
+      return this.encodeExpr(node.expression);
+    }
+    if (ts.isRegularExpressionLiteral(node)) {
+      return this.encodeRegexLiteral(node);
+    }
+    if (ts.isDeleteExpression(node)) {
+      return this.encodeDelete(node);
+    }
+    this.warn(`Unhandled expression kind: ${ts.SyntaxKind[node.kind]}`, ts.SyntaxKind[node.kind]);
     return { literal: { stringValue: `/* unhandled: ${ts.SyntaxKind[node.kind]} */` } };
+  }
+
+  /**
+   * `delete obj.a` / `delete obj[k]` -> `std_collections.map_delete(map, key)`.
+   *
+   * `map_delete` has been declared and Dart-engine-implemented all along
+   * (dart/shared/lib/std_collections.dart) — no encoder in the repo had ever
+   * emitted it, so `delete` fell through to a placeholder literal (#490).
+   */
+  private encodeDelete(node: ts.DeleteExpression): Expression {
+    const operand = node.expression;
+    if (ts.isPropertyAccessExpression(operand)) {
+      return this.stdCall("map_delete", [
+        { name: "map", value: this.encodeExpr(operand.expression) },
+        { name: "key", value: { literal: { stringValue: operand.name.text } } },
+      ], "std_collections");
+    }
+    if (ts.isElementAccessExpression(operand)) {
+      return this.stdCall("map_delete", [
+        { name: "map", value: this.encodeExpr(operand.expression) },
+        { name: "key", value: this.encodeExpr(operand.argumentExpression) },
+      ], "std_collections");
+    }
+    // `delete someIdentifier` is a no-op on a binding in sloppy mode and a
+    // SyntaxError in strict mode — there is nothing faithful to encode.
+    this.warn(
+      `Unhandled delete target: ${ts.SyntaxKind[operand.kind]}`,
+      ts.SyntaxKind[operand.kind],
+    );
+    return { literal: { stringValue: `/* unhandled delete: ${ts.SyntaxKind[operand.kind]} */` } };
+  }
+
+  /**
+   * A regex literal encodes to its PATTERN SOURCE as a plain string.
+   *
+   * The universal std regex functions (`regex_match`/`regex_find`/
+   * `regex_find_all`/`regex_replace`/`regex_replace_all`) all take the pattern
+   * as a string and model no flags at all, so `/abc/i` cannot round-trip
+   * faithfully. Dropping `i`/`g`/`m` genuinely changes behaviour, so it is
+   * reported as a behaviour-affecting warning rather than silently accepted.
+   */
+  private encodeRegexLiteral(node: ts.RegularExpressionLiteral): Expression {
+    const re = splitRegexLiteral(node.text);
+    this.warnDroppedRegexFlags(re, "");
+    return { literal: { stringValue: re.source } };
   }
 
   private encodeBinary(node: ts.BinaryExpression): Expression {
@@ -557,13 +663,15 @@ export class TsEncoder {
     }
 
     if (op === ts.SyntaxKind.InKeyword) {
-      return this.stdCall("contains_key", [
+      // Canonical name (#489): `contains_key` matched no compiler case; the
+      // field shape (map/key) was already right.
+      return this.stdCall("map_contains_key", [
         { name: "map", value: this.encodeExpr(node.right) },
         { name: "key", value: this.encodeExpr(node.left) },
       ], "std_collections");
     }
 
-    this.warn(`Unhandled binary operator: ${ts.SyntaxKind[op]}`);
+    this.warn(`Unhandled binary operator: ${ts.SyntaxKind[op]}`, ts.SyntaxKind[op]);
     return { literal: { stringValue: `/* binary: ${ts.SyntaxKind[op]} */` } };
   }
 
@@ -625,8 +733,18 @@ export class TsEncoder {
         { name: "value", value: this.encodeExpr(node.operand) },
       ]);
     }
-    this.warn(`Unhandled prefix operator: ${ts.SyntaxKind[op]}`);
-    return this.encodeExpr(node.operand);
+    // Fail loud (#490). Unary `+` is a numeric COERCION: `+"5"` is the number
+    // 5, not the string "5". Ball has no universal coerce-to-number base
+    // function (only string_to_int/string_to_double, which are wrong for a
+    // non-string operand), so there is nothing faithful to route to. This used
+    // to be the one unhandled path that emitted no placeholder at all — it
+    // returned the untouched operand, silently changing the value's type. Now
+    // it warns as behaviour-affecting and emits a placeholder like every other
+    // unhandled construct, so `strict`/`strictBehaviorAffecting` reject it and
+    // a lenient encode is at least visibly wrong instead of invisibly wrong.
+    // See ts/encoder/ENCODER_CARVEOUTS.md.
+    this.warn(`Unhandled prefix operator: ${ts.SyntaxKind[op]}`, ts.SyntaxKind[op]);
+    return { literal: { stringValue: `/* unary: ${ts.SyntaxKind[op]} */` } };
   }
 
   private encodePostfixUnary(node: ts.PostfixUnaryExpression): Expression {
@@ -641,6 +759,12 @@ export class TsEncoder {
   }
 
   private encodeCall(node: ts.CallExpression): Expression {
+    // Regex routing runs BEFORE the arguments are encoded: a regex literal in
+    // argument position must become a `from`/`right` pattern string, not a
+    // standalone (and separately flag-warned) expression.
+    const asRegex = this.tryEncodeRegexCall(node);
+    if (asRegex) return asRegex;
+
     const args = node.arguments.map((a, i) => ({
       name: `arg${i}`,
       value: this.encodeExpr(a),
@@ -689,6 +813,32 @@ export class TsEncoder {
 
       const obj = this.encodeExpr(node.expression.expression);
 
+      // `.forEach(cb)` has no runtime std equivalent — there is no
+      // list_for_each / list_foreach in dart/shared/lib/std_collections.dart at
+      // all, and the Dart encoder never routes iteration through a std call.
+      // Pointing at the TS compiler's (dead) `list_foreach` case would create a
+      // construct with no Dart-side meaning, so it is desugared to the native
+      // for_each control-flow node instead (#489).
+      if (method === "forEach" && node.arguments.length === 1) {
+        return this.desugarForEach(obj, node.arguments[0]);
+      }
+      // `.flat()` -> flatMap(identity). `list_flat_map` is the canonical
+      // std_collections function; `list_flatten` existed nowhere.
+      if (method === "flat" && node.arguments.length === 0) {
+        return this.stdCall("list_flat_map", [
+          { name: "list", value: obj },
+          { name: "function", value: identityLambda("__ball_flat_item") },
+        ], "std_collections");
+      }
+      // `.splice(i, n)` only maps cleanly to list_remove_at when n is exactly 1.
+      if (method === "splice" && !isSingleElementSplice(node)) {
+        this.warn(
+          `Array.splice is only representable as std_collections.list_remove_at ` +
+          `for the splice(index, 1) form`,
+          "ArraySplice",
+        );
+      }
+
       // Map common JS/TS method calls to their Ball std equivalents.
       // The engine's std module uses snake_case names with type prefixes.
       const stdMethod = this.mapMethodToStd(method, args);
@@ -699,10 +849,12 @@ export class TsEncoder {
         ], stdMethod.module ?? "std");
       }
 
-      // Optional chaining call: obj?.method()
+      // Optional chaining call: obj?.method(). Canonical name + field shape
+      // (target/method), matching compileStdCall's `case "null_aware_call"`;
+      // "optional_call" with an `object` field matched no case at all (#489).
       if (node.expression.questionDotToken || node.questionDotToken) {
-        return this.stdCall("optional_call", [
-          { name: "object", value: obj },
+        return this.stdCall("null_aware_call", [
+          { name: "target", value: obj },
           { name: "method", value: { literal: { stringValue: method } } },
           ...args,
         ]);
@@ -756,6 +908,145 @@ export class TsEncoder {
         },
       },
     };
+  }
+
+  /**
+   * Lower `xs.forEach(cb)` to the native `std.for_each` control-flow node.
+   *
+   * Ball has no `list_for_each` base function in any module — iteration is
+   * control flow, not a runtime call (Core Invariant #4), which is exactly how
+   * the Dart encoder treats it. When `cb` is an inline single-parameter
+   * function its parameter becomes the loop variable and its body becomes the
+   * loop body, so the emitted IR is indistinguishable from the equivalent
+   * `for (const x of xs)`. Otherwise the callback is invoked per element
+   * through `std.invoke`.
+   */
+  private desugarForEach(iterable: Expression, callback: ts.Expression): Expression {
+    const isInline = ts.isArrowFunction(callback) || ts.isFunctionExpression(callback);
+    if (isInline) {
+      const fn = callback as ts.ArrowFunction | ts.FunctionExpression;
+      if (fn.parameters.length > 1) {
+        // JS hands the callback (value, index, array); for_each yields only the
+        // element, so the extra parameters would silently be undefined.
+        this.warn(
+          `Array.forEach callback takes ${fn.parameters.length} parameters; ` +
+          `std.for_each yields only the element`,
+          "ForEachExtraParams",
+        );
+      }
+      const param = fn.parameters[0];
+      if (fn.parameters.length <= 1 && (param === undefined || ts.isIdentifier(param.name))) {
+        const varName = param && ts.isIdentifier(param.name)
+          ? param.name.text
+          : `__ball_foreach_${this.desugarCounter++}`;
+        return this.stdCall("for_each", [
+          { name: "variable", value: { literal: { stringValue: varName } } },
+          { name: "iterable", value: iterable },
+          { name: "body", value: this.encodeBody(fn.body) },
+        ]);
+      }
+    }
+    // A callback reference (or a destructuring parameter): bind a synthetic
+    // loop variable and invoke the callback with it.
+    const varName = `__ball_foreach_${this.desugarCounter++}`;
+    return this.stdCall("for_each", [
+      { name: "variable", value: { literal: { stringValue: varName } } },
+      { name: "iterable", value: iterable },
+      { name: "body", value: this.stdCall("invoke", [
+        { name: "callee", value: this.encodeExpr(callback) },
+        { name: "arg0", value: { reference: { name: varName } } },
+      ]) },
+    ]);
+  }
+
+  /**
+   * Route the JS regex API onto the universal `std` regex base functions
+   * (#490). All five have been declared and Dart-engine-implemented since the
+   * std module was written; no encoder in the repo had ever emitted one, so
+   * `tests/conformance/STD_COVERAGE.md` marked them Encoder-emittable ❌.
+   *
+   *   /re/.test(s)         -> std.regex_match(left: s,   right: "re")
+   *   /re/.exec(s)         -> std.regex_find(left: s,    right: "re")
+   *   s.match(/re/g)       -> std.regex_find_all(left: s, right: "re")
+   *   s.replace(/re/, x)   -> std.regex_replace(value: s, from: "re", to: x)
+   *   s.replace(/re/g, x)  -> std.regex_replace_all(...)   (`g` is honoured)
+   *   s.replaceAll(/re/, x)-> std.regex_replace_all(...)
+   *
+   * Returns undefined when the call is not a regex shape, so the ordinary
+   * method-mapping path takes over.
+   */
+  private tryEncodeRegexCall(node: ts.CallExpression): Expression | undefined {
+    if (!ts.isPropertyAccessExpression(node.expression)) return undefined;
+    const method = node.expression.name.text;
+    const receiver = node.expression.expression;
+    const args = node.arguments;
+
+    // Every std name below is spelled as a LITERAL argument to stdCall (never
+    // computed from a ternary) so ts/compiler/test/std_name_consistency.test.ts
+    // can see, by static scan, exactly which functions this encoder can emit.
+    const receiverRe = regexLiteralOf(receiver);
+    if (receiverRe && (method === "test" || method === "exec") && args.length === 1) {
+      this.warnDroppedRegexFlags(receiverRe, "");
+      const fields: FieldValuePair[] = [
+        { name: "left", value: this.encodeExpr(args[0]) },
+        { name: "right", value: { literal: { stringValue: receiverRe.source } } },
+      ];
+      return method === "test"
+        ? this.stdCall("regex_match", fields)
+        : this.stdCall("regex_find", fields);
+    }
+
+    const argRe = args.length > 0 ? regexLiteralOf(args[0]) : undefined;
+    if (!argRe) return undefined;
+
+    if ((method === "replace" || method === "replaceAll") && args.length === 2) {
+      const all = method === "replaceAll" || argRe.flags.includes("g");
+      this.warnDroppedRegexFlags(argRe, "g");
+      const fields: FieldValuePair[] = [
+        { name: "value", value: this.encodeExpr(receiver) },
+        { name: "from", value: { literal: { stringValue: argRe.source } } },
+        { name: "to", value: this.encodeExpr(args[1]) },
+      ];
+      return all
+        ? this.stdCall("regex_replace_all", fields)
+        : this.stdCall("regex_replace", fields);
+    }
+
+    if ((method === "match" || method === "matchAll") && args.length === 1) {
+      // JS `.match(/re/)` (no `g`) returns a match ARRAY with capture groups
+      // and an index; `regex_find` returns just the matched substring. Only the
+      // global form maps cleanly, so the non-global one is reported as lossy
+      // rather than quietly re-shaped.
+      const global = method === "matchAll" || argRe.flags.includes("g");
+      this.warnDroppedRegexFlags(argRe, "g");
+      if (!global) {
+        this.warn(
+          `String.match without the "g" flag returns a match array with capture ` +
+          `groups; std.regex_find returns only the matched substring`,
+          "RegexMatchNonGlobal",
+        );
+      }
+      const fields: FieldValuePair[] = [
+        { name: "left", value: this.encodeExpr(receiver) },
+        { name: "right", value: { literal: { stringValue: argRe.source } } },
+      ];
+      return global
+        ? this.stdCall("regex_find_all", fields)
+        : this.stdCall("regex_find", fields);
+    }
+
+    return undefined;
+  }
+
+  /** Warn about every regex flag that the chosen std routing does not honour. */
+  private warnDroppedRegexFlags(re: { source: string; flags: string }, implied: string): void {
+    const dropped = [...re.flags].filter((f) => !implied.includes(f)).join("");
+    if (dropped.length === 0) return;
+    this.warn(
+      `Dropping regular-expression flags "${dropped}" from /${re.source}/${re.flags} — ` +
+      `the std regex_* functions take a bare pattern string and model no flags`,
+      "RegularExpressionLiteralFlags",
+    );
   }
 
   private encodeLambda(node: ts.ArrowFunction | ts.FunctionExpression): Expression {
@@ -869,14 +1160,19 @@ export class TsEncoder {
       const d = node.initializer.declarations[0];
       varName = ts.isIdentifier(d.name) ? d.name.text : d.name.getText();
     }
-    const fnName = ts.isForInStatement(node) ? "for_in" : "for_each";
-    return this.stdCall(fnName, [
+    const fields: FieldValuePair[] = [
       { name: "variable", value: { literal: { stringValue: varName } } },
       { name: "iterable", value: this.encodeExpr(node.expression) },
       { name: "body", value: this.encodeBody(
         ts.isBlock(node.statement) ? node.statement : ts.factory.createBlock([node.statement])
       ) },
-    ]);
+    ];
+    // Both names are spelled as literals rather than computed from a ternary so
+    // that a static scan of this file (ts/compiler/test/std_name_consistency.
+    // test.ts) can see every std function the encoder is able to emit.
+    return ts.isForInStatement(node)
+      ? this.stdCall("for_in", fields)
+      : this.stdCall("for_each", fields);
   }
 
   private encodeWhile(node: ts.WhileStatement): Expression {
@@ -1047,7 +1343,10 @@ export class TsEncoder {
           // operator) has no Ball representation yet — warn (and throw in
           // strict mode) rather than silently dropping it from the encoded
           // class (#242).
-          this.warn(`Unhandled class member name: ${member.name.getText()}`);
+          this.warn(
+            `Unhandled class member name: ${member.name.getText()}`,
+            ts.SyntaxKind[member.name.kind],
+          );
         }
         if (fn) {
           fn.name = `${className}.${fn.name}`;
@@ -1146,32 +1445,45 @@ export class TsEncoder {
   /**
    * Map a JS/TS method name to its Ball std function equivalent.
    * Returns null if no mapping exists (falls through to generic method call).
+   *
+   * Every entry names BOTH the canonical std function AND the field names that
+   * function's arguments carry. Names alone are not enough: `compileStdCall`
+   * looks arguments up by field name, so `string_replace` fed `other`/`arg1`
+   * (the old positional scheme) silently compiled to `''`, and
+   * `string_substring` fed the same way crashed. The field names below were
+   * each read off the corresponding `case` body in ts/compiler/src/compiler.ts
+   * (#489).
    */
   private mapMethodToStd(
     method: string,
     _args: { name: string; value: Expression }[],
   ): { fn: string; module?: string; selfName?: string; extraFields: (a: typeof _args) => FieldValuePair[] } | null {
-    // String methods
-    const STR_METHODS: Record<string, string> = {
-      toUpperCase: "string_to_upper_case",
-      toLowerCase: "string_to_lower_case",
-      trim: "string_trim",
-      trimStart: "string_trim_left",
-      trimEnd: "string_trim_right",
-      includes: "string_contains",
-      indexOf: "string_index_of",
-      startsWith: "string_starts_with",
-      endsWith: "string_ends_with",
-      split: "string_split",
-      substring: "string_substring",
-      slice: "string_substring",
-      replace: "string_replace_first",
-      replaceAll: "string_replace_all",
-      padStart: "string_pad_left",
-      padEnd: "string_pad_right",
-      repeat: "string_repeat",
-      charAt: "string_char_at",
-      charCodeAt: "string_code_unit_at",
+    /** Name the i-th argument after `names[i]`, falling back to `argN`. */
+    const named = (...names: string[]) =>
+      (a: typeof _args): FieldValuePair[] =>
+        a.map((x, i) => ({ name: names[i] ?? `arg${i}`, value: x.value }));
+
+    // String methods: `value` is the receiver.
+    const STR_METHODS: Record<string, { fn: string; args: string[] }> = {
+      toUpperCase: { fn: "string_to_upper", args: [] },
+      toLowerCase: { fn: "string_to_lower", args: [] },
+      trim: { fn: "string_trim", args: [] },
+      trimStart: { fn: "string_trim_start", args: [] },
+      trimEnd: { fn: "string_trim_end", args: [] },
+      includes: { fn: "string_contains", args: ["other"] },
+      indexOf: { fn: "string_index_of", args: ["pattern", "start"] },
+      startsWith: { fn: "string_starts_with", args: ["other"] },
+      endsWith: { fn: "string_ends_with", args: ["other"] },
+      split: { fn: "string_split", args: ["separator"] },
+      substring: { fn: "string_substring", args: ["start", "end"] },
+      slice: { fn: "string_substring", args: ["start", "end"] },
+      replace: { fn: "string_replace", args: ["from", "to"] },
+      replaceAll: { fn: "string_replace_all", args: ["from", "to"] },
+      padStart: { fn: "string_pad_left", args: ["width", "padding"] },
+      padEnd: { fn: "string_pad_right", args: ["width", "padding"] },
+      repeat: { fn: "string_repeat", args: ["count"] },
+      charAt: { fn: "string_char_at", args: ["index"] },
+      charCodeAt: { fn: "string_code_unit_at", args: ["index"] },
     };
     // hasOwnProperty (not `in`) — `in` also matches names inherited from
     // Object.prototype (toString, valueOf, hasOwnProperty, ...). A bare `in`
@@ -1182,48 +1494,38 @@ export class TsEncoder {
     // corrupt call.function (a function object, not "to_string") in the Ball
     // IR. Found via coverage analysis of the always-dead toString branch.
     if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
-      return {
-        fn: STR_METHODS[method],
-        selfName: "value",
-        extraFields: (a) => a.map((x, i) => ({
-          name: i === 0 ? "other" : `arg${i}`,
-          value: x.value,
-        })),
-      };
+      const m = STR_METHODS[method];
+      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
     }
 
-    // Array methods
-    const ARR_METHODS: Record<string, { fn: string; mod?: string }> = {
-      push: { fn: "list_add" },
-      pop: { fn: "list_remove_last" },
-      indexOf: { fn: "list_index_of", mod: "std_collections" },
-      includes: { fn: "list_contains", mod: "std_collections" },
-      join: { fn: "list_join", mod: "std_collections" },
-      reverse: { fn: "list_reversed", mod: "std_collections" },
-      slice: { fn: "list_sublist", mod: "std_collections" },
-      splice: { fn: "list_remove_at" },
-      sort: { fn: "list_sort", mod: "std_collections" },
-      map: { fn: "list_map", mod: "std_collections" },
-      filter: { fn: "list_where", mod: "std_collections" },
-      forEach: { fn: "list_for_each", mod: "std_collections" },
-      reduce: { fn: "list_fold", mod: "std_collections" },
-      find: { fn: "list_first_where", mod: "std_collections" },
-      flat: { fn: "list_flatten", mod: "std_collections" },
-      concat: { fn: "list_concat", mod: "std_collections" },
-      every: { fn: "list_every", mod: "std_collections" },
-      some: { fn: "list_any", mod: "std_collections" },
+    // Array methods: `list` is the receiver. All of them live in
+    // std_collections — the module the Dart reference declares them in.
+    const ARR_METHODS: Record<string, { fn: string; args: string[] }> = {
+      push: { fn: "list_push", args: ["value"] },
+      pop: { fn: "list_pop", args: [] },
+      indexOf: { fn: "list_index_of", args: ["value"] },
+      includes: { fn: "list_contains", args: ["value"] },
+      join: { fn: "list_join", args: ["separator"] },
+      reverse: { fn: "list_reverse", args: [] },
+      slice: { fn: "list_slice", args: ["start", "end"] },
+      splice: { fn: "list_remove_at", args: ["index"] },
+      sort: { fn: "list_sort", args: ["comparator"] },
+      map: { fn: "list_map", args: ["function"] },
+      filter: { fn: "list_filter", args: ["function"] },
+      reduce: { fn: "list_reduce", args: ["function"] },
+      find: { fn: "list_find", args: ["function"] },
+      concat: { fn: "list_concat", args: ["other"] },
+      every: { fn: "list_all", args: ["function"] },
+      some: { fn: "list_any", args: ["function"] },
     };
     // Same hasOwnProperty rationale as STR_METHODS above.
     if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
       const m = ARR_METHODS[method];
       return {
         fn: m.fn,
-        module: m.mod,
+        module: "std_collections",
         selfName: "list",
-        extraFields: (a) => a.map((x, i) => ({
-          name: i === 0 ? "value" : `arg${i}`,
-          value: x.value,
-        })),
+        extraFields: named(...m.args),
       };
     }
 
@@ -1284,7 +1586,16 @@ export class TsEncoder {
     return { literal: {} };
   }
 
-  private warn(msg: string): void {
+  /**
+   * Record a warning, and turn it into a hard error when the caller asked for
+   * one.
+   *
+   * `kind` is the TS SyntaxKind name (or another marker) the warning is about;
+   * it is what `strictBehaviorAffecting` filters on, so the distinction between
+   * "erased a type alias" and "silently changed what this program computes" is
+   * mechanical rather than a substring match on the message.
+   */
+  private warn(msg: string, kind?: string): void {
     this.warnings.push(msg);
     // In strict mode an unhandled node is a hard error: the encoder cannot
     // faithfully represent the construct and would otherwise emit a
@@ -1292,11 +1603,51 @@ export class TsEncoder {
     if (this.strict) {
       throw new EncodeError(msg, this.getWarnings());
     }
+    if (this.strictBehaviorAffecting && !(kind !== undefined && ERASURE_ONLY_KINDS.has(kind))) {
+      throw new EncodeError(msg, this.getWarnings());
+    }
   }
 
   getWarnings(): string[] {
     return [...this.warnings];
   }
+}
+
+/**
+ * Split a regex literal's raw text (`/source/flags`) into its two parts.
+ * The closing delimiter is the LAST unescaped `/`, so a pattern containing an
+ * escaped slash (`/a\/b/g`) splits correctly.
+ */
+function splitRegexLiteral(text: string): { source: string; flags: string } {
+  const lastSlash = text.lastIndexOf("/");
+  return {
+    source: text.slice(1, lastSlash),
+    flags: text.slice(lastSlash + 1),
+  };
+}
+
+/** The `{ source, flags }` of `node` when it is a regex literal, else undefined. */
+function regexLiteralOf(node: ts.Node): { source: string; flags: string } | undefined {
+  if (ts.isParenthesizedExpression(node)) return regexLiteralOf(node.expression);
+  return ts.isRegularExpressionLiteral(node) ? splitRegexLiteral(node.text) : undefined;
+}
+
+/** A `(x) => x` lambda, in the encoder's own lambda shape. */
+function identityLambda(param: string): Expression {
+  return {
+    lambda: {
+      name: "",
+      body: { reference: { name: param } },
+      metadata: { params: [{ name: param }] },
+    },
+  };
+}
+
+/** True for the `xs.splice(i, 1)` form, the only one list_remove_at models. */
+function isSingleElementSplice(node: ts.CallExpression): boolean {
+  if (node.arguments.length !== 2) return false;
+  const count = node.arguments[1];
+  return ts.isNumericLiteral(count) && count.text === "1";
 }
 
 /// Thrown by `encode(..., { strict: true })` when the encoder hits a TS

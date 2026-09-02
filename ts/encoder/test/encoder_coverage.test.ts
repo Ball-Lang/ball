@@ -86,8 +86,11 @@ describe("encoder std method mappings", () => {
     return expr.call!.function;
   }
 
-  test("String.replace maps to string_replace_first", () => {
-    assert.equal(callFnFor(`const r = "ab".replace("a", "x");`), "string_replace_first");
+  test("String.replace maps to the canonical string_replace (first occurrence)", () => {
+    // Matches dart/encoder's own replaceFirst -> 'string_replace' mapping and
+    // compileStdCall's `case "string_replace"`; the invented
+    // "string_replace_first" had no case anywhere (#489).
+    assert.equal(callFnFor(`const r = "ab".replace("a", "x");`), "string_replace");
   });
 
   test("String.slice maps to string_substring", () => {
@@ -124,8 +127,10 @@ describe("encoder std method mappings", () => {
     assert.equal(typeof call.function, "string");
   });
 
-  test("Array.reverse maps to list_reversed", () => {
-    assert.equal(callFnFor(`const r = [1, 2, 3].reverse();`), "list_reversed");
+  test("Array.reverse maps to the canonical list_reverse", () => {
+    // dart/shared/lib/std_collections.dart declares `list_reverse`;
+    // `list_reversed` is a TS-compiler-only spelling with no Dart counterpart.
+    assert.equal(callFnFor(`const r = [1, 2, 3].reverse();`), "list_reverse");
   });
 });
 

@@ -59,7 +59,24 @@ const json = toJson(ProgramSchema, program);
 
 - TypeScript → Ball, built on the TypeScript Compiler API (`typescript` package, `ts.SyntaxKind`).
 - Routes all constructs through universal `std` (no `ts_std`): operators, control flow, closures, try/catch, string/list ops.
-- CI-gated: `cd ts/encoder && npm test` (encoder + conformance + round-trip suites, 100+ tests).
+- CI-gated: `cd ts/encoder && npm test` (encoder + conformance + round-trip suites, 200+ tests).
+- **Canonical names only.** A std base function's canonical name is the one
+  `dart/shared/lib/std*.dart` declares and `ts/compiler`'s `compileStdCall`
+  dispatches on. Inventing a name (`list_add` for `list_push`, `optional_access`
+  for `null_aware_access`, …) compiles to
+  `TS compiler: std.X is not implemented` for whoever first writes that code —
+  #489. Spell it as a **literal** argument to `stdCall(...)`, never via a
+  ternary, so `ts/compiler/test/std_name_consistency.test.ts` can see it.
+- **Canonical FIELD names too**, read off the compiler's `case` body rather than
+  guessed from argument order. A right-name/wrong-field call does not throw — it
+  silently compiles to `''` or crashes elsewhere.
+- Every new construct needs a fixture in `ts/encoder/test/roundtrip.test.ts`
+  (`encode → compile → execute both → diff stdout`). A unit test asserting the
+  emitted name passes *because* a naming bug exists; it cannot catch this class.
+- Constructs Ball genuinely cannot represent must **fail loud** (a
+  behaviour-affecting `warn()` plus a placeholder, throwing under
+  `{ strictBehaviorAffecting: true }`) and be listed in
+  `ts/encoder/ENCODER_CARVEOUTS.md`. Never silently return the untouched operand.
 
 ## Generated Files — NEVER Edit
 

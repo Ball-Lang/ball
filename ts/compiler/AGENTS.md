@@ -25,6 +25,22 @@ Ball → TypeScript compiler. Consumes a `Program` (proto3-JSON object) and emit
 - **Regenerating the self-hosted engine:** compile `dart/self_host/engine.ball.json` (strip `@type` first) through `compile()` and write to `ts/engine/src/compiled_engine.ts`. Full command in `CLAUDE.md` → Build & Test.
 - **Regenerating the CLI core (issue #364):** compile `dart/self_host/cli.ball.json` through `compile()`, then add `export` to every top-level `function`/`class`/`enum`/`let`/`const` not already exported (cli_core.dart is a free-function library, not a single class, so `compile()`'s built-in class-export logic alone isn't enough), and write to `ts/cli/src/compiled_cli.ts`. Full command in `CLAUDE.md` → Build & Test ("Regenerate compiled TS CLI core").
 - Test runner: `node --experimental-strip-types --test test/*.test.ts`. Tests compile fixtures and verify output parses / runs through the engine.
+- **`test/engine_runtime.test.ts` is the leg that matters most for any change to
+  `compileStdCall` or expression emission.** It compiles `engine.ball.json` — the
+  self-hosted Ball engine — with THIS compiler and runs the entire ~321-fixture
+  conformance corpus through the result. A compiler change can be green across
+  every other leg and still break every engine (that is the shape of #464/#465):
+  making `null_aware_index` null-safe in read position emitted `a?.[i] = v` in
+  WRITE position, a JS `SyntaxError` that killed all 321 fixtures at once, while
+  `std_call_dispatch.test.ts` and the fixture suites stayed green. Since
+  `engine.ball.json` is a gitignored build artifact absent from a fresh checkout,
+  the suite regenerates it on demand (into a process-unique temp path) rather
+  than skipping — a skipped suite here is a fake green, not a pass.
+- **`test/std_name_consistency.test.ts`** statically enumerates every std name
+  `ts/encoder` can emit and compiles each one, so a name the encoder emits but
+  `compileStdCall` does not implement fails the build. When you deliberately
+  leave one unimplemented, add it to that file's `KNOWN_GAPS` table with a reason
+  and mirror the entry in `ts/encoder/ENCODER_CARVEOUTS.md`.
 - Never import from `ts/shared/gen/` in compiler source — this package uses raw proto3-JSON trees (plain objects), not protobuf-es `Message` types.
 - See `.claude/rules/ts.md` and `CLAUDE.md` for TS API conventions and invariants.
 

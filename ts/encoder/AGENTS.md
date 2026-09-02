@@ -13,14 +13,40 @@ TypeScript → Ball encoder. Parses TypeScript source using the TypeScript Compi
 | `src/encoder.ts` | `TsEncoder` class — entry: `encode(source: string, opts?) → Program`. Operator-to-std dispatch tables (`BINARY_OPS`, `COMPOUND_OPS`) map `ts.SyntaxKind` values to `std` function names. |
 | `src/index.ts` | Public exports: `encode`, `encodeWithWarnings`, `TsEncoder`, `EncodeError`, `EncodeOptions`, `EncodeResult`. |
 | `src/types.ts` | Local TypeScript type aliases mirroring the Ball proto3-JSON shape (plain objects, not protobuf-es messages). |
+| `ENCODER_CARVEOUTS.md` | The documented, accepted gaps: TS constructs this encoder cannot represent faithfully, and what it warns instead. Keep in sync with `KNOWN_GAPS` in `ts/compiler/test/std_name_consistency.test.ts`. |
 
 ## For AI Agents
 
 - Entry: `encode(source: string, opts?: EncodeOptions) → Program`. Returns a plain proto3-JSON `Program` object.
 - Uses the **TypeScript Compiler API** (`typescript` package, `ts.SyntaxKind`) — not `ts-morph`. Walk the AST via `ts.createSourceFile` + visitor pattern.
-- All TS operators (arithmetic, comparison, bitwise, logical, null-coalesce, `instanceof`) map to universal `std` function calls — see `BINARY_OPS` table in `encoder.ts`. Never introduce `ts_std` functions; expand everything to `std`/`std_collections`/`std_io`.
+- All TS operators (arithmetic, comparison, bitwise, logical, null-coalesce, `instanceof`, `**`) map to universal `std` function calls — see `BINARY_OPS` table in `encoder.ts`. Never introduce `ts_std` functions; expand everything to `std`/`std_collections`/`std_io`.
 - `encodeWithWarnings` returns `{ program, warnings }` — prefer it over `encode` when callers need to surface non-fatal encoding issues.
-- CI-gated: 100+ tests covering encoder, conformance, and round-trip (TS → Ball → TS). Run with `node --experimental-strip-types --test test/*.test.ts`.
+- Three strictness levels: lenient (default, warn only), `{ strictBehaviorAffecting: true }` (throw `EncodeError` for anything that changes what the program computes, tolerate erasure-only constructs — the mode worth running over third-party code), and `{ strict: true }` (throw for ANY warning).
+- CI-gated: 200+ tests covering encoder, conformance, and round-trip (TS → Ball → TS). Run with `node --experimental-strip-types --test test/*.test.ts`.
+
+### Emitting a std base function — the two rules that broke before (#489)
+
+1. **Use the CANONICAL name.** Canonical means "the name `dart/shared/lib/std*.dart`
+   declares and `ts/compiler`'s `compileStdCall` dispatches on" — not a name that
+   reads well. The encoder used to invent `list_add`, `optional_access`,
+   `contains_key`, `string_replace_first`, `string_to_upper_case`,
+   `list_for_each` (and seven more), none of which any compiler recognised, so
+   real TS code threw `TS compiler: std.X is not implemented`. The gate is
+   `ts/compiler/test/std_name_consistency.test.ts`: it statically enumerates
+   every name this file can emit and compiles each one. **Spell the name as a
+   literal argument to `stdCall(...)`** — a name computed from a ternary is
+   invisible to that scan.
+2. **Use the field names the compiler actually reads**, verified against the
+   `case` body, not guessed from the argument's position. `string_replace` fed
+   the old positional `other`/`arg1` names silently compiled to `''`, and
+   `string_substring` crashed. `mapMethodToStd`'s tables now name every argument
+   explicitly for this reason.
+
+Then add a fixture to `test/roundtrip.test.ts` — it is the only leg that runs
+`encode() → compile() → execute` and diffs stdout, i.e. the only one that can
+catch either mistake. A name-only unit assertion cannot: that is precisely how
+this class of bug shipped green.
+
 - After adding a new encoding case, ensure it appears in a conformance fixture (`tests/conformance/src/`) per the gate in `CLAUDE.md`.
 - See `.claude/rules/ts.md` and `CLAUDE.md` for routing rules and the no-`ts_std` invariant.
 

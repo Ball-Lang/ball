@@ -268,4 +268,250 @@ main();
 `);
   });
 
+  // ─────────────────────────────────────────────────────────────────────
+  // #489 / #490 regression fixtures.
+  //
+  // This file is the ONLY leg that runs encode() -> compile() -> execute and
+  // diffs stdout. Before these fixtures existed, the encoder could invent a
+  // std name (list_add, optional_access, string_replace_first, ...) or emit
+  // the right name with the wrong FIELD names, and nothing in CI noticed:
+  // encoder.test.ts asserted the encoder's own spelling as correct, and
+  // conformance.test.ts routes through ts/engine, which had been separately
+  // hand-patched with matching ad hoc aliases. One fixture per construct is
+  // what makes a future drift of this class fail the build.
+  // ─────────────────────────────────────────────────────────────────────
+
+  // The `?? "none"` guards are deliberate: JS distinguishes `undefined` from
+  // `null`, Ball has a single null, so a bare short-circuit prints "undefined"
+  // on one side and "null" on the other. Coalescing compares the branch that
+  // actually matters — did the access short-circuit, and did it yield the right
+  // value when it did not.
+  test("optional chaining property access, null and non-null (#489)", () => {
+    assertRoundTrip(`
+function nameOf(o) {
+  return o?.name ?? "none";
+}
+function main() {
+  console.log(nameOf({ name: "ada" }));
+  console.log(nameOf(null));
+}
+main();
+`);
+  });
+
+  test("optional element access a?.[i] (#489)", () => {
+    assertRoundTrip(`
+function at(a, i) {
+  return a?.[i] ?? -1;
+}
+function main() {
+  console.log(at([10, 20, 30], 1));
+  console.log(at(null, 1));
+}
+main();
+`);
+  });
+
+  test("optional chaining method call o?.m() (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const o = { greet: () => "hi" };
+  const missing = null;
+  console.log(o?.greet() ?? "none");
+  console.log(missing?.greet() ?? "none");
+}
+main();
+`);
+  });
+
+  test("Array.push mutates and is observable (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const xs = [1, 2];
+  xs.push(3);
+  xs.push(4);
+  console.log(xs.length);
+  console.log(xs[2]);
+  console.log(xs[3]);
+}
+main();
+`);
+  });
+
+  test("Array.pop / indexOf / includes / join / reverse (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const xs = [1, 2, 3];
+  console.log(xs.pop());
+  console.log(xs.length);
+  console.log([4, 5, 6].indexOf(5));
+  console.log([4, 5, 6].includes(6));
+  console.log(["a", "b"].join("-"));
+  console.log([1, 2, 3].reverse().join(","));
+}
+main();
+`);
+  });
+
+  // NOTE: `slice`, `indexOf`, `includes` and `concat` exist on BOTH String and
+  // Array, and the encoder is syntax-only (no type checker), so the STRING
+  // mapping wins for all four — see ts/encoder/ENCODER_CARVEOUTS.md. That is
+  // survivable in the TS target for indexOf/includes (JS Array has both under
+  // the same spelling), so the fixture below exercises those, while array
+  // `slice`/`concat` stay a documented, type-checker-shaped gap.
+  test("Array.splice(i, 1) removes one element (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const xs = [1, 2, 3];
+  xs.splice(1, 1);
+  console.log(xs.join(","));
+  console.log(xs.length);
+}
+main();
+`);
+  });
+
+  test("Array.map / filter / reduce / find / every / some (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const xs = [1, 2, 3, 4];
+  console.log(xs.map((x) => x * 2).join(","));
+  console.log(xs.filter((x) => x > 2).join(","));
+  console.log(xs.reduce((a, b) => a + b));
+  console.log(xs.find((x) => x > 2));
+  console.log(xs.every((x) => x > 0));
+  console.log(xs.some((x) => x > 3));
+}
+main();
+`);
+  });
+
+  test("Array.forEach desugars to native iteration (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const xs = [1, 2, 3];
+  xs.forEach((x) => console.log(x));
+  let total = 0;
+  xs.forEach((x) => {
+    total = total + x;
+  });
+  console.log(total);
+}
+main();
+`);
+  });
+
+  test("the `in` operator on an object (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  const o = { a: 1, b: 2 };
+  console.log("a" in o);
+  console.log("zz" in o);
+}
+main();
+`);
+  });
+
+  test("String.replace replaces only the first occurrence (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  console.log("a-b-c".replace("-", "+"));
+  console.log("a-b-c".replaceAll("-", "+"));
+}
+main();
+`);
+  });
+
+  test("String.toUpperCase / toLowerCase through the COMPILER (#489)", () => {
+    // conformance.test.ts proves these only via ts/engine, which carried its
+    // own ad hoc alias for the encoder's non-canonical spelling.
+    assertRoundTrip(`
+function main() {
+  console.log("MiXeD".toUpperCase());
+  console.log("MiXeD".toLowerCase());
+}
+main();
+`);
+  });
+
+  test("String indexOf / substring / slice / padStart / repeat / charAt (#489)", () => {
+    assertRoundTrip(`
+function main() {
+  console.log("hello".indexOf("l"));
+  console.log("hello".substring(1, 3));
+  console.log("hello".slice(2));
+  console.log("7".padStart(3, "0"));
+  console.log("ab".repeat(3));
+  console.log("abc".charAt(1));
+  console.log("abc".charCodeAt(0));
+  console.log("  pad  ".trim() + "|");
+  console.log("  pad  ".trimStart() + "|");
+  console.log("  pad  ".trimEnd() + "|");
+  console.log("a,b,c".split(",").join("/"));
+}
+main();
+`);
+  });
+
+  test("super.method() in a subclass (#490)", () => {
+    assertRoundTrip(`
+class Base {
+  greet() {
+    return "a";
+  }
+}
+class Child extends Base {
+  greet() {
+    return super.greet() + "b";
+  }
+}
+function main() {
+  console.log(new Child().greet());
+}
+main();
+`);
+  });
+
+  test("delete obj.prop and delete obj[key] (#490)", () => {
+    assertRoundTrip(`
+function main() {
+  const o = { a: 1, b: 2 };
+  delete o.a;
+  console.log("a" in o);
+  console.log("b" in o);
+  const p = { x: 1 };
+  const k = "x";
+  delete p[k];
+  console.log("x" in p);
+}
+main();
+`);
+  });
+
+  test("exponentiation ** and **= (#490)", () => {
+    assertRoundTrip(`
+function main() {
+  console.log(2 ** 3);
+  console.log(2 ** 0);
+  let n = 3;
+  n **= 2;
+  console.log(n);
+}
+main();
+`);
+  });
+
+  test("regex literal driving test / exec / match / replace (#490)", () => {
+    assertRoundTrip(`
+function main() {
+  console.log(/^[a-z]+$/.test("abc"));
+  console.log(/^[a-z]+$/.test("Abc"));
+  console.log("a1b2".replace(/[0-9]/, "#"));
+  console.log("a1b2".replaceAll(/[0-9]/g, "#"));
+  console.log("a1b2".replace(/[0-9]/g, "#"));
+  console.log("a1b2".match(/[0-9]/g).join(","));
+}
+main();
+`);
+  });
 });

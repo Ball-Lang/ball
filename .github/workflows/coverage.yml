@@ -342,48 +342,74 @@ jobs:
             print "OK: " p "% >= floor " f "%.";
           }'
 
-      # Per-target split + REPORT (issue #63). The aggregate floor above is
+      # Per-target split + GATE (issues #63 / #59). The aggregate floor above is
       # blended across cpp/{compiler,encoder,shared}: a large regression
       # confined to one target — `shared` is a small slice of the ~11.4k-line
       # denominator — is arithmetically absorbable by the other two and never
       # trips it. cpp/build-cov-floor.sh has owned the finer per-target floors
-      # (compiler 88 / encoder 88 / shared 81) since it was written, but was
-      # invoked by NOTHING: `grep -rn build-cov-floor .github/workflows/`
-      # returned only prose comments, and its own header said "Not wired into
-      # CI yet".
+      # since it was written, and is unit-pinned by
+      # cpp/test/test_build_cov_floor_parsing.sh — but it was invoked by
+      # NOTHING: `grep -rn build-cov-floor .github/workflows/` returned only
+      # prose comments, and #495's predecessor of this step RE-IMPLEMENTED the
+      # extraction inline, echoing "not enforced" and never comparing anything.
+      # A proven-correct exit code that reaches no job is not a gate.
       #
-      # This step splits the merged tracefile exactly the way
-      # cpp/build-cov-report.sh:81-90 does and prints each target next to its
-      # floor. It DOES NOT GATE: those floors have never been measured by CI
-      # (they were read off a local run), and a false red on main is worse than
-      # an unenforced number. Once two consecutive runs establish the CI
-      # baseline, this becomes the gate — and it must then also assert all
-      # three tracefiles exist (see build-cov-floor.sh's SKIP branch).
-      - name: C++ per-target coverage report (compiler/encoder/shared — not gated)
+      # #495 left it report-only on purpose ("measure before gating"): those
+      # floors had never been measured by CI. They have now. Two consecutive
+      # SUCCESSFUL runs of THIS workflow on main printed an identical triple:
+      #   run 33614144984  main @ edf9f6c6  2026-09-02T09:39Z
+      #   run 33617428731  main @ 5b8c7b18  2026-09-02T10:16Z
+      #     cpp/compiler: 92.3%   cpp/encoder: 89.1%   cpp/shared: 81.8%
+      # so build-cov-floor.sh's FLOORS are re-derived from that measurement
+      # minus this project's ~2pt CI-variance buffer (90 / 87 / 79) and this
+      # step now INVOKES the script rather than duplicating its comparison.
+      # The script's exit code IS the step's exit code — deliberately no
+      # `continue-on-error`, which would swallow it and demote the gate back to
+      # an annotation.
+      #
+      # The emptiness assertion below is not optional. build-cov-floor.sh's
+      # missing-tracefile branch is a deliberate non-fatal SKIP (the local
+      # operator-error case: the script run before build-cov-report.sh), so a
+      # step that silently extracted zero tracefiles would "pass" a gate that
+      # checked nothing. The OK-line count is the same guarantee from the other
+      # side. This is the positive-floor discipline of #439/#444: an exit code
+      # alone cannot distinguish "all passed" from "nothing ran".
+      #
+      # cpp/test/test_cov_floor_ci_wiring.sh (run by ci.yml's always-on `proto`
+      # job) asserts that this step still names build-cov-floor.sh, so the
+      # duplication this replaces cannot silently come back.
+      - name: C++ per-target coverage floors (compiler/encoder/shared — gated)
         run: |
           set -uo pipefail
-          declare -A floors=([compiler]=88 [encoder]=88 [shared]=81)
-          {
-            echo "### C++ per-target line coverage (report only — issue #63)"
-            echo ""
-            echo "| target | measured | build-cov-floor.sh floor |"
-            echo "| --- | --- | --- |"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # build-cov-floor.sh cds to cpp/ and reads build-cov/cpp.<t>.lcov.
+          mkdir -p cpp/build-cov
           for target in compiler encoder shared; do
-            out="cpp.$target.lcov"
+            out="cpp/build-cov/cpp.$target.lcov"
             lcov --extract cpp.lcov "*/cpp/$target/*" --output-file "$out" \
               --ignore-errors unused,empty --quiet
-            pct=$(lcov --summary "$out" --ignore-errors empty 2>/dev/null \
-              | grep -oP 'lines\.*:\s*\K[0-9]+(\.[0-9]+)?' | head -1)
-            pct="${pct:-unparseable}"
-            echo "cpp/$target: ${pct}% (floor ${floors[$target]}%, not enforced)"
-            echo "| cpp/$target | ${pct}% | ${floors[$target]}% |" >> "$GITHUB_STEP_SUMMARY"
+            if [ ! -s "$out" ]; then
+              echo "::error::$out is missing or empty — the per-target extraction produced nothing, so build-cov-floor.sh would SKIP it and the gate would prove nothing."
+              exit 1
+            fi
           done
+          bash cpp/build-cov-floor.sh | tee cov-floor.txt
+          rc=${PIPESTATUS[0]}
           {
+            echo "### C++ per-target line coverage (gated — issue #63)"
             echo ""
-            echo "Report only: these per-target floors are not yet enforced."
-            echo "A follow-up ratchets them once two CI runs establish a baseline."
+            echo '```'
+            cat cov-floor.txt
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # `grep -c` exits 1 on zero matches; `|| true` keeps that from
+          # aborting, and the anchored pattern keeps the count a single line so
+          # the numeric test below can never take a multi-line operand.
+          ok=$(grep -c '^OK ' cov-floor.txt || true)
+          if [ "${ok:-0}" -ne 3 ]; then
+            echo "::error::expected 3 per-target OK lines from build-cov-floor.sh, got ${ok:-0} — a target was skipped or unparseable, so this gate checked nothing."
+            exit 1
+          fi
+          exit "$rc"
 
       - name: Upload C++ coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

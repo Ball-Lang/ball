@@ -137,6 +137,25 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > fixture. When you add a fixture, enumerate the legs it must pass — the engine
 > rows and the compiled rows are not the same set.
 
+### 2c. Every gate above is scoped to code WE wrote
+The whole `tests/conformance/` corpus is hand-authored, single-file,
+`main`-shaped Dart written to avoid the encoder's known syntactic traps, and
+both the completeness gate and `conformance-matrix.yml` only ever look at it.
+Nothing in CI has ever run the pipeline over a third-party package — which is
+how a Rust encoder converting 0/196 real files (#491), a C# encoder converting
+0/200 (#492), a TS compiler failing 37/129 (#489), and a Dart compiler emitting
+unparseable Dart on real library files (#494) all shipped past 18 green required
+checks on the same day.
+
+`tools/coverage-study/` (issue #493) is the instrument for that gap; the
+methodology, the two load-bearing harness settings, the current baseline and the
+honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **report-only**
+— `coverage-study.yml` has no `pull_request:` trigger — because a floor set
+before a baseline exists either goes permanently red and gets ignored or is set
+so low it means nothing. The harness's **own** self-test is gated on every PR
+(`ci.yml`'s Dart job), so the instrument cannot silently start skipping the file
+shapes it exists to look at.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier
@@ -277,5 +296,7 @@ could not parse a summary at all).
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
+| **Third-party code (§2c)** — Dart Tier A | `tools/coverage-study/rq1_study.dart` via `coverage-study.yml` | weekly + manual — **report-only, NOT a PR gate** (issue #493 slice 1) |
+| Coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` | every PR (`Dart`) |
 | Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |

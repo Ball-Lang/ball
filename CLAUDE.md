@@ -457,7 +457,12 @@ Supporting configs:
    can emit MUST appear in an executed fixture
    (`check_encoder_completeness.dart`) or a documented carve-out, and a fixture's
    name must match its content (`check_fixture_names.dart`). See
-   `docs/TESTING_STRATEGY.md`.
+   `docs/TESTING_STRATEGY.md`. Every one of those gates is scoped to code THIS
+   REPO wrote; the third-party coverage study (`tools/coverage-study/`, weekly +
+   manual `coverage-study.yml`, methodology in
+   `tests/conformance/COVERAGE_STUDY.md`) is the separate, deliberately
+   report-only instrument for real-world code — its harness self-test IS gated
+   on every PR.
 7. Regenerate self-hosted engines: `cd dart && dart run compiler/tool/gen_engine_json.dart`, then `dart run compiler/tool/compile_engine_cpp.dart` (C++) and regen `compiled_engine.ts` (TS, see Build & Test). **Re-run conformance on ALL THREE engines** — a Dart-only fix is half a fix. If you touched the portable CLI verbs (`dart/shared/lib/cli_core.dart`), also regenerate the self-hosted CLI: `dart run compiler/tool/gen_cli_json.dart`, then re-run the parity gate (`cd dart/cli && dart test test/cli_core_parity_test.dart`).
 8. If new metadata keys were introduced, update `docs/METADATA_SPEC.md`.
 

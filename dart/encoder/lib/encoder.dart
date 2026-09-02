@@ -3880,56 +3880,87 @@ class DartEncoder {
     // compiled engine (which dispatches by module.function) handles them
     // correctly instead of conflating e.g. list.add with arithmetic add.
     if (realTarget != null) {
-      const collectionRoutes = <String, (String, String, String)>{
-        // methodName -> (module, function, selfFieldName)
+      // methodName -> (module, function, selfFieldName, minArgs, maxArgs)
+      //
+      // `minArgs`/`maxArgs` are the argument-count window of the REAL Dart
+      // method this route stands for (required positional count .. total
+      // accepted count). The encoder is purely syntactic, so it cannot see
+      // the receiver's static type; the arity window is the one piece of
+      // evidence it *can* check, and it is what stops a user-defined method
+      // that merely SHARES a name from being rerouted into a std base
+      // function whose operands it cannot satisfy (issue #494 Bug A:
+      // `StreamSplitter.split()` — zero args — became
+      // `std.string_split(value:)` with no `separator`, which the compiler
+      // then emitted as the literal placeholder `/* invalid split() */`).
+      //
+      // A mismatch falls through to the generic user-method-call encoding
+      // below. This does NOT fix receiver-TYPE mismatches that still satisfy
+      // the arity (`Set.add` vs `List.add`, `Map.toList` vs `List.toList`) —
+      // those need the resolver-backed encoder issue #488 proposes.
+      const collectionRoutes = <String, (String, String, String, int, int)>{
         // Names MUST match the Dart engine's _buildStdDispatch keys.
-        'add': ('std_collections', 'list_push', 'list'),
-        'addAll': ('std_collections', 'list_concat', 'list'),
-        'removeLast': ('std_collections', 'list_pop', 'list'),
-        'removeAt': ('std_collections', 'list_remove_at', 'list'),
-        'insert': ('std_collections', 'list_insert', 'list'),
-        'clear': ('std_collections', 'list_clear', 'list'),
-        'contains': ('std_collections', 'list_contains', 'list'),
-        'indexOf': ('std_collections', 'list_index_of', 'list'),
-        'join': ('std_collections', 'list_join', 'list'),
-        'sublist': ('std_collections', 'list_slice', 'list'),
-        'sort': ('std_collections', 'list_sort', 'list'),
+        'add': ('std_collections', 'list_push', 'list', 1, 1),
+        'addAll': ('std_collections', 'list_concat', 'list', 1, 1),
+        'removeLast': ('std_collections', 'list_pop', 'list', 0, 0),
+        'removeAt': ('std_collections', 'list_remove_at', 'list', 1, 1),
+        'insert': ('std_collections', 'list_insert', 'list', 2, 2),
+        'clear': ('std_collections', 'list_clear', 'list', 0, 0),
+        'contains': ('std_collections', 'list_contains', 'list', 1, 1),
+        'indexOf': ('std_collections', 'list_index_of', 'list', 1, 2),
+        'join': ('std_collections', 'list_join', 'list', 0, 1),
+        'sublist': ('std_collections', 'list_slice', 'list', 1, 2),
+        'sort': ('std_collections', 'list_sort', 'list', 0, 1),
         // NOTE: `reversed` is a Dart *getter* (`list.reversed`, no parens),
         // never a MethodInvocation, so it is NOT routed here — see the
         // PropertyAccess handler in _encodeExpr instead.
-        'toList': ('std_collections', 'list_to_list', 'list'),
-        'map': ('std_collections', 'list_map', 'list'),
-        'where': ('std_collections', 'list_filter', 'list'),
-        'forEach': ('std_collections', 'list_foreach', 'list'),
-        'any': ('std_collections', 'list_any', 'list'),
-        'every': ('std_collections', 'list_all', 'list'),
-        'reduce': ('std_collections', 'list_reduce', 'list'),
-        'containsKey': ('std_collections', 'map_contains_key', 'map'),
-        'containsValue': ('std_collections', 'map_contains_value', 'map'),
-        'putIfAbsent': ('std_collections', 'map_put_if_absent', 'map'),
-        'toDouble': ('std', 'to_double', 'value'),
-        'toInt': ('std', 'to_int', 'value'),
-        'clamp': ('std', 'math_clamp', 'value'),
-        'compareTo': ('std', 'compare_to', 'value'),
-        'toStringAsFixed': ('std', 'to_string_as_fixed', 'value'),
-        'toStringAsExponential': ('std', 'to_string_as_exponential', 'value'),
-        'toStringAsPrecision': ('std', 'to_string_as_precision', 'value'),
-        'substring': ('std', 'string_substring', 'value'),
-        'split': ('std', 'string_split', 'value'),
-        'replaceAll': ('std', 'string_replace_all', 'value'),
-        'replaceFirst': ('std', 'string_replace', 'value'),
-        'lastIndexOf': ('std', 'string_last_index_of', 'left'),
-        'gcd': ('std', 'math_gcd', 'left'),
-        'startsWith': ('std', 'string_starts_with', 'left'),
-        'endsWith': ('std', 'string_ends_with', 'left'),
-        'padLeft': ('std', 'string_pad_left', 'value'),
-        'padRight': ('std', 'string_pad_right', 'value'),
-        'codeUnitAt': ('std', 'string_code_unit_at', 'value'),
+        'toList': ('std_collections', 'list_to_list', 'list', 0, 1),
+        'map': ('std_collections', 'list_map', 'list', 1, 1),
+        'where': ('std_collections', 'list_filter', 'list', 1, 1),
+        'forEach': ('std_collections', 'list_foreach', 'list', 1, 1),
+        'any': ('std_collections', 'list_any', 'list', 1, 1),
+        'every': ('std_collections', 'list_all', 'list', 1, 1),
+        'reduce': ('std_collections', 'list_reduce', 'list', 1, 1),
+        'containsKey': ('std_collections', 'map_contains_key', 'map', 1, 1),
+        'containsValue': ('std_collections', 'map_contains_value', 'map', 1, 1),
+        'putIfAbsent': ('std_collections', 'map_put_if_absent', 'map', 2, 2),
+        'toDouble': ('std', 'to_double', 'value', 0, 0),
+        'toInt': ('std', 'to_int', 'value', 0, 0),
+        'clamp': ('std', 'math_clamp', 'value', 2, 2),
+        'compareTo': ('std', 'compare_to', 'value', 1, 1),
+        'toStringAsFixed': ('std', 'to_string_as_fixed', 'value', 1, 1),
+        'toStringAsExponential': (
+          'std',
+          'to_string_as_exponential',
+          'value',
+          0,
+          1,
+        ),
+        'toStringAsPrecision': ('std', 'to_string_as_precision', 'value', 1, 1),
+        'substring': ('std', 'string_substring', 'value', 1, 2),
+        'split': ('std', 'string_split', 'value', 1, 1),
+        'replaceAll': ('std', 'string_replace_all', 'value', 2, 2),
+        'replaceFirst': ('std', 'string_replace', 'value', 2, 3),
+        'lastIndexOf': ('std', 'string_last_index_of', 'left', 1, 2),
+        'gcd': ('std', 'math_gcd', 'left', 1, 1),
+        'startsWith': ('std', 'string_starts_with', 'left', 1, 2),
+        'endsWith': ('std', 'string_ends_with', 'left', 1, 1),
+        'padLeft': ('std', 'string_pad_left', 'value', 1, 2),
+        'padRight': ('std', 'string_pad_right', 'value', 1, 2),
+        'codeUnitAt': ('std', 'string_code_unit_at', 'value', 1, 1),
       };
 
-      final route = collectionRoutes[methodName];
+      final candidate = collectionRoutes[methodName];
+      // Arity gate: compare the PRE-RENAME argument count against the route's
+      // window. Outside it, `route` stays null and the generic
+      // user-method-call fallback below takes over.
+      final route =
+          (candidate != null &&
+              args.length >= candidate.$4 &&
+              args.length <= candidate.$5)
+          ? candidate
+          : null;
       if (route != null) {
-        final (module, fnName, selfField) = route;
+        final (module, fnName, selfField, _, _) = route;
         _usedBaseFunctions.add(fnName);
         if (module == 'std_collections') _usedCollectionsFunctions.add(fnName);
         // Rename generic arg0/arg1 to meaningful field names for the
@@ -4558,7 +4589,12 @@ class DartEncoder {
         );
       }
       for (final e in expr.elements) {
-        if (e is ast.MapLiteralEntry) {
+        // A null-aware entry (`{?k: v}` / `{k: ?v}`) is NOT a plain leaf
+        // entry: it desugars to a spliceable collection_if, so it goes
+        // through the `element` field like collection_if/collection_for do.
+        if (e is ast.MapLiteralEntry &&
+            e.keyQuestion == null &&
+            e.valueQuestion == null) {
           entries.add(
             FieldValuePair()
               ..name = 'entry'
@@ -4770,17 +4806,45 @@ class DartEncoder {
       );
       return _buildStdCall('collection_for', fields);
     }
+    // Dart 3.8 null-aware collection element: `[1, ?x]` / `{1, ?x}`.
+    // Desugars to `collection_if(x != null, x)` — the same shape `[if (x !=
+    // null) x]` encodes to — with a temp binding when the operand is not
+    // syntactically pure, so the operand is evaluated exactly once (issue
+    // #494 Bug B).
+    if (element is ast.NullAwareElement) {
+      return _encodeNullAwareSlots([
+        (element.value, true),
+      ], (values) => values.single);
+    }
     if (element is ast.MapLiteralEntry) {
-      return Expression()
-        ..messageCreation = (MessageCreation()
-          ..fields.addAll([
-            FieldValuePair()
-              ..name = 'key'
-              ..value = _encodeExpr(element.key),
-            FieldValuePair()
-              ..name = 'value'
-              ..value = _encodeExpr(element.value),
-          ]));
+      // `{?k: v}` / `{k: ?v}` / `{?k: ?v}` — the `?` markers live on the
+      // MapLiteralEntry itself (`keyQuestion` / `valueQuestion`), not on a
+      // distinct node type. Before #494 they were silently DROPPED, so
+      // `{?k: 20}` with a null `k` produced the entry `null: 20` instead of
+      // omitting it.
+      final keyNullAware = element.keyQuestion != null;
+      final valueNullAware = element.valueQuestion != null;
+      Expression buildEntry(List<Expression> values) =>
+          Expression()
+            ..messageCreation = (MessageCreation()
+              ..fields.addAll([
+                FieldValuePair()
+                  ..name = 'key'
+                  ..value = values[0],
+                FieldValuePair()
+                  ..name = 'value'
+                  ..value = values[1],
+              ]));
+      if (!keyNullAware && !valueNullAware) {
+        return buildEntry([
+          _encodeExpr(element.key),
+          _encodeExpr(element.value),
+        ]);
+      }
+      return _encodeNullAwareSlots([
+        (element.key, keyNullAware),
+        (element.value, valueNullAware),
+      ], buildEntry);
     }
     // Fail loud: emitting a placeholder string literal would silently corrupt
     // the program (the comment becomes a runtime value). A new collection
@@ -4789,15 +4853,127 @@ class DartEncoder {
     // coverage:ignore-start
     // The branches above exhaustively cover every `ast.CollectionElement`
     // subtype in analyzer 13.3.0 (`Expression`, `SpreadElement`, `IfElement`,
-    // `ForElement`, `MapLiteralEntry`), so this throw is unreachable today —
-    // kept as a loud guard (not a silent placeholder) for whenever a future
-    // Dart/analyzer version adds a new collection-element kind (e.g. a
-    // null-aware collection element).
+    // `ForElement`, `NullAwareElement`, `MapLiteralEntry`), so this throw is
+    // unreachable today — kept as a loud guard (not a silent placeholder) for
+    // whenever a future Dart/analyzer version adds a new collection-element
+    // kind. It was NOT unreachable before issue #494: analyzer 13.3.0 already
+    // produced `NullAwareElement` for Dart 3.8's `[?x]`, and the (then
+    // missing) branch above made every real file using it unencodable.
     throw UnsupportedError(
       'Encoder: unsupported collection element ${element.runtimeType}. '
       'Add an encoding for it in _encodeCollectionElement.',
     );
     // coverage:ignore-end
+  }
+
+  /// True when [expr] can be encoded twice without changing what the program
+  /// computes: no calls, no assignments, no increments, no awaits.
+  ///
+  /// Used by [_encodeNullAwareSlots] to decide whether a null-aware operand
+  /// may be repeated in both the `!= null` guard and the element itself, or
+  /// must first be bound to a temp so it is evaluated exactly once.
+  /// Deliberately conservative — anything not listed is treated as impure.
+  static bool _isPureExpression(ast.Expression expr) {
+    if (expr is ast.Literal) return expr is! ast.StringInterpolation;
+    if (expr is ast.SimpleIdentifier) return true;
+    if (expr is ast.ThisExpression) return true;
+    if (expr is ast.PrefixedIdentifier) return true;
+    if (expr is ast.ParenthesizedExpression) {
+      return _isPureExpression(expr.expression);
+    }
+    if (expr is ast.AsExpression) return _isPureExpression(expr.expression);
+    if (expr is ast.PropertyAccess) {
+      final target = expr.target;
+      return target != null && _isPureExpression(target);
+    }
+    if (expr is ast.PostfixExpression && expr.operator.lexeme == '!') {
+      return _isPureExpression(expr.operand);
+    }
+    return false;
+  }
+
+  /// Encodes a Dart 3.8 null-aware collection element/entry.
+  ///
+  /// [slots] are the sub-expressions of the element in SOURCE ORDER, each
+  /// flagged with whether it carries a `?`. [buildLeaf] receives one encoded
+  /// [Expression] per slot and produces the element that is actually added to
+  /// the collection (the value itself for `[?x]`, a `{key, value}` message for
+  /// a map entry).
+  ///
+  /// The result mirrors Dart's own semantics exactly, verified against native
+  /// `dart run` (see `dart/encoder/test/null_aware_collection_elements_test`):
+  ///  * each operand is evaluated exactly once — an impure operand is bound to
+  ///    a synthetic loop variable via `collection_for` over a one-element list,
+  ///    which is the only single-evaluation binding form available inside a
+  ///    collection literal;
+  ///  * operands are evaluated left to right, and a failed `!= null` guard
+  ///    short-circuits everything to its right (`{?k: v()}` does not evaluate
+  ///    `v()` when `k` is null).
+  Expression _encodeNullAwareSlots(
+    List<(ast.Expression, bool)> slots,
+    Expression Function(List<Expression> values) buildLeaf,
+  ) {
+    // Each entry wraps the element built so far; applied in reverse so the
+    // first slot's binding/guard ends up outermost (left-to-right evaluation).
+    final wrappers = <Expression Function(Expression inner)>[];
+    final values = <Expression Function()>[];
+
+    for (final (expr, nullAware) in slots) {
+      Expression Function() makeValue;
+      if (_isPureExpression(expr)) {
+        makeValue = () => _encodeExpr(expr);
+      } else {
+        final tempName = '__nae_${_tempVarCounter++}';
+        final bound = _encodeExpr(expr);
+        makeValue = () =>
+            Expression()..reference = (Reference()..name = tempName);
+        _usedBaseFunctions.add('collection_for');
+        wrappers.add(
+          (inner) => _buildStdCall('collection_for', [
+            FieldValuePair()
+              ..name = 'variable'
+              ..value = (Expression()
+                ..literal = (Literal()..stringValue = tempName)),
+            FieldValuePair()
+              ..name = 'iterable'
+              ..value = (Expression()
+                ..literal = (Literal()
+                  ..listValue = (ListLiteral()..elements.add(bound)))),
+            FieldValuePair()
+              ..name = 'body'
+              ..value = inner,
+          ]),
+        );
+      }
+      values.add(makeValue);
+      if (nullAware) {
+        _usedBaseFunctions.add('not_equals');
+        _usedBaseFunctions.add('collection_if');
+        wrappers.add(
+          (inner) => _buildStdCall('collection_if', [
+            FieldValuePair()
+              ..name = 'condition'
+              ..value = _buildStdCall('not_equals', [
+                FieldValuePair()
+                  ..name = 'left'
+                  ..value = makeValue(),
+                FieldValuePair()
+                  ..name = 'right'
+                  ..value = (Expression()..literal = Literal()),
+              ]),
+            FieldValuePair()
+              ..name = 'then'
+              ..value = inner,
+          ]),
+        );
+      }
+    }
+
+    var result = buildLeaf([for (final v in values) v()]);
+    for (final wrap in wrappers.reversed) {
+      result = wrap(result);
+    }
+    return result;
   }
 
   // ---- Switch expression ----

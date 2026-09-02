@@ -47,6 +47,18 @@ const json = toJson(ProgramSchema, program);
 - Post-processing via regex for OOP field binding, super chain, cascade evaluation
 - Preamble (`preamble.ts`) installs Dart-flavored polyfills on `Object.prototype`
 - Base function dispatch in `_callBaseFunction()` switch
+- **Never lower a key-membership test to the bare `in` operator.** `in` walks
+  the prototype chain, and the preamble patches the whole Dart-SDK method
+  surface (`putIfAbsent`, `addAll`, `toList`, `firstWhere`, …) onto
+  `Object.prototype`, so `'putIfAbsent' in {}` is true for EVERY object — and
+  `in` never sees a real `Map`'s entries at all. `map_contains_key` therefore
+  routes through the `__ball_map_has` preamble helper (issue #494, conformance
+  fixture 416): it keeps #257's `__ball_require_map` guard, uses `Map.has` for a
+  genuine `Map`, and rejects a plain-object hit that exists only as an own
+  property of `Object.prototype`. In the self-hosted engine the old lowering
+  made `_Scope.has(name)` claim every Dart-SDK method name was a bound
+  variable, so a user function or method with such a name got the polyfill
+  instead of itself.
 
 ### Engine
 

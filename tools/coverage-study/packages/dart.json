@@ -1,0 +1,43 @@
+{
+  "_comment": [
+    "Pinned third-party Dart packages for the Tier A coverage study (#493).",
+    "All five are hermetic (pure Dart, no platform plugins, no codegen) and are",
+    "the candidates issue #493's own body names. `ref` is pinned to a commit",
+    "SHA (resolved from each repo's default branch on 2026-09-02) so a Tier A",
+    "number is reproducible; bump it deliberately, never to chase a number.",
+    "`lib` is the subtree that is actually studied. An unreachable pin is",
+    "reported separately and is NOT scored as a failure."
+  ],
+  "packages": [
+    {
+      "name": "path",
+      "repo": "https://github.com/dart-lang/path",
+      "ref": "7e3d5d87220133ad9cc99f82e85a826011a62859",
+      "lib": "lib"
+    },
+    {
+      "name": "collection",
+      "repo": "https://github.com/dart-lang/collection",
+      "ref": "96afcc2fce622ea7e75053af5b73f8db07491bc4",
+      "lib": "lib"
+    },
+    {
+      "name": "async",
+      "repo": "https://github.com/dart-lang/async",
+      "ref": "d6a6a4dbe0c636e42d6cf4ede88ed5a33e35a6ca",
+      "lib": "lib"
+    },
+    {
+      "name": "crypto",
+      "repo": "https://github.com/dart-lang/crypto",
+      "ref": "255edfb5ab8d01e7bb2302b97a7f5124ef82fd1b",
+      "lib": "lib"
+    },
+    {
+      "name": "convert",
+      "repo": "https://github.com/dart-lang/convert",
+      "ref": "836082a3a5e9c6bb890d7fe025098f38fd5b8a3e",
+      "lib": "lib"
+    }
+  ]
+}

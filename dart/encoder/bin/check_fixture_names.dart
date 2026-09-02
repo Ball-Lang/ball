@@ -32,11 +32,23 @@ final _rules = <_Rule>[
   ),
   _Rule(
     'null_aware',
-    (s) => s.contains('?.') || s.contains('?['),
-    'a null-aware access `?.` / `?[`',
+    // `?.` / `?[` are null-aware ACCESS; Dart 3.8 also has null-aware
+    // collection ELEMENTS (`[1, ?x]`, `{?k: v}`) — a distinct construct that
+    // is equally entitled to the name (issue #494 Bug B). Without the third
+    // clause this gate rejected 417_null_aware_collection_elements outright.
+    (s) => s.contains('?.') || s.contains('?[') || _hasNullAwareElement(s),
+    'a null-aware access `?.` / `?[` or a null-aware collection element '
+        '`[?x]` / `{?k: v}`',
   ),
   _Rule('cascade', (s) => s.contains('..'), 'a cascade `..`'),
 ];
+
+/// A Dart 3.8 null-aware collection element: a `?` that opens an element or a
+/// map key/value inside a `[...]` / `{...}` literal — `[1, ?x]`, `{?k: v}`,
+/// `{k: ?v}`. Anchored on the delimiter before it (`[`, `{`, `,` or `:`) so a
+/// conditional (`a ? b : c`) or a nullable type (`int?`) never matches.
+bool _hasNullAwareElement(String s) =>
+    RegExp(r'[\[{,:]\s*\?\s*[A-Za-z_$(]').hasMatch(s);
 
 /// `[ ... for (...) ... ]` / `{ ... for (...) ... }` where the `for` is a
 /// collection element (after the opening bracket), not a leading `[for`.

@@ -6,6 +6,10 @@
 ///
 /// Covers the unary/method/property/static/type/math helper guards and the
 /// string replace/pad guards.
+///
+/// Exception: the two-operand method guard (`_methodCall2`) no longer emits a
+/// marker — a comment there lands in an expression position and yields Dart
+/// that does not parse, so it throws a [StateError] instead (issue #494).
 @TestOn('vm')
 library;
 
@@ -96,8 +100,47 @@ void main() {
   });
 
   group('two-operand guards (missing left/right)', () {
-    test('method2: string_contains', () {
-      expect(_empty('string_contains'), contains('/* invalid contains() */'));
+    // Issue #494: `_methodCall2` used to emit `/* invalid <method>() */`,
+    // a bare comment in an EXPRESSION position — Dart that does not parse.
+    // It now fails loud instead, so an encoder regression that routes a call
+    // into a two-operand base function it cannot satisfy is caught at compile
+    // time rather than surfacing as a downstream FormatterException (or, via
+    // `compile()`'s formatter fallback, as a silently corrupt program).
+    test('method2: string_contains throws instead of emitting a marker', () {
+      expect(
+        () => _empty('string_contains'),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            allOf(
+              contains('contains() base call is missing its receiver operand'),
+              contains('encoder bug'),
+            ),
+          ),
+        ),
+      );
+    });
+    test('method2: a receiver with no argument also throws', () {
+      expect(
+        () => _compile(
+          _paren(
+            _call('string_contains', [
+              _field(
+                'value',
+                Expression()..literal = (Literal()..stringValue = 'abc'),
+              ),
+            ]),
+          ),
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('contains() base call is missing its argument operand'),
+          ),
+        ),
+      );
     });
     test('math binary: math_pow', () {
       expect(_empty('math_pow'), contains('/* invalid pow */'));

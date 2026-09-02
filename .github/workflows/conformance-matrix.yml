@@ -853,7 +853,7 @@ jobs:
       # Fixtures the Ball → C# compiler currently emits correctly. NEVER lower
       # this to turn a red build green — preventing exactly that is the whole
       # point of a ratchet. Open families are catalogued in #452.
-      CSHARP_COMPILER_FLOOR: "247"
+      CSHARP_COMPILER_FLOOR: "248"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1365,7 +1365,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RUST_COMPILER_FLOOR: "256"
+      RUST_COMPILER_FLOOR: "257"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1451,7 +1451,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      GO_COMPILER_FLOOR: "264"
+      GO_COMPILER_FLOOR: "266"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1531,7 +1531,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      PYTHON_COMPILER_FLOOR: "239"
+      PYTHON_COMPILER_FLOOR: "240"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

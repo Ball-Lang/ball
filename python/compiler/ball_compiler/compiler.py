@@ -1022,7 +1022,15 @@ class Compiler:
             cond = self.case_condition(subj, cf)
             body = cf.get("body")
             pending.append(cond)
-            if body is None or self.is_empty_switch_body(body):
+            # The empty-body test is STATEMENT MODE ONLY. A switch EXPRESSION
+            # has no fall-through — every arm carries a value — and Ball encodes
+            # `null` as a value-less Literal, the very shape
+            # `is_empty_switch_body` reads as "empty". Applied to an expression
+            # it deletes every `=> null` arm and leaks its condition into the
+            # next one: compiles, exits 0, wrong answer (issue #470; mirrors
+            # go/compiler/base_call.go:514-522 and rust/compiler's `is_expr`
+            # gate).
+            if body is None or (not expr_mode and self.is_empty_switch_body(body)):
                 continue  # fall-through label
             combined = " or ".join(pending)
             pending = []
@@ -1078,6 +1086,14 @@ class Compiler:
         return f"ballrt.truthy(ballrt.equals({subj}, {self.value(pe)}))"
 
     def is_empty_switch_body(self, e):
+        """Whether a case body is "empty" — an empty block or a value-less
+        literal — the fall-through signal.
+
+        **Only meaningful for a statement ``switch``.** A value-less literal is
+        also exactly how Ball encodes the *value* ``null``, so in a switch
+        expression this test cannot tell ``case X:`` (a fall-through label)
+        from ``case X => null`` (a real arm); ``run_switch`` therefore applies
+        it only when ``expr_mode`` is false (issue #470)."""
         k = _which(e)
         if k == "block":
             blk = e["block"]

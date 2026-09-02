@@ -89,6 +89,12 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   has no goto), caught by the emitted loop/function scaffolding.
 - **Fail-loud (issue #55):** an unsupported base function / expression shape is a `CompileError`,
   never silent bad code.
+- **`run_switch`'s empty-body/fall-through test is statement mode only.** Ball encodes `null` as a
+  value-less `Literal` (`{"literal": {}}`) — exactly the shape `is_empty_switch_body` reads as
+  "empty" — so applying it to a `switch_expr` (where nothing falls through and every arm carries a
+  value) deletes every `=> null` arm and leaks its condition into the next one: compiles, exits 0,
+  wrong answer. Gate it on the already-computed `expr_mode` (issue #470; same defect family as
+  `rust/compiler`, same gate as `go/compiler/base_call.go:514-522`).
 
 ### Encoder
 

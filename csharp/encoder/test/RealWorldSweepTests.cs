@@ -32,20 +32,31 @@ namespace Ball.Encoder.Tests;
 /// by design; asserting <c>N &gt; 0</c> would make it a permanently-red gate, and
 /// asserting <c>N == 0</c> would make it block the very slices that fix these
 /// buckets. It asserts only that the sweep actually ran (a positive floor — "0
-/// failed" over "0 ran" is a fake green), that the fixture set is intact, and
-/// that every failure is a deliberate <see cref="EncoderException"/> rather than
-/// a crash. Each later slice raises the number in the printed baseline.</para>
+/// failed" over "0 ran" is a fake green), that the fixture set shipped beside the
+/// test binary is <em>exactly</em> the declared taxonomy (compared against a real
+/// directory listing, in both directions, so a lost fixture and a fixture added
+/// without being wired in both fail), and that every failure is a deliberate
+/// <see cref="EncoderException"/> rather than a crash. Each later slice raises
+/// the number in the printed baseline.</para>
 /// </summary>
 public class RealWorldSweepTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _output = output;
 
     /// <summary>
-    /// The taxonomy buckets from #492, one committed fixture each. Explicit
-    /// (not a directory glob) so a fixture that stops being copied is a failure
-    /// rather than a silently smaller sweep — and so
-    /// <c>d_cross_file_callee.cs</c>, which exists only as bucket (d)'s sibling
-    /// declaration, is not itself counted.
+    /// The one committed file that is <em>not</em> a sweep entry: bucket (d)'s
+    /// sibling declaration, which exists only so the caller has an out-of-file
+    /// callee to fail on.
+    /// </summary>
+    private const string CalleeOnlyFixture = "d_cross_file_callee.cs";
+
+    /// <summary>
+    /// The taxonomy buckets from #492, one committed fixture each. This table is
+    /// the sweep's labels and expected-failure reasons; the fixture *set* is
+    /// checked against the shipped directory (see
+    /// <see cref="DiscoverFixtureFiles"/>) so that adding a fixture without
+    /// wiring it in, or losing one, is a failure rather than a silently
+    /// different sweep.
     /// </summary>
     private static readonly (string Bucket, string File, string Expectation)[] Fixtures =
     [
@@ -68,6 +79,14 @@ public class RealWorldSweepTests(ITestOutputHelper output)
     [Fact]
     public void RealWorldSweep_ReportsHonestBaseline()
     {
+        // The set actually swept is derived from what shipped beside the test
+        // binary, not from the table below — otherwise the "intact fixture set"
+        // claim would be unfalsifiable (a table can only ever agree with
+        // itself). A fixture that stops being copied shrinks this list; one
+        // added without a taxonomy entry lengthens it; either way the equality
+        // in AssertFixtureSetIsIntact fails.
+        var swept = AssertFixtureSetIsIntact();
+
         var results = new List<(string Bucket, bool Encoded, string Detail)>();
         foreach (var (bucket, file, expectation) in Fixtures)
         {
@@ -98,10 +117,24 @@ public class RealWorldSweepTests(ITestOutputHelper output)
         Console.Write(report.ToString());
 
         // Positive floor: a sweep that ran nothing must not read as green.
-        Assert.True(results.Count >= 1, "the real-world sweep ran zero fixtures");
-        Assert.Equal(Fixtures.Length, results.Count);
+        // `swept` came off disk, so this cannot be satisfied by an empty
+        // fixture directory the way `Fixtures.Length` could.
+        Assert.True(swept.Count >= 1, "the real-world sweep ran zero fixtures");
+        Assert.Equal(swept.Count, results.Count);
 
         // Deliberately NO assertion on `passed` — see the class doc comment.
+    }
+
+    /// <summary>
+    /// The shipped fixture directory must hold exactly the declared taxonomy
+    /// plus bucket (d)'s callee-only sibling — no more, no less. This is the
+    /// assertion that makes "the fixture set is intact" a real claim: it
+    /// compares the table against the filesystem, in both directions.
+    /// </summary>
+    [Fact]
+    public void FixtureDirectory_HoldsExactlyTheDeclaredTaxonomy()
+    {
+        AssertFixtureSetIsIntact();
     }
 
     /// <summary>
@@ -132,15 +165,49 @@ public class RealWorldSweepTests(ITestOutputHelper output)
             }
         }
 
-        Assert.True(Fixtures.Length >= 1, "the real-world sweep ran zero fixtures");
+        Assert.True(AssertFixtureSetIsIntact().Count >= 1, "the real-world sweep ran zero fixtures");
         Assert.Empty(crashes);
     }
 
-    /// <summary>The committed sibling declaration bucket (d)'s caller needs must stay present.</summary>
+    /// <summary>
+    /// Bucket (d)'s sibling declaration is committed and non-empty — an empty
+    /// callee would make the caller fail for the wrong reason.
+    /// </summary>
     [Fact]
     public void CrossFileCalleeFixture_IsCommitted()
     {
-        Assert.NotEqual(string.Empty, ReadFixture("d_cross_file_callee.cs").Trim());
+        Assert.NotEqual(string.Empty, ReadFixture(CalleeOnlyFixture).Trim());
+    }
+
+    /// <summary>
+    /// Compares the declared taxonomy against the fixture files that actually
+    /// shipped, in both directions, and returns the swept set (everything
+    /// except <see cref="CalleeOnlyFixture"/>) in taxonomy order.
+    /// </summary>
+    private static List<string> AssertFixtureSetIsIntact()
+    {
+        var onDisk = DiscoverFixtureFiles();
+        var declared = Fixtures.Select(f => f.File).Append(CalleeOnlyFixture)
+            .OrderBy(n => n, StringComparer.Ordinal).ToList();
+
+        Assert.Equal(declared, onDisk);
+        return Fixtures.Select(f => f.File).ToList();
+    }
+
+    /// <summary>
+    /// Every <c>.cs</c> file shipped beside the test binary under
+    /// <c>fixtures/realworld/</c>, sorted. Reading the directory (rather than
+    /// trusting the table) is what lets a missing or unexpected fixture fail.
+    /// </summary>
+    private static List<string> DiscoverFixtureFiles()
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "fixtures", "realworld");
+        Assert.True(Directory.Exists(dir), $"missing real-world fixture directory: {dir}");
+        return Directory.GetFiles(dir, "*.cs")
+            .Select(Path.GetFileName)
+            .OfType<string>()
+            .OrderBy(n => n, StringComparer.Ordinal)
+            .ToList();
     }
 
     private static string ReadFixture(string name)

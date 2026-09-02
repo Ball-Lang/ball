@@ -53,11 +53,14 @@ concurrency:
 jobs:
   # ──────────────────────────────────────────────────
   # Detect which stacks changed so each gate can skip when its stack didn't.
-  # Same native-git-diff logic as ci.yml's `changes` job (kept inline rather
-  # than a shared composite action because it is small + stable; extract to
-  # .github/actions/ if it grows). FAIL-OPEN (no usable base => all true) and
-  # FAIL-SAFE (any file outside the language dirs => infra=true => run
-  # everything).
+  # Delegates to ./.github/actions/detect-changed-stacks — the SAME composite
+  # action ci.yml's `changes` job uses, and the single source of truth for this
+  # logic since #458. It used to be a hand-copied inline bash block that drifted
+  # from ci.yml's copy (its infra-exclusion regex still listed only
+  # `dart/|ts/|cpp/` until #457 repaired both by hand). The action always
+  # computes every stack output; this job re-exports only the five these gates
+  # consume. FAIL-OPEN (no usable base => all true) and FAIL-SAFE (any file
+  # outside the language dirs => infra=true => run everything).
   # ──────────────────────────────────────────────────
   changes:
     name: Detect changed stacks
@@ -73,68 +76,15 @@ jobs:
       # observability; the cpp-selfhost-tally job gates on cpp, not this.
       self_host: ${{ steps.f.outputs.self_host }}
     steps:
+      # fetch-depth: 0 (full history, so the merge-base of the diff is
+      # reachable) is the composite action's documented precondition; checkout
+      # deliberately stays in the caller rather than moving into the action.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+
       - id: f
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BASE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          base=""
-          [ "$EVENT" = "pull_request" ] && base="$PR_BASE" || true
-          [ "$EVENT" = "push" ] && base="$PUSH_BASE" || true
-          zero="0000000000000000000000000000000000000000"
-          if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            echo "No usable diff base ('$base') — failing OPEN: run every stack."
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "infra=true"; echo "self_host=true"; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Three-dot (merge-base) diff: ONLY this branch's own changes, never
-          # commits the base branch gained since we forked (else a sibling PR
-          # that merges first leaks its files in and forces every stack to run).
-          # The merge-base is reachable thanks to fetch-depth: 0 above.
-          files="$(git diff --name-only "$base...HEAD")"
-          echo "Changed files vs merge-base(${base}, HEAD):"; echo "$files"
-          m() { grep -qE "$1" <<< "$files"; }
-          out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
-          infra=false
-          # Every language dir is listed, not just the three these gates cover:
-          # an unlisted dir yields a false infra=true, so a rust/csharp/go/python-
-          # only PR would run all three Dart/TS/C++ gates it cannot affect (#451,
-          # same defect as ci.yml's copy). A genuinely cross-cutting file (proto/,
-          # tests/, tools/, root configs, this workflow) still trips infra=true.
-          if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<< "$files"; then infra=true; fi
-          # self_host = the diff touches a Dart source that CROSS-COMPILES into
-          # the C++ self-hosted artifacts the cpp-selfhost-tally job regenerates
-          # and runs, even though it lives under dart/ (so it would otherwise
-          # flip only dart=true):
-          #   * dart/engine/lib/**  -> engine_rt.cpp (compile_engine_cpp.dart) —
-          #     the self-hosted ENGINE the per-fixture tally executes.
-          #   * dart/shared/lib/cli_core.dart + its parts (capability_analyzer,
-          #     capability_table, termination_analyzer) -> cli_rt.h
-          #     (gen_cli_cpp.dart) — the self-hosted CLI verbs the parity gate
-          #     asserts byte-identical to the Dart CLI.
-          # Mapped by top-level dir alone, an edit to these sets only dart=true
-          # and SKIPS this cpp tally — the exact blind spot that let a C++
-          # self-host break slip through PR CI in #398 (and forced #413's manual
-          # verification lane). OR self_host into cpp below. (dart/compiler,
-          # dart/encoder, dart/cli are Dart-target tooling, not self-host program
-          # inputs — C++ uses its OWN compiler for the Ball->native step.) See #416.
-          self_host=false
-          if m '^dart/engine/lib/|^dart/shared/lib/(cli_core|capability_analyzer|capability_table|termination_analyzer)\.dart$'; then self_host=true; fi
-          {
-            out dart '^dart/'
-            out ts   '^ts/'
-            # cpp runs on its own dir changes OR any self-host Dart source change
-            # (self_host above — #416).
-            if m '^cpp/' || [ "$self_host" = true ]; then echo "cpp=true"; else echo "cpp=false"; fi
-            echo "infra=$infra"
-            echo "self_host=$self_host"
-          } >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
+        uses: ./.github/actions/detect-changed-stacks
 
   # ──────────────────────────────────────────────────
   # TypeScript regression gate — engine + compiler must each

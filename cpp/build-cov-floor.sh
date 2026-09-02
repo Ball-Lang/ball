@@ -3,15 +3,18 @@
 # code (issue #63). Run after build-cov-report.sh has produced the
 # per-target build-cov/cpp.<target>.lcov files.
 #
-# Not wired into CI yet (.github/workflows/coverage.yml already runs the
-# cpp coverage job and uploads to Codecov without a floor gate — adding one
-# there is a natural follow-up, deliberately left to a separate change so it
-# doesn't collide with sibling coverage work touching the same shared
-# workflow file). This script is the standalone building block for that:
-# run manually, or wire as a new `run:` step in the existing `cpp` job.
+# Still not GATED in CI. .github/workflows/coverage.yml's cpp job now splits
+# the merged tracefile per target and REPORTS each target's percentage next to
+# the floors below (issue #63), but does not fail on them: those numbers have
+# never been measured by CI, and a false red on main is worse than an
+# unenforced number. Once two runs establish a baseline, that report step
+# becomes the gate — and it must also assert all three tracefiles exist (see
+# the SKIP branch below).
 #
 # Usage: ./build-cov-floor.sh
-#   Exits 1 and prints every target under its floor; exits 0 otherwise.
+#   Exits 1 and prints every target under its floor, or whose coverage summary
+#   could not be parsed; exits 0 otherwise.
+#   Parser/comparison behaviour is pinned by cpp/test/test_build_cov_floor_parsing.sh.
 #
 # IMPORTANT — the wave3 baseline recorded here (2026-07-03: compiler 39.0%,
 # encoder 86.1%, shared 79.4%) was measured WITHOUT test_e2e (build-cov-run.sh
@@ -160,6 +163,12 @@ fail=0
 for target in "${!FLOORS[@]}"; do
   lcov_file="build-cov/cpp.$target.lcov"
   if [ ! -f "$lcov_file" ]; then
+    # Deliberately a non-fatal SKIP, unlike the unparseable-summary branch
+    # below: this is the operator-error case (the script was run before
+    # build-cov-report.sh in a local checkout), not a corrupt measurement.
+    # ANY CI wiring of this script MUST additionally assert all three
+    # tracefiles exist, or a report step that silently produced none would
+    # still pass this gate.
     echo "SKIP $target: $lcov_file not found (run build-cov-report.sh first)"
     continue
   fi
@@ -169,7 +178,15 @@ for target in "${!FLOORS[@]}"; do
   pct=$(lcov --summary "$lcov_file" --ignore-errors empty 2>/dev/null \
     | grep -oP 'lines\.*:\s*\K[0-9]+(\.[0-9]+)?' | head -1)
   if [ -z "$pct" ]; then
-    echo "SKIP $target: could not parse coverage percentage from $lcov_file"
+    # FAIL LOUD, never SKIP (issue #63). This branch used to print SKIP and
+    # `continue` without setting fail=1, so an empty/corrupt per-target
+    # extraction passed the gate silently with the floor never checked — the
+    # opposite of coverage.yml's own inline floor step, which exits 1 on an
+    # unparseable percentage. The tracefile EXISTS here (checked above); a
+    # summary we cannot parse means the extraction is broken, not absent.
+    # Pinned by cpp/test/test_build_cov_floor_parsing.sh.
+    echo "FAIL $target: could not parse coverage percentage from $lcov_file"
+    fail=1
     continue
   fi
   floor="${FLOORS[$target]}"

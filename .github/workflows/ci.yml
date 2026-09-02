@@ -29,12 +29,17 @@ concurrency:
 jobs:
   # ──────────────────────────────────────────────────
   # Detect which stacks a PR/push touched, so the heavy per-stack jobs below can
-  # skip when nothing in their stack changed. Native git-diff (no third-party
-  # action). FAIL-OPEN: if a real diff base can't be determined (first push,
-  # force-push, zero/missing base), every output is `true` so NO check is ever
-  # silently skipped. `infra` (proto/** or this workflow) forces every stack to
-  # run, since protos feed all bindings. The post-merge conformance-matrix
-  # re-runs the full cross-language matrix regardless, as a safety net.
+  # skip when nothing in their stack changed. The whole body lives in the
+  # ./.github/actions/detect-changed-stacks composite action — the SINGLE source
+  # of truth shared with regression-gates.yml's identically-named job (#458);
+  # it used to be two hand-copied inline bash blocks that silently drifted
+  # (#451/#457). Behaviour is pinned by that action's truth_table.sh, which the
+  # `proto` job below runs on every PR. FAIL-OPEN: if a real diff base can't be
+  # determined (first push, force-push, zero/missing base), every output is
+  # `true` so NO check is ever silently skipped. `infra` (proto/** or a
+  # workflow) forces every stack to run, since protos feed all bindings. The
+  # post-merge conformance-matrix re-runs the full cross-language matrix
+  # regardless, as a safety net.
   # ──────────────────────────────────────────────────
   changes:
     name: Detect changed stacks
@@ -55,124 +60,18 @@ jobs:
       # consumes it directly.
       self_host: ${{ steps.f.outputs.self_host }}
       # New/changed conformance fixture stems (space-separated, no dir, no
-      # extension) — see the fixture_status computation below.
+      # extension), or the `ALL` fail-open sentinel — see the composite action.
       changed_fixtures: ${{ steps.f.outputs.changed_fixtures }}
     steps:
+      # fetch-depth: 0 (full history, so the merge-base of the diff is
+      # reachable) is the composite action's documented precondition; checkout
+      # deliberately stays in the caller rather than moving into the action.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          fetch-depth: 0 # full history so the diff base is reachable
+          fetch-depth: 0
 
       - id: f
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PUSH_BASE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          base=""
-          [ "$EVENT" = "pull_request" ] && base="$PR_BASE" || true
-          [ "$EVENT" = "push" ] && base="$PUSH_BASE" || true
-          zero="0000000000000000000000000000000000000000"
-          if [ -z "$base" ] || [ "$base" = "$zero" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            echo "No usable diff base ('$base') — failing OPEN: run every stack."
-            # changed_fixtures=ALL is the fail-open sentinel for the fixture
-            # filter too — the typescript job runs the FULL full_e2e.ts sweep
-            # rather than skip it, since we cannot compute what changed.
-            { echo "dart=true"; echo "ts=true"; echo "cpp=true"; echo "rust=true"; echo "csharp=true"; echo "go=true"; echo "python=true"; echo "infra=true"; echo "self_host=true"; echo "changed_fixtures=ALL"; } >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Three-dot (merge-base) diff: ONLY this branch's own changes, never
-          # commits the base branch gained since we forked. With two-dot, a
-          # sibling PR that merges to main first leaks its files into this diff
-          # — e.g. a dart-only PR would suddenly see the other PR's
-          # workflow/proto change, flip infra=true, and run every stack. The
-          # merge-base is reachable thanks to fetch-depth: 0 above.
-          files="$(git diff --name-only "$base...HEAD")"
-          echo "Changed files vs merge-base(${base}, HEAD):"; echo "$files"
-          # here-strings (not `echo | grep`) so `set -o pipefail` can't flake on
-          # SIGPIPE when grep -q early-exits on a large file list.
-          m() { grep -qE "$1" <<< "$files"; }
-          out() { if m "$2"; then echo "$1=true"; else echo "$1=false"; fi; }
-          # infra = ANY changed file OUTSIDE the single-stack dirs — proto/,
-          # tests/, tools/, examples/, root configs, this workflow, etc. Anything
-          # cross-cutting forces every stack to run, so a path we forgot to map
-          # can never silently skip a check (fail-safe by construction).
-          infra=false
-          # List every language dir THAT HAS ITS OWN `out <lang>` OUTPUT AND JOB
-          # BELOW — and only those. The two directions fail very differently:
-          #   * Omitting such a dir is merely wasteful: it yields a false
-          #     infra=true, dragging the whole ~25-min C++ matrix into a PR that
-          #     cannot possibly affect it. `go/` was missed when #438 wired Go up
-          #     (#451) — fail-safe, but pure waste on every Go PR.
-          #   * Adding a dir that has NO job (java/ today: bindings only, no CI
-          #     job) is UNSAFE — it would stop tripping infra without anything
-          #     else covering it, silently dropping that PR to proto-only checks.
-          # So java/ is correctly absent. Add it here only alongside a java job.
-          if grep -qvE '^(dart/|ts/|cpp/|rust/|csharp/|go/|python/)' <<< "$files"; then infra=true; fi
-
-          # self_host = the diff touches a Dart source that CROSS-COMPILES into
-          # the C++, Rust, AND C# self-hosted artifacts, even though it lives
-          # under dart/ (so it would otherwise flip only dart=true):
-          #   * dart/engine/lib/**  -> engine_rt.cpp / compiled_engine.rs /
-          #     CompiledEngine.cs / compiled_engine.go — the self-hosted ENGINE
-          #     (engine.dart + its part files), encoded by compile_engine_cpp.dart
-          #     and gen_engine_json.dart(+ball-engine-regen / Ball.Engine.Regen /
-          #     go/engine's cmd/regen).
-          #   * dart/shared/lib/cli_core.dart + its parts (capability_analyzer,
-          #     capability_table, termination_analyzer) -> cli_rt.h /
-          #     compiled_cli.rs / CompiledCli.cs — the self-hosted CLI core,
-          #     encoded by gen_cli_cpp.dart and gen_cli_json.dart(+ball-cli-regen
-          #     / Ball.Cli.Regen).
-          # These artifacts are REGENERATED from these Dart sources at CI build
-          # time, so a Dart-only edit to them changes what the C++/Rust/C#/Go jobs
-          # compile and run — yet, mapped by top-level dir alone, sets only
-          # dart=true and SKIPS the cpp/rust/csharp/go self-host jobs. That exact
-          # blind spot let a C++ self-host break slip through PR CI in #398 (and
-          # forced #413's manual verification lane). OR self_host into
-          # cpp/rust/csharp/go below so those jobs run whenever the self-host
-          # sources change. (dart/compiler, dart/encoder, dart/cli are the
-          # Dart-target toolchain, not self-host program inputs, so they are NOT
-          # here — the C++/Rust/C# targets use their OWN compilers for the
-          # Ball->native step.) See #416, #386.
-          self_host=false
-          if m '^dart/engine/lib/|^dart/shared/lib/(cli_core|capability_analyzer|capability_table|termination_analyzer)\.dart$'; then self_host=true; fi
-
-          # New/changed conformance fixtures (never deleted) under
-          # tests/conformance/*.ball.json, as bare fixture stems (no dir, no
-          # extension), space-separated. Closes the escape class where a
-          # fixture regression is only caught by a heavy leg that runs
-          # main-only (e.g. full_e2e.ts's ~350-fixture sweep, gated behind
-          # coverage.yml — see #337/#345): the typescript job below runs
-          # full_e2e.ts against JUST this list on every PR, cheaply.
-          # --name-status columns are "STATUS\tFILE" for add/modify, or
-          # "R###\tOLD\tNEW" for renames — $NF (last field) is the current
-          # path either way. Deleted files ('D') are excluded: a fixture that
-          # no longer exists has nothing to run.
-          fixture_status="$(git diff --name-status "$base...HEAD" -- 'tests/conformance/*.ball.json')"
-          changed_fixtures="$(printf '%s\n' "$fixture_status" \
-            | awk '$1 !~ /^D/ && NF { print $NF }' \
-            | sed -E 's#.*/##; s/\.ball\.json$//' \
-            | sort -u | tr '\n' ' ' | sed -E 's/^ +//; s/ +$//')"
-          echo "Changed/added conformance fixtures vs merge-base: ${changed_fixtures:-<none>}"
-
-          {
-            out dart '^dart/'
-            out ts   '^ts/'
-            # cpp/rust/csharp/go/python run on their own dir changes OR any
-            # self-host Dart source change (self_host above — #416, #386): those
-            # sources cross-compile into the C++/Rust/C#/Go/Python self-host
-            # artifacts even though they live under dart/ (python's engine regen
-            # reads dart/self_host/engine.ball.json, generated from dart/engine).
-            if m '^cpp/'    || [ "$self_host" = true ]; then echo "cpp=true";    else echo "cpp=false";    fi
-            if m '^rust/'   || [ "$self_host" = true ]; then echo "rust=true";   else echo "rust=false";   fi
-            if m '^csharp/' || [ "$self_host" = true ]; then echo "csharp=true"; else echo "csharp=false"; fi
-            if m '^go/'     || [ "$self_host" = true ]; then echo "go=true";     else echo "go=false";     fi
-            if m '^python/' || [ "$self_host" = true ]; then echo "python=true"; else echo "python=false"; fi
-            echo "infra=$infra"
-            echo "self_host=$self_host"
-            echo "changed_fixtures=$changed_fixtures"
-          } >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
+        uses: ./.github/actions/detect-changed-stacks
 
   # ──────────────────────────────────────────────────
   # Proto — lint, format, breaking change check
@@ -199,6 +98,18 @@ jobs:
       - name: Breaking change check
         if: github.event_name == 'pull_request'
         run: buf breaking proto/ --against ".git#subdir=proto"
+
+      # ── CI-plumbing unit tests. They live in this always-run job (no
+      # toolchain, sub-second each) precisely because the things they pin are
+      # what decides whether the OTHER jobs run at all — gating them behind
+      # `changes` would be the chicken-and-egg version of the bug they guard.
+      # Each prints a `Results: N passed, M failed, T total` line and refuses
+      # to report success on zero cases.
+      - name: Changed-stacks truth table (#458)
+        run: bash .github/actions/detect-changed-stacks/test/truth_table.sh
+
+      - name: C++ coverage-floor parser test (#63)
+        run: bash cpp/test/test_build_cov_floor_parsing.sh
 
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
@@ -512,6 +423,30 @@ jobs:
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release
+
+      # The ONLY install() rule in the C++ tree — cpp/cli/CMakeLists.txt's
+      # `install(TARGETS ball RUNTIME DESTINATION bin)`, added by PR #376 for
+      # the distribution epic (#368) — was exercised by NOTHING until this step.
+      # The build step above runs CMake's DEFAULT target, which does not include
+      # the separately-generated `install` target; release-cpp.yml stages the
+      # binary with a raw `cp cpp/build/cli/ball` and never calls
+      # `cmake --install`; and the vcpkg port that would exercise it has never
+      # been built even once (its portfile still carries `SHA512 0 #
+      # PLACEHOLDER`). So deleting or mis-targeting that rule produced zero red
+      # CI — the same "silent until a human dispatches it manually" class that
+      # already bit the macOS release leg (#404). This runs on all three OS legs.
+      # `ball version` is real (not a self-host stub) in a plain cmake build.
+      - name: Install smoke (exercises install(TARGETS ball) — issue #368)
+        shell: bash
+        run: |
+          set -euo pipefail
+          prefix="${RUNNER_TEMP}/ball-install"
+          cmake --install cpp/build --config Release --prefix "$prefix"
+          bin="$prefix/bin/ball"; [ -f "$bin" ] || bin="$prefix/bin/ball.exe"
+          [ -f "$bin" ] || { echo "::error::cmake --install placed no ball binary under $prefix/bin"; exit 1; }
+          out="$("$bin" version)"
+          [ -n "$out" ] || { echo "::error::installed ball printed nothing for 'ball version'"; exit 1; }
+          echo "installed ball version: $out"
 
       - name: Run tests
         run: ctest --test-dir cpp/build --output-on-failure -C Release
@@ -1002,6 +937,44 @@ jobs:
 
       - name: Test
         run: cd go && go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+
+      # ── Go module isolation (issue #361) — MEASUREMENT ONLY, non-gating ──
+      # Every step above runs inside the full monorepo checkout, where go.work's
+      # `use` block satisfies every module regardless of what its own go.mod
+      # says — so the filesystem-relative `replace ... => ../<dep>` directives
+      # in go/{cli,compiler,encoder,engine}/go.mod ALWAYS resolve and the defect
+      # they cause is structurally invisible from this vantage point. It is very
+      # visible to anyone outside the checkout: the Go module proxy serves a
+      # nested module as its OWN directory tree only, never its siblings, so
+      # `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` fails with
+      # "The go.mod file for the module providing named packages contains one or
+      # more replace directives." Epic #361's Go row claimed this was "already
+      # done by construction (go install)"; it is not, and nothing asserted it.
+      # This step copies each module into an isolated tmp dir (no go.work, no
+      # siblings) and reports which ones build. NON-GATING on purpose: today's
+      # honest answer is 2/6, and the real fix (per-module tagging + dropping
+      # the replace directives) is separate, larger work. Flip
+      # continue-on-error off once that lands.
+      - name: Go module isolation build (issue #361 — measurement only, non-gating)
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          pass=0; fail=0
+          for m in shared runtime compiler encoder engine cli; do
+            d="$(mktemp -d)"; cp -r "go/$m" "$d/$m"
+            if (cd "$d/$m" && GOFLAGS=-mod=mod go build ./... 2>"$d/err"); then
+              echo "OK    go/$m"; pass=$((pass+1))
+            else
+              echo "FAIL  go/$m: $(head -1 "$d/err")"; fail=$((fail+1))
+            fi
+          done
+          total=$((pass+fail))
+          # Positive floor: an exit code plus a failure count cannot tell
+          # "all passed" from "nothing ran".
+          [ "$total" -ge 1 ] || { echo "::error::isolation sweep ran zero modules"; exit 1; }
+          echo "Results: $pass passed, $fail failed, $total total"
+          echo "Go module isolation: $pass/$total buildable outside the monorepo (today 2/6 — shared+runtime only; the other four carry filesystem-relative replace directives, issue #361)" >> "$GITHUB_STEP_SUMMARY"
 
       # ── Self-hosted engine: regenerate + RUN (epic #426 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,

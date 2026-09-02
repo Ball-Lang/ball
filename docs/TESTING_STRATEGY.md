@@ -147,9 +147,26 @@ currently **99.9** and locks in non-regression. **Line coverage is the
 *secondary* metric** — the primary behavioral guarantee against the #55 class
 is the construct-completeness gate (§2). TS (`c8 --all`, plus per-package c8
 floors in each `package.json` gated by ci.yml), C++ (`gcov`/`lcov --initial`,
-floor 70) and Rust (`cargo llvm-cov`, floor 65 over authored crates) are
-measured the same way (all packages, never-executed files at 0%); their
-**behavioral** coverage is additionally gated by the conformance matrix.
+aggregate floor **87** against a measured 88.3%) and Rust (`cargo llvm-cov`,
+floor 65 over authored crates) are measured the same way (all packages,
+never-executed files at 0%); their **behavioral** coverage is additionally
+gated by the conformance matrix.
+
+**Trigger caveat, and the gap it left (#63).** `coverage.yml` used to run ONLY
+on push-to-main and manual dispatch. Since the C++ line-coverage floor is the
+only C++ coverage gate in the repo (ci.yml's `cpp` job has no instrumentation,
+and `codecov.yml` marks project+patch `informational: true` for every flag), a
+PR that dropped C++ coverage passed every required check and was caught only
+after merging. The `cpp` job now also runs on `cpp/**`-touching pull requests;
+the other four jobs stay push/dispatch-only so a C++ PR doesn't drag the whole
+cross-stack matrix in. It is deliberately **not** a required check — it makes
+the regression visible pre-merge, it does not block. The finer per-target C++
+floors (`cpp/build-cov-floor.sh`: compiler 88 / encoder 88 / shared 81) are
+**reported, not enforced** — never measured by CI, and a false red on main is
+worse than an unenforced number; they ratchet once two runs establish a
+baseline. That script's parser is pinned by
+`cpp/test/test_build_cov_floor_parsing.sh` (it used to pass silently when it
+could not parse a summary at all).
 
 > A failing/ungated package suite (e.g. `ball_protobuf`, issue #75) is measured
 > but surfaced as a loud WARNING and under-counted — `coverage_dart.dart`
@@ -166,4 +183,6 @@ measured the same way (all packages, never-executed files at 0%); their
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
-| Line coverage ratchet | `coverage` job | every PR |
+| Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
+| Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
+| Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |

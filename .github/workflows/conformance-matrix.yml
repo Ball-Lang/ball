@@ -936,6 +936,123 @@ jobs:
       floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
+  # C# round-trip leg — MEASUREMENT ONLY, NO FLOOR (#452 item 1)
+  #
+  # Ball fixture -> C# (Ball.Compiler) -> re-encode that C# back to Ball
+  # (Ball.Encoder / Roslyn) -> run the RE-ENCODED program on the DART reference
+  # engine -> diff the golden. Running it on the C# engine would only prove the
+  # C# pipeline agrees with itself.
+  #
+  # #452's item 1 reads "Wire `--leg=compiler` (and `--leg=roundtrip`) into the
+  # csharp CI/matrix jobs". PR #459 wired and ratcheted the compiler half; the
+  # roundtrip half was dropped without comment. `RoundTripLeg.cs` has existed
+  # and been dispatchable from Program.cs the whole time, but
+  # `grep -n "leg=roundtrip" .github/workflows/*.yml` returned ZERO matches, so
+  # its measured result lived only as prose in .claude/rules/csharp.md — and the
+  # harness could fail to compile, throw, or start reporting a wrong count with
+  # no CI signal whatsoever. This row makes that number live.
+  #
+  # NO FLOOR GATE, deliberately: the honest baseline is 0/320 BY CONSTRUCTION.
+  # The compiler emits a flat class dispatching through `BallRuntime.*` calls
+  # over `BallValue`; the syntactic Roslyn encoder targets idiomatic hand-written
+  # C# and rejects those shapes (`unsupported method call `.ArgGet(...)``,
+  # `new BallList(...) targets an unknown type`, …). A ratchet on 0 is
+  # meaningless. What this job DOES gate is harness health: a `Results:` line
+  # must be produced, its counts must be bare integers, and total must be >= 1.
+  # The leg's own exit code is EXPECTED to be non-zero while fixtures fail.
+  # ──────────────────────────────────────────────────
+  csharp-roundtrip:
+    name: C# Round-Trip Leg (measurement)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: "10.0.x"
+
+      # Ground truth is the Dart CLI: the leg shells out to
+      # `dart run dart/cli/bin/ball.dart run <reencoded.ball.json>` per fixture,
+      # so the Dart workspace has to be resolved even though today every fixture
+      # fails earlier, at the re-encode step.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace (reference engine)
+        run: dart pub get
+
+      - name: Build conformance harness
+        run: dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
+
+      - name: Run round-trip leg
+        id: conformance
+        run: |
+          cd csharp
+          set +e
+          output=$(dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=roundtrip --dart=dart 2>&1)
+          exit_code=$?
+          echo "$output"
+
+          # Parse the FINAL `Results:` line ONLY — never a global grep over all
+          # output. A multiline capture makes `[ "$total" -lt 1 ]` exit 2, and a
+          # failing `[` inside an `if` SKIPS the branch and falls through to
+          # exit 0: the gate would be silently DISABLED. `tail -1` makes that
+          # unreachable; the integer guard below asserts it rather than trusting
+          # it. (This leg's line carries a trailing " (N skipped carve-outs)"
+          # suffix — the `(?= total)` lookahead is unaffected.)
+          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
+          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
+          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
+          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
+
+          for v in "$passed" "$failed" "$total"; do
+            case "$v" in
+              ''|*[!0-9]*)
+                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
+                exit 1;;
+            esac
+          done
+
+          echo "passed=$passed" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "total=$total"   >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "=== C# Round-Trip Leg (measurement only — no floor) ==="
+          echo "Results: $passed passed, $failed failed, $total total"
+
+          # Positive floor. A harness that printed nothing, or discovered no
+          # fixtures, must NEVER read as a silent pass (#439/#444) — and since
+          # this leg has no ratchet, this is the ONLY thing standing between
+          # "the harness rotted" and a green job.
+          if [ "$total" -lt 1 ]; then
+            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
+            exit 1
+          fi
+
+          {
+            echo "### C# round-trip leg (measurement only — issue #452 item 1)"
+            echo ""
+            echo "**$passed/$total** fixtures round-trip Ball -> C# -> Ball -> Dart engine."
+            echo ""
+            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
+            echo "\`BallRuntime.*\`-shaped C# the syntactic Roslyn encoder does not recognise)."
+            echo "This row exists to keep the number live and to catch the harness itself breaking."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # The leg's own exit code is expected to be non-zero while fixtures
+          # fail; it is reported, not gated on.
+          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
+          exit 0
+
+    outputs:
+      passed: ${{ steps.conformance.outputs.passed }}
+      failed: ${{ steps.conformance.outputs.failed }}
+      total: ${{ steps.conformance.outputs.total }}
+
+  # ──────────────────────────────────────────────────
   # Compiler legs — Ball -> <lang> -> build -> run, PER FIXTURE (#452)
   #
   # These are COMPILE legs, not engine legs, and every one is gated as a
@@ -1215,7 +1332,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler]
+    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip]
     steps:
       - name: Print conformance matrix
         run: |
@@ -1313,6 +1430,19 @@ jobs:
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Compiler (Ball -> Python)" "${{ needs.python-compiler.outputs.passed }}" "${{ needs.python-compiler.outputs.failed }}" "${{ needs.python-compiler.outputs.total }}" "${{ needs.python-compiler.outputs.floor }}" "$python_status"
           echo ""
 
+          # -- Measurement legs, NO floor ----------------------------------
+          # Not a parity claim and not a ratchet: the count is reported so it
+          # stays live instead of decaying into a doc comment. STATUS here means
+          # "the harness ran and reported a trustworthy count", NOT "the leg
+          # passes" — 0/320 is the expected baseline for the round trip (#452).
+          echo "Measurement leg (no floor - the count is the product)"
+          echo ""
+          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "HARNESS"
+          csrt_status="OK"
+          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="BROKEN"; fi
+          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "$csrt_status"
+          echo ""
+
           # Fail the summary if any engine job did not succeed (primary gate).
           summary_failed=0
           if [ "${{ needs.dart-engine.result }}" != "success" ] || \
@@ -1347,6 +1477,18 @@ jobs:
               summary_failed=1
             fi
           done
+
+          # The round-trip measurement leg has no floor, so its RESULT is the
+          # only signal it carries: the job fails solely when the harness itself
+          # broke (no parseable Results line, a non-integer count, or zero
+          # fixtures discovered). Its FAILURE COUNT is deliberately NOT fed into
+          # the parity loop below — 0/320 passing is the honest, expected
+          # baseline, and wiring that in would hard-red every run.
+          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then
+            echo ""
+            echo "The C# round-trip harness did not report a trustworthy count. See its job log."
+            summary_failed=1
+          fi
 
           # Defense-in-depth (F-CM-1): also fail if any engine reported a
           # non-zero parsed failure count, even if its job reported success —

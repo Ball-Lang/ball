@@ -140,11 +140,19 @@ compile items so the sibling projects never double-compile each other's files.
   (`BallRuntime`/`BallProto`) — **never** hand-edit `CompiledEngine.cs`.
 - The committed conformance harness (`csharp/engine/conformance/`, a standalone console app, not
   an xunit project — needs a reliable `Results:` line on stdout regardless of pass/fail) has three
-  legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated), `compiler` (224/320 —
-  the compiler's own honest scope-gap count, not CI-gated), `roundtrip` (0/320 — an honest,
-  expected zero given the syntactic encoder doesn't yet recognize compiler-emitted
-  `BallRuntime.*` shapes, not CI-gated). See `csharp/AGENTS.md`'s "Conformance harness" section
-  before treating a non-`engine`-leg number as a regression.
+  legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated by the `csharp-engine` row
+  in `conformance-matrix.yml`), `compiler` (ratcheted by that file's `csharp-compiler` row against
+  `CSHARP_COMPILER_FLOOR` — the compiler's own honest scope-gap count, a DROP fails, never a parity
+  gate), `roundtrip` (0/320 — an honest, expected zero given the syntactic encoder doesn't yet
+  recognize compiler-emitted `BallRuntime.*` shapes). Since #452 item 1 the round-trip leg is
+  ALSO run in CI, by the `csharp-roundtrip` measurement row: no floor (a ratchet on 0 is
+  meaningless), but it asserts the harness produced a parseable `Results:` line with integer counts
+  and `total >= 1`, so the leg can no longer silently rot. Do not treat the numbers here as live —
+  read them off that row. NOTE: every row in `conformance-matrix.yml` (this one, the engine rows,
+  and the `*_COMPILER_FLOOR` ratchets alike) runs on push-to-main, the weekly schedule, or manual
+  dispatch — that file has no `pull_request:` trigger, so none of them gates a PR.
+  See `csharp/AGENTS.md`'s "Conformance harness" section before treating a non-`engine`-leg number
+  as a regression.
 
 ### CLI
 

@@ -627,7 +627,9 @@ Three legs, one runner, selected via `--leg=`:
 - **`roundtrip`**: every fixture compiles Ball → C# → re-encodes that C# source back to Ball via
   the Roslyn encoder (`CSharpEncoder.Encode`) → runs the RE-ENCODED program on the **Dart reference
   engine** (`dart run dart/cli/bin/ball.dart run <file>`, ground truth — proves the C# pipeline
-  round-trips, not merely that it agrees with itself) → diffs stdout. Verified fresh: **`Results: 0
+  round-trips, not merely that it agrees with itself) → diffs stdout. Verified fresh (2026-09-02,
+  and now re-measured by CI on every `conformance-matrix.yml` run via the `csharp-roundtrip` row —
+  read the live number there, not this line): **`Results: 0
   passed, 320 failed, 320 total`** — an honest, expected zero: the Phase-4 compiler emits a single
   flat class dispatching through `BallRuntime.*` static calls and `BallValue` types, which is not a
   shape the Phase-5 syntactic encoder's heuristics were built to recognize (`BallRuntime.Truthy(x)`
@@ -844,9 +846,13 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   versions from that one root, like the `pub`/`cargo` workspace-root entries above it), grouped
   `nuget-minor-patch` for minor/patch bumps.
 - Out of scope for #386 (left for a future pass): regenerating `CompiledCli.cs` /
-  `-p:CliCore=true` in CI, and running the conformance harness's `compiler`/`roundtrip` legs (both
-  have documented non-parity gaps — see "Conformance harness" above — so they are not yet
-  CI-gated pass/fail checks).
+  `-p:CliCore=true` in CI. The harness's `compiler` and `roundtrip` legs ARE both wired into
+  `conformance-matrix.yml` now — `csharp-compiler` (#452 item 1, PR #459) as a RATCHET against
+  `CSHARP_COMPILER_FLOOR` (a drop fails; parity is not claimed), and `csharp-roundtrip` (#452
+  item 1's other half) as a MEASUREMENT row with no floor, since 0/320 is the expected baseline;
+  it gates only on the harness reporting a trustworthy count (`Results:` line present, counts are
+  bare integers, `total >= 1`). Neither is a PR gate: `conformance-matrix.yml` has no
+  `pull_request:` trigger at all — it runs on push-to-main, weekly, or manual dispatch.
 
 ## Generated Files — NEVER Edit
 

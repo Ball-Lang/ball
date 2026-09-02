@@ -1,0 +1,66 @@
+name: Detect changed stacks
+description: >-
+  Classify the current PR/push diff into per-language stack flags (dart, ts,
+  cpp, rust, csharp, go, python), an `infra` fail-safe flag, a `self_host` flag
+  and the list of changed conformance-fixture stems, so heavy per-stack jobs can
+  skip when nothing in their stack changed. Single source of truth for
+  ci.yml's and regression-gates.yml's `changes` jobs (issue #458). PRECONDITION:
+  the calling job MUST run actions/checkout with `fetch-depth: 0` BEFORE this
+  action, so the merge-base of the diff is reachable — checkout is deliberately
+  left to the caller rather than performed here. All outputs are always
+  computed; consumers ignore the ones they do not use.
+
+outputs:
+  dart:
+    description: "true when the diff touches dart/"
+    value: ${{ steps.detect.outputs.dart }}
+  ts:
+    description: "true when the diff touches ts/"
+    value: ${{ steps.detect.outputs.ts }}
+  cpp:
+    description: "true when the diff touches cpp/ or a self-host Dart source"
+    value: ${{ steps.detect.outputs.cpp }}
+  rust:
+    description: "true when the diff touches rust/ or a self-host Dart source"
+    value: ${{ steps.detect.outputs.rust }}
+  csharp:
+    description: "true when the diff touches csharp/ or a self-host Dart source"
+    value: ${{ steps.detect.outputs.csharp }}
+  go:
+    description: "true when the diff touches go/ or a self-host Dart source"
+    value: ${{ steps.detect.outputs.go }}
+  python:
+    description: "true when the diff touches python/ or a self-host Dart source"
+    value: ${{ steps.detect.outputs.python }}
+  infra:
+    description: >-
+      true when the diff touches ANY file outside the single-stack language
+      dirs (proto/, tests/, tools/, examples/, root configs, workflows) — the
+      fail-safe flag that forces every stack to run.
+    value: ${{ steps.detect.outputs.infra }}
+  self_host:
+    description: >-
+      true when the diff touches a Dart source that cross-compiles into the
+      C++/Rust/C#/Go/Python self-hosted artifacts (dart/engine/lib/** or the
+      cli_core.dart library) — already folded into cpp/rust/csharp/go/python
+      above; exposed for observability.
+    value: ${{ steps.detect.outputs.self_host }}
+  changed_fixtures:
+    description: >-
+      Space-separated stems of added/modified tests/conformance/*.ball.json
+      fixtures (no dir, no extension), or the literal `ALL` in the fail-open
+      case where no diff base is usable.
+    value: ${{ steps.detect.outputs.changed_fixtures }}
+
+runs:
+  using: composite
+  steps:
+    # The whole body lives in detect.sh so it stays invokable outside Actions —
+    # test/truth_table.sh sources it and drives every row of the truth table.
+    - id: detect
+      shell: bash
+      env:
+        EVENT: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PUSH_BASE: ${{ github.event.before }}
+      run: bash "$GITHUB_ACTION_PATH/detect.sh"

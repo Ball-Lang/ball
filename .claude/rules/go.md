@@ -22,6 +22,23 @@ build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance
 - The six modules are tied by `go/go.work`: `runtime`, `shared`, `compiler`, `encoder`, `engine`,
   `cli` (module paths `github.com/ball-lang/ball/go/<name>`). Each commits a `go.sum` **except**
   `runtime`, which is Go-stdlib-only (zero external deps).
+- **Ball's Go target is clone-and-build ONLY — it is NOT `go install`-able** (issue #361; same
+  distribution tier as Rust and C++, not Dart/TS). `go/{cli,compiler,encoder,engine}/go.mod` each
+  pin their intra-repo dependencies to a placeholder `v0.0.0` `require` plus a filesystem-relative
+  `replace github.com/ball-lang/ball/go/<dep> => ../<dep>`. Inside this checkout `go.work` satisfies
+  every module regardless, so local builds and CI never see a problem — but the Go module proxy
+  serves a nested module as its OWN directory tree only, never its siblings, so from outside:
+  - `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` →
+    `The go.mod file for the module providing named packages contains one or more replace
+    directives. It must not contain directives that would cause it to be interpreted differently
+    than if it were the main module.`
+  - a module copied out on its own → `replacement directory ../compiler does not exist` (etc.).
+
+  Today 2/6 modules (`shared`, `runtime` — the two with no sibling deps) build in isolation. The
+  `go` job in `ci.yml` measures this every run ("Go module isolation build", non-gating) so the
+  number stays honest. Making Go installable needs per-nested-module tagging
+  (`go/<name>/vX.Y.Z`), rewriting each `require` to the real tagged version, and DELETING the
+  `replace` directives — tracked on #361, not done.
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:

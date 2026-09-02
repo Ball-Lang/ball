@@ -66,8 +66,15 @@ python -m build python/                        # sdist + wheel -> python/dist/
 python python/tool/wheel_smoke.py              # build + clean-venv install + all 5 verbs
 ```
 
-- **No generated code ships.** `compiled_engine.py` is never bundled and never
-  committed. The wheel carries the engine's Ball SOURCE as package data
+- **No generated code ships — structurally.** `python/setup.py` is a 15-line
+  build hook whose `build_py` drops `ball_engine/compiled_engine.py` from both
+  the wheel and the sdist. Without it, a wheel built in any tree that has run
+  `python -m ball_engine.regen` (every CI job with a conformance sweep) silently
+  ships that ~690 KB generated module — setuptools' declarative config has no
+  per-module exclusion. `wheel_smoke.py` asserts the built wheel contains the
+  bundled `.gz` and NOT the generated module, and clears `python/build/` first
+  (build_py only copies newer files, so a stale build tree would leak it).
+  The wheel carries the engine's Ball SOURCE as package data
   (`ball_engine/_selfhost/engine.ball.json.gz`, gitignored build output of
   `bundle_selfhost.py`), and `ball_engine/bootstrap.py` compiles it into a
   per-user cache dir on the first `ball run` (~0.25 s; `BALL_CACHE_DIR`

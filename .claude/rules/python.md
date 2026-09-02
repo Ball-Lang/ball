@@ -161,7 +161,12 @@ python -m conformance.runner                             # prints the CI-parseab
   combining distribution, `python/pyproject.toml` (`name = "ball-lang"`), bundling
   `python/{runtime,compiler,encoder,engine,cli}` plus the generated `ball.v1` binding into one wheel
   with a `ball` console script. Never add per-package publishing — one wheel is the owner's decision.
-- **Nothing generated ships.** The wheel carries the engine's Ball SOURCE
+- **Nothing generated ships**, enforced by `python/setup.py`'s `build_py` filter (setuptools has no
+  declarative per-module exclusion, and `packages = ["ball_engine", …]` otherwise sweeps in the
+  gitignored `compiled_engine.py` whenever the tree has been regenerated). Never delete that hook;
+  `wheel_smoke.py` asserts the wheel carries the bundled `.gz` and not the generated module, and
+  wipes `python/build/` first so a stale build tree cannot leak it. The wheel carries the engine's
+  Ball SOURCE
   (`ball_engine/_selfhost/engine.ball.json.gz`, a gitignored build artifact of
   `python/engine/tool/bundle_selfhost.py`), and `ball_engine/bootstrap.py` compiles it into a
   per-user cache dir on the first `ball run` (~0.25 s; `BALL_CACHE_DIR` overrides the location).

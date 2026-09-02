@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 FIXTURE = ("tests", "conformance", "100_complex_control_flow.ball.json")
@@ -77,8 +78,13 @@ def main(argv: list[str]) -> int:
 
     root = repo_root()
     dist = root / "python" / "dist"
-    if dist.exists():
-        shutil.rmtree(dist)
+    # Clear dist/ AND build/: setuptools' build_py only copies files that are
+    # missing or newer, so a stale build/lib/ from an earlier build (one made
+    # before python/setup.py's generated-module filter, or before a regen) would
+    # be packaged as-is and leak the generated engine into the wheel.
+    for stale in (dist, root / "python" / "build", root / "python" / "ball_lang.egg-info"):
+        if stale.exists():
+            shutil.rmtree(stale)
 
     run([sys.executable, str(root / "python" / "engine" / "tool" / "bundle_selfhost.py")])
     run([sys.executable, "-m", "build", "--wheel", str(root / "python")])
@@ -88,6 +94,27 @@ def main(argv: list[str]) -> int:
         raise SystemExit(f"[smoke] expected exactly one wheel in {dist}, found {len(wheels)}")
     wheel = wheels[0]
     print(f"[smoke] built {wheel.name} ({wheel.stat().st_size} bytes)")
+
+    # The wheel must carry the engine SOURCE and NOT the generated module. A
+    # tree that has run `python -m ball_engine.regen` (every CI job with a
+    # conformance sweep) has compiled_engine.py sitting inside the package
+    # directory, and a plain `packages = [...]` sweep would ship it — see
+    # python/setup.py's build_py filter, which this asserts.
+    with zipfile.ZipFile(wheel) as zf:
+        names = set(zf.namelist())
+    generated = "ball_engine/compiled_engine.py"
+    if generated in names:
+        raise SystemExit(
+            f"[smoke] the wheel ships the GENERATED {generated} — it must ship only the "
+            "engine source (python/setup.py's build_py filter is not working)"
+        )
+    bundled = "ball_engine/_selfhost/engine.ball.json.gz"
+    if bundled not in names:
+        raise SystemExit(
+            f"[smoke] the wheel is missing {bundled} — `ball run` would have nothing to "
+            "compile ([tool.setuptools.package-data] or bundle_selfhost.py)"
+        )
+    print(f"[smoke] wheel carries {bundled} and not {generated}")
 
     # OUTSIDE the repo: an in-tree venv would let ball_cli.paths / the engine
     # bootstrap find the checkout and mask a packaging defect.

@@ -36,6 +36,13 @@ working state to have regressed. What it does catch from now on is a rename of
 the `ball` target, a removed `install(TARGETS ball ...)` rule, a dropped
 `BALL_BUILD_*` option, or a `vcpkg_copy_tools TOOL_NAMES` mismatch.
 
+It earned its keep on its very first run: the staged portfile configured the
+bare `${SOURCE_PATH}` (the repository root, which has no `CMakeLists.txt` — the
+documented build is `cmake -S cpp -B cpp/build`), so the port failed with
+*"The source directory ... does not appear to contain CMakeLists.txt"*. Fixed to
+`${SOURCE_PATH}/cpp`. That is a defect an external vcpkg maintainer would have
+hit on the first build of the submitted port.
+
 Residual gap: x64-linux only, matching the existing Linux-only
 `BALL_BUILD_PROTOBUF_RT` precedent. OS-specific portfile problems (an MSVC
 linker-flag interaction under vcpkg's applied `CMAKE_CXX_FLAGS`, say) would

@@ -27,11 +27,19 @@ vcpkg_from_github(
 # vcpkg_cmake_install()'s generated `install` target does not pull in
 # cpp/test/'s targets, which register no install() rules of their own.
 #
+# NOTE the `/cpp` suffix: SOURCE_PATH is the REPOSITORY root, which has no
+# CMakeLists.txt of its own (`cmake -S cpp -B cpp/build` is the documented
+# build). Configuring the bare SOURCE_PATH fails with "The source directory
+# ... does not appear to contain CMakeLists.txt" — which is exactly what the
+# ci.yml `vcpkg port smoke` job caught the first time this port was ever built
+# by any tool. vcpkg_install_copyright below still uses the bare SOURCE_PATH,
+# since LICENSE lives at the repository root.
+#
 # BALL_BUILD_PROTOBUF_RT / BALL_BUILD_UPSTREAM_CONFORMANCE both default OFF
 # upstream; passed explicitly so a future default flip in the Ball repo can't
 # silently start FetchContent'ing Google protobuf/abseil inside a vcpkg build.
 vcpkg_cmake_configure(
-    SOURCE_PATH "${SOURCE_PATH}"
+    SOURCE_PATH "${SOURCE_PATH}/cpp"
     OPTIONS
         -DBALL_BUILD_PROTOBUF_RT=OFF
         -DBALL_BUILD_UPSTREAM_CONFORMANCE=OFF

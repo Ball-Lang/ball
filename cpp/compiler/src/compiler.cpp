@@ -1529,16 +1529,23 @@ std::string CppCompiler::compile_reference(const ball::ir::Reference& ref) {
     if (current_class_static_fields_.count(sname) > 0) {
         return sname;
     }
+    // A method-LOCAL (or parameter) of the same name shadows every class member
+    // in Dart, so neither accessor branch below may fire for it. Omitting this
+    // check is a SILENT WRONG ANSWER, not a build error: `int x = 99; return x;`
+    // would compile to `return x();` on a local, and `BallDyn::operator()`
+    // makes that build and yield an empty BallDyn — `null` instead of 99
+    // (conformance 433_shadowed_field_self_write_and_local, both halves).
+    const bool ref_is_local = declared_locals_.count(ref.name) > 0;
     // #501: an unqualified read of a field that shadows an inherited getter must
     // CALL the accessor. The field itself is emitted as a private renamed
     // backing member (emit_struct), and the bare name now denotes the virtual
     // accessor, so `return x;` inside the shadowing class would otherwise name a
     // member function instead of reading the value.
-    if (shadowed_getter_names_.count(sname) > 0 &&
+    if (!ref_is_local && shadowed_getter_names_.count(sname) > 0 &&
         current_class_fields_.count(ref.name) > 0) {
         return sname + "()";
     }
-    if (!current_class_methods_.empty() &&
+    if (!ref_is_local && !current_class_methods_.empty() &&
         current_class_methods_.count(sname) > 0) {
         // Check if it's a getter in the current class
         bool is_getter_ref = false;
@@ -4254,6 +4261,54 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                        "); __self->setField(std::string(\"" + fld +
                        "\"), std::any(__v)); return __v; }()";
             }
+        }
+        // ── #501, write side: an UNQUALIFIED write to a field that shadows an
+        // inherited getter, from inside the shadowing class ──
+        // The field is emitted as a private backing member plus a public
+        // virtual accessor pair, so compile_reference already turned the bare
+        // target into the accessor CALL `x()` — an rvalue. Every branch below
+        // assumes an lvalue target: `ball_assign(x(), 7)` does not bind
+        // ("cannot bind non-const lvalue reference of type 'BallDyn&' to an
+        // rvalue") and `x() += 1` is not assignable. Route the write through
+        // the emitted setter instead, binding the value exactly once so a
+        // side-effecting RHS runs once (the #18 stage-5 double-evaluation bug).
+        // The receiver is implicit, so the vtable still picks the override.
+        if (target_expr && target_expr->kind == ball::ir::ExprKind::Reference &&
+            declared_locals_.count(target_expr->reference->name) == 0 &&
+            current_class_fields_.count(target_expr->reference->name) > 0 &&
+            shadowed_getter_names_.count(
+                sanitize_name(target_expr->reference->name)) > 0) {
+            const std::string sref = sanitize_name(target_expr->reference->name);
+            if (op == "??=") {
+                // Assign only when the current value is null; still one read
+                // and one evaluation of the RHS.
+                return "[&]() { BallDyn __ball_av = BallDyn(" + target +
+                       "); if (!__ball_av.has_value()) { __ball_av = BallDyn(" +
+                       val + "); " + sref +
+                       "(__ball_av); } return __ball_av; }()";
+            }
+            std::string newv;
+            if (op == "=") {
+                newv = val;
+            } else if (op == "~/=") {
+                newv = "static_cast<int64_t>(BallDyn(" + target +
+                       ") / BallDyn(" + val + "))";
+            } else if (op == ">>>=") {
+                newv = "static_cast<int64_t>(static_cast<uint64_t>(static_cast<"
+                       "int64_t>(" +
+                       target + ")) >> static_cast<int64_t>(" + val + "))";
+            } else {
+                std::string binop = op;
+                if (!binop.empty() && binop.back() == '=') binop.pop_back();
+                if (binop.empty())
+                    throw std::runtime_error(
+                        "compile_std_call: unsupported compound assignment '" +
+                        op + "' on shadowed field '" + sref + "'");
+                newv = "(BallDyn(" + target + ") " + binop + " BallDyn(" + val +
+                       "))";
+            }
+            return "[&]() { auto __ball_av = " + newv + "; " + sref +
+                   "(__ball_av); return __ball_av; }()";
         }
         if (op == "~/=") {
             return "(" + target + " = static_cast<int64_t>(" + target + " / " + val + "))";

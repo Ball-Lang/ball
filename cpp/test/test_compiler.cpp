@@ -3828,6 +3828,133 @@ TEST(subclass_field_without_inherited_getter_stays_a_plain_member) {
     ASSERT_NOT_CONTAINS(out, "virtual BallDyn x()");
 }
 
+// Turning the shadowing field into an accessor pair moves the bare NAME `x`
+// from naming a data member to naming a member FUNCTION, and that breaks two
+// UNQUALIFIED shapes inside the shadowing class that no explicit-receiver
+// fixture (406/431/432) can reach. Both are pinned here and by conformance
+// 433_shadowed_field_self_write_and_local.
+//
+// Shape 1 — the unqualified WRITE. `x = 7` compiled its target through
+// compile_reference, which now yields the accessor CALL `x()`; the assign
+// handler's lvalue branches then emitted `ball_assign(x(), 7)`, which g++
+// rejects ("cannot bind non-const lvalue reference of type 'BallDyn&' to an
+// rvalue"), and `x() += 1` for the compound form. The write must go through the
+// emitted SETTER instead, with the value bound exactly once so a side-effecting
+// RHS is not evaluated twice (the #18 stage-5 double-evaluation bug).
+TEST(unqualified_write_to_shadowing_field_goes_through_the_setter) {
+    json a_meta;
+    a_meta["kind"] = "class";
+    auto a_td = cov_class_td("main:A", {}, std::move(a_meta));
+
+    json b_meta;
+    b_meta["kind"] = "class";
+    b_meta["superclass"] = "A";
+    b_meta["fields"] = json::array({json{{"name", "x"},
+                                         {"type", "int"},
+                                         {"initializer", "5"}}});
+    auto b_td = cov_class_td("main:B", {{"x", "TYPE_INT64"}}, std::move(b_meta));
+
+    json getter_meta;
+    getter_meta["kind"] = "method";
+    getter_meta["is_getter"] = true;
+    auto getter =
+        cov_class_fn("main:A.x", std::move(getter_meta), lit_int(1), "int");
+
+    // void B.bump() { x = 7; }
+    json bump_meta;
+    bump_meta["kind"] = "method";
+    auto bump = cov_class_fn(
+        "main:B.bump", std::move(bump_meta),
+        block({stmt_expr(std_call("assign", make_msg("", {
+                   {"target", ref("x")},
+                   {"value", lit_int(7)},
+               })))}),
+        "void");
+
+    // void B.addTo() { x += 3; }
+    json add_meta;
+    add_meta["kind"] = "method";
+    auto add_to = cov_class_fn(
+        "main:B.addTo", std::move(add_meta),
+        block({stmt_expr(std_call("assign", make_msg("", {
+                   {"target", ref("x")},
+                   {"value", lit_int(3)},
+                   {"op", lit_string("+=")},
+               })))}),
+        "void");
+
+    auto prog = cov_class_program({a_td, b_td}, {getter, bump, add_to});
+    auto out = compile_program(prog);
+
+    // The write is a setter CALL on the implicit receiver, so the vtable still
+    // picks B's override.
+    ASSERT_CONTAINS(out, "x(__ball_av);");
+    // The compound form reads through the getter and writes through the setter
+    // rather than mutating an rvalue in place.
+    ASSERT_CONTAINS(out, "(BallDyn(x()) + BallDyn(");
+    // The defects themselves: neither an lvalue-binding assign helper nor a
+    // compound operator may be applied to the accessor's returned rvalue.
+    ASSERT_NOT_CONTAINS(out, "ball_assign(x()");
+    ASSERT_NOT_CONTAINS(out, "x() +=");
+    ASSERT_NOT_CONTAINS(out, "(x() = ");
+}
+
+// Shape 2 — a method-LOCAL named after a member. In Dart a local shadows every
+// class member, so neither accessor branch in compile_reference may fire for
+// it. This one does NOT fail loudly: `BallDyn` has `operator()`, so `return
+// x();` on a local BUILDS and yields an empty BallDyn — `null` instead of 99, a
+// silent wrong answer. Covered for both the shadowed field (B.shadowLocal) and
+// a plain unshadowed getter in the local's own class (A.localOverGetter, which
+// mis-compiled the same way before the shadow work existed at all).
+TEST(method_local_shadows_field_and_getter_of_the_same_name) {
+    json a_meta;
+    a_meta["kind"] = "class";
+    auto a_td = cov_class_td("main:A", {}, std::move(a_meta));
+
+    json b_meta;
+    b_meta["kind"] = "class";
+    b_meta["superclass"] = "A";
+    b_meta["fields"] = json::array({json{{"name", "x"},
+                                         {"type", "int"},
+                                         {"initializer", "5"}}});
+    auto b_td = cov_class_td("main:B", {{"x", "TYPE_INT64"}}, std::move(b_meta));
+
+    json getter_meta;
+    getter_meta["kind"] = "method";
+    getter_meta["is_getter"] = true;
+    auto getter =
+        cov_class_fn("main:A.x", std::move(getter_meta), lit_int(1), "int");
+
+    // int A.localOverGetter() { int x = 99; return x; }  — a local over this
+    // class's OWN getter, with no shadowing subclass field involved.
+    json a_local_meta;
+    a_local_meta["kind"] = "method";
+    auto a_local = cov_class_fn("main:A.localOverGetter",
+                                std::move(a_local_meta),
+                                block({stmt_let("x", lit_int(99))}, ref("x")),
+                                "int");
+
+    // int B.shadowLocal() { int x = 99; return x; }  — a local over the field
+    // that shadows the inherited getter.
+    json b_local_meta;
+    b_local_meta["kind"] = "method";
+    auto b_local = cov_class_fn("main:B.shadowLocal", std::move(b_local_meta),
+                                block({stmt_let("x", lit_int(99))}, ref("x")),
+                                "int");
+
+    auto prog =
+        cov_class_program({a_td, b_td}, {getter, a_local, b_local});
+    auto out = compile_program(prog);
+
+    // The local is declared, and read as a VALUE — never called.
+    ASSERT_CONTAINS(out, "auto x = BallDyn(static_cast<int64_t>(99));");
+    ASSERT_CONTAINS(out, "return x;");
+    // The defect: an accessor call on a local. Both branches of
+    // compile_reference (the #501 shadowed-field one and the pre-existing
+    // current_class_methods_ getter one) must yield to `declared_locals_`.
+    ASSERT_NOT_CONTAINS(out, "return x();");
+}
+
 // ================================================================
 // Main
 // ================================================================

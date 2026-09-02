@@ -1,3 +1,10 @@
+## [1.60.2](https://github.com/Ball-Lang/ball/compare/v1.60.1...v1.60.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* **cpp:** resolve a shadowed getter through virtual dispatch and gate the per-target coverage floors ([#509](https://github.com/Ball-Lang/ball/issues/509)) ([81a4886](https://github.com/Ball-Lang/ball/commit/81a4886cfd75bd1b5f32be9e0ea95cb95a711514)), closes [#501](https://github.com/Ball-Lang/ball/issues/501) [#497](https://github.com/Ball-Lang/ball/issues/497) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#63](https://github.com/Ball-Lang/ball/issues/63) [#63](https://github.com/Ball-Lang/ball/issues/63) [#63](https://github.com/Ball-Lang/ball/issues/63) [#501](https://github.com/Ball-Lang/ball/issues/501) [#63](https://github.com/Ball-Lang/ball/issues/63) [#59](https://github.com/Ball-Lang/ball/issues/59) [#63](https://github.com/Ball-Lang/ball/issues/63) [#59](https://github.com/Ball-Lang/ball/issues/59) [#501](https://github.com/Ball-Lang/ball/issues/501) [#63](https://github.com/Ball-Lang/ball/issues/63) [#501](https://github.com/Ball-Lang/ball/issues/501) [#461](https://github.com/Ball-Lang/ball/issues/461) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#18](https://github.com/Ball-Lang/ball/issues/18) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#63](https://github.com/Ball-Lang/ball/issues/63) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501)
+
 ## [1.60.1](https://github.com/Ball-Lang/ball/compare/v1.60.0...v1.60.1) (2026-09-02)
 
 

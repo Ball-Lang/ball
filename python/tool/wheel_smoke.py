@@ -12,7 +12,8 @@ creates itself.
 Steps:
 
 1. `python/engine/tool/bundle_selfhost.py`   (package the Ball engine source)
-2. `python -m build --wheel python/`
+2. `python -m build python/` - BOTH artifacts, exactly what publish-pypi.yml
+   uploads; each is checked to carry the engine source and no generated module
 3. create a venv in a temp dir, `pip install <wheel>`
 4. `ball --version`, `ball check`, `ball compile`, `ball encode`, `ball run`
 5. assert `ball run`'s stdout equals the fixture's golden, compared as BYTES
@@ -27,6 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
@@ -87,34 +89,55 @@ def main(argv: list[str]) -> int:
             shutil.rmtree(stale)
 
     run([sys.executable, str(root / "python" / "engine" / "tool" / "bundle_selfhost.py")])
-    run([sys.executable, "-m", "build", "--wheel", str(root / "python")])
+    # Build BOTH artifacts, because publish-pypi.yml uploads both: a wheel-only
+    # check would leave the sdist (what `pip install --no-binary` uses) unverified.
+    run([sys.executable, "-m", "build", str(root / "python")])
 
     wheels = sorted(dist.glob("ball_lang-*.whl"))
     if len(wheels) != 1:
         raise SystemExit(f"[smoke] expected exactly one wheel in {dist}, found {len(wheels)}")
-    wheel = wheels[0]
-    print(f"[smoke] built {wheel.name} ({wheel.stat().st_size} bytes)")
+    sdists = sorted(dist.glob("ball_lang-*.tar.gz"))
+    if len(sdists) != 1:
+        raise SystemExit(f"[smoke] expected exactly one sdist in {dist}, found {len(sdists)}")
+    wheel, sdist = wheels[0], sdists[0]
+    print(f"[smoke] built {wheel.name} ({wheel.stat().st_size} bytes) "
+          f"and {sdist.name} ({sdist.stat().st_size} bytes)")
 
-    # The wheel must carry the engine SOURCE and NOT the generated module. A
-    # tree that has run `python -m ball_engine.regen` (every CI job with a
+    # Both artifacts must carry the engine SOURCE and NOT the generated module.
+    # A tree that has run `python -m ball_engine.regen` (every CI job with a
     # conformance sweep) has compiled_engine.py sitting inside the package
     # directory, and a plain `packages = [...]` sweep would ship it — see
     # python/setup.py's build_py filter, which this asserts.
     with zipfile.ZipFile(wheel) as zf:
-        names = set(zf.namelist())
-    generated = "ball_engine/compiled_engine.py"
-    if generated in names:
-        raise SystemExit(
-            f"[smoke] the wheel ships the GENERATED {generated} — it must ship only the "
-            "engine source (python/setup.py's build_py filter is not working)"
-        )
-    bundled = "ball_engine/_selfhost/engine.ball.json.gz"
-    if bundled not in names:
-        raise SystemExit(
-            f"[smoke] the wheel is missing {bundled} — `ball run` would have nothing to "
-            "compile ([tool.setuptools.package-data] or bundle_selfhost.py)"
-        )
-    print(f"[smoke] wheel carries {bundled} and not {generated}")
+        wheel_names = set(zf.namelist())
+    with tarfile.open(sdist) as tf:
+        # Strip the "ball_lang-<version>/" prefix every sdist member carries.
+        sdist_names = {name.split("/", 1)[-1] for name in tf.getnames()}
+    for label, names, generated, bundled in (
+        (
+            "wheel",
+            wheel_names,
+            "ball_engine/compiled_engine.py",
+            "ball_engine/_selfhost/engine.ball.json.gz",
+        ),
+        (
+            "sdist",
+            sdist_names,
+            "engine/ball_engine/compiled_engine.py",
+            "engine/ball_engine/_selfhost/engine.ball.json.gz",
+        ),
+    ):
+        if generated in names:
+            raise SystemExit(
+                f"[smoke] the {label} ships the GENERATED {generated} — it must ship only "
+                "the engine source (python/setup.py's build_py filter is not working)"
+            )
+        if bundled not in names:
+            raise SystemExit(
+                f"[smoke] the {label} is missing {bundled} — `ball run` would have nothing "
+                "to compile ([tool.setuptools.package-data] or bundle_selfhost.py)"
+            )
+        print(f"[smoke] {label} carries {bundled} and not {generated}")
 
     # OUTSIDE the repo: an in-tree venv would let ball_cli.paths / the engine
     # bootstrap find the checkout and mask a packaging defect.

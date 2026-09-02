@@ -15,6 +15,19 @@ on:
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
+  # Toolchain-drift canary. Every job below installs a FLOATING toolchain
+  # (`dart-lang/setup-dart` with `sdk: stable`, `actions/setup-node`, …), so a
+  # release of any of them can turn `main` red with zero commits — and, with
+  # only push/pull_request triggers, that red is first seen on the next
+  # contributor's unrelated PR (2026-09-02: a new stable Dart lint,
+  # `unawaited_return_in_try_block`, failed `dart analyze dart/` on a C#-only
+  # PR, seven weeks after main's last full run). A weekly run on main surfaces
+  # the drift where it belongs. The `changes` job below has no diff base on a
+  # schedule/dispatch event and FAILS OPEN, so every stack runs — that is the
+  # intent, not a gap.
+  schedule:
+    - cron: "0 5 * * 1" # Weekly on Monday at 05:00 UTC (an hour before conformance-matrix.yml)
+  workflow_dispatch:
 
 # Least-privilege default token: read-only. No job in this workflow writes to
 # the repo (build + test only). https://docs.github.com/actions/security

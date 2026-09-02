@@ -1,3 +1,10 @@
+## [1.59.11](https://github.com/Ball-Lang/ball/compare/v1.59.10...v1.59.11) (2026-09-02)
+
+
+### Bug Fixes
+
+* **ts:** align the encoder's std vocabulary with the compiler and implement six unhandled syntax kinds ([#502](https://github.com/Ball-Lang/ball/issues/502)) ([9c1b645](https://github.com/Ball-Lang/ball/commit/9c1b64531ada75332890337039fabb189f1a6cc3)), closes [#490](https://github.com/Ball-Lang/ball/issues/490) [#489](https://github.com/Ball-Lang/ball/issues/489) [#467](https://github.com/Ball-Lang/ball/issues/467) [#467](https://github.com/Ball-Lang/ball/issues/467) [464/#465](https://github.com/Ball-Lang/ball/issues/465) [#498](https://github.com/Ball-Lang/ball/issues/498) [#467](https://github.com/Ball-Lang/ball/issues/467)
+
 ## [1.59.10](https://github.com/Ball-Lang/ball/compare/v1.59.9...v1.59.10) (2026-09-02)
 
 

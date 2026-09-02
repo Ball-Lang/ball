@@ -31,6 +31,26 @@ The conformance harness (#40) is `rust/engine/tests/self_host_conformance.rs` �
 prints the canonical `Results: N passed, M failed, T total` line and is run in CI
 (the `rust` job). CI/CD wiring is in `.github/workflows/ci.yml`.
 
+A second, **measurement-only** sweep lives beside it:
+`rust/engine/tests/roundtrip_conformance.rs` (issue #452 item 3) drives every fixture
+Ball → Rust (`ball-lang-compiler`) → Ball (`ball-lang-encoder`) → the **Dart reference engine**
+→ golden diff. Both the compile and the re-encode step are in-process on the emitted Rust as
+*text*, so `rustc` is never invoked per fixture — the whole 321-fixture sweep is ~7 s. Its
+honest baseline is **0/321**, exactly like the C# leg it mirrors: the compiler emits a flat
+program dispatching through `ball_lang_shared::runtime::*` over `BallValue`, which the syntactic
+`syn` encoder was never built to re-parse. It is `#[ignore]`, so `cargo test --workspace` in the
+PR-gated `Rust` job never runs it:
+
+```bash
+cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture
+```
+
+Its CI home is the `rust-roundtrip` row in `.github/workflows/conformance-matrix.yml`.
+**That workflow has no `pull_request:` trigger** — it runs on push-to-main, the weekly schedule,
+or manual dispatch only, so the row is ABSENT (not green) on a PR. Dispatch it
+(`gh workflow run conformance-matrix.yml --ref <branch>`) and read the run before merging a change
+to this leg.
+
 ## Build & Test
 
 **`cargo` is not on native Windows in this environment — build/test via WSL.** From a
@@ -148,11 +168,33 @@ substring of today's panic. It runs on the required `Rust` CI check via `cargo t
 gap list and the enforced-in-CI list cannot drift apart again.
 
 Two items are deliberately *not* pinned there, and the file says why: the no-`fn main` case is
-already covered end-to-end on the same leg by `rust/cli/tests/cli_encode.rs::
-missing_fn_main_exits_2`, and the *compiler* side of receiver-less associated functions already
-works (`type_emit.rs::method_prologue`'s `is_static` bypass, fixture
+covered end-to-end on the same leg from both sides — `rust/cli/tests/cli_encode.rs::
+missing_fn_main_exits_2` for the default rejection and
+`rust/encoder/tests/library_mode.rs` + `cli_encode.rs::encode_lib_flag_allows_missing_main`
+for the `--lib` opt-in below — and the *compiler* side of receiver-less associated functions
+already works (`type_emit.rs::method_prologue`'s `is_static` bypass, fixture
 `tests/conformance/105_static_methods.ball.json`, issue #288) — the remaining work there is
 encoder-side mapping only.
+
+#### Library mode — `encode_library` / `ball encode --lib` (#491 slice 2)
+
+`ball_lang_encoder::encode` requires a `fn main()`; real library crates have none, which is the
+single largest bucket in the study above. `ball_lang_encoder::encode_library` is the opt-in that
+drops **only** that requirement — same walk, same std accumulation, same fail-loud panic on every
+other documented gap. `ball encode --lib <source.rs>` is its CLI surface.
+
+**A library-mode `Program` is deliberately not runnable.** It carries `entry_module = "main"`
+(which `Compiler::compile_library` needs — it looks that module up to inline its items at the
+crate root) and an **empty `entry_function`**. `Program.entry_function` is an unconstrained proto3
+string, so that is structurally legal, and `ball check` correctly reports `missing entry_function`
+(pinned by `cli_encode.rs::a_library_mode_program_is_rejected_by_check_as_non_runnable`).
+**Never "fix" that by synthesising a fake entry function** — the C# encoder's `EncodeLibrary`
+makes the identical call, and the two must stay consistent. `ball validate` (the self-hosted
+cli-core verb) rejects it for the same reason and for the same correct cause.
+
+`rust/encoder/tests/library_mode.rs` is the round-trip proof, not a shape assertion: it encodes a
+`main`-less two-`pub fn` source, runs the result through `Compiler::compile_library`, and asserts
+`cargo build` accepts the output as a real `[lib]` crate.
 
 ## Key Differences from Dart
 

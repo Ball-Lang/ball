@@ -598,23 +598,33 @@ fn workspace_root() -> PathBuf {
 }
 
 /// Writes `rust_src` as the `main.rs` of a small standalone Cargo package
-/// (depending on `ball-lang-shared` via a path dependency), builds and runs it
-/// with `cargo run`, and returns its captured stdout. Panics with the
-/// compiler/runtime output on any failure so a failing fixture's assertion
-/// message is immediately actionable.
+/// (depending on `ball-lang-shared` via a path dependency), builds it with
+/// `cargo build`, runs the produced binary, and returns
+/// `(exit_success, stdout, stderr)`. A **build** failure is always a hard panic
+/// carrying the compiler output — only the binary's own exit status is reported
+/// back, so a fixture whose point is a runtime abort can assert on it.
 ///
 /// The throwaway package's `--target-dir` is pointed at the *workspace's
 /// own* `target/` directory (not a fresh temp one) so `ball-lang-shared` and its
 /// dependency tree — already built for `cargo test -p ball-lang-compiler` itself
 /// — are reused instead of rebuilt from scratch per fixture.
-fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
+///
+/// **Every fixture package's `[[bin]]` name must be unique.** Sharing one
+/// `target/` means every package writes its executable to
+/// `<target>/debug/<bin name>`; when that name was the constant `"fixture"`,
+/// concurrently-running fixtures (the test harness runs them in parallel)
+/// clobbered each other's binary, and `cargo run` could execute a *different*
+/// fixture's program — a fixture then "failed" with another one's output. The
+/// package and bin names therefore carry the same pid + counter suffix as the
+/// scratch directory, and the binary is invoked directly by path rather than
+/// through a second `cargo run` (which would reopen the same window between
+/// building and executing).
+fn compile_and_run_raw(fixture_name: &str, rust_src: &str) -> (bool, String, String) {
     let workspace_root = workspace_root();
     let target_dir = workspace_root.join("target");
     let unique = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let fixture_dir = std::env::temp_dir().join(format!(
-        "ball_rustc_fixture_{fixture_name}_{}_{unique}",
-        std::process::id()
-    ));
+    let slug = format!("{fixture_name}_{}_{unique}", std::process::id());
+    let fixture_dir = std::env::temp_dir().join(format!("ball_rustc_fixture_{slug}"));
     fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| {
         panic!(
             "failed to create fixture dir {}: {err}",
@@ -623,63 +633,10 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     });
 
     let shared_path = workspace_root.join("shared");
+    let bin_name = format!("ball_fixture_{slug}");
     let manifest = format!(
-        "[package]\nname = \"ball_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
-         [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
-         [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
-        shared_path
-    );
-    fs::write(fixture_dir.join("Cargo.toml"), manifest)
-        .expect("failed to write fixture Cargo.toml");
-    fs::write(fixture_dir.join("main.rs"), rust_src).expect("failed to write fixture main.rs");
-
-    let manifest_path = fixture_dir.join("Cargo.toml");
-    let output = Command::new("cargo")
-        .args(["run", "--quiet"])
-        .arg("--manifest-path")
-        .arg(&manifest_path)
-        .arg("--target-dir")
-        .arg(&target_dir)
-        .output()
-        .expect("failed to spawn `cargo run` — is cargo on PATH?");
-
-    if !output.status.success() {
-        panic!(
-            "fixture '{fixture_name}' failed to compile/run.\n--- generated main.rs ---\n{rust_src}\n\
-             --- stdout ---\n{}\n--- stderr ---\n{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr),
-        );
-    }
-
-    let _ = fs::remove_dir_all(&fixture_dir);
-    String::from_utf8(output.stdout).expect("fixture stdout must be valid UTF-8")
-}
-
-/// The failure-tolerant sibling of [`compile_and_run`]: builds and runs the
-/// same throwaway Cargo package but returns `(exit_success, stdout, stderr)`
-/// instead of asserting success, so a fixture whose *point* is a runtime abort
-/// can be asserted on. A **compile** failure is still a hard panic — only a
-/// non-zero exit from the built binary is a legitimate outcome here.
-fn compile_and_run_capturing(fixture_name: &str, rust_src: &str) -> (bool, String, String) {
-    let workspace_root = workspace_root();
-    let target_dir = workspace_root.join("target");
-    let unique = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let fixture_dir = std::env::temp_dir().join(format!(
-        "ball_rustc_fixture_{fixture_name}_{}_{unique}",
-        std::process::id()
-    ));
-    fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| {
-        panic!(
-            "failed to create fixture dir {}: {err}",
-            fixture_dir.display()
-        )
-    });
-
-    let shared_path = workspace_root.join("shared");
-    let manifest = format!(
-        "[package]\nname = \"ball_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
-         [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
+        "[package]\nname = \"{bin_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
+         [[bin]]\nname = \"{bin_name}\"\npath = \"main.rs\"\n\n\
          [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
         shared_path
     );
@@ -698,20 +655,24 @@ fn compile_and_run_capturing(fixture_name: &str, rust_src: &str) -> (bool, Strin
         .expect("failed to spawn `cargo build` — is cargo on PATH?");
     if !build.status.success() {
         panic!(
-            "fixture '{fixture_name}' failed to COMPILE (a runtime abort was expected, not a build error).\n\
-             --- generated main.rs ---\n{rust_src}\n--- stderr ---\n{}",
+            "fixture '{fixture_name}' failed to COMPILE.\n--- generated main.rs ---\n{rust_src}\n\
+             --- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&build.stdout),
             String::from_utf8_lossy(&build.stderr),
         );
     }
 
-    let output = Command::new("cargo")
-        .args(["run", "--quiet"])
-        .arg("--manifest-path")
-        .arg(&manifest_path)
-        .arg("--target-dir")
-        .arg(&target_dir)
-        .output()
-        .expect("failed to spawn `cargo run` — is cargo on PATH?");
+    let exe = target_dir.join("debug").join(if cfg!(windows) {
+        format!("{bin_name}.exe")
+    } else {
+        bin_name.clone()
+    });
+    let output = Command::new(&exe).output().unwrap_or_else(|err| {
+        panic!(
+            "fixture '{fixture_name}' built but its binary {} could not be run: {err}",
+            exe.display()
+        )
+    });
 
     let _ = fs::remove_dir_all(&fixture_dir);
     (
@@ -719,6 +680,20 @@ fn compile_and_run_capturing(fixture_name: &str, rust_src: &str) -> (bool, Strin
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     )
+}
+
+/// [`compile_and_run_raw`] for the common case: the program must exit 0.
+/// Panics with the captured output otherwise, so a failing fixture's assertion
+/// message is immediately actionable.
+fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
+    let (success, stdout, stderr) = compile_and_run_raw(fixture_name, rust_src);
+    if !success {
+        panic!(
+            "fixture '{fixture_name}' failed to run.\n--- generated main.rs ---\n{rust_src}\n\
+             --- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+        );
+    }
+    stdout
 }
 
 /// Asserts the compiled program **aborts** (non-zero exit) instead of
@@ -731,9 +706,12 @@ fn compile_and_run_capturing(fixture_name: &str, rust_src: &str) -> (bool, Strin
 /// stderr. The *message* is asserted end-to-end by catching the throw with
 /// `std.try` and printing it (see
 /// `switch_expr_non_exhaustive_throw_is_catchable_and_carries_its_message`).
+///
+/// Do not weaken this to "did not print the expected value": an abort and a
+/// silent `null` are exactly what this distinguishes.
 fn assert_program_aborts(fixture_name: &str, program: &Program) {
     let compiled = Compiler::new(program).compile();
-    let (success, stdout, _stderr) = compile_and_run_capturing(fixture_name, &compiled);
+    let (success, stdout, _stderr) = compile_and_run_raw(fixture_name, &compiled);
     assert!(
         !success,
         "fixture '{fixture_name}' exited 0 but was expected to abort.\n\

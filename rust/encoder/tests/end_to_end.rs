@@ -50,14 +50,23 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
+/// **Every fixture package's `[[bin]]` name must be unique.** All fixtures —
+/// this crate's *and* `rust/compiler/tests/end_to_end.rs`'s — are built into
+/// the one shared workspace `target/` (deliberately, to reuse the already-built
+/// `ball-lang-shared` dependency tree), so a constant bin name like `"fixture"`
+/// means every package writes the same `<target>/debug/fixture` path. The test
+/// harness runs fixtures in parallel, so racing fixtures clobbered each other's
+/// executable and `cargo run` could execute a *different* fixture's program.
+/// The package and bin names therefore carry the same pid + counter suffix as
+/// the scratch directory, and the built binary is invoked directly by path
+/// rather than through a second `cargo run` (which would reopen the same window
+/// between building and executing).
 fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let workspace_root = workspace_root();
     let target_dir = workspace_root.join("target");
     let unique = FIXTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let fixture_dir = std::env::temp_dir().join(format!(
-        "ball_encoder_rustc_fixture_{fixture_name}_{}_{unique}",
-        std::process::id()
-    ));
+    let slug = format!("{fixture_name}_{}_{unique}", std::process::id());
+    let fixture_dir = std::env::temp_dir().join(format!("ball_encoder_rustc_fixture_{slug}"));
     fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| {
         panic!(
             "failed to create fixture dir {}: {err}",
@@ -66,9 +75,10 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     });
 
     let shared_path = workspace_root.join("shared");
+    let bin_name = format!("ball_encoder_fixture_{slug}");
     let manifest = format!(
-        "[package]\nname = \"ball_encoder_fixture_{fixture_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
-         [[bin]]\nname = \"fixture\"\npath = \"main.rs\"\n\n\
+        "[package]\nname = \"{bin_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
+         [[bin]]\nname = \"{bin_name}\"\npath = \"main.rs\"\n\n\
          [dependencies]\nball-lang-shared = {{ path = {:?} }}\n",
         shared_path
     );
@@ -77,18 +87,39 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     fs::write(fixture_dir.join("main.rs"), rust_src).expect("failed to write fixture main.rs");
 
     let manifest_path = fixture_dir.join("Cargo.toml");
-    let output = Command::new("cargo")
-        .args(["run", "--quiet"])
+    let build = Command::new("cargo")
+        .args(["build", "--quiet"])
         .arg("--manifest-path")
         .arg(&manifest_path)
         .arg("--target-dir")
         .arg(&target_dir)
         .output()
-        .expect("failed to spawn `cargo run` — is cargo on PATH?");
+        .expect("failed to spawn `cargo build` — is cargo on PATH?");
+
+    if !build.status.success() {
+        panic!(
+            "fixture '{fixture_name}' failed to COMPILE.\n--- generated main.rs ---\n{rust_src}\n\
+             --- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr),
+        );
+    }
+
+    let exe = target_dir.join("debug").join(if cfg!(windows) {
+        format!("{bin_name}.exe")
+    } else {
+        bin_name.clone()
+    });
+    let output = Command::new(&exe).output().unwrap_or_else(|err| {
+        panic!(
+            "fixture '{fixture_name}' built but its binary {} could not be run: {err}",
+            exe.display()
+        )
+    });
 
     if !output.status.success() {
         panic!(
-            "fixture '{fixture_name}' failed to compile/run.\n--- generated main.rs ---\n{rust_src}\n\
+            "fixture '{fixture_name}' failed to run.\n--- generated main.rs ---\n{rust_src}\n\
              --- stdout ---\n{}\n--- stderr ---\n{}",
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),

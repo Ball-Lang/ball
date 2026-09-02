@@ -146,5 +146,16 @@ echo ""
 # Standard format line for CI conformance-matrix parsing.
 echo "Results: $pass passed, $fail failed, $total total"
 
+# Positive floor. "0 failed" and "0 ran" are indistinguishable to the caller,
+# and ci.yml invokes this script directly (its own `passed < 1` guard lives in
+# conformance-matrix.yml, not here). A `--fixtures` filter whose every entry is
+# carved out or golden-less would otherwise exit 0 having compiled nothing —
+# a required check that proves nothing. Widen the filter, or remove the
+# carve-out, rather than accepting the fake green.
+if [[ $pass -lt 1 && $fail -eq 0 ]]; then
+  echo "::error::C++ compiled e2e ran NO fixture (passed=0, failed=0, carve-outs=$carved, no-output skips=$skip) — this leg proved nothing."
+  exit 1
+fi
+
 # Exit with failure if any program failed.
 [[ $fail -eq 0 ]]

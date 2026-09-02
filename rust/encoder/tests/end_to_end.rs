@@ -61,6 +61,13 @@ fn workspace_root() -> PathBuf {
 /// the scratch directory, and the built binary is invoked directly by path
 /// rather than through a second `cargo run` (which would reopen the same window
 /// between building and executing).
+///
+/// Because those names are unique, nothing ever overwrites them either — so the
+/// fixture's executable and the sidecars cargo writes beside it (the `.d`
+/// depfile, plus a `.pdb` on Windows) are deleted once it has been run,
+/// alongside the scratch source directory. Otherwise a cached `target/` would
+/// accumulate one dead binary per fixture per run. The cleanup runs *before* the
+/// failure `panic!` below so a failing fixture leaks nothing either.
 fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
     let workspace_root = workspace_root();
     let target_dir = workspace_root.join("target");
@@ -117,6 +124,16 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
         )
     });
 
+    let _ = fs::remove_dir_all(&fixture_dir);
+    let _ = fs::remove_file(&exe);
+    for sidecar in ["d", "pdb"] {
+        let _ = fs::remove_file(
+            target_dir
+                .join("debug")
+                .join(format!("{bin_name}.{sidecar}")),
+        );
+    }
+
     if !output.status.success() {
         panic!(
             "fixture '{fixture_name}' failed to run.\n--- generated main.rs ---\n{rust_src}\n\
@@ -126,7 +143,6 @@ fn compile_and_run(fixture_name: &str, rust_src: &str) -> String {
         );
     }
 
-    let _ = fs::remove_dir_all(&fixture_dir);
     String::from_utf8(output.stdout).expect("fixture stdout must be valid UTF-8")
 }
 

@@ -1,3 +1,10 @@
+# [1.60.0](https://github.com/Ball-Lang/ball/compare/v1.59.12...v1.60.0) (2026-09-02)
+
+
+### Features
+
+* **encoder:** add library mode to the Rust and C# encoders and wire round-trip measurement legs for Rust/Go/Python ([#507](https://github.com/Ball-Lang/ball/issues/507)) ([32ae5f0](https://github.com/Ball-Lang/ball/commit/32ae5f02598807d6edeec7e187cd912d46c16ada)), closes [#491](https://github.com/Ball-Lang/ball/issues/491) [#491](https://github.com/Ball-Lang/ball/issues/491) [#497](https://github.com/Ball-Lang/ball/issues/497) [#492](https://github.com/Ball-Lang/ball/issues/492) [#495](https://github.com/Ball-Lang/ball/issues/495) [#491](https://github.com/Ball-Lang/ball/issues/491) [#452](https://github.com/Ball-Lang/ball/issues/452)
+
 ## [1.59.12](https://github.com/Ball-Lang/ball/compare/v1.59.11...v1.59.12) (2026-09-02)
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from conftest import run_cli
 
 
@@ -19,6 +21,34 @@ def test_help_prints_usage_to_stdout_and_exits_0():
         assert code == 0, flag
         assert "Usage:" in out
         assert err == ""
+
+
+def test_version_flag_prints_a_version_and_exits_0():
+    # `--version` is a flag, not a `version` verb: in the sibling CLIs
+    # `ball version <program>` is the self-hosted cli-core report about a Ball
+    # PROGRAM, and porting those verbs here is still a follow-up (#496).
+    for flag in ("--version", "-V"):
+        out, err, code = run_cli(flag)
+        assert code == 0, flag
+        assert err == ""
+        assert out.startswith("ball "), out
+        assert "Python toolchain" in out
+        # A version is reported either way: the installed distribution's, or the
+        # explicit source-checkout marker — never an empty or missing field.
+        assert re.search(r"ball \d+\.\d+\.\d+", out), out
+
+
+def test_version_matches_the_installed_distribution_when_installed():
+    import ball_cli
+
+    installed = ball_cli._installed_version()
+    out, _, code = run_cli("--version")
+    assert code == 0
+    if installed is None:
+        assert ball_cli.SOURCE_VERSION in out
+        assert "source checkout" in out
+    else:
+        assert installed in out
 
 
 def test_unknown_command_exits_2_with_message():

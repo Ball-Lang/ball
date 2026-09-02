@@ -22,23 +22,42 @@ build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance
 - The six modules are tied by `go/go.work`: `runtime`, `shared`, `compiler`, `encoder`, `engine`,
   `cli` (module paths `github.com/ball-lang/ball/go/<name>`). Each commits a `go.sum` **except**
   `runtime`, which is Go-stdlib-only (zero external deps).
-- **Ball's Go target is clone-and-build ONLY — it is NOT `go install`-able** (issue #361; same
-  distribution tier as Rust and C++, not Dart/TS). `go/{cli,compiler,encoder,engine}/go.mod` each
-  pin their intra-repo dependencies to a placeholder `v0.0.0` `require` plus a filesystem-relative
-  `replace github.com/ball-lang/ball/go/<dep> => ../<dep>`. Inside this checkout `go.work` satisfies
-  every module regardless, so local builds and CI never see a problem — but the Go module proxy
-  serves a nested module as its OWN directory tree only, never its siblings, so from outside:
-  - `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` →
-    `The go.mod file for the module providing named packages contains one or more replace
-    directives. It must not contain directives that would cause it to be interpreted differently
-    than if it were the main module.`
-  - a module copied out on its own → `replacement directory ../compiler does not exist` (etc.).
+- **Module shape for external consumers (issue #361).** No module's `go.mod` may carry a `replace`
+  directive: the Go module proxy serves a nested module as its OWN directory tree only (never its
+  siblings), and `go install` refuses outright — `The go.mod file for the module providing named
+  packages contains one or more replace directives.` So the intra-repo dependencies are plain
+  `require github.com/ball-lang/ball/go/<dep> v0.1.0` lines, and the local pins live in
+  **`go/go.work`** instead, as versioned replaces:
 
-  Today 2/6 modules (`shared`, `runtime` — the two with no sibling deps) build in isolation. The
-  `go` job in `ci.yml` measures this every run ("Go module isolation build", non-gating) so the
-  number stays honest. Making Go installable needs per-nested-module tagging
-  (`go/<name>/vX.Y.Z`), rewriting each `require` to the real tagged version, and DELETING the
-  `replace` directives — tracked on #361, not done.
+  ```
+  replace (
+  	github.com/ball-lang/ball/go/compiler v0.1.0 => ./compiler
+  	…
+  )
+  ```
+
+  A `use` block alone is **not** enough — Go still loads the module graph, so a `require` on a
+  version that is not yet on the proxy fails with `unknown revision go/<m>/v0.1.0` even for a
+  module that is itself in the workspace (verified with go 1.25). `go.work` is never published, so
+  the go.mod files stay proxy-clean. **Never re-add a `replace` to a `go/*/go.mod`.**
+- **The gate: `tools/go-module-proxy/smoke.sh`** (run by ci.yml's `go` job, gating). It synthesizes
+  the exact `file://` module proxy the `go/<module>/v0.1.0` tags will produce — from the tracked
+  files of the current commit, so the module hashes match what proxy.golang.org will compute — then
+  (leg 1) builds every module standalone with no `go.work` and no siblings and (leg 2) runs
+  `go install github.com/ball-lang/ball/go/cli/cmd/ball@v0.1.0` into a clean GOPATH/GOMODCACHE and
+  executes the installed binary. Run it locally after touching any `go.mod`/`go.work`; it needs
+  `go` + `python3` and no network beyond the public proxy for `google.golang.org/protobuf`.
+- **Bumping the module version is one edit in two files, and the smoke asserts they agree.**
+  `build_local_proxy.py` (which `smoke.sh` runs first) refuses unless every intra-repo `require`
+  names the same version, no `go.mod` carries a `replace`, and `go/go.work`'s versioned pins name
+  that same version and cover every required module — e.g.
+  `go/go.work's replace pins disagree with the go.mod requires; bump both in lockstep:
+  go/encoder: go.work pins v0.2.0, go.mod requires v0.1.0`. Without that check a half-bumped
+  workspace only fails later, in the `go` job's Build step, as `unknown revision go/<m>/vX.Y.Z`.
+- **`go install` off the public proxy needs the tags.** `go/<module>/v0.1.0` for all six modules
+  must be pushed on one commit before `go install github.com/ball-lang/ball/go/cli/cmd/ball@go/cli/v0.1.0`
+  resolves for a real outside consumer; until then the target is still clone-and-build in practice,
+  even though the module shape is now correct and CI proves it (#361).
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:

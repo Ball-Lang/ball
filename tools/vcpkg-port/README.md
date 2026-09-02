@@ -3,12 +3,54 @@
 This directory is a **staging area**, not a live submission. It holds a draft
 `ports/ball-lang/{vcpkg.json,portfile.cmake}` in the exact shape
 [microsoft/vcpkg](https://github.com/microsoft/vcpkg) expects for a new port,
-so a maintainer can carry it into a fork and open a PR there. **Nothing here
-is wired into this repo's own build** (not the root `buf.gen.yaml`, not any
-CMake/CI file) — it is inert until copied out.
+so a maintainer can carry it into a fork and open a PR there. The port files
+themselves stay inert — they are not wired into the root `buf.gen.yaml` or any
+CMake file, and CI never modifies them.
 
 The Releases leg of issue #368 (`.github/workflows/release-cpp.yml`) does
 **not** depend on this directory or on vcpkg landing upstream.
+
+## CI smoke: does the recipe actually build? (`vcpkg` job in `ci.yml`)
+
+The port carried `SHA512 0 # PLACEHOLDER` from the day it was written — vcpkg's
+own tell that no tool, human or automated, had ever resolved or built it. So
+`.github/workflows/ci.yml`'s **`vcpkg port smoke (x64-linux)`** job now proves
+the recipe builds against the current `cpp/` tree, before an external vcpkg
+maintainer becomes the first person to try it:
+
+1. bootstrap `microsoft/vcpkg` pinned to a fixed release tag *and* its commit
+   sha (a moved tag fails the job — a tag alone is not a pin);
+2. `python3 tools/vcpkg-port/make_ci_overlay.py <dir> <checkout>` **generates**
+   the CI overlay from the real port, replacing exactly one thing — the
+   `vcpkg_from_github(...)` download — with `set(SOURCE_PATH "<checkout>")`.
+   Every other line, `vcpkg_cmake_configure` / `vcpkg_cmake_install` /
+   `vcpkg_copy_tools` / `vcpkg_install_copyright` included, stays byte-identical
+   to the submission file, so a hand-maintained duplicate cannot rot out of sync
+   with what is actually submitted (the job prints the `diff` to prove it);
+3. `vcpkg install ball-lang --overlay-ports=<dir> --triplet x64-linux`;
+4. assert `installed/x64-linux/tools/ball-lang/ball` exists and `ball version`
+   prints something.
+
+This is **new infrastructure, not a regression gate** — there is no prior
+working state to have regressed. What it does catch from now on is a rename of
+the `ball` target, a removed `install(TARGETS ball ...)` rule, a dropped
+`BALL_BUILD_*` option, or a `vcpkg_copy_tools TOOL_NAMES` mismatch.
+
+It earned its keep on its very first run: the staged portfile configured the
+bare `${SOURCE_PATH}` (the repository root, which has no `CMakeLists.txt` — the
+documented build is `cmake -S cpp -B cpp/build`), so the port failed with
+*"The source directory ... does not appear to contain CMakeLists.txt"*. Fixed to
+`${SOURCE_PATH}/cpp`. That is a defect an external vcpkg maintainer would have
+hit on the first build of the submitted port.
+
+Residual gap: x64-linux only, matching the existing Linux-only
+`BALL_BUILD_PROTOBUF_RT` precedent. OS-specific portfile problems (an MSVC
+linker-flag interaction under vcpkg's applied `CMAKE_CXX_FLAGS`, say) would
+still surface for the first time during upstream review.
+
+Run it locally with `python3 tools/vcpkg-port/make_ci_overlay.py /tmp/overlay "$PWD"`
+followed by `vcpkg install ball-lang --overlay-ports=/tmp/overlay --triplet x64-linux`
+(Linux/WSL; it is a full `cpp/` CMake build inside vcpkg's sandbox).
 
 ## Why staged, not submitted
 

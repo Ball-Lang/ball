@@ -1,0 +1,244 @@
+name: Publish PyPI
+
+# Publishes the combining `ball-lang` distribution — the whole Python toolchain
+# (runtime, compiler, encoder, self-hosted engine, `ball` CLI, generated proto
+# bindings) in ONE wheel — to PyPI. TAG-GATED: merging a PR never publishes
+# anything; a release only happens when a `python-pypi/vX.Y.Z` tag is pushed.
+#
+# The tag namespace uses a `/` on purpose, mirroring publish-crates.yml
+# (`rust-crates/`) and publish-nuget.yml (`csharp-nuget/`): GitHub Actions tag
+# filters treat `*` as "any char except `/`", so `python-pypi/v0.1.0` does NOT
+# match the Dart publish workflow's `*-v[0-9]+.[0-9]+.[0-9]+*` filter
+# (release-publish.yml) or either of the other channels — none of the release
+# channels cross-fire. (Filter-pattern semantics:
+# https://docs.github.com/actions/using-workflows/workflow-syntax-for-github-actions#filter-pattern-cheat-sheet)
+#
+# Auth is PyPI Trusted Publishing (OIDC) via pypa/gh-action-pypi-publish — the
+# ONLY auth path, no API-token fallback, matching the retired-fallback
+# convention in publish-crates.yml/publish-nuget.yml: a silent fallback can only
+# mask a broken or removed publisher behind a green run.
+#
+# MAINTAINER SETUP (one-time, required before the first tag — the only step in
+# this channel a human must do): PyPI supports a PENDING publisher, created
+# BEFORE the project exists (unlike crates.io's RFC 3691 constraint), at
+# https://pypi.org/manage/account/publishing/ —
+#   PyPI Project Name: ball-lang
+#   Owner:             Ball-Lang
+#   Repository name:   ball
+#   Workflow name:     publish-pypi.yml
+#   Environment name:  pypi
+# Until that exists the OIDC exchange fails loudly at the publish step and
+# nothing is pushed. See python/AGENTS.md § Publishing and docs/RELEASE.md.
+#
+# What ships: python/pyproject.toml bundles the five python/ source trees plus
+# the generated ball.v1 binding, and ball_engine/_selfhost/engine.ball.json.gz —
+# the self-host Ball SOURCE, which `ball run` compiles into a per-user cache dir
+# on first use. The GENERATED compiled_engine.py is never shipped and never
+# committed (repo convention); the bundled source is regenerated here with Dart,
+# exactly as publish-crates.yml/publish-nuget.yml regenerate their own
+# self-host artifacts.
+
+on:
+  push:
+    tags:
+      - 'python-pypi/v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ball-lang to PyPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment: pypi
+    permissions:
+      id-token: write # OIDC token exchange for PyPI Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Same pin as ci.yml's python job; every python/*/pyproject.toml declares
+      # requires-python = ">=3.11" (the floor), CI runs the current 3.13 line.
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Install build tooling
+        run: python -m pip install "build>=1.2" "protobuf>=5.29" "pytest>=8.3,<10"
+
+      # Dart regenerates dart/self_host/engine.ball.json — the self-host Ball
+      # source the wheel bundles as package data. Same reason ci.yml's python job
+      # and the crates/nuget publish workflows bootstrap Dart.
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Regenerate engine.ball.json
+        run: |
+          dart pub get
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          test -f self_host/engine.ball.json
+
+      # ── Pre-publish gate: the self-hosted engine must run the whole
+      #    conformance corpus at Dart parity — the same publish bar as
+      #    publish-crates.yml/publish-nuget.yml. Never ship a broken `ball run`.
+      - name: "Self-host conformance sweep (must be full parity)"
+        run: |
+          cd python/engine
+          python -m ball_engine.regen
+          set +e
+          output=$(python -m conformance.runner 2>&1)
+          exit_code=$?
+          echo "$output"
+          passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')
+          failed=$(echo "$output" | grep -oP ', \K\d+(?= failed)')
+          total=$(echo "$output" | grep -oP ', \K\d+(?= total)')
+          echo ""
+          echo "=== Python Self-Host ==="
+          echo "Results: ${passed:-0} passed, ${failed:-0} failed, ${total:-0} total"
+          # `passed >= 1` floor (#439/#444): a bare emptiness check accepts a
+          # literal "0 passed, 0 failed, 0 total" — 0 is non-empty and 0 == 0 — so
+          # a sweep that executed NOTHING would green-light a publish to PyPI.
+          if [ "$exit_code" != "0" ] || [ "${failed:-1}" != "0" ] || [ "${passed:-0}" -lt 1 ] || [ "${passed}" != "${total}" ]; then
+            echo "::error::Python self-host conformance is not at full parity — refusing to publish"
+            exit 1
+          fi
+
+      # ── Derive the distribution version from the tag (python-pypi/vX.Y.Z), so
+      #    the published version always matches the tag without a separate
+      #    pyproject bump before every release — the same technique
+      #    publish-nuget.yml uses for its csproj version.
+      - name: Derive distribution version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          version="${tag#python-pypi/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([abc]|rc)?[0-9]*(\.post[0-9]+)?(\.dev[0-9]+)?$ ]]; then
+            echo "::error::Tag '$tag' did not yield a valid PEP 440 version (got '$version')"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Publishing version: $version"
+
+      # Inject the tag version into the combining pyproject (the checked-in value
+      # is only the development baseline), and prove it took — a silent sed miss
+      # would publish the baseline version instead of the tagged one.
+      - name: Set the distribution version
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          sed -i -E "0,/^version = \".*\"$/s//version = \"$version\"/" python/pyproject.toml
+          grep -q "^version = \"$version\"$" python/pyproject.toml || {
+            echo "::error::failed to inject version $version into python/pyproject.toml"
+            exit 1
+          }
+          grep -n '^version = ' python/pyproject.toml
+
+      # Bundles dart/self_host/engine.ball.json into the package as gzipped data
+      # ([tool.setuptools.package-data]); --check afterwards proves it is current.
+      - name: Bundle the self-host engine source
+        run: |
+          python python/engine/tool/bundle_selfhost.py
+          python python/engine/tool/bundle_selfhost.py --check
+
+      - name: Build sdist + wheel
+        run: |
+          python -m build python/
+          ls -la python/dist
+
+      # ── Pre-publish smoke: the artifact about to be uploaded installs into a
+      #    clean venv OUTSIDE the repo and every verb works, `ball run` compared
+      #    against a real conformance golden. Nothing is pushed until this passes.
+      - name: Pre-publish local-wheel smoke
+        run: python python/tool/wheel_smoke.py
+
+      # ── Auth: PyPI Trusted Publishing (OIDC) — REQUIRED, no token fallback.
+      #    Fails loudly here if the pending publisher above was never created.
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: python/dist
+
+  # ── The genuine round trip none of the sibling channels do: install the
+  #    published artifact FROM THE REAL INDEX in a second fresh venv and run it.
+  #    Uploading is not the same as being installable — a bad wheel tag, a
+  #    missing package-data entry, or an unsatisfiable dependency only shows up
+  #    here. Separate job so it starts from a clean machine with no build tree.
+  verify-published:
+    name: Verify the published wheel from PyPI
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Derive distribution version from tag
+        id: version
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "version=${tag#python-pypi/v}" >> "$GITHUB_OUTPUT"
+
+      # PyPI's index can lag the upload by a few seconds; retry rather than
+      # flaking, but never loop forever and never swallow a real failure.
+      - name: pip install ball-lang from PyPI
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/venv"
+          for attempt in 1 2 3 4 5 6; do
+            if "$RUNNER_TEMP/venv/bin/pip" install "ball-lang==$VERSION"; then
+              installed=1
+              break
+            fi
+            echo "attempt $attempt failed; the index may still be propagating"
+            sleep 20
+          done
+          if [ "${installed:-0}" != "1" ]; then
+            echo "::error::ball-lang==$VERSION never became installable from PyPI"
+            exit 1
+          fi
+
+      - name: Run the published CLI
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          ball="$RUNNER_TEMP/venv/bin/ball"
+          export BALL_CACHE_DIR="$RUNNER_TEMP/ball-cache"
+          out="$("$ball" --version)"
+          echo "$out"
+          echo "$out" | grep -qF "$VERSION" || {
+            echo "::error::published ball reports '$out', expected version $VERSION"
+            exit 1
+          }
+          "$ball" check tests/conformance/100_complex_control_flow.ball.json
+          # `run` exercises the compile-on-first-use engine bootstrap from the
+          # published wheel's bundled source; compare stdout to the golden as
+          # BYTES (text mode would collapse a semantic lone \r).
+          "$ball" run tests/conformance/100_complex_control_flow.ball.json > "$RUNNER_TEMP/actual.txt"
+          python - <<'PY'
+          import os
+          import pathlib
+          import sys
+
+          actual = pathlib.Path(os.environ["RUNNER_TEMP"], "actual.txt").read_bytes()
+          golden = pathlib.Path(
+              "tests/conformance/100_complex_control_flow.expected_output.txt"
+          ).read_bytes()
+
+          def norm(raw: bytes) -> str:
+              return raw.decode("utf-8").replace("\r\n", "\n").rstrip("\n")
+
+          if not norm(golden):
+              sys.exit("::error::the golden is empty — the comparison would be vacuous")
+          if norm(actual) != norm(golden):
+              sys.exit(f"::error::published `ball run` output {norm(actual)!r} != golden {norm(golden)!r}")
+          print(f"published `ball run` matches the golden: {norm(actual)!r}")
+          PY

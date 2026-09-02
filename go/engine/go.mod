@@ -13,17 +13,9 @@ module github.com/ball-lang/ball/go/engine
 go 1.23
 
 require (
-	github.com/ball-lang/ball/go/encoder v0.0.0
-	github.com/ball-lang/ball/go/compiler v0.0.0
-	github.com/ball-lang/ball/go/runtime v0.0.0
-	github.com/ball-lang/ball/go/shared v0.0.0
+	github.com/ball-lang/ball/go/compiler v0.1.0
+	github.com/ball-lang/ball/go/encoder v0.1.0
+	github.com/ball-lang/ball/go/runtime v0.1.0
+	github.com/ball-lang/ball/go/shared v0.1.0
 	google.golang.org/protobuf v1.36.11
 )
-
-replace github.com/ball-lang/ball/go/shared => ../shared
-
-replace github.com/ball-lang/ball/go/runtime => ../runtime
-
-replace github.com/ball-lang/ball/go/compiler => ../compiler
-
-replace github.com/ball-lang/ball/go/encoder => ../encoder

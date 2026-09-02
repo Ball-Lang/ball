@@ -132,10 +132,28 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > engine, but the Ball → C++ **compiled** leg — a different leg, and a required
 > PR check — emitted a call to the hidden getter and `g++` rejected it. The
 > fixture was withdrawn and the gap filed as
-> [#501](https://github.com/Ball-Lang/ball/issues/501) rather than carved out:
-> `CPP_COMPILE_CARVEOUTS` is empty and keeping it that way is worth more than one
-> fixture. When you add a fixture, enumerate the legs it must pass — the engine
-> rows and the compiled rows are not the same set.
+> [#501](https://github.com/Ball-Lang/ball/issues/501) rather than carved out.
+> When you add a fixture, enumerate the legs it must pass — the engine rows and
+> the compiled rows are not the same set.
+>
+> **Withdraw or carve out?** Withdraw when the fixture's coverage exists
+> elsewhere: 406's bug was already locked by
+> `csharp/compiler/test/AccessorEdgeCaseTests.cs`, so dropping it cost nothing.
+> Carve out — with the entry justified inline and referencing a filed issue —
+> when the fixture is the *only* cross-target lock on behavior being fixed in
+> that same PR. `416_user_method_name_arity_collision` is that case: it is the
+> regression test for #494's arity fix, it is what caught the TS engine's
+> `map_contains_key` prototype-pollution bug, and it lifts all four compiler-leg
+> ratchets — withdrawing it would delete six engines' worth of coverage to keep
+> a list empty. The Ball → C++ gap it exposes is
+> [#511](https://github.com/Ball-Lang/ball/issues/511). Either way the answer is
+> never "leave the leg red".
+>
+> A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
+> `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out
+> would have exited 0 having compiled nothing. It now asserts a positive floor
+> (`passed=0/failed=0` is an error). Adding a carve-out means re-checking that
+> the gate around it can still fail.
 
 ### 2c. Every gate above is scoped to code WE wrote
 The whole `tests/conformance/` corpus is hand-authored, single-file,

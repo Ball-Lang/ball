@@ -47,6 +47,13 @@ build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance
   `go install github.com/ball-lang/ball/go/cli/cmd/ball@v0.1.0` into a clean GOPATH/GOMODCACHE and
   executes the installed binary. Run it locally after touching any `go.mod`/`go.work`; it needs
   `go` + `python3` and no network beyond the public proxy for `google.golang.org/protobuf`.
+- **Bumping the module version is one edit in two files, and the smoke asserts they agree.**
+  `build_local_proxy.py` (which `smoke.sh` runs first) refuses unless every intra-repo `require`
+  names the same version, no `go.mod` carries a `replace`, and `go/go.work`'s versioned pins name
+  that same version and cover every required module — e.g.
+  `go/go.work's replace pins disagree with the go.mod requires; bump both in lockstep:
+  go/encoder: go.work pins v0.2.0, go.mod requires v0.1.0`. Without that check a half-bumped
+  workspace only fails later, in the `go` job's Build step, as `unknown revision go/<m>/vX.Y.Z`.
 - **`go install` off the public proxy needs the tags.** `go/<module>/v0.1.0` for all six modules
   must be pushed on one commit before `go install github.com/ball-lang/ball/go/cli/cmd/ball@go/cli/v0.1.0`
   resolves for a real outside consumer; until then the target is still clone-and-build in practice,

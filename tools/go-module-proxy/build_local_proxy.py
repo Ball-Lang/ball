@@ -56,6 +56,10 @@ _INTRA_REQUIRE = re.compile(
     re.MULTILINE,
 )
 _REPLACE_LINE = re.compile(r"^\s*replace\s+", re.MULTILINE)
+_WORK_REPLACE = re.compile(
+    r"^\s*github\.com/ball-lang/ball/go/(?P<dep>\w+)\s+(?P<version>v\d+\.\d+\.\d+)\s*=>",
+    re.MULTILINE,
+)
 _SEMVER = re.compile(r"^v\d+\.\d+\.\d+$")
 
 
@@ -96,10 +100,19 @@ def module_version(root: pathlib.Path) -> str:
 
     This is the version the `go/<module>/vX.Y.Z` tags must carry, so it is the
     one source of truth for both this proxy and the release tagging job. Every
-    intra-repo `require` across the workspace must agree, and no module's go.mod
-    may carry a `replace` directive (`go install` rejects a module whose go.mod
-    has one) — both are asserted here so a bad edit fails loudly rather than
-    quietly producing an unresolvable module set.
+    intra-repo `require` across the workspace must agree, no module's go.mod may
+    carry a `replace` directive (`go install` rejects a module whose go.mod has
+    one), and go/go.work's own versioned `replace` pins must name that same
+    version and cover every required intra-repo module — all three are asserted
+    here so a bad edit fails loudly rather than quietly producing an
+    unresolvable module set.
+
+    The go.work cross-check is what makes a version bump a single edit that
+    cannot half-land. go.work pins `github.com/ball-lang/ball/go/<m> vX.Y.Z =>
+    ./<m>`; if that version drifts from the go.mod `require` lines, the `go`
+    job's Build step fails with "unknown revision go/<m>/vX.Y.Z" — loud, but
+    only after the workspace is already inconsistent. Asserting it here fails in
+    this smoke, at the one place that already knows both numbers.
     """
     versions: dict[str, str] = {}
     for mod_dir in workspace_modules(root):
@@ -121,7 +134,38 @@ def module_version(root: pathlib.Path) -> str:
             "the intra-repo module versions disagree; every go/*/go.mod must name "
             f"the same version:\n{detail}"
         )
-    return distinct[0]
+    version = distinct[0]
+
+    work_text = (root / "go" / "go.work").read_text(encoding="utf-8")
+    work_pins = {
+        match.group("dep"): match.group("version")
+        for match in _WORK_REPLACE.finditer(work_text)
+    }
+    if not work_pins:
+        raise SystemExit(
+            "go/go.work has no versioned `replace github.com/ball-lang/ball/go/<m> "
+            "vX.Y.Z => ./<m>` pins — without them the workspace resolves the "
+            "intra-repo requires off the public proxy instead of this tree"
+        )
+    drifted = sorted(
+        f"  go/{dep}: go.work pins {pinned}, go.mod requires {version}"
+        for dep, pinned in work_pins.items()
+        if pinned != version
+    )
+    if drifted:
+        raise SystemExit(
+            "go/go.work's replace pins disagree with the go.mod requires; bump "
+            "both in lockstep:\n" + "\n".join(drifted)
+        )
+    required = {key.split(" -> ", 1)[1] for key in versions}
+    unpinned = sorted(required - set(work_pins))
+    if unpinned:
+        detail = ", ".join(f"go/{m}" for m in unpinned)
+        raise SystemExit(
+            "go/go.work does not pin every required intra-repo module back to "
+            f"this tree; missing: {detail}"
+        )
+    return version
 
 
 def tracked_files(root: pathlib.Path, rel_dir: str) -> list[str]:

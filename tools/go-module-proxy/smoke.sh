@@ -39,13 +39,13 @@ echo "local module proxy: $proxy_url ($version)"
 # The local proxy answers for github.com/ball-lang/ball/go/*; everything else
 # (google.golang.org/protobuf) falls through to the public proxy on 404.
 # GOSUMDB=off because these versions are not on sum.golang.org until the tags
-# are pushed; GOFLAGS is cleared so a developer's ambient value can't change the
-# resolution being measured.
+# are pushed (GOSUMDB is the only knob that does that job in a modules-era
+# toolchain — the pre-modules GONOSUMDB/GONOSUMCHECK are no-ops and are
+# deliberately not set here); GOPRIVATE is cleared so an ambient value can't
+# redirect resolution away from the proxy under test, and GOFLAGS likewise.
 export GOPROXY="$proxy_url,https://proxy.golang.org,direct"
 export GOSUMDB=off
-export GONOSUMDB='github.com/ball-lang/*'
 export GOPRIVATE=
-export GONOSUMCHECK=1
 export GOWORK=off
 export GOFLAGS=
 

@@ -567,8 +567,30 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/vcpkg-port/make_ci_overlay.py "$RUNNER_TEMP/overlay" "$GITHUB_WORKSPACE"
-          echo "--- overlay portfile.cmake differs from the submission port ONLY in the download block:"
-          diff tools/vcpkg-port/ports/ball-lang/portfile.cmake "$RUNNER_TEMP/overlay/ball-lang/portfile.cmake" || true
+          # Print the overlay delta for the log. `diff` exits 1 whenever the two
+          # files differ, which here is ALWAYS by construction (the overlay
+          # swaps the vcpkg_from_github download block for a local SOURCE_PATH),
+          # so its status is consumed explicitly instead of being discarded with
+          # `|| true`: 1 is the expected case, 0 means the generator silently
+          # stopped rewriting anything, and anything else is a broken diff.
+          set +e
+          delta="$(diff -u tools/vcpkg-port/ports/ball-lang/portfile.cmake "$RUNNER_TEMP/overlay/ball-lang/portfile.cmake")"
+          status=$?
+          set -e
+          case "$status" in
+            1)
+              echo "--- overlay portfile.cmake differs from the submission port ONLY in the download block:"
+              echo "$delta"
+              ;;
+            0)
+              echo "::error::the CI overlay portfile is byte-identical to the submission port — make_ci_overlay.py did not swap the download block, so this smoke would build a downloaded tarball instead of this checkout"
+              exit 1
+              ;;
+            *)
+              echo "::error::diff of the overlay portfile failed (exit $status)"
+              exit 1
+              ;;
+          esac
 
       - name: vcpkg install ball-lang
         shell: bash

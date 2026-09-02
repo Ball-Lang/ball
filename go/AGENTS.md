@@ -53,6 +53,13 @@ and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
 GOPATH and runs the binary. Off the *public* proxy this resolves only once the
 six `go/<module>/v0.1.0` tags are pushed on one commit.
 
+Before it builds anything, the script asserts the version story is internally
+consistent: every intra-repo `require` names the same version, no `go.mod` has a
+`replace`, and `go/go.work`'s versioned pins name that same version and cover
+every required module. So a version bump is a single lockstep edit across
+`go/*/go.mod` + `go/go.work`, and a half-bump fails here instead of surfacing
+later as `unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step.
+
 ## Encoder design (see `go/encoder/encoder.go` doc comment)
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks
   declarations → statements → expressions, mapping each to a Ball node. The

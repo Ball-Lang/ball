@@ -1050,6 +1050,43 @@ pub fn ball_is(value: BallValue, type_name: &str) -> BallValue {
     BallValue::Bool(ball_is_type(&value, type_name))
 }
 
+/// `std.type_of` (#489) — the value's canonical runtime type NAME.
+///
+/// This is the string form of the discrimination [`ball_is_type`] already
+/// performs: the *base* type name, with generic type arguments dropped and any
+/// module prefix stripped (`main:Chain` → `Chain`). Both Dart's
+/// `value.runtimeType.toString()` and JavaScript's `typeof` encode to this
+/// function, so it must agree with the Dart reference engine's `_typeNameOf`.
+pub fn ball_type_of(value: BallValue) -> BallValue {
+    let name = match &value {
+        BallValue::Null => "Null".to_string(),
+        BallValue::Bool(_) => "bool".to_string(),
+        BallValue::Int(_) => "int".to_string(),
+        BallValue::Double(_) => "double".to_string(),
+        BallValue::String(_) => "String".to_string(),
+        // A bytes literal is materialized as a `List<int>` everywhere else too.
+        BallValue::Bytes(_) | BallValue::List(_) => "List".to_string(),
+        BallValue::Function(_) => "Function".to_string(),
+        BallValue::Message(message) => short_type_name(&message.type_name).to_string(),
+        BallValue::Map(map) => {
+            // An ordered set is the portable `{'__ball_set__': [...]}` map form,
+            // and a self-hosted-engine object is a map tagged with `__type__`;
+            // both must be discriminated before plain `Map`.
+            if is_ball_set_value(&value) {
+                "Set".to_string()
+            } else {
+                match map.get("__type__") {
+                    Some(BallValue::String(tag)) if !tag.is_empty() => {
+                        short_type_name(tag.as_str()).to_string()
+                    }
+                    _ => "Map".to_string(),
+                }
+            }
+        }
+    };
+    BallValue::String(name)
+}
+
 /// A `CastPattern` (`case var x as int:`) **asserts** its type rather than
 /// refuting the case: a mismatch *throws*, it does not fall through to the next
 /// case (the reference engine throws `BallException('TypeError', 'type cast

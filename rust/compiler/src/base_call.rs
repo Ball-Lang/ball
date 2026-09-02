@@ -330,6 +330,8 @@ impl Compiler<'_> {
             "is" => self.compile_type_op("ball_is", &f),
             "is_not" => self.compile_type_op("ball_is_not", &f),
             "as" => self.compile_type_op("ball_as", &f),
+            // #489 — the value's canonical runtime type NAME (no `type` field).
+            "type_of" => self.un("ball_type_of", &f),
             // ── Indexing ──
             "index" | "string_char_at" => self.compile_index(&f),
             // ── Strings (pure manipulation) ──

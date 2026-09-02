@@ -156,8 +156,17 @@ class DartCompiler {
   // Lookup-table construction
   // ════════════════════════════════════════════════════════════
 
+  /// True when the program declares the `std.type_of` base function, so the
+  /// emitted library needs the `_ballTypeOf` runtime helper (see
+  /// [_compileTypeOf]). The encoder declares a base function only when the
+  /// program actually calls it, so this is tight.
+  bool _usesTypeOf = false;
+
   void _buildLookupTables() {
     for (final module in program.modules) {
+      for (final func in module.functions) {
+        if (func.isBase && func.name == 'type_of') _usesTypeOf = true;
+      }
       final allBase = module.functions.every((f) => f.isBase);
       if (allBase && module.functions.isNotEmpty) {
         _baseModules.add(module.name);
@@ -531,6 +540,45 @@ class DartCompiler {
             'int _ballHeapPtr = 0;\n'
             'final _ballStackFrames = <int>[];\n'
             'int _ballStackPtr = 65536;\n',
+          ),
+        );
+      }
+
+      // ── std.type_of runtime helper (#489) ──
+      // Dart has no single built-in yielding this vocabulary: bare
+      // `v.runtimeType.toString()` gives `List<int>` / `_Map<String, int>` /
+      // `_Set<int>`, while `std.type_of` is specified as the BASE name every
+      // target agrees on. The tail deliberately interpolates rather than
+      // calling `.toString()` on `runtimeType`: that exact chain IS
+      // `std.type_of` (the encoder maps it), so a compile → encode → compile
+      // round trip would turn the helper into a call to itself.
+      if (_usesTypeOf) {
+        b.body.add(
+          cb.Code(
+            '// Ball std.type_of runtime helper\n'
+            'String _ballTypeOf(dynamic v) {\n'
+            "  if (v == null) return 'Null';\n"
+            "  if (v is bool) return 'bool';\n"
+            "  if (v is int) return 'int';\n"
+            "  if (v is double) return 'double';\n"
+            "  if (v is String) return 'String';\n"
+            "  if (v is List) return 'List';\n"
+            "  if (v is Set) return 'Set';\n"
+            "  if (v is Function) return 'Function';\n"
+            // A Ball engine object is map-shaped and tagged with `__type__`,
+            // so the Map arm must yield the class's short name for it. A real
+            // Dart Map carries no such key and answers 'Map'; a compiled class
+            // instance is not a Map at all and falls through to the tail.
+            '  if (v is Map) {\n'
+            "    final tag = v['__type__'];\n"
+            '    if (tag is String && tag.isNotEmpty) {\n'
+            "      final colonIdx = tag.indexOf(':');\n"
+            '      return colonIdx >= 0 ? tag.substring(colonIdx + 1) : tag;\n'
+            '    }\n'
+            "    return 'Map';\n"
+            '  }\n'
+            r"  return '${v.runtimeType}';"
+            '\n}\n',
           ),
         );
       }
@@ -3242,6 +3290,7 @@ class DartCompiler {
       'is' => _typeOp(f, 'is'),
       'is_not' => _typeOp(f, 'is!'),
       'as' => _typeOp(f, 'as'),
+      'type_of' => _compileTypeOf(f),
       // Assignment (simple and compound)
       'assign' => _compileAssign(f),
       // Indexing / collections / etc.
@@ -4130,6 +4179,19 @@ class DartCompiler {
       _ => _raw('(${_emit(ve)} $op $t)'), // coverage:ignore-line
     };
     return _emit(expr.parenthesized);
+  }
+
+  /// `std.type_of` — the value's canonical runtime type NAME.
+  ///
+  /// Delegates to the `_ballTypeOf` top-level helper the library preamble
+  /// emits (see [_buildLibrary]). A helper rather than an inline IIFE: an
+  /// immediately-invoked lambda does not survive the compile → re-encode →
+  /// engine conformance leg (its parameter never binds), whereas a plain
+  /// top-level function re-encodes as an ordinary user function.
+  String _compileTypeOf(Map<String, Expression> f) {
+    final v = f['value'] ?? f['target'] ?? f['arg0'];
+    if (v == null) return '/* invalid type_of */';
+    return '_ballTypeOf(${_e(v)})';
   }
 
   String _mathFunc(Map<String, Expression> f, String func) {

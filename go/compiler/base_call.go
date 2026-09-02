@@ -118,6 +118,9 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.IsNotType(%s, %s)", c.arg(f, "value", "object"), c.typeName(f))
 	case "as_type", "as", "cast":
 		return fmt.Sprintf("ballrt.AsType(%s, %s)", c.arg(f, "value", "object"), c.typeName(f))
+	// #489 — the value's canonical runtime type NAME (no `type` field).
+	case "type_of":
+		return fmt.Sprintf("ballrt.TypeOf(%s)", c.arg(f, "value", "object"))
 
 	// ── Strings & conversion ─────────────────────────────────────────────
 	case "concat", "string_concat":

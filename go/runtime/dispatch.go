@@ -123,6 +123,52 @@ func IsNotType(v Value, typeName string) Value { return !isType(v, typeName) }
 // concern and surfaces at the next operation.
 func AsType(v Value, typeName string) Value { return v }
 
+// TypeOf implements std.type_of (#489): the value's canonical runtime type
+// NAME, i.e. the string form of the very discrimination isType performs — the
+// BASE type name with generic type arguments dropped and any module prefix
+// stripped (main:Chain -> Chain). Both Dart's value.runtimeType.toString() and
+// JavaScript's typeof encode to this function, so it must agree with the Dart
+// reference engine's _typeNameOf.
+func TypeOf(v Value) Value { return typeOfName(v) }
+
+func typeOfName(v Value) string {
+	switch t := v.(type) {
+	case nil:
+		return "Null"
+	case bool:
+		return "bool"
+	case int64:
+		return "int"
+	case float64:
+		return "double"
+	case string:
+		return "String"
+	case *List:
+		return "List"
+	case *Set:
+		return "Set"
+	case *Function:
+		return "Function"
+	case *Message:
+		return messageShortType(v)
+	case *Map:
+		// A self-hosted-engine object is a map tagged with __type__.
+		if tag, ok := t.Get("__type__"); ok {
+			if name, ok := tag.(string); ok && name != "" {
+				return messageShortName(name)
+			}
+		}
+		return "Map"
+	}
+	// Any remaining runtime wrapper (RegExp, StringBuffer, ...) reports its own
+	// short Go type name rather than a silent placeholder.
+	name := fmt.Sprintf("%T", v)
+	if i := strings.LastIndex(name, "."); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
+}
+
 func isType(v Value, typeName string) bool {
 	// Strip a generic type-argument suffix: `List<Object?>` → `List`,
 	// `Map<String, int>` → `Map`. Ball values are untyped at runtime, so a

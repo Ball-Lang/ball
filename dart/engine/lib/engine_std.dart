@@ -470,6 +470,7 @@ extension BallEngineStd on BallEngine {
       'is': _stdTypeCheck,
       'is_not': (i) => !(_stdTypeCheck(i) as bool),
       'as': _extractUnaryArg,
+      'type_of': _stdTypeOf,
 
       // Indexing
       'index': _stdIndex,
@@ -1942,6 +1943,52 @@ extension BallEngineStd on BallEngine {
     final type = m['type'] as String?;
     if (type == null) return false;
     return _typeMatches(value, type);
+  }
+
+  /// `std.type_of` — the runtime type NAME of a value, as a string.
+  ///
+  /// This is the string form of the very discrimination [_typeMatches] already
+  /// performs for `std.is`/`std.as`: the canonical *base* type name, with
+  /// generic type arguments dropped and any module prefix stripped
+  /// (`main:Chain` → `Chain`). Both Dart's `value.runtimeType.toString()` and
+  /// JavaScript's `typeof` encode to this function, so the vocabulary is
+  /// deliberately generic-free — every target reproduces it without needing
+  /// real generic tracking.
+  Object? _stdTypeOf(Object? input) {
+    final m = _stdAsMap(input);
+    if (m == null) {
+      throw BallRuntimeError('std.type_of: expected an input message');
+    }
+    return _typeNameOf(m['value']);
+  }
+
+  /// The canonical type name of [value] (see [_stdTypeOf]).
+  String _typeNameOf(Object? value) {
+    if (value == null || value is BallNull) return 'Null';
+    if (_ballIsBool(value)) return 'bool';
+    if (_ballIsInt(value)) return 'int';
+    if (_ballIsDouble(value)) return 'double';
+    if (_ballIsString(value)) return 'String';
+    if (_ballIsList(value)) return 'List';
+    // An ordered set is map-shaped, so it must be discriminated before the
+    // object/Map branch below.
+    if (_isBallSet(value)) return 'Set';
+    if (value is Function || value is BallFunction) return 'Function';
+    final objMap = _stdAsMap(value);
+    if (objMap != null) {
+      final tag = objMap['__type__'];
+      if (tag is String && tag.isNotEmpty) {
+        final colonIdx = tag.indexOf(':');
+        return colonIdx >= 0 ? tag.substring(colonIdx + 1) : tag;
+      }
+      return 'Map';
+    }
+    // Any remaining host value (DateTime, RegExp, StringBuffer, …) reports its
+    // own runtime type name. Deliberately written as an interpolation and NOT
+    // as the `.runtimeType.toString()` chain: that chain *is* `std.type_of`
+    // (the Dart encoder maps it), so writing it here would recurse forever in
+    // every compiled self-hosted engine.
+    return '${value.runtimeType}';
   }
 
   bool _typeMatches(Object? value, String type) {

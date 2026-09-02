@@ -288,6 +288,15 @@ Module buildStdModule() {
     _fn('is', 'TypeCheckInput', '', 'Type test: value is Type'),
     _fn('is_not', 'TypeCheckInput', '', 'Negated type test: value is! Type'),
     _fn('as', 'TypeCheckInput', '', 'Type cast: value as Type'),
+    _fn(
+      'type_of',
+      'UnaryInput',
+      '',
+      'Runtime type name: value.runtimeType.toString() / JS typeof. '
+          'Returns the canonical base type name (int, double, String, bool, '
+          "List, Map, Set, Function, Null, or a user class's short name) "
+          'with generic type arguments dropped and any module prefix stripped.',
+    ),
 
     // --- Indexing ---
     _fn('index', 'IndexInput', '', 'Index access: target[index]'),

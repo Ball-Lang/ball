@@ -5,10 +5,9 @@
 //! language-agnostic (arithmetic, comparison, logical, control flow, error
 //! handling, string/math operations, ...) and every target language
 //! compiler/engine implements it natively. `dart/shared/std.json` is the
-//! canonical inventory this must match exactly: **119** functions (the
-//! issue's tracked count of 118 has drifted by one function since the issue
-//! was filed — verified against `std.json` directly, see the
-//! `function_count_matches_std_json` test).
+//! canonical inventory this must match exactly: **120** functions (bump this
+//! and the `function_count_matches_std_json` test together whenever
+//! `std.dart`/`std.json` gains or loses one — `type_of` was the last, #489).
 
 use crate::descriptor_builders::{
     base_fn, bool_field, expr_field, expr_list_field, string_field, type_def,
@@ -418,6 +417,15 @@ fn functions() -> Vec<FunctionDefinition> {
             "Negated type test: value is! Type",
         ),
         base_fn("as", "TypeCheckInput", "", "Type cast: value as Type"),
+        base_fn(
+            "type_of",
+            "UnaryInput",
+            "",
+            "Runtime type name: value.runtimeType.toString() / JS typeof. \
+             Returns the canonical base type name (int, double, String, bool, \
+             List, Map, Set, Function, Null, or a user class's short name) \
+             with generic type arguments dropped and any module prefix stripped.",
+        ),
         // --- Indexing ---
         base_fn("index", "IndexInput", "", "Index access: target[index]"),
         // --- Strings (pure manipulation, no I/O, universal) ---
@@ -672,10 +680,9 @@ mod tests {
     #[test]
     fn function_count_matches_std_json() {
         // Canonical inventory: `dart/shared/std.json`, regenerated from
-        // `dart/shared/lib/std.dart` via `dart run bin/gen_std.dart`. The
-        // issue's tracked count (118) is stale by one function relative to
-        // the current `std.json` on `main` — 119 is the verified real count.
+        // `dart/shared/lib/std.dart` via `dart run bin/gen_std.dart`. Bump this
+        // in lockstep with that file: 120 since `type_of` landed (#489).
         let module = build_std_module();
-        assert_eq!(module.functions.len(), 119);
+        assert_eq!(module.functions.len(), 120);
     }
 }

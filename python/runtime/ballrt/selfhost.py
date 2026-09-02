@@ -65,6 +65,42 @@ def is_type(value, typename: str) -> bool:
     return False
 
 
+def type_of(value) -> str:
+    """``std.type_of`` (#489) -- the value's canonical runtime type NAME.
+
+    The string form of the very discrimination :func:`is_type` performs: the
+    BASE type name, with generic type arguments dropped and any module prefix
+    stripped (``main:Chain`` -> ``Chain``). Both Dart's
+    ``value.runtimeType.toString()`` and JavaScript's ``typeof`` encode to this
+    function, so it must agree with the Dart reference engine's ``_typeNameOf``.
+    """
+    if value is None:
+        return "Null"
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "double"
+    if isinstance(value, str):
+        return "String"
+    if isinstance(value, (list, tuple)):
+        return "List"
+    if isinstance(value, BallSet):
+        return "Set"
+    if isinstance(value, dict):
+        # A self-hosted-engine object is a dict tagged with ``__type__``.
+        tag = value.get("__type__")
+        if isinstance(tag, str) and tag:
+            return tag.rsplit(":", 1)[-1]
+        return "Map"
+    if callable(value):
+        return "Function"
+    # Any remaining runtime object (RegExp, StringBuffer, a compiled user
+    # class, ...) reports its own class name rather than a silent placeholder.
+    return type(value).__name__
+
+
 def as_type(value, typename: str):
     """Dart ``value as Type``. Python is dynamically typed, so a cast is an
     identity — the value flows through unchanged (the engine relies on the

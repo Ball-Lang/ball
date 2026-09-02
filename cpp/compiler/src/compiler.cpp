@@ -4974,6 +4974,11 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         return fn == "is" ? ck : ("!(" + ck + ")");
     }
     if (fn == "as") return get_message_field(call, "value");
+    // #489 — the value's canonical runtime type NAME (no `type` field). Emitted
+    // UNWRAPPED so a concrete emitted struct picks ball_type_of's
+    // `__ball_type_name()` template overload; every other value converts to the
+    // BallDyn overload.
+    if (fn == "type_of") return "ball_type_of(" + get_message_field(call, "value") + ")";
     if (fn == "null_coalesce") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");

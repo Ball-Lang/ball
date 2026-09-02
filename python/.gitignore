@@ -1,0 +1,6 @@
+# Build artifacts of the combining `ball-lang` distribution (issue #496):
+# `python -m build python/` (see python/tool/wheel_smoke.py and
+# .github/workflows/publish-pypi.yml).
+dist/
+build/
+*.egg-info/

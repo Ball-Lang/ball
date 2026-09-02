@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TextIO
 
+from . import version_line
 from .argparse_util import HelpRequested
 from .commands import check as check_cmd
 from .commands import compile as compile_cmd
@@ -37,6 +38,9 @@ Commands:
   compile  <program.ball.json>   Compile a Ball program to Python source     [-o out.py]
   encode   <source.py>           Encode a Python source file into a Ball program [-o out.ball.json]
   check    <program.ball.json>   Parse and validate a Ball program without running it [--compile]
+
+Options:
+  --version                      Print the installed toolchain version and exit
 
 Programs are read as proto3 JSON (.ball.json / .json), optionally wrapped in a
 google.protobuf.Any @type envelope.
@@ -81,6 +85,13 @@ def _dispatch(argv: list[str], stdout: TextIO, stderr: TextIO) -> int:
     cmd, rest = argv[0], argv[1:]
     if cmd in ("-h", "--help", "help"):
         stdout.write(_USAGE)
+        return EXIT_OK
+    # `--version` is a FLAG, deliberately not a `version` verb: in the sibling
+    # CLIs `ball version <program>` is a self-hosted cli-core report about a Ball
+    # PROGRAM (dart/shared/lib/cli_core.dart's versionLine). Porting those verbs
+    # here is still a follow-up, so squatting the name would be a collision.
+    if cmd in ("-V", "--version"):
+        stdout.write(version_line() + "\n")
         return EXIT_OK
 
     handler = _HANDLERS.get(cmd)

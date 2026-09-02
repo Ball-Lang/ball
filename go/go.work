@@ -1,5 +1,6 @@
 // Go workspace tying together the Ball Go implementation modules so they
-// resolve against the local tree during development (no published versions yet).
+// resolve against the local tree during development, at the same version their
+// go.mod files publish (see the replace block at the bottom).
 //
 //   go/runtime  — dependency-free runtime value model (package ballrt)
 //   go/shared   — generated proto bindings (package ballv1)
@@ -16,4 +17,22 @@ use (
 	./engine
 	./runtime
 	./shared
+)
+
+// The five modules that other modules `require` are pinned back to this tree at
+// the version their go.mod files name (v0.1.0 — the first published Go module
+// tag set, see go/cli/AGENTS.md). A workspace `use` block alone is NOT enough:
+// Go still loads the module graph, so a `require` on a version that is not yet
+// on the module proxy fails with "unknown revision go/<m>/v0.1.0" even for a
+// module that is itself in the workspace (verified with go 1.25). Keeping the
+// pin here — instead of a `replace ... => ../<dep>` inside each module's own
+// go.mod — is what makes the published go.mod files resolvable off
+// proxy.golang.org: `go install` refuses any module whose go.mod carries
+// replace directives, and go.work is never published.
+replace (
+	github.com/ball-lang/ball/go/compiler v0.1.0 => ./compiler
+	github.com/ball-lang/ball/go/encoder v0.1.0 => ./encoder
+	github.com/ball-lang/ball/go/engine v0.1.0 => ./engine
+	github.com/ball-lang/ball/go/runtime v0.1.0 => ./runtime
+	github.com/ball-lang/ball/go/shared v0.1.0 => ./shared
 )

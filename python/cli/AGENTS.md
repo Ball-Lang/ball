@@ -51,18 +51,38 @@ Mirrors the Rust/Go CLIs so the four Python verbs behave identically:
 
 ## `run` and the self-hosted engine
 
-`run` executes via the self-hosted `python/engine`, whose compiled-engine driver
-imports the generated `ball_engine/compiled_engine.py` (~690 KB, compiled from
-`dart/self_host/engine.ball.json`; gitignored, absent from a fresh checkout).
-Because the engine lazy-imports that artifact inside `run_program_view`, its
-absence raises an `ImportError` (`cannot import name 'compiled_engine' …`) that
-`run` surfaces as a **runtime error (exit 1)** carrying the "regenerate with
-`python -m ball_engine.regen`" message — never a silent success, never a raw
-traceback. This is the Python analog of the Go CLI's `selfhost` build tag, the
-Rust CLI's `self_host` Cargo feature, and C#'s `-p:SelfHost=true`.
+`run` executes via the self-hosted `python/engine`, which resolves its compiled
+engine from one of two places (`ball_engine.driver.compiled_engine`):
+
+1. the generated `ball_engine/compiled_engine.py` (~690 KB, compiled from
+   `dart/self_host/engine.ball.json`; gitignored, absent from a fresh checkout)
+   — the checkout path every CI leg exercises;
+2. otherwise `ball_engine.bootstrap`, which compiles the bundled Ball engine
+   source into a per-user cache dir on first use (~0.25 s) — the only path a
+   `pip install ball-lang` wheel has, since generated code is never shipped
+   (issue #496).
+
+When neither is available — a fresh checkout with no
+`dart/self_host/engine.ball.json` and no bundled source — the failure is honest:
+**exit 1** carrying the "regenerate with `python -m ball_engine.regen`" message,
+never a silent success, never a raw traceback. The same holds for an unwritable
+cache dir or a compile failure, each with its own actionable message
+(`BootstrapError`). This is the Python analog of the Go CLI's `selfhost` build
+tag, the Rust CLI's `self_host` Cargo feature, and C#'s `-p:SelfHost=true`.
 
 `run` splits read → load-view → execute so each maps to the right exit code (I/O
 3 / invalid 2 / runtime 1). `compile`/`encode`/`check` do not need the engine.
+
+## `--version` is a flag, not a verb
+
+`ball --version` (also `-V`) prints the installed toolchain version, read from
+the installed `ball-lang` distribution metadata (`importlib.metadata`), or an
+explicit `0.0.0+source (… running from a source checkout)` line when running
+from the repo. It is deliberately **not** a `version` verb: in `dart/cli`,
+`rust/cli` and `csharp/cli`, `ball version <program>` is the self-hosted cli-core
+report about a Ball PROGRAM (`dart/shared/lib/cli_core.dart`'s `versionLine`),
+and porting those verbs here is still a follow-up — squatting the name would
+collide.
 
 ## Format scope: JSON only
 

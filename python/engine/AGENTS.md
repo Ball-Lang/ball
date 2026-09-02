@@ -75,6 +75,34 @@ parallel (subprocess.run releases the GIL while waiting).
 behaviour, fix `python/compiler` (a fix + regen) or `python/runtime` (no regen)
 or the `dart/self_host/` source.
 
+## Compile-on-first-use (`bootstrap.py`, issue #496)
+
+`compiled_engine.py` is a generated artifact, so the `ball-lang` wheel does not
+ship it — the repo never distributes generated code, and a wheel carries neither
+the Dart toolchain nor a way to run the regenerator. Instead the wheel bundles
+the engine's Ball **source** as package data
+(`ball_engine/_selfhost/engine.ball.json.gz`, written by
+`tool/bundle_selfhost.py`, gitignored), and `ball_engine.bootstrap` compiles it
+with the bundled pure-Python `ball_compiler` on first use:
+
+- source resolution: the bundled `.gz`, else `dart/self_host/engine.ball.json` in
+  a surrounding checkout;
+- cache dir: `BALL_CACHE_DIR`, else `%LOCALAPPDATA%\\ball-lang\\engine` on Windows,
+  else `$XDG_CACHE_HOME/ball-lang/engine` (default `~/.cache/...`);
+- cache key: distribution version + Python `major.minor` + SHA-256 of the source,
+  so an upgrade recompiles instead of reusing a stale engine;
+- measured cost: ~0.25 s to compile the 21 MB source into a ~690 KB module, then
+  an import on every later run;
+- every failure (no source, unwritable cache, compile error) is a
+  `BootstrapError` with an actionable message, surfaced by the CLI as a clean
+  `ball: …` exit-1 — never a traceback.
+
+`driver.compiled_engine()` prefers the regenerated `compiled_engine.py` when it
+exists, so the conformance sweep and every CI leg are unchanged; the bootstrap is
+the fallback. `tests/test_bootstrap.py` covers cache hit/miss/invalidation, the
+failure modes, and — the real proof — that a cache-bootstrapped engine runs a
+conformance fixture to its golden, compared as BYTES.
+
 ## Fixing engine behaviour
 
 A divergence from Dart is either in the compiler's emitted code (a

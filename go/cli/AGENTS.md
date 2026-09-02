@@ -100,22 +100,24 @@ the built CLI and compares stdout to their committed goldens; the default-build
 - `check --compile` is a Go-target-specific dry-run compile (opt-in; can false-
   positive on a valid program that hits a documented `go/compiler` scope gap).
 - CI wiring is Phase 7 — not added here.
-- **NOT `go install`-able — clone-and-build only** (issue #361; the same
-  distribution tier as `rust/cli` and the C++ CLI, not Dart/TS). `go/cli/go.mod`
-  pins `compiler`/`encoder`/`engine`/`shared` to placeholder `v0.0.0` `require`s
-  plus filesystem-relative `replace ... => ../<dep>` directives. `go.work` makes
-  those resolve inside this checkout — which is why every local build and every
-  `ci.yml` step passes — but the Go module proxy serves a nested module as its
-  own directory tree only, so an outside consumer gets:
+- **`go install` needs the module tags pushed** (issue #361). The module *shape*
+  is now correct: `go/cli/go.mod` `require`s `compiler`/`encoder`/`engine`/
+  `shared` (+ indirect `runtime`) at **`v0.1.0`** and carries **no `replace`
+  directives** — `go install` rejects any module whose go.mod has one:
 
   ```
-  $ go install github.com/ball-lang/ball/go/cli/cmd/ball@latest
+  $ go install github.com/ball-lang/ball/go/cli/cmd/ball@latest   # before the fix
   go: github.com/ball-lang/ball/go/cli/cmd/ball@latest (in github.com/ball-lang/ball/go/cli@v0.0.0-...):
       The go.mod file for the module providing named packages contains one or
       more replace directives. It must not contain directives that would cause
       it to be interpreted differently than if it were the main module.
   ```
 
-  ci.yml's `go` job measures this every run ("Go module isolation build",
-  non-gating): 2/6 modules build outside the monorepo today. The fix is
-  per-nested-module tagging plus dropping the `replace` directives — #361.
+  The local pins moved to `go/go.work`'s versioned `replace ... v0.1.0 => ./<dep>`
+  block (go.work is never published). ci.yml's `go` job proves the external path
+  every run and **gates** on it — `tools/go-module-proxy/smoke.sh` synthesizes the
+  proxy the `go/<module>/v0.1.0` tags will produce, builds all six modules in
+  isolation, then `go install .../go/cli/cmd/ball@v0.1.0` into a clean GOPATH and
+  runs the binary. Off the *public* proxy this only works once the six
+  `go/<module>/v0.1.0` tags are pushed on one commit; until then the practical
+  acquisition path is still clone-and-build (#361).

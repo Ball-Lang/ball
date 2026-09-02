@@ -50,3 +50,85 @@ jobs:
         run: |
           dart run melos exec -c 1 --no-private -- \
             'gh workflow run release-publish.yml --ref $MELOS_PACKAGE_NAME-v$MELOS_PACKAGE_VERSION'
+
+  # ──────────────────────────────────────────────────
+  # Go modules — the six `go/<module>/vX.Y.Z` tags (issue #361)
+  # ──────────────────────────────────────────────────
+  # The Go module proxy serves each nested module as its own tree, keyed by a
+  # `go/<module>/vX.Y.Z` tag, and every intra-repo `require` in go/*/go.mod names
+  # that exact version. So all six tags must land on ONE commit, together, or a
+  # dependent resolves to a version that does not exist.
+  #
+  # The version is NOT the Dart/Melos release version: the Go modules carry their
+  # own line (v0.1.0 first), single-sourced from the go.mod files themselves —
+  # build_local_proxy.py --print-version asserts all six agree and that no go.mod
+  # carries a `replace` directive before printing it. Bumping the Go modules is
+  # therefore a normal PR that edits those `require` lines; this job then cuts the
+  # tags on the next release commit.
+  #
+  # Idempotent by construction: if all six tags already exist (the steady state —
+  # most releases do not bump the Go module version), the job reports and exits
+  # 0. If only SOME exist, that is a half-published state it refuses to paper
+  # over — it fails loudly instead.
+  tag-go-modules:
+    name: Tag Go modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: contains(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Create the go/<module>/vX.Y.Z tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 tools/go-module-proxy/build_local_proxy.py --print-version)"
+          case "$version" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::derived Go module version '$version' is not vX.Y.Z"; exit 1 ;;
+          esac
+
+          modules=""
+          count=0
+          for dir in go/*/; do
+            [ -f "$dir/go.mod" ] || continue
+            modules="$modules go/$(basename "$dir")/$version"
+            count=$((count + 1))
+          done
+          # Positive floor: an empty module set must never read as success.
+          if [ "$count" -lt 1 ]; then
+            echo "::error::found no Go modules under go/ — the sweep itself is broken"
+            exit 1
+          fi
+
+          existing=0
+          missing=0
+          for tag in $modules; do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              existing=$((existing + 1))
+            else
+              missing=$((missing + 1))
+            fi
+          done
+
+          if [ "$missing" -eq 0 ]; then
+            echo "All $count go/<module>/$version tags already exist — nothing to do."
+            echo "Go modules: $version already tagged ($count modules)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$existing" -ne 0 ]; then
+            echo "::error::$existing of $count go/<module>/$version tags already exist and $missing do not — refusing to publish a half-tagged module set. Resolve by hand."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # shellcheck disable=SC2086 -- $modules is a deliberate word-split list
+          git tag $modules "$GITHUB_SHA"
+          # One push: the six tags become resolvable together, never partially.
+          # shellcheck disable=SC2086
+          git push origin $modules
+          echo "Tagged $count Go modules at $version on $GITHUB_SHA"
+          echo "Go modules: tagged $count modules at $version" >> "$GITHUB_STEP_SUMMARY"

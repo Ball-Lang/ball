@@ -1,6 +1,6 @@
 # Ball toolchain matrix — acquisition and verification
 
-Last verified: **2026-09-02** against live registries and `Ball-Lang/ball` CI (the Go/Python rows were stale — both are complete pipelines now, but neither is registry-installable; see the warnings below). Statuses drift — re-verify before relying on a row (§2 of the skill).
+Last verified: **2026-09-02** against live registries and `Ball-Lang/ball` CI (both the Go and Python rows are complete pipelines whose distribution plumbing has landed but whose first publish/tag has not — see the warnings below). Statuses drift — re-verify before relying on a row (§2 of the skill).
 
 ## Summary
 
@@ -11,8 +11,8 @@ Last verified: **2026-09-02** against live registries and `Ball-Lang/ball` CI (t
 | C++ | ✅ `ball_cpp_encode` (Clang JSON AST) | ✅ `ball_cpp_compile` | ✅ self-hosted engine | clone + CMake build (see below) |
 | Rust | ✅ `rust/encoder` | ✅ `rust/compiler` | ✅ `rust/engine` | clone + `cargo build` (see below) |
 | C# | ✅ `csharp/encoder` (Roslyn) | ✅ `csharp/compiler` | ✅ self-hosted `csharp/engine` (`-p:SelfHost=true`) | clone + `dotnet build` (see below) — **not yet on NuGet** (#369 blocked on packaging, prerequisite now satisfied) |
-| Go | ✅ `go/encoder` | ✅ `go/compiler` | ✅ self-hosted `go/engine` (`-tags selfhost`) | clone + `go build` — **NOT `go install`-able** (see below) |
-| Python | ✅ `python/encoder` | ✅ `python/compiler` | ✅ self-hosted `python/engine` | clone + run in place — **not on PyPI** (no publish workflow exists) |
+| Go | ✅ `go/encoder` | ✅ `go/compiler` | ✅ self-hosted `go/engine` (`-tags selfhost`) | clone + `go build` — `go install` works only once the `go/<module>/vX.Y.Z` tags are pushed (see below) |
+| Python | ✅ `python/encoder` | ✅ `python/compiler` | ✅ self-hosted `python/engine` | clone + run in place — a `ball-lang` PyPI wheel + publish workflow exist but **nothing is published yet** (see below) |
 | Java | ❌ proto bindings only | ❌ | ❌ | Route to `/ball:new java` |
 
 ## Verification commands (run these, do not trust the table)
@@ -32,8 +32,8 @@ gh api repos/Ball-Lang/ball/contents/.github/workflows/ci.yml -q .content | base
 
 ## Registry warnings
 
-- **Go module proxy**: `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` **does not work** and never has (issue #361, verified live 2026-09-02). It fails with `The go.mod file for the module providing named packages contains one or more replace directives.` — `go/{cli,compiler,encoder,engine}/go.mod` carry filesystem-relative `replace ... => ../<dep>` directives that the proxy cannot satisfy, because it serves a nested module as its own directory tree only. Clone the repo and `go build` instead. (ci.yml's `go` job now measures this every run: 2/6 modules build in isolation today.)
-- **PyPI**: nothing is published, and no `publish-pypi.yml` exists. Clone and run `python -m ball_cli` in place.
+- **Go module proxy**: `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` **does not work yet** (issue #361, verified live 2026-09-02 — it failed with `The go.mod file for the module providing named packages contains one or more replace directives.`). The `replace` directives are now gone: every `go/*/go.mod` `require`s its intra-repo dependencies at `v0.1.0` and the local pins live in `go/go.work` instead, and ci.yml's `go` job gates on a synthesized-proxy `go install` smoke (`tools/go-module-proxy/smoke.sh`). Off the public proxy it resolves only once the six `go/<module>/v0.1.0` tags are pushed — until then, clone the repo and `go build`.
+- **PyPI**: `.github/workflows/publish-pypi.yml` now exists (tag-gated on `python-pypi/v*`, Trusted Publishing) and publishes ONE `ball-lang` wheel bundling the whole Python toolchain (`pip install ball-lang` -> a `ball` console script). Nothing has been pushed to the index yet — it needs the maintainer's PyPI pending-publisher registration plus a first tag (#496), so **verify with `pip index versions ball-lang` before relying on it**; until then, clone and run `python -m ball_cli` in place.
 - **crates.io**: the `ball` crate is an UNRELATED 2022 package (n-dimensional arrays). Do **not** `cargo install ball`. As of the verification date the Ball Rust toolchain is **not on crates.io** — build from source.
 - **npm**: only trust `@ball-lang/*` packages whose `repository` field points at `github.com/Ball-Lang/ball`.
 

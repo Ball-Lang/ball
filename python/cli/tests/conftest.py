@@ -33,6 +33,16 @@ for _p in _PACKAGES:
 CONFORMANCE = ROOT / "tests" / "conformance"
 EXAMPLES = ROOT / "examples"
 COMPILED_ENGINE = ROOT / "python" / "engine" / "ball_engine" / "compiled_engine.py"
+# The self-host Ball SOURCE ball_engine.bootstrap compiles on first use when
+# COMPILED_ENGINE is absent (issue #496) — the bundled wheel copy, or the
+# checkout artifact `dart run compiler/tool/gen_engine_json.dart` writes. When
+# either exists, `run` succeeds WITHOUT compiled_engine.py, so the
+# honest-failure assertions below only hold when both are gone.
+SELFHOST_BUNDLE = (
+    ROOT / "python" / "engine" / "ball_engine" / "_selfhost" / "engine.ball.json.gz"
+)
+SELFHOST_JSON = ROOT / "dart" / "self_host" / "engine.ball.json"
+SELFHOST_SOURCE_AVAILABLE = SELFHOST_BUNDLE.exists() or SELFHOST_JSON.exists()
 
 
 def run_cli(*args: str) -> tuple[str, str, int]:

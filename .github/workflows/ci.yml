@@ -505,6 +505,121 @@ jobs:
           fi
 
   # ──────────────────────────────────────────────────
+  # vcpkg overlay-port install smoke (issue #368)
+  # ──────────────────────────────────────────────────
+  # tools/vcpkg-port/ports/ball-lang/ is staged for submission to
+  # microsoft/vcpkg, but nothing has ever run vcpkg against it — its portfile
+  # still carries `SHA512 0 # PLACEHOLDER`, which is vcpkg's own tell that the
+  # recipe has never been resolved or built by any tool, human or automated.
+  # This is NOT a regression a gate should have caught: the port was staged
+  # deliberately inert. It is new infrastructure, so that an external vcpkg
+  # maintainer is not the first person to discover the recipe does not build.
+  #
+  # It exercises vcpkg_cmake_configure / vcpkg_cmake_install / vcpkg_copy_tools /
+  # vcpkg_install_copyright end-to-end — strictly more than the plain
+  # `cmake --install` smoke in the cpp job above — and would catch a rename of
+  # the `ball` target, a removed `install(TARGETS ball ...)` rule, a dropped
+  # BALL_BUILD_* option, or a vcpkg_copy_tools TOOL_NAMES mismatch.
+  #
+  # The overlay is GENERATED at job time from the real port (only the
+  # vcpkg_from_github download block is swapped for a local SOURCE_PATH), so a
+  # hand-maintained duplicate cannot rot out of sync with the submission file.
+  # The real port files are never modified — the real SHA512 and the version
+  # bump stay maintainer-only submission steps.
+  #
+  # Linux/x64 only for this first cut, matching the existing Linux-only
+  # BALL_BUILD_PROTOBUF_RT precedent in the cpp job; Windows/macOS triplets
+  # (where MSVC/AppleClang flag interactions under vcpkg's toolchain differ) are
+  # a known residual gap that only real upstream review would catch today.
+  # Path-filtered on the same signal as the cpp job (cpp/** directly;
+  # tools/vcpkg-port/** via `infra`), because it re-runs a full cpp/ CMake
+  # configure+build inside vcpkg's sandbox.
+  vcpkg:
+    name: vcpkg port smoke (x64-linux)
+    needs: changes
+    if: ${{ needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # Pinned to the 2026.07.29 release tag's commit for reproducibility — a
+      # floating microsoft/vcpkg would let an upstream change turn this red with
+      # no commit here. Bump deliberately.
+      - name: Bootstrap vcpkg (pinned)
+        env:
+          VCPKG_TAG: "2026.07.29"
+          VCPKG_SHA: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$VCPKG_TAG" https://github.com/microsoft/vcpkg.git "$RUNNER_TEMP/vcpkg"
+          got="$(git -C "$RUNNER_TEMP/vcpkg" rev-parse HEAD)"
+          if [ "$got" != "$VCPKG_SHA" ]; then
+            echo "::error::vcpkg tag $VCPKG_TAG resolved to $got, expected $VCPKG_SHA — a moved tag is not a pin"
+            exit 1
+          fi
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          "$RUNNER_TEMP/vcpkg/vcpkg" version
+
+      - name: Generate the CI overlay port
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/vcpkg-port/make_ci_overlay.py "$RUNNER_TEMP/overlay" "$GITHUB_WORKSPACE"
+          # Print the overlay delta for the log. `diff` exits 1 whenever the two
+          # files differ, which here is ALWAYS by construction (the overlay
+          # swaps the vcpkg_from_github download block for a local SOURCE_PATH),
+          # so its status is consumed explicitly instead of being discarded with
+          # `|| true`: 1 is the expected case, 0 means the generator silently
+          # stopped rewriting anything, and anything else is a broken diff.
+          set +e
+          delta="$(diff -u tools/vcpkg-port/ports/ball-lang/portfile.cmake "$RUNNER_TEMP/overlay/ball-lang/portfile.cmake")"
+          status=$?
+          set -e
+          case "$status" in
+            1)
+              echo "--- overlay portfile.cmake differs from the submission port ONLY in the download block:"
+              echo "$delta"
+              ;;
+            0)
+              echo "::error::the CI overlay portfile is byte-identical to the submission port — make_ci_overlay.py did not swap the download block, so this smoke would build a downloaded tarball instead of this checkout"
+              exit 1
+              ;;
+            *)
+              echo "::error::diff of the overlay portfile failed (exit $status)"
+              exit 1
+              ;;
+          esac
+
+      - name: vcpkg install ball-lang
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          "$RUNNER_TEMP/vcpkg/vcpkg" install ball-lang \
+            --overlay-ports="$RUNNER_TEMP/overlay" \
+            --triplet x64-linux
+          echo "VCPKG_INSTALL_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
+
+      # Mirrors the cpp job's Install-smoke assertions: the tool actually lands
+      # where vcpkg_copy_tools put it, and it actually runs.
+      - name: Installed-binary smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$RUNNER_TEMP/vcpkg/installed/x64-linux/tools/ball-lang/ball"
+          [ -x "$bin" ] || { echo "::error::vcpkg installed no ball binary at $bin"; exit 1; }
+          out="$("$bin" version)"
+          [ -n "$out" ] || { echo "::error::vcpkg-installed ball printed nothing for 'ball version'"; exit 1; }
+          echo "vcpkg-installed ball version: $out"
+          {
+            echo "vcpkg overlay-port smoke (issue #368): x64-linux OK"
+            echo "- \`ball version\` -> $out"
+            echo "- \`vcpkg install\` wall clock: ${VCPKG_INSTALL_SECONDS}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────
   # Upstream protobuf conformance — drive ball_protobuf's feature-aware codecs
   # through the REAL protobuf conformance_test_runner for the proto2, proto3,
   # and edition2023 TestAllTypes messages (every registered test must pass — no
@@ -966,49 +1081,47 @@ jobs:
       - name: Test
         run: cd go && go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 
-      # ── Go module isolation (issue #361) — MEASUREMENT ONLY, non-gating ──
-      # Every step above runs inside the full monorepo checkout, where go.work's
-      # `use` block satisfies every module regardless of what its own go.mod
-      # says — so the filesystem-relative `replace ... => ../<dep>` directives
-      # in go/{cli,compiler,encoder,engine}/go.mod ALWAYS resolve and the defect
-      # they cause is structurally invisible from this vantage point. It is very
-      # visible to anyone outside the checkout: the Go module proxy serves a
-      # nested module as its OWN directory tree only, never its siblings, so
-      # `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` fails with
-      # "The go.mod file for the module providing named packages contains one or
-      # more replace directives." Epic #361's Go row claimed this was "already
-      # done by construction (go install)"; it is not, and nothing asserted it.
-      # This step copies each module into an isolated tmp dir (no go.work, no
-      # siblings) and reports which ones build. NON-GATING on purpose: today's
-      # honest answer is 2/6, and the real fix (per-module tagging + dropping
-      # the replace directives) is separate, larger work — a per-module build
-      # failure is COUNTED, never propagated (the `go build` runs inside an `if`,
-      # and the body sets `-uo pipefail`, never `-e`). What the step DOES fail on
-      # is its own positive floor: a sweep that ran zero modules. That floor is
-      # only real without `continue-on-error`, which would swallow the `exit 1`
-      # and reduce it to an annotation — so this step deliberately has none.
-      # Turning the per-module failures into a gate is the follow-up that lands
-      # with the replace-directive fix; do that by asserting `fail -eq 0` here,
-      # not by re-adding continue-on-error.
-      - name: Go module isolation build (issue #361 — measurement only, non-gating)
+      # ── External-consumer module resolution (issue #361) — GATING ──
+      # Every step above runs inside the full monorepo checkout, where go.work
+      # pins every intra-repo dependency back to the local tree — so the defect
+      # an outside consumer hits is structurally invisible from this vantage
+      # point. #495 added a measurement-only version of this sweep; it reported
+      # an honest 2/6 because go/{cli,compiler,encoder,engine}/go.mod each
+      # carried a filesystem-relative `replace ... => ../<dep>`, which the Go
+      # module proxy can never satisfy (it serves a nested module as its OWN
+      # directory tree, never its siblings) and which `go install` rejects
+      # outright: "The go.mod file for the module providing named packages
+      # contains one or more replace directives."
+      #
+      # Those replace directives are now gone: each module `require`s its
+      # intra-repo dependencies at v0.1.0 (the first published Go module tag
+      # set), and go/go.work carries versioned `replace ... v0.1.0 => ./<dep>`
+      # pins so local dev/CI keeps resolving against this tree. go.work is never
+      # published, so the go.mod files stay proxy-clean.
+      #
+      # tools/go-module-proxy/smoke.sh proves that end-to-end WITHOUT needing
+      # the tags to exist yet: it synthesizes the exact file:// module proxy the
+      # `go/<module>/v0.1.0` tags will produce (from the tracked files of this
+      # commit, so the module hashes match what proxy.golang.org will compute),
+      # then (leg 1) builds each module standalone with no go.work and no
+      # siblings, and (leg 2) runs `go install .../go/cli/cmd/ball@v0.1.0` into
+      # a clean GOPATH/GOMODCACHE and executes the installed binary against a
+      # real conformance fixture. Both legs gate: leg 1 asserts fail == 0 over a
+      # non-empty module set (bare-integer counts + a positive floor), leg 2
+      # asserts the binary exists and produces output. No continue-on-error —
+      # that would reduce the exit 1 to an annotation.
+      #
+      # After the six tags are pushed, the follow-up is to point the same script
+      # at the real proxy (drop the synthesized one) — the assertions stay.
+      - name: Go module external-consumer smoke (issue #361)
         shell: bash
         run: |
-          set -uo pipefail
-          pass=0; fail=0
-          for m in shared runtime compiler encoder engine cli; do
-            d="$(mktemp -d)"; cp -r "go/$m" "$d/$m"
-            if (cd "$d/$m" && GOFLAGS=-mod=mod go build ./... 2>"$d/err"); then
-              echo "OK    go/$m"; pass=$((pass+1))
-            else
-              echo "FAIL  go/$m: $(head -1 "$d/err")"; fail=$((fail+1))
-            fi
-          done
-          total=$((pass+fail))
-          # Positive floor: an exit code plus a failure count cannot tell
-          # "all passed" from "nothing ran".
-          [ "$total" -ge 1 ] || { echo "::error::isolation sweep ran zero modules"; exit 1; }
-          echo "Results: $pass passed, $fail failed, $total total"
-          echo "Go module isolation: $pass/$total buildable outside the monorepo (today 2/6 — shared+runtime only; the other four carry filesystem-relative replace directives, issue #361)" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          bash tools/go-module-proxy/smoke.sh | tee /tmp/go-proxy-smoke.log
+          {
+            echo "Go module external-consumer smoke (issue #361):"
+            grep -E '^(Results:|go install |ball check )' /tmp/go-proxy-smoke.log
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── Self-hosted engine: regenerate + RUN (epic #426 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
@@ -1111,7 +1224,8 @@ jobs:
           python -m compileall -q -x 'compiled_engine\.py' \
             python/runtime/ballrt python/compiler/ball_compiler \
             python/encoder/ball_encoder python/engine/ball_engine \
-            python/cli/ball_cli python/shared/gen
+            python/cli/ball_cli python/shared/gen \
+            python/tool python/engine/tool
 
       # ── Self-hosted engine: regenerate + RUN (epic #445 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
@@ -1161,6 +1275,38 @@ jobs:
             echo "::error::Python self-host conformance is not at full parity (expected N passed == T total, 0 failed)"
             exit 1
           fi
+
+      # ── The `ball-lang` wheel (issue #496) ──
+      # Everything above proves "the checkout works": each suite runs from its own
+      # package dir with the sibling sources bootstrapped onto sys.path. A
+      # pip-installed distribution is a different thing entirely, and nothing
+      # tested it — there was no distribution to install.
+      #
+      # These two steps run AFTER the self-host regeneration above, because both
+      # need dart/self_host/engine.ball.json: the bootstrap tests compile it, and
+      # the wheel bundles it as package data (`ball run` in an installed wheel
+      # compiles it into a user cache dir on first use — the generated
+      # compiled_engine.py is never shipped and never committed).
+      #
+      # BALL_REQUIRE_SELFHOST_SOURCE=1 turns "no self-host source" from a skip
+      # (right on a fresh developer checkout) into a failure here, so the regen
+      # step silently not running can't reduce this gate to a no-op.
+      - name: Engine bootstrap tests (compile-on-first-use)
+        env:
+          BALL_REQUIRE_SELFHOST_SOURCE: "1"
+        run: cd python/engine && python -m pytest -q
+
+      # Builds the wheel, installs it into a venv OUTSIDE the repo with no repo
+      # path on PYTHONPATH, and runs --version / check / compile / encode / run —
+      # `run` comparing stdout against the fixture's golden as BYTES. This is
+      # deliberately MORE rigorous than the npm/crates/nuget publish paths, which
+      # are tag-triggered and have no PR-gated install smoke at all; the asymmetry
+      # is intentional, since a broken combining distribution is otherwise
+      # invisible until someone pip-installs it.
+      - name: Wheel build + clean-venv install smoke
+        run: |
+          python -m pip install "build>=1.2"
+          python python/tool/wheel_smoke.py
 
   # ──────────────────────────────────────────────────
   # NEW LANGUAGE TEMPLATE — copy and customize when adding a new language

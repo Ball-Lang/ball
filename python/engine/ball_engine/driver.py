@@ -37,10 +37,49 @@ def _set_stack_size():
             continue
 
 
-def run_program_view(view, timeout_ms=None):
-    """Run a loaded program view; return the captured stdout lines."""
-    from . import compiled_engine as ce  # gitignored; absent on a fresh checkout
+def compiled_engine():
+    """The compiled self-hosted engine module.
 
+    Two sources, in order:
+
+    1. ``ball_engine.compiled_engine`` — the gitignored artifact
+       ``python -m ball_engine.regen`` writes next to this file. Present in a
+       checkout that has regenerated it; this is what the conformance sweep and
+       every CI leg exercise, so that path is unchanged.
+    2. :func:`ball_engine.bootstrap.load_engine` — compiles the Ball engine
+       source (bundled in the ``ball-lang`` wheel as package data, or found in
+       the surrounding checkout) into a per-user cache dir on first use. This is
+       the only path an installed wheel has, since generated code is never
+       shipped (issue #496).
+
+    A failure in (2) raises :class:`ball_engine.bootstrap.BootstrapError` with an
+    actionable message, which the CLI reports as a clean ``ball: …`` error.
+    """
+    try:
+        from . import compiled_engine as ce  # gitignored; absent on a fresh checkout
+
+        return ce
+    except ImportError as ex:
+        name = getattr(ex, "name", "") or ""
+        if not (name.endswith("compiled_engine") or "compiled_engine" in str(ex)):
+            raise  # a genuine import failure INSIDE the generated module
+    from . import bootstrap
+
+    return bootstrap.load_engine()
+
+
+def run_program_view(view, timeout_ms=None):
+    """Run a loaded program view through the available engine; return stdout lines."""
+    return run_with_engine(compiled_engine(), view, timeout_ms)
+
+
+def run_with_engine(ce, view, timeout_ms=None):
+    """Run ``view`` through an explicitly supplied compiled-engine module.
+
+    Split out of :func:`run_program_view` so a caller can pin which engine module
+    is used — the bootstrap test drives the cache-compiled one even in a tree
+    that also has a regenerated ``compiled_engine.py``.
+    """
     out: list[str] = []
     box: dict[str, BaseException] = {}
 

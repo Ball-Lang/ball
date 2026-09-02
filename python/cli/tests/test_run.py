@@ -5,16 +5,17 @@ Two paths, mirroring the Go CLI's default-build vs. `-tags selfhost` split:
 * without the generated ``compiled_engine.py`` (the fresh-checkout / plain-pytest
   state) ``run`` must fail honestly with exit 1 and the regenerate hint — never a
   silent success, never a raw traceback;
-* with the artifact present, ``run`` executes the program for real. That test is
-  skipped when the (gitignored) artifact is absent, so plain pytest stays green
-  on a fresh checkout.
+* with the artifact present — or with a bootstrappable self-host source, which
+  ``ball_engine.bootstrap`` compiles into a cache dir on first use (issue #496) —
+  ``run`` executes the program for real. That test is skipped when neither is
+  available, so plain pytest stays green on a fresh checkout.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from conftest import COMPILED_ENGINE, fixture, run_cli
+from conftest import COMPILED_ENGINE, SELFHOST_SOURCE_AVAILABLE, fixture, run_cli
 
 
 def test_run_without_compiled_engine_reports_regenerate(monkeypatch, hello_world):
@@ -37,12 +38,15 @@ def test_run_without_compiled_engine_reports_regenerate(monkeypatch, hello_world
 
 
 @pytest.mark.skipif(
-    COMPILED_ENGINE.exists(),
-    reason="compiled_engine.py present — the natural honest-failure path can't be observed",
+    COMPILED_ENGINE.exists() or SELFHOST_SOURCE_AVAILABLE,
+    reason=(
+        "a compiled engine or a bootstrappable self-host source is present — the "
+        "natural honest-failure path can't be observed"
+    ),
 )
 def test_run_natural_absence_is_honest(hello_world):
-    # No monkeypatch: prove the real absent-artifact path (the CI / fresh-checkout
-    # case) surfaces the regenerate hint and exit 1.
+    # No monkeypatch: prove the real nothing-available path (the CI / fresh-checkout
+    # case, before the Dart regen step) surfaces the regenerate hint and exit 1.
     out, err, code = run_cli("run", hello_world)
     assert code == 1
     assert out == ""
@@ -50,8 +54,11 @@ def test_run_natural_absence_is_honest(hello_world):
 
 
 @pytest.mark.skipif(
-    not COMPILED_ENGINE.exists(),
-    reason="compiled_engine.py absent — regenerate it (python -m ball_engine.regen) to run this",
+    not (COMPILED_ENGINE.exists() or SELFHOST_SOURCE_AVAILABLE),
+    reason=(
+        "no compiled engine and no self-host source — regenerate with "
+        "python -m ball_engine.regen (or gen_engine_json.dart) to run this"
+    ),
 )
 def test_run_executes_hello_world(hello_world):
     out, err, code = run_cli("run", hello_world)

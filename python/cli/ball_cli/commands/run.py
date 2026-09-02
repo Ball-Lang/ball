@@ -4,13 +4,18 @@ Loads the program view and drives it through ``python/engine``'s compiled
 self-hosted engine, writing each captured stdout line to the command's stdout.
 
 Self-host gating (the Python analog of the Go CLI's ``selfhost`` build tag and the
-Rust CLI's ``self_host`` Cargo feature): the engine only runs when its generated
-``compiled_engine.py`` is present. That artifact is gitignored (~690 KB, compiled
-from ``dart/self_host/engine.ball.json``) and absent from a fresh checkout, so the
-engine's ``run_program_view`` raises ``ModuleNotFoundError`` for
-``ball_engine.compiled_engine``. This surfaces here as a runtime error (exit 1)
-carrying the "regenerate with python -m ball_engine.regen" message — never a
-silent success, never a raw traceback.
+Rust CLI's ``self_host`` Cargo feature): the engine runs from the generated
+``compiled_engine.py`` when it is present (the regenerated checkout state), and
+otherwise from ``ball_engine.bootstrap``, which compiles the bundled Ball engine
+source into a per-user cache dir on first use — the only path a ``pip
+install``ed ``ball-lang`` wheel has, since generated code is never shipped
+(issue #496).
+
+When neither is available — a fresh checkout with no
+``dart/self_host/engine.ball.json`` and no bundled source — the failure is
+honest: exit 1 with the "regenerate with python -m ball_engine.regen" message,
+never a silent success, never a raw traceback. The same holds for an unwritable
+cache directory or a compile failure, each with its own actionable message.
 
 The steps are split so each maps to the right exit code: a missing/unreadable
 file is an I/O error (3); a malformed program is invalid (2); a program that ran
@@ -62,8 +67,18 @@ def command(args: list[str], stdout: TextIO, stderr: TextIO) -> int:
     except Exception as ex:  # protobuf ParseError: a malformed ball.v1.Program shape
         raise parse_error(f"could not load {ns.input}: {ex}") from ex
 
+    # BootstrapError carries an already-actionable message (no bundled/checkout
+    # engine source, an unwritable cache dir, or a compile failure) — report it
+    # verbatim rather than wrapping it in a second layer of prose.
+    try:
+        from ball_engine.bootstrap import BootstrapError
+    except ImportError:  # pragma: no cover - ball_engine imported fine just above
+        BootstrapError = ()  # type: ignore[assignment]
+
     try:
         lines = run_program_view(view)
+    except BootstrapError as ex:
+        raise runtime_error(str(ex)) from ex
     except ImportError as ex:
         # `from . import compiled_engine` on the absent artifact raises a plain
         # ImportError ("cannot import name 'compiled_engine' …"), not

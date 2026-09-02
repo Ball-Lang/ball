@@ -155,6 +155,35 @@ python -m conformance.runner                             # prints the CI-parseab
 `ball_compiler.compile_library`. `BALL_FIXTURE=<name>` runs one fixture with a full diff;
 `BALL_TIMEOUT_S=<s>` sets the per-fixture kill budget; `BALL_WORKERS=<n>` sets parallelism.
 
+## Packaging: one `ball-lang` wheel (issue #496)
+
+- The five isolated packages are the DEVELOPMENT shape; the REDISTRIBUTABLE shape is a single
+  combining distribution, `python/pyproject.toml` (`name = "ball-lang"`), bundling
+  `python/{runtime,compiler,encoder,engine,cli}` plus the generated `ball.v1` binding into one wheel
+  with a `ball` console script. Never add per-package publishing — one wheel is the owner's decision.
+- **Nothing generated ships**, enforced by `python/setup.py`'s `build_py` filter (setuptools has no
+  declarative per-module exclusion, and `packages = ["ball_engine", …]` otherwise sweeps in the
+  gitignored `compiled_engine.py` whenever the tree has been regenerated). Never delete that hook;
+  `wheel_smoke.py` asserts the wheel carries the bundled `.gz` and not the generated module, and
+  wipes `python/build/` first so a stale build tree cannot leak it. The wheel carries the engine's
+  Ball SOURCE
+  (`ball_engine/_selfhost/engine.ball.json.gz`, a gitignored build artifact of
+  `python/engine/tool/bundle_selfhost.py`), and `ball_engine/bootstrap.py` compiles it into a
+  per-user cache dir on the first `ball run` (~0.25 s; `BALL_CACHE_DIR` overrides the location).
+  `driver.compiled_engine()` still prefers a regenerated `compiled_engine.py`, so the checkout and
+  CI paths are unchanged.
+- **`ball.v1` must survive `buf generate proto`.** It is a PEP 420 implicit-namespace directory with
+  no `__init__.py`; the combining pyproject lists `ball` / `ball.v1` explicitly with a `package-dir`
+  mapping. **Never add an `__init__.py` under `python/shared/gen/`** — the next regen deletes it.
+- The gate is `python python/tool/wheel_smoke.py` (PR-gated in ci.yml's `python` job): build the
+  wheel, install it into a venv OUTSIDE the repo with no `PYTHONPATH`, and run `--version` / `check`
+  / `compile` / `encode` / `run`, comparing `run`'s stdout to a conformance golden as BYTES. An
+  in-tree venv would let `ball_cli.paths` find the checkout and mask a packaging defect.
+- `ball --version` is a FLAG, not a `version` verb: `ball version <program>` is the self-hosted
+  cli-core report in the sibling CLIs, still an unported follow-up here.
+- Release: `.github/workflows/publish-pypi.yml`, tag-gated on `python-pypi/vX.Y.Z`, PyPI Trusted
+  Publishing (OIDC, no token fallback). See `docs/RELEASE.md` and `python/AGENTS.md § Publishing`.
+
 ## Generated Files — NEVER Edit
 
 - `python/shared/gen/**` — protobuf bindings (`buf generate proto`, plugin
@@ -162,6 +191,9 @@ python -m conformance.runner                             # prints the CI-parseab
 - `python/engine/ball_engine/compiled_engine.py` — gitignored (~690 KB), regenerated via `python -m
   ball_engine.regen`. Absent from a fresh checkout; the pytest/compileall gates never need it (only
   the conformance runner, which regenerates it first, does).
+- `python/engine/ball_engine/_selfhost/engine.ball.json.gz` — gitignored, written by
+  `python/engine/tool/bundle_selfhost.py` from the (also gitignored)
+  `dart/self_host/engine.ball.json`. Only the wheel build needs it.
 
 ## Testing
 

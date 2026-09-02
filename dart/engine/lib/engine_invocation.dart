@@ -31,12 +31,19 @@ extension BallEngineInvocation on BallEngine {
 
     _recursionDepth++;
     final prevGeneratorScope = _activeGeneratorScope;
+    // Every `return` inside this `try` MUST await its future: the `finally`
+    // releases this call's recursion frame (and restores the generator scope),
+    // and returning an un-awaited future runs it as soon as the future is
+    // *returned* — before the constructor has executed — so user code would run
+    // with the frame already released. Pinned by
+    // test/constructor_frame_test.dart; the `unawaited_return_in_try_block`
+    // lint (stable Dart SDKs since 2026-09) flags the un-awaited form.
     try {
       // Constructor without body: build an instance from `is_this` params.
       if (!func.hasBody()) {
         if (func.hasMetadata()) {
           if (kind == 'constructor') {
-            return _buildConstructorInstance(moduleName, func, input);
+            return await _buildConstructorInstance(moduleName, func, input);
           }
         }
         return null;
@@ -55,7 +62,7 @@ extension BallEngineInvocation on BallEngine {
             (constructorInput == null ||
                 !constructorInput.containsKey('self')) &&
             _findTypeDef(typeName) != null) {
-          return _callObjectConstructor(moduleName, func, input);
+          return await _callObjectConstructor(moduleName, func, input);
         }
       }
 

@@ -1034,7 +1034,12 @@ public sealed partial class CSharpCompiler
                 // setter invocation, not a field write — a FieldSet would silently
                 // graft a bogus `celsius` field onto the instance and never run the
                 // setter's body (see Accessors.cs).
-                return _setterMembers.Contains(fa.Field)
+                //
+                // A name declared only as a GETTER routes here too (issue #461):
+                // its synthesized `Set__…` accessor fails loud for the declaring
+                // class's instances and falls through to a plain FieldSet for
+                // every other receiver, so unrelated types keep field semantics.
+                return _setterMembers.Contains(fa.Field) || _getterMembers.Contains(fa.Field)
                     ? new LValue(LValueKind.Property, obj, fa.Field)
                     : new LValue(LValueKind.Field, obj, fa.Field);
             case Expression.ExprOneofCase.Call

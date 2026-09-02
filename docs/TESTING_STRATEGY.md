@@ -63,6 +63,54 @@ the reverse (every `.ball.json` has a source).
 > the broken C-style variant and to wrong *values*. The gate measures
 > **executed** emission instead.
 
+> **The corpus can only reach IR some encoder can emit.** Valid Ball IR is a
+> strict superset of that. A rule about a *shape no source language can express*
+> is therefore structurally unreachable from a fixture and needs a targeted test
+> that hand-builds the IR. Worked example: assigning to a getter-only property is
+> a Dart **compile-time** error, so no `src/*.dart` (which must first run under
+> `dart run`) can ever produce that IR — the C# compiler grafted a silent shadow
+> field on it for months (#461). `csharp/compiler/test/AccessorEdgeCaseTests.cs`
+> is the shape of the fix: build the `Program` in code, compile it, run it,
+> assert. Before reaching for "add a fixture", check the shape is *emittable*.
+
+> **Name the leg precisely when you ask "why didn't a test catch this?"** The
+> obvious candidate is often not a corpus sweep at all. `csharp/compiler/test/
+> EndToEndTests.cs`, for instance, hardcodes four fixtures — it was never in a
+> position to catch a corpus-wide regression. The leg that *does* compile the
+> whole corpus through the C# compiler is `csharp/engine/conformance --leg=
+> compiler`, which lives in `conformance-matrix.yml` — a workflow with **no
+> `pull_request` trigger** — and is a ratchet (`CSHARP_COMPILER_FLOOR`) that
+> already tolerates its known gaps. "A gate exists" and "a gate runs on your PR
+> and would have gone red" are different claims.
+
+> **An assertion that cannot fail documents an intent; it does not enforce it.**
+> Before adding an assertion, name the concrete change that would make it red. A
+> loop that appends one result per entry of a static table and then asserts
+> `results.Count == Table.Length` is checking the table against itself — that was
+> the C# encoder sweep's "intact fixture set" claim until it was rewritten to
+> compare the table against a real directory listing, in both directions. Same
+> family as the positive-floor rule ("0 failed" over "0 ran" is a fake green),
+> and same fix: assert against something *outside* the thing under test.
+
+> **A failing test's own diagnostics are part of the test.** All three C#
+> conformance legs described a mismatch by printing line 0 of each side, so a
+> divergence on any later line rendered as `expected (3): 1` / `actual (3): 1` —
+> a `Fail` whose diff reads like a match. `Fixtures.DescribeMismatch` now names
+> the first line that actually differs, pinned by
+> `csharp/engine/test/MismatchDescriptionTests.cs`. Silent degradation in a
+> diagnostic costs the next debugger hours; treat it as a bug, not cosmetics.
+
+> **A new fixture must clear every required PR check, on every target.**
+> `406_subclass_field_over_getter` (a subclass field shadowing an inherited
+> getter) ran correctly on Dart/TS/Rust/Go/Python/C# and the C++ *self-hosted*
+> engine, but the Ball → C++ **compiled** leg — a different leg, and a required
+> PR check — emitted a call to the hidden getter and `g++` rejected it. The
+> fixture was withdrawn and the gap filed as
+> [#501](https://github.com/Ball-Lang/ball/issues/501) rather than carved out:
+> `CPP_COMPILE_CARVEOUTS` is empty and keeping it that way is worth more than one
+> fixture. When you add a fixture, enumerate the legs it must pass — the engine
+> rows and the compiled rows are not the same set.
+
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
 return `null`/`[]`/a placeholder string. Silent degradation is the amplifier
@@ -106,6 +154,22 @@ See [.claude/rules/dart.md](../.claude/rules/dart.md).
 4. Compile it in every target compiler (Dart/TS/C++).
 5. Regenerate the self-host engines and run the conformance matrix
    (`dart/engine`, `ts/engine`, `cpp` `full_e2e.sh`).
+
+## Toolchain-drift canary (weekly `ci.yml` run on `main`)
+
+Every CI job installs a **floating** toolchain (`dart-lang/setup-dart` with
+`sdk: stable`, `actions/setup-node`, …). A toolchain release can therefore turn
+`main` red with **zero commits** — and with only `push`/`pull_request` triggers
+that red is first seen on the next contributor's *unrelated* PR. That is what
+happened on 2026-09-02: a newly-stable Dart lint
+(`unawaited_return_in_try_block`) failed the warnings-fatal `dart analyze dart/`
+step on a C#-only PR, seven weeks after `main`'s last full run. `ci.yml` now
+also runs on a weekly `schedule` (plus `workflow_dispatch`), so drift surfaces on
+`main` itself; the `changes` job has no diff base on those events and fails
+OPEN, so every stack runs. Treat a red scheduled run exactly like a red PR: fix
+the code (never pin the SDK or suppress the lint to get green — the lint above
+was pointing at a real frame-accounting bug in the engine, see
+`dart/engine/test/constructor_frame_test.dart`).
 
 ## Coverage ratchet (toward 100% line coverage)
 

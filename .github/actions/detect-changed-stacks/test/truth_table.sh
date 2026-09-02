@@ -4,7 +4,9 @@
 # Sources ../detect.sh and drives its pure classifier with a synthetic changed-
 # file list per row, asserting EVERY one of the ten outputs
 # (dart/ts/cpp/rust/csharp/go/python/infra/self_host/changed_fixtures) — not
-# just "the script exited 0". Before #458 this test could not exist: the logic
+# just "the script exited 0". The last four rows drive the real entry point,
+# ball_detect_main, once per event that supplies no diff base, to pin the
+# fail-open path itself. Before #458 this test could not exist: the logic
 # lived only as inline `run:` blocks glued to two workflow files'
 # checkout+GITHUB_OUTPUT plumbing, with no callable entry point, which is
 # exactly why two mutually-diverged copies of it could both stay green for
@@ -108,10 +110,47 @@ row "self-host-cli-core" 'dart/shared/lib/cli_core.dart' '' \
 # A dart/shared file that is NOT part of the self-host CLI core stays dart-only.
 row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' '' "$(expect dart)"
 
+# An EMPTY changed-file list is the one input shape whose outputs would
+# otherwise be unpinned. It cannot arise from a real diff (a run with no changed
+# files still has a base), but it is what a mis-wired caller would pass, so pin
+# the fail-safe answer: the empty line fails the single-stack prefix match, so
+# `grep -qvE` succeeds and infra=true — everything runs, nothing is skipped.
+row "empty-file-list" '' '' "$(expect infra)"
+
 # ── Fail-open: no usable diff base => every stack true, fixtures=ALL ─────────
 expect_rows "fail-open-no-base" \
   "$(expect dart ts cpp rust csharp go python infra self_host fixtures=ALL)" \
   "$(ball_fail_open)"
+
+# The same fail-open, driven END-TO-END through ball_detect_main for each event
+# that supplies NO diff base. `schedule` and `workflow_dispatch` became
+# reachable when ci.yml gained its weekly toolchain-drift canary (#500): neither
+# event sets PR_BASE or PUSH_BASE, so the base stays empty and every stack must
+# run. `pull_request` with an empty PR_BASE is the mis-wired-caller case, and
+# the all-zeroes SHA is what a first push on a branch reports. Asserting the
+# real entry point (not just ball_fail_open in isolation) is what proves the
+# event plumbing, and it short-circuits before any git call, so no repo state is
+# involved.
+event_fail_open_row() {
+  local name="$1" event="$2" pr_base="${3:-}" push_base="${4:-}"
+  local out_file actual
+  out_file="$(mktemp)"
+  (
+    EVENT="$event" PR_BASE="$pr_base" PUSH_BASE="$push_base" \
+      GITHUB_OUTPUT="$out_file" ball_detect_main
+  ) >/dev/null
+  actual="$(cat "$out_file")"
+  rm -f "$out_file"
+  expect_rows "$name" \
+    "$(expect dart ts cpp rust csharp go python infra self_host fixtures=ALL)" \
+    "$actual"
+}
+
+event_fail_open_row "fail-open-event-schedule" schedule
+event_fail_open_row "fail-open-event-workflow_dispatch" workflow_dispatch
+event_fail_open_row "fail-open-event-pull_request-empty-base" pull_request '' ''
+event_fail_open_row "fail-open-event-push-zero-sha" push '' \
+  '0000000000000000000000000000000000000000'
 
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything

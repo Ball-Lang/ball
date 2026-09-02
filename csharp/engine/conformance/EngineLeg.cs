@@ -81,12 +81,6 @@ internal static class EngineLeg
             return new FixtureResult(name, FixtureStatus.Pass);
         }
 
-        var detail =
-            $"expected ({expected.Count}): {DescribeFirst(expected)}\n" +
-            $"actual   ({actual.Count}): {DescribeFirst(actual)}";
-        return new FixtureResult(name, FixtureStatus.Fail, detail);
+        return new FixtureResult(name, FixtureStatus.Fail, Fixtures.DescribeMismatch(expected, actual));
     }
-
-    private static string DescribeFirst(IReadOnlyList<string> lines) =>
-        lines.Count == 0 ? "<none>" : lines[0];
 }

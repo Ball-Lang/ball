@@ -2096,7 +2096,7 @@ export class BallEngine {
       if (!hasBody(func)) {
         if (hasMetadata(func)) {
           if (__ball_eq(kind, 'constructor')) {
-            return this._buildConstructorInstance(moduleName, func, input);
+            return await this._buildConstructorInstance(moduleName, func, input);
           }
         }
         return null;
@@ -2107,7 +2107,7 @@ export class BallEngine {
         let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
         let isFactory = (hasMetadata(func) && _metadataBool(__ball_index(func.metadata.fields, 'is_factory')));
         if (((!isFactory && (__ball_eq(constructorInput, null) || !('self' in __ball_require_map(constructorInput, 'map_contains_key')))) && !__ball_eq(this._findTypeDef(typeName), null))) {
-          return this._callObjectConstructor(moduleName, func, input);
+          return await this._callObjectConstructor(moduleName, func, input);
         }
       }
       let prevModule = this._currentModule;

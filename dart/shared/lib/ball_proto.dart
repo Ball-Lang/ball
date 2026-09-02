@@ -98,26 +98,22 @@ Module buildBallProtoModule() {
     ]),
 
     // ── Struct field access ──────────────────────────────────────
-    _baseFn(
-      'getStructField',
-      ['struct', 'key'],
-      doc: 'Get a field from a protobuf Struct. Returns Value-like map.',
-    ),
-    _baseFn(
-      'getStringField',
-      ['struct', 'key'],
-      doc: 'Get string value from Struct field. Returns "" if missing.',
-    ),
-    _baseFn(
-      'getBoolField',
-      ['struct', 'key'],
-      doc: 'Get bool value from Struct field. Returns false if missing.',
-    ),
-    _baseFn(
-      'getListField',
-      ['struct', 'key'],
-      doc: 'Get list value from Struct field. Returns [] if missing.',
-    ),
+    _baseFn('getStructField', [
+      'struct',
+      'key',
+    ], doc: 'Get a field from a protobuf Struct. Returns Value-like map.'),
+    _baseFn('getStringField', [
+      'struct',
+      'key',
+    ], doc: 'Get string value from Struct field. Returns "" if missing.'),
+    _baseFn('getBoolField', [
+      'struct',
+      'key',
+    ], doc: 'Get bool value from Struct field. Returns false if missing.'),
+    _baseFn('getListField', [
+      'struct',
+      'key',
+    ], doc: 'Get list value from Struct field. Returns [] if missing.'),
     _baseFn('getNumberField', [
       'struct',
       'key',
@@ -127,11 +123,10 @@ Module buildBallProtoModule() {
     ], doc: 'Get all keys from a Struct/metadata map.'),
 
     // ── Proto3 defaults ──────────────────────────────────────────
-    _baseFn(
-      'ensureDefaults',
-      ['obj', 'messageType'],
-      doc: 'Fill proto3 default values for the given message type.',
-    ),
+    _baseFn('ensureDefaults', [
+      'obj',
+      'messageType',
+    ], doc: 'Fill proto3 default values for the given message type.'),
     _baseFn(
       'defaultString',
       [],

@@ -1,3 +1,17 @@
+## [1.59.10](https://github.com/Ball-Lang/ball/compare/v1.59.9...v1.59.10) (2026-09-02)
+
+
+### Bug Fixes
+
+* **csharp:** fail loud on getter-only assignment, let a subclass field shadow an inherited getter, and measure the encoder against real-world C# ([#497](https://github.com/Ball-Lang/ball/issues/497)) ([7592c40](https://github.com/Ball-Lang/ball/commit/7592c40baa3afe45e03335bb283856c27e62bf6d)), closes [#461](https://github.com/Ball-Lang/ball/issues/461) [#492](https://github.com/Ball-Lang/ball/issues/492) [#492](https://github.com/Ball-Lang/ball/issues/492) [#461](https://github.com/Ball-Lang/ball/issues/461) [#492](https://github.com/Ball-Lang/ball/issues/492) [#461](https://github.com/Ball-Lang/ball/issues/461) [#492](https://github.com/Ball-Lang/ball/issues/492) [#501](https://github.com/Ball-Lang/ball/issues/501) [#501](https://github.com/Ball-Lang/ball/issues/501) [#492](https://github.com/Ball-Lang/ball/issues/492)
+
+## [1.59.9](https://github.com/Ball-Lang/ball/compare/v1.59.8...v1.59.9) (2026-09-02)
+
+
+### Bug Fixes
+
+* **engine:** await constructor futures inside _callFunction's try; weekly toolchain-drift CI run ([#500](https://github.com/Ball-Lang/ball/issues/500)) ([7910c82](https://github.com/Ball-Lang/ball/commit/7910c82475d835d7fd6bac25315d8b76a0822897)), closes [#497](https://github.com/Ball-Lang/ball/issues/497) [C#-only](https://github.com/C/issues/-only)
+
 ## [1.59.8](https://github.com/Ball-Lang/ball/compare/v1.59.7...v1.59.8) (2026-07-14)
 
 

@@ -20,4 +20,13 @@
     <ProjectReference Include="../Ball.Encoder.csproj" />
   </ItemGroup>
 
+  <!-- The real-world sweep's fixtures are DATA, not part of this assembly: they
+       are deliberately out of the encoder's scope (an abstract member, two
+       constructors, a cross-file callee) and several would not even belong in a
+       test assembly. Ship them beside the test binary instead. -->
+  <ItemGroup>
+    <Compile Remove="fixtures/**/*.cs" />
+    <None Include="fixtures/**/*.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

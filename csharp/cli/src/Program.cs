@@ -97,16 +97,24 @@ internal static class CliEntryPoint
         {
             Description = "Path to the C# source file (.cs) to encode.",
         };
+        var libraryOption = new Option<bool>("--library")
+        {
+            Description = "Encode library source: no `Main` entry point required. The emitted " +
+                "program has an empty entry_function and is therefore deliberately not runnable " +
+                "— `ball check` reports \"missing entry_function\".",
+        };
         var encodeCommand = new Command("encode", "Encode a C# source file into a Ball program.")
         {
             sourceArgument,
             outputOption,
             formatOption,
+            libraryOption,
         };
         encodeCommand.SetAction(result => Invoke(() => EncodeCommand.Run(
             result.GetValue(sourceArgument)!,
             result.GetValue(outputOption),
-            result.GetValue(formatOption))));
+            result.GetValue(formatOption),
+            result.GetValue(libraryOption))));
 
         var checkCommand = new Command("check", "Parse and validate a Ball program without running it.")
         {

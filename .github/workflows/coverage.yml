@@ -328,8 +328,9 @@ jobs:
           # "with a fresh measurement". That follow-up is this line.)
           #
           # The per-target numbers behind the aggregate (compiler / encoder /
-          # shared) are printed by the report-only step below; they are NOT
-          # gated yet — see that step.
+          # shared) have their own, finer floors, and the step below GATES on
+          # them via cpp/build-cov-floor.sh — this aggregate is the blended
+          # backstop, not the only check. See that step.
           floor=87
           echo "C++ overall line coverage: ${pct}% (floor: ${floor}%)"
           awk -v p="$pct" -v f="$floor" 'BEGIN {
@@ -401,15 +402,28 @@ jobs:
             cat cov-floor.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # ORDER MATTERS. A genuine below-floor regression makes the script
+          # exit 1 AND print only 2 OK lines, so an OK-count check placed first
+          # would fail the step with "this gate checked nothing" — red for the
+          # right reason but reported as the wrong cause, sending the next
+          # reader after a phantom extraction bug. The script has already
+          # printed the real diagnosis (which target, measured vs floor) into
+          # cov-floor.txt above, so surface its exit FIRST and let the
+          # positive-floor assertion below speak only for the case it actually
+          # diagnoses: a silent SKIP, where the script exits 0 having checked
+          # fewer than three targets.
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::cpp/build-cov-floor.sh failed (exit $rc) — see the per-target lines above for the target that regressed or could not be parsed."
+            exit "$rc"
+          fi
           # `grep -c` exits 1 on zero matches; `|| true` keeps that from
           # aborting, and the anchored pattern keeps the count a single line so
           # the numeric test below can never take a multi-line operand.
           ok=$(grep -c '^OK ' cov-floor.txt || true)
           if [ "${ok:-0}" -ne 3 ]; then
-            echo "::error::expected 3 per-target OK lines from build-cov-floor.sh, got ${ok:-0} — a target was skipped or unparseable, so this gate checked nothing."
+            echo "::error::build-cov-floor.sh exited 0 but printed ${ok:-0} of 3 per-target OK lines — a target was SKIPPED (missing tracefile), so this gate checked nothing."
             exit 1
           fi
-          exit "$rc"
 
       - name: Upload C++ coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

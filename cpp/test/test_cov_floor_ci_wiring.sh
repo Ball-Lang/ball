@@ -61,44 +61,104 @@ assert_cmd() {
   fi
 }
 
+
 # ─────────────────────────────────────────────────────────────────────
-# (a) The workflow wiring — a literal grep, because this is exactly what a
-#     unit test on the script alone structurally cannot prove.
+# (a) The workflow wiring — a grep, because this is exactly what a unit test
+#     on the script alone structurally cannot prove.
+#
+#     These assertions are deliberately SCOPED and SEMANTIC rather than
+#     whole-file and literal. An earlier draft grepped the whole workflow for
+#     exact YAML text (`if [ ! -s "$out" ]`) and for a `continue-on-error:` key
+#     ANYWHERE in coverage.yml — so an unrelated edit to the Dart or Rust job,
+#     or a harmless rename of `$out`, would have turned this test red while the
+#     C++ gate stayed perfectly intact. False reds train people to delete
+#     tests. Slice the cpp job (and the gate step inside it) first, then assert
+#     the BEHAVIOUR each line is there for.
 # ─────────────────────────────────────────────────────────────────────
 
-# A bare name check is NOT sufficient on its own: before this change
-# coverage.yml already mentioned build-cov-floor.sh five times, all in prose
-# comments. It is kept as the cheap first signal; the anchored command check
-# below is the load-bearing one.
-assert_cmd "coverage.yml references build-cov-floor.sh at all" 0 \
-  grep -q 'build-cov-floor\.sh' "$WORKFLOW"
+# slice_job <key> — the block of one top-level job in coverage.yml.
+slice_job() {
+  awk -v job="$1" '
+    $0 ~ "^  " job ":[[:space:]]*$" { inj = 1; print; next }
+    inj && /^  [A-Za-z0-9_-]+:[[:space:]]*$/ { inj = 0 }
+    inj { print }
+  ' "$WORKFLOW"
+}
 
-# The invocation must be a real command, not just another prose mention: the
-# step runs it through bash so the (non-executable, 100644) script is portable.
-assert_cmd "coverage.yml RUNS the script (bash cpp/build-cov-floor.sh)" 0 \
-  grep -q 'bash cpp/build-cov-floor\.sh' "$WORKFLOW"
+# slice_gate_step — the per-target floors step, from its `- name:` line to the
+# line before the next step at the same indentation.
+slice_gate_step() {
+  awk '
+    /^      - name: .*[Pp]er-target coverage floors/ { ins = 1; print; next }
+    ins && /^      - name: / { ins = 0 }
+    ins { print }
+  ' "$WORKFLOW"
+}
 
-# A `continue-on-error:` KEY would swallow the script's exit code and reduce the
-# gate to an annotation — the workflow's own comments warn about exactly this.
-# Anchored to the YAML key so that warning prose is not itself a false positive.
-assert_cmd "coverage.yml declares no continue-on-error step" 1 \
-  grep -qE '^[[:space:]]*continue-on-error:' "$WORKFLOW"
+CPP_JOB="$(slice_job cpp)"
+GATE_STEP="$(slice_gate_step)"
+
+# Both slices must be non-empty, or every assertion below would run against an
+# empty haystack — a negative assertion would then pass vacuously, which is the
+# same "nothing ran reads as all passed" trap the gate itself guards against.
+in_cpp_job() { printf '%s\n' "$CPP_JOB" | grep -qE "$1"; }
+in_gate_step() { printf '%s\n' "$GATE_STEP" | grep -qE "$1"; }
+not_in_cpp_job() { ! in_cpp_job "$1"; }
+
+assert_cmd "the cpp job slice is non-empty" 0 \
+  in_cpp_job 'runs-on:'
+assert_cmd "the per-target gate step slice is non-empty" 0 \
+  in_gate_step 'run:'
+
+# The invocation must be a real command, not a prose mention: before this
+# change coverage.yml already named build-cov-floor.sh five times, all in
+# comments. Tolerant of whitespace and of the path it is spelled with.
+assert_cmd "the gate step RUNS build-cov-floor.sh" 0 \
+  in_gate_step 'bash[[:space:]]+[^[:space:]]*build-cov-floor\.sh'
+
+# A `continue-on-error:` KEY would swallow the script's exit code and reduce
+# the gate to an annotation — the workflow's own comments warn about exactly
+# this. Scoped to the cpp job, so another job's (legitimate) use of the key is
+# not this test's business.
+assert_cmd "the cpp job declares no continue-on-error step" 0 \
+  not_in_cpp_job '^[[:space:]]*continue-on-error:'
 
 # The script SKIPs (exit 0) when a tracefile is absent, so the step must prove
-# the extraction produced something before trusting the exit code.
-assert_cmd "the gate step asserts the per-target tracefiles are non-empty" 0 \
-  grep -q 'if \[ ! -s "\$out" \]' "$WORKFLOW"
+# the extraction produced something before trusting the exit code. Asserted as
+# "this step contains a non-empty-file test", not as one exact spelling.
+assert_cmd "the gate step tests the per-target tracefile is non-empty" 0 \
+  in_gate_step '! *-s[[:space:]]'
 
-# ... and must count the OK lines, so "nothing ran" cannot read as "all passed".
-assert_cmd "the gate step asserts a positive per-target OK count" 0 \
-  grep -q "grep -c '\^OK ' cov-floor.txt" "$WORKFLOW"
+# ... and must count the OK lines, so "nothing ran" cannot read as "all
+# passed".
+assert_cmd "the gate step counts the per-target OK lines" 0 \
+  in_gate_step 'grep[[:space:]]+-c[[:space:]]+.*OK'
+
+# The script's exit status must reach the step's exit status.
+assert_cmd "the gate step propagates the script's exit code" 0 \
+  in_gate_step 'exit[[:space:]]+"?\$rc"?'
+
+# ORDER: a below-floor target makes the script exit 1 AND print only 2 OK
+# lines. With the OK-count check first, the step went red naming a phantom
+# extraction bug instead of the target that actually regressed — right colour,
+# wrong cause. Assert the exit-code check comes first.
+rc_before_okcount() {
+  local rc_ln ok_ln
+  rc_ln="$(printf '%s\n' "$GATE_STEP" |
+    grep -nE '\$rc"?[[:space:]]+-ne[[:space:]]+0' | head -1 | cut -d: -f1)"
+  ok_ln="$(printf '%s\n' "$GATE_STEP" |
+    grep -nE '\$\{ok:-0\}"?[[:space:]]+-ne' | head -1 | cut -d: -f1)"
+  [ -n "$rc_ln" ] && [ -n "$ok_ln" ] && [ "$rc_ln" -lt "$ok_ln" ]
+}
+assert_cmd "the gate step reports the script's failure BEFORE the OK-count" 0 \
+  rc_before_okcount
 
 # The report-only step PRINTED "(floor NN%, not enforced)" per target plus a
 # "these per-target floors are not yet enforced" summary line. Assert nothing
-# echoes that any more, matched on the `echo` so the comment above -- which
-# quotes the old wording to explain what changed -- is not a false positive.
-assert_cmd "coverage.yml no longer PRINTS the floors as not enforced" 1 \
-  grep -qE 'echo .*not (yet )?enforced' "$WORKFLOW"
+# echoes that any more, matched on the `echo` so the comments above -- which
+# quote the old wording to explain what changed -- are not false positives.
+assert_cmd "the cpp job no longer PRINTS the floors as not enforced" 0 \
+  not_in_cpp_job 'echo .*not (yet )?enforced'
 
 # ─────────────────────────────────────────────────────────────────────
 # (b) Exit-code propagation, through synthetic tracefiles.

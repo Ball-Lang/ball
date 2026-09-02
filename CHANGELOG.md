@@ -1,3 +1,10 @@
+## [1.59.12](https://github.com/Ball-Lang/ball/compare/v1.59.11...v1.59.12) (2026-09-02)
+
+
+### Bug Fixes
+
+* **rust:** stop dropping bare-null switch_expr arms and restore the non-exhaustive throw (closes [#470](https://github.com/Ball-Lang/ball/issues/470), closes [#467](https://github.com/Ball-Lang/ball/issues/467)) ([#498](https://github.com/Ball-Lang/ball/issues/498)) ([5b8c7b1](https://github.com/Ball-Lang/ball/commit/5b8c7b187ac98c5592c49b4b086e85988a8fa28e)), closes [#469](https://github.com/Ball-Lang/ball/issues/469)
+
 ## [1.59.11](https://github.com/Ball-Lang/ball/compare/v1.59.10...v1.59.11) (2026-09-02)
 
 

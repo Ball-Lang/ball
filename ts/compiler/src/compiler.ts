@@ -5256,8 +5256,11 @@ function __isUnknownFnError(e: any): boolean {
         const key = f.get("key");
         // `in` throws for a primitive receiver already, but not for a List
         // (checks index membership instead of throwing "not a map") — the
-        // require-map guard closes that gap (#257).
-        if (map && key) return `(${this.expr(key)} in __ball_require_map(${this.expr(map)}, 'map_contains_key'))`;
+        // require-map guard inside __ball_map_has closes that gap (#257).
+        // __ball_map_has also stops the `in` operator's prototype-chain walk
+        // from reporting every Dart-SDK method name this preamble patches onto
+        // Object.prototype as a map key (issue #494 / fixture 416).
+        if (map && key) return `__ball_map_has(${this.expr(map)}, 'map_contains_key', ${this.expr(key)})`;
         return "false";
       }
       case "map_keys": {

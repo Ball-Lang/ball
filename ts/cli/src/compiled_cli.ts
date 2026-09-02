@@ -1178,6 +1178,28 @@ export function __ball_require_map(v: any, opName: string): any {
   return v;
 }
 
+// map_contains_key. The obvious lowering, "key in map", walks the PROTOTYPE
+// CHAIN -- and this preamble installs the whole Dart-SDK method surface
+// (putIfAbsent, addAll, toList, firstWhere, ...) onto Object.prototype, so
+// "'putIfAbsent' in {}" is true for EVERY object. That made
+// map.containsKey(name) answer true for any Dart-SDK method name (and for
+// 'toString'/'constructor'/'hasOwnProperty'), which in the self-hosted engine
+// made _Scope.has(name) claim every such identifier was a bound variable and
+// then hand back the polyfill instead of the user's own function or method
+// (issue #494's fixture 416 hit this on a user method named putIfAbsent).
+// A hit that exists ONLY as an own property of Object.prototype is prototype
+// pollution, not a map entry.
+export function __ball_map_has(v: any, opName: string, k: any): boolean {
+  const m = __ball_require_map(v, opName);
+  if (m instanceof Map) return m.has(k);
+  if (!(k in m)) return false;
+  if (Object.prototype.hasOwnProperty.call(Object.prototype, k) &&
+      !Object.prototype.hasOwnProperty.call(m, k)) {
+    return false;
+  }
+  return true;
+}
+
 // ── Protobuf Struct/Value compatibility ─────────────────────────
 //
 // Dart's protobuf runtime wraps google.protobuf.Struct as a class
@@ -1792,7 +1814,7 @@ export function capabilityRisk(capability: any): any {
 
 export function lookupCapability(table: any, module: any, function_: any): any {
   let key = ((__ball_to_string(module) + '.') + __ball_to_string(function_));
-  if ((key in __ball_require_map(table, 'map_contains_key'))) {
+  if (__ball_map_has(table, 'map_contains_key', key)) {
     return __ball_index(table, key);
   }
   return '';
@@ -1901,7 +1923,7 @@ export function _analyzeReachableFn(ctx: any): any {
       for (const callee of callees) {
         _analyzeReachableFn({ ['modules']: modules, ['baseModules']: baseModules, ['table']: table, ['userFns']: userFns, ['fnCaps']: fnCaps, ['capSites']: capSites, ['visited']: visited, ['module']: __ball_index(callee, 'module'), ['function']: __ball_index(callee, 'function') });
         let calleeKey = ((__ball_to_string(__ball_index(callee, 'module')) + '.') + __ball_to_string(__ball_index(callee, 'function')));
-        if ((calleeKey in __ball_require_map(fnCaps, 'map_contains_key'))) {
+        if (__ball_map_has(fnCaps, 'map_contains_key', calleeKey)) {
           let calleeCaps = __ball_index(fnCaps, calleeKey);
           for (const c of calleeCaps) {
             if (!caps.includes(c)) {
@@ -2094,7 +2116,7 @@ export function _walkCapCall(ctx: any): any {
     }
     if (!__ball_eq(cap, 'pure')) {
       let sites;
-      if ((cap in __ball_require_map(capSites, 'map_contains_key'))) {
+      if (__ball_map_has(capSites, 'map_contains_key', cap)) {
         sites = __ball_index(capSites, cap);
       } else {
         sites = [];
@@ -2144,7 +2166,7 @@ export function _buildReportFromFunctions(programName: any, programVersion: any,
       continue;
     }
     let sites;
-    if ((cap in __ball_require_map(capSites, 'map_contains_key'))) {
+    if (__ball_map_has(capSites, 'map_contains_key', cap)) {
       sites = __ball_index(capSites, cap);
     } else {
       sites = [];
@@ -2157,7 +2179,7 @@ export function _buildReportFromFunctions(programName: any, programVersion: any,
       capabilitiesOut = (capabilitiesOut.push({ ['capability']: cap, ['riskLevel']: capabilityRisk(cap), ['callSites']: sites }), capabilitiesOut);
     }
   }
-  let ioSites = (('io' in __ball_require_map(capSites, 'map_contains_key')) ? __ball_index(capSites, 'io') : []);
+  let ioSites = (__ball_map_has(capSites, 'map_contains_key', 'io') ? __ball_index(capSites, 'io') : []);
   let readsStdin = false;
   let writesStdout = false;
   let writesStderr = false;
@@ -2235,7 +2257,7 @@ export function formatCapabilityReport(report: any): any {
   if (!(absent.length === 0)) {
     lines = (lines.push(('  \u2717 NONE: ' + __ball_to_string(absent.join(', ')))), lines);
   }
-  let shadows = (('shadows' in __ball_require_map(report, 'map_contains_key')) ? __ball_index(report, 'shadows') : []);
+  let shadows = (__ball_map_has(report, 'map_contains_key', 'shadows') ? __ball_index(report, 'shadows') : []);
   let hasShadows = !(shadows.length === 0);
   if (hasShadows) {
     lines = (lines.push(''), lines);
@@ -2350,7 +2372,7 @@ export function formatTerminationReport(warnings: any): any {
   let byCategory = {};
   for (const w of warnings) {
     let cat = __ball_index(w, 'category');
-    if (!(cat in __ball_require_map(byCategory, 'map_contains_key'))) {
+    if (!__ball_map_has(byCategory, 'map_contains_key', cat)) {
       categoryOrder = (categoryOrder.push(cat), categoryOrder);
       byCategory[cat] = [];
     }

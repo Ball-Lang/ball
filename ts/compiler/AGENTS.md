@@ -41,6 +41,14 @@ Ball → TypeScript compiler. Consumes a `Program` (proto3-JSON object) and emit
   `compileStdCall` does not implement fails the build. When you deliberately
   leave one unimplemented, add it to that file's `KNOWN_GAPS` table with a reason
   and mirror the entry in `ts/encoder/ENCODER_CARVEOUTS.md`.
+- **A defaultless `switch_expr` that matches nothing throws** (`Non-exhaustive
+  switch expression`), matching the Dart engine, C#, Go and Rust (#467); it used
+  to answer `undefined`. Two guards keep it faithful and are pinned by tests in
+  `test/pattern_matching.test.ts`: a statement `switch` legally matches nothing
+  and still yields `undefined`, and a `default:` arm with no body still catches.
+  The self-hosted engine's own oneof dispatchers are defaultless switch
+  *expressions*, so verify any change here with `engine_runtime.test.ts` — they
+  are safe only because each carries an explicit `notSet` arm.
 - Never import from `ts/shared/gen/` in compiler source — this package uses raw proto3-JSON trees (plain objects), not protobuf-es `Message` types.
 - See `.claude/rules/ts.md` and `CLAUDE.md` for TS API conventions and invariants.
 

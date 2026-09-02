@@ -5798,6 +5798,10 @@ function __isUnknownFnError(e: any): boolean {
     const subjectStr = this.expr(subjectExpr);
     const caseExprs = casesField.literal?.listValue?.elements ?? [];
     let defaultBody: Expression | undefined;
+    // Tracked separately from `defaultBody`: a `default:` arm that carries no
+    // body still CATCHES (it just evaluates to nothing), so it is not a
+    // non-exhaustive switch. Only "no default arm at all" is.
+    let hasDefault = false;
     // Each branch carries its match condition, the pattern's bindings, the
     // body expression and an optional `when` guard. The guard references the
     // bound variables, so it must be evaluated where those bindings are in
@@ -5828,6 +5832,7 @@ function __isUnknownFnError(e: any): boolean {
       // Check for is_default flag
       if (isDefaultFlag) {
         defaultBody = body;
+        hasDefault = true;
         continue;
       }
       if (!body) continue;
@@ -5839,6 +5844,7 @@ function __isUnknownFnError(e: any): boolean {
           // refutable branch (the guard can still fall through).
           if (result.condition === "true" && result.bindings.length === 0 && !guardField) {
             defaultBody = body;
+            hasDefault = true;
             break;
           }
           branches.push({ cond: result.condition, bindings: result.bindings, body, guard: guardField });
@@ -5851,6 +5857,7 @@ function __isUnknownFnError(e: any): boolean {
       const caseMatch = pattern ?? valueField;
       if (!caseMatch) {
         defaultBody = body;
+        hasDefault = true;
         continue;
       }
       const patText = patternLiteralText(caseMatch);
@@ -5866,13 +5873,41 @@ function __isUnknownFnError(e: any): boolean {
       const cond = patternToTsCondition(patText, subjectStr);
       if (cond === "true" && !guardField) {
         defaultBody = body;
+        hasDefault = true;
         break;
       }
       // Check if the pattern introduces variable bindings.
       const bindings = patternBindings(patText, subjectStr);
       branches.push({ cond, bindings, body, guard: guardField });
     }
-    const tail = defaultBody ? this.expr(defaultBody) : "undefined";
+    // What the switch evaluates to when nothing matched.
+    //
+    // A defaultless switch EXPRESSION that matched nothing is non-exhaustive.
+    // Dart's engine throws BallRuntimeError('Non-exhaustive switch expression')
+    // (dart/engine/lib/engine_control_flow.dart), C# throws
+    // BallRuntimeException with the same text (csharp/compiler/src/BaseCall.cs),
+    // and Go/Rust throw it too (issue #467). TypeScript answered `undefined`
+    // instead — a silent wrong value where every other target fails loud, and
+    // exactly the silent-degradation shape CLAUDE.md's fail-loud rule forbids.
+    //
+    // Two guards keep this faithful, both mirroring the Rust port:
+    //  - only a switch EXPRESSION throws. A statement `switch` legally does
+    //    nothing when no case matches, so it still yields `undefined`.
+    //  - only "no `default` arm AT ALL" is non-exhaustive; a `default:` that
+    //    carries no body still catches.
+    //
+    // Engine-safety: the self-hosted engine's own oneof dispatchers
+    // (`_evalExpression` on whichExpr, `_evalLiteral` on whichValue) are
+    // defaultless switch expressions, but each carries an explicit `notSet`
+    // arm, so this tail is unreachable there. Measured, not assumed —
+    // engine_runtime.test.ts runs the whole conformance corpus through the
+    // engine compiled by THIS compiler.
+    const nonExhaustive = call.function === "switch_expr" && !hasDefault;
+    const tail = defaultBody
+      ? this.expr(defaultBody)
+      : nonExhaustive
+        ? "(() => { throw 'Non-exhaustive switch expression'; })()"
+        : "undefined";
     if (branches.length === 0) return tail;
     let result = tail;
     for (const { cond, bindings, body, guard } of [...branches].reverse()) {

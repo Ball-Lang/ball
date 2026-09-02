@@ -1379,6 +1379,79 @@ describe("compiler — a standalone RestPattern with NO `subpattern` field", () 
   });
 });
 
+// ── Non-exhaustive switch EXPRESSION (#467) ────────────────────────────────
+//
+// A defaultless `switch_expr` whose subject matches no arm must FAIL LOUD, the
+// way every other target already does: the Dart engine throws
+// BallRuntimeError('Non-exhaustive switch expression')
+// (dart/engine/lib/engine_control_flow.dart), C# throws BallRuntimeException
+// with the same text (csharp/compiler/src/BaseCall.cs), and Go/Rust throw it
+// too. The TS compiler answered `undefined` — a silent wrong value, and the
+// exact silent-degradation shape CLAUDE.md's fail-loud rule forbids.
+//
+// The two carve-outs below are the same ones the Rust port makes, and both are
+// asserted here so a future "simplification" cannot quietly widen the throw.
+
+/** A plain `value:`-matched switch case (no structured pattern). */
+function valueCase(match: Expression, body: Expression): Expression {
+  return {
+    messageCreation: {
+      fields: [
+        { name: "value", value: match },
+        { name: "is_default", value: { literal: { boolValue: false } } },
+        { name: "body", value: body },
+      ],
+    },
+  };
+}
+
+describe("compiler — a defaultless switch_expr that matches nothing (#467)", () => {
+  test("throws 'Non-exhaustive switch expression' instead of evaluating to undefined", () => {
+    // `switch (9) { 1 => 'one', 2 => 'two' }` — no default, nothing matches.
+    const program = switchExprProgram(intLit(9), [
+      valueCase(intLit(1), strLit("one")),
+      valueCase(intLit(2), strLit("two")),
+    ]);
+    assert.throws(
+      () => compileAndRunProgram(program, "switch_expr_non_exhaustive"),
+      /Non-exhaustive switch expression/,
+    );
+  });
+
+  test("a `default:` arm carrying NO body still catches — it is not non-exhaustive", () => {
+    // Mirrors Go's `if defaultCase != nil { … return nil }`: the arm exists, so
+    // the switch is exhaustive even though it evaluates to nothing.
+    const bodylessDefault: Expression = {
+      messageCreation: {
+        fields: [{ name: "is_default", value: { literal: { boolValue: true } } }],
+      },
+    };
+    const program = switchExprProgram(intLit(9), [
+      valueCase(intLit(1), strLit("one")),
+      bodylessDefault,
+    ]);
+    // `to_string` renders the absent value as "null" — the point is that it
+    // reaches `print` at all rather than throwing.
+    assert.equal(compileAndRunProgram(program, "switch_expr_bodyless_default"), "null");
+  });
+
+  test("a STATEMENT switch that matches nothing still does nothing (no throw)", () => {
+    // Dart: a statement `switch` with no matching case and no `default` is
+    // legal and simply falls through. Only the EXPRESSION form is exhaustive.
+    // The statement path matches on the cosmetic `pattern` string, not `value`.
+    const patternCase: Expression = {
+      messageCreation: {
+        fields: [
+          { name: "pattern", value: strLit("1") },
+          { name: "body", value: printExpr(strLit("one")) },
+        ],
+      },
+    };
+    const program = switchStmtProgram(intLit(9), [patternCase]);
+    assert.equal(compileAndRunProgram(program, "switch_stmt_no_match"), "");
+  });
+});
+
 function std5(fn: string, fields: Record<string, Expression>): Expression {
   return {
     call: {

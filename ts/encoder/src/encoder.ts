@@ -30,12 +30,19 @@ type StdRef = { module: string; function: string };
  * TS constructs whose only role is type-level or syntactic: dropping them
  * cannot change what the program computes, so they never trip
  * `strictBehaviorAffecting`. Everything else that reaches `warn()` does.
+ *
+ * Only kinds that actually REACH `warn()` belong here. A type alias or an
+ * interface at top level is encoded (`typeAliases[]` / `typeDefs[]`) and never
+ * warns; nested inside a function body it has no statement branch, so it hits
+ * the "Unhandled statement kind" warn — which is the case this set exempts.
+ * `SatisfiesExpression` is deliberately absent: `x satisfies T` is erased in
+ * `encodeExpr` exactly like an `as` cast, silently and without a warning, so an
+ * entry for it would be dead.
  */
 const ERASURE_ONLY_KINDS: ReadonlySet<string> = new Set([
   "TypeAliasDeclaration",
   "InterfaceDeclaration",
   "EmptyStatement",
-  "SatisfiesExpression",
 ]);
 
 const BINARY_OPS: Record<number, StdRef> = {

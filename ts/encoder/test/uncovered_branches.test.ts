@@ -349,6 +349,18 @@ describe("encoder expression kinds", () => {
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;
     assert.equal(main.body!.block!.statements[0].let!.value!.literal!.intValue, "5");
+    // Because the erasure is silent, `satisfies` reaches NEITHER strict mode.
+    // It therefore has no `ERASURE_ONLY_KINDS` entry — an entry would be dead
+    // code, and ENCODER_CARVEOUTS.md says so. Locking both modes here keeps the
+    // doc, the set and the behaviour from drifting apart again.
+    assert.doesNotThrow(() =>
+      encode(`function main() { const x = 5 satisfies number; }`, { strict: true }),
+    );
+    assert.doesNotThrow(() =>
+      encode(`function main() { const x = 5 satisfies number; }`, {
+        strictBehaviorAffecting: true,
+      }),
+    );
   });
 
   test("a standalone regex literal encodes to its pattern source", () => {

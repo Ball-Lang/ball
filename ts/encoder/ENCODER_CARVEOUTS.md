@@ -49,8 +49,12 @@ syntax alone. `STR_METHODS` is consulted first, so the string mapping wins:
 | Method | Encoded as | Consequence |
 | --- | --- | --- |
 | `slice` | `std.string_substring` | `arr.slice(1, 3)` compiles to `arr.substring(1, 3)` and throws at runtime. Use `arr.filter`/index arithmetic, or encode with a type-aware front end. |
-| `concat` | `std.string_concat`-shaped `+` via `std_collections.list_concat` only when reached through the array path | The string path wins for a bare `.concat`. |
 | `indexOf`, `includes` | `std.string_index_of` / `std.string_contains` | Survivable in the TS target only because JS `Array` happens to spell both the same way; it would be wrong on a target where the two are distinct. |
+
+`concat` is **not** in this table: it has no `STR_METHODS` entry at all, so
+`a.concat(b)` always takes the array path (`std_collections.list_concat`, field
+`other`) and the compiler's `case "list_concat"` reads it correctly. This note
+exists only so the row is not re-added: it was checked, and it is unambiguous.
 
 Resolving these needs the TypeScript **semantic** model (a `ts.Program` with a
 type checker), which is a larger change than the vocabulary alignment #489
@@ -60,8 +64,15 @@ loud runtime `TypeError` on the compiled output, and the fixtures in
 
 ## Erasure-only — warns, but never behaviour-affecting
 
-`type` aliases, `interface` declarations, empty statements and `satisfies`
-clauses contribute nothing to what a program computes. They are recorded as
-warnings (so `{ strict: true }` still rejects them for callers who want a
-byte-exact round trip) but are exempt from `{ strictBehaviorAffecting: true }` —
-see `ERASURE_ONLY_KINDS` in `src/encoder.ts`.
+`type` aliases, `interface` declarations and empty statements contribute nothing
+to what a program computes. When one appears where the encoder has no branch for
+it — a `type`/`interface` declared *inside* a function body, or a stray `;` — it
+is recorded as a warning (so `{ strict: true }` still rejects it for callers who
+want a byte-exact round trip) but is exempt from
+`{ strictBehaviorAffecting: true }` — see `ERASURE_ONLY_KINDS` in
+`src/encoder.ts`. At top level a `type` alias and an `interface` are genuinely
+encoded (`typeAliases[]` / `typeDefs[]`), so neither warns there.
+
+`x satisfies T` is different: it is erased in `encodeExpr` exactly like an
+`as`/`<T>` cast — silently, with no warning at all — so neither strict mode sees
+it and it has no `ERASURE_ONLY_KINDS` entry.

@@ -3153,7 +3153,7 @@ export class BallEngine {
     this._checkExecutionTimeout();
     this._checkExpressionDepth();
     try {
-      let result = ((whichExpr(expr) === Expression_Expr.call) ? (await this._evalCall(expr.call, scope)) : ((whichExpr(expr) === Expression_Expr.literal) ? (await this._evalLiteral(expr.literal, scope)) : ((whichExpr(expr) === Expression_Expr.reference) ? (await this._evalReference(expr.reference, scope)) : ((whichExpr(expr) === Expression_Expr.fieldAccess) ? (await this._evalFieldAccess(expr.fieldAccess, scope)) : ((whichExpr(expr) === Expression_Expr.messageCreation) ? (await this._evalMessageCreation(expr.messageCreation, scope)) : ((whichExpr(expr) === Expression_Expr.block) ? (await this._evalBlock(expr.block, scope)) : ((whichExpr(expr) === Expression_Expr.lambda) ? (this._evalLambda(expr.lambda, scope)) : ((whichExpr(expr) === Expression_Expr.notSet) ? (null) : undefined))))))));
+      let result = ((whichExpr(expr) === Expression_Expr.call) ? (await this._evalCall(expr.call, scope)) : ((whichExpr(expr) === Expression_Expr.literal) ? (await this._evalLiteral(expr.literal, scope)) : ((whichExpr(expr) === Expression_Expr.reference) ? (await this._evalReference(expr.reference, scope)) : ((whichExpr(expr) === Expression_Expr.fieldAccess) ? (await this._evalFieldAccess(expr.fieldAccess, scope)) : ((whichExpr(expr) === Expression_Expr.messageCreation) ? (await this._evalMessageCreation(expr.messageCreation, scope)) : ((whichExpr(expr) === Expression_Expr.block) ? (await this._evalBlock(expr.block, scope)) : ((whichExpr(expr) === Expression_Expr.lambda) ? (this._evalLambda(expr.lambda, scope)) : ((whichExpr(expr) === Expression_Expr.notSet) ? (null) : (() => { throw 'Non-exhaustive switch expression'; })()))))))));
       return this._consumeGeneratorFlow(result);
     } catch (__ball_active_error) {
       throw __ball_active_error;
@@ -3375,7 +3375,7 @@ export class BallEngine {
   }
 
   async _evalLiteral(lit: any, scope: any): Promise<any> {
-    return ((whichValue(lit) === Literal_Value.intValue) ? (__ball_to_int(lit.intValue)) : ((whichValue(lit) === Literal_Value.doubleValue) ? (new BallDouble(lit.doubleValue)) : ((whichValue(lit) === Literal_Value.stringValue) ? (this._trackStringAllocation(lit.stringValue)) : ((whichValue(lit) === Literal_Value.boolValue) ? (lit.boolValue) : ((whichValue(lit) === Literal_Value.bytesValue) ? (this._trackByteListAllocation([...lit.bytesValue])) : ((whichValue(lit) === Literal_Value.listValue) ? (await this._evalListLiteral(lit.listValue, scope)) : ((whichValue(lit) === Literal_Value.notSet) ? (null) : undefined)))))));
+    return ((whichValue(lit) === Literal_Value.intValue) ? (__ball_to_int(lit.intValue)) : ((whichValue(lit) === Literal_Value.doubleValue) ? (new BallDouble(lit.doubleValue)) : ((whichValue(lit) === Literal_Value.stringValue) ? (this._trackStringAllocation(lit.stringValue)) : ((whichValue(lit) === Literal_Value.boolValue) ? (lit.boolValue) : ((whichValue(lit) === Literal_Value.bytesValue) ? (this._trackByteListAllocation([...lit.bytesValue])) : ((whichValue(lit) === Literal_Value.listValue) ? (await this._evalListLiteral(lit.listValue, scope)) : ((whichValue(lit) === Literal_Value.notSet) ? (null) : (() => { throw 'Non-exhaustive switch expression'; })())))))));
   }
 
   async _evalListLiteral(listVal: any, scope: any): Promise<any> {

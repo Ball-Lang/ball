@@ -231,6 +231,11 @@ void CppCompiler::build_lookup_tables() {
                 }
                 if (is_getter) {
                     class_getters_[class_part].insert(smethod);
+                    // Remember the definition so the shadowed-getter pass can
+                    // resolve the accessor's EMITTED return type and give a
+                    // subclass override a binding-compatible (non-covariant)
+                    // signature. (#501)
+                    class_getter_defs_[class_part][smethod] = &func;
                 }
                 if (is_setter) {
                     class_setters_[class_part].insert(smethod);
@@ -379,6 +384,83 @@ void CppCompiler::build_lookup_tables() {
             for (const auto& cls : owners)
                 if (!dynamic_class_names_.count(cls)) { all_dynamic = false; break; }
             if (all_dynamic) dynamic_method_names_.insert(mname);
+        }
+    }
+
+    // ── Fields that shadow an inherited getter (#501) ──
+    // `class B extends A { @override int x = 5; }` over `class A { int get x => 1; }`
+    // is legal Dart, and Dart resolves `x` by the receiver's RUNTIME type. The
+    // C++ emitter compiles every accessor read to `recv.x()`, so emitting B's
+    // field as a plain data member named `x` makes C++ member HIDING resolve
+    // `b.x` to the data member and never to the inherited `A::x()` — g++ then
+    // rejects `b.x()` with "expression cannot be used as a function".
+    //
+    // The fix is runtime dispatch through C++'s own vtable, NOT a compile-time
+    // "resolve against the receiver's static class" shortcut: the shortcut would
+    // compile 406 while silently answering with A's getter wherever the static
+    // type is A and the runtime type is B (conformance 431). Two things make the
+    // vtable do the work: the ancestor's accessors must be `virtual` (recorded
+    // here through overridden_methods_, which is otherwise fed ONLY by
+    // method_to_classes_ — and a subclass's plain FIELD is never a method, so no
+    // override signal reaches it), and the subclass must emit an overriding
+    // accessor instead of a same-named data member (emit_struct, below).
+    //
+    // Dynamic (map-backed) classes are exempt: they carry their fields as
+    // bracket keys on a BallObject, never as C++ members, so nothing hides.
+    {
+        auto bare_of = [](const std::string& cls) {
+            auto c = cls.find(':');
+            return c != std::string::npos ? cls.substr(c + 1) : cls;
+        };
+        // Resolve a class key's superclass BARE name back to a full class key.
+        auto super_key_of = [&](const std::string& cls) -> std::string {
+            auto sit = class_superclass_.find(cls);
+            if (sit == class_superclass_.end() || sit->second.empty()) return "";
+            for (const auto& [c, _] : class_superclass_)
+                if (bare_of(c) == sit->second) return c;
+            return "";
+        };
+        for (const auto& [cls, td_ptr] : class_typedefs_) {
+            if (!td_ptr || !(td_ptr->descriptor.is_object())) continue;
+            if (dynamic_class_names_.count(cls) > 0) continue;
+            if (!td_ptr->descriptor.contains("field") ||
+                !td_ptr->descriptor["field"].is_array())
+                continue;
+            for (const auto& fd : td_ptr->descriptor["field"]) {
+                const std::string sfield = sanitize_name(ball::ir::getStr(fd, "name"));
+                if (sfield.empty()) continue;
+                // Walk this class's ancestor chain; a getter of the same name
+                // anywhere above it is the accessor this field shadows.
+                bool shadows = false;
+                const ball::ir::FunctionDefinition* shadowed_getter = nullptr;
+                std::string ancestor = super_key_of(cls);
+                std::unordered_set<std::string> seen;
+                while (!ancestor.empty() && seen.insert(ancestor).second) {
+                    auto git = class_getters_.find(ancestor);
+                    if (git != class_getters_.end() && git->second.count(sfield) > 0) {
+                        shadows = true;
+                        auto oit = class_getter_defs_.find(ancestor);
+                        if (oit != class_getter_defs_.end()) {
+                            auto tit = oit->second.find(sfield);
+                            if (tit != oit->second.end()) shadowed_getter = tit->second;
+                        }
+                        break;
+                    }
+                    ancestor = super_key_of(ancestor);
+                }
+                if (!shadows) continue;
+                shadowed_getter_names_.insert(sfield);
+                class_shadowed_fields_[cls].insert(sfield);
+                if (shadowed_getter != nullptr)
+                    class_shadowed_field_types_[cls][sfield] =
+                        map_return_type(*shadowed_getter);
+                // Force `virtual` onto the ancestor's getter — and onto its
+                // setter, when it declares one — so the subclass accessors this
+                // enables actually bind. Without this the base getter is emitted
+                // non-virtual and every polymorphic read silently answers with
+                // the BASE value instead of failing loudly.
+                overridden_methods_.insert(sfield);
+            }
         }
     }
 }
@@ -1446,6 +1528,15 @@ std::string CppCompiler::compile_reference(const ball::ir::Reference& ref) {
     // method (conformance 106).
     if (current_class_static_fields_.count(sname) > 0) {
         return sname;
+    }
+    // #501: an unqualified read of a field that shadows an inherited getter must
+    // CALL the accessor. The field itself is emitted as a private renamed
+    // backing member (emit_struct), and the bare name now denotes the virtual
+    // accessor, so `return x;` inside the shadowing class would otherwise name a
+    // member function instead of reading the value.
+    if (shadowed_getter_names_.count(sname) > 0 &&
+        current_class_fields_.count(ref.name) > 0) {
+        return sname + "()";
     }
     if (!current_class_methods_.empty() &&
         current_class_methods_.count(sname) > 0) {
@@ -4196,6 +4287,14 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 for (const auto& [cls, setters] : class_setters_) {
                     if (setters.count(sfield)) { has_setter = true; break; }
                 }
+                // #501: a field shadowing an inherited getter is emitted as a
+                // private backing member plus a public virtual accessor pair,
+                // so the write must go through the accessor too — the plain
+                // `obj.field = value` branch below would name a private member
+                // that is also a function name. This is the write-side sibling
+                // of the read path's `is_getter` check in compile_field_access.
+                if (!has_setter && shadowed_getter_names_.count(sfield) > 0)
+                    has_setter = true;
                 if (has_setter) {
                     // Call setter: obj.field(value)
                     // Setter return is void; the assign expression evaluates to
@@ -8868,6 +8967,27 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
     std::string name = sanitize_name(td.name);
     auto tmeta = read_type_meta(td);
 
+    // #501: this class's own fields that shadow an inherited getter. Each is
+    // emitted as a private renamed backing member plus a public virtual
+    // accessor pair (see the field loop below), so every OTHER site in this
+    // function that names a member directly — constructor member-initializer
+    // lists, `this->field = …` colon-initializers, the named-constructor
+    // `__obj.field = …` factory — must name the backing member instead.
+    // `member_name` is that mapping; it is the identity for every ordinary
+    // field, so a class with no shadowing emits byte-identically to before.
+    const std::unordered_set<std::string>* shadow_fields = nullptr;
+    {
+        auto sfit = class_shadowed_fields_.find(td.name);
+        if (sfit != class_shadowed_fields_.end() && !sfit->second.empty())
+            shadow_fields = &sfit->second;
+    }
+    auto member_name = [&](const std::string& raw) -> std::string {
+        std::string s = sanitize_name(raw);
+        if (shadow_fields && shadow_fields->count(s) > 0)
+            return shadow_backing_name(s);
+        return s;
+    };
+
     // Template prefix from type_params
     emit_template_prefix(td);
 
@@ -9003,7 +9123,40 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 // Internal primitive state (e.g. _expressionDepth) → zero-init.
                 init = "{}";
             }
-            emit_line(type + " " + sanitize_name(fname) + init + ";");
+            const std::string sfname = sanitize_name(fname);
+            if (shadow_fields && shadow_fields->count(sfname) > 0) {
+                // #501: this field shadows a getter inherited from an ancestor.
+                // A data member named `x` would HIDE `A::x()` in C++ name
+                // lookup, so `b.x()` — the shape every accessor read compiles
+                // to — would name the data member and fail to build. Emit the
+                // storage under a private renamed backing member and re-expose
+                // the field NAME as a public virtual accessor pair, so the
+                // vtable (not the receiver's static type) picks the answer.
+                const std::string backing = shadow_backing_name(sfname);
+                // Store and re-expose under the SHADOWED ancestor getter's own
+                // emitted type: overriding `virtual T x()` with a `U x()` is a
+                // covariant-return error whenever U != T, and Dart legally lets
+                // a field narrow its getter's type (`num get x` / `int x`).
+                std::string acc_type = type;
+                auto shtit = class_shadowed_field_types_.find(td.name);
+                if (shtit != class_shadowed_field_types_.end()) {
+                    auto tit = shtit->second.find(sfname);
+                    if (tit != shtit->second.end() && !tit->second.empty() &&
+                        tit->second != "auto" && tit->second != "auto&&" &&
+                        tit->second != "void")
+                        acc_type = tit->second;
+                }
+                emit_line("private:");
+                emit_line(acc_type + " " + backing + init + ";");
+                emit_line("public:");
+                emit_line("virtual " + acc_type + " " + sfname + "() { return " +
+                          backing + "; }");
+                emit_line("virtual void " + sfname + "(" + acc_type +
+                          " __ball_shadow_v) { " + backing +
+                          " = __ball_shadow_v; }");
+            } else {
+                emit_line(type + " " + sfname + init + ";");
+            }
         }
     }
 
@@ -9234,7 +9387,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                     if (is_this) {
                         out_ << (has_inits ? ", " : " : ");
                         has_inits = true;
-                        out_ << sanitize_name(params[i]) << "(" << sanitize_name(params[i]) << ")";
+                        out_ << member_name(params[i]) << "(" << sanitize_name(params[i]) << ")";
                     }
                 }
                 // Auto-assign: when no is_this flags are set and no super
@@ -9254,7 +9407,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                         for (size_t fi = 0; fi < fields.size(); fi++) {
                             out_ << (has_inits ? ", " : " : ");
                             has_inits = true;
-                            out_ << sanitize_name(ball::ir::getStr(fields[fi], "name"))
+                            out_ << member_name(ball::ir::getStr(fields[fi], "name"))
                                  << "(" << sanitize_name(params[fi]) << ")";
                         }
                     }
@@ -9310,7 +9463,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 }
                 auto emit_default_field_inits = [&]() {
                     for (const auto& [fname, fval] : default_field_inits) {
-                        emit_line("this->" + sanitize_name(fname) + " = " +
+                        emit_line("this->" + member_name(fname) + " = " +
                                   dart_field_init_to_cpp(field_cpp_type(fname), fval) +
                                   ";");
                     }
@@ -9381,7 +9534,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 for (size_t i = 0; i < params.size(); i++) {
                     bool is_this = i < is_this_flags.size() && is_this_flags[i];
                     if (is_this) {
-                        emit_line("__obj." + sanitize_name(params[i]) + " = " + sanitize_name(params[i]) + ";");
+                        emit_line("__obj." + member_name(params[i]) + " = " + sanitize_name(params[i]) + ";");
                     }
                 }
                 // Apply `field` colon-initializers (e.g. `Point.origin() : x = 0.0`)
@@ -9390,7 +9543,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 if ((func->metadata.is_object())) {
                     for (const auto& [fname, fval] :
                          extract_field_inits(func->metadata)) {
-                        emit_line("__obj." + sanitize_name(fname) + " = " +
+                        emit_line("__obj." + member_name(fname) + " = " +
                                   dart_field_init_to_cpp(field_cpp_type(fname), fval) +
                                   ";");
                     }

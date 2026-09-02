@@ -3631,6 +3631,204 @@ TEST(cov_switch_expr_no_cases_returns_balldyn) {
 }
 
 // ================================================================
+// Tests — compiler.cpp residuals re-derived from Codecov (issue #63)
+// ================================================================
+//
+// Both ranges below were taken from a fresh
+// `api.codecov.io/.../file_report/cpp/compiler/src/compiler.cpp?flag=cpp` pull
+// at main@5b8c7b18 (totals: 6738 lines, 498 missed, 92.6%), clustered into
+// contiguous miss ranges, and then READ IN THE FILE at those exact lines to
+// confirm the code there is what the cluster claimed — an earlier circulated
+// list had two of five line citations pointing at the wrong code, and one
+// proposal already covered by existing conformance fixtures.
+
+// compiler.cpp:6357-6367 — compile_method_call's `handler_arity_ok` route.
+// `handler.handles(module)` / `handler.call(fn, input, engineFn)` are provided
+// by the emitted runtime as FREE functions over a BallDyn receiver, so a member
+// call would name a missing BallDyn member. The route is guarded on the method
+// being owned exclusively by BallModuleHandler/StdModuleHandler AND on the
+// helper's exact arity (1 / 3), so an unrelated 0-arg `reader.call()` functor
+// invocation is not misrouted. That shape only occurs naturally in the
+// self-hosted engine's `moduleHandlers` dispatch loop, which no direct IR unit
+// test built — the whole route was zero-executed.
+TEST(cov_method_call_handler_arity_free_function_routing) {
+    json mod;
+    mod["name"] = "main";
+    mod["typeDefs"] = json::array({
+        cov_class_td("main:BallModuleHandler", {}, json{{"kind", "class"}}),
+    });
+
+    json handles = cov_class_fn("main:BallModuleHandler.handles",
+                                json{{"kind", "method"}}, lit_bool(true), "bool");
+    json callm = cov_class_fn("main:BallModuleHandler.call",
+                              json{{"kind", "method"}}, lit_int(0), "BallValue");
+    // Driver: `h.handles(m)` (1 arg) and `h.call(f, i, e)` (3 args), plus
+    // `r.call(a)` (1 arg) as the negative control — same method name, wrong
+    // arity, so it must NOT take the free-function route.
+    json driver = cov_class_fn(
+        "main:driver", json::object(),
+        block({
+            stmt_expr(call("", "handles",
+                           make_msg("", {{"self", ref("h")}, {"arg0", ref("m")}}))),
+            stmt_expr(call("", "call",
+                           make_msg("", {{"self", ref("h")},
+                                         {"arg0", ref("f")},
+                                         {"arg1", ref("i")},
+                                         {"arg2", ref("e")}}))),
+            stmt_expr(call("", "call",
+                           make_msg("", {{"self", ref("r")}, {"arg0", ref("a")}}))),
+        }));
+    json main_fn;
+    main_fn["name"] = "main";
+    main_fn["body"] = lit_int(0);
+    mod["functions"] = json::array({handles, callm, driver, main_fn});
+
+    json program;
+    program["modules"] = json::array({mod});
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    auto out = compile_program(program);
+
+    ASSERT_CONTAINS(out, "handles(h, m)");
+    ASSERT_CONTAINS(out, "call(h, f, i, e)");
+    // The arity guard held: the 1-arg `call` is not the runtime's 3-arg helper.
+    ASSERT_NOT_CONTAINS(out, "call(r, a)");
+}
+
+// compiler.cpp:6581-6588 — compile_switch_case_body_statement's VOID-function
+// arm. A switch-STATEMENT case body that is a bare expression normally has its
+// value discarded; inside a void function an explicit Dart `return X;` arrives
+// as the internal `/* return */ ` marker and must become "evaluate X, then bare
+// `return;`" rather than a value-returning return. Existing switch-case-body
+// tests all sit in non-void functions, so this arm was zero-executed.
+TEST(cov_switch_case_body_void_function_return_marker) {
+    json mod;
+    mod["name"] = "main";
+
+    json handler;
+    handler["name"] = "handleIt";
+    handler["outputType"] = "void";
+    handler["body"] = block({stmt_expr(std_call(
+        "switch",
+        make_msg("SwitchInput",
+                 {{"subject", ref("x")},
+                  {"cases", lit_list({
+                       scase(constpat(lit_int(1)),
+                             std_call("return",
+                                      make_msg("", {{"value", print_call(
+                                                                  lit_string("one"))}}))),
+                   })}})))});
+
+    json main_fn;
+    main_fn["name"] = "main";
+    main_fn["body"] = lit_int(0);
+    mod["functions"] = json::array({handler, main_fn});
+
+    json program;
+    program["modules"] = json::array({mod});
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    auto out = compile_program(program);
+
+    ASSERT_CONTAINS(out, "void handleIt(");
+    // The marker was stripped: the body runs for its side effect, then the
+    // function exits with a BARE return (no value crossing a void signature).
+    ASSERT_CONTAINS(out, "\"one\"");
+    ASSERT_CONTAINS(out, "return;");
+    ASSERT_NOT_CONTAINS(out, "/* return */");
+}
+
+// ================================================================
+// Tests — a subclass field shadowing an inherited getter (issue #501)
+// ================================================================
+
+// `class A { int get x => 1; }` + `class B extends A { @override int x = 5; }`
+// is legal Dart, and Dart resolves `x` by the receiver's RUNTIME type. Every
+// accessor read compiles to `recv.x()`, so emitting B's field as a plain data
+// member named `x` makes C++ member HIDING resolve `b.x` to that data member and
+// never to the inherited `A::x()` — g++ then rejects `b.x()` with "expression
+// cannot be used as a function" (#501; conformance 406_subclass_field_over_getter).
+// The shadowing field must instead be stored in a private RENAMED backing member
+// and re-exposed under its own name as a public virtual accessor pair, over a
+// now-virtual ancestor getter, so C++'s vtable does the resolution — which is
+// also what keeps a base-typed receiver correct (conformance 431). This is the
+// fast gate: it catches a regression at `ctest -R compiler_tests`, minutes
+// before the compiled-e2e leg would.
+TEST(subclass_field_shadowing_getter_emits_virtual_override) {
+    json a_meta;
+    a_meta["kind"] = "class";
+    auto a_td = cov_class_td("main:A", {}, std::move(a_meta));
+
+    json b_meta;
+    b_meta["kind"] = "class";
+    b_meta["superclass"] = "A";
+    b_meta["fields"] = json::array({json{{"name", "x"},
+                                         {"type", "int"},
+                                         {"initializer", "5"}}});
+    auto b_td = cov_class_td("main:B", {{"x", "TYPE_INT64"}}, std::move(b_meta));
+
+    json getter_meta;
+    getter_meta["kind"] = "method";
+    getter_meta["is_getter"] = true;
+    auto getter =
+        cov_class_fn("main:A.x", std::move(getter_meta), lit_int(1), "int");
+
+    auto prog = cov_class_program({a_td, b_td}, {getter});
+    auto out = compile_program(prog);
+
+    ASSERT_CONTAINS(out, "struct B : public A {");
+    // The ANCESTOR getter is virtual. A subclass plain FIELD is not a method, so
+    // the ordinary override-detection pass (fed only by method_to_classes_,
+    // which records `kind == "method"` entries only) never marks it — without
+    // the shadow pass, `A::x()` stays non-virtual and no override can bind.
+    // A's getter opens its body on the next line; B's accessors are one-liners,
+    // so the trailing newline pins this assertion to A's declaration.
+    ASSERT_CONTAINS(out, "virtual BallDyn x() {\n");
+    // B stores the value under a private renamed backing member ...
+    ASSERT_CONTAINS(out, "private:");
+    ASSERT_CONTAINS(out, "BallDyn _ball_shadow_x = 5;");
+    // ... and re-exposes the field NAME as a virtual accessor pair, so both the
+    // read (`b.x()`) and the write (`b.x(v)`) go through the vtable.
+    ASSERT_CONTAINS(out, "virtual BallDyn x() { return _ball_shadow_x; }");
+    ASSERT_CONTAINS(out, "virtual void x(BallDyn __ball_shadow_v)");
+    // The defect itself: no plain data member literally named `x` may be emitted
+    // alongside an inherited member function of the same name.
+    ASSERT_NOT_CONTAINS(out, "int64_t x = 5;");
+}
+
+// An ordinary (non-shadowing) field on a subclass must be emitted exactly as
+// before: a plain public data member, no backing rename, no accessor pair. This
+// pins the blast radius of the shadow pass to the classes that actually shadow.
+TEST(subclass_field_without_inherited_getter_stays_a_plain_member) {
+    json a_meta;
+    a_meta["kind"] = "class";
+    auto a_td = cov_class_td("main:A", {}, std::move(a_meta));
+
+    json b_meta;
+    b_meta["kind"] = "class";
+    b_meta["superclass"] = "A";
+    b_meta["fields"] = json::array({json{{"name", "y"},
+                                         {"type", "int"},
+                                         {"initializer", "5"}}});
+    auto b_td = cov_class_td("main:B", {{"y", "TYPE_INT64"}}, std::move(b_meta));
+
+    // A declares a getter named `x` — a DIFFERENT name from B's field `y`.
+    json getter_meta;
+    getter_meta["kind"] = "method";
+    getter_meta["is_getter"] = true;
+    auto getter =
+        cov_class_fn("main:A.x", std::move(getter_meta), lit_int(1), "int");
+
+    auto prog = cov_class_program({a_td, b_td}, {getter});
+    auto out = compile_program(prog);
+
+    ASSERT_CONTAINS(out, "int64_t y = 5;");
+    ASSERT_NOT_CONTAINS(out, "_ball_shadow_y");
+    // Nothing made A's unshadowed getter virtual either.
+    ASSERT_NOT_CONTAINS(out, "virtual BallDyn x()");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

@@ -408,7 +408,17 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Job-time ratchet (#521). This job is the long pole of every PR cycle, and
+    # nothing measured it: a 90-minute budget cannot tell a healthy run from a
+    # 10x-slower one, so `Run tests` silently grew to 28 minutes on Windows
+    # while CI stayed green. Measured on main run 33673078770 (per-step, from
+    # `gh api repos/Ball-Lang/ball/actions/jobs/<id>`):
+    #   windows-latest  Configure 19s  Build 3m19s  Run tests 28m33s  job 32m35s
+    #   ubuntu-latest   Configure  0s  Build    3s  Run tests 12m12s  job 12m32s
+    #   macos-latest    Configure  8s  Build    5s  Run tests  9m56s  job 10m40s
+    # The budgets below are the post-fix targets; a regression back to serial,
+    # uncached fixture compiles fails the job instead of just slowing it down.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -476,7 +486,13 @@ jobs:
           [ -n "$out" ] || { echo "::error::installed ball printed nothing for 'ball version'"; exit 1; }
           echo "installed ball version: $out"
 
+      # Step-level budget — the actual ratchet (#521). `Run tests` is dominated
+      # by test_e2e, which builds ~269 generated fixture programs in a scratch
+      # CMake project. Budget: 12 min on Windows (MSVC/MSBuild, the slowest
+      # toolchain here), 6 min on Linux/macOS. See the per-step measurements in
+      # the job comment above for the pre-fix numbers these replace.
       - name: Run tests
+        timeout-minutes: ${{ runner.os == 'Windows' && 12 || 6 }}
         run: ctest --test-dir cpp/build --output-on-failure -C Release
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux

@@ -59,7 +59,9 @@ public static class CSharpEncoder
     /// <c>static void Main()</c>/<c>static int Main()</c>/<c>static void Main(string[] args)</c>
     /// — encoded as a Ball function literally named <c>"Main"</c>. Fails loud
     /// (<see cref="EncoderException"/>) on a parse error, a missing entry point, or any
-    /// construct outside this encoder's documented scope — never a silent drop.</summary>
+    /// construct outside this encoder's documented scope — never a silent drop. Source with no
+    /// entry point — a class library — is encoded by <see cref="EncodeLibrary"/> instead
+    /// (<c>ball encode --library</c>).</summary>
     public static Program Encode(string source)
     {
         var module = EncodeMainModule(source, out var hasMain);
@@ -70,6 +72,42 @@ public static class CSharpEncoder
                 "statements, or a class with `static void Main()`/`static int Main()`)");
         }
 
+        return AssembleProgram(module, entryFunction: "Main");
+    }
+
+    /// <summary>Encode a C# <b>library</b> source file into a Ball <see cref="Program"/>
+    /// (issue #492) — the same encoding as <see cref="Encode"/>, minus the <c>Main</c>
+    /// entry-point requirement. Real class libraries have no entry point, so
+    /// <see cref="Encode"/> rejects every one of them; this is the opt-in that accepts them
+    /// (<c>ball encode --library</c>).
+    ///
+    /// <para><b>Deliberately non-runnable.</b> The returned <see cref="Program"/> carries
+    /// <c>EntryModule = "main"</c> (the module whose declarations were encoded) but an
+    /// <b>empty</b> <c>EntryFunction</c>. <c>Program.entry_function</c> is an unconstrained
+    /// proto3 string, so an empty one is structurally legal and deliberately not runnable:
+    /// <c>ball check</c> reports <c>missing entry_function</c>
+    /// (<c>csharp/cli/src/Commands/CheckCommand.cs</c>) and <c>ball run</c> has nothing to call.
+    /// That is the documented boundary — mirrored exactly by the Rust encoder's
+    /// <c>encode_library</c> — and must never be papered over by synthesising a fake entry
+    /// function.</para>
+    ///
+    /// <para>Every other documented scope gap still throws
+    /// <see cref="EncoderException"/> unchanged: this relaxes the entry-point requirement,
+    /// nothing else.</para></summary>
+    public static Program EncodeLibrary(string source)
+    {
+        var module = EncodeMainModule(source, out _);
+        return AssembleProgram(module, entryFunction: string.Empty);
+    }
+
+    /// <summary>Wrap an encoded <c>"main"</c> <see cref="Module"/> in a
+    /// <see cref="Program"/>, accumulating the <c>std</c>/<c>std_collections</c>/… base modules
+    /// the module's functions actually call. Shared by <see cref="Encode"/> and
+    /// <see cref="EncodeLibrary"/>; <paramref name="entryFunction"/> is the only difference
+    /// between the two (<c>"Main"</c> vs. <c>""</c> — see
+    /// <see cref="EncodeLibrary"/>'s "Deliberately non-runnable").</summary>
+    private static Program AssembleProgram(Module module, string entryFunction)
+    {
         var used = new Dictionary<string, HashSet<string>>();
         foreach (var func in module.Functions)
         {
@@ -98,7 +136,7 @@ public static class CSharpEncoder
             Version = "1.0.0",
             Modules = { modules },
             EntryModule = "main",
-            EntryFunction = "Main",
+            EntryFunction = entryFunction,
         };
     }
 
@@ -106,7 +144,9 @@ public static class CSharpEncoder
     /// <see cref="Module"/> — without requiring an entry point or including the base modules.
     /// Exists for tests that want to inspect the encoded <see cref="FunctionDefinition"/>/
     /// <see cref="Expression"/> tree directly. <see cref="Encode"/> is the entry point for a
-    /// complete, runnable <see cref="Program"/>.</summary>
+    /// complete, runnable <see cref="Program"/>; <see cref="EncodeLibrary"/> produces the same
+    /// <see cref="Program"/> shape (base modules attached) for entry-point-less library
+    /// source.</summary>
     internal static Module EncodeModuleOnly(string source) => EncodeMainModule(source, out _);
 
     private static Module EncodeMainModule(string source, out bool hasMain)

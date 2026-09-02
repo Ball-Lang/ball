@@ -28,16 +28,26 @@ namespace Ball.Encoder.Tests;
 /// <c>Results:</c> line. Hand-authored deliberately — no network fetch and no
 /// third-party licensing (that is #493's scope).</para>
 ///
-/// <para><b>It must never assert on the passed count.</b> Today that count is 0
-/// by design; asserting <c>N &gt; 0</c> would make it a permanently-red gate, and
-/// asserting <c>N == 0</c> would make it block the very slices that fix these
-/// buckets. It asserts only that the sweep actually ran (a positive floor — "0
-/// failed" over "0 ran" is a fake green), that the fixture set shipped beside the
-/// test binary is <em>exactly</em> the declared taxonomy (compared against a real
-/// directory listing, in both directions, so a lost fixture and a fixture added
-/// without being wired in both fail), and that every failure is a deliberate
-/// <see cref="EncoderException"/> rather than a crash. Each later slice raises
-/// the number in the printed baseline.</para>
+/// <para><b>It must never assert a global passed count.</b> Asserting
+/// <c>N &gt; 0</c> against the whole taxonomy would make it a permanently-red gate
+/// while buckets remain open, and asserting <c>N == 0</c> would block the very
+/// slices that fix them. It asserts only that the sweep actually ran (a positive
+/// floor — "0 failed" over "0 ran" is a fake green), that the fixture set shipped
+/// beside the test binary is <em>exactly</em> the declared taxonomy (compared
+/// against a real directory listing, in both directions, so a lost fixture and a
+/// fixture added without being wired in both fail), and that every failure is a
+/// deliberate <see cref="EncoderException"/> rather than a crash. Each later
+/// slice raises the number in the printed baseline.</para>
+///
+/// <para><b>Per-bucket, it does assert.</b> Each entry declares the encoder entry
+/// point that bucket's shape is supported by <em>today</em>
+/// (<see cref="EncodeMode"/>) and whether that call must now succeed. Slice 2
+/// (issue #492, library mode) flipped bucket (a) to
+/// <see cref="EncodeMode.Library"/> with <c>MustEncode: true</c>, so the sweep
+/// fails if <see cref="CSharpEncoder.EncodeLibrary"/> ever stops encoding a
+/// <c>Main</c>-less class library. "The printed baseline moved" is not evidence
+/// on its own — nothing asserted it — so every closed bucket gets a real
+/// assertion here.</para>
 /// </summary>
 public class RealWorldSweepTests(ITestOutputHelper output)
 {
@@ -51,30 +61,65 @@ public class RealWorldSweepTests(ITestOutputHelper output)
     private const string CalleeOnlyFixture = "d_cross_file_callee.cs";
 
     /// <summary>
+    /// Which public encoder entry point a bucket's shape is meant to be encoded
+    /// through. A <c>Main</c>-less class library is not a defect for
+    /// <see cref="CSharpEncoder.EncodeLibrary"/> to tolerate — it is what that
+    /// entry point exists for (issue #492, slice 2).
+    /// </summary>
+    private enum EncodeMode
+    {
+        /// <summary>A complete program: <see cref="CSharpEncoder.Encode"/>, entry point required.</summary>
+        Program,
+
+        /// <summary>A library: <see cref="CSharpEncoder.EncodeLibrary"/>, no entry point required.</summary>
+        Library,
+    }
+
+    /// <summary>
     /// The taxonomy buckets from #492, one committed fixture each. This table is
-    /// the sweep's labels and expected-failure reasons; the fixture *set* is
+    /// the sweep's labels, entry points and expectations; the fixture *set* is
     /// checked against the shipped directory (see
     /// <see cref="DiscoverFixtureFiles"/>) so that adding a fixture without
     /// wiring it in, or losing one, is a failure rather than a silently
     /// different sweep.
+    ///
+    /// <para><c>MustEncode</c> is the per-bucket gate: <c>true</c> once a slice
+    /// has closed that bucket, so a regression fails the suite rather than
+    /// quietly lowering the printed baseline.</para>
     /// </summary>
-    private static readonly (string Bucket, string File, string Expectation)[] Fixtures =
+    private static readonly (string Bucket, string File, EncodeMode Mode, bool MustEncode, string Expectation)[] Fixtures =
     [
-        ("a: namespaced class library, no Main", "a_namespaced_library_no_main.cs",
-            "no library mode — Encode requires a `Main` entry point (CSharpEncoder.cs's hasMain check)"),
-        ("b: interface with a method", "b_interface_with_method.cs",
+        ("a: namespaced class library, no Main", "a_namespaced_library_no_main.cs", EncodeMode.Library, true,
+            "CLOSED by #492 slice 2 — encoded via EncodeLibrary (`ball encode --library`); Encode() itself still requires a `Main` entry point"),
+        ("b: interface with a method", "b_interface_with_method.cs", EncodeMode.Program, false,
             "bodyless interface member (Types.cs's `method has no body` gap) — NOT the `unsupported type declaration kind` site, which only catches `enum`"),
-        ("c: class with two constructors", "c_two_constructors.cs",
+        ("c: class with two constructors", "c_two_constructors.cs", EncodeMode.Program, false,
             "construction is field-mapping only, so at most one constructor per class (Encoder.cs)"),
-        ("d: call into a type declared in a sibling file", "d_cross_file_caller.cs",
+        ("d: call into a type declared in a sibling file", "d_cross_file_caller.cs", EncodeMode.Program, false,
             "no cross-file symbol table — the encoder sees one file per Encode() call"),
-        ("e: lambda / PredefinedType-heavy expression", "e_lambda_and_predefined_types.cs",
+        ("e: lambda / PredefinedType-heavy expression", "e_lambda_and_predefined_types.cs", EncodeMode.Program, false,
             "explicitly typed lambda parameters and generic collection initializers"),
-        ("f: target-typed new()", "f_target_typed_new.cs",
+        ("f: target-typed new()", "f_target_typed_new.cs", EncodeMode.Program, false,
             "a target-typed `new()` carries no type name for a message_creation"),
-        ("g: abstract method with no body", "g_abstract_method_no_body.cs",
+        ("g: abstract method with no body", "g_abstract_method_no_body.cs", EncodeMode.Program, false,
             "abstract/partial/extern members are a documented gap (Types.cs)"),
     ];
+
+    /// <summary>Drive one fixture through the entry point its bucket declares.</summary>
+    private static void EncodeFixture(string source, EncodeMode mode)
+    {
+        switch (mode)
+        {
+            case EncodeMode.Library:
+                CSharpEncoder.EncodeLibrary(source);
+                break;
+            case EncodeMode.Program:
+                CSharpEncoder.Encode(source);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mode), mode, "unknown encode mode");
+        }
+    }
 
     [Fact]
     public void RealWorldSweep_ReportsHonestBaseline()
@@ -88,13 +133,13 @@ public class RealWorldSweepTests(ITestOutputHelper output)
         var swept = AssertFixtureSetIsIntact();
 
         var results = new List<(string Bucket, bool Encoded, string Detail)>();
-        foreach (var (bucket, file, expectation) in Fixtures)
+        foreach (var (bucket, file, mode, _, expectation) in Fixtures)
         {
             var source = ReadFixture(file);
             try
             {
-                CSharpEncoder.Encode(source);
-                results.Add((bucket, true, "encoded"));
+                EncodeFixture(source, mode);
+                results.Add((bucket, true, $"encoded via {mode}"));
             }
             catch (EncoderException ex)
             {
@@ -122,7 +167,20 @@ public class RealWorldSweepTests(ITestOutputHelper output)
         Assert.True(swept.Count >= 1, "the real-world sweep ran zero fixtures");
         Assert.Equal(swept.Count, results.Count);
 
-        // Deliberately NO assertion on `passed` — see the class doc comment.
+        // Deliberately NO assertion on the global `passed` count — see the class
+        // doc comment. Per bucket, though, every CLOSED bucket is a real gate: a
+        // regression must fail here, not merely lower the printed baseline.
+        var mustEncode = Fixtures.Where(f => f.MustEncode).Select(f => f.Bucket).ToList();
+        Assert.NotEmpty(mustEncode);
+        foreach (var bucket in mustEncode)
+        {
+            var result = results.Single(r => r.Bucket == bucket);
+            Assert.True(result.Encoded, $"closed bucket regressed: {bucket}: {result.Detail}");
+        }
+
+        Assert.True(
+            passed >= mustEncode.Count,
+            $"every closed bucket must be counted as passed (closed: {mustEncode.Count}, passed: {passed})");
     }
 
     /// <summary>
@@ -148,12 +206,12 @@ public class RealWorldSweepTests(ITestOutputHelper output)
     public void RealWorldSweep_EveryFailureIsADeliberateEncoderException()
     {
         var crashes = new List<string>();
-        foreach (var (bucket, file, _) in Fixtures)
+        foreach (var (bucket, file, mode, _, _) in Fixtures)
         {
             var source = ReadFixture(file);
             try
             {
-                CSharpEncoder.Encode(source);
+                EncodeFixture(source, mode);
             }
             catch (EncoderException)
             {

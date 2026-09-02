@@ -27,8 +27,16 @@ public static class EncodeCommand
     /// <c>csharp/encoder/src/CSharpEncoder.cs</c>'s type doc comment) —
     /// <see cref="ExceptionGuard.Guard{T}"/> converts that into a <see cref="CliParseError"/>
     /// (exit <c>2</c>).</para>
+    ///
+    /// <para>With <paramref name="library"/> set (<c>ball encode --library</c>, issue #492) the
+    /// source is encoded through <see cref="CSharpEncoder.EncodeLibrary"/> instead: no
+    /// <c>Main</c> entry point is required, and the emitted program has an empty
+    /// <c>entry_function</c>, so it is deliberately not runnable (<c>ball check</c> reports
+    /// <c>missing entry_function</c>). Every <em>other</em> documented-gap throw still surfaces
+    /// as the same clean exit <c>2</c> — the flag relaxes the entry-point requirement, nothing
+    /// else.</para>
     /// </summary>
-    public static void Run(string sourcePath, string? output, EncodeFormat format)
+    public static void Run(string sourcePath, string? output, EncodeFormat format, bool library = false)
     {
         string source;
         try
@@ -40,7 +48,8 @@ public static class EncodeCommand
             throw new CliIoError($"could not read {sourcePath}: {e.Message}");
         }
 
-        var program = ExceptionGuard.Guard(() => CSharpEncoder.Encode(source));
+        var program = ExceptionGuard.Guard(() =>
+            library ? CSharpEncoder.EncodeLibrary(source) : CSharpEncoder.Encode(source));
         switch (format)
         {
             case EncodeFormat.Json:

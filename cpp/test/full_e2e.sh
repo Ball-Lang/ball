@@ -100,7 +100,30 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # #494 fixed (see #488 for the receiver-type half). The fixture still runs on
 # every ENGINE (Dart/TS/Rust/Go/Python/C#) and on the Rust/Go/Python/C#
 # COMPILER legs — only this Ball->C++ compiled path skips it.
-CPP_COMPILE_CARVEOUTS=("416_user_method_name_arity_collision")
+#
+# 435_recursive_ctor_construction / 436_recursive_ctor_named /
+# 437_recursive_ctor_tree (#513): a read through a NULLABLE, self-referential
+# field (`Chain? next` -> `head.next.depth`) still takes the concrete-struct
+# member-access path, but the field itself is emitted as a `BallDyn` because it
+# is nullable, so g++ reports "'class BallDyn' has no member named 'depth'".
+# Ball->C++ compilation succeeds; only the g++ build fails.
+#
+# 438_ctor_initializer_list_with_body (#514): a class whose ONLY constructor
+# takes no arguments gets both that constructor and the synthesised default
+# one, so g++ reports "'Flags::Flags()' cannot be overloaded with
+# 'Flags::Flags()'". Again a g++ build failure, not a Ball->C++ one.
+#
+# All four were added by #512 for issue #499 (a constructor that builds another
+# instance of its own class must not silently get `self` back). They pass on
+# EVERY engine including the C++ self-hosted one, and on the Rust/Go/Python/C#
+# compiler legs; only this Ball->C++ compiled path skips them.
+CPP_COMPILE_CARVEOUTS=(
+  "416_user_method_name_arity_collision"
+  "435_recursive_ctor_construction"
+  "436_recursive_ctor_named"
+  "437_recursive_ctor_tree"
+  "438_ctor_initializer_list_with_body"
+)
 _is_carved() { local n="$1" c; for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 
 for prog in "$CONF"/*.ball.json; do

@@ -188,6 +188,17 @@ nowhere else — `string_replace` fed the wrong field names compiled silently to
 > [#511](https://github.com/Ball-Lang/ball/issues/511). Either way the answer is
 > never "leave the leg red".
 >
+> The four `43x` constructor fixtures added for #499 are the same case: they
+> are the only cross-target lock on "a constructor that builds another
+> instance of its own class must not silently get `self` back", they pass on
+> all six ENGINES (including the C++ self-hosted one) and on the
+> Rust/Go/Python/C# compiler legs, and the two Ball -> C++ gaps they expose are
+> filed as [#513](https://github.com/Ball-Lang/ball/issues/513) (a read through
+> a nullable self-referential field emits a concrete-struct member access on
+> `BallDyn`) and [#514](https://github.com/Ball-Lang/ball/issues/514) (a class
+> whose only constructor is zero-argument gets a duplicate default one). Both
+> are g++ build failures, not Ball -> C++ compile failures.
+>
 > A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
 > `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out
 > would have exited 0 having compiled nothing. It now asserts a positive floor

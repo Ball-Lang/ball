@@ -465,6 +465,35 @@ void CppCompiler::build_lookup_tables() {
     }
 }
 
+bool CppCompiler::class_is_or_descends_from(const std::string& derived,
+                                            const std::string& base) {
+    if (derived.empty() || base.empty()) return false;
+    if (derived == base) return true;
+    // class_superclass_ is keyed by the full class name ("main:B") and holds
+    // the BARE superclass name ("A"), so each hop resolves a bare name back to
+    // a key. `seen` stops a malformed cyclic hierarchy from spinning here.
+    std::string cur = derived;
+    std::unordered_set<std::string> seen;
+    while (seen.insert(cur).second) {
+        std::string super;
+        bool found = false;
+        for (const auto& [cls, sup] : class_superclass_) {
+            auto colon = cls.find(':');
+            std::string bare =
+                colon != std::string::npos ? cls.substr(colon + 1) : cls;
+            if (sanitize_name(bare) == cur) {
+                super = sup;
+                found = true;
+                break;
+            }
+        }
+        if (!found || super.empty()) return false;
+        cur = sanitize_name(super);
+        if (cur == base) return true;
+    }
+    return false;
+}
+
 std::vector<std::string> CppCompiler::lookup_ctor_params(const std::string& type_name) {
     auto colon = type_name.find(':');
     auto bare = colon != std::string::npos ? type_name.substr(colon + 1) : type_name;
@@ -7122,6 +7151,27 @@ void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
             }
         }
 
+        // A C++ local of class type has VALUE semantics, so declaring it with
+        // the DECLARED (base) type and initialising it from a subclass local
+        // slices the object: the derived part goes, the vtable pointer with it,
+        // and every virtual call answers with the base implementation. Dart
+        // never slices — `A viaBase = b;` still dispatches on b's runtime type,
+        // which is exactly what makes a shadowed accessor answer correctly
+        // (conformance 433's `viaBase.x` printed the ancestor getter's 1
+        // instead of the shadowing field's 10). When the initialiser is a bare
+        // reference to a local we already emitted with a CONCRETE user class,
+        // declare this one with that class instead. Narrow on purpose: it fires
+        // only for a Reference initialiser whose recorded class is the declared
+        // type or a descendant of it, so every other let is emitted unchanged.
+        if (is_user_class &&
+            stmt.let->value->kind == ball::ir::ExprKind::Reference) {
+            auto lit = local_class_types_.find(stmt.let->value->reference->name);
+            if (lit != local_class_types_.end() &&
+                class_is_or_descends_from(lit->second, class_type)) {
+                class_type = lit->second;
+            }
+        }
+
         // Track variables bound to generic (map-backed) constructions so
         // field access knows to use bracket notation instead of `.field`.
         if (!is_user_class &&
@@ -7165,6 +7215,10 @@ void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
             out_ << "auto " << var_name
                  << " = BallDyn(BallUserRef(std::make_shared<std::any>(" << val_str << ")));\n";
         } else if (is_user_class) {
+            // Record the CONCRETE class so a later base-typed binding taken
+            // from this local declares itself with this class and does not
+            // slice (see the Reference-initialiser branch above).
+            local_class_types_[stmt.let->name] = class_type;
             out_ << class_type << " " << var_name << " = " << val_str << ";\n";
         } else {
             out_ << "auto " << var_name << " = BallDyn(" << val_str << ");\n";
@@ -9734,10 +9788,12 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
         // and restored around the body so sibling methods are unaffected.
         // (self-host engine #19)
         auto saved_declared_locals = declared_locals_;
+        auto saved_local_class_types = local_class_types_;
         auto saved_generic_locals = generic_locals_;
         auto saved_fn_params = current_fn_params_;
         auto saved_fn_locals = current_fn_locals_;
         declared_locals_.clear();
+        local_class_types_.clear();
         generic_locals_.clear();
         current_fn_params_.clear();
         current_fn_locals_.clear();
@@ -9795,6 +9851,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
         if (is_abstract) {
             out_ << ") = 0;\n";
             declared_locals_ = saved_declared_locals;
+            local_class_types_ = saved_local_class_types;
             generic_locals_ = saved_generic_locals;
             current_fn_params_ = saved_fn_params;
             current_fn_locals_ = saved_fn_locals;
@@ -9927,6 +9984,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
         }
         // Restore the enclosing local scope for the next method. (self-host #19)
         declared_locals_ = saved_declared_locals;
+        local_class_types_ = saved_local_class_types;
         generic_locals_ = saved_generic_locals;
         current_fn_params_ = saved_fn_params;
         current_fn_locals_ = saved_fn_locals;
@@ -10052,6 +10110,7 @@ void CppCompiler::emit_dynamic_class(
         boxed_params_.clear();
         value_capture_vars_.clear();
         declared_locals_.clear();
+        local_class_types_.clear();
         generic_locals_.clear();
         // The single method parameter (if any) is the closure's `input`. Bind
         // its declared name as an alias so the body resolves it.
@@ -10571,6 +10630,7 @@ void CppCompiler::emit_function(const ball::ir::FunctionDefinition& func) {
     // local named `num`/`int`/`String`/… resolve to the variable rather than
     // the Dart type-object string literal.
     declared_locals_.clear();
+    local_class_types_.clear();
     generic_locals_.clear();
     for (const auto& p : params) declared_locals_.insert(p);
     if ((func.body != nullptr)) _collect_declared_locals((*func.body), declared_locals_);
@@ -10679,6 +10739,7 @@ void CppCompiler::emit_function(const ball::ir::FunctionDefinition& func) {
     in_generator_ = prev_in_generator;
     current_return_type_ = prev_return_type;
     declared_locals_.clear();
+    local_class_types_.clear();
     generic_locals_.clear();
     boxed_vars_.clear();
     boxed_params_.clear();
@@ -10704,10 +10765,12 @@ void CppCompiler::emit_top_level_var(const ball::ir::FunctionDefinition& func) {
 
     const std::string name = sanitize_name(func.name);
     declared_locals_.clear();
+    local_class_types_.clear();
     generic_locals_.clear();
     if ((func.body != nullptr)) _collect_declared_locals((*func.body), declared_locals_);
     const std::string init = (func.body != nullptr) ? compile_expr((*func.body)) : "0";
     declared_locals_.clear();
+    local_class_types_.clear();
     generic_locals_.clear();
     emit_indent();
     // A namespace-scope (non-local) lambda may not carry a [&]/[=] capture
@@ -10777,6 +10840,7 @@ void CppCompiler::emit_main(const ball::ir::FunctionDefinition& entry) {
     // Record main's locals so a `let num` (etc.) shadows the Dart type-object
     // string-literal special-casing in compile_reference.
     declared_locals_.clear();
+    local_class_types_.clear();
     generic_locals_.clear();
     if ((entry.body != nullptr)) _collect_declared_locals((*entry.body), declared_locals_);
     if ((entry.body != nullptr)) compute_boxed_vars((*entry.body), {});

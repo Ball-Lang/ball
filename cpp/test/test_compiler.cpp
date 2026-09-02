@@ -3987,6 +3987,66 @@ TEST(method_local_shadows_field_and_getter_of_the_same_name) {
     ASSERT_NOT_CONTAINS(out, "return x();");
 }
 
+// A C++ local of class type has VALUE semantics: `A viaBase = b;` where `b` is
+// a `B` SLICES the object — the derived part goes, the vtable pointer with it,
+// and every virtual call answers with the BASE implementation. Dart never
+// slices, so this is a silent wrong answer, and it is invisible until a class
+// actually has an override to lose: fixture 433's `viaBase.x` printed the
+// ancestor getter's 1 instead of the shadowing field's 10, on a compiler that
+// had already been fixed for every OTHER shape in the family. The declaration
+// must carry the initialiser's CONCRETE class.
+TEST(base_typed_local_from_a_subclass_local_keeps_the_concrete_type) {
+    json a_meta;
+    a_meta["kind"] = "class";
+    auto a_td = cov_class_td("main:A", {}, std::move(a_meta));
+
+    json b_meta;
+    b_meta["kind"] = "class";
+    b_meta["superclass"] = "A";
+    b_meta["fields"] = json::array({json{{"name", "x"},
+                                         {"type", "int"},
+                                         {"initializer", "5"}}});
+    auto b_td = cov_class_td("main:B", {{"x", "TYPE_INT64"}}, std::move(b_meta));
+
+    json getter_meta;
+    getter_meta["kind"] = "method";
+    getter_meta["is_getter"] = true;
+    auto getter =
+        cov_class_fn("main:A.x", std::move(getter_meta), lit_int(1), "int");
+
+    // void B.use() { B b = B(); A viaBase = b; print(viaBase.x); }
+    // Built inside a method so the let statements go through compile_statement.
+    json b_let;
+    b_let["name"] = "b";
+    b_let["value"] = make_msg("main:B", {});
+    json b_let_meta;
+    b_let_meta["type"] = "B";
+    b_let["metadata"] = std::move(b_let_meta);
+
+    json base_let;
+    base_let["name"] = "viaBase";
+    base_let["value"] = ref("b");
+    json base_let_meta;
+    base_let_meta["type"] = "A";  // the DECLARED type — the slicing trap
+    base_let["metadata"] = std::move(base_let_meta);
+
+    json use_meta;
+    use_meta["kind"] = "method";
+    auto use = cov_class_fn(
+        "main:B.use", std::move(use_meta),
+        block({json{{"let", b_let}}, json{{"let", base_let}},
+               stmt_expr(print_call(field_access(ref("viaBase"), "x")))}),
+        "void");
+
+    auto prog = cov_class_program({a_td, b_td}, {getter, use});
+    auto out = compile_program(prog);
+
+    // The base-typed binding is declared with B, so `viaBase.x()` reaches B's
+    // override through the vtable rather than being sliced down to A.
+    ASSERT_CONTAINS(out, "B viaBase = b;");
+    ASSERT_NOT_CONTAINS(out, "A viaBase = b;");
+}
+
 // ================================================================
 // Main
 // ================================================================

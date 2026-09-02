@@ -377,6 +377,23 @@ private:
     // bracket notation, not struct member syntax.
     std::unordered_set<std::string> generic_locals_;
 
+    // Raw let-name -> the sanitized CONCRETE user class the local was emitted
+    // with. C++ locals of class type have VALUE semantics, so declaring one
+    // with a base type and initialising it from a subclass value SLICES: the
+    // derived part (and the vtable pointer with it) is dropped, and every
+    // virtual call answers with the base implementation. Dart has no slicing —
+    // `A viaBase = b;` still dispatches on b's runtime type. Carrying the
+    // initialiser's concrete class over to the declaration is what keeps the
+    // two agreeing (conformance 433_shadowed_field_self_write_and_local's
+    // `viaBase.x`, which answered with the ancestor getter's 1 instead of the
+    // shadowing field's 10). Cleared with declared_locals_, per function body.
+    std::unordered_map<std::string, std::string> local_class_types_;
+
+    // True when `derived` is `base`, or descends from it through
+    // class_superclass_. Both arguments are sanitized BARE class names.
+    bool class_is_or_descends_from(const std::string& derived,
+                                  const std::string& base);
+
     // True when compiling a sync*/async* generator function body.
     // yield/yield_each emit __gen.yield_/__gen.yieldAll calls instead of
     // passthrough, and the function returns the collected generator values.

@@ -84,12 +84,41 @@ forms carry their `?` on the `MapLiteralEntry` itself (`keyQuestion` /
 `valueQuestion`), not on a distinct node type — before #494 those markers were
 silently DROPPED, so `{?k: 20}` with a null key produced the entry `null: 20`.
 
+#### `runtimeType` → `std.type_of` (#489)
+
+`<expr>.runtimeType.toString()` — and ONLY that exact chain — encodes to
+`std.type_of(value: <expr>)`. A bare `x.runtimeType`, an interpolated
+`'${x.runtimeType}'` and a null-aware `x?.runtimeType.toString()` are
+deliberate carve-outs; the table in `dart/encoder/AGENTS.md` says why, and
+`dart/encoder/test/type_of_test.dart` pins all four. `type_of` returns the BASE
+type name (generics dropped, module prefix stripped) — never Dart's own
+`List<int>` / `_Map<String, int>` spelling, which no other target can
+reproduce. Do NOT write the `.runtimeType.toString()` chain inside
+Ball-portable engine/runtime source: it now IS `std.type_of`, so a helper that
+falls back to it would call itself in every compiled self-hosted engine. Use
+`'${v.runtimeType}'` there instead.
+
 ### Engine
 - `BallEngine.run(Program)` → executes, returns captured stdout
 - Scoping via linked `Scope` chain (lexical scoping with parent pointers)
 - `StdModuleHandler` dispatches all universal std base functions
 - Flow signals (break, continue, return) propagate via `FlowSignal` objects
 - Custom modules via `BallModuleHandler` abstract class
+- **A constructor may legitimately construct its own class** (#499). Both
+  `_evalMessageCreation` guards that stop `Foo() is Foo` from recursing forever
+  key on `__constructor_type__ == msg.typeName` **AND**
+  `_isBareSelfConstruction(msg)`: a construction carrying a positional `argN`
+  or a field naming one of the constructor's declared parameters is a REAL
+  construction and must invoke the constructor. Only field-initializer-shaped
+  self-references (`Foo.new` → `messageCreation Foo{}` / `Foo{_x: 5}`) resolve
+  to `self`. Keying on the type name alone silently turned every
+  `next = Chain(depth - 1)` into an infinite self-cycle.
+- **A constructor's initializer list runs even when it has a body.** Dart runs
+  `Foo(a) : x = a { … }`'s initializer list before the body, so
+  `_applyConstructorInitializers` fires on both instance-building paths
+  (`_evalMessageCreation` and `_callObjectConstructor`), not only for body-less
+  constructors. A string-literal initializer is stored as SOURCE text
+  (`label = 'pt'` → `"'pt'"`) and its quotes must be stripped.
 
 ## Generated Files — NEVER Edit
 

@@ -46,6 +46,17 @@ const json = toJson(ProgramSchema, program);
 - Expressions/statements emitted as raw TS string into buffers
 - Post-processing via regex for OOP field binding, super chain, cascade evaluation
 - Preamble (`preamble.ts`) installs Dart-flavored polyfills on `Object.prototype`
+- **A constructor's INITIALIZER LIST is separate from its body, and Dart runs
+  both.** `buildCtor` must emit `this.<field> = <resolved>` for every
+  `metadata.initializers` entry of `kind: "field"` (it used to emit only
+  `super(...)` and `this.`-params, so an initializer-list field stayed
+  `undefined`), and `buildNamedCtor`'s `Object.create` branch must still run
+  `fn.body` — bound to the new instance with `(function () { … }).call(__inst)`,
+  never an arrow — instead of dropping it. Both were invisible to the TS
+  ENGINE (which interprets, and never goes through these builders) and only the
+  `ts-compiled` leg of `dart/compiler/test/conformance_roundtrip_test.dart`
+  catches them; conformance `436_recursive_ctor_named` /
+  `438_ctor_initializer_list_with_body` pin them.
 - Base function dispatch in `_callBaseFunction()` switch
 - **Never lower a key-membership test to the bare `in` operator.** `in` walks
   the prototype chain, and the preamble patches the whole Dart-SDK method
@@ -77,6 +88,20 @@ const json = toJson(ProgramSchema, program);
 - `index.ts` wraps it with proto3 JSON normalization (`protoWrap`) and method dispatch
 - `run()` is async — returns `Promise<string[]>` (captured stdout lines)
 - All base functions route through `std` — the `dart_std` module has been eliminated
+- **`registerExtraStdFunctions` (`engine_setup.ts`) OVERRIDES the compiled
+  engine's own implementation of the names it registers**, so a wrong field
+  name there silently replaces a correct implementation. Read the field names
+  off the ENCODER's emission (`dart/encoder/lib/encoder.dart` /
+  `ts/encoder/src/encoder.ts`), not off a guess: `string_starts_with` /
+  `string_ends_with` are canonical `BinaryInput` (`left`/`right`), and reading
+  only `value`/`prefix` made both collapse to `''.startsWith('')` — **always
+  true**, for years, because every corpus use of them asserted a TRUE answer.
+  Fixture `260_string_functions` now pins the false cases too.
+- Post-processing `body.replace(/…/, …)` passes in `ts/compiler/src/compiler.ts`
+  are anchored on the compiled engine's literal TEXT. When the reference engine
+  moves, a pattern stops matching and the pass becomes a silent no-op. After
+  regenerating `compiled_engine.ts`, grep it for an identifier each pass
+  injects; fix or delete a pass that no longer fires.
 
 ### Encoder
 

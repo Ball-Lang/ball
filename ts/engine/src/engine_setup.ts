@@ -976,8 +976,15 @@ export function createEngineSetup(mod: EngineModule) {
     _r('string_to_upper_case', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').toUpperCase(); });
     _r('string_to_lower_case', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').toLowerCase(); });
     _r('string_trim', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').trim(); });
-    _r('string_starts_with', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').startsWith(String(m['prefix'] ?? m['pattern'] ?? '')); });
-    _r('string_ends_with', (i: any) => { const m = _m(i); return String(m['value'] ?? m['string'] ?? '').endsWith(String(m['suffix'] ?? m['pattern'] ?? '')); });
+    // The encoder emits both of these as a canonical `BinaryInput`
+    // (`left`/`right`), like every other two-operand string op. Reading only
+    // `value`/`prefix` made BOTH lookups miss and collapse to
+    // `''.startsWith('')` / `''.endsWith('')` -- ALWAYS TRUE, silently. The
+    // corpus never caught it because every fixture using them asserted a TRUE
+    // answer (260/382/416); 260_string_functions now pins the false cases too.
+    // Legacy `value`/`prefix`/`suffix`/`pattern` spellings stay as fallbacks.
+    _r('string_starts_with', (i: any) => { const m = _m(i); return String(m['left'] ?? m['value'] ?? m['string'] ?? '').startsWith(String(m['right'] ?? m['prefix'] ?? m['pattern'] ?? '')); });
+    _r('string_ends_with', (i: any) => { const m = _m(i); return String(m['left'] ?? m['value'] ?? m['string'] ?? '').endsWith(String(m['right'] ?? m['suffix'] ?? m['pattern'] ?? '')); });
     // `m['width'] ?? m['length'] ?? 0` has the same Object.prototype '.length'
     // getter hazard as `_countOf` above: plain bracket access on 'length'
     // never falls through to the `0` default (it returns the input map's own

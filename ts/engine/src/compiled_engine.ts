@@ -1474,6 +1474,36 @@ function __ball_is_type(value: any, typeStr: string): boolean {
   }
 }
 
+// std.type_of (#489) - the string form of the very discrimination
+// __ball_is_type performs, i.e. the canonical BASE type name with generic
+// type arguments dropped and any module prefix stripped. Bare JS typeof
+// cannot be used: typeof [] is 'object', not 'list', and it cannot tell an
+// int from a double. Must agree with the Dart reference engine's _typeNameOf.
+function __ball_type_of(value: any): string {
+  if (value == null) return 'Null';
+  if (typeof value === 'boolean') return 'bool';
+  if (value instanceof BallDouble) return 'double';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'double';
+  if (typeof value === 'string') return 'String';
+  if (Array.isArray(value)) return 'List';
+  if (value instanceof Set) return 'Set';
+  if (typeof value === 'function') return 'Function';
+  if (typeof value === 'object') {
+    const tag = value.__type__;
+    if (typeof tag === 'string' && tag.length > 0) {
+      const colon = tag.indexOf(':');
+      return colon >= 0 ? tag.slice(colon + 1) : tag;
+    }
+    // A compiled user class is a real TS class; a Dart Map is a plain object.
+    const ctor = value.constructor?.name;
+    if (typeof ctor === 'string' && ctor.length > 0 && ctor !== 'Object') {
+      return ctor;
+    }
+    return 'Map';
+  }
+  return typeof value;
+}
+
 // Minimal DateTime / Duration / Future polyfills used by std_time and
 // the round-tripped engine's sleep_ms helper. Wide enough for the
 // conformance suite, narrow enough to stay out of users' way.
@@ -1662,6 +1692,12 @@ export class BallEngine {
     this.maxProgramSizeBytes = maxProgramSizeBytes;
     this.sandbox = sandbox;
     this.moduleHandlers = moduleHandlers;
+    this.stdout = stdout ?? print;
+    this._resolver = resolver;
+    this.stderr = stderr ?? ((s) => io.stderr.writeln(s));
+    this._envGet = envGet ?? ((name) => io.Platform.environment[name] ?? '');
+    this._args = args ?? [];
+    this.moduleHandlers = moduleHandlers ?? [StdModuleHandler()];
     this._validateProgramLimits();
     if (enableProfiling) {
       this._callCounts = {};
@@ -2327,6 +2363,7 @@ export class BallEngine {
       }
     }
     this._initFieldDefaults(typeName, instanceFields);
+    this._applyConstructorInitializers(func, instanceFields, resolvedParams, true);
     let superclass = this._getMetaString(typeDef, 'superclass');
     let superObject;
     if ((!__ball_eq(superclass, null) && !(superclass.length === 0))) {
@@ -2391,17 +2428,21 @@ export class BallEngine {
             targetFields[name] = null;
           }
         } else {
-          if (__ball_eq(valStr, 'true')) {
-            targetFields[name] = true;
+          if ((__ball_ge(valStr.length, 2) && ((valStr.startsWith('\'') && valStr.endsWith('\'')) || (valStr.startsWith('"') && valStr.endsWith('"'))))) {
+            targetFields[name] = valStr.substring(1, __ball_sub(valStr.length, 1));
           } else {
-            if (__ball_eq(valStr, 'false')) {
-              targetFields[name] = false;
+            if (__ball_eq(valStr, 'true')) {
+              targetFields[name] = true;
             } else {
-              if (!__ball_eq(num.tryParse(valStr), null)) {
-                let numVal = num.parse(valStr);
-                targetFields[name] = (valStr.includes('.') ? new BallDouble(new BallDouble(Number(numVal))) : __ball_to_int(numVal));
+              if (__ball_eq(valStr, 'false')) {
+                targetFields[name] = false;
               } else {
-                targetFields[name] = (__ball_index(resolvedParams, valStr) ?? valStr);
+                if (!__ball_eq(num.tryParse(valStr), null)) {
+                  let numVal = num.parse(valStr);
+                  targetFields[name] = (valStr.includes('.') ? new BallDouble(new BallDouble(Number(numVal))) : __ball_to_int(numVal));
+                } else {
+                  targetFields[name] = (__ball_index(resolvedParams, valStr) ?? valStr);
+                }
               }
             }
           }
@@ -4264,6 +4305,18 @@ export class BallEngine {
     }
   }
 
+  _isBareSelfConstruction(msg: any): any {
+    const input = msg;
+    for (const pair of msg.fields) {
+      let name = pair.name;
+      if (((__ball_eq(name, '__type_args__') || __ball_eq(name, 'type_args')) || __ball_eq(name, '__const__'))) {
+        continue;
+      }
+      return false;
+    }
+    return true;
+  }
+
   async _evalMessageCreation(msg: any, scope: any): Promise<any> {
     let fields = {};
     for (const pair of msg.fields) {
@@ -4288,7 +4341,7 @@ export class BallEngine {
           let self = scope.lookup('self');
           let constructorType = scope.lookup('__constructor_type__');
           let selfMap = this._asMap(self);
-          if ((!__ball_eq(selfMap, null) && __ball_eq(constructorType, msg.typeName))) {
+          if (((!__ball_eq(selfMap, null) && __ball_eq(constructorType, msg.typeName)) && this._isBareSelfConstruction(msg))) {
             return self;
           }
         }
@@ -4334,7 +4387,7 @@ export class BallEngine {
             }
           }
         }
-        if (((!__ball_eq(ctorEntry, null) && hasMetadata(ctorEntry.func)) && !hasBody(ctorEntry.func))) {
+        if ((!__ball_eq(ctorEntry, null) && hasMetadata(ctorEntry.func))) {
           this._applyConstructorInitializers(ctorEntry.func, instanceFields, resolvedParams, true);
         }
         let superclass = this._getMetaString(typeDef, 'superclass');
@@ -4388,7 +4441,7 @@ export class BallEngine {
         }
         return instance;
       } else {
-        if (((scope.has('self') && scope.has('__constructor_type__')) && __ball_eq(scope.lookup('__constructor_type__'), msg.typeName))) {
+        if ((((scope.has('self') && scope.has('__constructor_type__')) && __ball_eq(scope.lookup('__constructor_type__'), msg.typeName)) && this._isBareSelfConstruction(msg))) {
           let self = scope.lookup('self');
           if (!__ball_eq(this._asMap(self), null)) {
             return self;
@@ -5460,7 +5513,7 @@ export class BallEngine {
                 let eBare = (__ball_ge(eColonIdx, 0) ? eType.substring(__ball_add(eColonIdx, 1)) : eType);
                 matches = (__ball_eq(eType, catchType) || __ball_eq(eBare, catchType));
               } else {
-                matches = __ball_eq(__ball_to_string(e['runtimeType']), catchType);
+                matches = __ball_eq(__ball_type_of(e), catchType);
               }
             }
             if (!matches) {
@@ -7276,7 +7329,7 @@ export class BallEngine {
       }), ['null_aware_access']: this._stdNullAwareAccess.bind(this), ['null_aware_call']: this._stdNullAwareCall.bind(this), ['if']: this._stdIf.bind(this), ['is']: this._stdTypeCheck.bind(this), ['is_not']: ((i) => {
         const input = i;
         return !this._stdTypeCheck(i);
-      }), ['as']: this._extractUnaryArg.bind(this), ['index']: this._stdIndex.bind(this), ['cascade']: this._stdCascade.bind(this), ['null_aware_cascade']: this._stdNullAwareCascade.bind(this), ['spread']: this._extractUnaryArg.bind(this), ['null_spread']: this._extractUnaryArg.bind(this), ['invoke']: this._stdInvoke.bind(this), ['tear_off']: ((i) => {
+      }), ['as']: this._extractUnaryArg.bind(this), ['type_of']: this._stdTypeOf.bind(this), ['index']: this._stdIndex.bind(this), ['cascade']: this._stdCascade.bind(this), ['null_aware_cascade']: this._stdNullAwareCascade.bind(this), ['spread']: this._extractUnaryArg.bind(this), ['null_spread']: this._extractUnaryArg.bind(this), ['invoke']: this._stdInvoke.bind(this), ['tear_off']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         if (!__ball_eq(m, null)) {
@@ -8855,6 +8908,52 @@ export class BallEngine {
     return this._typeMatches(value, type);
   }
 
+  _stdTypeOf(input: any): any {
+    let m = this._stdAsMap(input);
+    if (__ball_eq(m, null)) {
+      throw new BallRuntimeError('std.type_of: expected an input message');
+    }
+    return this._typeNameOf(__ball_index(m, 'value'));
+  }
+
+  _typeNameOf(value: any): any {
+    const input = value;
+    if ((__ball_eq(value, null) || (value == null))) {
+      return 'Null';
+    }
+    if (_ballIsBool(value)) {
+      return 'bool';
+    }
+    if (_ballIsInt(value)) {
+      return 'int';
+    }
+    if (_ballIsDouble(value)) {
+      return 'double';
+    }
+    if (_ballIsString(value)) {
+      return 'String';
+    }
+    if (_ballIsList(value)) {
+      return 'List';
+    }
+    if (this._isBallSet(value)) {
+      return 'Set';
+    }
+    if (((typeof value === 'function') || (typeof value === 'function'))) {
+      return 'Function';
+    }
+    let objMap = this._stdAsMap(value);
+    if (!__ball_eq(objMap, null)) {
+      let tag = __ball_index(objMap, '__type__');
+      if (((typeof tag === 'string') && !(tag.length === 0))) {
+        let colonIdx = tag.indexOf(':');
+        return (__ball_ge(colonIdx, 0) ? tag.substring(__ball_add(colonIdx, 1)) : tag);
+      }
+      return 'Map';
+    }
+    return __ball_to_string(value.runtimeType);
+  }
+
   _typeMatches(value: any, type: any): any {
     let genericMatch = new RegExp('^(\\w+)<(.+)>$').firstMatch(type);
     if (!__ball_eq(genericMatch, null)) {
@@ -10229,6 +10328,7 @@ export class StdModuleHandler extends BallModuleHandler {
 
   constructor() {
     super();
+    this._allowlist = null;
   }
 
   get registeredFunctions(): any {

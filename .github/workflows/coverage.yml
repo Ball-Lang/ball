@@ -6,11 +6,29 @@ name: Coverage
 # Auth is OIDC — public repo, no CODECOV_TOKEN needed.
 #
 # The Dart job ALSO enforces the line-coverage ratchet (floor must never
-# regress; raise toward 100%). Runs on push to main + on demand (the
-# instrumented suites are heavy — not gated on every PR yet).
+# regress; raise toward 100%).
+#
+# TRIGGERS. Everything runs on push to main + on demand, as before. The C++ job
+# ALONE additionally runs on cpp-touching pull requests (issue #63): until now
+# the only job in the repo that computes C++ line coverage and fails below a
+# floor was never scheduled for a `pull_request` event at all, so a PR that
+# dropped C++ coverage — a wholly uncovered new code path included — sailed
+# through every required check and was caught, if at all, only by the NEXT
+# push-to-main run, after the merge. Codecov's own PR status cannot block
+# either: codecov.yml declares project+patch `informational: true` for all
+# flags. The path filter is deliberately tight (this job is 10-50 min) and the
+# other four jobs are pinned to non-PR events below, so a cpp-only PR pays for
+# the C++ job and nothing else. This is NOT one of the required checks and does
+# not gate a merge; it makes a C++ coverage regression VISIBLE before the merge
+# for the first time. Promoting it to required is a separate, later decision.
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - "cpp/**"
+      - ".github/workflows/coverage.yml"
   workflow_dispatch:
 
 # Codecov OIDC (tokenless) upload needs id-token: write.
@@ -28,6 +46,10 @@ jobs:
   # ──────────────────────────────────────────────────
   dart:
     name: Dart coverage
+    # The pull_request trigger is scoped to cpp/** for the C++ job's sake
+    # (issue #63); this job stays push/dispatch-only so a cpp-only PR does
+    # not drag the whole cross-stack coverage matrix into it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -108,6 +130,10 @@ jobs:
   # ──────────────────────────────────────────────────
   typescript:
     name: TypeScript coverage
+    # The pull_request trigger is scoped to cpp/** for the C++ job's sake
+    # (issue #63); this job stays push/dispatch-only so a cpp-only PR does
+    # not drag the whole cross-stack coverage matrix into it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -287,23 +313,24 @@ jobs:
             echo "ERROR: could not parse line coverage percentage from cpp.lcov"
             exit 1
           fi
-          # Ratcheted 72 -> 83 -> 86 (issue #63, 2026-07-10 grinds). The latest
-          # #63-close grind added ~22 per-arm class/comprehension/library/method-
-          # dispatch unit tests driving hand-built ball::ir (emit_struct
-          # bases/ctors/operators/factory, split-mode out-of-line class defs,
-          # list-literal field & typed param defaults, message_creation runtime-
-          # type arms, compile_method_call collection/string/super/static routes,
-          # compile_std_call map/list comprehensions + for-in-as-expression,
-          # compile_library class/enum/top-level-var facades, ClassName.new,
-          # lambda input/output types), lifting compiler.cpp 86.7% -> 90.4%
-          # (6713/7424) and overall 85.7% -> 88.1% (9989/11336) on the
-          # CI-equivalent run (test_e2e's compile phase is reproduced locally by
-          # cpp/test/corpus_driver.cpp — same instrumented compiler.cpp coverage
-          # without the 40-min nested g++ builds; see cpp/build-cov-floor.sh for
-          # the methodology + per-target local ratchet). encoder 89.1%, shared
-          # 81.7% unchanged this round. Floor set ~2 points under measured 88.1%
-          # for CI variance.
-          floor=86
+          # Ratcheted 72 -> 83 -> 86 -> 87 (issue #63).
+          #
+          # LATEST MEASUREMENT — this workflow's own most recent successful C++
+          # coverage run on main: run 29332380082, job 87083173640,
+          # 2026-07-14T12:24Z, which printed verbatim
+          #     lines......: 88.3% (10113 of 11447 lines)
+          #     C++ overall line coverage: 88.3% (floor: 86%)
+          # 87 leaves 1.3pt of headroom against that reading, consistent with
+          # this project's ~2pt CI-variance buffer convention. (The block that
+          # used to live here still narrated PR #370's 2026-07-10 numbers —
+          # 88.1% (9989/11336) — even though PR #397 had since lifted
+          # compiler.cpp 90.66% -> 92.55% and explicitly deferred ratcheting
+          # "with a fresh measurement". That follow-up is this line.)
+          #
+          # The per-target numbers behind the aggregate (compiler / encoder /
+          # shared) are printed by the report-only step below; they are NOT
+          # gated yet — see that step.
+          floor=87
           echo "C++ overall line coverage: ${pct}% (floor: ${floor}%)"
           awk -v p="$pct" -v f="$floor" 'BEGIN {
             if (p + 0 < f) {
@@ -314,6 +341,49 @@ jobs:
             }
             print "OK: " p "% >= floor " f "%.";
           }'
+
+      # Per-target split + REPORT (issue #63). The aggregate floor above is
+      # blended across cpp/{compiler,encoder,shared}: a large regression
+      # confined to one target — `shared` is a small slice of the ~11.4k-line
+      # denominator — is arithmetically absorbable by the other two and never
+      # trips it. cpp/build-cov-floor.sh has owned the finer per-target floors
+      # (compiler 88 / encoder 88 / shared 81) since it was written, but was
+      # invoked by NOTHING: `grep -rn build-cov-floor .github/workflows/`
+      # returned only prose comments, and its own header said "Not wired into
+      # CI yet".
+      #
+      # This step splits the merged tracefile exactly the way
+      # cpp/build-cov-report.sh:81-90 does and prints each target next to its
+      # floor. It DOES NOT GATE: those floors have never been measured by CI
+      # (they were read off a local run), and a false red on main is worse than
+      # an unenforced number. Once two consecutive runs establish the CI
+      # baseline, this becomes the gate — and it must then also assert all
+      # three tracefiles exist (see build-cov-floor.sh's SKIP branch).
+      - name: C++ per-target coverage report (compiler/encoder/shared — not gated)
+        run: |
+          set -uo pipefail
+          declare -A floors=([compiler]=88 [encoder]=88 [shared]=81)
+          {
+            echo "### C++ per-target line coverage (report only — issue #63)"
+            echo ""
+            echo "| target | measured | build-cov-floor.sh floor |"
+            echo "| --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for target in compiler encoder shared; do
+            out="cpp.$target.lcov"
+            lcov --extract cpp.lcov "*/cpp/$target/*" --output-file "$out" \
+              --ignore-errors unused,empty --quiet
+            pct=$(lcov --summary "$out" --ignore-errors empty 2>/dev/null \
+              | grep -oP 'lines\.*:\s*\K[0-9]+(\.[0-9]+)?' | head -1)
+            pct="${pct:-unparseable}"
+            echo "cpp/$target: ${pct}% (floor ${floors[$target]}%, not enforced)"
+            echo "| cpp/$target | ${pct}% | ${floors[$target]}% |" >> "$GITHUB_STEP_SUMMARY"
+          done
+          {
+            echo ""
+            echo "Report only: these per-target floors are not yet enforced."
+            echo "A follow-up ratchets them once two CI runs establish a baseline."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload C++ coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -328,6 +398,10 @@ jobs:
   # ──────────────────────────────────────────────────
   rust:
     name: Rust coverage
+    # The pull_request trigger is scoped to cpp/** for the C++ job's sake
+    # (issue #63); this job stays push/dispatch-only so a cpp-only PR does
+    # not drag the whole cross-stack coverage matrix into it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -404,6 +478,10 @@ jobs:
   # ──────────────────────────────────────────────────
   csharp:
     name: C# coverage
+    # The pull_request trigger is scoped to cpp/** for the C++ job's sake
+    # (issue #63); this job stays push/dispatch-only so a cpp-only PR does
+    # not drag the whole cross-stack coverage matrix into it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

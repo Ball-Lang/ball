@@ -97,20 +97,25 @@ describe("encoder std method mappings", () => {
     assert.equal(callFnFor(`const r = "abc".slice(1);`), "string_substring");
   });
 
-  // #506 slice 1: `slice`/`indexOf`/`includes`/`concat` exist on BOTH String
-  // and Array, and the syntax-only encoder resolves them to the STRING
-  // mapping. ENCODER_CARVEOUTS.md documents that ambiguity, but the branch
-  // never called `this.warn(...)` — unlike the neighbouring ArraySplice case —
-  // so `encodeWithWarnings(...)` came back with `warnings: []` even under
-  // `{ strictBehaviorAffecting: true }`, contradicting the carve-out file's
-  // own "every entry here warns" policy.
+  // #506 slice 1: `slice`/`indexOf`/`includes` exist on BOTH String and Array.
+  // #525 made the mis-resolution loud (this warning), and #506 made it CORRECT
+  // — the encoder now resolves the receiver through a real `ts.Program`
+  // TypeChecker, so a typed `string` or `T[]` receiver picks the right table
+  // and warns about nothing (see test/semantic_resolution.test.ts).
+  //
+  // These cases are therefore narrowed to the RESIDUAL inconclusive receiver
+  // (`any`), which the checker cannot type and which keeps the warn-loud
+  // String fallback. That fail-loud residual is the part of #525 that must
+  // never be dropped, so its coverage stays here.
   for (const [method, call] of [
     ["slice", `const r = arr.slice(1, 3);`],
     ["indexOf", `const r = arr.indexOf(2);`],
     ["includes", `const r = arr.includes(2);`],
   ] as const) {
-    test(`ambiguous .${method}() warns at encode time (#506)`, () => {
-      const { warnings } = encodeWithWarnings(`function main() { ${call} }`);
+    test(`ambiguous .${method}() on an inconclusive receiver warns at encode time (#506)`, () => {
+      const { warnings } = encodeWithWarnings(
+        `function main() { const arr: any = null; ${call} }`,
+      );
       assert.ok(
         warnings.some((w) => w.includes(`\`.${method}(`) && w.includes("String and Array")),
         `expected an ambiguity warning for .${method}(), got ${JSON.stringify(warnings)}`,
@@ -120,7 +125,8 @@ describe("encoder std method mappings", () => {
 
   test("the ambiguity warning is behaviour-affecting, not erasure-only (#506)", () => {
     assert.throws(
-      () => encodeWithWarnings(`function main() { const r = arr.slice(1, 3); }`,
+      () => encodeWithWarnings(
+        `function main() { const arr: any = null; const r = arr.slice(1, 3); }`,
         { strictBehaviorAffecting: true }),
       EncodeError,
       "an ambiguous String/Array method must be rejected under strictBehaviorAffecting",

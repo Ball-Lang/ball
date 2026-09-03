@@ -349,6 +349,45 @@ jobs:
           fi
           echo "Std coverage inventory is up to date."
 
+      # ts/engine/src/compiled_engine.ts is the ONE COMMITTED self-hosted
+      # engine: the Rust/C#/Go/Python/C++ ones are gitignored and rebuilt from
+      # source inside their own jobs, so only this artifact can go stale in git.
+      # It is compiled from dart/self_host/engine.ball.json, which is itself
+      # generated from the Ball-portable engine sources — so ANY change under
+      # dart/engine/lib/ or dart/shared/lib/ silently invalidates it, and the
+      # six conformance sweeps cannot see the drift whenever the corpus does not
+      # happen to emit the shape that diverged. That is exactly how a stale
+      # `_isBareSelfConstruction` guard (#499) shipped with all 18 checks green
+      # while the TS engine infinitely recursed on a program the Dart reference
+      # engine ran fine. Regenerate-and-diff, same contract as the artifacts
+      # above; ts/engine/test/compiled_engine_parity.test.ts is its behavioural
+      # half.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ts/shared/package-lock.json
+            ts/compiler/package-lock.json
+
+      - name: Install @ball-lang/compiler deps
+        run: |
+          ( cd ts/shared   && npm ci )
+          ( cd ts/compiler && npm ci )
+
+      - name: Regenerate the compiled TS self-hosted engine
+        run: |
+          ( cd dart       && dart run compiler/tool/gen_engine_json.dart )
+          ( cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs )
+
+      - name: Assert compiled TS engine is up to date
+        run: |
+          if ! git diff --exit-code -- ts/engine/src/compiled_engine.ts; then
+            echo "::error::ts/engine/src/compiled_engine.ts is stale. Regenerate it with 'cd dart && dart run compiler/tool/gen_engine_json.dart' then 'cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs' and commit — this file is generated (see CLAUDE.md 'Regenerate compiled TS engine'), never hand-edited."
+            exit 1
+          fi
+          echo "Compiled TS self-hosted engine is up to date."
+
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
   # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).

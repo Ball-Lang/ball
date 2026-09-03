@@ -4307,12 +4307,19 @@ export class BallEngine {
 
   _isBareSelfConstruction(msg: any): any {
     const input = msg;
+    let ctorEntry = this._lookupConstructor(msg.typeName);
+    let params = ((!__ball_eq(ctorEntry, null) && hasMetadata(ctorEntry.func)) ? this._extractParams(ctorEntry.func.metadata) : []);
     for (const pair of msg.fields) {
       let name = pair.name;
       if (((__ball_eq(name, '__type_args__') || __ball_eq(name, 'type_args')) || __ball_eq(name, '__const__'))) {
         continue;
       }
-      return false;
+      if (name.startsWith('arg')) {
+        return false;
+      }
+      if (params.includes(name)) {
+        return false;
+      }
     }
     return true;
   }

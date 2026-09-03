@@ -5415,6 +5415,35 @@ void main() {
       expect(await runAndCapture(program), ['1']);
     });
 
+    test('constructor self-reference carrying only NON-parameter fields still '
+        'resolves to self (#499 guard, field-initializer shape)', () async {
+      // The `Foo() is Foo` regression lock above uses a self-reference with NO
+      // fields at all. The encoder also emits a self-reference carrying the
+      // class's own inline FIELD INITIALIZERS (`Foo.new` -> `Foo{_x: 5}`) —
+      // names that are neither positional (`argN`) nor declared constructor
+      // parameters. That shape must ALSO resolve to `self`; treating it as a
+      // real construction re-enters `Foo.new` forever.
+      //
+      // This is the exact shape that told the two `_isBareSelfConstruction`
+      // rules apart, so it is what pins the Dart reference engine's answer for
+      // the compiled self-hosted engines to match (ts/engine's
+      // test/compiled_engine_parity.test.ts runs the same program).
+      final p = buildProgram(
+        functions: [
+          {
+            'name': 'Foo.new',
+            'metadata': {'kind': 'constructor', 'class': 'Foo'},
+            'body': msg([field('_x', literal(5))], typeName: 'Foo'),
+          },
+          mainFn([
+            letStmt('f', msg([], typeName: 'Foo')),
+            stmt(printToString(fieldAcc(ref('f'), '__type__'))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['Foo']);
+    });
+
     test('is on class instance — false for wrong type', () async {
       final p = buildProgram(
         stdFunctions: typeFns,

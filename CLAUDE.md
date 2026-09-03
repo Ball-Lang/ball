@@ -59,17 +59,15 @@ cd ts/engine && npm test
 # TS compiler tests (including compiled engine conformance)
 cd ts/compiler && npm install && npm test
 
-# Regenerate compiled TS engine from self-hosted Ball source.
-# engine.ball.json is a self-describing google.protobuf.Any envelope
-# ({"@type":"…/ball.v1.Program", …}); strip @type before compiling.
-cd ts/compiler && node --experimental-strip-types -e "
-const {readFileSync, writeFileSync} = require('fs');
-const {compile} = require('./src/index.ts');
-function unwrapBallFile(json){ if(json===null||typeof json!=='object'||Array.isArray(json))return json; const t=json['@type']; if(t===undefined)return json; const b={}; for(const[k,v]of Object.entries(json)){if(k!=='@type')b[k]=v;} return b; }
-const program = unwrapBallFile(JSON.parse(readFileSync('../../dart/self_host/engine.ball.json', 'utf8')));
-const ts = compile(program);
-writeFileSync('../engine/src/compiled_engine.ts', '// @ts-nocheck — auto-generated\n' + ts);
-"
+# Regenerate compiled TS engine from self-hosted Ball source. This is the ONE
+# COMMITTED compiled engine (Rust/C#/Go/Python/C++ regenerate theirs from source
+# in-job), so it is the only one that can go stale in git — ci.yml's `Ball
+# Artifact Freshness` job runs these exact two commands and diffs the result.
+# engine.ball.json is generated + gitignored, and is a self-describing
+# google.protobuf.Any envelope ({"@type":"…/ball.v1.Program", …}) whose @type the
+# script strips before compiling.
+cd dart && dart run compiler/tool/gen_engine_json.dart
+cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs
 
 # Regenerate compiled TS CLI core (ts/cli's info/validate/tree/version verbs —
 # issue #364) from the self-hosted cli_core.dart source. Same pipeline as

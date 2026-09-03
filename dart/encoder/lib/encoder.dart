@@ -3417,13 +3417,6 @@ class DartEncoder {
     'dynamic': 'dynamic',
   };
 
-  /// True when a bare builtin type name at [expr] is genuinely used as a
-  /// first-class value (type literal), i.e. NOT:
-  ///   * a static receiver — `List.generate(...)` / `List..gen(...)` must keep
-  ///     `reference("List")` as `self` for the engine's static dispatch;
-  ///   * an assignment target or increment/decrement operand — those must stay
-  ///     `Reference`s so `std.assign` can resolve a mutable target (only
-  ///     reachable via a pathological local shadowing a type name).
   /// The receiver of a `<expr>.runtimeType` property read, or `null` when
   /// [node] is not that shape.
   ///
@@ -3443,6 +3436,13 @@ class DartEncoder {
     return null;
   }
 
+  /// True when a bare builtin type name at [expr] is genuinely used as a
+  /// first-class value (type literal), i.e. NOT:
+  ///   * a static receiver — `List.generate(...)` / `List..gen(...)` must keep
+  ///     `reference("List")` as `self` for the engine's static dispatch;
+  ///   * an assignment target or increment/decrement operand — those must stay
+  ///     `Reference`s so `std.assign` can resolve a mutable target (only
+  ///     reachable via a pathological local shadowing a type name).
   static bool _isTypeLiteralPosition(ast.SimpleIdentifier expr) {
     final parent = expr.parent;
     if (parent is ast.MethodInvocation && parent.target == expr) {

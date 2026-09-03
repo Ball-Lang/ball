@@ -244,6 +244,20 @@ The TS (`ts/engine/src/compiled_engine.ts`) and C++
 Dart engine (`dart/engine/lib/engine.dart` + parts). Fix the Dart engine, then
 regenerate (`dart/compiler/tool/gen_engine_json.dart`, then the TS/C++ regen
 commands in `CLAUDE.md`) and verify all three. A Dart-only fix is half a fix.
+
+**`ts/engine/src/compiled_engine.ts` is the one compiled engine COMMITTED to
+git** — Rust/C#/Go/Python/C++ rebuild theirs from source inside their own CI
+jobs, so only this artifact can silently fall behind the Dart engine it was
+generated from. The six conformance sweeps cannot see that drift on their own:
+the corpus is generated from Dart by the Dart encoder, so it only ever emits the
+Ball shapes that encoder produces, and a semantic change the corpus does not
+happen to exercise leaves every sweep green while the TS engine disagrees with
+the Dart reference engine (this is exactly how a stale `_isBareSelfConstruction`
+guard shipped under #499 with all 18 checks green). Two gates close it:
+`Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` step
+regenerates and diffs the artifact, and
+`ts/engine/test/compiled_engine_parity.test.ts` locks the behaviour with
+hand-built programs chosen to discriminate shapes the corpus never emits.
 **Compilers are separate** — the Dart, TS, and C++ Ball→source compilers each
 need their own fix and their own verification (the `cpp-compiled` conformance
 leg compiles every fixture through the C++ compiler).
@@ -360,6 +374,7 @@ could not parse a summary at all).
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
+| **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |

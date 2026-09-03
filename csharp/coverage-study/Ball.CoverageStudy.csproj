@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    csharp/coverage-study: the C# port of Tier A of the third-party coverage
+    study (issue #493) — the sibling of tools/coverage-study/rq1_study.dart.
+    A DELIBERATELY SEPARATE project (mirroring engine/tool and cli/tool) rather
+    than a mode of Ball.Cli: it is an internal measuring instrument, never part
+    of the shipped CLI surface, and it must keep building even when the pipeline
+    it measures is failing every file.
+
+    It is an Exe so it can be run directly (dotnet run against this project,
+    with the pin-list arguments), and the sibling test project references it for
+    the harness self-test.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Ball.CoverageStudy</RootNamespace>
+    <AssemblyName>Ball.CoverageStudy</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="test/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../compiler/Ball.Compiler.csproj" />
+    <ProjectReference Include="../encoder/Ball.Encoder.csproj" />
+    <ProjectReference Include="../shared/Ball.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The declaration inventory is walked with Roslyn DIRECTLY rather than
+         through Ball.Encoder's own walk, so a bug in the encoder's bookkeeping
+         cannot hide a lost declaration from the harness. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+</Project>

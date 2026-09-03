@@ -190,6 +190,44 @@ Iterable<String> _memberNames(
   }
 }
 
+/// The funnel rows, in order. How far a scored file got is derived from its
+/// taxonomy tag: the clean percentage alone cannot tell "the encoder rejected
+/// the file outright" from "everything worked but generation three drifted",
+/// and on a pipeline whose round trip is not closed that difference is the
+/// whole signal. Shared, verbatim, by the four Tier A ports (issue #493).
+const stages = <int, String>{
+  1: '1 encoded',
+  2: '2 compiled back',
+  3: '3 re-encoded',
+  4: '4 declarations kept',
+  5: '5 fixpoint (clean)',
+};
+
+const _stageByTag = <String, int>{
+  'read-error': 0,
+  'encode-error': 0,
+  'compile-error': 1,
+  'reencode-error': 2,
+  'declaration-drift': 3,
+  'fixpoint-error': 4,
+  'fixpoint-drift': 4,
+  'clean': 5,
+};
+
+/// The last stage a scored file survived, from its taxonomy tag. An unknown
+/// tag throws rather than defaulting, so a new failure mode cannot be silently
+/// mis-attributed into the funnel.
+int stageReached(String reason) {
+  final tag = reason.split(':').first;
+  final stage = _stageByTag[tag];
+  if (stage == null) {
+    throw StateError(
+      'unknown taxonomy tag "$tag" — the funnel would silently lie',
+    );
+  }
+  return stage;
+}
+
 String _firstLine(Object error) {
   final text = error.toString().replaceAll('\r', '');
   final cut = text.indexOf('\n');
@@ -431,6 +469,15 @@ void main(List<String> args) {
     stdout.writeln(
       '  unreachable pins (not scored): ${missingPins.join(', ')}',
     );
+  }
+  if (scored.isNotEmpty) {
+    stdout.writeln('Funnel (scored files that survived each stage):');
+    for (final entry in stages.entries) {
+      final reached = scored
+          .where((r) => stageReached(r.reason) >= entry.key)
+          .length;
+      stdout.writeln('  ${entry.value}: $reached/$total');
+    }
   }
   final pct = total == 0 ? 0 : (clean * 100 / total).round();
   stdout.writeln('Tier A: $clean/$total clean ($pct%)');

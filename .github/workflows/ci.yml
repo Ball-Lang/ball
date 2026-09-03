@@ -995,6 +995,44 @@ jobs:
       - name: Test @ball-lang/compiler (fixtures + engine parse, coverage-gated)
         run: cd ts/compiler && npm run coverage
 
+      # ts/engine/src/compiled_engine.ts is the ONLY committed self-hosted
+      # engine: rust/go/csharp/python all gitignore theirs and regenerate
+      # unconditionally, so they structurally cannot go stale — this one could,
+      # and nothing noticed. `npm run build`/`npm run coverage` above consume it
+      # as a committed INPUT (coverage even --excludes it), and the one test
+      # that does compile dart/self_host/engine.ball.json
+      # (ts/compiler/test/engine_parse.test.ts) smoke-loads the string it just
+      # produced and discards it — it never diffs the committed artifact. So a
+      # change to dart/engine/lib/engine.dart, or to ts/compiler's codegen, that
+      # is behaviour-neutral for the TS engine suite left every check in this
+      # job green; a human had to hand-diff the file during PR #509's review to
+      # cover that (#517).
+      #
+      # This step closes it by DERIVING the artifact instead of trusting it,
+      # exactly as the ball-freshness job does for std.json/ball_protobuf. The
+      # recipe below is byte-for-byte CLAUDE.md's "Regenerate compiled TS
+      # engine" section — keep the two in sync (this gate goes red if they ever
+      # disagree in effect). Verified deterministic: four consecutive regens in
+      # an isolated worktree produced an identical file.
+      - name: Assert ts/engine/src/compiled_engine.ts is fresh (#517)
+        run: |
+          set -euo pipefail
+          cd dart && dart run compiler/tool/gen_engine_json.dart
+          cd ../ts/compiler && node --experimental-strip-types -e "
+          const {readFileSync, writeFileSync} = require('fs');
+          const {compile} = require('./src/index.ts');
+          function unwrapBallFile(json){ if(json===null||typeof json!=='object'||Array.isArray(json))return json; const t=json['@type']; if(t===undefined)return json; const b={}; for(const[k,v]of Object.entries(json)){if(k!=='@type')b[k]=v;} return b; }
+          const program = unwrapBallFile(JSON.parse(readFileSync('../../dart/self_host/engine.ball.json', 'utf8')));
+          const ts = compile(program);
+          writeFileSync('../engine/src/compiled_engine.ts', '// @ts-nocheck — auto-generated\n' + ts);
+          "
+          cd ../..
+          if ! git diff --exit-code -- ts/engine/src/compiled_engine.ts; then
+            echo "::error::ts/engine/src/compiled_engine.ts is stale — regenerating it from dart/self_host/engine.ball.json through the current @ball-lang/compiler produces a different file. Run CLAUDE.md's 'Regenerate compiled TS engine' recipe and commit the result (the diff above is exactly what is missing)."
+            exit 1
+          fi
+          echo "compiled_engine.ts is byte-identical to a fresh regeneration."
+
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only. The full
       # ~350-fixture full_e2e.ts sweep (Ball IR -> native TS -> node, diffed
       # against golden output) runs ONLY on push-to-main, inside coverage.yml's

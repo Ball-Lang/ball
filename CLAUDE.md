@@ -62,6 +62,10 @@ cd ts/compiler && npm install && npm test
 # Regenerate compiled TS engine from self-hosted Ball source.
 # engine.ball.json is a self-describing google.protobuf.Any envelope
 # ({"@type":"…/ball.v1.Program", …}); strip @type before compiling.
+# CI-ENFORCED since #517: ci.yml's `typescript` job runs this exact recipe and
+# then `git diff --exit-code -- ts/engine/src/compiled_engine.ts`, so a change
+# to dart/engine/lib/engine.dart or to ts/compiler's codegen that is not
+# followed by a regen fails the build. Keep this block and that step identical.
 cd ts/compiler && node --experimental-strip-types -e "
 const {readFileSync, writeFileSync} = require('fs');
 const {compile} = require('./src/index.ts');

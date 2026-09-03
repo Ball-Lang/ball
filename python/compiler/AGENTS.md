@@ -81,7 +81,7 @@ may print non-ASCII (`ballpyc -o file` writes UTF-8 regardless).
 The compiler passes **52 tests** and — via **`compile_library` mode** (the
 Ball -> Python analog of Go's `CompileLibrary`) — compiles the whole self-hosted
 engine (`dart/self_host/engine.ball.json`), which runs the conformance corpus at
-**Dart parity** (`Results: 320 passed, 0 failed`; see `../engine/AGENTS.md`).
+**Dart parity** (`Results: 322 passed, 0 failed`; see `../engine/AGENTS.md`).
 Coverage spans arithmetic (Dart-exact `~/`, non-negative `%`, int/double, 64-bit
 wrap), comparison/logic (short-circuit), strings, control flow, recursion,
 closures, and OOP (constructors incl. **named + optional params**, methods,

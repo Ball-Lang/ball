@@ -18,6 +18,13 @@ namespace ball_e2e {
 // tests/conformance/ that have .expected_output.txt files. Sorted
 // numerically. Programs that fail to compile are logged and counted
 // as failures — no programs are skipped.
+//
+// NOTE (#511): nothing currently gates this list against the real
+// tests/conformance/ directory, so it drifts. It had stopped at
+// 399_bytes_literal, missing EVERY fixture from 400 onward; those are added
+// below. A wider, older gap (a run of fixtures in the 257-296 band) is still
+// unlisted — closing it belongs with the drift guard that makes the list
+// self-maintaining, not with a hand-extended list that can go stale again.
 inline const std::vector<std::string>& program_names() {
     static const std::vector<std::string> names = {
         "01_hello",
@@ -286,6 +293,16 @@ inline const std::vector<std::string>& program_names() {
         "256_editions_resolver",
         "398_const_constructor",
         "399_bytes_literal",
+        "400_switch_continue_label",
+        "401_switch_expr_null_arm",
+        "406_subclass_field_over_getter",
+        "416_user_method_name_arity_collision",
+        "417_null_aware_collection_elements",
+        "431_shadowed_getter_dynamic_dispatch",
+        "432_shadowed_getter_setter_write",
+        "433_shadowed_field_self_write_and_local",
+        "439_unrelated_field_name_collision",
+        "440_base_typed_param_return_slicing",
     };
     return names;
 }

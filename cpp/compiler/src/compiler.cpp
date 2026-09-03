@@ -462,7 +462,78 @@ void CppCompiler::build_lookup_tables() {
                 overridden_methods_.insert(sfield);
             }
         }
+
+        // #515: build the sanitized, per-class views the dispatch sites use.
+        // Keyed by the sanitized BARE class name, because that is the only form
+        // those sites ever hold (current_class_name_, or a receiver's class
+        // resolved through local_class_types_ / a MessageCreation typeName).
+        for (const auto& [cls, fields] : class_shadowed_fields_)
+            for (const auto& f : fields)
+                class_shadowed_fields_by_sname_[sanitize_name(bare_of(cls))]
+                    .insert(f);
+        for (const auto& [cls, td_ptr] : class_typedefs_) {
+            if (!td_ptr || !(td_ptr->descriptor.is_object())) continue;
+            if (!td_ptr->descriptor.contains("field") ||
+                !td_ptr->descriptor["field"].is_array())
+                continue;
+            auto& own = class_own_fields_by_sname_[sanitize_name(bare_of(cls))];
+            for (const auto& fd : td_ptr->descriptor["field"])
+                own.insert(sanitize_name(ball::ir::getStr(fd, "name")));
+        }
+        // Getters are FLATTENED over the inheritance chain: an inherited getter
+        // must still answer for a subclass receiver (`b.x` where only A declares
+        // `int get x`).
+        for (const auto& [cls, _getters] : class_getters_) {
+            auto& flat = class_getters_by_sname_[sanitize_name(bare_of(cls))];
+            std::string cur = cls;
+            std::unordered_set<std::string> seen;
+            while (!cur.empty() && seen.insert(cur).second) {
+                auto git = class_getters_.find(cur);
+                if (git != class_getters_.end())
+                    flat.insert(git->second.begin(), git->second.end());
+                cur = super_key_of(cur);
+            }
+        }
+        // A class that declares no getter of its own can still inherit one, so
+        // seed an entry for every known class and walk its chain too.
+        for (const auto& [cls, _sup] : class_superclass_) {
+            auto skey = sanitize_name(bare_of(cls));
+            if (class_getters_by_sname_.count(skey) > 0) continue;
+            auto& flat = class_getters_by_sname_[skey];
+            std::string cur = super_key_of(cls);
+            std::unordered_set<std::string> seen;
+            while (!cur.empty() && seen.insert(cur).second) {
+                auto git = class_getters_.find(cur);
+                if (git != class_getters_.end())
+                    flat.insert(git->second.begin(), git->second.end());
+                cur = super_key_of(cur);
+            }
+        }
     }
+}
+
+std::string CppCompiler::static_class_of(const ball::ir::Expression& expr) const {
+    if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
+        const std::string& n = expr.reference->name;
+        // `self`/`this`/`super` in a method body denote the class being emitted
+        // — unless a local of that name shadows the implicit receiver.
+        if ((n == "self" || n == "this" || n == "super") &&
+            declared_locals_.count(n) == 0 && !current_class_name_.empty())
+            return current_class_name_;
+        // A local/parameter emitted with a CONCRETE user class (see
+        // local_class_types_). Everything else is unprovable from here.
+        auto it = local_class_types_.find(n);
+        if (it != local_class_types_.end()) return it->second;
+        return "";
+    }
+    if (expr.kind == ball::ir::ExprKind::MessageCreation &&
+        expr.messageCreation != nullptr) {
+        // A fresh instance expression names its own class.
+        std::string s = sanitize_name_const(expr.messageCreation->typeName);
+        if (user_class_names_.count(s) > 0 && !is_dynamic_class(s)) return s;
+        return "";
+    }
+    return "";
 }
 
 bool CppCompiler::class_is_or_descends_from(const std::string& derived,
@@ -994,6 +1065,115 @@ std::string CppCompiler::map_type(const std::string& ball_type) {
     return sanitize_name(ball_type);
 }
 
+std::string CppCompiler::map_param_type(const std::string& ball_type) {
+    std::string t = map_type(ball_type);
+    // #516: only a class something else EXTENDS can be sliced. Leaf classes
+    // (the `Fraction simplify()`-shaped ones map_return_type's comment cites)
+    // keep their by-value emission, so the change is invisible to them.
+    // The reference is non-const because every emitted method — including the
+    // shadowed-field accessor pair #501 introduced — is a non-const member.
+    if (!t.empty() && user_class_names_.count(t) > 0 && enum_names_.count(t) == 0 &&
+        !is_dynamic_class(t) && class_is_subclassed(t))
+        return t + "&";
+    return t;
+}
+
+bool CppCompiler::expr_contains_return(const ball::ir::Expression& e) const {
+    switch (e.kind) {
+        case ball::ir::ExprKind::Call:
+            if (e.call == nullptr) return false;
+            if (e.call->function == "return") return true;
+            return e.call->input != nullptr && expr_contains_return(*e.call->input);
+        case ball::ir::ExprKind::Block: {
+            if (e.block == nullptr) return false;
+            for (const auto& st : e.block->statements) {
+                if (st.kind == ball::ir::StatementKind::Let) {
+                    if (st.let != nullptr && st.let->value != nullptr &&
+                        expr_contains_return(*st.let->value))
+                        return true;
+                } else if (st.expr != nullptr && expr_contains_return(*st.expr)) {
+                    return true;
+                }
+            }
+            return e.block->result != nullptr && expr_contains_return(*e.block->result);
+        }
+        case ball::ir::ExprKind::MessageCreation:
+            if (e.messageCreation == nullptr) return false;
+            for (const auto& f : e.messageCreation->fields)
+                if (f.value != nullptr && expr_contains_return(*f.value)) return true;
+            return false;
+        case ball::ir::ExprKind::FieldAccess:
+            return e.fieldAccess != nullptr && e.fieldAccess->object != nullptr &&
+                   expr_contains_return(*e.fieldAccess->object);
+        case ball::ir::ExprKind::Literal:
+            if (e.literal == nullptr) return false;
+            for (const auto& el : e.literal->listElements)
+                if (expr_contains_return(el)) return true;
+            return false;
+        case ball::ir::ExprKind::Lambda:
+            // A lambda's own `return` leaves the LAMBDA, not this function, but
+            // refuse rather than reason about it — a wrong widening here is a
+            // silently wrong return type.
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool CppCompiler::collect_returned_classes(
+    const ball::ir::Expression& expr,
+    std::unordered_set<std::string>& out) const {
+    switch (expr.kind) {
+        case ball::ir::ExprKind::MessageCreation: {
+            if (expr.messageCreation == nullptr) return false;
+            std::string s = sanitize_name_const(expr.messageCreation->typeName);
+            if (user_class_names_.count(s) == 0 || is_dynamic_class(s) ||
+                enum_names_.count(s) > 0)
+                return false;
+            out.insert(s);
+            return true;
+        }
+        case ball::ir::ExprKind::Call: {
+            // `std.return(value: …)` — the only call shape whose result leaves
+            // the function. Anything else (a helper call, a conditional, a
+            // cast) is not provable from here.
+            if (expr.call == nullptr || expr.call->function != "return" ||
+                expr.call->input == nullptr ||
+                expr.call->input->kind != ball::ir::ExprKind::MessageCreation)
+                return false;
+            for (const auto& f : expr.call->input->messageCreation->fields)
+                if (f.name == "value" && f.value != nullptr)
+                    return collect_returned_classes(*f.value, out);
+            return false;
+        }
+        case ball::ir::ExprKind::Block: {
+            if (expr.block == nullptr) return false;
+            for (const auto& st : expr.block->statements) {
+                if (st.kind == ball::ir::StatementKind::Let) {
+                    if (st.let != nullptr && st.let->value != nullptr &&
+                        expr_contains_return(*st.let->value))
+                        return false;
+                    continue;
+                }
+                if (st.expr == nullptr) continue;
+                if (st.expr->kind == ball::ir::ExprKind::Call &&
+                    st.expr->call != nullptr && st.expr->call->function == "return") {
+                    if (!collect_returned_classes(*st.expr, out)) return false;
+                } else if (expr_contains_return(*st.expr)) {
+                    // A return nested inside control flow — refuse rather than
+                    // widen on an incomplete picture.
+                    return false;
+                }
+            }
+            if (expr.block->result != nullptr)
+                return collect_returned_classes(*expr.block->result, out);
+            return !out.empty();
+        }
+        default:
+            return false;
+    }
+}
+
 std::string CppCompiler::map_return_type(const ball::ir::FunctionDefinition& func) {
     // If the output type is a known user class (NOT enum), return the actual
     // type so struct-returning methods (e.g. simplify() -> Fraction) compile
@@ -1011,8 +1191,30 @@ std::string CppCompiler::map_return_type(const ball::ir::FunctionDefinition& fun
                 is_dynamic_class(func.outputType.substr(0, lt)))
                 return "BallDyn";
         }
-        if (user_class_names_.count(stype) > 0 && enum_names_.count(stype) == 0)
+        if (user_class_names_.count(stype) > 0 && enum_names_.count(stype) == 0) {
+            // #516: a struct returned BY VALUE through a base-typed slot slices
+            // — the derived part, vtable included, is dropped on the copy, and
+            // every virtual read on the caller's side silently answers with the
+            // base value (fixture 440 printed 1 instead of 10). C++ has no
+            // by-value polymorphism, so the only sound answer for a SUBCLASSED
+            // declared type is to emit the concrete class the body actually
+            // returns. Done only when that class is PROVABLE and unique (the
+            // narrow sibling of #509's `let`-local widening); a body that can
+            // return more than one subclass, or whose returns are not plain
+            // instance creations, keeps the declared type — a documented
+            // residual gap, not a guess.
+            if (class_is_subclassed(stype) && func.body != nullptr) {
+                std::unordered_set<std::string> returned;
+                if (collect_returned_classes(*func.body, returned) &&
+                    returned.size() == 1) {
+                    const std::string& concrete = *returned.begin();
+                    if (concrete != stype &&
+                        class_is_or_descends_from(concrete, stype))
+                        return concrete;
+                }
+            }
             return stype;
+        }
         if (func.outputType == "void") return "void";
     }
     return "BallDyn";
@@ -1570,8 +1772,13 @@ std::string CppCompiler::compile_reference(const ball::ir::Reference& ref) {
     // backing member (emit_struct), and the bare name now denotes the virtual
     // accessor, so `return x;` inside the shadowing class would otherwise name a
     // member function instead of reading the value.
-    if (!ref_is_local && shadowed_getter_names_.count(sname) > 0 &&
-        current_class_fields_.count(ref.name) > 0) {
+    // #515: scoped to THIS class's own shadowing fields. The program-wide
+    // shadowed_getter_names_ only proves that SOME class somewhere shadows a
+    // getter of this name, so an unrelated class's own plain field of the same
+    // name was routed through an accessor it does not have (`return x();` on an
+    // `int64_t x` — g++: "expression cannot be used as a function").
+    if (!ref_is_local && current_class_fields_.count(ref.name) > 0 &&
+        class_field_shadows_getter(current_class_name_, sname)) {
         return sname + "()";
     }
     if (!ref_is_local && !current_class_methods_.empty() &&
@@ -1833,8 +2040,37 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
             std::string sfield = sanitize_name(field);
             bool is_getter = false;
             bool is_plain_field = false;
-            for (const auto& [cls, getters] : class_getters_) {
-                if (getters.count(sfield)) { is_getter = true; break; }
+            // #515: prefer the RECEIVER's own class when it can be proven
+            // statically. The unscoped scan below answers "getter" as soon as
+            // ANY class declares one of that name, so an unrelated class's plain
+            // data member was emitted as the call `c.x()` — g++: "expression
+            // cannot be used as a function". Only two receiver-scoped answers
+            // are trusted, both provable: the class (or an ancestor) declares
+            // the getter, or the class declares a plain field of that name that
+            // shadows nothing. Every other case, and every receiver whose class
+            // cannot be proven, falls through to the unscoped scan — the
+            // pre-#515 behaviour, kept deliberately rather than guessed away.
+            const std::string recv_cls = static_class_of(*access.object);
+            bool receiver_resolved = false;
+            if (!recv_cls.empty()) {
+                if (class_has_getter(recv_cls, sfield)) {
+                    is_getter = true;
+                    receiver_resolved = true;
+                } else if (class_has_own_field(recv_cls, sfield) &&
+                           !class_field_shadows_getter(recv_cls, sfield) &&
+                           // Runtime/stub types are map-backed BallDyn values —
+                           // their "fields" are bracket keys, never members —
+                           // so they must keep falling through, exactly as the
+                           // unscoped plain-field scan below already skips them.
+                           !is_runtime_stub_type(recv_cls)) {
+                    is_plain_field = true;
+                    receiver_resolved = true;
+                }
+            }
+            if (!receiver_resolved) {
+                for (const auto& [cls, getters] : class_getters_) {
+                    if (getters.count(sfield)) { is_getter = true; break; }
+                }
             }
             if (!is_getter) {
                 // Check if field is a direct struct field on any user class.
@@ -4302,11 +4538,15 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         // the emitted setter instead, binding the value exactly once so a
         // side-effecting RHS runs once (the #18 stage-5 double-evaluation bug).
         // The receiver is implicit, so the vtable still picks the override.
+        // #515: scoped to THIS class's own shadowing fields, exactly as the read
+        // side above — the program-wide set rerouted an unrelated class's plain
+        // field write through a setter that does not exist.
         if (target_expr && target_expr->kind == ball::ir::ExprKind::Reference &&
             declared_locals_.count(target_expr->reference->name) == 0 &&
             current_class_fields_.count(target_expr->reference->name) > 0 &&
-            shadowed_getter_names_.count(
-                sanitize_name(target_expr->reference->name)) > 0) {
+            class_field_shadows_getter(
+                current_class_name_,
+                sanitize_name(target_expr->reference->name))) {
             const std::string sref = sanitize_name(target_expr->reference->name);
             if (op == "??=") {
                 // Assign only when the current value is null; still one read
@@ -4377,8 +4617,27 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                 // `obj.field = value` branch below would name a private member
                 // that is also a function name. This is the write-side sibling
                 // of the read path's `is_getter` check in compile_field_access.
-                if (!has_setter && shadowed_getter_names_.count(sfield) > 0)
-                    has_setter = true;
+                // #515: that accessor exists only on the class that ACTUALLY
+                // shadows. Resolve the receiver's class when it can be proven
+                // statically (a local/param recorded in local_class_types_,
+                // `self`/`this`, or a fresh instance expression) and consult
+                // only that class — otherwise an unrelated class's plain field
+                // write was rerouted into a setter it does not have. When the
+                // receiver's class CANNOT be proven, fall back EXPLICITLY to the
+                // program-wide set: that keeps the pre-#515 behaviour for those
+                // receivers (a residual, documented false positive) rather than
+                // guessing "not shadowed", which would silently write past a
+                // genuine override — the exact bug class #501/#509 fixed.
+                if (!has_setter) {
+                    const std::string recv_cls =
+                        static_class_of(*target_expr->fieldAccess->object);
+                    if (!recv_cls.empty()) {
+                        if (class_field_shadows_getter(recv_cls, sfield))
+                            has_setter = true;
+                    } else if (shadowed_getter_names_.count(sfield) > 0) {
+                        has_setter = true;
+                    }
+                }
                 if (has_setter) {
                     // Call setter: obj.field(value)
                     // Setter return is void; the assign expression evaluates to
@@ -6011,6 +6270,36 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
     auto arg0 = get_optional_field(call, "arg0");
     auto arg1 = get_optional_field(call, "arg1");
 
+    // #511: how many REAL arguments this call carries — every input field
+    // except the receiver `self`. The STL/Dart-SDK shortcut chain below keys on
+    // the method NAME alone, so a user-defined method that merely SHARES a name
+    // with one of them was rerouted into that shortcut whatever its arity.
+    // `get_optional_field` answers "" for an absent field, so a missing operand
+    // was spliced in as an EMPTY argument slot — `bag.clamp(7)` emitted
+    // `…}(bag, 7, )`, which g++ rejects with "expected primary-expression
+    // before ')' token" — and a surplus operand was simply never read, silently
+    // discarding it (`bag.toList(8, 9)` → `ball_to_list(bag)`).
+    //
+    // Every shortcut below now carries the arity window of the real Dart method
+    // it stands for, via `argc_in(min, max)`. Outside that window the block does
+    // NOT return: control falls through to the "User-defined class method
+    // dispatch" section further down, which already emits `self.fn(args)` /
+    // `Class::fn(args)` / `SuperClass::fn(args)` correctly. The ~33 names that
+    // also appear in dart/encoder/lib/encoder.dart's `collectionRoutes` reuse
+    // that table's windows verbatim — same Dart SDK methods, same source of
+    // truth as the sibling encoder gate #510 added for #494. A collision that
+    // ALSO matches on arity is out of scope here (that is #488's receiver-type
+    // half) and still routes to the std shortcut.
+    size_t arg_count = 0;
+    if ((call.input != nullptr) &&
+        call.input->kind == ball::ir::ExprKind::MessageCreation) {
+        for (const auto& f : call.input->messageCreation->fields)
+            if (f.name != "self") arg_count++;
+    }
+    auto argc_in = [&](size_t lo, size_t hi) {
+        return arg_count >= lo && arg_count <= hi;
+    };
+
     // If `self` is a member function reference (wrapped in a lambda by
     // compile_reference), it needs to be CALLED (invoked) before method
     // dispatch, since the Dart source intended a property/getter access.
@@ -6080,30 +6369,30 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         if (self == "\"Map\"s")
             return "ball_map_copy(" + arg0 + ")";
     }
-    if (fn == "add") {
+    if (fn == "add" && argc_in(1, 1)) {
         return self + ".push_back(" + arg0 + ")";
     }
-    if (fn == "removeLast") {
+    if (fn == "removeLast" && argc_in(0, 0)) {
         return "[&](auto& _v){ auto _e = _v.back(); _v.pop_back(); return _e; }(" + self + ")";
     }
-    if (fn == "length") {
+    if (fn == "length" && argc_in(0, 0)) {
         // UTF-16 code-unit length for strings (Dart parity); element count for
         // lists/maps. ball_length dispatches on the runtime type.
         return "ball_length(" + self + ")";
     }
-    if (fn == "isEmpty") {
+    if (fn == "isEmpty" && argc_in(0, 0)) {
         return self + ".empty()";
     }
-    if (fn == "isNotEmpty") {
+    if (fn == "isNotEmpty" && argc_in(0, 0)) {
         return "!" + self + ".empty()";
     }
-    if (fn == "last") {
+    if (fn == "last" && argc_in(0, 0)) {
         return self + ".back()";
     }
-    if (fn == "first") {
+    if (fn == "first" && argc_in(0, 0)) {
         return self + ".front()";
     }
-    if (fn == "contains") {
+    if (fn == "contains" && argc_in(1, 1)) {
         // Works for both strings and lists.
         // For strings: self.find(arg0) != std::string::npos
         // For lists: std::find(self.begin(), self.end(), arg0) != self.end()
@@ -6113,18 +6402,18 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         // when arg0 is a string literal.
         return "(" + self + ".find(" + arg0 + ") != std::string::npos)";
     }
-    if (fn == "insert") {
+    if (fn == "insert" && argc_in(2, 2)) {
         auto idx = arg0;
         auto val = arg1;
         return self + ".insert(" + self + ".begin() + " + idx + ", " + val + ")";
     }
-    if (fn == "removeAt") {
+    if (fn == "removeAt" && argc_in(1, 1)) {
         return self + ".erase(" + self + ".begin() + " + arg0 + ")";
     }
-    if (fn == "indexOf") {
+    if (fn == "indexOf" && argc_in(1, 2)) {
         return self + ".indexOf(" + arg0 + ")";
     }
-    if (fn == "sublist") {
+    if (fn == "sublist" && argc_in(1, 2)) {
         if (arg1.empty()) {
             return "[](const auto& v, int64_t s){ return decltype(v)(v.begin()+s, v.end()); }(" +
                    self + ", " + arg0 + ")";
@@ -6132,52 +6421,52 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
         return "[](const auto& v, int64_t s, int64_t e){ return decltype(v)(v.begin()+s, v.begin()+e); }(" +
                self + ", " + arg0 + ", " + arg1 + ")";
     }
-    if (fn == "reversed") {
+    if (fn == "reversed" && argc_in(0, 0)) {
         return "[](auto v){ std::reverse(v.begin(), v.end()); return v; }(" + self + ")";
     }
-    if (fn == "join") {
+    if (fn == "join" && argc_in(0, 1)) {
         std::string sep = arg0.empty() ? "\"\"" : arg0;
         return "[](const auto& v, const std::string& s){"
                "std::string r; for(size_t i=0;i<v.size();i++){"
                "if(i>0) r+=s; r+=ball_to_string(v[i]);} return r;"
                "}(" + self + ", " + sep + ")";
     }
-    if (fn == "filled") {
+    if (fn == "filled" && argc_in(2, 3)) {
         // List.filled(length, value) — self is "List" (type name), arg0 is length, arg1 is value
         return "std::vector<std::any>(" + arg0 + ", std::any(" + arg1 + "))";
     }
 
     // ── Map methods ──
-    if (fn == "containsKey") {
+    if (fn == "containsKey" && argc_in(1, 1)) {
         return "(" + self + ".count(ball_to_string(BallDyn(" + arg0 + "))) > 0)";
     }
-    if (fn == "remove") {
+    if (fn == "remove" && argc_in(1, 1)) {
         return self + ".erase(" + arg0 + ")";
     }
 
     // ── String methods ──
-    if (fn == "substring") {
+    if (fn == "substring" && argc_in(1, 2)) {
         // UTF-16 code-unit indexing (Dart parity). ASCII strings hit a fast path.
         if (arg1.empty()) {
             return "ball_string_substring(BallDyn(" + self + "), " + arg0 + ")";
         }
         return "ball_string_substring(BallDyn(" + self + "), " + arg0 + ", " + arg1 + ")";
     }
-    if (fn == "startsWith") {
+    if (fn == "startsWith" && argc_in(1, 2)) {
         return "(" + self + ".rfind(" + arg0 + ", 0) == 0)";
     }
-    if (fn == "endsWith") {
+    if (fn == "endsWith" && argc_in(1, 1)) {
         return "[](const std::string& s, const std::string& e){"
                "return s.size()>=e.size() && s.compare(s.size()-e.size(),e.size(),e)==0;"
                "}(" + self + ", " + arg0 + ")";
     }
-    if (fn == "trim") {
+    if (fn == "trim" && argc_in(0, 0)) {
         return "[](const std::string& s){"
                "auto a=s.find_first_not_of(\" \\t\\n\\r\"),b=s.find_last_not_of(\" \\t\\n\\r\");"
                "return a==std::string::npos?std::string():s.substr(a,b-a+1);"
                "}(" + self + ")";
     }
-    if (fn == "split") {
+    if (fn == "split" && argc_in(1, 1)) {
         return "[](const std::string& s, const std::string& d){"
                "if(d.empty()){std::vector<std::string> r;"
                "for(char c:s) r.push_back(std::string(1,c)); return r;}"
@@ -6187,7 +6476,7 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                "r.push_back(s.substr(p)); return r;"
                "}(" + self + ", " + arg0 + ")";
     }
-    if (fn == "replaceAll") {
+    if (fn == "replaceAll" && argc_in(2, 2)) {
         return "[](std::string s, const std::string& f, const std::string& t){"
                "if(f.empty()){std::string o;o.reserve(s.size()*(t.size()+1)+t.size());"
                "o+=t;for(char c:s){o.push_back(c);o+=t;}return o;}"
@@ -6196,59 +6485,59 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                "s.replace(p,f.size(),t);p+=t.size();}return s;"
                "}(" + self + ", " + arg0 + ", " + arg1 + ")";
     }
-    if (fn == "toLowerCase") {
+    if (fn == "toLowerCase" && argc_in(0, 0)) {
         return "[](std::string s){std::transform(s.begin(),s.end(),s.begin(),::tolower);return s;}(" + self + ")";
     }
-    if (fn == "toUpperCase") {
+    if (fn == "toUpperCase" && argc_in(0, 0)) {
         return "[](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(" + self + ")";
     }
-    if (fn == "padLeft") {
+    if (fn == "padLeft" && argc_in(1, 2)) {
         return "[](const std::string& s, int64_t w, const std::string& p){"
                "if(static_cast<int64_t>(s.size())>=w) return s;"
                "std::string r; while(static_cast<int64_t>(r.size()+s.size())<w) r+=p;"
                "return r.substr(0,w-s.size())+s;"
                "}(" + self + ", " + arg0 + ", " + (arg1.empty() ? "\" \"s" : arg1) + ")";
     }
-    if (fn == "padRight") {
+    if (fn == "padRight" && argc_in(1, 2)) {
         return "[](const std::string& s, int64_t w, const std::string& p){"
                "if(static_cast<int64_t>(s.size())>=w) return s;"
                "std::string r=s; while(static_cast<int64_t>(r.size())<w) r+=p;"
                "return r.substr(0,w);"
                "}(" + self + ", " + arg0 + ", " + (arg1.empty() ? "\" \"s" : arg1) + ")";
     }
-    if (fn == "codeUnitAt") {
+    if (fn == "codeUnitAt" && argc_in(1, 1)) {
         // UTF-16 code unit at index (Dart parity); ASCII fast path inside helper.
         return "ball_code_unit_at(BallDyn(" + self + "), " + arg0 + ")";
     }
 
     // ── Number methods ──
-    if (fn == "toDouble") {
+    if (fn == "toDouble" && argc_in(0, 0)) {
         return "_ballToDouble(BallDyn(" + self + "))";
     }
-    if (fn == "truncate") {
+    if (fn == "truncate" && argc_in(0, 0)) {
         return "_ballDoubleToInt64(BallDyn(" + self + "))";
     }
-    if (fn == "toInt") {
+    if (fn == "toInt" && argc_in(0, 0)) {
         return "_ballDoubleToInt64(BallDyn(" + self + "))";
     }
-    if (fn == "toString") {
+    if (fn == "toString" && argc_in(0, 0)) {
         return "ball_to_string(" + self + ")";
     }
-    if (fn == "abs") {
+    if (fn == "abs" && argc_in(0, 0)) {
         // Type-preserving abs (int stays int) with an explicit cast so gcc/clang
         // don't see an ambiguous std::abs(BallDyn) overload.
         return "[](BallDyn _v) -> BallDyn { if(_v.type()==typeid(int64_t))return BallDyn(std::abs(static_cast<int64_t>(_v))); return BallDyn(std::abs(static_cast<double>(_v))); }(" + self + ")";
     }
-    if (fn == "round") {
+    if (fn == "round" && argc_in(0, 0)) {
         return "static_cast<int64_t>(std::round(static_cast<double>(" + self + ")))";
     }
-    if (fn == "ceil") {
+    if (fn == "ceil" && argc_in(0, 0)) {
         return "static_cast<int64_t>(std::ceil(static_cast<double>(" + self + ")))";
     }
-    if (fn == "floor") {
+    if (fn == "floor" && argc_in(0, 0)) {
         return "static_cast<int64_t>(std::floor(static_cast<double>(" + self + ")))";
     }
-    if (fn == "remainder") {
+    if (fn == "remainder" && argc_in(1, 1)) {
         // Dart num.remainder is the TRUNCATED remainder (a - (a~/b)*b), NOT the
         // IEEE std::remainder (round-to-nearest). Emitting a bare `remainder(...)`
         // also resolved ambiguously under clang-cl/MSVC. Implement it explicitly,
@@ -6260,27 +6549,27 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                " return BallDyn(std::fmod(static_cast<double>(_a), static_cast<double>(_b))); }("
                + self + ", " + arg0 + ")";
     }
-    if (fn == "toStringAsFixed") {
+    if (fn == "toStringAsFixed" && argc_in(1, 1)) {
         return "[](double v, int64_t d){"
                "std::ostringstream o; o<<std::fixed<<std::setprecision(d)<<v;"
                "return o.str();"
                "}(" + self + ", " + arg0 + ")";
     }
-    if (fn == "compareTo") {
+    if (fn == "compareTo" && argc_in(1, 1)) {
         return "[](const auto& a, const auto& b) -> int64_t { return a < b ? -1 : (a > b ? 1 : 0); }(" + self + ", " + arg0 + ")";
     }
-    if (fn == "clamp") {
+    if (fn == "clamp" && argc_in(2, 2)) {
         return "[](auto v, auto lo, auto hi){ return v < lo ? lo : (v > hi ? hi : v); }(" + self + ", " + arg0 + ", " + arg1 + ")";
     }
-    if (fn == "gcd") {
+    if (fn == "gcd" && argc_in(1, 1)) {
         return "[](int64_t a, int64_t b) -> int64_t { while(b){auto t=b;b=a%b;a=t;} return std::abs(a); }(" + self + ", " + arg0 + ")";
     }
-    if (fn == "replaceFirst") {
+    if (fn == "replaceFirst" && argc_in(2, 3)) {
         return "[](std::string s, const std::string& f, const std::string& t){"
                "auto p=s.find(f);if(p!=std::string::npos)s.replace(p,f.size(),t);return s;"
                "}(" + self + ", " + arg0 + ", " + arg1 + ")";
     }
-    if (fn == "lastIndexOf") {
+    if (fn == "lastIndexOf" && argc_in(1, 2)) {
         return "[](const std::string& s, const std::string& p) -> int64_t {"
                "auto i=s.rfind(p); return i==std::string::npos ? -1 : static_cast<int64_t>(i);"
                "}(" + self + ", " + arg0 + ")";
@@ -6289,83 +6578,83 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
     // ── Dart protobuf oneof discriminators ──
     // The Dart encoder emits `expr.whichExpr()` as a method call with self=expr.
     // Return a string tag that matches the Expression_Expr.xxx constants.
-    if (fn == "whichExpr") {
+    if (fn == "whichExpr" && argc_in(0, 0)) {
         return "ball_which_expr(" + self + ")";
     }
-    if (fn == "whichValue") {
+    if (fn == "whichValue" && argc_in(0, 0)) {
         return "ball_which_value(" + self + ")";
     }
-    if (fn == "whichKind") {
+    if (fn == "whichKind" && argc_in(0, 0)) {
         return "ball_which_kind(" + self + ")";
     }
-    if (fn == "whichSource") {
+    if (fn == "whichSource" && argc_in(0, 0)) {
         return "ball_which_source(" + self + ")";
     }
-    if (fn == "whichStmt") {
+    if (fn == "whichStmt" && argc_in(0, 0)) {
         return "ball_which_stmt(" + self + ")";
     }
 
     // ── Dart protobuf `has*` methods ──
-    if (fn == "hasBody") {
+    if (fn == "hasBody" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"body\"s)";
     }
-    if (fn == "hasMetadata") {
+    if (fn == "hasMetadata" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"metadata\"s)";
     }
-    if (fn == "hasInput") {
+    if (fn == "hasInput" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"input\"s)";
     }
-    if (fn == "hasCall") {
+    if (fn == "hasCall" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"call\"s)";
     }
-    if (fn == "hasDescriptor") {
+    if (fn == "hasDescriptor" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"descriptor\"s)";
     }
-    if (fn == "hasStringValue") {
+    if (fn == "hasStringValue" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"stringValue\"s)";
     }
-    if (fn == "hasResult") {
+    if (fn == "hasResult" && argc_in(0, 0)) {
         return "ball_has_field(" + self + ", \"result\"s)";
     }
-    if (fn == "hasMatch") {
+    if (fn == "hasMatch" && argc_in(1, 1)) {
         return "std::regex_search(ball_to_string(" + arg0 + "), ball_to_regex(" + self + "))";
     }
 
     // ── Dart collection helpers ──
-    if (fn == "toList") {
+    if (fn == "toList" && argc_in(0, 1)) {
         return "ball_to_list(" + self + ")";
     }
-    if (fn == "toSet") {
+    if (fn == "toSet" && argc_in(0, 0)) {
         return "ball_to_set(" + self + ")";
     }
-    if (fn == "where") {
+    if (fn == "where" && argc_in(1, 1)) {
         return "ball_where(" + self + ", " + arg0 + ")";
     }
-    if (fn == "map") {
+    if (fn == "map" && argc_in(1, 1)) {
         return "ball_map(" + self + ", " + arg0 + ")";
     }
-    if (fn == "every") {
+    if (fn == "every" && argc_in(1, 1)) {
         return "ball_every(" + self + ", " + arg0 + ")";
     }
-    if (fn == "addAll") {
+    if (fn == "addAll" && argc_in(1, 1)) {
         return "ball_add_all(" + self + ", " + arg0 + ")";
     }
-    if (fn == "putIfAbsent") {
+    if (fn == "putIfAbsent" && argc_in(2, 2)) {
         return "ball_put_if_absent(" + self + ", " + arg0 + ", " + arg1 + ")";
     }
-    if (fn == "take") {
+    if (fn == "take" && argc_in(1, 1)) {
         return "ball_take(" + self + ", " + arg0 + ")";
     }
-    if (fn == "skip") {
+    if (fn == "skip" && argc_in(1, 1)) {
         return "ball_skip(" + self + ", " + arg0 + ")";
     }
-    if (fn == "sort") {
+    if (fn == "sort" && argc_in(0, 1)) {
         if (arg0.empty()) {
             return "std::sort(" + self + ".begin(), " + self + ".end())";
         }
         return "std::sort(" + self + ".begin(), " + self + ".end(), " + arg0 + ")";
     }
-    if (fn == "fromEntries") {
+    if (fn == "fromEntries" && argc_in(0, 1)) {
         // `Map.fromEntries(entries)`: entries is a BallDyn list whose elements are
         // MapEntry pairs (std::pair<std::string,BallDyn>) or {key,value} maps. The
         // runtime ball_from_entries is declared before BallDyn and only takes a
@@ -6382,28 +6671,28 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
     }
 
     // ── Dart regex helpers ──
-    if (fn == "firstMatch") {
+    if (fn == "firstMatch" && argc_in(1, 1)) {
         return "ball_first_match(" + self + ", " + arg0 + ")";
     }
-    if (fn == "group") {
+    if (fn == "group" && argc_in(1, 1)) {
         return "ball_group(" + self + ", " + arg0 + ")";
     }
-    if (fn == "allMatches") {
+    if (fn == "allMatches" && argc_in(1, 2)) {
         return "ball_all_matches(" + self + ", " + arg0 + ")";
     }
 
     // ── Dart utility functions ──
-    if (fn == "unmodifiable") {
+    if (fn == "unmodifiable" && argc_in(1, 1)) {
         // unmodifiable(type, collection) → just return the collection (C++ has no unmodifiable)
         return arg0;
     }
-    if (fn == "tryParse") {
+    if (fn == "tryParse" && argc_in(1, 2)) {
         return "ball_try_parse(" + self + ", " + arg0 + ")";
     }
 
     // Scope.bind(name, value) — ball_scope_bind avoids std::bind ADL and overload
     // ambiguity between string/BallDyn value overloads in MSVC builds.
-    if (fn == "bind") {
+    if (fn == "bind" && argc_in(1, 2)) {
         std::string nameArg = arg0;
         if (nameArg.empty()) nameArg = get_message_field(call, "name");
         std::string valArg = arg1;
@@ -6414,16 +6703,17 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
     // ── Async as synchronous passthrough ──
     // In C++ we simulate async: Future.value(x) → x, future.then(cb) → cb(future),
     // Future.wait(list) → list.
-    if (fn == "value" && (self == "\"Future\"s" || self == "\"FutureOr\"s" ||
-                          self == "Future" || self == "FutureOr")) {
+    if (fn == "value" && argc_in(0, 1) &&
+        (self == "\"Future\"s" || self == "\"FutureOr\"s" ||
+         self == "Future" || self == "FutureOr")) {
         // Future.value(x) → just x
         return arg0.empty() ? "BallDyn()" : arg0;
     }
-    if (fn == "then") {
+    if (fn == "then" && argc_in(1, 1)) {
         // future.then(callback) → callback(future)
         return "(" + arg0 + ")(" + self + ")";
     }
-    if (fn == "wait" || fn == "wait_") {
+    if ((fn == "wait" || fn == "wait_") && argc_in(0, 1)) {
         // Future.wait(list) → just the list (already evaluated synchronously)
         return arg0.empty() ? self : arg0;
     }
@@ -8931,7 +9221,7 @@ void CppCompiler::emit_forward_decls(const ball::ir::Module& module) {
             for (size_t i = 0; i < params.size(); i++) {
                 if (i > 0) out_ << ", ";
                 std::string t = (i < ptypes.size() && !ptypes[i].empty())
-                                    ? map_type(ptypes[i])
+                                    ? map_param_type(ptypes[i])
                                     : "auto&&";
                 // Optional params need a concrete type (not auto&&) plus a default.
                 bool is_opt = i < fwd_specs.size() && fwd_specs[i].optional;
@@ -8942,7 +9232,7 @@ void CppCompiler::emit_forward_decls(const ball::ir::Module& module) {
                 }
             }
         } else if (!func.inputType.empty()) {
-            out_ << map_type(func.inputType) << " input";
+            out_ << map_param_type(func.inputType) << " input";
         }
         out_ << ");\n";
     }
@@ -9048,12 +9338,12 @@ void CppCompiler::emit_function_signature_only(
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
             std::string t = (i < param_types.size() && !param_types[i].empty())
-                                ? map_type(param_types[i])
+                                ? map_param_type(param_types[i])
                                 : "auto&&";
             out_ << t << " " << sanitize_name(params[i]);
         }
     } else if (!func.inputType.empty()) {
-        out_ << map_type(func.inputType) << " input";
+        out_ << map_param_type(func.inputType) << " input";
     }
     out_ << ");\n";
 }
@@ -10568,7 +10858,7 @@ void CppCompiler::emit_function(const ball::ir::FunctionDefinition& func) {
         for (size_t i = 0; i < params.size(); i++) {
             if (i > 0) out_ << ", ";
             std::string t = (i < param_types.size() && !param_types[i].empty())
-                                ? map_type(param_types[i])
+                                ? map_param_type(param_types[i])
                                 : "auto&&";
             // Optional params must use a concrete type (not auto&&) to match
             // the forward declaration which carries a default value.
@@ -10581,7 +10871,7 @@ void CppCompiler::emit_function(const ball::ir::FunctionDefinition& func) {
             out_ << t << " " << pname;
         }
     } else if (!func.inputType.empty()) {
-        out_ << map_type(func.inputType) << " input";
+        out_ << map_param_type(func.inputType) << " input";
     }
     out_ << ") {\n";
     indent_++;

@@ -160,18 +160,14 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # per-iteration shadow — issue #69. 400_switch_continue_label was fixed by
 # lowering a labelled-case `switch` to a goto-based state machine — issue #352.)
 #
-# 416_user_method_name_arity_collision (#511): CppCompiler::compile_method_call
-# dispatches on the method NAME alone and is arity-blind, so a user method named
-# like one of its ~80 STL shortcuts is rerouted into that shortcut whatever the
-# call's argument count. A missing operand becomes an EMPTY argument slot —
-# `bag.clamp(7)` emits `…}(bag, 7, )` — and g++ rejects it with "expected
-# primary-expression before ')' token". Ball->C++ compilation itself succeeds;
-# only the g++ build fails. This is the C++ sibling of the Dart-encoder defect
-# #494 fixed (see #488 for the receiver-type half). The fixture still runs on
-# every ENGINE (Dart/TS/Rust/Go/Python/C#) and on the Rust/Go/Python/C#
-# COMPILER legs — only this Ball->C++ compiled path skips it.
-CPP_COMPILE_CARVEOUTS=("416_user_method_name_arity_collision")
-_is_carved() { local n="$1" c; for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
+# (416_user_method_name_arity_collision was fixed by giving each of
+# compile_method_call's STL/Dart-SDK shortcuts the arity window of the real
+# Dart method it stands for, so a same-named user method with a different
+# argument count falls through to user-defined class method dispatch instead
+# of being spliced into the shortcut's template — issue #511.)
+CPP_COMPILE_CARVEOUTS=()
+_is_carved() { local n="$1" c; (( ${#CPP_COMPILE_CARVEOUTS[@]} == 0 )) && return 1;
+  for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 
 # Pass 1 — select. Skip/carve-out bookkeeping stays here (sequential, cheap)
 # so the counts do not depend on scheduling; RUN holds the corpus-ordered list

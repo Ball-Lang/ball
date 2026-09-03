@@ -59,6 +59,31 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
 - Base function dispatch maps std functions to C++ operators/calls
 - Type mapping: int → int64_t, double → double, String → std::string, List → std::vector<std::any>
 
+#### Class-dispatch rules that are easy to get wrong
+
+- **Method-shortcut dispatch is arity-gated (#511).** `compile_method_call`'s 77
+  STL/Dart-SDK shortcuts are keyed on the method NAME, so each one carries the
+  arity window of the Dart method it stands for (`argc_in(min, max)`); the 33
+  names shared with `dart/encoder/lib/encoder.dart`'s `collectionRoutes` reuse
+  that table's windows verbatim. A new shortcut MUST get a window, and a window
+  MISS must FALL THROUGH (never `return`) so control reaches the user-defined
+  class method dispatch below the chain. Too narrow pushes a real std call into
+  the generic fallback; too wide re-opens the collision.
+- **Shadowed-getter routing is PER CLASS, never program-wide (#515).**
+  `shadowed_getter_names_` is a whole-program name set and must not decide a
+  dispatch on its own. Use `class_field_shadows_getter` /`class_has_getter` /
+  `class_has_own_field`, which are keyed by the SANITIZED bare class name —
+  `class_shadowed_fields_`/`class_getters_` are keyed by the QUALIFIED name
+  (`"main:B"`), so a lookup with `current_class_name_` silently misses. For an
+  external receiver, resolve its class with `static_class_of()` and fall back
+  EXPLICITLY when it cannot be proven; never guess "not shadowed".
+- **A subclassed class is never passed or returned by value (#516).** C++ struct
+  value semantics slice the derived part (vtable included) away. Parameters go
+  through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and
+  `map_return_type()` emits the concrete class the body provably returns. Both
+  are scoped to subclassed classes only — a leaf class keeps by-value emission,
+  and nothing is universalized into `BallDyn`.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

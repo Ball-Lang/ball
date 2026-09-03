@@ -183,6 +183,30 @@ too, without a colour-forced CI leg.
 > local a second way. A fixture that only covers the shape you already
 > fixed proves the fix, not the rule.
 >
+> **A fixture family that only ever uses ONE class per name cannot tell a
+> per-class rule from a program-wide one.** 406/431/432/433 all have exactly one
+> class family using a given shadowed field name. With at most one such family in
+> a program, the emitter's program-wide `shadowed_getter_names_` set and its
+> correctly per-class `class_shadowed_fields_` map emit **byte-identical** C++ —
+> so four fixtures agreed for two releases while an unrelated class's own plain
+> `int x` was being routed through an accessor it does not have
+> ([#515](https://github.com/Ball-Lang/ball/issues/515)).
+> `439_unrelated_field_name_collision` is the first fixture with a SECOND,
+> unrelated class reusing the name, which is the only shape that separates them.
+> When a fix keys off a name, add the fixture where two unrelated owners share it.
+>
+> **Value semantics need a fixture per BOUNDARY, not per mechanism.**
+> [#509](https://github.com/Ball-Lang/ball/issues/509) stopped a C++ struct local
+> from slicing a subclass, and 431-433 all cross that boundary through a `let`.
+> Nothing crossed a base-typed function PARAMETER or a base-typed RETURN, so both
+> kept slicing ([#516](https://github.com/Ball-Lang/ball/issues/516)) — and the
+> failure is invisible to every leg but one: `g++` compiles the sliced code
+> cleanly, and every other target's engine is an interpreter with reference
+> semantics that never slices. Only the compiled-and-RUN C++ leg asserting on
+> stdout can see it. `440_base_typed_param_return_slicing` printed `1\n1` instead
+> of `10\n10` with a green build. Enumerate the *boundaries* a value can cross,
+> not just the one you fixed.
+
 > **A silent-wrong-answer regression hides from a byte-diff blast-radius proof.**
 > The corpus is the blast radius only for shapes the corpus contains. Both
 > defects above were found by a reviewer compiling hand-written probe programs,
@@ -202,6 +226,17 @@ too, without a colour-forced CI leg.
 > a list empty. The Ball → C++ gap it exposes is
 > [#511](https://github.com/Ball-Lang/ball/issues/511). Either way the answer is
 > never "leave the leg red".
+>
+> *Resolved:* #511 gave each of `compile_method_call`'s STL/Dart-SDK shortcuts
+> the arity window of the Dart method it stands for, so a same-named user method
+> with a different argument count falls through to user-defined class method
+> dispatch instead of being spliced into the shortcut's template. 416's carve-out
+> is gone and `CPP_COMPILE_CARVEOUTS` is empty again. Note what the carve-out's
+> removal did **not** get for free: `changed_fixtures` is computed only from
+> git-diffed `tests/conformance/*.ball.json`, so a PR that deletes a carve-out
+> without touching the fixture leaves its own per-PR compiled-e2e step blind to
+> it. Re-run `full_e2e.sh` unfiltered (or `--fixtures <stem>`) yourself before
+> claiming a de-carved fixture is green.
 >
 > A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
 > `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out

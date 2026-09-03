@@ -1,0 +1,110 @@
+# Fixtures deliberately NOT (yet) in cpp/test/e2e_fixture_list.h.
+#
+# cpp/test/check_e2e_fixture_list.sh (ci.yml's always-on `proto` job) fails when
+# a runnable fixture is neither listed in the header nor named here, so a NEW
+# fixture can never silently skip the C++ e2e leg. This file freezes the debt
+# that already existed when the guard landed (issues #63 / #59; the gap #511
+# flagged): the header had stopped growing long before #529 hand-extended it,
+# leaving the whole 257-397 band unlisted.
+#
+# It is a RATCHET, not a dumping ground. The guard also fails when an entry here
+# is already listed, or names a fixture that no longer exists, so the list can
+# only shrink. To close one: wire the name into program_names() in
+# cpp/test/e2e_fixture_list.h, confirm it actually compiles + runs on the C++
+# target (`bash cpp/test/quick_e2e.sh <name>`), and delete its line here.
+#
+# Not done in the same change as the guard on purpose: each addition costs a
+# nested per-fixture cmake+g++ build in CI, and an entry that does not pass on
+# the C++ target would turn the required "C++ (ubuntu-latest)" job red.
+#
+# One fixture name per line; `#` starts a comment.
+257_relational_pattern
+258_logical_and_pattern
+259_math_functions
+260_string_functions
+261_conversion_and_ops
+262_getter_properties
+263_numeric_properties
+264_string_replace_ops
+265_enc_hello
+266_enc_arithmetic
+267_enc_if_else
+268_enc_while
+269_enc_for
+270_enc_function
+271_enc_recursion
+272_enc_comparison
+273_enc_string
+274_enc_nested_control
+275_enc_try_catch
+276_enc_early_return
+277_enc_list_ops
+278_enc_bool_logic
+279_enc_closure
+280_enc_labeled_break
+281_enc_rethrow
+282_enc_do_while
+283_enc_nested_calls
+284_enc_bitwise
+285_enc_ternary
+286_enc_mutual_recursion
+287_enc_string_ops
+288_enc_int_methods
+289_enc_nested_closure
+290_enc_list_iterate
+291_enc_continue
+292_enc_negative_math
+293_enc_short_circuit
+294_enc_deep_recursion
+295_enc_closures
+296_enc_string_ops
+297_enc_list_ops
+298_enc_fibonacci
+299_enc_nested_functions
+300_enc_catch_stack
+301_enc_math_utils
+302_cast_patterns
+303_or_typed_patterns
+304_when_guards
+305_record_patterns
+306_nullable_type_patterns
+307_list_comprehension_foreach
+308_list_comprehension_cstyle
+309_spread_elements
+310_set_map_comprehension
+312_collection_for_capture
+313_assert_statement
+314_string_to_double
+315_compound_assign_all_ops
+316_to_string_as_fixed
+317_primitive_number_getters
+318_list_reduce
+319_string_runes
+320_num_methods_on_double_local
+321_whole_double_parse_print
+322_symbol_literal
+340_type_literal
+341_setter_param_binding
+345_inherited_field_type_name_collision
+350_set_value
+351_num_to_double
+355_inherited_field_initializer
+356_own_field_named_collection_type
+357_num_exponential_precision
+380_is_not_type_check
+381_unsigned_right_shift
+382_list_all_every
+383_list_any_check
+384_list_filter_where
+385_list_insert_at_index
+386_list_concat_addall
+387_list_reverse_getter
+389_typed_to_string
+390_goto_label
+391_empty_map_literal
+392_empty_set_literal
+393_untyped_empty_braces_map
+394_mappattern_excludes_set
+395_map_keys_values_fail_loud
+396_switch_case_fallthrough
+397_map_values

@@ -21,6 +21,9 @@ All C++ test executables: compiler unit tests, encoder unit tests, self-hosted e
 | `test_snapshot.cpp` | Snapshot tests; set `BALL_UPDATE_SNAPSHOTS=1` to rewrite baselines |
 | `scope_probe.cpp` | Debugging utility for scope/variable resolution in the engine; not a test binary |
 | `quick_e2e.sh` / `full_e2e.sh` / `diff_e2e.sh` | Shell wrappers for E2E test scenarios (`full_e2e.sh` is the `C++ Compiled` conformance leg and ci.yml's per-PR changed-fixture gate) |
+| `e2e_fixture_list.h` | The single list of programs `test_e2e.cpp` compiles+builds+runs and `corpus_driver.cpp` compiles — add a new fixture's stem here (after confirming `bash cpp/test/quick_e2e.sh <stem>` passes) |
+| `check_e2e_fixture_list.sh` | Drift guard for that list (#63 / #511): fails when a runnable fixture is neither listed nor named in `e2e_fixture_list_known_gaps.txt`. `--self-test` runs 7 synthetic scenarios proving it bites. Wired into ci.yml's always-on `proto` job — no toolchain, sub-second |
+| `e2e_fixture_list_known_gaps.txt` | The frozen, ratchet-only backlog of fixtures (the 257-397 band) not yet in the list. The guard also rejects an entry that is already listed or names no fixture, so it can only shrink |
 
 ## For AI Agents
 - All test files use a **custom `TEST(name)` macro** (defined at the top of each file) — NOT gtest or Catch2. Register tests by defining `TEST(name) { ... }` at file scope; `struct Register_##name` self-registers via constructor.
@@ -116,6 +119,11 @@ identical to CTest), so every harness asserts its own count and fails loud:
   is a hard error, and recorded outcomes must equal the selected fixtures.
 - `cpp/test/CMakeLists.txt` — the self-host fixture glob is a `FATAL_ERROR` when
   it matches nothing, and logs the registered count at configure time.
+- `check_e2e_fixture_list.sh` — the count-preserving assertion one level up: the
+  numbers above prove every LISTED fixture ran, and this proves the list itself
+  still names every runnable fixture. Without it the list simply stopped growing
+  at `399_bytes_literal` and nothing went red (#511). It refuses to report
+  success on an empty list or an empty corpus, for the same reason.
 
 ## Dependencies
 - Internal: `ball_shared`, `compiler` (for compiler tests), `encoder` (for encoder tests), `dart/self_host/lib/engine_rt.cpp` (included directly by the conformance test).

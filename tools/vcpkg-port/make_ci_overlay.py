@@ -2,76 +2,145 @@
 """Derive the CI overlay port from the real ball-lang vcpkg port.
 
 `ports/ball-lang/portfile.cmake` is the file that will be submitted upstream to
-microsoft/vcpkg: it downloads a tagged release tarball with `vcpkg_from_github`
-and checks it against a real SHA512. CI cannot use that as-is — the point of the
-smoke is to prove the recipe builds *this commit's* cpp/ tree, before a tag (and
-its hash) exists.
+microsoft/vcpkg. It reaches the network exactly twice:
+
+  * `vcpkg_from_github(...)` — the tagged release source tarball, checked
+    against a real SHA512;
+  * `vcpkg_download_distfile(...)` — the `ball-selfhost-cpp-src-vX.Y.Z.tar.gz`
+    release asset carrying the Dart-pre-generated `cli_rt.h` / `engine_rt.cpp`
+    that turn `ball run` / `info` / `validate` / `tree` from fail-loud stubs
+    into the real self-hosted verbs (issues #368 / #361).
+
+CI cannot use either as-is — the point of the smoke is to prove the recipe
+builds *this commit's* tree, before a tag (and its hashes, and its assets)
+exist.
 
 So the overlay is GENERATED, never hand-maintained: this script copies the port
-verbatim and replaces exactly one thing — the `vcpkg_from_github(...)` call —
-with `set(SOURCE_PATH "<local path>")`. Everything else (vcpkg_cmake_configure,
+verbatim and replaces exactly those two calls — nothing else — with `set(...)`
+of the values the CI job produced on-runner. Everything else
+(vcpkg_check_features, the extraction, vcpkg_cmake_configure,
 vcpkg_cmake_install, vcpkg_copy_tools, vcpkg_install_copyright, the CMake
-options) stays byte-identical to the submission file, so the smoke exercises the
-real recipe and a future edit to the real port cannot silently desync from what
-CI tests.
+options) stays byte-identical to the submission file, so the smoke exercises
+the real recipe and a future edit to the real port cannot silently desync from
+what CI tests.
+
+The overlay is also asserted HERMETIC: if any `vcpkg_from_*(` or
+`vcpkg_download_distfile(` call survives the rewrite, this script fails loudly
+rather than emitting an overlay that would reach for a release asset that does
+not exist yet. That check is what keeps "swap exactly the download blocks"
+honest as the real port grows.
 
 Usage:
 
-    python3 tools/vcpkg-port/make_ci_overlay.py <overlay-dir> <source-path>
+    python3 tools/vcpkg-port/make_ci_overlay.py \
+        <overlay-dir> <source-path> <selfhost-archive>
+
+`<selfhost-archive>` is a local `.tar.gz` holding `cli_rt.h` and
+`engine_rt.cpp` at its top level — the same shape release-cpp.yml uploads. It
+is only consulted by a build that selects the (default-on) `selfhost` feature,
+so a `vcpkg install ball-lang[core] --overlay-ports=...` run works even when
+the path does not exist.
 """
 
 from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 import shutil
 import sys
 
 PORT_NAME = "ball-lang"
-CALL_OPEN = "vcpkg_from_github("
+
+# Any call that would reach the network. Every one of them must be swapped out
+# of the CI overlay; a survivor is a generator that has silently stopped
+# tracking the real port.
+NETWORK_CALL_RE = re.compile(r"^\s*(vcpkg_from_[a-z_]+|vcpkg_download_distfile)\s*\($")
+
+SOURCE_CALL = "vcpkg_from_github("
+SELFHOST_CALL = "vcpkg_download_distfile("
 
 
-def rewrite_portfile(text: str, source_path: str) -> str:
-    """Replace the single `vcpkg_from_github(...)` call with a local SOURCE_PATH.
+def _replace_call(text: str, call_open: str, replacement_lines: list[str]) -> str:
+    """Replace the single `<call_open>...)` block with `replacement_lines`.
 
     The call is matched structurally, not by regex over the whole file: its
-    closing paren is the first subsequent line that is exactly ")". Brace/paren
-    counting would be wrong here — the port's SHA512 comment block itself
-    contains parentheses.
+    closing paren is the first subsequent line whose content is exactly ")".
+    Brace/paren counting would be wrong here — the port's SHA512 comment blocks
+    themselves contain parentheses. Leading indentation of the opening line is
+    preserved, so a call nested inside an `if(...)` block round-trips cleanly.
     """
     lines = text.splitlines(keepends=True)
-    opens = [i for i, line in enumerate(lines) if line.strip() == CALL_OPEN]
+    opens = [i for i, line in enumerate(lines) if line.strip() == call_open]
     if len(opens) != 1:
         raise SystemExit(
-            f"expected exactly one line `{CALL_OPEN}` in portfile.cmake, found {len(opens)}"
+            f"expected exactly one line `{call_open}` in portfile.cmake, found {len(opens)}"
         )
     start = opens[0]
     close = None
     for i in range(start + 1, len(lines)):
-        if lines[i].rstrip("\r\n") == ")":
+        if lines[i].strip() == ")":
             close = i
             break
     if close is None:
-        raise SystemExit("vcpkg_from_github( has no closing `)` on a line of its own")
+        raise SystemExit(f"{call_open} has no closing `)` on a line of its own")
 
     nl = "\r\n" if lines[start].endswith("\r\n") else "\n"
-    replacement = nl.join(
+    indent = lines[start][: len(lines[start]) - len(lines[start].lstrip())]
+    body = nl.join(f"{indent}{line}" if line else "" for line in replacement_lines)
+    return "".join(lines[:start]) + body + nl + "".join(lines[close + 1 :])
+
+
+def rewrite_portfile(text: str, source_path: str, selfhost_archive: str) -> str:
+    """Swap both network fetches for locally-produced paths, then prove it."""
+    text = _replace_call(
+        text,
+        SOURCE_CALL,
         [
             "# CI overlay (generated by tools/vcpkg-port/make_ci_overlay.py): the real",
             "# port's vcpkg_from_github() download is replaced by the checkout under",
             "# test, so the recipe below is exercised against THIS commit's cpp/ tree.",
             "# Every other line in this file is byte-identical to the submission port.",
             f'set(SOURCE_PATH "{source_path}")',
-            "",
-        ]
+        ],
     )
-    return "".join(lines[:start]) + replacement + "".join(lines[close + 1:])
+    text = _replace_call(
+        text,
+        SELFHOST_CALL,
+        [
+            "# CI overlay (generated by tools/vcpkg-port/make_ci_overlay.py): the real",
+            "# port's self-host sidecar download is replaced by an archive the CI job",
+            "# pre-generated on-runner with a real Dart toolchain, so the smoke stays",
+            "# hermetic — the release asset it would otherwise fetch only exists once a",
+            "# tag has been cut. The extraction below is byte-identical either way.",
+            f'set(BALL_SELFHOST_ARCHIVE "{selfhost_archive}")',
+        ],
+    )
+
+    survivors = [
+        f"  portfile.cmake:{i + 1}: {line.rstrip()}"
+        for i, line in enumerate(text.splitlines())
+        if NETWORK_CALL_RE.match(line)
+    ]
+    if survivors:
+        raise SystemExit(
+            "the generated CI overlay still contains network fetch(es) this script "
+            "does not know how to swap — the real port grew a download that the "
+            "overlay generator was never taught about, so the smoke would either "
+            "hit the network or silently exercise a different recipe:\n"
+            + "\n".join(survivors)
+        )
+    return text
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("overlay_dir", help="directory to write the overlay port tree into")
     parser.add_argument("source_path", help="path vcpkg should build from (the repo checkout)")
+    parser.add_argument(
+        "selfhost_archive",
+        help=".tar.gz of the pre-generated cli_rt.h + engine_rt.cpp (top level)",
+    )
     args = parser.parse_args(argv)
 
     port_src = pathlib.Path(__file__).resolve().parent / "ports" / PORT_NAME
@@ -82,13 +151,14 @@ def main(argv: list[str]) -> int:
 
     portfile = overlay_port / "portfile.cmake"
     source_path = args.source_path.replace("\\", "/")
+    selfhost_archive = args.selfhost_archive.replace("\\", "/")
     # newline="" on both ends: the untouched lines must stay byte-identical to
     # the submission port, line endings included, so the "only the download
-    # block differs" claim is verifiable with a plain diff.
+    # blocks differ" claim is verifiable with a plain diff.
     with portfile.open("r", encoding="utf-8", newline="") as fh:
         original = fh.read()
     with portfile.open("w", encoding="utf-8", newline="") as fh:
-        fh.write(rewrite_portfile(original, source_path))
+        fh.write(rewrite_portfile(original, source_path, selfhost_archive))
     print(overlay_port.parent)
     return 0
 

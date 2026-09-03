@@ -131,6 +131,14 @@ jobs:
       - name: C++ coverage-floor CI wiring test (#63)
         run: bash cpp/test/test_cov_floor_ci_wiring.sh
 
+      # Same technique, pointed for the first time at a raw external-network
+      # command instead of a repo-owned script: every `dart pub get` in this
+      # workflow must be retry-wrapped, so one transient pub.dev resolver hiccup
+      # cannot redden a required job on a commit that changed nothing relevant
+      # (run 33640533368's `Python` job, #520).
+      - name: dart pub get retry wiring test (#520)
+        run: bash .github/actions/dart-pub-get/test/test_dart_pub_get_wiring.sh
+
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────

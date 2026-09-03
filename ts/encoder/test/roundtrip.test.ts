@@ -22,8 +22,11 @@ import { compile } from "../../compiler/src/index.ts";
  * (a superset of --experimental-strip-types that also supports TS-only
  * constructs like `enum`, which strip-only mode rejects) and return trimmed
  * stdout. Uses a temp file to avoid shell escaping issues.
+ *
+ * `envOverride` is merged last so the colour-independence test (#518) can
+ * deliberately force a colour state on the child.
  */
-function executeTs(source: string): string {
+function executeTs(source: string, envOverride: NodeJS.ProcessEnv = {}): string {
   const tmpPath = join(
     tmpdir(),
     `ball_roundtrip_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2)}.ts`,
@@ -33,6 +36,11 @@ function executeTs(source: string): string {
     return execSync(`node --experimental-transform-types "${tmpPath}"`, {
       encoding: "utf8",
       timeout: 10_000,
+      // Pin the CHILD's colour state (#518). An `env` object is cross-platform
+      // where a `FORCE_COLOR=0 node …` shell prefix is not, and it is the only
+      // thing that works: NO_COLOR alone is ignored by Node whenever
+      // FORCE_COLOR is already set in the inherited environment.
+      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1", ...envOverride },
     }).trim();
   } finally {
     try { unlinkSync(tmpPath); } catch { /* ignore */ }
@@ -40,15 +48,34 @@ function executeTs(source: string): string {
 }
 
 /**
+ * Strip ANSI SGR escape sequences (`ESC [ ... m`). Defence in depth for #518:
+ * even if colour leaks back in through a future Node version or some other
+ * supports-color signal, the comparison stays a comparison of the TEXT.
+ */
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, "");
+
+/**
+ * Encode -> compile -> execute BOTH sides, returning the two ANSI-free stdouts.
+ */
+function roundTripOutputs(
+  originalSource: string,
+  envOverride: NodeJS.ProcessEnv = {},
+): { original: string; roundTripped: string } {
+  const program = encode(originalSource);
+  const compiledSource = compile(program);
+  return {
+    original: stripAnsi(executeTs(originalSource, envOverride)),
+    roundTripped: stripAnsi(executeTs(compiledSource, envOverride)),
+  };
+}
+
+/**
  * Run the full round-trip: encode source -> compile IR -> execute both,
  * then assert identical output.
  */
 function assertRoundTrip(originalSource: string): void {
-  const program = encode(originalSource);
-  const compiledSource = compile(program);
-
-  const originalOutput = executeTs(originalSource);
-  const roundTrippedOutput = executeTs(compiledSource);
+  const { original: originalOutput, roundTripped: roundTrippedOutput } =
+    roundTripOutputs(originalSource);
 
   assert.equal(
     roundTrippedOutput,
@@ -513,5 +540,53 @@ function main() {
 }
 main();
 `);
+  });
+
+  // #518: the round-trip comparison diffs two raw stdouts, and Node's
+  // console.log COLOURISES a bare `number` argument but never a `string`.
+  // A hand-written fixture prints `console.log(add(3, 4))` (a number), while
+  // the compiled side always goes through `__ball_to_string(...)` (a string),
+  // so under any colour-capable environment the original comes back as
+  // "\x1b[33m7\x1b[39m" and the round-trip as "7" — 18 phantom failures that
+  // are invisible on a TTY-less CI runner. The comparison, not the ambient
+  // shell, has to decide pass/fail.
+  test("round-trip comparison is independent of the child's colour state (#518)", () => {
+    const source = `
+function add(a, b) {
+  return a + b;
+}
+function main() {
+  console.log(add(3, 4));
+  console.log(add(100, -50));
+}
+main();
+`;
+    // NO_COLOR alone is NOT enough: Node ignores it when FORCE_COLOR is set
+    // ("The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set"),
+    // so the child's own FORCE_COLOR is what has to be neutralised.
+    const colourless = roundTripOutputs(source, { FORCE_COLOR: "0", NO_COLOR: "1" });
+    const coloured = roundTripOutputs(source, { FORCE_COLOR: "1", NO_COLOR: "" });
+
+    assert.equal(
+      coloured.original,
+      colourless.original,
+      `Original-side output changed with the child's colour state.\n` +
+      `  FORCE_COLOR=0: ${JSON.stringify(colourless.original)}\n` +
+      `  FORCE_COLOR=1: ${JSON.stringify(coloured.original)}`,
+    );
+    assert.equal(
+      coloured.roundTripped,
+      colourless.roundTripped,
+      `Round-tripped output changed with the child's colour state.\n` +
+      `  FORCE_COLOR=0: ${JSON.stringify(colourless.roundTripped)}\n` +
+      `  FORCE_COLOR=1: ${JSON.stringify(coloured.roundTripped)}`,
+    );
+    assert.equal(
+      coloured.roundTripped,
+      coloured.original,
+      `Round-trip diverged under a forced-colour child.\n` +
+      `  Original output:      ${JSON.stringify(coloured.original)}\n` +
+      `  Round-tripped output: ${JSON.stringify(coloured.roundTripped)}`,
+    );
   });
 });

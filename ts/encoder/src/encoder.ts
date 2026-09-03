@@ -846,20 +846,58 @@ export class TsEncoder {
         );
       }
 
+      const isOptionalCall =
+        node.expression.questionDotToken !== undefined || node.questionDotToken !== undefined;
+
       // Map common JS/TS method calls to their Ball std equivalents.
       // The engine's std module uses snake_case names with type prefixes.
       const stdMethod = this.mapMethodToStd(method, args);
       if (stdMethod) {
-        return this.stdCall(stdMethod.fn, [
-          { name: stdMethod.selfName ?? "value", value: obj },
+        const callWith = (receiver: Expression): Expression => this.stdCall(stdMethod.fn, [
+          { name: stdMethod.selfName ?? "value", value: receiver },
           ...stdMethod.extraFields(args),
         ], stdMethod.module ?? "std");
+        // `obj?.push(1)` on a std-MAPPED builtin (#504). This dispatch used to
+        // run unconditionally, ahead of the `questionDotToken` check below, so
+        // that branch was unreachable for every STR_METHODS/ARR_METHODS name
+        // and the `?.` short-circuit was silently dropped: `missing?.push(3)`
+        // compiled to a bare `list_push` that threw on a null receiver.
+        //
+        // The guard is synthesized from primitives every target compiler
+        // already implements rather than routed through `null_aware_call`,
+        // because that node emits its `method` field VERBATIM as
+        // `target?.<method>(...)` in the TARGET language (ts/compiler's
+        // `case "null_aware_call"`, dart/compiler's `_compileNullAwareCall`),
+        // so the JS spelling `push` would become a nonexistent `List.push` in
+        // Dart. The receiver is bound to a per-call-site temp so it is
+        // evaluated exactly once — `getArr()?.push(1)` must not call `getArr`
+        // twice — and so nested chains cannot shadow each other.
+        if (isOptionalCall) {
+          const temp = `__ball_recv_${this.desugarCounter++}`;
+          const tempRef: Expression = { reference: { name: temp } };
+          return {
+            block: {
+              statements: [{ let: { name: temp, value: obj } }],
+              result: this.stdCall("if", [
+                { name: "condition", value: this.stdCall("not_equals", [
+                  { name: "left", value: tempRef },
+                  { name: "right", value: this.nullLiteral() },
+                ]) },
+                { name: "then", value: callWith(tempRef) },
+                { name: "else", value: this.nullLiteral() },
+              ]),
+            },
+          };
+        }
+        return callWith(obj);
       }
 
       // Optional chaining call: obj?.method(). Canonical name + field shape
       // (target/method), matching compileStdCall's `case "null_aware_call"`;
       // "optional_call" with an `object` field matched no case at all (#489).
-      if (node.expression.questionDotToken || node.questionDotToken) {
+      // Only user-defined methods reach here now — a std-mapped builtin is
+      // guarded above (#504).
+      if (isOptionalCall) {
         return this.stdCall("null_aware_call", [
           { name: "target", value: obj },
           { name: "method", value: { literal: { stringValue: method } } },

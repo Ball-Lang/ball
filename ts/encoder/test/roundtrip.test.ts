@@ -351,6 +351,36 @@ main();
 `);
   });
 
+  // #504: `?.` in front of a method the encoder maps onto a std base function.
+  // `encodeCall` used to consult `mapMethodToStd` BEFORE `questionDotToken`,
+  // so the guard was dropped and `missing?.push(3)` compiled to an unguarded
+  // `(missing.push(3), missing);` that threw. The two nearby fixtures each
+  // cover one half of the pair — `o?.greet()` is a USER method (never reaches
+  // mapMethodToStd) and `xs.push(3)` has no `?.` — so nothing sat at the
+  // intersection.
+  //
+  // `?? "none"` on the string half for the same reason the `o?.m()` fixture
+  // above uses it: JS short-circuits to `undefined` while Ball has a single
+  // null, so printing the short-circuit result directly would diff on the
+  // null/undefined spelling rather than on the guard actually firing.
+  test("optional chaining on a std-mapped Array/String method (#504)", () => {
+    assertRoundTrip(`
+function main() {
+  const xs = [1, 2];
+  let missing = null;
+  xs?.push(3);
+  missing?.push(3);
+  console.log(xs.length);
+  console.log(missing);
+  const s = "  hi  ";
+  let absent = null;
+  console.log(s?.trim());
+  console.log(absent?.trim() ?? "none");
+}
+main();
+`);
+  });
+
   test("Array.push mutates and is observable (#489)", () => {
     assertRoundTrip(`
 function main() {

@@ -509,9 +509,20 @@ jobs:
 
       # Step-level budget — the actual ratchet (#521). `Run tests` is dominated
       # by test_e2e, which builds ~269 generated fixture programs in a scratch
-      # CMake project. Budget: 12 min on Windows (MSVC/MSBuild, the slowest
-      # toolchain here), 6 min on Linux/macOS. See the per-step measurements in
-      # the job comment above for the pre-fix numbers these replace.
+      # CMake project. Budget: 20 min on Windows, 6 min on Linux/macOS, against
+      # the pre-fix 28m33s / 12m12s / 9m56s in the job comment above.
+      #
+      # Windows keeps the loosest budget because MSVC is the outlier, and that
+      # is measured rather than assumed. Reproduced locally against MSVC 14.50
+      # on 4 jobs (the runner's core count): each generated fixture is a ~278 KB
+      # TU pulling 29 standard headers (<regex>, <thread>, ...), the scratch
+      # build costs 591s, link is a rounding error at 0.33s per fixture, and the
+      # generator does not matter — a Ninja scratch build measured 590s against
+      # MSBuild's 591s. ~1000s of compiler front-end CPU spread over 4 cores is
+      # the floor for this design, so parallelism alone cannot reach the issue's
+      # aspirational "windows 6-10 min"; that needs a compiler cache that works
+      # on Windows, or a decision to run a subset of the corpus there. Both are
+      # follow-up work (see #521), not something to smuggle into a timing fix.
       #
       # `-j`: every CTest test here is its own process, so they parallelise
       # safely (each test binary owns a distinct temp-path prefix). NOTE this
@@ -537,7 +548,7 @@ jobs:
       # Moving the Windows leg to `-G Ninja` would fix both; tracked as
       # follow-up work, deliberately out of scope here.)
       - name: Run tests
-        timeout-minutes: ${{ runner.os == 'Windows' && 12 || 6 }}
+        timeout-minutes: ${{ runner.os == 'Windows' && 20 || 6 }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
           # NB: written as `!= 'Windows' && 'ccache' || ''` on purpose — an

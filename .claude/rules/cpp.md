@@ -85,11 +85,18 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ### CI time budget + the e2e build knobs (#521)
 
 `ctest` in ci.yml's `cpp` job runs with `-j <runner CPUs> --no-tests=error`, and
-its `Run tests` step carries a **step-level `timeout-minutes`: 12 on Windows, 6
-on Linux/macOS** (job budget 25). Those numbers are a gate, not decoration — a
-change that puts the fixture compiles back on one core fails the job. Re-measure
-and update them (with the run id, as the workflow comment does) if you change
-what the step does.
+its `Run tests` step carries a **step-level `timeout-minutes`: 20 on Windows, 6
+on Linux/macOS** (job budget 25), against a pre-fix 28m33s / 12m12s / 9m56s.
+Those numbers are a gate, not decoration — a change that puts the fixture
+compiles back on one core fails the job. Re-measure and update them (with the
+run id, as the workflow comment does) if you change what the step does.
+
+Windows is the outlier by measurement, not assumption: each generated fixture is
+a ~278 KB TU pulling 29 standard headers, MSVC needs ~1000s of front-end CPU for
+the 269 of them, link is 0.33s per fixture, and the generator is irrelevant (a
+Ninja scratch build measured 590s against MSBuild's 591s). Reaching the issue's
+aspirational 6-10 min there needs a compiler cache that actually works on
+Windows (see below) or a decision to run a subset of the corpus on that leg.
 
 Two env knobs drive the per-fixture compiles; CI sets both, and they work the
 same way for `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:

@@ -53,9 +53,16 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   build never registers the `selfhost` label (engine_rt is gitignored, no Dart in
   that job). regression-gates.yml's `C++ Self-Host Tally` — which does register
   them — stays deliberately sequential.
-- The `Run tests` step has a **step-level `timeout-minutes`**: 12 (Windows) / 6
-  (Linux, macOS). Treat it as a gate: re-measure and update the numbers in the
-  ci.yml comment (with the run id) if you change what the step does.
+- The `Run tests` step has a **step-level `timeout-minutes`**: 20 (Windows) / 6
+  (Linux, macOS), against a pre-fix 28m33s / 12m12s / 9m56s. Treat it as a gate:
+  re-measure and update the numbers in the ci.yml comment (with the run id) if
+  you change what the step does. Windows is looser by measurement — each fixture
+  is a ~278 KB TU pulling 29 standard headers, MSVC needs ~1000s of front-end
+  CPU for 269 of them, link is 0.33s each, and the generator is irrelevant (a
+  Ninja scratch build measured 590s vs MSBuild's 591s).
+- `test_e2e` prints `Scratch configure:` and `Scratch compile+link:` timings,
+  flushed as they happen, so a step killed by its timeout still shows which
+  phase it died in.
 - In `test_e2e` only the BUILD is parallel; the fixture binaries are still RUN
   one at a time in list order, so stdout diffing stays deterministic. In
   `full_e2e.sh`/`quick_e2e.sh` the compile+run happens in `xargs -P` workers that

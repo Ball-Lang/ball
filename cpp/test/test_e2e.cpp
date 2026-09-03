@@ -116,6 +116,18 @@ static std::string env_or_empty(const char* name) {
     return (v && *v) ? std::string(v) : std::string();
 }
 
+// Wall-clock seconds since `t0`, one decimal. The configure/build phase split
+// is what tells a slow toolchain apart from a slow CMake generation pass; both
+// are printed (and flushed) unconditionally, so a CI step killed by its
+// step-level timeout still shows which phase it died in instead of nothing.
+static std::string elapsed_s(std::chrono::steady_clock::time_point t0) {
+    const double secs = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t0).count();
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1f", secs);
+    return std::string(buf);
+}
+
 static unsigned build_jobs() {
     const std::string v = env_or_empty("BALL_E2E_JOBS");
     if (!v.empty()) {
@@ -261,7 +273,9 @@ static bool build_sub_project(const fs::path& proj_dir,
     gen_cmd += " 2>&1";
     gen_cmd = cmd_wrap(gen_cmd);
     std::string gen_output;
+    const auto gen_t0 = std::chrono::steady_clock::now();
     int gen_rc = run_capture(gen_cmd, gen_output);
+    std::cout << "Scratch configure: " << elapsed_s(gen_t0) << "s" << std::endl;
     if (gen_rc != 0) {
         failure_msg = "cmake configure failed (rc=" + std::to_string(gen_rc) +
                       "):\n" + gen_output;
@@ -273,7 +287,8 @@ static bool build_sub_project(const fs::path& proj_dir,
     const unsigned jobs = build_jobs();
     std::cout << "Scratch build: " << programs.size() << " target(s), "
               << jobs << " parallel job(s), launcher="
-              << (launcher.empty() ? std::string("(none)") : launcher) << "\n";
+              << (launcher.empty() ? std::string("(none)") : launcher)
+              << std::endl;
     std::string build_cmd = quote(BALL_E2E_CMAKE) +
                             " --build " + quote(build_dir.string()) +
                             " --config " BALL_E2E_BUILD_TYPE +
@@ -281,7 +296,10 @@ static bool build_sub_project(const fs::path& proj_dir,
                             " 2>&1";
     build_cmd = cmd_wrap(build_cmd);
     std::string build_output;
+    const auto build_t0 = std::chrono::steady_clock::now();
     int build_rc = run_capture(build_cmd, build_output);
+    std::cout << "Scratch compile+link: " << elapsed_s(build_t0) << "s"
+              << std::endl;
     if (build_rc != 0) {
         failure_msg = "cmake build failed (rc=" + std::to_string(build_rc) +
                       "):\n" + build_output;

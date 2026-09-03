@@ -50,8 +50,11 @@ try {
 }
 
 const program = unwrapBallFile(JSON.parse(raw));
-const ts = compile(program);
-writeFileSync(outputPath, "// @ts-nocheck — auto-generated\n" + ts);
+const payload = "// @ts-nocheck — auto-generated\n" + compile(program);
+writeFileSync(outputPath, payload);
+// Byte count, not `payload.length`: String.length counts UTF-16 code units and
+// the emitted engine is full of non-ASCII, so the two disagree by hundreds of
+// bytes. Report the number `stat -c%s` / `ls -l` will show.
 process.stdout.write(
-  `regen_compiled_engine: wrote ${ts.length + 32} bytes → ${outputPath}\n`,
+  `regen_compiled_engine: wrote ${Buffer.byteLength(payload, "utf8")} bytes → ${outputPath}\n`,
 );

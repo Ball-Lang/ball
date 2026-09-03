@@ -743,7 +743,7 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   `element` spread/collection_if/collection_for entries, the map analog of the Round-9 list splice)
   (`185`/`188`).
 - **Full corpus parity (Round 15, this PR):** the informal `tests/conformance/*.ball.json` sweep is
-  now at **320 passed / 320** (0 failed, 0 timeouts) — the compiled engine runs the WHOLE golden
+  now at **330 passed / 330** (0 failed, 0 timeouts) — the compiled engine runs the WHOLE golden
   corpus at Dart parity (the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs,
   as for every other self-host target). Three bounded root-cause categories closed the last residuals,
   each in `Ball.Shared`/`csharp/compiler` (never the generated file): (a) **bytes as `List<int>`** —
@@ -781,7 +781,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Verified fresh
   (2026-07-11, after regenerating `CompiledEngine.cs` from `dart/self_host/engine.ball.pb` in this
-  worktree): **`Results: 322 passed, 0 failed, 322 total (4 skipped carve-outs)`** — Dart parity,
+  worktree): **`Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)`** — Dart parity,
   matching Round 15's informal count exactly. This is what closes #383's acceptance bar ("full
   corpus at Dart parity via the Phase-7 harness").
 - **`compiler`**: every fixture compiles Ball → C# (`CSharpCompiler.Compile`), runs in-memory via
@@ -1004,7 +1004,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 322 passed, 0 failed, 322 total (4 skipped carve-outs)`.
+  `Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1071,7 +1071,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 322 passed, 0 failed, 322 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 330 passed, 0 failed, 330 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
@@ -1210,7 +1210,7 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   `Loader`/`BallEngine`/`BallProto` foundation with real tests, and the category grind that took the
   generated `CompiledEngine.cs` from 474 `csc` errors to **0 — it now COMPILES** under
   `-p:SelfHost=true`, and — after the Round-4 execution grind — **RUNS the WHOLE conformance corpus
-  at Dart parity**: **320 passed / 320** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact
+  at Dart parity**: **330 passed / 330** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact
   golden; the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs) after the
   Rounds 5–15 bounded-category grind (Round 5: RegExp surface, core-collection copy/fill
   constructors, universal `toString` fallback; Round 6: the double-value-representation gap; Round
@@ -1222,7 +1222,7 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   `catch (e, stackTrace)`, in-place `Map.addAll` merge — see "Self-hosted engine" above and #383).
   **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
   into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
-  line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing
+  line — `engine` leg fresh-verified at `330 passed, 0 failed, 330 total` (Dart parity, closing
   #383's acceptance bar), plus a `compiler` leg (`246 passed, 74 failed, 320 total` — the Phase-4
   compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
   an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize
@@ -1241,8 +1241,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 322 passed, 0 failed,
-  322 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 330 passed, 0 failed,
+  330 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

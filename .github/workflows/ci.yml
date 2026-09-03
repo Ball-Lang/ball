@@ -1127,6 +1127,17 @@ jobs:
       - name: Clippy
         run: cd rust && cargo clippy --workspace --all-targets -- -D warnings
 
+      # ── Tier A coverage-study harness self-test (issue #493) ──
+      # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
+      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
+      # pull_request: trigger, per the project's measure-before-gating rule);
+      # this step gates only the harness's own correctness, so a measuring
+      # instrument cannot silently start SKIPPING the entry-point-less library
+      # files it exists to look at and then report a flattering number over what
+      # is left. Mirrors the dart job's rq1_study_self_test.dart step.
+      - name: Tier A coverage-study harness self-test (issue #493)
+        run: cd rust && cargo test -p ball-rq1-study
+
       # ── Self-hosted engine: regenerate + RUN (issue #300) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
       # itself gitignored) compiled through ball-lang-compiler into the gitignored
@@ -1223,6 +1234,17 @@ jobs:
 
       - name: Format check
         run: dotnet format csharp/Ball.slnx --verify-no-changes
+
+      # ── Tier A coverage-study harness self-test (issue #493) ──
+      # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
+      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
+      # pull_request: trigger, per the project's measure-before-gating rule);
+      # this step gates only the harness's own correctness, so a measuring
+      # instrument cannot silently start SKIPPING the entry-point-less library
+      # files it exists to look at and then report a flattering number over what
+      # is left. Mirrors the dart job's rq1_study_self_test.dart step.
+      - name: Tier A coverage-study harness self-test (issue #493)
+        run: dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj
 
       # ── Self-hosted engine: regenerate + RUN (issue #383/#384) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.pb)
@@ -1337,6 +1359,32 @@ jobs:
 
       - name: Test
         run: cd go && go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
+
+      # ── Tier A coverage-study harness self-test (issue #493) ──
+      # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
+      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
+      # pull_request: trigger, per the project's measure-before-gating rule);
+      # this step gates only the harness's own correctness, so a measuring
+      # instrument cannot silently start SKIPPING the entry-point-less library
+      # files it exists to look at and then report a flattering number over what
+      # is left. Mirrors the dart job's rq1_study_self_test.dart step.
+      #
+      # tools/coverage-study/go is a standalone tool module, deliberately
+      # outside go/ and out of go/go.work (the six modules there are published
+      # paths that tools/go-module-proxy/smoke.sh sweeps), so it needs its own
+      # gofmt/vet/test invocation rather than another entry in the lists above.
+      - name: Tier A coverage-study harness self-test (issue #493)
+        run: |
+          set -euo pipefail
+          cd tools/coverage-study/go
+          unformatted=$(gofmt -l cmd rq1study)
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt found unformatted coverage-study sources - run gofmt -w and commit:"
+            echo "$unformatted"
+            exit 1
+          fi
+          go vet ./...
+          go test ./...
 
       # ── External-consumer module resolution (issue #361) — GATING ──
       # Every step above runs inside the full monorepo checkout, where go.work
@@ -1466,6 +1514,17 @@ jobs:
       - name: Encoder tests
         run: cd python/encoder && python -m pytest -q
 
+      # ── Tier A coverage-study harness self-test (issue #493) ──
+      # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
+      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
+      # pull_request: trigger, per the project's measure-before-gating rule);
+      # this step gates only the harness's own correctness, so a measuring
+      # instrument cannot silently start SKIPPING the entry-point-less library
+      # files it exists to look at and then report a flattering number over what
+      # is left. Mirrors the dart job's rq1_study_self_test.dart step.
+      - name: Tier A coverage-study harness self-test (issue #493)
+        run: python tools/coverage-study/test/rq1_study_py_self_test.py
+
       # Runs BEFORE the self-host regen below, so compiled_engine.py is absent
       # here and the CLI's honest-failure `run` path (exit 1 + regenerate hint)
       # is actually exercised — the natural state of a fresh checkout.
@@ -1483,7 +1542,9 @@ jobs:
             python/runtime/ballrt python/compiler/ball_compiler \
             python/encoder/ball_encoder python/engine/ball_engine \
             python/cli/ball_cli python/shared/gen \
-            python/tool python/engine/tool
+            python/tool python/engine/tool \
+            tools/coverage-study/rq1_study_py.py \
+            tools/coverage-study/test/rq1_study_py_self_test.py
 
       # ── Self-hosted engine: regenerate + RUN (epic #445 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,

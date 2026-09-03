@@ -1,3 +1,10 @@
+# [1.64.0](https://github.com/Ball-Lang/ball/compare/v1.63.1...v1.64.0) (2026-09-03)
+
+
+### Features
+
+* **std:** add the universal std.type_of base function and stop a constructor from returning self ([#512](https://github.com/Ball-Lang/ball/issues/512)) ([0e06d7d](https://github.com/Ball-Lang/ball/commit/0e06d7dc9d33878132290b766cbbcae2ad676272)), closes [#502](https://github.com/Ball-Lang/ball/issues/502) [#489](https://github.com/Ball-Lang/ball/issues/489) [#489](https://github.com/Ball-Lang/ball/issues/489) [#499](https://github.com/Ball-Lang/ball/issues/499) [#499](https://github.com/Ball-Lang/ball/issues/499) [#489](https://github.com/Ball-Lang/ball/issues/489) [#489](https://github.com/Ball-Lang/ball/issues/489) [#513](https://github.com/Ball-Lang/ball/issues/513) [#514](https://github.com/Ball-Lang/ball/issues/514) [#499](https://github.com/Ball-Lang/ball/issues/499) [#513](https://github.com/Ball-Lang/ball/issues/513) [#514](https://github.com/Ball-Lang/ball/issues/514) [#499](https://github.com/Ball-Lang/ball/issues/499) [#499](https://github.com/Ball-Lang/ball/issues/499) [#499](https://github.com/Ball-Lang/ball/issues/499) [#527](https://github.com/Ball-Lang/ball/issues/527) [#528](https://github.com/Ball-Lang/ball/issues/528) [#528](https://github.com/Ball-Lang/ball/issues/528) [#527](https://github.com/Ball-Lang/ball/issues/527) [#532](https://github.com/Ball-Lang/ball/issues/532) [#532](https://github.com/Ball-Lang/ball/issues/532) [513/#514](https://github.com/Ball-Lang/ball/issues/514)
+
 ## [1.63.1](https://github.com/Ball-Lang/ball/compare/v1.63.0...v1.63.1) (2026-09-03)
 
 

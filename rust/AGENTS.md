@@ -15,6 +15,28 @@ concatenation. **Verify maturity against CI, not this prose** — the `rust` job
 `.github/workflows/ci.yml` gates build/test/fmt/clippy plus the self-host
 run-acceptance and the full conformance sweep.
 
+## Third-party coverage study — Tier A (`rust/tools/rq1-study`, issue #493)
+
+`ball-rq1-study` (a `publish = false` workspace member, so `cargo build/fmt/clippy
+--workspace` cover it) runs pinned third-party crates through
+`encode_library` → `compile_library` → `encode_library`, diffs the declaration
+inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so an
+encoder bookkeeping bug cannot hide from the instrument measuring it — and
+checks a second-generation fixpoint.
+
+Honest first baseline: **0/110 clean, 0 files even encoded** (5 pinned crates,
+`tools/coverage-study/packages/rust.json`). Every scored file is an
+`encode-error`: the encoder's documented gaps (item-level `const`/`static`/
+`type`, tuple structs, methods declared in another file) are present in
+essentially every real crate file. That is the honest number, not a
+cherry-picked one — do not "improve" it by changing the pin list.
+
+`cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
+every PR** in ci.yml's `rust` job. The RUN is the report-only `rust-tier-a` job
+in `coverage-study.yml`, which has **no `pull_request:` trigger** — the row is
+absent, not green, on a PR. Methodology and the funnel's meaning:
+`tests/conformance/COVERAGE_STUDY.md`.
+
 ## Package Layout
 
 | Crate | Path | Purpose | Status |

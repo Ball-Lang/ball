@@ -221,6 +221,18 @@ compile items so the sibling projects never double-compile each other's files.
 
 ## Testing
 
+- **Third-party coverage study, Tier A (#493).** `csharp/coverage-study` (a separate
+  Exe project in `Ball.slnx`, mirroring `engine/tool`) runs real pinned libraries
+  through `EncodeLibrary` -> `CSharpCompiler.Compile` -> `EncodeLibrary`, diffs the
+  declaration inventory with a **Roslyn `CSharpSyntaxWalker` directly** (never
+  `Ball.Encoder`'s own walk) and checks a second-generation fixpoint. Honest first
+  baseline **0/472 clean**, but the funnel is the story: 74 files encode, 73 compile
+  back, 58 re-encode, and the wall is stage 4 (`declaration-drift`) — the furthest
+  any port gets. `dotnet test csharp/coverage-study/test/...` (the harness's own
+  self-test) IS gated on every PR in the `csharp` job; the RUN is the report-only
+  `csharp-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
+  trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+
 - `dotnet test Ball.slnx` from `csharp/` runs every default-build test project. `Ball.Engine`'s
   and `Ball.Cli`'s self-hosted/cli-core-gated test classes are feature-gated off by default, so
   this stays green without requiring the generated, gitignored `CompiledEngine.cs`/`CompiledCli.cs`.

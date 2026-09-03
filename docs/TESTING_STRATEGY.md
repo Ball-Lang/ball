@@ -255,13 +255,31 @@ unparseable Dart on real library files (#494) all shipped past 18 green required
 checks on the same day.
 
 `tools/coverage-study/` (issue #493) is the instrument for that gap; the
-methodology, the two load-bearing harness settings, the current baseline and the
+methodology, the load-bearing harness settings, the current baselines and the
 honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **report-only**
 — `coverage-study.yml` has no `pull_request:` trigger — because a floor set
 before a baseline exists either goes permanently red and gets ignored or is set
-so low it means nothing. The harness's **own** self-test is gated on every PR
-(`ci.yml`'s Dart job), so the instrument cannot silently start skipping the file
-shapes it exists to look at.
+so low it means nothing. Each harness's **own** self-test is gated on every PR
+(in that language's `ci.yml` job), so the instrument cannot silently start
+skipping the file shapes it exists to look at.
+
+Tier A now exists for **five** languages: Dart (`rq1_study.dart`), Rust
+(`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
+(`tools/coverage-study/go`) and Python (`rq1_study_py.py`). TypeScript is
+deliberately deferred — `ts/compiler`'s `compileModule` takes a single Module
+*facade* built for the `ball_protobuf` inline-embedding case, not one module of
+a loaded multi-module `Program`, so a TS port needs a genuinely new compiler
+primitive rather than a wrapper around the facade.
+
+Each port also prints a per-stage **funnel** beside the clean percentage,
+because for the four ports the clean number is 0% and the information is
+entirely in *where* files stop: the Rust/C#/Go/Python compilers emit
+runtime-call-shaped source their syntactic encoders were never built to read
+back, so stage 3 (re-encode) is a wall — the same wall the `*-roundtrip` rows
+already report as an honest 0/32x on the project's own corpus. A bare 0% would
+hide the difference between "the encoder rejected the file outright" (Rust, Go:
+0 files even encode) and "58 of 472 files got all the way to the declaration
+diff" (C#).
 
 
 ### 3. Fail loud, never degrade silently
@@ -411,8 +429,8 @@ could not parse a summary at all).
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
-| **Third-party code (§2c)** — Dart Tier A | `tools/coverage-study/rq1_study.dart` via `coverage-study.yml` | weekly + manual — **report-only, NOT a PR gate** (issue #493 slice 1) |
-| Coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` | every PR (`Dart`) |
+| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python | `coverage-study.yml`'s `dart-tier-a` / `rust-tier-a` / `csharp-tier-a` / `go-tier-a` / `python-tier-a` jobs | weekly + manual — **report-only, NOT a PR gate** (issue #493). The one failure mode is a run that scored < 1 file: a harness/checkout failure, never a 0% result |
+| Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python) | every PR (the matching language job) |
 | Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |

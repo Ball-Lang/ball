@@ -183,6 +183,30 @@ too, without a colour-forced CI leg.
 > local a second way. A fixture that only covers the shape you already
 > fixed proves the fix, not the rule.
 >
+> **A fixture family that only ever uses ONE class per name cannot tell a
+> per-class rule from a program-wide one.** 406/431/432/433 all have exactly one
+> class family using a given shadowed field name. With at most one such family in
+> a program, the emitter's program-wide `shadowed_getter_names_` set and its
+> correctly per-class `class_shadowed_fields_` map emit **byte-identical** C++ —
+> so four fixtures agreed for two releases while an unrelated class's own plain
+> `int x` was being routed through an accessor it does not have
+> ([#515](https://github.com/Ball-Lang/ball/issues/515)).
+> `439_unrelated_field_name_collision` is the first fixture with a SECOND,
+> unrelated class reusing the name, which is the only shape that separates them.
+> When a fix keys off a name, add the fixture where two unrelated owners share it.
+>
+> **Value semantics need a fixture per BOUNDARY, not per mechanism.**
+> [#509](https://github.com/Ball-Lang/ball/issues/509) stopped a C++ struct local
+> from slicing a subclass, and 431-433 all cross that boundary through a `let`.
+> Nothing crossed a base-typed function PARAMETER or a base-typed RETURN, so both
+> kept slicing ([#516](https://github.com/Ball-Lang/ball/issues/516)) — and the
+> failure is invisible to every leg but one: `g++` compiles the sliced code
+> cleanly, and every other target's engine is an interpreter with reference
+> semantics that never slices. Only the compiled-and-RUN C++ leg asserting on
+> stdout can see it. `440_base_typed_param_return_slicing` printed `1\n1` instead
+> of `10\n10` with a green build. Enumerate the *boundaries* a value can cross,
+> not just the one you fixed.
+
 > **A silent-wrong-answer regression hides from a byte-diff blast-radius proof.**
 > The corpus is the blast radius only for shapes the corpus contains. Both
 > defects above were found by a reviewer compiling hand-written probe programs,
@@ -202,6 +226,18 @@ too, without a colour-forced CI leg.
 > a list empty. The Ball → C++ gap it exposes is
 > [#511](https://github.com/Ball-Lang/ball/issues/511). Either way the answer is
 > never "leave the leg red".
+>
+> *Resolved:* #511 gave each of `compile_method_call`'s STL/Dart-SDK shortcuts
+> the arity window of the Dart method it stands for, so a same-named user method
+> with a different argument count falls through to user-defined class method
+> dispatch instead of being spliced into the shortcut's template. 416's carve-out
+> is gone (the list is no longer empty only because #512 added the four `43x`
+> entries covered below — 416 itself is back on the leg). Note what the carve-out's
+> removal did **not** get for free: `changed_fixtures` is computed only from
+> git-diffed `tests/conformance/*.ball.json`, so a PR that deletes a carve-out
+> without touching the fixture leaves its own per-PR compiled-e2e step blind to
+> it. Re-run `full_e2e.sh` unfiltered (or `--fixtures <stem>`) yourself before
+> claiming a de-carved fixture is green.
 >
 > The four `43x` constructor fixtures added for #499 are the same case: they
 > are the only cross-target lock on "a constructor that builds another
@@ -427,6 +463,9 @@ could not parse a summary at all).
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
+| C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
+| C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
+| The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | push to main + weekly + dispatch — **NOT a PR gate** (no floor either: an honest 0/321 is the product) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |

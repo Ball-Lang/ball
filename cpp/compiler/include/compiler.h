@@ -194,6 +194,78 @@ private:
     // field's own — the override then always binds.
     std::unordered_map<std::string, std::unordered_map<std::string, std::string>>
         class_shadowed_field_types_;
+    // #515: sanitized, per-class views of the three maps a dispatch site needs
+    // when it decides whether `recv.f` is a shadowed-field accessor call or a
+    // plain data-member read. Those sites only ever hold a SANITIZED BARE class
+    // name (current_class_name_, or a receiver's class resolved through
+    // local_class_types_ / a MessageCreation typeName), while the maps above are
+    // keyed by the QUALIFIED name ("main:B") — a literal lookup with a sanitized
+    // key silently misses and answers "nothing is shadowed here" for every
+    // class, which is a regression, not a fix. Built once, alongside them.
+    //   * class_shadowed_fields_by_sname_ — this class's OWN shadowing fields.
+    //   * class_getters_by_sname_        — getters this class declares OR
+    //                                      inherits (flattened up the chain), so
+    //                                      an inherited getter still answers for
+    //                                      a subclass receiver.
+    //   * class_own_fields_by_sname_     — this class's OWN descriptor fields.
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        class_shadowed_fields_by_sname_;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        class_getters_by_sname_;
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        class_own_fields_by_sname_;
+
+    // #515 helpers. `sclass`/`sfield` are sanitized bare names; an empty or
+    // unknown `sclass` answers false, so a caller that could not prove the
+    // receiver's class always falls back to its previous behaviour explicitly.
+    bool class_field_shadows_getter(const std::string& sclass,
+                                    const std::string& sfield) const {
+        auto it = class_shadowed_fields_by_sname_.find(sclass);
+        return it != class_shadowed_fields_by_sname_.end() &&
+               it->second.count(sfield) > 0;
+    }
+    bool class_has_getter(const std::string& sclass,
+                          const std::string& sfield) const {
+        auto it = class_getters_by_sname_.find(sclass);
+        return it != class_getters_by_sname_.end() && it->second.count(sfield) > 0;
+    }
+    bool class_has_own_field(const std::string& sclass,
+                             const std::string& sfield) const {
+        auto it = class_own_fields_by_sname_.find(sclass);
+        return it != class_own_fields_by_sname_.end() &&
+               it->second.count(sfield) > 0;
+    }
+    // The sanitized bare class of the value `expr` denotes, when it can be
+    // proven statically; "" when it cannot. Deliberately narrow — a wrong answer
+    // here is the silent-wrong-dispatch class of bug #501/#509 fixed. (#515)
+    std::string static_class_of(const ball::ir::Expression& expr) const;
+
+    // #516: true when some class in this program extends `sclass` (a sanitized
+    // bare class name). Only a subclassed class can be sliced by C++ value
+    // semantics, so every representation change below is scoped to these —
+    // a leaf class keeps its by-value parameter/return emission untouched.
+    bool class_is_subclassed(const std::string& sclass) const {
+        for (const auto& [cls, sup] : class_superclass_) {
+            (void)cls;
+            if (!sup.empty() && sanitize_name_const(sup) == sclass) return true;
+        }
+        return false;
+    }
+    // #516: the C++ type a PARAMETER declared with `ball_type` must take. Same
+    // as map_type(), except a subclassed user class is taken by reference: a
+    // struct parameter has value semantics, so passing a B into an `A a` slot
+    // copies and SLICES the derived part (vtable included) away, and every
+    // virtual read in the callee silently answers with the base value.
+    std::string map_param_type(const std::string& ball_type);
+    // #516: every concrete user class `expr` can RETURN, when that is provable.
+    // Answers false the moment a returned expression is anything but a
+    // MessageCreation naming a concrete user class — the caller then keeps the
+    // declared return type, which is exactly the pre-#516 behaviour.
+    bool collect_returned_classes(const ball::ir::Expression& expr,
+                                  std::unordered_set<std::string>& out) const;
+    // #516: true when `e` can execute a `std.return` — used to refuse a return
+    // widening whose picture of the function's return values is incomplete.
+    bool expr_contains_return(const ball::ir::Expression& e) const;
     // Maps a class key to each of its getters' FunctionDefinitions, so the
     // shadow pass can resolve the ancestor accessor's EMITTED return type
     // through map_return_type — which is what the declaration actually uses.

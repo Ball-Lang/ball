@@ -114,9 +114,19 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # 'Flags::Flags()'". Again a g++ build failure, not a Ball->C++ one.
 #
 # All four were added by #512 for issue #499 (a constructor that builds another
-# instance of its own class must not silently get `self` back). They pass on
-# EVERY engine including the C++ self-hosted one, and on the Rust/Go/Python/C#
-# compiler legs; only this Ball->C++ compiled path skips them.
+# instance of its own class must not silently get `self` back). What survives
+# carving them out of THIS leg is that they pass on every ENGINE — the Dart
+# reference one plus all six self-hosted ones, the C++ included. They do NOT
+# all pass on the Rust/Go/Python/C# COMPILER legs: measured one fixture at a
+# time, 435_recursive_ctor_construction and 437_recursive_ctor_tree pass all
+# four, while 436_recursive_ctor_named and 438_ctor_initializer_list_with_body
+# fail all four — none of those compilers resolves a NAMED constructor
+# (`Class.name(args)`), which the Dart encoder emits as a method call on the
+# class reference rather than as a messageCreation. That pre-existing gap is
+# #527. Those four legs are RATCHETED (they fail only on a drop below a
+# recorded floor), not parity gates, so a green ratchet says nothing about any
+# one fixture — measure it. See docs/TESTING_STRATEGY.md's "Name the leg that
+# actually covers it".
 CPP_COMPILE_CARVEOUTS=(
   "416_user_method_name_arity_collision"
   "435_recursive_ctor_construction"

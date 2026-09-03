@@ -40,7 +40,12 @@ if [[ "${1:-}" == "--worker" ]]; then
   if ! ${W_LAUNCHER} g++ -std=c++20 -O0 "$work.cpp" -o "$work.bin" 2>"$work.gpp_err"; then
     printf 'gpp_err\t%s\n' "$(grep -m1 'error:' "$work.gpp_err" | head -c 200)" > "$out"; exit 0
   fi
-  actual="$("$work.bin" 2>/dev/null)"
+  # Run in a private, empty directory — same reason as full_e2e.sh: the workers
+  # execute fixture binaries CONCURRENTLY, so a shared CWD would become a
+  # cross-fixture race the first time a fixture writes a relative path.
+  rundir="$W_WORK/$name.rundir"
+  mkdir -p "$rundir"
+  actual="$(cd "$rundir" && "$work.bin" 2>/dev/null)"
   a="$(printf '%s' "$actual" | sed -e 's/[[:space:]]*$//')"
   e="$(printf '%s' "$(cat "$exp")" | sed -e 's/[[:space:]]*$//')"
   if [[ "$a" == "$e" ]]; then printf 'pass\t\n' > "$out"; else printf 'mismatch\t\n' > "$out"; fi

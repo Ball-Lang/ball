@@ -507,10 +507,31 @@ jobs:
           [ -n "$out" ] || { echo "::error::installed ball printed nothing for 'ball version'"; exit 1; }
           echo "installed ball version: $out"
 
+      # Delete last run's e2e coverage report BEFORE ctest, so the reporting
+      # step below can never pass by reading a stale file. test_e2e truncates
+      # and rewrites it on every run; this makes "the file is present" mean
+      # "THIS ctest invocation produced it", not "some invocation once did".
+      - name: Reset e2e coverage report
+        shell: bash
+        run: rm -f cpp/build/test/e2e_coverage.txt
+
       # Step-level budget — the actual ratchet (#521). `Run tests` is dominated
       # by test_e2e, which builds ~269 generated fixture programs in a scratch
-      # CMake project. Budget: 20 min on Windows, 6 min on Linux/macOS, against
+      # CMake project. Budget: 20 min on Windows, 8 min on Linux/macOS, against
       # the pre-fix 28m33s / 12m12s / 9m56s in the job comment above.
+      #
+      # A ratchet has to be sized against the SLOWEST healthy run, not the
+      # fastest. With ccache warm the Linux/macOS step is 11s / 19s, but a
+      # COLD cache is a normal, blameless event: any PR that touches the
+      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~269
+      # generated TUs, and an Actions cache eviction or a first run on a new
+      # key does the same. This PR measured that case on its own run
+      # 33698642352 — ubuntu `Run tests` 5m19s with `ccache -s` reporting
+      # 22 hits out of 292 cacheable calls, macOS 4m57s. 8 minutes leaves
+      # ~50% headroom over 319s/297s while still failing a regression back to
+      # the pre-fix serial 12m12s (ubuntu) / 9m56s (macOS); 10+ would stop
+      # catching the macOS one. Windows' 20 was derived the same way (13m57s
+      # observed cold, ~43% headroom).
       #
       # Windows keeps the loosest budget because MSVC is the outlier, and that
       # is measured rather than assumed. Reproduced locally against MSVC 14.50
@@ -548,7 +569,7 @@ jobs:
       # Moving the Windows leg to `-G Ninja` would fix both; tracked as
       # follow-up work, deliberately out of scope here.)
       - name: Run tests
-        timeout-minutes: ${{ runner.os == 'Windows' && 20 || 6 }}
+        timeout-minutes: ${{ runner.os == 'Windows' && 20 || 8 }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
           # NB: written as `!= 'Windows' && 'ccache' || ''` on purpose — an
@@ -557,6 +578,41 @@ jobs:
           # Windows and claim a cache MSBuild cannot use.
           BALL_E2E_LAUNCHER: ${{ runner.os != 'Windows' && 'ccache' || '' }}
         run: ctest --test-dir cpp/build --output-on-failure -C Release -j ${{ steps.jobs.outputs.n }} --no-tests=error
+
+      # Make the e2e coverage number VISIBLE on a green run, and re-assert it
+      # here (#521). `ctest --output-on-failure` prints nothing for a passing
+      # test, so test_e2e's "Fixtures: N expected, N executed" line — the thing
+      # proving the parallel scratch build did not quietly drop fixtures — never
+      # reached a green log; a number nobody can see is a number nobody checks.
+      # test_e2e writes it to cpp/build/test/e2e_coverage.txt (path baked in by
+      # cpp/test/CMakeLists.txt) and this step prints it and re-derives the
+      # invariant from the file. A missing file means e2e_tests never reached
+      # its own summary — which an exit code alone cannot distinguish from
+      # success, exactly the failure class `--no-tests=error` covers for CTest.
+      # (No `always()`: a FAILING `Run tests` already prints test_e2e's whole
+      # stdout via --output-on-failure, mismatch message included. This step
+      # exists for the green case, which is the one that was invisible.)
+      - name: "C++ e2e fixture coverage"
+        shell: bash
+        run: |
+          set -euo pipefail
+          f=cpp/build/test/e2e_coverage.txt
+          if [ ! -s "$f" ]; then
+            echo "::error::$f is missing or empty — test_e2e never reached its coverage summary, so nothing proves the e2e corpus ran."
+            exit 1
+          fi
+          cat "$f"
+          exp="$(sed -n 's/.*= \([0-9][0-9]*\) expected, \([0-9][0-9]*\) executed.*/\1/p' "$f")"
+          got="$(sed -n 's/.*= \([0-9][0-9]*\) expected, \([0-9][0-9]*\) executed.*/\2/p' "$f")"
+          if [ -z "$exp" ] || [ -z "$got" ]; then
+            echo "::error::could not parse the expected/executed counts out of $f"
+            exit 1
+          fi
+          if [ "$exp" != "$got" ] || [ "$got" -lt 1 ]; then
+            echo "::error::e2e fixture coverage is $got executed vs $exp expected — fixtures were dropped."
+            exit 1
+          fi
+          echo "C++ e2e coverage OK: $got/$exp fixtures executed."
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
       # leg (avoids tripling cost across the 3-OS matrix). The full-corpus
@@ -589,6 +645,48 @@ jobs:
             echo "Running full_e2e.sh for changed fixtures: ${{ needs.changes.outputs.changed_fixtures }}"
             bash cpp/test/full_e2e.sh --fixtures "${{ needs.changes.outputs.changed_fixtures }}"
           fi
+
+      # ...and when a PR changes NO fixture, run the same harness over a small
+      # slice anyway (#521). Before this, full_e2e.sh's parallel worker path had
+      # NO required-check coverage at all: the step above is skipped on a PR that
+      # touches no fixture (the common case), leaving the dispatch-only
+      # conformance-matrix `C++ Compiled` leg — which runs on push-to-main and
+      # weekly — as the only thing that ever executed it. A regression in the
+      # harness itself (worker dispatch, xargs -P, per-fixture CWD isolation,
+      # the corpus-ordered aggregation, the dropped-fixture assertion) would
+      # therefore have merged green, which is the same escape class #347 closed
+      # for fixture regressions.
+      #
+      # The slice is DERIVED, not hard-coded: the first four fixtures with a
+      # golden, in corpus order. A rename or renumber can never leave a stale
+      # stem behind (which full_e2e.sh treats as a hard error, correctly), and
+      # four is enough that JOBS>1 genuinely overlaps workers. Cost is four
+      # ccache-backed g++ -O0 TUs, seconds — this is a harness smoke, not a
+      # conformance gate; the full corpus stays in the matrix leg.
+      - name: "C++ compiled e2e — harness smoke (full_e2e.sh parallel path, no fixtures changed)"
+        if: ${{ runner.os == 'Linux' && needs.changes.outputs.changed_fixtures == '' }}
+        env:
+          BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
+          BALL_E2E_LAUNCHER: ccache
+        run: |
+          set -euo pipefail
+          # Plain glob + loop rather than `ls | head`: with `pipefail`, an
+          # early-exiting `head` can SIGPIPE the producer once the corpus
+          # outgrows the pipe buffer, turning a healthy run red for no reason.
+          smoke=""
+          count=0
+          for g in tests/conformance/*.expected_output.txt; do
+            [ -e "$g" ] || break
+            smoke="$smoke $(basename "$g" .expected_output.txt)"
+            count=$((count + 1))
+            if [ "$count" -ge 4 ]; then break; fi
+          done
+          if [ "$count" -lt 2 ]; then
+            echo "::error::resolved only $count smoke fixture(s) from tests/conformance — cannot exercise the parallel path."
+            exit 1
+          fi
+          echo "Harness smoke over $count fixture(s): $smoke"
+          bash cpp/test/full_e2e.sh --fixtures "$smoke"
 
   # ──────────────────────────────────────────────────
   # vcpkg overlay-port install smoke (issue #368)

@@ -60,7 +60,18 @@ if [[ "${1:-}" == "--worker" ]]; then
   fi
   # 30s (was 15s): fixtures now run concurrently, so a compute-heavy one can
   # be descheduled behind its peers. Still far below any real hang.
-  actual="$(timeout 30 "$work.bin" 2>/dev/null)"
+  #
+  # Each fixture RUNS in a private, empty directory. Unlike test_e2e — which
+  # parallelises only the build and still runs the binaries one at a time — this
+  # harness runs them concurrently, so a shared working directory would be a
+  # cross-fixture race the moment any fixture writes a relative path. No fixture
+  # in tests/conformance/ does today (none reference std_fs or std_concurrency),
+  # but "no fixture does that yet" is a load-bearing invariant nothing enforced,
+  # and the first std_fs fixture would have broken it silently. Isolating the
+  # CWD removes the precondition instead of documenting it.
+  rundir="$W_WORK/$name.rundir"
+  mkdir -p "$rundir"
+  actual="$(cd "$rundir" && timeout 30 "$work.bin" 2>/dev/null)"
   rc=$?
   if [[ $rc -eq 124 ]]; then printf 'timeout\t\n' > "$out"; exit 0; fi
   a="$(printf '%s' "$actual" | sed -e 's/[[:space:]]*$//')"

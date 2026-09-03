@@ -110,6 +110,12 @@ target_compile_definitions(test_e2e PRIVATE
     BALL_E2E_CMAKE="${CMAKE_COMMAND}"
     BALL_E2E_GENERATOR="${CMAKE_GENERATOR}"
     BALL_E2E_BUILD_TYPE="$<CONFIG>"
+    # Where test_e2e writes its "Fixtures: N expected, N executed" line (#521).
+    # A passing CTest test prints nothing under --output-on-failure, so the
+    # coverage number would otherwise never appear in a GREEN CI log; ci.yml's
+    # "C++ e2e fixture coverage" step reads this file. Absolute, and inside the
+    # build tree so it is never mistaken for a source artifact.
+    BALL_E2E_COVERAGE_FILE="${CMAKE_CURRENT_BINARY_DIR}/e2e_coverage.txt"
 )
 
 # Snapshot tests — pins the exact CppCompiler output for each fixture.

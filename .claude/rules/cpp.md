@@ -85,11 +85,19 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ### CI time budget + the e2e build knobs (#521)
 
 `ctest` in ci.yml's `cpp` job runs with `-j <runner CPUs> --no-tests=error`, and
-its `Run tests` step carries a **step-level `timeout-minutes`: 20 on Windows, 6
+its `Run tests` step carries a **step-level `timeout-minutes`: 20 on Windows, 8
 on Linux/macOS** (job budget 25), against a pre-fix 28m33s / 12m12s / 9m56s.
 Those numbers are a gate, not decoration — a change that puts the fixture
 compiles back on one core fails the job. Re-measure and update them (with the
 run id, as the workflow comment does) if you change what the step does.
+
+Size them against the **cold**-ccache run, never the warm one. Warm, the
+Linux/macOS step is 11s / 19s; cold it is 5m19s / 4m57s (run 33698642352, with
+`ccache -s` showing 22 hits of 292 cacheable calls). A cold cache is normal and
+blameless — every PR that touches the Ball->C++ emitter or
+`cpp/shared/include/ball_dyn.h` changes all ~269 generated TUs, as does a cache
+eviction or a first run on a new key — so a budget sized to the warm number
+red-lights a required check on an innocent PR.
 
 Windows is the outlier by measurement, not assumption: each generated fixture is
 a ~278 KB TU pulling 29 standard headers, MSVC needs ~1000s of front-end CPU for
@@ -119,6 +127,22 @@ Parallelism must never shrink coverage, so each harness asserts its own count:
 programs, `full_e2e.sh`/`quick_e2e.sh` compare recorded outcomes against the
 selected fixtures, and `cpp/test/CMakeLists.txt` fails at configure time if the
 self-host fixture glob matches nothing.
+
+`test_e2e` also writes its count line to `BALL_E2E_COVERAGE_FILE`
+(`<build>/test/e2e_coverage.txt`), because `ctest --output-on-failure` prints
+nothing for a passing test — the number would otherwise never appear in a green
+log. ci.yml deletes that file before `ctest` and re-checks it afterwards
+(`C++ e2e fixture coverage`), which also detects "the e2e test never ran".
+
+Both shell harnesses run each fixture binary in a private empty directory, since
+they execute fixtures concurrently (`test_e2e` parallelises only the build).
+That is what makes concurrent execution safe for a future `std_fs` fixture; do
+not drop it.
+
+`full_e2e.sh` gets required-check coverage on every PR: the changed-fixture gate
+when a PR touches fixtures, and otherwise a derived four-fixture harness smoke
+on the Linux leg. Without one of those, the only thing exercising it is the
+dispatch-only `C++ Compiled` matrix leg, which runs after merge.
 
 ### Fast local `test_compiler` without CMake
 

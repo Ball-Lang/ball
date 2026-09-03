@@ -820,10 +820,39 @@ int main() {
     // three inline programs (2x std_fs #319, 1x std_time #328) contribute one
     // each — so the executed count is knowable up front. Assert it.
     const size_t expected_tests = program_names.size() + kInlineProgramCount;
-    std::cout << "Fixtures: " << program_names.size()
-              << " from e2e_fixture_list.h + " << kInlineProgramCount
-              << " inline (2 std_fs, 1 std_time) = " << expected_tests
-              << " expected, " << tests_run << " executed\n";
+    std::ostringstream coverage;
+    coverage << "Fixtures: " << program_names.size()
+             << " from e2e_fixture_list.h + " << kInlineProgramCount
+             << " inline (2 std_fs, 1 std_time) = " << expected_tests
+             << " expected, " << tests_run << " executed";
+    std::cout << coverage.str() << "\n";
+
+    // ...and write the same line to BALL_E2E_COVERAGE_FILE (an absolute path
+    // baked in by cpp/test/CMakeLists.txt). stdout is NOT a delivery mechanism
+    // here: `ctest --output-on-failure` prints nothing for a PASSING test, so on
+    // a green run the line above never reaches a CI log — a coverage number
+    // nobody can see is a number nobody checks. ci.yml's "C++ e2e fixture
+    // coverage" step prints this file and re-derives expected == executed >= 1
+    // from it, which also catches "e2e_tests never ran at all" — something an
+    // exit code alone cannot distinguish from success. Truncate-and-write on
+    // every run, and fail loud if the write fails, so CI can never assert
+    // against a stale file left by an earlier run.
+    {
+        std::ofstream cov(BALL_E2E_COVERAGE_FILE, std::ios::trunc);
+        if (!cov) {
+            std::cout << "\nCOVERAGE REPORT UNWRITABLE: could not open "
+                      << BALL_E2E_COVERAGE_FILE << " for writing.\n";
+            return 1;
+        }
+        cov << coverage.str() << "\n";
+        cov.close();
+        if (!cov) {
+            std::cout << "\nCOVERAGE REPORT UNWRITABLE: failed to flush "
+                      << BALL_E2E_COVERAGE_FILE << ".\n";
+            return 1;
+        }
+    }
+
     if (static_cast<size_t>(tests_run) != expected_tests) {
         std::cout << "\nFIXTURE COUNT MISMATCH: executed " << tests_run
                   << " test(s) but the fixture list declares " << expected_tests

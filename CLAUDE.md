@@ -62,6 +62,10 @@ cd ts/compiler && npm install && npm test
 # Regenerate compiled TS engine from self-hosted Ball source.
 # engine.ball.json is a self-describing google.protobuf.Any envelope
 # ({"@type":"…/ball.v1.Program", …}); strip @type before compiling.
+# CI-ENFORCED since #517: ci.yml's `typescript` job runs this exact recipe and
+# then `git diff --exit-code -- ts/engine/src/compiled_engine.ts`, so a change
+# to dart/engine/lib/engine.dart or to ts/compiler's codegen that is not
+# followed by a regen fails the build. Keep this block and that step identical.
 cd ts/compiler && node --experimental-strip-types -e "
 const {readFileSync, writeFileSync} = require('fs');
 const {compile} = require('./src/index.ts');
@@ -413,8 +417,8 @@ full status table and `.claude/rules/python.md` for key patterns:
 - `python/engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as
   TS/C++/Rust/C#/Go: compiles `dart/self_host/engine.ball.json` through `python/compiler` (library
   mode) into the gitignored `ball_engine/compiled_engine.py`. **Complete, at Dart parity**: the
-  compiled engine runs the whole conformance corpus with Dart-identical output (`Results: 320
-  passed, 0 failed, 320 total`; the 4 golden-less resource-limit/sandbox fixtures are documented
+  compiled engine runs the whole conformance corpus with Dart-identical output (`Results: 329
+  passed, 0 failed, 329 total`; the 4 golden-less resource-limit/sandbox fixtures are documented
   carve-outs). `compiled_engine.py` is gitignored + absent from a fresh checkout — the
   pytest/compileall gates never need it; the conformance runner (subprocess-per-fixture) regenerates
   it first. See `python/engine/AGENTS.md`.

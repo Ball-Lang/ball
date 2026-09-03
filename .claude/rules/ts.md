@@ -136,7 +136,12 @@ const json = toJson(ProgramSchema, program);
 
 To regenerate the compiled engine. Note `engine.ball.json` is a self-describing
 `google.protobuf.Any` envelope (`{"@type":"…/ball.v1.Program", …}`), so the
-`@type` key is stripped before compiling:
+`@type` key is stripped before compiling. **This is CI-enforced (#517):** the
+`typescript` job runs this exact recipe and then
+`git diff --exit-code -- ts/engine/src/compiled_engine.ts`, so a Dart-engine or
+`ts/compiler` change landed without a regen fails the build — it is the only
+committed compiled engine (Rust/Go/C#/Python gitignore theirs), so it was the
+only one that could go stale unnoticed:
 ```bash
 cd ts/compiler && node --experimental-strip-types -e "
 const {readFileSync, writeFileSync} = require('fs');

@@ -1,0 +1,40 @@
+name: dart pub get (bounded retry)
+description: >-
+  Run `dart pub get` behind a bounded retry loop so a transient pub.dev
+  resolver hiccup cannot redden a required job on a commit that changed
+  nothing relevant (issue #520). Single source of truth for every `dart pub
+  get` in ci.yml. Bounded and loud by construction: a fixed attempt count, a
+  fixed sleep, every attempt's resolver output straight to the log, and a
+  `::error::` + nonzero exit on exhaustion — a genuinely broken pubspec still
+  fails fast and legibly instead of burning the job timeout.
+
+inputs:
+  working-directory:
+    description: >-
+      Directory to run `dart pub get` in. `dart pub get` resolves the same
+      repo-root workspace pubspec from anywhere inside the repo, so this exists
+      only to preserve each call site's existing cwd for a minimal diff. It has
+      no effect on the calling job's cwd (a composite action's step cwd is its
+      own), so hoisting a pub-get out of a multi-line `run:` block is safe.
+    required: false
+    default: "."
+  attempts:
+    description: "Maximum number of `dart pub get` attempts (must be >= 1)."
+    required: false
+    default: "5"
+  sleep-seconds:
+    description: "Seconds to sleep between attempts."
+    required: false
+    default: "15"
+
+runs:
+  using: composite
+  steps:
+    # The whole body lives in pub-get.sh so it stays invokable outside Actions —
+    # test/test_dart_pub_get_wiring.sh drives it against stub `dart` binaries.
+    - shell: bash
+      env:
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_ATTEMPTS: ${{ inputs.attempts }}
+        INPUT_SLEEP_SECONDS: ${{ inputs.sleep-seconds }}
+      run: bash "$GITHUB_ACTION_PATH/pub-get.sh"

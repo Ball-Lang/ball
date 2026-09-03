@@ -1,3 +1,10 @@
+# [1.63.0](https://github.com/Ball-Lang/ball/compare/v1.62.0...v1.63.0) (2026-09-03)
+
+
+### Features
+
+* **coverage-study:** port the Tier A third-party study to Rust, C#, Go and Python ([#535](https://github.com/Ball-Lang/ball/issues/535)) ([083663b](https://github.com/Ball-Lang/ball/commit/083663b3f4ccf9cfdbe89e094348c037aa84854d)), closes [#493](https://github.com/Ball-Lang/ball/issues/493) [#493](https://github.com/Ball-Lang/ball/issues/493) [#493](https://github.com/Ball-Lang/ball/issues/493)
+
 # [1.62.0](https://github.com/Ball-Lang/ball/compare/v1.61.1...v1.62.0) (2026-09-03)
 
 

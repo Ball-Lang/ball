@@ -126,12 +126,11 @@ describe("encoder statement kinds", () => {
 });
 
 describe("encoder expression kinds", () => {
-  // `type_of` is a DOCUMENTED, deliberate gap (#489): JS `typeof` has no
-  // universal std equivalent, and inventing one means a new base function
-  // across every target. The encoder keeps emitting the honest name so the
-  // compiler fails loud and names the construct — see ENCODER_CARVEOUTS.md and
-  // the KNOWN_GAPS table in ts/compiler/test/std_name_consistency.test.ts.
-  test("typeof maps to std.type_of (documented gap — no compiler support yet)", () => {
+  // `type_of` is a real universal std base function since #489 — declared in
+  // dart/shared/lib/std.dart and implemented by every compiler and engine.
+  // The Dart encoder emits it for `<expr>.runtimeType.toString()`; this is
+  // the TS side of the same name.
+  test("typeof maps to std.type_of (#489)", () => {
     const program = encode(`function main() { const t = typeof x; }`);
     const mod = userModule(program);
     const main = mod.functions.find((f) => f.name === "main")!;

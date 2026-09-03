@@ -1381,6 +1381,47 @@ extension BallEngineEval on BallEngine {
 
   // ---- Message Creation ----
 
+  /// Whether [msg] carries no constructor ARGUMENT — the structural signal
+  /// that it is a constructor's own synthetic self-reference rather than a
+  /// genuine construction of another instance of the same class (#499).
+  ///
+  /// A constructor's self-reference supplies only its class's own FIELD
+  /// initializers and nothing else: `class Foo {}`'s implicit `Foo.new` body is
+  /// `messageCreation Foo{}`, and a field-initializing one is
+  /// `messageCreation Foo{_x: 5}`. Both must resolve to the instance under
+  /// construction, or `Foo() is Foo` recurses forever.
+  ///
+  /// A genuine construction supplies arguments — a positional `argN`
+  /// (`next = Chain(depth - 1)` → `{arg0: …}`) or a field naming one of the
+  /// constructor's own declared parameters (`Chain(depth: n)` → `{depth: …}`)
+  /// — and must invoke the real constructor. Keying the guard on the type NAME
+  /// alone conflated the two and silently handed every same-class construction
+  /// back `self`.
+  ///
+  /// The positional test matches a real slot (`arg0`, `arg1`, …), never merely
+  /// an `arg` PREFIX: a class whose own field is called `argCount` emits the
+  /// field-initializer self-reference `Foo{argCount: 5}`, and reading that as a
+  /// genuine construction re-enters the constructor forever.
+  ///
+  /// Bookkeeping keys (`__type_args__` / `type_args` / `__const__`) are neither.
+  bool _isBareSelfConstruction(MessageCreation msg) {
+    final ctorEntry = _lookupConstructor(msg.typeName);
+    final params = ctorEntry != null && ctorEntry.func.hasMetadata()
+        ? _extractParams(ctorEntry.func.metadata)
+        : const <String>[];
+    for (final pair in msg.fields) {
+      final name = pair.name;
+      if (name == '__type_args__' ||
+          name == 'type_args' ||
+          name == '__const__') {
+        continue;
+      }
+      if (RegExp(r'^arg\d+$').hasMatch(name)) return false;
+      if (params.contains(name)) return false;
+    }
+    return true;
+  }
+
   Future<Object?> _evalMessageCreation(
     MessageCreation msg,
     _Scope scope,
@@ -1406,11 +1447,16 @@ extension BallEngineEval on BallEngine {
     if (msg.typeName.isNotEmpty) {
       final typeDef = _findTypeDef(msg.typeName);
       if (typeDef != null) {
+        // A constructor body's own argument-less self-reference resolves to
+        // the instance under construction (see [_isBareSelfConstruction]); an
+        // argument-carrying construction of the same class does NOT (#499).
         if (scope.has('self') && scope.has('__constructor_type__')) {
           final self = scope.lookup('self');
           final constructorType = scope.lookup('__constructor_type__');
           final selfMap = _asMap(self);
-          if (selfMap != null && constructorType == msg.typeName) {
+          if (selfMap != null &&
+              constructorType == msg.typeName &&
+              _isBareSelfConstruction(msg)) {
             return self;
           }
         }
@@ -1469,14 +1515,15 @@ extension BallEngineEval on BallEngine {
           }
         }
 
-        // A no-body constructor whose zero-inits live in metadata.initializers
-        // (e.g. `main:Counts.new` with `count = 0` in the initializer list)
-        // never runs a body, so apply those initializers here. Explicit
-        // messageCreation fields and resolved ctor params take precedence:
-        // only fields still null are filled.
-        if (ctorEntry != null &&
-            ctorEntry.func.hasMetadata() &&
-            !ctorEntry.func.hasBody()) {
+        // A constructor's initializer list (`Foo(a) : x = a`) lives in
+        // metadata.initializers and is never executed by the body, so apply it
+        // here. Dart runs the initializer list BEFORE the body, and a
+        // constructor may have BOTH — `Countdown.pair(int s) : value = s { … }`
+        // left `value` null while this was restricted to body-less
+        // constructors (surfaced by conformance 436_recursive_ctor_named).
+        // Explicit messageCreation fields and resolved ctor params still take
+        // precedence: only fields still null are filled.
+        if (ctorEntry != null && ctorEntry.func.hasMetadata()) {
           _applyConstructorInitializers(
             ctorEntry.func,
             instanceFields,
@@ -1550,10 +1597,12 @@ extension BallEngineEval on BallEngine {
         // instance under construction, NOT re-invoke the constructor. Without
         // this, `Foo() is Foo` infinitely recurses → Stack Overflow (which
         // hangs the Dart test suite on Linux, where the unhandled async error
-        // is never collected). Mirrors the typeDef-path guard above.
+        // is never collected). Mirrors the typeDef-path guard above — and,
+        // like it, fires ONLY for an argument-less construction (#499).
         if (scope.has('self') &&
             scope.has('__constructor_type__') &&
-            scope.lookup('__constructor_type__') == msg.typeName) {
+            scope.lookup('__constructor_type__') == msg.typeName &&
+            _isBareSelfConstruction(msg)) {
           final self = scope.lookup('self');
           if (_asMap(self) != null) return self;
         }

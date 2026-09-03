@@ -1,0 +1,15 @@
+15
+4
+false
+false
+false
+r
+rL
+rR
+rLR
+rRLL
+3
+2
+1
+0
+true

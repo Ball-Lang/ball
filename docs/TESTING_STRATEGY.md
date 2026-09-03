@@ -231,12 +231,58 @@ too, without a colour-forced CI leg.
 > the arity window of the Dart method it stands for, so a same-named user method
 > with a different argument count falls through to user-defined class method
 > dispatch instead of being spliced into the shortcut's template. 416's carve-out
-> is gone and `CPP_COMPILE_CARVEOUTS` is empty again. Note what the carve-out's
+> is gone (the list is no longer empty only because #512 added the four `43x`
+> entries covered below — 416 itself is back on the leg). Note what the carve-out's
 > removal did **not** get for free: `changed_fixtures` is computed only from
 > git-diffed `tests/conformance/*.ball.json`, so a PR that deletes a carve-out
 > without touching the fixture leaves its own per-PR compiled-e2e step blind to
 > it. Re-run `full_e2e.sh` unfiltered (or `--fixtures <stem>`) yourself before
 > claiming a de-carved fixture is green.
+>
+> The four `43x` constructor fixtures added for #499 are the same case: they
+> are the only cross-target lock on "a constructor that builds another
+> instance of its own class must not silently get `self` back", and they pass
+> on every ENGINE — the Dart reference one plus all six self-hosted ones, the
+> C++ included. **That** is the coverage that survives carving them out of the
+> Ball -> C++ *compiled* leg. The two Ball -> C++ gaps they expose are filed as
+> [#513](https://github.com/Ball-Lang/ball/issues/513) (a read through a
+> nullable self-referential field emits a concrete-struct member access on
+> `BallDyn`) and [#514](https://github.com/Ball-Lang/ball/issues/514) (a class
+> whose only constructor is zero-argument gets a duplicate default one). Both
+> are g++ build failures, not Ball -> C++ compile failures.
+>
+> **Name the leg that actually covers it — measure, do not assume.** An earlier
+> draft of the paragraph above also claimed those four fixtures "pass on the
+> Rust/Go/Python/C# compiler legs". Measured one fixture at a time, they do not:
+> `435_recursive_ctor_construction` and `437_recursive_ctor_tree` (unnamed
+> constructors) pass all four, while `436_recursive_ctor_named` and
+> `438_ctor_initializer_list_with_body` fail **all four** — Rust
+> `[E0425] cannot find value 'Countdown'`, C# `CS0103: The name 'from' does not
+> exist in the current context`, a Go `build` error, Python
+> `unresolved reference 'Countdown'`. None of those four compilers resolves a
+> NAMED constructor (`Class.name(args)`), which the Dart encoder emits as a
+> method call on the class reference rather than as a `messageCreation`; that
+> pre-existing gap is filed as
+> [#527](https://github.com/Ball-Lang/ball/issues/527). CI stays green because
+> those legs are **ratcheted** — they fail only on a DROP below a recorded floor
+> (73-89 pre-existing failures each), and are explicitly not parity gates. A
+> ratcheted leg going green tells you nothing about a specific fixture: run it.
+>
+> **A new base function can be right everywhere and still not agree everywhere.**
+> `434_type_of` (#489's fixture) prints `Set` on line 8 — the real `dart run`
+> oracle — on every engine, on the C++ compiled leg, and on the Go and Python
+> compiler legs, and prints `List` on the Rust and C# ones. That is not a
+> `type_of` defect: neither runtime has a set representation at all
+> (`rust/shared`'s `ball_set_create` returns a `BallValue::List`,
+> `csharp/shared`'s `SetCreate` returns a `BallList`), so a compiled set *is* a
+> list there; both runtimes' `Set` arm keys on the portable
+> `{'__ball_set__': [...]}` map form only the self-hosted engines materialise.
+> `x is Set` has been answering wrongly in those two targets for as long as it
+> has existed, unnoticed, because nothing ever asked — 434 is the first test
+> that does. Filed as
+> [#528](https://github.com/Ball-Lang/ball/issues/528); the fixture keeps its
+> `Set` line, because deleting it would delete the only place the divergence is
+> visible.
 >
 > A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
 > `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out
@@ -301,6 +347,20 @@ The TS (`ts/engine/src/compiled_engine.ts`) and C++
 Dart engine (`dart/engine/lib/engine.dart` + parts). Fix the Dart engine, then
 regenerate (`dart/compiler/tool/gen_engine_json.dart`, then the TS/C++ regen
 commands in `CLAUDE.md`) and verify all three. A Dart-only fix is half a fix.
+
+**`ts/engine/src/compiled_engine.ts` is the one compiled engine COMMITTED to
+git** — Rust/C#/Go/Python/C++ rebuild theirs from source inside their own CI
+jobs, so only this artifact can silently fall behind the Dart engine it was
+generated from. The six conformance sweeps cannot see that drift on their own:
+the corpus is generated from Dart by the Dart encoder, so it only ever emits the
+Ball shapes that encoder produces, and a semantic change the corpus does not
+happen to exercise leaves every sweep green while the TS engine disagrees with
+the Dart reference engine (this is exactly how a stale `_isBareSelfConstruction`
+guard shipped under #499 with all 18 checks green). Two gates close it:
+`Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` step
+regenerates and diffs the artifact, and
+`ts/engine/test/compiled_engine_parity.test.ts` locks the behaviour with
+hand-built programs chosen to discriminate shapes the corpus never emits.
 **Compilers are separate** — the Dart, TS, and C++ Ball→source compilers each
 need their own fix and their own verification (the `cpp-compiled` conformance
 leg compiles every fixture through the C++ compiler).
@@ -417,6 +477,7 @@ could not parse a summary at all).
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
+| **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |

@@ -214,6 +214,8 @@ public sealed partial class CSharpCompiler
             "is" => $"BallRuntime.IsType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
             "is_not" => $"BallRuntime.IsNotType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
             "as" => $"BallRuntime.AsType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
+            // #489 — the value's canonical runtime type NAME (no `type` field).
+            "type_of" => $"BallRuntime.TypeOf({FieldOrNull(f, "value")})",
             // Math
             "math_abs" => Un("MathAbs", f),
             "math_floor" => Un("MathFloor", f),

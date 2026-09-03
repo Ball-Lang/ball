@@ -590,36 +590,15 @@ $1_getFieldDefaults(typeName: any): any {
 $1async _resolveAndCallFunction(`,
     );
 
-    // Post-processing: inject function/method resolution for unresolved
-    // typeNames in _evalMessageCreation. After the typeDef check, when
-    // no typeDef is found, try resolving as a function call.
-    // Find the end of _evalMessageCreation's if(typeName) block and add fallback.
-    body = body.replace(
-      /return fields;\s*\}\s*\n\s*_findTypeDef/,
-      `if (!fields['__type__'] || !this._findTypeDef(msg.typeName)) {
-        const __fnKey = this._currentModule + '.' + msg.typeName;
-        const __fnMatch = this._functions[__fnKey];
-        if (__fnMatch != null && !__fnMatch.isBase && __fnMatch.hasBody()) {
-          return this._callFunction(this._currentModule, __fnMatch, fields);
-        }
-        // Try searching all functions for a matching suffix
-        // e.g., typeName="main:_gcd" should match "main.main:Fraction._gcd"
-        const __bareType = String(msg.typeName).indexOf(':') >= 0 ? String(msg.typeName).substring(String(msg.typeName).indexOf(':') + 1) : String(msg.typeName);
-        for (const __fk of Object.keys(this._functions)) {
-          if (__fk.endsWith('.' + __bareType) || __fk.endsWith('.' + msg.typeName)) {
-            const __fm = this._functions[__fk];
-            if (__fm && !__fm.isBase && __fm.hasBody()) {
-              return this._callFunction(this._currentModule, __fm, fields);
-            }
-          }
-        }
-      }
-      return fields;
-    }
-
-  _findTypeDef`,
-    );
-
+    // NOTE (#489/#499): a former post-processing pass injected a
+    // function-resolution fallback into _evalMessageCreation, anchored on the
+    // literal text `return fields; } _findTypeDef`. The reference engine's
+    // emitted shape moved on, so the regex stopped matching and the pass
+    // became a SILENT no-op (verified against the committed compiled_engine.ts
+    // on main: neither `__fnKey` nor any of its injected identifiers appears,
+    // while the engine is nevertheless at full conformance parity). It was
+    // removed rather than left behind as a dead `.replace` that reads as
+    // working behaviour.
     // Post-processing: inject constructor instance building.
     // When a function has no body and its metadata says kind='constructor',
     // build an instance object from is_this params instead of returning null.
@@ -2787,6 +2766,17 @@ function __isUnknownFnError(e: any): boolean {
         }
       }
     }
+    // Dart runs a constructor's INITIALIZER LIST before its body, and a
+    // constructor may have both (`Point(int a, int b) : x = a, y = b { … }`).
+    // Only `super(...)` and `this.`-params were emitted here, so every
+    // initializer-list field stayed `undefined` (conformance 438).
+    const rawParamNames = rawParams.map((p) => p.name);
+    for (const init of initializers) {
+      if (init?.kind !== "field" || typeof init.name !== "string") continue;
+      prologueParts.push(
+        `this.${init.name} = ${resolveInitializerValue(init.value, rawParamNames)};`,
+      );
+    }
     const prologue = prologueParts.join("\n");
     // Filter out self-recursive patterns from the constructor body.
     // The encoder emits `let self = messageCreation{typeName:"mod:ClassName"}`
@@ -2892,24 +2882,33 @@ function __isUnknownFnError(e: any): boolean {
       // This directly instantiates with fields set.
       const assignments = initializers
         .filter((i: any) => i?.kind === "field")
-        .map((init: any) => {
-          const valueStr = typeof init.value === "string" ? init.value : "null";
-          let resolvedValue: string;
-          if (params.includes(valueStr)) resolvedValue = sanitize(valueStr);
-          else if (/^-?\d+(\.\d+)?$/.test(valueStr)) resolvedValue = valueStr.includes(".") ? `new BallDouble(${valueStr})` : valueStr;
-          else if (valueStr.startsWith("'") || valueStr.startsWith('"')) resolvedValue = valueStr;
-          else {
-            const idxMatch = /^(\w+)\[(\d+)\]$/.exec(valueStr);
-            if (idxMatch && params.includes(idxMatch[1])) resolvedValue = `${sanitize(idxMatch[1])}[${idxMatch[2]}]`;
-            else resolvedValue = valueStr;
-          }
-          return `__inst.${init.name} = ${resolvedValue};`;
-        });
+        .map((init: any) => `__inst.${init.name} = ${resolveInitializerValue(init.value, params)};`);
       // For is_this params, assign them as fields
       const thisAssignments = thisParams.map(p => `__inst.${p.name} = ${sanitize(p.name)};`);
       const allAssignments = [...assignments, ...thisAssignments];
       bodyParts.push(`const __inst = Object.create(${className}.prototype);`);
       for (const a of allAssignments) bodyParts.push(a);
+      // A named constructor may have BOTH an initializer list / `this.`-params
+      // AND a body (`Countdown.pair(int s) : value = s { tail = …; }`, or
+      // `Countdown.from(this.value) { … }`). Dart runs the list first, then the
+      // body; the body used to be dropped entirely by this branch, so every
+      // field the body set stayed unset (conformance 436/438). `.call(__inst)`
+      // — a real `function`, not an arrow — gives the compiled body the
+      // instance as `this`, so its `this.<field>` writes land on `__inst`,
+      // while the constructor's parameters stay in scope by closure.
+      if (fn.body) {
+        const captured = this.withMethodContext(
+          new Set(params),
+          classFields,
+          () =>
+            this.captureInto(() => {
+              this.emitStatementOrExpression(fn.body!, false);
+            }),
+        );
+        if (captured.trim() !== "") {
+          bodyParts.push(`(function () {\n${captured}\n}).call(__inst);`);
+        }
+      }
       bodyParts.push(`return __inst;`);
     } else if (fn.body) {
       // Has an actual body — use it
@@ -4768,6 +4767,14 @@ function __isUnknownFnError(e: any): boolean {
         return `(${this.expr(f.get("value")!)} == null)`;
       }
       case "as":         return this.expr(f.get("value")!);
+      // #489 — the value's canonical runtime type NAME. The TS encoder emits
+      // this for JS `typeof`, but bare `typeof` does not match the vocabulary
+      // (`typeof [] === 'object'`), so route through the preamble helper.
+      case "type_of": {
+        const val = f.get("value") ?? f.get("target") ?? f.get("arg0");
+        if (!val) throw new Error("TS compiler: std.type_of is missing its `value` field");
+        return `__ball_type_of(${this.expr(val)})`;
+      }
       case "if": {
         const cond = this.expr(f.get("condition")!);
         const thenExpr = f.get("then")!;
@@ -6110,6 +6117,28 @@ function extractParams(fn: FunctionDef): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Resolve a constructor initializer-list value. The encoder stores these as
+ * SOURCE TEXT (`x = a` -> "a", `label = 'pt'` -> "'pt'", `x = coords[0]` ->
+ * "coords[0]"), so a param reference, a literal and an indexed read all arrive
+ * as plain strings. Shared by the unnamed and named constructor builders so the
+ * two can never drift.
+ */
+function resolveInitializerValue(rawValue: unknown, params: string[]): string {
+  const valueStr = typeof rawValue === "string" ? rawValue : "null";
+  if (params.includes(valueStr)) return sanitize(valueStr);
+  if (/^-?\d+(\.\d+)?$/.test(valueStr)) {
+    return valueStr.includes(".") ? `new BallDouble(${valueStr})` : valueStr;
+  }
+  if (valueStr.startsWith("'") || valueStr.startsWith('"')) return valueStr;
+  if (valueStr === "true" || valueStr === "false" || valueStr === "null") return valueStr;
+  const idxMatch = /^(\w+)\[(\d+)\]$/.exec(valueStr);
+  if (idxMatch && params.includes(idxMatch[1])) {
+    return `${sanitize(idxMatch[1])}[${idxMatch[2]}]`;
+  }
+  return valueStr;
 }
 
 function extractCtorParams(meta: Struct): CtorParam[] {

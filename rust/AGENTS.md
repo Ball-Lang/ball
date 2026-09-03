@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 330 passed, 0
-failed, 330 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 335 passed, 0
+failed, 335 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -135,8 +135,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 330 passed, 0 failed,
-330 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 335 passed, 0 failed,
+335 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -278,6 +278,20 @@ cli-core verb) rejects it for the same reason and for the same correct cause.
 - Int arithmetic uses wrapping ops (`wrapping_add`/...) to match Dart's fixed-width 64-bit `int`
   (no overflow panics); `modulo` is Euclidean (sign of the divisor), matching Dart/`ball_dyn.h`,
   not Rust's native `%` (sign of the dividend).
+- **`BallValue` has no `Set` variant**, so `ball_set_create` returns a `BallValue::List` (see the
+  `std_collections — sets` banner in `shared/src/runtime.rs`). A set is therefore indistinguishable
+  from a list at the value level in a *directly compiled* program: `std.type_of` answers `"List"`
+  and `ball_is_type(v, "Set")` answers `false`. Both functions' `Set` arms key on the portable
+  `{'__ball_set__': [...]}` map form, which only the **self-hosted engine** materialises — so the
+  engine is correct and only the compiler leg diverges. Measured by conformance fixture
+  `434_type_of` (passes every engine, fails the Rust compiler leg on line 8); tracked as
+  [#528](https://github.com/Ball-Lang/ball/issues/528).
+- **A named constructor (`Class.name(args)`) does not compile.** The Dart encoder emits it as a
+  method call on the class reference (not a `messageCreation`), and `ball-lang-compiler` emits the
+  class name as an ordinary value reference — `[E0425] cannot find value 'Countdown' in this
+  scope`. Fixtures `436_recursive_ctor_named` / `438_ctor_initializer_list_with_body` measure it;
+  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The unnamed form
+  (`435`/`437`) compiles and passes.
 
 ## Publishing (crates.io) — issue #366
 

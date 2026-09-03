@@ -409,6 +409,13 @@
       "isBase": true
     },
     {
+      "name": "type_of",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "Runtime type name: value.runtimeType.toString() / JS typeof. Returns the canonical base type name (int, double, String, bool, List, Map, Set, Function, Null, or a user class's short name) with generic type arguments dropped and any module prefix stripped.",
+      "isBase": true
+    },
+    {
       "name": "index",
       "inputType": "IndexInput",
       "outputType": "",

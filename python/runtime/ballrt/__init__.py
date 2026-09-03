@@ -163,6 +163,7 @@ from .selfhost import (
     set_unmodifiable,
     string_from_char_code,
     string_from_char_codes,
+    type_of,
     ty_DateTime,
     ty_Function,
     ty_Future,

@@ -400,6 +400,45 @@ jobs:
           fi
           echo "Std coverage inventory is up to date."
 
+      # ts/engine/src/compiled_engine.ts is the ONE COMMITTED self-hosted
+      # engine: the Rust/C#/Go/Python/C++ ones are gitignored and rebuilt from
+      # source inside their own jobs, so only this artifact can go stale in git.
+      # It is compiled from dart/self_host/engine.ball.json, which is itself
+      # generated from the Ball-portable engine sources — so ANY change under
+      # dart/engine/lib/ or dart/shared/lib/ silently invalidates it, and the
+      # six conformance sweeps cannot see the drift whenever the corpus does not
+      # happen to emit the shape that diverged. That is exactly how a stale
+      # `_isBareSelfConstruction` guard (#499) shipped with all 18 checks green
+      # while the TS engine infinitely recursed on a program the Dart reference
+      # engine ran fine. Regenerate-and-diff, same contract as the artifacts
+      # above; ts/engine/test/compiled_engine_parity.test.ts is its behavioural
+      # half.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ts/shared/package-lock.json
+            ts/compiler/package-lock.json
+
+      - name: Install @ball-lang/compiler deps
+        run: |
+          ( cd ts/shared   && npm ci )
+          ( cd ts/compiler && npm ci )
+
+      - name: Regenerate the compiled TS self-hosted engine
+        run: |
+          ( cd dart       && dart run compiler/tool/gen_engine_json.dart )
+          ( cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs )
+
+      - name: Assert compiled TS engine is up to date
+        run: |
+          if ! git diff --exit-code -- ts/engine/src/compiled_engine.ts; then
+            echo "::error::ts/engine/src/compiled_engine.ts is stale. Regenerate it with 'cd dart && dart run compiler/tool/gen_engine_json.dart' then 'cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs' and commit — this file is generated (see CLAUDE.md 'Regenerate compiled TS engine'), never hand-edited."
+            exit 1
+          fi
+          echo "Compiled TS self-hosted engine is up to date."
+
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
   # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).
@@ -1172,36 +1211,16 @@ jobs:
       # as a committed INPUT (coverage even --excludes it), and the one test
       # that does compile dart/self_host/engine.ball.json
       # (ts/compiler/test/engine_parse.test.ts) smoke-loads the string it just
-      # produced and discards it — it never diffs the committed artifact. So a
-      # change to dart/engine/lib/engine.dart, or to ts/compiler's codegen, that
-      # is behaviour-neutral for the TS engine suite left every check in this
-      # job green; a human had to hand-diff the file during PR #509's review to
-      # cover that (#517).
+      # produced and discards it — it never diffs the committed artifact (#517).
       #
-      # This step closes it by DERIVING the artifact instead of trusting it,
-      # exactly as the ball-freshness job does for std.json/ball_protobuf. The
-      # recipe below is byte-for-byte CLAUDE.md's "Regenerate compiled TS
-      # engine" section — keep the two in sync (this gate goes red if they ever
-      # disagree in effect). Verified deterministic: four consecutive regens in
-      # an isolated worktree produced an identical file.
-      - name: Assert ts/engine/src/compiled_engine.ts is fresh (#517)
-        run: |
-          set -euo pipefail
-          cd dart && dart run compiler/tool/gen_engine_json.dart
-          cd ../ts/compiler && node --experimental-strip-types -e "
-          const {readFileSync, writeFileSync} = require('fs');
-          const {compile} = require('./src/index.ts');
-          function unwrapBallFile(json){ if(json===null||typeof json!=='object'||Array.isArray(json))return json; const t=json['@type']; if(t===undefined)return json; const b={}; for(const[k,v]of Object.entries(json)){if(k!=='@type')b[k]=v;} return b; }
-          const program = unwrapBallFile(JSON.parse(readFileSync('../../dart/self_host/engine.ball.json', 'utf8')));
-          const ts = compile(program);
-          writeFileSync('../engine/src/compiled_engine.ts', '// @ts-nocheck — auto-generated\n' + ts);
-          "
-          cd ../..
-          if ! git diff --exit-code -- ts/engine/src/compiled_engine.ts; then
-            echo "::error::ts/engine/src/compiled_engine.ts is stale — regenerating it from dart/self_host/engine.ball.json through the current @ball-lang/compiler produces a different file. Run CLAUDE.md's 'Regenerate compiled TS engine' recipe and commit the result (the diff above is exactly what is missing)."
-            exit 1
-          fi
-          echo "compiled_engine.ts is byte-identical to a fresh regeneration."
+      # The regenerate-and-diff gate that closes this lives ONCE, in the
+      # `ball-freshness` job ("Regenerate the compiled TS self-hosted engine" +
+      # "Assert compiled TS engine is up to date"), beside the std.json /
+      # ball_protobuf freshness gates and driven by the same committed
+      # ts/compiler/tool/regen_compiled_engine.mjs recipe CLAUDE.md documents.
+      # `ball-freshness` carries the identical `if:` condition as this job
+      # (dart || ts || infra) and is a required check, so nothing is lost by not
+      # repeating a second full regeneration pass here.
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only. The full
       # ~350-fixture full_e2e.ts sweep (Ball IR -> native TS -> node, diffed
@@ -1454,7 +1473,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)" — the
+      # "Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -1624,7 +1643,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)" — the 4
+      # "Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -1742,7 +1761,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)" — the 4
+      # "Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

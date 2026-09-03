@@ -128,6 +128,61 @@ public static partial class BallRuntime
     /// <summary><c>value as Type</c> — a permissive cast (identity in the dynamic value model; <c>null</c> passes a nullable target).</summary>
     public static BallValue AsType(BallValue value, string typeName) => value;
 
+    /// <summary>
+    /// <c>std.type_of</c> (#489) — the value's canonical runtime type NAME: the
+    /// string form of the very discrimination <see cref="IsType"/> performs, with
+    /// generic type arguments dropped and any module prefix stripped
+    /// (<c>main:Chain → Chain</c>). Both Dart's <c>value.runtimeType.toString()</c>
+    /// and JavaScript's <c>typeof</c> encode to this function, so it must agree
+    /// with the Dart reference engine's <c>_typeNameOf</c>.
+    /// <para>
+    /// KNOWN DIVERGENCE (issue #528): a set answers <c>"List"</c> here for a
+    /// program compiled straight to C#. <c>BallRuntime.SetCreate</c> returns a
+    /// <c>BallList</c> because the value model has no set type, so the
+    /// <c>Set</c> arm below — which keys on the portable
+    /// <c>{'__ball_set__': [...]}</c> map form — only ever fires for the
+    /// <i>self-hosted engine</i>, which materialises that shape.
+    /// <c>IsOfType(value, "Set")</c> has the same blind spot. Conformance
+    /// fixture <c>434_type_of</c> is what makes it visible (it passes every
+    /// engine and fails this project's compiler leg).
+    /// </para>
+    /// </summary>
+    public static BallValue TypeOf(BallValue value) => BallValue.Str(TypeOfName(value));
+
+    private static string TypeOfName(BallValue value)
+    {
+        // An ordered set is the portable `{'__ball_set__': [...]}` form — a
+        // shape only the SELF-HOSTED ENGINE produces (see the divergence note
+        // above; a directly-compiled set is a BallList) — so it must be
+        // discriminated before plain Map / a `__type__`-tagged object.
+        if (value is BallMap setMap && setMap.Get("__ball_set__") is BallList)
+        {
+            return "Set";
+        }
+
+        if (value is BallMessage setMsg && setMsg.Get("__ball_set__") is BallList)
+        {
+            return "Set";
+        }
+
+        return value switch
+        {
+            BallNull => "Null",
+            BallBool => "bool",
+            BallInt => "int",
+            BallDouble => "double",
+            BallString => "String",
+            // A bytes literal is materialized as a `List<int>` everywhere else.
+            BallBytes or BallList => "List",
+            BallFunction => "Function",
+            BallMessage msg => ShortTypeName(msg.TypeName),
+            BallMap map => map.Get("__type__") is BallString tag && tag.Value.Length > 0
+                ? ShortTypeName(tag.Value)
+                : "Map",
+            _ => value.GetType().Name,
+        };
+    }
+
     /// <summary>The unqualified type name (the part after the last <c>:</c> module qualifier), e.g. <c>main:BallObject → BallObject</c>.</summary>
     private static string ShortTypeName(string typeName) =>
         typeName.Contains(':') ? typeName[(typeName.LastIndexOf(':') + 1)..] : typeName;

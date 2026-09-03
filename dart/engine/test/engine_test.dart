@@ -5227,6 +5227,252 @@ void main() {
       expect(await runAndCapture(p), ['true']);
     });
 
+    // ── Issue #499 ────────────────────────────────────────────────────────
+    // The guard the test above depends on (a constructor body's own
+    // argument-less `Foo{}` self-reference resolving to the instance under
+    // construction, so `Foo() is Foo` terminates) used to key on the type NAME
+    // alone. That also swallowed a GENUINE construction of another instance of
+    // the same class from inside a constructor body, handing back `self`
+    // instead. Both guards now additionally require the messageCreation to
+    // carry no real constructor argument.
+    test('constructor building a same-class instance WITH arguments is not '
+        'collapsed to self — typeDef-less path (#499)', () async {
+      // class Node { Node(int v) { print(v); if (v > 0) { Node(0); } } }
+      // main() { Node(1); }
+      //
+      // The inner `Node(0)` carries a real `arg0`, so it must invoke the
+      // constructor a SECOND time with v == 0 (printing '0') instead of
+      // collapsing to the outer `self`. No typeDefs → the typeDef-less
+      // guard; the argument-less `Foo{}` shape the guard exists for is
+      // covered unchanged by 'is on class instance — true' above.
+      final p = buildProgram(
+        functions: [
+          {
+            'name': 'Node.new',
+            'metadata': {
+              'kind': 'constructor',
+              'class': 'Node',
+              'params': [
+                {'name': 'v', 'type': 'int'},
+              ],
+            },
+            'body': {
+              'block': {
+                'statements': [
+                  stmt(printToString(ref('v'))),
+                  stmt(
+                    stdCall(
+                      'if',
+                      msg([
+                        field(
+                          'condition',
+                          stdCall(
+                            'greater_than',
+                            msg([
+                              field('left', ref('v')),
+                              field('right', literal(0)),
+                            ]),
+                          ),
+                        ),
+                        field(
+                          'then',
+                          msg([field('arg0', literal(0))], typeName: 'Node'),
+                        ),
+                      ]),
+                    ),
+                  ),
+                ],
+              },
+            },
+          },
+          mainFn([
+            stmt(msg([field('arg0', literal(1))], typeName: 'Node')),
+          ]),
+        ],
+      );
+      // Green: the inner construction really runs the constructor (v == 0).
+      // Red (pre-#499-fix): it returned `self`, so only '1' was printed.
+      expect(await runAndCapture(p), ['1', '0']);
+    });
+
+    test('constructor building a same-class instance WITH arguments is not '
+        'collapsed to self — typeDef path (#499)', () async {
+      // class Chain { int depth; Chain? next;
+      //   Chain(this.depth) { if (depth > 0) { next = Chain(depth - 1); } } }
+      // main() { print(Chain(2).next.depth); }
+      //
+      // This mirrors the exact shape the real Dart encoder emits (verified
+      // against `ball encode` output for the issue's repro): the nested
+      // construction is `messageCreation main:Chain { arg0: depth - 1 }`.
+      final programJson = {
+        'name': 'test',
+        'version': '1.0.0',
+        'modules': [
+          {
+            'name': 'std',
+            'functions': [
+              {'name': 'print', 'isBase': true},
+              {'name': 'to_string', 'isBase': true},
+              {'name': 'if', 'isBase': true},
+              {'name': 'assign', 'isBase': true},
+              {'name': 'subtract', 'isBase': true},
+              {'name': 'greater_than', 'isBase': true},
+            ],
+          },
+          {
+            'name': 'main',
+            'typeDefs': [
+              {
+                'name': 'main:Chain',
+                'descriptor': {
+                  'name': 'Chain',
+                  'field': [
+                    {
+                      'name': 'depth',
+                      'number': 1,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_INT64',
+                    },
+                    {
+                      'name': 'next',
+                      'number': 2,
+                      'label': 'LABEL_OPTIONAL',
+                      'type': 'TYPE_STRING',
+                    },
+                  ],
+                },
+              },
+            ],
+            'functions': [
+              {
+                'name': 'main:Chain.new',
+                'outputType': 'main:Chain',
+                'metadata': {
+                  'kind': 'constructor',
+                  'class': 'main:Chain',
+                  'params': [
+                    {'name': 'depth', 'type': 'int', 'is_this': true},
+                  ],
+                },
+                'body': stdCall(
+                  'if',
+                  msg([
+                    field(
+                      'condition',
+                      stdCall(
+                        'greater_than',
+                        msg([
+                          field('left', ref('depth')),
+                          field('right', literal(0)),
+                        ]),
+                      ),
+                    ),
+                    field(
+                      'then',
+                      stdCall(
+                        'assign',
+                        msg([
+                          field('target', ref('next')),
+                          field(
+                            'value',
+                            msg([
+                              field(
+                                'arg0',
+                                stdCall(
+                                  'subtract',
+                                  msg([
+                                    field('left', ref('depth')),
+                                    field('right', literal(1)),
+                                  ]),
+                                ),
+                              ),
+                            ], typeName: 'main:Chain'),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ]),
+                ),
+              },
+              mainFn([
+                letStmt(
+                  'c',
+                  msg([field('arg0', literal(2))], typeName: 'main:Chain'),
+                ),
+                stmt(
+                  printToString(fieldAcc(fieldAcc(ref('c'), 'next'), 'depth')),
+                ),
+              ]),
+            ],
+          },
+        ],
+        'entryModule': 'main',
+        'entryFunction': 'main',
+      };
+      final program = Program()..mergeFromProto3Json(programJson);
+      // Green: `c.next` is a real, distinct Chain with depth == 1.
+      // Red (pre-#499-fix): `c.next` is `c` itself, so this printed '2'.
+      expect(await runAndCapture(program), ['1']);
+    });
+
+    test('constructor self-reference carrying only NON-parameter fields still '
+        'resolves to self (#499 guard, field-initializer shape)', () async {
+      // The `Foo() is Foo` regression lock above uses a self-reference with NO
+      // fields at all. The encoder also emits a self-reference carrying the
+      // class's own inline FIELD INITIALIZERS (`Foo.new` -> `Foo{_x: 5}`) —
+      // names that are neither positional (`argN`) nor declared constructor
+      // parameters. That shape must ALSO resolve to `self`; treating it as a
+      // real construction re-enters `Foo.new` forever.
+      //
+      // This is the exact shape that told the two `_isBareSelfConstruction`
+      // rules apart, so it is what pins the Dart reference engine's answer for
+      // the compiled self-hosted engines to match (ts/engine's
+      // test/compiled_engine_parity.test.ts runs the same program).
+      final p = buildProgram(
+        functions: [
+          {
+            'name': 'Foo.new',
+            'metadata': {'kind': 'constructor', 'class': 'Foo'},
+            'body': msg([field('_x', literal(5))], typeName: 'Foo'),
+          },
+          mainFn([
+            letStmt('f', msg([], typeName: 'Foo')),
+            stmt(printToString(fieldAcc(ref('f'), '__type__'))),
+          ]),
+        ],
+      );
+      expect(await runAndCapture(p), ['Foo']);
+    });
+
+    test(
+      'constructor self-reference whose field name merely STARTS WITH "arg" '
+      'still resolves to self (#499 guard, positional test is ^arg\\d+\$)',
+      () async {
+        // The positional-argument test must match a real positional slot
+        // (`arg0`, `arg1`, …), not any name with an "arg" prefix: a class whose
+        // own field is called `argCount` emits the field-initializer
+        // self-reference `Foo{argCount: 5}`, which a prefix match reads as a
+        // genuine construction and re-enters `Foo.new` forever (Stack Overflow).
+        final p = buildProgram(
+          functions: [
+            {
+              'name': 'Foo.new',
+              'metadata': {'kind': 'constructor', 'class': 'Foo'},
+              'body': msg([field('argCount', literal(5))], typeName: 'Foo'),
+            },
+            mainFn([
+              letStmt('f', msg([], typeName: 'Foo')),
+              stmt(printToString(fieldAcc(ref('f'), '__type__'))),
+            ]),
+          ],
+        );
+        // Red (prefix match): `Foo{argCount: 5}` reads as a real construction and
+        // re-enters `Foo.new` until the stack dies. Green: it is the self-
+        // reference, so the program terminates and reports the class.
+        expect(await runAndCapture(p), ['Foo']);
+      },
+    );
+
     test('is on class instance — false for wrong type', () async {
       final p = buildProgram(
         stdFunctions: typeFns,

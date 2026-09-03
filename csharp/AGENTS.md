@@ -251,6 +251,20 @@ factories `BallValue.Null` / `.Bool(bool)` / `.Int(long)` / `.Double(double)` / 
 - **`ToString()` matches reference-engine stdout**: whole doubles keep a trailing `.0`, `-0.0` is
   distinct, NaN/`Infinity`/`-Infinity` spellings, maps/messages render `{k: v, …}`, functions
   render `<function name>`/`<lambda>`.
+- **There is no set type.** `BallRuntime.SetCreate` returns a `BallList` (duplicate-free,
+  insertion-ordered), so in a *directly compiled* program a set is indistinguishable from a list at
+  the value level: `BallStd.TypeOf` answers `"List"` and `IsOfType(v, "Set")` answers `false`. Both
+  functions' `Set` arms key on the portable `{'__ball_set__': [...]}` map form, which only the
+  **self-hosted engine** materialises — so the engine is correct and only the compiler leg
+  diverges. Measured by conformance fixture `434_type_of` (passes every engine, fails the C#
+  compiler leg on line 8); tracked as
+  [#528](https://github.com/Ball-Lang/ball/issues/528).
+- **A named constructor (`Class.name(args)`) does not compile.** The Dart encoder emits it as a
+  method call on the class reference (not a `messageCreation`), and `Ball.Compiler` drops the
+  qualifier, emitting a bare `from(...)` — `CS0103: The name 'from' does not exist in the current
+  context`. Fixtures `436_recursive_ctor_named` / `438_ctor_initializer_list_with_body` measure it;
+  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The unnamed form (`435`/`437`)
+  compiles and passes.
 
 ### Module builders + field extraction
 
@@ -805,7 +819,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1029,7 +1043,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)`.
+  `Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1096,7 +1110,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 330 passed, 0 failed, 330 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 335 passed, 0 failed, 335 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
@@ -1266,8 +1280,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 330 passed, 0 failed,
-  330 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 335 passed, 0 failed,
+  335 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

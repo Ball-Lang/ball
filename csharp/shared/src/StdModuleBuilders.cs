@@ -132,6 +132,14 @@ public static class StdModuleBuilders
             BaseFn("is", "TypeCheckInput", "", "Type test: value is Type"),
             BaseFn("is_not", "TypeCheckInput", "", "Negated type test: value is! Type"),
             BaseFn("as", "TypeCheckInput", "", "Type cast: value as Type"),
+            BaseFn(
+                "type_of",
+                "UnaryInput",
+                "",
+                "Runtime type name: value.runtimeType.toString() / JS typeof. "
+                + "Returns the canonical base type name (int, double, String, bool, "
+                + "List, Map, Set, Function, Null, or a user class's short name) "
+                + "with generic type arguments dropped and any module prefix stripped."),
             // Indexing
             BaseFn("index", "IndexInput", "", "Index access: target[index]"),
             // Strings (pure manipulation, universal)

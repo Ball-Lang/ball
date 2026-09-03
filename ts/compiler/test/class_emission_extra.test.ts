@@ -374,6 +374,111 @@ describe("compiler — buildNamedCtor (named constructors as static factories)",
     assert.match(emptyMatch![1], /console\.log/, "the real ctor body was emitted, not an Object.create");
   });
 
+  // #499/#489 follow-up: a constructor may have BOTH an initializer list (or
+  // `this.`-params) AND a body. Dart runs the list first, then the body. The
+  // Object.create branch used to drop `fn.body` entirely, and buildCtor never
+  // emitted the initializer list at all — both silent, and both invisible to
+  // the TS ENGINE (which interprets and never reaches these builders).
+  test("a named constructor with BOTH an initializer list and a body runs the body against the new instance", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:Seed", metadata: { kind: "class", fields: [{ name: "value", type: "int" }] } },
+      ],
+      functions: [
+        { name: "main:Seed.new", metadata: { kind: "constructor", params: [{ name: "value", is_this: true }] } },
+        {
+          name: "main:Seed.seeded",
+          metadata: {
+            kind: "constructor",
+            params: [{ name: "start" }],
+            initializers: [{ kind: "field", name: "value", value: "start" }],
+          },
+          // `value = value + 1;` — reads and writes the field the initializer
+          // list just set, so it only works if the body runs with `__inst`
+          // as its receiver AFTER the initializers.
+          body: {
+            call: {
+              module: "std",
+              function: "assign",
+              input: {
+                messageCreation: {
+                  fields: [
+                    { name: "target", value: { reference: { name: "value" } } },
+                    {
+                      name: "value",
+                      value: {
+                        call: {
+                          module: "std",
+                          function: "add",
+                          input: {
+                            messageCreation: {
+                              fields: [
+                                { name: "left", value: { reference: { name: "value" } } },
+                                { name: "right", value: { literal: { intValue: 1 } } },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /Object\.create\(Seed\.prototype\)/);
+    assert.match(ts, /__inst\.value = start;/);
+    // A real `function`, never an arrow — the body needs `__inst` as `this`.
+    assert.match(ts, /\(function\s*\(\)\s*\{[\s\S]*?\}\)\.call\(__inst\);/);
+    assert.match(ts, /this\.value = __ball_add\(this\.value, 1\)/);
+  });
+
+  test("an UNNAMED constructor emits its initializer list into the prologue, before its body", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        {
+          name: "main:Tag",
+          metadata: {
+            kind: "class",
+            fields: [
+              { name: "x", type: "int" },
+              { name: "label", type: "String" },
+            ],
+          },
+        },
+      ],
+      functions: [
+        {
+          name: "main:Tag.new",
+          metadata: {
+            kind: "constructor",
+            params: [{ name: "a" }],
+            initializers: [
+              { kind: "field", name: "x", value: "a" },
+              { kind: "field", name: "label", value: "'pt'" },
+            ],
+          },
+          body: {
+            call: {
+              module: "std",
+              function: "print",
+              input: { messageCreation: { fields: [{ name: "message", value: { literal: { stringValue: "built" } } }] } },
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /this\.x = a;/);
+    assert.match(ts, /this\.label = 'pt';/);
+    // The initializer list precedes the body, exactly as Dart orders them.
+    assert.ok(ts.indexOf("this.label = 'pt';") < ts.indexOf("console.log"));
+  });
+
   test("a named constructor with no initializers, no is_this params, and no body falls back to `return new Class()`", () => {
     const program = programWithClasses({
       typeDefs: [

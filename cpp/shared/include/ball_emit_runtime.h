@@ -754,6 +754,36 @@ inline bool ball_object_type_matches(const std::any& value, const std::string& t
     return false;
 }
 
+// Extension point for BallOrderedMap `__type__` extraction (set by ball_dyn.h).
+inline std::string (*_ball_object_type_tag_ext)(const std::any&) = nullptr;
+
+// The SHORT `__type__` tag of a map-backed object (`main:Chain` -> `Chain`), or
+// an empty string when the value carries none. The same shape walk as
+// ball_object_type_matches, but yielding the NAME instead of a match: this is
+// the object arm of `std.type_of` (#489).
+inline std::string ball_object_type_tag(const std::any& value) {
+    auto& u = _BallDynUnwrapper::unwrap(value);
+    if (!u.has_value()) return std::string();
+    const BallMap_RT* mptr = nullptr;
+    if (u.type() == typeid(BallMap_RT)) {
+        mptr = &std::any_cast<const BallMap_RT&>(u);
+    } else {
+        mptr = _ball_object_base_map(u);
+    }
+    if (!mptr) {
+        if (_ball_object_type_tag_ext) return _ball_object_type_tag_ext(u);
+        return std::string();
+    }
+    auto it = mptr->find("__type__");
+    if (it == mptr->end() || !it->second.has_value()) return std::string();
+    auto& tv = _BallDynUnwrapper::unwrap(it->second);
+    if (tv.type() != typeid(std::string)) return std::string();
+    std::string tag = std::any_cast<const std::string&>(tv);
+    auto colon = tag.rfind(':');
+    if (colon != std::string::npos) tag = tag.substr(colon + 1);
+    return tag;
+}
+
 // ── Concrete-struct type matching ──
 // Compiled classes are emitted as plain C++ structs (not BallMap-backed
 // objects), so `x is Vec2` on a concrete struct receiver cannot consult a

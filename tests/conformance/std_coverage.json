@@ -10,9 +10,9 @@
     "package:ball_base buildStdTimeModule()",
     "package:ball_base buildStdConcurrencyModule()"
   ],
-  "totalFunctions": 257,
+  "totalFunctions": 258,
   "functionsByModule": {
-    "std": 119,
+    "std": 120,
     "std_collections": 53,
     "std_concurrency": 9,
     "std_convert": 6,
@@ -22,9 +22,9 @@
     "std_time": 12
   },
   "summary": {
-    "encoderEmittable": 107,
-    "coveredByFixture": 113,
-    "engineImplementedDart": 219,
+    "encoderEmittable": 108,
+    "coveredByFixture": 114,
+    "engineImplementedDart": 220,
     "carvedOut": 0
   },
   "functions": [
@@ -123,6 +123,11 @@
         "416_user_method_name_arity_collision",
         "417_null_aware_collection_elements",
         "42_nested_functions",
+        "434_type_of",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
+        "438_ctor_initializer_list_with_body",
         "59_deep_recursion",
         "60_collatz",
         "64_multiple_functions",
@@ -157,6 +162,8 @@
         "293_enc_short_circuit",
         "34_boolean_logic",
         "35_short_circuit",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
         "52_max_of_three"
       ],
       "engineImplementedDart": true,
@@ -278,6 +285,11 @@
         "431_shadowed_getter_dynamic_dispatch",
         "432_shadowed_getter_setter_write",
         "433_shadowed_field_self_write_and_local",
+        "434_type_of",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
+        "438_ctor_initializer_list_with_body",
         "439_unrelated_field_name_collision",
         "43_countdown",
         "442_switch_goto_fallthrough_guard_or_pattern",
@@ -664,6 +676,9 @@
         "345_inherited_field_type_name_collision",
         "384_list_filter_where",
         "417_null_aware_collection_elements",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
         "48_break_continue",
         "58_mutual_recursion",
         "59_deep_recursion",
@@ -890,6 +905,9 @@
         "383_list_any_check",
         "384_list_filter_where",
         "396_switch_case_fallthrough",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
         "43_countdown",
         "442_switch_goto_fallthrough_guard_or_pattern",
         "47_do_while",
@@ -917,6 +935,7 @@
         "272_enc_comparison",
         "308_list_comprehension_cstyle",
         "33_comparison_chain",
+        "434_type_of",
         "52_max_of_three",
         "79_nested_loops_pattern",
         "82_string_reverse",
@@ -986,6 +1005,10 @@
         "380_is_not_type_check",
         "390_goto_label",
         "396_switch_case_fallthrough",
+        "434_type_of",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
         "48_break_continue",
         "50_if_else_chain",
         "51_nested_if",
@@ -1219,6 +1242,8 @@
         "33_comparison_chain",
         "390_goto_label",
         "417_null_aware_collection_elements",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
         "44_for_loop_basic",
         "48_break_continue",
         "54_abs_value",
@@ -1821,6 +1846,8 @@
         "317_primitive_number_getters",
         "33_comparison_chain",
         "417_null_aware_collection_elements",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
         "60_collatz",
         "72_gcd"
       ],
@@ -1837,6 +1864,9 @@
         "119_nested_maps",
         "125_group_by",
         "153_memoized_recursive",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
         "95_fibonacci_memo"
       ],
       "engineImplementedDart": true,
@@ -2264,6 +2294,11 @@
         "431_shadowed_getter_dynamic_dispatch",
         "432_shadowed_getter_setter_write",
         "433_shadowed_field_self_write_and_local",
+        "434_type_of",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
+        "438_ctor_initializer_list_with_body",
         "439_unrelated_field_name_collision",
         "43_countdown",
         "440_base_typed_param_return_slicing",
@@ -2443,6 +2478,7 @@
         "395_map_keys_values_fail_loud",
         "396_switch_case_fallthrough",
         "397_map_values",
+        "437_recursive_ctor_tree",
         "52_max_of_three",
         "54_abs_value",
         "57_recursion_factorial",
@@ -2670,7 +2706,8 @@
       "coveredByFixtures": [
         "260_string_functions",
         "382_list_all_every",
-        "416_user_method_name_arity_collision"
+        "416_user_method_name_arity_collision",
+        "434_type_of"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2687,7 +2724,8 @@
         "213_string_edge_cases",
         "228_unicode_grapheme_edges",
         "264_string_replace_ops",
-        "416_user_method_name_arity_collision"
+        "416_user_method_name_arity_collision",
+        "434_type_of"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2817,6 +2855,10 @@
         "31_arithmetic_basic",
         "32_arithmetic_negative",
         "341_setter_param_binding",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
+        "438_ctor_initializer_list_with_body",
         "57_recursion_factorial",
         "58_mutual_recursion",
         "59_deep_recursion",
@@ -3123,6 +3165,17 @@
     },
     {
       "module": "std",
+      "name": "type_of",
+      "inputType": "UnaryInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "434_type_of"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
       "name": "unsigned_right_shift",
       "inputType": "BinaryInput",
       "encoderEmittable": true,
@@ -3153,6 +3206,8 @@
         "196_timeout",
         "23_labeled_break",
         "268_enc_while",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
         "43_countdown",
         "46_while_loop",
         "60_collatz",
@@ -3295,7 +3350,8 @@
       "coveredByFixtures": [
         "204_string_operations",
         "213_string_edge_cases",
-        "416_user_method_name_arity_collision"
+        "416_user_method_name_arity_collision",
+        "434_type_of"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3678,7 +3734,8 @@
         "350_set_value",
         "392_empty_set_literal",
         "394_mappattern_excludes_set",
-        "417_null_aware_collection_elements"
+        "417_null_aware_collection_elements",
+        "434_type_of"
       ],
       "engineImplementedDart": true,
       "carvedOut": false

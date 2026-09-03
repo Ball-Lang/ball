@@ -16,7 +16,7 @@ runs offline.
 | `ballrt/flow.py` | `break`/`continue`/`return`/`throw` as exceptions + the `ret`/`brk`/`cont`/`throw`/`rethrow` helper calls that raise them. |
 | `ballrt/io.py` | `print_` / `print_error` and `run_entry` (the entry-point driver). `run_entry` reconfigures `stdout`/`stderr` to UTF-8 (mirroring `ball_cli/__main__.py`) so a standalone `python out.py` printing non-ASCII does not raise `UnicodeEncodeError` on a cp1252 Windows console. |
 | `ballrt/proto.py` | `ball_proto` access patterns (`ballrt.proto.whichExpr`/`hasBody`/…) over the loaded proto3-JSON view — used by the self-hosted engine. |
-| `ballrt/methods.py` | `call_method` — Dart-SDK method dispatch on values (regex, collections, `toString`, proto `hasX()` accessors) + `identical`. |
+| `ballrt/methods.py` | `call_method` — Dart-SDK method dispatch on values (regex, collections, `toString`, proto `hasX()` accessors) + `identical`. A receiver object's OWN method always wins over the `has<Field>` presence heuristic: `RegExp.hasMatch(s)` is a real method, and probing it as a presence check for a field named `match` silently answered `False`, killing every regex path in the self-hosted engine (`std.string_matches`, the engine's `^arg\d+$` constructor-argument test). |
 | `ballrt/selfhost.py` | Self-host support: `is_type`/`as_type`, the proto oneof-case `arm` enum, builtin-type tokens + statics (`int.tryParse`, `List.filled`, …), `RegExp`/`StringBuffer`/`DateTime`, `dart.math`. |
 | `ballrt/convert.py` | `std_convert` (`ballrt.cvt.*`) UTF-8 / base64 / JSON codecs. |
 | `ballrt/dart_errors.py` | Typed Dart exception values (`FormatException`/`RangeError`/…) so a typed `on … catch` in an interpreted program matches. |

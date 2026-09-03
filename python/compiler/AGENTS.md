@@ -90,7 +90,11 @@ closures, and OOP (constructors incl. **named + optional params**, methods,
 That list describes what the *engine* program exercises. It is **not** whole-corpus
 coverage: the compile leg below shows `super`, static methods, factory/named
 constructors, mixins, enum-value references, switch patterns, generators and
-labeled break are all still open on the fixture corpus.
+labeled break are all still open on the fixture corpus. The named-constructor gap
+(`Class.name(args)` -> `unresolved reference 'Countdown'`, measured on fixtures
+`436_recursive_ctor_named` and `438_ctor_initializer_list_with_body`) is shared
+with the Rust/Go/C# compilers and tracked as
+[#527](https://github.com/Ball-Lang/ball/issues/527).
 
 ### Measured against the whole corpus (compile leg)
 

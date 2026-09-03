@@ -75,6 +75,15 @@ Then add a fixture to `test/roundtrip.test.ts` — it is the only leg that runs
 catch either mistake. A name-only unit assertion cannot: that is precisely how
 this class of bug shipped green.
 
+3. **If the name has no counterpart at all, that is a MISSING BASE FUNCTION,
+   not a naming bug.** `type_of` (for JS `typeof`) was the last of #489's
+   fifteen names in that state; closing it meant declaring `type_of` in
+   `dart/shared/lib/std.dart` and implementing it in all seven compilers,
+   all seven runtimes and the Dart reference engine, plus a Dart-encoder
+   idiom (`<expr>.runtimeType.toString()`) so a conformance fixture could be
+   generated at all. `ENCODER_CARVEOUTS.md` no longer lists `typeof x`.
+
+
 - After adding a new encoding case, ensure it appears in a conformance fixture (`tests/conformance/src/`) per the gate in `CLAUDE.md`.
 - See `.claude/rules/ts.md` and `CLAUDE.md` for routing rules and the no-`ts_std` invariant.
 

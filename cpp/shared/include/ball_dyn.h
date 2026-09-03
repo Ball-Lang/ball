@@ -2497,6 +2497,20 @@ inline const bool _ball_ordered_map_extensions_registered = []() {
         }
         return false;
     };
+    // `__type__` extraction for a BallOrderedMap-backed object — the ordered-map
+    // sibling of the BallMap walk in ball_object_type_tag (std.type_of, #489).
+    _ball_object_type_tag_ext = [](const std::any& u) -> std::string {
+        const BallOrderedMap* omp = _ballAnyOrderedMapPtr(u);
+        if (!omp) return std::string();
+        auto it = omp->index_.find("__type__");
+        if (it == omp->index_.end()) return std::string();
+        auto& tv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (tv.type() != typeid(std::string)) return std::string();
+        std::string tag = std::any_cast<const std::string&>(tv);
+        auto colon = tag.rfind(':');
+        if (colon != std::string::npos) tag = tag.substr(colon + 1);
+        return tag;
+    };
     // Typed-map discrimination for BallOrderedMap: mirror the BallMap path of
     // ball_is_typed_map (empty->matches any; else inspect first value's concrete
     // type; else delegate to ball_object_type_matches). Resolves `is Map<K,V>`
@@ -2566,6 +2580,46 @@ inline bool ball_is_map_dyn(const BallDyn& v) {
 // `BallOrderedMap` directly and is immune to that dispatch.
 inline bool ball_is_ball_set(const BallDyn& v) {
     return v._setBackingList() != nullptr;
+}
+
+// `std.type_of` (#489) — the value's canonical runtime type NAME: the string
+// form of the very discrimination the native `is` dispatch performs, with
+// generic type arguments dropped and any module prefix stripped
+// (`main:Chain` -> `Chain`). Both Dart's `value.runtimeType.toString()` and
+// JavaScript's `typeof` encode to this function, so it must agree with the Dart
+// reference engine's `_typeNameOf`. Unlike `ball_runtime_type_name` (which
+// covers primitives only, and answers "Object" for everything else) this also
+// discriminates sets, functions and user classes.
+inline std::string ball_type_of(const BallDyn& v) {
+    const std::any& u = _BallDynUnwrapper::unwrap(v._val);
+    if (!u.has_value()) return "Null";
+    if (ball_is_bool(u)) return "bool";
+    if (ball_is_int(u)) return "int";
+    if (ball_is_double(u)) return "double";
+    if (ball_is_string(u)) return "String";
+    if (ball_is_list(u)) return "List";
+    // A portable ordered set is map-shaped, so it must be discriminated before
+    // the object/Map arms below.
+    if (ball_is_ball_set(v)) return "Set";
+    if (ball_is_function(u)) return "Function";
+    std::string tag = ball_object_type_tag(u);
+    if (!tag.empty()) return tag;
+    if (ball_is_map_dyn(v)) return "Map";
+    return ball_runtime_type_name(u);
+}
+
+// A compiled user class is emitted as a plain C++ struct rather than a
+// `__type__`-tagged map, so it cannot answer through the BallDyn overload
+// above; each such struct exposes a static `__ball_type_name()`. This template
+// is a better match than the BallDyn overload for any value carrying that
+// trait, mirroring `ball_object_type_matches`'s concrete-struct overload.
+template <typename T>
+auto ball_type_of(const T& value) -> decltype(T::__ball_type_name(), std::string()) {
+    (void)value;
+    std::string tag = T::__ball_type_name();
+    auto colon = tag.rfind(':');
+    if (colon != std::string::npos) tag = tag.substr(colon + 1);
+    return tag;
 }
 
 // Map iteration helpers — moved from compiler preamble (MSVC 64KB limit).

@@ -30,7 +30,6 @@ Companion gates:
 
 | TS construct | Encoded as | Why |
 | --- | --- | --- |
-| `typeof x` | `std.type_of` (no compiler/engine support anywhere) | Ball has no `typeof` analogue. Implementing it means a genuinely new universal base function: `dart/shared/lib/std.dart` + `gen_std.dart` + the Dart compiler/engine + every target's compiler and engine + a conformance fixture. Tracked by **#489**; the encoder keeps emitting the honest name so the compiler fails loud and names the construct. |
 | unary `+x` | behaviour-affecting warning + placeholder literal | `+x` is a numeric **coercion** (`+"5"` is the number 5). Ball has no coerce-to-number base function — `string_to_int`/`string_to_double` are wrong for a non-string operand, and `std.add(x, 0)` concatenates when `x` is a string. Previously this was the one unhandled path that emitted **no** placeholder: it returned the untouched operand, so `+"5"` stayed the string `"5"`. |
 | `import.meta` (`MetaProperty`) | behaviour-affecting warning + placeholder literal | Ball's model is a single `Program` message with no ES module system, so there is no faithful target for `import.meta.url` or friends. |
 | `{ [k]: v }` (computed key) | `std.computed_property` (no compiler support) | `MessageCreation` field names are static strings; a runtime-computed key has no shape to encode into. |

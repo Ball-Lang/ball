@@ -45,12 +45,6 @@ const ENCODER_SRC = join(HERE, "..", "..", "encoder", "src", "encoder.ts");
  * Keep in sync with `ts/encoder/ENCODER_CARVEOUTS.md`.
  */
 const KNOWN_GAPS: Record<string, string> = {
-  // #489: JS `typeof` has no universal std equivalent. Implementing it means a
-  // genuinely new base function (dart/shared/lib/std.dart + gen_std.dart + the
-  // Dart compiler/engine + every target) — deliberately NOT folded into the
-  // vocabulary-alignment fix. The encoder keeps emitting it so the failure is
-  // loud and named rather than silently mis-encoded.
-  type_of: "#489: needs a new universal std base function across every target",
   // A computed object-literal key (`{ [k]: v }`) has no Ball representation:
   // MessageCreation field names are static strings. Encoded loudly so the
   // compiler names the construct instead of emitting a wrong object.

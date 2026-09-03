@@ -1597,6 +1597,10 @@ class Compiler:
                 return f"(not ballrt.is_type({val}, {pystr(typ)}))"
             return f"ballrt.as_type({val}, {pystr(typ)})"
 
+        # #489 - the value's canonical runtime type NAME (no `type` field).
+        if fn == "type_of":
+            return f"ballrt.type_of({a('value')})"
+
         # Collection literals routed through std (map/set literals, typed lists).
         if fn == "map_create":
             return self.map_create(call)

@@ -306,6 +306,7 @@ inline const std::vector<std::string>& program_names() {
         "431_shadowed_getter_dynamic_dispatch",
         "432_shadowed_getter_setter_write",
         "433_shadowed_field_self_write_and_local",
+        "434_type_of",
         "439_unrelated_field_name_collision",
         "440_base_typed_param_return_slicing",
         "442_switch_goto_fallthrough_guard_or_pattern",

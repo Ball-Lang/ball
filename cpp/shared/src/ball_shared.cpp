@@ -214,6 +214,7 @@ ball::ir::Module build_std_module() {
     add_fn("is", "TypeCheckInput", "", "Type test");
     add_fn("is_not", "TypeCheckInput", "", "Negated type test");
     add_fn("as", "TypeCheckInput", "", "Type cast");
+    add_fn("type_of", "UnaryInput", "", "Runtime type name");
     // Indexing
     add_fn("index", "IndexInput", "", "Index access");
     // String manipulation

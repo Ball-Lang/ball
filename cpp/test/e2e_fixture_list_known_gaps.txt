@@ -108,3 +108,22 @@
 395_map_keys_values_fail_loud
 396_switch_case_fallthrough
 397_map_values
+
+# Added by the #489/#499 lane, NOT frozen debt: these four are the same
+# fixtures cpp/test/full_e2e.sh already carves out, against OPEN C++ compiler
+# issues. Measured with `bash cpp/test/quick_e2e.sh <name>` on this branch:
+#   435 -> g++: 'class BallDyn' has no member named 'depth'
+#   436 -> g++: 'class BallDyn' has no member named 'tail'
+#   437 -> g++: 'class BallDyn' has no member named 'left'
+#   (#513 — a read through a NULLABLE, self-referential class-typed field is
+#   emitted as a static member access on the erased BallDyn base)
+#   438 -> g++: 'Flags::Flags()' cannot be overloaded with 'Flags::Flags()'
+#   (#514 — a class whose only constructor has BOTH an initializer list and a
+#   body emits the default constructor twice)
+# 434_type_of, the fifth fixture of the same batch, PASSES the C++ compiled leg
+# and is listed in e2e_fixture_list.h instead. Delete these four lines when
+# #513/#514 land.
+435_recursive_ctor_construction
+436_recursive_ctor_named
+437_recursive_ctor_tree
+438_ctor_initializer_list_with_body

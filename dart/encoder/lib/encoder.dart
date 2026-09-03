@@ -3417,6 +3417,25 @@ class DartEncoder {
     'dynamic': 'dynamic',
   };
 
+  /// The receiver of a `<expr>.runtimeType` property read, or `null` when
+  /// [node] is not that shape.
+  ///
+  /// Used by the `<expr>.runtimeType.toString()` → `std.type_of` mapping.
+  /// A null-aware read (`x?.runtimeType`) returns `null` so the `?.`
+  /// semantics keep their own encoding.
+  static ast.Expression? _runtimeTypeReceiver(ast.Expression node) {
+    if (node is ast.PrefixedIdentifier) {
+      return node.identifier.name == 'runtimeType' ? node.prefix : null;
+    }
+    if (node is ast.PropertyAccess) {
+      if (node.propertyName.name != 'runtimeType' || node.isNullAware) {
+        return null;
+      }
+      return node.target;
+    }
+    return null;
+  }
+
   /// True when a bare builtin type name at [expr] is genuinely used as a
   /// first-class value (type literal), i.e. NOT:
   ///   * a static receiver — `List.generate(...)` / `List..gen(...)` must keep
@@ -3755,6 +3774,25 @@ class DartEncoder {
                     ..name = 'value'
                     ..value = args.first.value,
                 ))));
+      }
+    }
+
+    // `<expr>.runtimeType.toString()` -> std.type_of(value: <expr>).
+    //
+    // Deliberately scoped to this ONE chain — the only Dart idiom that yields
+    // the plain type-name STRING `std.type_of` is specified to return.
+    // Documented carve-outs (see `dart/encoder/AGENTS.md`): a bare
+    // `x.runtimeType` (a `Type` object, not a string) and an interpolated
+    // `'${x.runtimeType}'` both keep their existing fieldAccess encoding.
+    // Must precede the generic `.toString()` shortcut below.
+    if (methodName == 'toString' &&
+        args.isEmpty &&
+        realTarget != null &&
+        !isNullAware) {
+      final runtimeTypeReceiver = _runtimeTypeReceiver(realTarget);
+      if (runtimeTypeReceiver != null) {
+        _usedBaseFunctions.add('type_of');
+        return _buildUnaryStdCall('type_of', _encodeExpr(runtimeTypeReceiver));
       }
     }
 

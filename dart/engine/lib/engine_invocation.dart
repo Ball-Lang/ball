@@ -339,6 +339,18 @@ extension BallEngineInvocation on BallEngine {
 
     _initFieldDefaults(typeName, instanceFields);
 
+    // Dart runs a constructor's initializer list (`Countdown.pair(int s) :
+    // value = s { … }`) BEFORE its body, and a constructor may have both. This
+    // path — a constructor WITH a body, reached as a named call — never
+    // applied them, so an initialized field stayed null. Explicit arguments
+    // and `this.`-params still win (onlyIfAbsent).
+    _applyConstructorInitializers(
+      func,
+      instanceFields,
+      resolvedParams,
+      onlyIfAbsent: true,
+    );
+
     final superclass = _getMetaString(typeDef, 'superclass');
     Object? superObject;
     if (superclass != null && superclass.isNotEmpty) {
@@ -411,6 +423,14 @@ extension BallEngineInvocation on BallEngine {
           } else {
             targetFields[name] = null;
           }
+        } else if (valStr.length >= 2 &&
+            ((valStr.startsWith("'") && valStr.endsWith("'")) ||
+                (valStr.startsWith('"') && valStr.endsWith('"')))) {
+          // A string-literal initializer is stored as its SOURCE text, quotes
+          // included (`label = 'pt'` → "'pt'"). Strip them, exactly as
+          // _invokeSuperConstructor already does for a super() argument;
+          // otherwise the field held a quoted string.
+          targetFields[name] = valStr.substring(1, valStr.length - 1);
         } else if (valStr == 'true') {
           targetFields[name] = true;
         } else if (valStr == 'false') {

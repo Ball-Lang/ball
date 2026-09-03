@@ -1,3 +1,10 @@
+## [1.63.1](https://github.com/Ball-Lang/ball/compare/v1.63.0...v1.63.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ts:** resolve String/Array method ambiguity through a real TypeChecker (closes [#506](https://github.com/Ball-Lang/ball/issues/506)) ([#538](https://github.com/Ball-Lang/ball/issues/538)) ([05c1115](https://github.com/Ball-Lang/ball/commit/05c11159e7e800bc83bece838b9ea358e9803c4c)), closes [#525](https://github.com/Ball-Lang/ball/issues/525)
+
 # [1.63.0](https://github.com/Ball-Lang/ball/compare/v1.62.0...v1.63.0) (2026-09-03)
 
 

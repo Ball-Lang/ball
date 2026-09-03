@@ -155,6 +155,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ball-rq1-study"
+version = "0.1.1"
+dependencies = [
+ "ball-lang-compiler",
+ "ball-lang-encoder",
+ "ball-lang-shared",
+ "prost",
+ "prost-reflect",
+ "serde_json",
+ "syn",
+]
+
+[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

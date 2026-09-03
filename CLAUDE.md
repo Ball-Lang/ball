@@ -494,8 +494,11 @@ Supporting configs:
    REPO wrote; the third-party coverage study (`tools/coverage-study/`, weekly +
    manual `coverage-study.yml`, methodology in
    `tests/conformance/COVERAGE_STUDY.md`) is the separate, deliberately
-   report-only instrument for real-world code — its harness self-test IS gated
-   on every PR.
+   report-only instrument for real-world code. Tier A exists for Dart, Rust
+   (`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
+   (`tools/coverage-study/go`) and Python (`rq1_study_py.py`); TypeScript is
+   deferred for a documented compiler-surface reason. Each harness's self-test
+   IS gated on every PR, in that language's own `ci.yml` job.
 7. Regenerate self-hosted engines: `cd dart && dart run compiler/tool/gen_engine_json.dart`, then `dart run compiler/tool/compile_engine_cpp.dart` (C++) and regen `compiled_engine.ts` (TS, see Build & Test). **Re-run conformance on ALL THREE engines** — a Dart-only fix is half a fix. If you touched the portable CLI verbs (`dart/shared/lib/cli_core.dart`), also regenerate the self-hosted CLI: `dart run compiler/tool/gen_cli_json.dart`, then re-run the parity gate (`cd dart/cli && dart test test/cli_core_parity_test.dart`).
 8. If new metadata keys were introduced, update `docs/METADATA_SPEC.md`.
 

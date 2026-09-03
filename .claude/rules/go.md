@@ -182,6 +182,23 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
 
 ## Testing
 
+- **Third-party coverage study, Tier A (#493).** `tools/coverage-study/go` (a
+  standalone tool module, deliberately OUTSIDE `go/` and out of `go.work` — the six
+  modules there are published paths `tools/go-module-proxy/smoke.sh` sweeps) runs
+  real pinned modules through `encoder.Encode` -> `compiler.CompileLibrary` ->
+  `encoder.Encode`, diffs the declaration inventory with **`go/parser` + `go/ast`
+  directly** (never `go/encoder`'s own walk) and checks a second-generation
+  fixpoint. Honest first baseline **0/21 clean, 0 files even encoded**: every real
+  library file trips the documented top-level `type`/`const`/`var` and
+  method-with-receiver gaps. Because `go/encoder` has **no library mode** (unlike
+  Rust's `encode_library` / C#'s `EncodeLibrary`), the harness appends an empty
+  `func main() {}` before encoding when a file has none, and excludes it (and any
+  real `main`, which `CompileLibrary` renames to `ball_main`) from the inventory —
+  a disclosed accommodation, pinned by its own test. `go test ./...` there IS gated
+  on every PR in the `go` job; the RUN is the report-only `go-tier-a` job in
+  `coverage-study.yml`, which has **no `pull_request:` trigger**. Methodology:
+  `tests/conformance/COVERAGE_STUDY.md`.
+
 - `go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...`
   (default, no tag) runs the compiler end-to-end tests, encoder round-trip tests, runtime unit
   tests, and the CLI's default-build tests (`run`'s honest-failure path), and stays green without

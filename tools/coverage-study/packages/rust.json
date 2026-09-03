@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "Pinned third-party Rust crates for the Tier A coverage study (#493).",
+    "Hermeticity here means SOURCE hermeticity — the harness only parses,",
+    "encodes and re-encodes these files with `syn`, it never builds them — so",
+    "the bar is: pure Rust, no proc-macro crates, no build.rs code generation,",
+    "no FFI/`extern` bindings to a C library, permissively licensed, and small",
+    "enough to shallow-clone. Each `ref` is a commit SHA resolved from the",
+    "repo's default branch on 2026-09-03 via the GitHub API, so a Tier A number",
+    "is reproducible; bump it deliberately, never to chase a number. `lib` is",
+    "the subtree that is actually studied. An unreachable pin is reported",
+    "separately and is NOT scored as a failure."
+  ],
+  "packages": [
+    {
+      "name": "itertools",
+      "repo": "https://github.com/rust-itertools/itertools",
+      "ref": "eee067339d3a825903dbee93b5213dd42e9db6b9",
+      "lib": "src"
+    },
+    {
+      "name": "smallvec",
+      "repo": "https://github.com/servo/rust-smallvec",
+      "ref": "3f69f79fca5945cbe04d7b68660b33de62b359d0",
+      "lib": "src"
+    },
+    {
+      "name": "bitflags",
+      "repo": "https://github.com/bitflags/bitflags",
+      "ref": "c3f8d31d59f3ba8c05833fb322ecab8a2cb88060",
+      "lib": "src"
+    },
+    {
+      "name": "heck",
+      "repo": "https://github.com/withoutboats/heck",
+      "ref": "252c1906cefefb8d13ecad7fce7b8f27ce6437e0",
+      "lib": "src"
+    },
+    {
+      "name": "strsim",
+      "repo": "https://github.com/rapidfuzz/strsim-rs",
+      "ref": "dacc84c0dc61eff0ee0ff66962bcf2e17018ad26",
+      "lib": "src"
+    }
+  ]
+}

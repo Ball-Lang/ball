@@ -178,6 +178,19 @@ cargo fmt --check && cargo clippy --workspace
 
 ## Testing
 
+- **Third-party coverage study, Tier A (#493).** `rust/tools/rq1-study` (crate
+  `ball-rq1-study`, `publish = false`, a workspace member so it is built/formatted/
+  linted with everything else) runs real pinned crates through
+  `encode_library` -> `compile_library` -> `encode_library`, diffs the declaration
+  inventory with **`syn` directly** (never the encoder's own walk) and checks a
+  second-generation fixpoint. Honest first baseline **0/110 clean, 0 files even
+  encoded** — the encoders' documented gaps (item-level `const`/`static`/`type`,
+  tuple structs) are in essentially every real crate file. `cargo test -p
+  ball-rq1-study` (the harness's own self-test) IS gated on every PR in the `rust`
+  job; the RUN is the report-only `rust-tier-a` job in `coverage-study.yml`, which
+  has **no `pull_request:` trigger**. Methodology:
+  `tests/conformance/COVERAGE_STUDY.md`.
+
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
 - `rust/engine/tests/roundtrip_conformance.rs` is a **measurement-only** whole-corpus sweep

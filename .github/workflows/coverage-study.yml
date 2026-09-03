@@ -60,31 +60,15 @@ jobs:
         run: dart run tools/coverage-study/test/rq1_study_self_test.dart
 
       # Shallow-clone each pin at its recorded commit. A pin that cannot be
-      # fetched is reported as "unreachable" by the harness and is NOT scored —
-      # a network hiccup must never read as an encoder regression.
+      # fetched is reported as "unreachable" by the harness and is NOT scored -
+      # a network hiccup must never read as an encoder regression. Shared with
+      # the four Tier A ports below (issue #493).
       - name: Clone pinned packages
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/checkouts"
-          python3 - <<'PY' > "$RUNNER_TEMP/pins.txt"
-          import json
-          with open('tools/coverage-study/packages/dart.json') as f:
-              for p in json.load(f)['packages']:
-                  print(p['name'], p['repo'], p['ref'])
-          PY
-          while read -r name repo ref; do
-            dest="$RUNNER_TEMP/checkouts/$name"
-            if git init -q "$dest" \
-               && git -C "$dest" remote add origin "$repo" \
-               && git -C "$dest" fetch -q --depth 1 origin "$ref" \
-               && git -C "$dest" checkout -q FETCH_HEAD; then
-              echo "cloned $name @ $ref"
-            else
-              echo "::warning::could not fetch pin $name @ $ref — it will be reported as unreachable, not scored"
-              rm -rf "$dest"
-            fi
-          done < "$RUNNER_TEMP/pins.txt"
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/dart.json "$RUNNER_TEMP/checkouts"
 
+      # The positive floor (a run that scored nothing is a harness/checkout
+      # failure, never a 0% result) and the step summary live in
+      # tools/coverage-study/summarize.sh, shared with the four ports below.
       - name: Run Tier A
         id: tier_a
         run: |
@@ -93,35 +77,188 @@ jobs:
             --pins tools/coverage-study/packages/dart.json \
             --checkouts "$RUNNER_TEMP/checkouts" \
             --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
-
-          summary="$(grep -m1 '^Tier A: ' "$RUNNER_TEMP/tier_a.log" || true)"
-          results="$(grep -m1 '^Results: ' "$RUNNER_TEMP/tier_a.log" || true)"
-          if [ -z "$summary" ] || [ -z "$results" ]; then
-            echo "::error::the Tier A harness printed no summary line — treat this as a harness failure, not a 0% result"
-            exit 1
-          fi
-
-          # Positive floor: a run that scored nothing proves nothing.
-          scored="$(printf '%s' "$results" | sed -E 's/^Results: [0-9]+ passed, [0-9]+ failed, ([0-9]+) total.*$/\1/')"
-          if ! printf '%s' "$scored" | grep -Eq '^[0-9]+$' || [ "$scored" -lt 1 ]; then
-            echo "::error::Tier A scored $scored files — no package checkout was readable"
-            exit 1
-          fi
-
-          {
-            echo "## Coverage study — Tier A (Dart)"
-            echo
-            echo '```'
-            cat "$RUNNER_TEMP/tier_a.log"
-            echo '```'
-            echo
-            echo "Report-only: no floor is enforced until a baseline exists (issue #493, slice 2)."
-          } >> "$GITHUB_STEP_SUMMARY"
+          bash tools/coverage-study/summarize.sh Dart "$RUNNER_TEMP/tier_a.log"
 
       - name: Upload Tier A report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: coverage-study-tier-a
+          name: coverage-study-tier-a-dart
+          path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Tier A ports — Rust, C#, Go, Python (issue #493).
+  #
+  # Each job is INDEPENDENT: a language whose pipeline is failing every file
+  # must not stop the others from reporting. Each carries the same positive
+  # floor the dart-tier-a job has (in tools/coverage-study/summarize.sh): a run
+  # that scored < 1 file is a harness/checkout failure, never a 0% result.
+  #
+  # Expect low first numbers. Unlike Dart — whose compiler emits idiomatic Dart
+  # its own encoder reads back — the Rust/C#/Go/Python compilers emit
+  # runtime-call-shaped source (`ball_lang_shared::runtime::*`, `BallRuntime.*`,
+  # `ballrt.*`) their syntactic encoders were never built to consume. That is
+  # the same wall the `*-roundtrip` rows in conformance-matrix.yml already
+  # report as an honest 0/32x on the project's OWN corpus. It is also why every
+  # port prints a per-stage FUNNEL next to the clean percentage: on a pipeline
+  # whose round trip is not closed, WHERE files stop is the entire signal, and
+  # a bare 0% would hide it.
+  # ────────────────────────────────────────────────────────────────────────
+
+  rust-tier-a:
+    name: Tier A (Rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        working-directory: rust
+        run: rustup show
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: rust
+
+      # The harness measures other people's code, so prove the harness first.
+      - name: Harness self-test
+        run: cd rust && cargo test -p ball-rq1-study
+
+      - name: Clone pinned packages
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/rust.json "$RUNNER_TEMP/checkouts"
+
+      - name: Run Tier A
+        run: |
+          set -euo pipefail
+          cd rust
+          cargo run -p ball-rq1-study --bin rq1-study -- \
+            --pins ../tools/coverage-study/packages/rust.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
+          cd "$GITHUB_WORKSPACE"
+          bash tools/coverage-study/summarize.sh Rust "$RUNNER_TEMP/tier_a.log"
+
+      - name: Upload Tier A report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-a-rust
+          path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn
+
+  csharp-tier-a:
+    name: Tier A (C#)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('csharp/Directory.Packages.props', 'csharp/**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # The harness measures other people's code, so prove the harness first.
+      - name: Harness self-test
+        run: dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj
+
+      - name: Clone pinned packages
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/csharp.json "$RUNNER_TEMP/checkouts"
+
+      - name: Run Tier A
+        run: |
+          set -euo pipefail
+          dotnet run --project csharp/coverage-study/Ball.CoverageStudy.csproj -c Release -- \
+            --pins tools/coverage-study/packages/csharp.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
+          bash tools/coverage-study/summarize.sh "C#" "$RUNNER_TEMP/tier_a.log"
+
+      - name: Upload Tier A report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-a-csharp
+          path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn
+
+  go-tier-a:
+    name: Tier A (Go)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: tools/coverage-study/go/go.sum
+
+      # The harness measures other people's code, so prove the harness first.
+      - name: Harness self-test
+        run: cd tools/coverage-study/go && go test ./...
+
+      - name: Clone pinned packages
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/go.json "$RUNNER_TEMP/checkouts"
+
+      - name: Run Tier A
+        run: |
+          set -euo pipefail
+          cd tools/coverage-study/go
+          go run ./cmd/rq1study \
+            --pins ../packages/go.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
+          cd "$GITHUB_WORKSPACE"
+          bash tools/coverage-study/summarize.sh Go "$RUNNER_TEMP/tier_a.log"
+
+      - name: Upload Tier A report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-a-go
+          path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn
+
+  python-tier-a:
+    name: Tier A (Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      # The harness measures other people's code, so prove the harness first.
+      - name: Harness self-test
+        run: python3 tools/coverage-study/test/rq1_study_py_self_test.py
+
+      - name: Clone pinned packages
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/python.json "$RUNNER_TEMP/checkouts"
+
+      - name: Run Tier A
+        run: |
+          set -euo pipefail
+          python3 tools/coverage-study/rq1_study_py.py \
+            --pins tools/coverage-study/packages/python.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
+          bash tools/coverage-study/summarize.sh Python "$RUNNER_TEMP/tier_a.log"
+
+      - name: Upload Tier A report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-a-python
           path: ${{ runner.temp }}/tier_a.json
           if-no-files-found: warn

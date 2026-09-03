@@ -26,6 +26,30 @@ and the root `CLAUDE.md`/`AGENTS.md` status paragraphs, cross-checked against th
 CI job and `csharp-engine` conformance-matrix row. This completes all 10 phases of epic #377's
 phase table (the epic issue itself closes separately, per maintainer review).
 
+## Third-party coverage study — Tier A (`csharp/coverage-study`, issue #493)
+
+A separate Exe project in `Ball.slnx` (mirroring `engine/tool`/`cli/tool`) plus
+its `test/` sibling. It runs pinned third-party libraries through
+`CSharpEncoder.EncodeLibrary` → `CSharpCompiler.Compile` →
+`CSharpEncoder.EncodeLibrary`, diffs the declaration inventory using a **Roslyn
+`CSharpSyntaxWalker` directly** — never `Ball.Encoder`'s own walk, so an encoder
+bookkeeping bug cannot hide from the instrument measuring it — and checks a
+second-generation fixpoint. `Compile` needs no special mode: it already emits
+`Main` only when the entry function exists, so an `EncodeLibrary` Program with
+an empty `EntryFunction` compiles fine.
+
+Honest first baseline: **0/472 clean** (4 pinned libraries,
+`tools/coverage-study/packages/csharp.json`) — but C# gets furthest of the four
+ports, and the funnel is the story: 74 files encode, 73 compile back, 58
+re-encode, and the wall is stage 4, `declaration-drift`. Do not "improve" that
+number by changing the pin list.
+
+`dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj` is the
+harness's own self-test and **is gated on every PR** in ci.yml's `csharp` job.
+The RUN is the report-only `csharp-tier-a` job in `coverage-study.yml`, which
+has **no `pull_request:` trigger**. Methodology:
+`tests/conformance/COVERAGE_STUDY.md`.
+
 ## Layout
 
 ```

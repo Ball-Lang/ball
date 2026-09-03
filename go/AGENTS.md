@@ -2,6 +2,40 @@
 
 # Go (compiler + encoder + engine + runtime; proto bindings)
 
+## Third-party coverage study — Tier A (`tools/coverage-study/go`, issue #493)
+
+A **standalone tool module**, deliberately outside `go/` and out of `go.work`:
+the six modules under `go/` are published module paths that
+`tools/go-module-proxy/smoke.sh` sweeps and that need release tags, and this is
+an internal instrument, so it lives under `tools/` with plain `replace`
+directives instead. Run its tests with `cd tools/coverage-study/go && go test
+./...` — the module enumerations in the `go` job's Build/Vet/Test steps do NOT
+cover it.
+
+It runs pinned third-party modules through `encoder.Encode` →
+`compiler.CompileLibrary` → `encoder.Encode`, diffs the declaration inventory
+using **`go/parser` + `go/ast` directly** — never `go/encoder`'s own walk — and
+checks a second-generation fixpoint.
+
+**The one accommodation:** `go/encoder` has no library mode (contrast Rust's
+`encode_library` and C#'s `EncodeLibrary`), so `Encode` fails loud on every
+entry-point-less file — which is every real library file. Scoring all of them as
+one blanket `encode-error` would measure the missing library mode, not construct
+coverage, so the harness appends an empty `func main() {}` before encoding when
+a file declares none, and excludes it — and any real `func main`, which
+`CompileLibrary` renames to `ball_main` — from the declaration inventory.
+`TestSyntheticEntryPointIsAddedOnlyWhenMissing` pins both halves. Adding a
+library mode to `go/encoder` would remove the need for it.
+
+Honest first baseline: **0/21 clean, 0 files even encoded** (5 pinned modules,
+`tools/coverage-study/packages/go.json`) — every real file trips the documented
+top-level `type`/`const`/`var` and method-with-receiver gaps. Do not "improve"
+that number by changing the pin list.
+
+`go test ./...` there **is gated on every PR** in ci.yml's `go` job. The RUN is
+the report-only `go-tier-a` job in `coverage-study.yml`, which has **no
+`pull_request:` trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+
 ## Purpose
 Ball → Go compiler (Phase 2 of epic #426), the Go → Ball encoder (Phase 3), the
 self-hosted Go engine (Phase 4), the `ball` CLI (Phase 5), the Go runtime value

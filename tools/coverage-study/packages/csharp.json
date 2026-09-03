@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "Pinned third-party C# libraries for the Tier A coverage study (#493).",
+    "Hermeticity here means SOURCE hermeticity — the harness only parses,",
+    "encodes and re-encodes these files with Roslyn, it never restores or",
+    "builds them — so the bar is: hand-written C#, no source generators or T4",
+    "templates in the studied subtree, no P/Invoke-heavy native interop,",
+    "permissively licensed, and small enough to shallow-clone. Humanizer's",
+    "repo root was NOT taken wholesale for that reason (it ships",
+    "Humanizer.SourceGenerators / Humanizer.Analyzers siblings); only the",
+    "hand-written src/Humanizer library is studied. Each `ref` is a commit SHA",
+    "resolved from the repo's default branch on 2026-09-03 via the GitHub API,",
+    "so a Tier A number is reproducible; bump it deliberately, never to chase a",
+    "number. `lib` is the subtree that is actually studied — note",
+    "Newtonsoft.Json's capital `Src`. An unreachable pin is reported separately",
+    "and is NOT scored as a failure."
+  ],
+  "packages": [
+    {
+      "name": "Cronos",
+      "repo": "https://github.com/HangfireIO/Cronos",
+      "ref": "aeb3bff2048c551018cdd16ac11951d0d4bc20d5",
+      "lib": "src/Cronos"
+    },
+    {
+      "name": "CommandLine",
+      "repo": "https://github.com/commandlineparser/commandline",
+      "ref": "1e3607b97af6141743edb3c434c06d5b492f6fb3",
+      "lib": "src/CommandLine"
+    },
+    {
+      "name": "Humanizer",
+      "repo": "https://github.com/Humanizr/Humanizer",
+      "ref": "ffc2b77c0f30d2fb176875841424379319d0ae9b",
+      "lib": "src/Humanizer"
+    },
+    {
+      "name": "Newtonsoft.Json",
+      "repo": "https://github.com/JamesNK/Newtonsoft.Json",
+      "ref": "09bb545d72969ad7fb4ea07db0d5c34f4fc07877",
+      "lib": "Src/Newtonsoft.Json"
+    }
+  ]
+}

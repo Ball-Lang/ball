@@ -197,6 +197,19 @@ python -m conformance.runner                             # prints the CI-parseab
 
 ## Testing
 
+- **Third-party coverage study, Tier A (#493).** `tools/coverage-study/rq1_study_py.py`
+  runs real pinned packages through `ball_encoder.encode` ->
+  `ball_compiler.compile_library` -> `ball_encoder.encode`, diffs the declaration
+  inventory with the **stdlib `ast` directly** (never `ball_encoder`'s own walk) and
+  checks a second-generation fixpoint. Honest first baseline **0/73 clean**; 5 files
+  encode and compile back, and the wall is stage 3 — the compiler's `try/except` +
+  `ballrt.*` output is outside the encoder's surface (the top-level-class gap keeps
+  the other 68 from encoding at all). `python tools/coverage-study/test/
+  rq1_study_py_self_test.py` (the harness's own self-test) IS gated on every PR in
+  the `python` job, and both files are in the `compileall` syntax gate; the RUN is
+  the report-only `python-tier-a` job in `coverage-study.yml`, which has **no
+  `pull_request:` trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+
 - `python -m pytest -q` from each of `python/compiler`, `python/encoder`, `python/cli` runs the
   compiler golden-exact conformance + runtime unit tests, the encoder structural + round-trip tests,
   and the CLI's in-process verb tests (including `run`'s honest-failure path when

@@ -1057,6 +1057,14 @@ pub fn ball_is(value: BallValue, type_name: &str) -> BallValue {
 /// module prefix stripped (`main:Chain` → `Chain`). Both Dart's
 /// `value.runtimeType.toString()` and JavaScript's `typeof` encode to this
 /// function, so it must agree with the Dart reference engine's `_typeNameOf`.
+///
+/// KNOWN DIVERGENCE (issue #528): a set answers `"List"` here for a program
+/// compiled straight to Rust. [`ball_set_create`] returns a `BallValue::List`
+/// because `BallValue` has no `Set` variant, so the `Set` arm below — which
+/// keys on the portable `{'__ball_set__': [...]}` map form — only ever fires
+/// for the *self-hosted engine*, which materialises that shape. `ball_is_type`
+/// has the same blind spot. Conformance fixture `434_type_of` is what makes it
+/// visible (it passes every engine and fails this crate's compiler leg).
 pub fn ball_type_of(value: BallValue) -> BallValue {
     let name = match &value {
         BallValue::Null => "Null".to_string(),
@@ -1069,9 +1077,11 @@ pub fn ball_type_of(value: BallValue) -> BallValue {
         BallValue::Function(_) => "Function".to_string(),
         BallValue::Message(message) => short_type_name(&message.type_name).to_string(),
         BallValue::Map(map) => {
-            // An ordered set is the portable `{'__ball_set__': [...]}` map form,
-            // and a self-hosted-engine object is a map tagged with `__type__`;
-            // both must be discriminated before plain `Map`.
+            // An ordered set is the portable `{'__ball_set__': [...]}` map form
+            // — a shape only the SELF-HOSTED ENGINE produces (see the
+            // divergence note above; a directly-compiled set is a `List`) — and
+            // a self-hosted-engine object is a map tagged with `__type__`; both
+            // must be discriminated before plain `Map`.
             if is_ball_set_value(&value) {
                 "Set".to_string()
             } else {

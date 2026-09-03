@@ -227,6 +227,20 @@ factories `BallValue.Null` / `.Bool(bool)` / `.Int(long)` / `.Double(double)` / 
 - **`ToString()` matches reference-engine stdout**: whole doubles keep a trailing `.0`, `-0.0` is
   distinct, NaN/`Infinity`/`-Infinity` spellings, maps/messages render `{k: v, …}`, functions
   render `<function name>`/`<lambda>`.
+- **There is no set type.** `BallRuntime.SetCreate` returns a `BallList` (duplicate-free,
+  insertion-ordered), so in a *directly compiled* program a set is indistinguishable from a list at
+  the value level: `BallStd.TypeOf` answers `"List"` and `IsOfType(v, "Set")` answers `false`. Both
+  functions' `Set` arms key on the portable `{'__ball_set__': [...]}` map form, which only the
+  **self-hosted engine** materialises — so the engine is correct and only the compiler leg
+  diverges. Measured by conformance fixture `434_type_of` (passes every engine, fails the C#
+  compiler leg on line 8); tracked as
+  [#528](https://github.com/Ball-Lang/ball/issues/528).
+- **A named constructor (`Class.name(args)`) does not compile.** The Dart encoder emits it as a
+  method call on the class reference (not a `messageCreation`), and `Ball.Compiler` drops the
+  qualifier, emitting a bare `from(...)` — `CS0103: The name 'from' does not exist in the current
+  context`. Fixtures `436_recursive_ctor_named` / `438_ctor_initializer_list_with_body` measure it;
+  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The unnamed form (`435`/`437`)
+  compiles and passes.
 
 ### Module builders + field extraction
 

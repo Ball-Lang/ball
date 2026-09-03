@@ -20,9 +20,19 @@
 //
 // `baseName` below performs exactly that normalisation, so this fixture's
 // golden - which, like every other fixture's, is the real `dart run` output -
-// is a value every one of the seven targets can reproduce without needing real
-// generic tracking. Scalars, `null` and user classes need no normalisation at
-// all and are printed raw, pinning the vocabulary exactly.
+// needs no real generic tracking to reproduce. Scalars, `null` and user classes
+// need no normalisation at all and are printed raw, pinning the vocabulary
+// exactly.
+//
+// ONE MEASURED DIVERGENCE, and it is not a `type_of` defect. Line 8 (`Set`) is
+// reproduced by every engine, by the C++ compiled leg, and by the Go and Python
+// compiler legs; the RUST and C# compiler legs answer `List`, because neither
+// runtime has a set representation at all - `rust/shared`'s `ball_set_create`
+// returns a `BallValue::List` and `csharp/shared`'s `SetCreate` returns a
+// `BallList`, so a compiled set genuinely IS a list there. Their `type_of` /
+// `is` set arms key on the portable `{'__ball_set__': [...]}` map form that only
+// the self-hosted engines materialise. Tracked as issue #528; the `Set` line
+// stays here because it is the only place that divergence is visible.
 
 class Widget {
   int size = 1;

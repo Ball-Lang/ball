@@ -135,13 +135,26 @@ public static partial class BallRuntime
     /// (<c>main:Chain → Chain</c>). Both Dart's <c>value.runtimeType.toString()</c>
     /// and JavaScript's <c>typeof</c> encode to this function, so it must agree
     /// with the Dart reference engine's <c>_typeNameOf</c>.
+    /// <para>
+    /// KNOWN DIVERGENCE (issue #528): a set answers <c>"List"</c> here for a
+    /// program compiled straight to C#. <c>BallRuntime.SetCreate</c> returns a
+    /// <c>BallList</c> because the value model has no set type, so the
+    /// <c>Set</c> arm below — which keys on the portable
+    /// <c>{'__ball_set__': [...]}</c> map form — only ever fires for the
+    /// <i>self-hosted engine</i>, which materialises that shape.
+    /// <c>IsOfType(value, "Set")</c> has the same blind spot. Conformance
+    /// fixture <c>434_type_of</c> is what makes it visible (it passes every
+    /// engine and fails this project's compiler leg).
+    /// </para>
     /// </summary>
     public static BallValue TypeOf(BallValue value) => BallValue.Str(TypeOfName(value));
 
     private static string TypeOfName(BallValue value)
     {
-        // An ordered set is the portable `{'__ball_set__': [...]}` form, so it
-        // must be discriminated before plain Map / a `__type__`-tagged object.
+        // An ordered set is the portable `{'__ball_set__': [...]}` form — a
+        // shape only the SELF-HOSTED ENGINE produces (see the divergence note
+        // above; a directly-compiled set is a BallList) — so it must be
+        // discriminated before plain Map / a `__type__`-tagged object.
         if (value is BallMap setMap && setMap.Get("__ball_set__") is BallList)
         {
             return "Set";

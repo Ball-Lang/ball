@@ -205,14 +205,48 @@ too, without a colour-forced CI leg.
 >
 > The four `43x` constructor fixtures added for #499 are the same case: they
 > are the only cross-target lock on "a constructor that builds another
-> instance of its own class must not silently get `self` back", they pass on
-> all six ENGINES (including the C++ self-hosted one) and on the
-> Rust/Go/Python/C# compiler legs, and the two Ball -> C++ gaps they expose are
-> filed as [#513](https://github.com/Ball-Lang/ball/issues/513) (a read through
-> a nullable self-referential field emits a concrete-struct member access on
+> instance of its own class must not silently get `self` back", and they pass
+> on every ENGINE — the Dart reference one plus all six self-hosted ones, the
+> C++ included. **That** is the coverage that survives carving them out of the
+> Ball -> C++ *compiled* leg. The two Ball -> C++ gaps they expose are filed as
+> [#513](https://github.com/Ball-Lang/ball/issues/513) (a read through a
+> nullable self-referential field emits a concrete-struct member access on
 > `BallDyn`) and [#514](https://github.com/Ball-Lang/ball/issues/514) (a class
 > whose only constructor is zero-argument gets a duplicate default one). Both
 > are g++ build failures, not Ball -> C++ compile failures.
+>
+> **Name the leg that actually covers it — measure, do not assume.** An earlier
+> draft of the paragraph above also claimed those four fixtures "pass on the
+> Rust/Go/Python/C# compiler legs". Measured one fixture at a time, they do not:
+> `435_recursive_ctor_construction` and `437_recursive_ctor_tree` (unnamed
+> constructors) pass all four, while `436_recursive_ctor_named` and
+> `438_ctor_initializer_list_with_body` fail **all four** — Rust
+> `[E0425] cannot find value 'Countdown'`, C# `CS0103: The name 'from' does not
+> exist in the current context`, a Go `build` error, Python
+> `unresolved reference 'Countdown'`. None of those four compilers resolves a
+> NAMED constructor (`Class.name(args)`), which the Dart encoder emits as a
+> method call on the class reference rather than as a `messageCreation`; that
+> pre-existing gap is filed as
+> [#527](https://github.com/Ball-Lang/ball/issues/527). CI stays green because
+> those legs are **ratcheted** — they fail only on a DROP below a recorded floor
+> (73-89 pre-existing failures each), and are explicitly not parity gates. A
+> ratcheted leg going green tells you nothing about a specific fixture: run it.
+>
+> **A new base function can be right everywhere and still not agree everywhere.**
+> `434_type_of` (#489's fixture) prints `Set` on line 8 — the real `dart run`
+> oracle — on every engine, on the C++ compiled leg, and on the Go and Python
+> compiler legs, and prints `List` on the Rust and C# ones. That is not a
+> `type_of` defect: neither runtime has a set representation at all
+> (`rust/shared`'s `ball_set_create` returns a `BallValue::List`,
+> `csharp/shared`'s `SetCreate` returns a `BallList`), so a compiled set *is* a
+> list there; both runtimes' `Set` arm keys on the portable
+> `{'__ball_set__': [...]}` map form only the self-hosted engines materialise.
+> `x is Set` has been answering wrongly in those two targets for as long as it
+> has existed, unnoticed, because nothing ever asked — 434 is the first test
+> that does. Filed as
+> [#528](https://github.com/Ball-Lang/ball/issues/528); the fixture keeps its
+> `Set` line, because deleting it would delete the only place the divergence is
+> visible.
 >
 > A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
 > `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out

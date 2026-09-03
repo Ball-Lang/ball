@@ -122,6 +122,14 @@ go run ./cmd/ballgoconf 101_simple_class   # one fixture, full expected/actual d
 - It is a **command, not a test**, so the default `go test ./compiler/...` stays
   fast. `runner_test.go` keeps a positive floor: one fixture must actually pass, and
   an empty sweep is an error (a "0 passed, 0 failed" line must never read as green).
+- **Known gap — a named constructor (`Class.name(args)`) does not build.** The Dart
+  encoder emits it as a method call on the class reference rather than as a
+  `messageCreation`, and `go/compiler` emits the class name as an ordinary value
+  reference, so the emitted Go fails `go build`. Fixtures
+  `436_recursive_ctor_named` and `438_ctor_initializer_list_with_body` measure it
+  (the unnamed form, `435`/`437`, compiles and passes, as does `434_type_of`);
+  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The leg is a
+  **ratchet**, not a parity gate, so those two count among its recorded failures.
 
 ## Round-trip conformance leg (`go/engine/conformance/roundtrip.go`, issue #452 item 3)
 The third question, after the engine and compiler legs: **can `go/encoder` read

@@ -114,12 +114,30 @@ const json = toJson(ProgramSchema, program);
   `target?.<method>(...)` in the TARGET language, so the JS spelling `push`
   would compile to a nonexistent `List.push` in Dart. `?.` on a *user-defined*
   method still routes through `null_aware_call`, which is correct.
-- **A method name on BOTH String and Array warns.** `slice`/`indexOf`/
-  `includes` resolve to the String mapping because `STR_METHODS` is consulted
-  first, which is wrong for an Array receiver. That ambiguity now emits a
-  behaviour-affecting `warn()` (kind `AmbiguousStringArrayMethod`) so it is
-  visible at encode time and rejected under `{ strictBehaviorAffecting: true }`
-  — resolving it correctly needs the TS semantic model (#506).
+- **A method name on BOTH String and Array is resolved by the TypeChecker, not
+  by table order (#506).** `slice`/`indexOf`/`includes` used to take the
+  `STR_METHODS` mapping unconditionally, which is wrong for an Array receiver
+  (`arr.slice(1,3)` compiled to `arr.substring(1,3)` and threw). `encode()` now
+  builds a `ts.Program` over an in-memory `ts.CompilerHost` — lazily, on the
+  first ambiguous name, with the parsed `lib.*.d.ts` cached process-wide — and
+  `resolveReceiverKind` picks `STR_METHODS` for a string-like receiver and
+  `ARR_METHODS` (`std_collections.list_*`) for a `T[]`/`ReadonlyArray`/tuple
+  one. The behaviour-affecting `warn()` (kind `AmbiguousStringArrayMethod`)
+  survives ONLY for receivers the checker cannot pin down — `any`, an
+  unresolved name, a mixed union, a type parameter — where guessing would turn
+  a loud fallback into a silent mis-encode. Assert the emitted
+  `{module, function}` pair in `ts/encoder/test/semantic_resolution.test.ts`: a
+  round-trip cannot see this class of bug, because `string_index_of` /
+  `string_contains` compile back to JS's receiver-agnostic `.indexOf()` /
+  `.includes()` and pass on the wrong IR.
+- **A compiled Ball program shadows `Map.prototype` process-globally, and that
+  breaks TypeScript's own checker.** `ts/compiler/src/preamble.ts` redefines
+  `entries`/`keys`/`values` as Dart-style getters, so `map.keys()` throws
+  anywhere in the process once `@ball-lang/engine` is loaded — including inside
+  `ts.createProgram`. `ts/encoder`'s `withNativeMapPrototype` restores the
+  natives around every checker call and puts the shadowing back afterwards.
+  Keep engine imports lazy (`ts/cli/src/index.ts` already does) and never make
+  the encoder's Program eager.
 - **Test harnesses that diff `execSync` stdout must pin the child's colour
   state.** Node's `console.log` colourises a bare `number` but never a
   `string`, and the Ball compiler always stringifies via `__ball_to_string(...)`

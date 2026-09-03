@@ -410,12 +410,48 @@ main();
 `);
   });
 
-  // NOTE: `slice`, `indexOf`, `includes` and `concat` exist on BOTH String and
-  // Array, and the encoder is syntax-only (no type checker), so the STRING
-  // mapping wins for all four — see ts/encoder/ENCODER_CARVEOUTS.md. That is
-  // survivable in the TS target for indexOf/includes (JS Array has both under
-  // the same spelling), so the fixture below exercises those, while array
-  // `slice`/`concat` stay a documented, type-checker-shaped gap.
+  // `slice`, `indexOf` and `includes` exist on BOTH String and Array. The
+  // encoder now resolves them from the receiver's static type through a real
+  // `ts.Program` TypeChecker (#506), so an array receiver reaches
+  // `std_collections.list_slice` / `list_index_of` / `list_contains` instead of
+  // the String mapping. Before #506 the `.slice()` case below threw
+  // `TypeError: a.substring is not a function` on the round-tripped program,
+  // because `std.string_substring` compiles back to `.substring(...)`, which
+  // Array does not have. `concat` was never ambiguous (no STR_METHODS entry) —
+  // see ts/encoder/ENCODER_CARVEOUTS.md.
+  //
+  // NOTE on why this fixture is not enough on its own: a round-trip asserts
+  // TS-target OUTPUT EQUIVALENCE, and `string_index_of` / `string_contains`
+  // happen to compile back to JS's receiver-agnostic `.indexOf()` /
+  // `.includes()`. Those two therefore passed on the WRONG IR for as long as
+  // the bug existed. `test/semantic_resolution.test.ts` asserts the emitted
+  // `{module, function}` pair, which is what actually pins the portability.
+  test("Array.slice on a typed array receiver (#506)", () => {
+    assertRoundTrip(`
+function main() {
+  const a: number[] = [1, 2, 3, 4];
+  console.log(a.slice(1, 3).join(","));
+  console.log(a.slice(2).join(","));
+  console.log(a.indexOf(3));
+  console.log(a.includes(4));
+  console.log(a.join(","));
+}
+main();
+`);
+  });
+
+  test("String.slice / indexOf / includes keep the String mapping (#506)", () => {
+    assertRoundTrip(`
+function main() {
+  const s: string = "abcdef";
+  console.log(s.slice(1, 3));
+  console.log(s.indexOf("cd"));
+  console.log(s.includes("ef"));
+}
+main();
+`);
+  });
+
   test("Array.splice(i, 1) removes one element (#489)", () => {
     assertRoundTrip(`
 function main() {

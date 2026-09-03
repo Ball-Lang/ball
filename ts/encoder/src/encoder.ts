@@ -89,6 +89,116 @@ const COMPOUND_OPS: Record<number, string> = {
   [ts.SyntaxKind.AsteriskAsteriskEqualsToken]: "**=",
 };
 
+/**
+ * The single synthetic file every `encode()` call is parsed into. It is a
+ * relative name so the `ts.Program` never touches the real working directory
+ * for it, and it is fixed so the lib-file cache below is shared across calls.
+ */
+const INPUT_FILE_NAME = "ball_encoder_input.ts";
+
+/**
+ * Compiler options for the checker-backed `ts.Program`.
+ *
+ * `lib` is pinned to the non-`.full` ES2022 library on purpose: the default
+ * for this target is `lib.es2022.full.d.ts`, which drags in the whole DOM
+ * (~2 MB of extra declarations) that the encoder has no use for. ES2022 alone
+ * still declares `String` and `Array`, which is all the String-vs-Array
+ * resolution needs. `types: []` keeps `@types/*` off the graph for the same
+ * reason. Diagnostics are never read — the encoder must encode a file with
+ * type errors exactly as before — so nothing here affects correctness beyond
+ * which globals resolve.
+ */
+const CHECKER_OPTIONS: ts.CompilerOptions = {
+  target: ts.ScriptTarget.Latest,
+  module: ts.ModuleKind.ESNext,
+  moduleResolution: ts.ModuleResolutionKind.Bundler,
+  lib: ["lib.es2022.d.ts"],
+  types: [],
+  noEmit: true,
+  skipLibCheck: true,
+  allowJs: false,
+};
+
+/**
+ * `Map.prototype` members the Ball TS runtime preamble replaces with Dart-style
+ * GETTERS (`ts/compiler/src/preamble.ts` — Dart spells `map.keys`, JS spells
+ * `map.keys()`). That shadowing is process-global, so once a compiled Ball
+ * program (e.g. `@ball-lang/engine`) is loaded, every `map.keys()` call in the
+ * process throws `keys is not a function` — including the ones inside
+ * TypeScript's own type checker. `withNativeMapPrototype` below hands the
+ * natives back for as long as the checker is running.
+ */
+const SHADOWABLE_MAP_MEMBERS = ["entries", "keys", "values"] as const;
+
+/**
+ * The native descriptors, captured at module load — i.e. before an
+ * `await import()` of a compiled Ball program can shadow them. (If this module
+ * is itself loaded after such a program, these are already the getters and the
+ * guard degrades to a no-op: the checker then fails loudly rather than
+ * silently mis-resolving. See ts/encoder/AGENTS.md.)
+ */
+const NATIVE_MAP_DESCRIPTORS: Record<string, PropertyDescriptor> = Object.fromEntries(
+  SHADOWABLE_MAP_MEMBERS.map((name) => [name, Object.getOwnPropertyDescriptor(Map.prototype, name)!]),
+);
+
+/** Run `fn` with native `Map.prototype` iteration methods, then put back what was there. */
+function withNativeMapPrototype<T>(fn: () => T): T {
+  const shadowed = SHADOWABLE_MAP_MEMBERS.filter(
+    (name) => Object.getOwnPropertyDescriptor(Map.prototype, name)?.get !== undefined,
+  );
+  if (shadowed.length === 0) return fn();
+  const saved = shadowed.map(
+    (name) => [name, Object.getOwnPropertyDescriptor(Map.prototype, name)!] as const,
+  );
+  for (const name of shadowed) Object.defineProperty(Map.prototype, name, NATIVE_MAP_DESCRIPTORS[name]);
+  try {
+    return fn();
+  } finally {
+    for (const [name, descriptor] of saved) Object.defineProperty(Map.prototype, name, descriptor);
+  }
+}
+
+/**
+ * Parsed `lib.*.d.ts` files, keyed by the name the compiler host asked for.
+ *
+ * Creating a `ts.Program` is far heavier than `ts.createSourceFile` — the bulk
+ * of it is parsing and BINDING the standard library. Both are cached on the
+ * `SourceFile` objects themselves, so reusing them across `encode()` calls
+ * turns every call after the first back into roughly single-file cost. Without
+ * this cache the ts/encoder suite's ~250 encodes would each re-parse the whole
+ * ES2022 lib.
+ *
+ * `undefined` is a legitimate cached value (the host could not find the file),
+ * hence `has()` rather than a truthiness check.
+ */
+const LIB_FILE_CACHE = new Map<string, ts.SourceFile | undefined>();
+
+/** What a method call's receiver statically is, as far as the checker knows. */
+type ReceiverKind = "string" | "array" | "unknown";
+
+/**
+ * Build a `TypeChecker` that has bound `sourceFile` — the very object the
+ * encoder is already walking, so every node it holds is one the checker knows.
+ *
+ * The public API takes a bare source string, so there is no real file to point
+ * a `ts.Program` at. An in-memory host serves that one file and delegates
+ * everything else — crucially the `lib.*.d.ts` lookup and its `/// <reference
+ * lib="..." />` chain — to the stock compiler host, which already knows how to
+ * find them inside the resolved `typescript` package.
+ */
+function createChecker(sourceFile: ts.SourceFile): ts.TypeChecker {
+  const host = ts.createCompilerHost(CHECKER_OPTIONS, /* setParentNodes */ true);
+  const readLib = host.getSourceFile.bind(host);
+  host.getSourceFile = (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+    if (fileName === INPUT_FILE_NAME) return sourceFile;
+    if (LIB_FILE_CACHE.has(fileName)) return LIB_FILE_CACHE.get(fileName);
+    const lib = readLib(fileName, languageVersion, onError, shouldCreateNewSourceFile);
+    LIB_FILE_CACHE.set(fileName, lib);
+    return lib;
+  };
+  return ts.createProgram([INPUT_FILE_NAME], CHECKER_OPTIONS, host).getTypeChecker();
+}
+
 export class TsEncoder {
   private stdFunctions = new Set<string>();
   private warnings: string[] = [];
@@ -96,6 +206,17 @@ export class TsEncoder {
   private strictBehaviorAffecting = false;
   /** Monotonic counter for the synthetic loop variables `.forEach` desugars to. */
   private desugarCounter = 0;
+  /**
+   * The file currently being encoded, and the semantic model over it (#506).
+   *
+   * The checker is built LAZILY — the first time a method name that exists on
+   * both `String` and `Array` actually shows up. Creating a `ts.Program` costs
+   * orders of magnitude more than parsing one file, and the overwhelming
+   * majority of encodes never contain an ambiguous name, so they must not pay
+   * for it.
+   */
+  private inputFile: ts.SourceFile | undefined;
+  private checker: ts.TypeChecker | undefined;
 
   // Maps an operator lexeme to the canonical, language-agnostic Ball method
   // name every compiler already understands for operator overloads — mirrors
@@ -133,8 +254,13 @@ export class TsEncoder {
     this.strictBehaviorAffecting = options.strictBehaviorAffecting ?? false;
 
     const sourceFile = ts.createSourceFile(
-      "input.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
+      INPUT_FILE_NAME, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
     );
+    // `resolveReceiverKind` wraps this file in a real `ts.Program` on demand,
+    // so `slice`/`indexOf`/`includes` resolve against the receiver's static
+    // type instead of lookup-table order (#506).
+    this.inputFile = sourceFile;
+    this.checker = undefined;
 
     const functions: FunctionDef[] = [];
     const typeDefs: TypeDefinition[] = [];
@@ -851,7 +977,7 @@ export class TsEncoder {
 
       // Map common JS/TS method calls to their Ball std equivalents.
       // The engine's std module uses snake_case names with type prefixes.
-      const stdMethod = this.mapMethodToStd(method, args);
+      const stdMethod = this.mapMethodToStd(method, args, node.expression.expression);
       if (stdMethod) {
         const callWith = (receiver: Expression): Expression => this.stdCall(stdMethod.fn, [
           { name: stdMethod.selfName ?? "value", value: receiver },
@@ -1488,6 +1614,54 @@ export class TsEncoder {
   }
 
   /**
+   * Classify a method call's receiver as a `String`, an `Array`, or neither
+   * (#506). Only consulted for the three names that exist on both.
+   *
+   * Deliberately conservative: anything the checker cannot pin down — `any`
+   * (which is also what an unresolved name resolves to), `unknown`, a bare
+   * type parameter, or a union whose members disagree — comes back
+   * `"unknown"`, which keeps the warn-loud String fallback rather than
+   * guessing.
+   */
+  private resolveReceiverKind(receiver: ts.Expression | undefined): ReceiverKind {
+    const inputFile = this.inputFile;
+    if (!inputFile || !receiver) return "unknown";
+    // Everything that touches the checker — construction AND every query it
+    // lazily runs — needs native `Map.prototype` iteration methods.
+    return withNativeMapPrototype(() => this.classifyReceiver(inputFile, receiver));
+  }
+
+  /** `resolveReceiverKind`'s body, once the Map-prototype guard is in place. */
+  private classifyReceiver(inputFile: ts.SourceFile, receiver: ts.Expression): ReceiverKind {
+    // The checker is built on first use, then reused for the rest of the encode.
+    const checker = this.checker ?? (this.checker = createChecker(inputFile));
+
+    const classify = (type: ts.Type): ReceiverKind => {
+      // `any`/`unknown`/a type parameter carry no receiver information. The
+      // error type produced by an unresolved name is an `any`, so this arm
+      // covers `nowhere.includes(x)` too.
+      if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown | ts.TypeFlags.TypeParameter)) {
+        return "unknown";
+      }
+      // StringLike covers `string`, string literal types, template literal
+      // types and `Uppercase<T>`-style string mappings.
+      if (type.flags & ts.TypeFlags.StringLike) return "string";
+      // `String` (the boxed object type) has no StringLike flag.
+      if (type.getSymbol()?.getName() === "String") return "string";
+      // `T[]`, `ReadonlyArray<T>` and every tuple shape.
+      if (checker.isArrayType(type) || checker.isTupleType(type)) return "array";
+      return "unknown";
+    };
+
+    const type = checker.getTypeAtLocation(receiver);
+    if (!type.isUnion()) return classify(type);
+    // A union resolves only when every member agrees; `string | number[]`
+    // genuinely is ambiguous and must keep warning.
+    const kinds = type.types.map(classify);
+    return kinds.every((k) => k === kinds[0]) ? kinds[0] : "unknown";
+  }
+
+  /**
    * Map a JS/TS method name to its Ball std function equivalent.
    * Returns null if no mapping exists (falls through to generic method call).
    *
@@ -1502,6 +1676,7 @@ export class TsEncoder {
   private mapMethodToStd(
     method: string,
     _args: { name: string; value: Expression }[],
+    receiver?: ts.Expression,
   ): { fn: string; module?: string; selfName?: string; extraFields: (a: typeof _args) => FieldValuePair[] } | null {
     /** Name the i-th argument after `names[i]`, falling back to `argN`. */
     const named = (...names: string[]) =>
@@ -1562,33 +1737,8 @@ export class TsEncoder {
     // made the dedicated `toString` mapping below unreachable and produced a
     // corrupt call.function (a function object, not "to_string") in the Ball
     // IR. Found via coverage analysis of the always-dead toString branch.
-    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
-      const m = STR_METHODS[method];
-      // `slice`, `indexOf` and `includes` exist on BOTH String and Array, and
-      // this syntax-only encoder (no ts.Program/TypeChecker) resolves them to
-      // the STRING mapping because STR_METHODS is consulted first. On an Array
-      // receiver that is wrong: `arr.slice(1, 3)` compiles to
-      // `arr.substring(1, 3)`, which throws. ENCODER_CARVEOUTS.md documents
-      // the ambiguity, but this branch never called `warn()`, so the encode
-      // was completely silent — even under `{ strictBehaviorAffecting: true }`
-      // — contradicting that file's own "every entry here warns" policy.
-      // Same mechanism and severity as the ArraySplice warning in encodeCall.
-      // Resolving it correctly (rather than merely loudly) needs the TS
-      // semantic model — tracked by #506.
-      if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
-        this.warn(
-          `\`.${method}(...)\` exists on both String and Array; the syntax-only ` +
-          `encoder resolves it to std.${m.fn} (the String mapping), which is ` +
-          `wrong for an Array receiver — see ts/encoder/ENCODER_CARVEOUTS.md ` +
-          `"Ambiguous without a type checker"`,
-          "AmbiguousStringArrayMethod",
-        );
-      }
-      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
-    }
-
-    // Same hasOwnProperty rationale as STR_METHODS above.
-    if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
+    /** The `std_collections` mapping for `method`, in the shape callers want. */
+    const arrayMapping = () => {
       const m = ARR_METHODS[method];
       return {
         fn: m.fn,
@@ -1596,6 +1746,43 @@ export class TsEncoder {
         selfName: "list",
         extraFields: named(...m.args),
       };
+    };
+
+    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
+      const m = STR_METHODS[method];
+      // `slice`, `indexOf` and `includes` exist on BOTH String and Array, so
+      // the table this branch reaches first cannot decide the mapping — the
+      // RECEIVER'S STATIC TYPE does. Before #506 the encoder was syntax-only
+      // (no ts.Program/TypeChecker) and STR_METHODS simply won, so
+      // `arr.slice(1, 3)` compiled to `arr.substring(1, 3)` and threw at
+      // runtime; #525 made that loud but still wrong. `encode()` now builds a
+      // real Program, so ask the checker.
+      //
+      // The warning survives for the receivers the checker CANNOT type (`any`,
+      // an unresolved identifier, a mixed union, a type parameter): guessing
+      // there would trade today's honest warn-loud fallback for a new class of
+      // silent mis-encode, which is strictly worse (Core Invariant: fail loud).
+      if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
+        const kind = this.resolveReceiverKind(receiver);
+        if (kind === "array") return arrayMapping();
+        if (kind === "unknown") {
+          this.warn(
+            `\`.${method}(...)\` exists on both String and Array and the type ` +
+            `checker could not resolve this receiver (\`any\`, an unresolved ` +
+            `name, a mixed union or a type parameter); the encoder falls back ` +
+            `to std.${m.fn} (the String mapping), which is wrong for an Array ` +
+            `receiver — see ts/encoder/ENCODER_CARVEOUTS.md ` +
+            `"Ambiguous without a type checker"`,
+            "AmbiguousStringArrayMethod",
+          );
+        }
+      }
+      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
+    }
+
+    // Same hasOwnProperty rationale as STR_METHODS above.
+    if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
+      return arrayMapping();
     }
 
     // toString

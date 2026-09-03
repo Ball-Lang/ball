@@ -4314,7 +4314,7 @@ export class BallEngine {
       if (((__ball_eq(name, '__type_args__') || __ball_eq(name, 'type_args')) || __ball_eq(name, '__const__'))) {
         continue;
       }
-      if (name.startsWith('arg')) {
+      if (new RegExp('^arg\\d+$').hasMatch(name)) {
         return false;
       }
       if (params.includes(name)) {

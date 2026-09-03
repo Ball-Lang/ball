@@ -202,7 +202,7 @@ The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.pr
 | **Python** | Yes | -- | -- | -- |
 | **Java** | Yes | -- | -- | -- |
 
-Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `329 passed, 0 failed, 329 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
+Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `334 passed, 0 failed, 334 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
 
 ```mermaid
 flowchart LR

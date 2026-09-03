@@ -5444,6 +5444,35 @@ void main() {
       expect(await runAndCapture(p), ['Foo']);
     });
 
+    test(
+      'constructor self-reference whose field name merely STARTS WITH "arg" '
+      'still resolves to self (#499 guard, positional test is ^arg\\d+\$)',
+      () async {
+        // The positional-argument test must match a real positional slot
+        // (`arg0`, `arg1`, …), not any name with an "arg" prefix: a class whose
+        // own field is called `argCount` emits the field-initializer
+        // self-reference `Foo{argCount: 5}`, which a prefix match reads as a
+        // genuine construction and re-enters `Foo.new` forever (Stack Overflow).
+        final p = buildProgram(
+          functions: [
+            {
+              'name': 'Foo.new',
+              'metadata': {'kind': 'constructor', 'class': 'Foo'},
+              'body': msg([field('argCount', literal(5))], typeName: 'Foo'),
+            },
+            mainFn([
+              letStmt('f', msg([], typeName: 'Foo')),
+              stmt(printToString(fieldAcc(ref('f'), '__type__'))),
+            ]),
+          ],
+        );
+        // Red (prefix match): `Foo{argCount: 5}` reads as a real construction and
+        // re-enters `Foo.new` until the stack dies. Green: it is the self-
+        // reference, so the program terminates and reports the class.
+        expect(await runAndCapture(p), ['Foo']);
+      },
+    );
+
     test('is on class instance — false for wrong type', () async {
       final p = buildProgram(
         stdFunctions: typeFns,

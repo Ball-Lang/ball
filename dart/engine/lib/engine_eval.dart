@@ -1398,6 +1398,11 @@ extension BallEngineEval on BallEngine {
   /// alone conflated the two and silently handed every same-class construction
   /// back `self`.
   ///
+  /// The positional test matches a real slot (`arg0`, `arg1`, …), never merely
+  /// an `arg` PREFIX: a class whose own field is called `argCount` emits the
+  /// field-initializer self-reference `Foo{argCount: 5}`, and reading that as a
+  /// genuine construction re-enters the constructor forever.
+  ///
   /// Bookkeeping keys (`__type_args__` / `type_args` / `__const__`) are neither.
   bool _isBareSelfConstruction(MessageCreation msg) {
     final ctorEntry = _lookupConstructor(msg.typeName);
@@ -1411,7 +1416,7 @@ extension BallEngineEval on BallEngine {
           name == '__const__') {
         continue;
       }
-      if (name.startsWith('arg')) return false;
+      if (RegExp(r'^arg\d+$').hasMatch(name)) return false;
       if (params.contains(name)) return false;
     }
     return true;

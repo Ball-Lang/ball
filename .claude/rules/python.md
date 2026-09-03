@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`) are all in place and tested (the self-hosted cli-core
 verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported — like Go). The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 329 passed,
-0 failed, 329 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 334 passed,
+0 failed, 334 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -111,7 +111,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 329 passed, 0 failed, 329 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 334 passed, 0 failed, 334 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -119,6 +119,12 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `std_collections`/set (`collections.py`), `std_convert` (`convert.py`), the is/as class registry
   (`selfhost.py`). The parity grind's root-cause clusters are catalogued in
   `python/engine/AGENTS.md`.
+- **`call_method` dispatches a receiver's OWN method before the `has<Field>` presence heuristic.**
+  The heuristic (`name` starts with `has` + a capital ⇒ a protobuf presence probe) used to run
+  first, so Dart's real `RegExp.hasMatch(s)` became a presence probe for a field named `match` and
+  silently answered `False` — every regex path in the compiled engine (`std.string_matches`, the
+  engine's own `^arg\d+$` constructor-argument test) was dead in Python while every other target
+  ran it. Pinned by `python/compiler/tests/test_runtime.py`.
 - **Per-fixture timeout is a subprocess kill, not cooperative** (contrast Go): each fixture runs as
   its own killable `python -m ball_engine` subprocess with `subprocess.run(timeout=…)`, so a runaway
   is simply killed — a Python process is trivially killable, sidestepping the goroutine-leak problem

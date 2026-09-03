@@ -71,3 +71,28 @@ def test_math_round_is_half_away_from_zero():
     assert ballrt.math_round(2.5) == 3
     assert ballrt.math_round(-2.5) == -3
     assert math.isclose(ballrt.math_sqrt(9), 3.0)
+
+
+def test_call_method_prefers_a_real_method_over_the_has_prefix_presence_path():
+    """``regexp.hasMatch(s)`` is a REAL method, not a ``has<Field>`` presence check.
+
+    ``call_method`` used to test the ``has`` + uppercase-letter prefix first, so
+    every ``hasMatch`` call was rewritten into a protobuf presence probe for a
+    field named ``match`` and silently answered False — the self-hosted engine's
+    regex paths (``std.string_matches``, the ``^arg\\d+$`` constructor-argument
+    test) were dead in Python while every other target ran them.
+    """
+    from ballrt.selfhost import make_regexp
+
+    rx = make_regexp({"arg0": r"^arg\d+$"})
+    assert ballrt.call_method(rx, "hasMatch", "arg0") is True
+    assert ballrt.call_method(rx, "hasMatch", "arg12") is True
+    assert ballrt.call_method(rx, "hasMatch", "argCount") is False
+    assert ballrt.call_method(rx, "hasMatch", "depth") is False
+
+
+def test_call_method_still_answers_protobuf_presence_for_plain_maps():
+    """The presence path itself must keep working for the map-shaped receivers
+    it exists for (``binding.hasBody()`` on a decoded Ball message)."""
+    assert ballrt.call_method({"body": {"literal": 1}}, "hasBody") is True
+    assert ballrt.call_method({}, "hasBody") is False

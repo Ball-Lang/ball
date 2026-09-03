@@ -10,7 +10,7 @@ into `compiled/compiled_engine.go`, and driven by a thin native wrapper.
 ## Status: complete, at Dart parity (#426 Phase 4)
 
 The compiled engine runs the whole conformance corpus with Dart-identical output:
-**`Results: 329 passed, 0 failed, 329 total (4 skipped carve-outs)`**. The 4
+**`Results: 334 passed, 0 failed, 334 total (4 skipped carve-outs)`**. The 4
 golden-less fixtures (`196_timeout` / `197_memory_limit` / `201_input_validation`
 / `202_sandbox_mode`) are the same resource-limit/sandbox carve-outs the
 Dart/Rust/C# runners skip. Behind the off-by-default `selfhost` build tag because

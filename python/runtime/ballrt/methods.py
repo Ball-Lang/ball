@@ -26,19 +26,26 @@ def identical(a, b):
 
 
 def call_method(recv, name, *args):
+    # A runtime/user object (RegExp, StringBuffer, a Ball class instance, …)
+    # implements the method directly; builtins go through the dispatch table so
+    # Dart semantics (not Python's) apply.
+    #
+    # This is checked BEFORE the `has<Field>` presence heuristic below: a real
+    # method whose name happens to start with "has" plus a capital — Dart's own
+    # `RegExp.hasMatch(s)` — otherwise reads as a presence probe for a field
+    # called `match` and silently answers False, which killed every regex path
+    # in the Python self-hosted engine (`std.string_matches`, the engine's
+    # `^arg\d+$` constructor-argument test) while every other target ran them.
+    if not isinstance(recv, _BUILTIN) and not isinstance(recv, BallSet):
+        fn = getattr(recv, name, None)
+        if callable(fn):
+            return fn(*args)
     # A native protobuf presence accessor (`msg.hasValue()`, `binding.hasBody()`)
     # — encoded as a method call — is a presence check on the underlying field.
     if len(name) > 3 and name.startswith("has") and name[3].isupper():
         field = name[3].lower() + name[4:]
         target = recv.entries if isinstance(recv, BallMap) else recv
         return _proto._has(target, field)
-    # A runtime/user object (RegExp, StringBuffer, a Ball class instance, …)
-    # implements the method directly; builtins go through the dispatch table so
-    # Dart semantics (not Python's) apply.
-    if not isinstance(recv, _BUILTIN) and not isinstance(recv, BallSet):
-        fn = getattr(recv, name, None)
-        if callable(fn):
-            return fn(*args)
     handler = _DISPATCH.get(name)
     if handler is None:
         return throw(f"unsupported method .{name} on {type(recv).__name__}")

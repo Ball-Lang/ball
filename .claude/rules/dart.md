@@ -112,7 +112,10 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   construction and must invoke the constructor. Only field-initializer-shaped
   self-references (`Foo.new` → `messageCreation Foo{}` / `Foo{_x: 5}`) resolve
   to `self`. Keying on the type name alone silently turned every
-  `next = Chain(depth - 1)` into an infinite self-cycle.
+  `next = Chain(depth - 1)` into an infinite self-cycle. The positional test is
+  `^arg\d+$`, never an `arg` PREFIX: a class whose own field is named
+  `argCount` emits `Foo{argCount: 5}` as its field-initializer self-reference,
+  and a prefix match reads that as a real construction and recurses forever.
 - **A constructor's initializer list runs even when it has a body.** Dart runs
   `Foo(a) : x = a { … }`'s initializer list before the body, so
   `_applyConstructorInitializers` fires on both instance-building paths

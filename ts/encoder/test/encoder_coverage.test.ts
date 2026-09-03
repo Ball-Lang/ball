@@ -11,7 +11,7 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { encode } from "../src/index.ts";
+import { encode, encodeWithWarnings, EncodeError } from "../src/index.ts";
 import type { Module, TypeDefinition, FunctionDef } from "../src/types.ts";
 
 function userModule(program: { modules: Module[] }, name = "main"): Module {
@@ -95,6 +95,41 @@ describe("encoder std method mappings", () => {
 
   test("String.slice maps to string_substring", () => {
     assert.equal(callFnFor(`const r = "abc".slice(1);`), "string_substring");
+  });
+
+  // #506 slice 1: `slice`/`indexOf`/`includes`/`concat` exist on BOTH String
+  // and Array, and the syntax-only encoder resolves them to the STRING
+  // mapping. ENCODER_CARVEOUTS.md documents that ambiguity, but the branch
+  // never called `this.warn(...)` — unlike the neighbouring ArraySplice case —
+  // so `encodeWithWarnings(...)` came back with `warnings: []` even under
+  // `{ strictBehaviorAffecting: true }`, contradicting the carve-out file's
+  // own "every entry here warns" policy.
+  for (const [method, call] of [
+    ["slice", `const r = arr.slice(1, 3);`],
+    ["indexOf", `const r = arr.indexOf(2);`],
+    ["includes", `const r = arr.includes(2);`],
+  ] as const) {
+    test(`ambiguous .${method}() warns at encode time (#506)`, () => {
+      const { warnings } = encodeWithWarnings(`function main() { ${call} }`);
+      assert.ok(
+        warnings.some((w) => w.includes(`\`.${method}(`) && w.includes("String and Array")),
+        `expected an ambiguity warning for .${method}(), got ${JSON.stringify(warnings)}`,
+      );
+    });
+  }
+
+  test("the ambiguity warning is behaviour-affecting, not erasure-only (#506)", () => {
+    assert.throws(
+      () => encodeWithWarnings(`function main() { const r = arr.slice(1, 3); }`,
+        { strictBehaviorAffecting: true }),
+      EncodeError,
+      "an ambiguous String/Array method must be rejected under strictBehaviorAffecting",
+    );
+  });
+
+  test("an unambiguous String method still warns about nothing", () => {
+    const { warnings } = encodeWithWarnings(`function main() { const r = "abc".trim(); }`);
+    assert.deepEqual(warnings, []);
   });
 
   test("toString maps through the to_string mapping (self under 'value')", () => {

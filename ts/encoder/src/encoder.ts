@@ -1530,21 +1530,11 @@ export class TsEncoder {
       charAt: { fn: "string_char_at", args: ["index"] },
       charCodeAt: { fn: "string_code_unit_at", args: ["index"] },
     };
-    // hasOwnProperty (not `in`) — `in` also matches names inherited from
-    // Object.prototype (toString, valueOf, hasOwnProperty, ...). A bare `in`
-    // check here made `.toString()`/`.valueOf()`/etc. on ANY object silently
-    // match this dict via prototype lookup, setting `fn` to the *native JS
-    // Function* (e.g. `Object.prototype.toString`) instead of a string, which
-    // made the dedicated `toString` mapping below unreachable and produced a
-    // corrupt call.function (a function object, not "to_string") in the Ball
-    // IR. Found via coverage analysis of the always-dead toString branch.
-    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
-      const m = STR_METHODS[method];
-      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
-    }
-
     // Array methods: `list` is the receiver. All of them live in
     // std_collections — the module the Dart reference declares them in.
+    //
+    // Declared BEFORE the STR_METHODS lookup below so that lookup can tell
+    // whether the name is ambiguous (#506).
     const ARR_METHODS: Record<string, { fn: string; args: string[] }> = {
       push: { fn: "list_push", args: ["value"] },
       pop: { fn: "list_pop", args: [] },
@@ -1563,6 +1553,40 @@ export class TsEncoder {
       every: { fn: "list_all", args: ["function"] },
       some: { fn: "list_any", args: ["function"] },
     };
+
+    // hasOwnProperty (not `in`) — `in` also matches names inherited from
+    // Object.prototype (toString, valueOf, hasOwnProperty, ...). A bare `in`
+    // check here made `.toString()`/`.valueOf()`/etc. on ANY object silently
+    // match this dict via prototype lookup, setting `fn` to the *native JS
+    // Function* (e.g. `Object.prototype.toString`) instead of a string, which
+    // made the dedicated `toString` mapping below unreachable and produced a
+    // corrupt call.function (a function object, not "to_string") in the Ball
+    // IR. Found via coverage analysis of the always-dead toString branch.
+    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
+      const m = STR_METHODS[method];
+      // `slice`, `indexOf` and `includes` exist on BOTH String and Array, and
+      // this syntax-only encoder (no ts.Program/TypeChecker) resolves them to
+      // the STRING mapping because STR_METHODS is consulted first. On an Array
+      // receiver that is wrong: `arr.slice(1, 3)` compiles to
+      // `arr.substring(1, 3)`, which throws. ENCODER_CARVEOUTS.md documents
+      // the ambiguity, but this branch never called `warn()`, so the encode
+      // was completely silent — even under `{ strictBehaviorAffecting: true }`
+      // — contradicting that file's own "every entry here warns" policy.
+      // Same mechanism and severity as the ArraySplice warning in encodeCall.
+      // Resolving it correctly (rather than merely loudly) needs the TS
+      // semantic model — tracked by #506.
+      if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
+        this.warn(
+          `\`.${method}(...)\` exists on both String and Array; the syntax-only ` +
+          `encoder resolves it to std.${m.fn} (the String mapping), which is ` +
+          `wrong for an Array receiver — see ts/encoder/ENCODER_CARVEOUTS.md ` +
+          `"Ambiguous without a type checker"`,
+          "AmbiguousStringArrayMethod",
+        );
+      }
+      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
+    }
+
     // Same hasOwnProperty rationale as STR_METHODS above.
     if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
       const m = ARR_METHODS[method];

@@ -1,3 +1,10 @@
+## [1.61.1](https://github.com/Ball-Lang/ball/compare/v1.61.0...v1.61.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **cpp:** scope shadowed-getter routing per class, gate method shortcuts on arity, and stop base-typed slicing (closes [#515](https://github.com/Ball-Lang/ball/issues/515), closes [#511](https://github.com/Ball-Lang/ball/issues/511), closes [#516](https://github.com/Ball-Lang/ball/issues/516)) ([#529](https://github.com/Ball-Lang/ball/issues/529)) ([87a32fe](https://github.com/Ball-Lang/ball/commit/87a32fe35d04571b2d116d125c838efdda70b6a2)), closes [501/#509](https://github.com/Ball-Lang/ball/issues/509) [#523](https://github.com/Ball-Lang/ball/issues/523) [#524](https://github.com/Ball-Lang/ball/issues/524) [501/#509](https://github.com/Ball-Lang/ball/issues/509) [#510](https://github.com/Ball-Lang/ball/issues/510) [#494](https://github.com/Ball-Lang/ball/issues/494) [#172](https://github.com/Ball-Lang/ball/issues/172)
+
 # [1.61.0](https://github.com/Ball-Lang/ball/compare/v1.60.3...v1.61.0) (2026-09-03)
 
 

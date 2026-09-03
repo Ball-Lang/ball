@@ -1,3 +1,10 @@
+# [1.61.0](https://github.com/Ball-Lang/ball/compare/v1.60.3...v1.61.0) (2026-09-03)
+
+
+### Features
+
+* **rust,csharp:** encode receiver-less associated functions and cross-file calls, and key C# construction by declared field names ([#526](https://github.com/Ball-Lang/ball/issues/526)) ([b16473a](https://github.com/Ball-Lang/ball/commit/b16473a6b074bbd736751d992db2035f1c773bae)), closes [#498](https://github.com/Ball-Lang/ball/issues/498) [#288](https://github.com/Ball-Lang/ball/issues/288) [#491](https://github.com/Ball-Lang/ball/issues/491) [closed-#382](https://github.com/closed-/issues/382) [#492](https://github.com/Ball-Lang/ball/issues/492)
+
 ## [1.60.3](https://github.com/Ball-Lang/ball/compare/v1.60.2...v1.60.3) (2026-09-03)
 
 

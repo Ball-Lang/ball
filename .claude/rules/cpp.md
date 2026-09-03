@@ -13,6 +13,7 @@ paths:
 - Self-hosted engine: `dart/self_host/lib/engine_rt.cpp` (generated from Dart engine via Ball compiler)
 - Self-host conformance: `test_selfhost_conformance` target
 - Unified `ball` CLI (`cpp/cli/`): subcommands `compile`/`encode` (reuse the compiler/encoder libs), `run` (self-hosted `engine_rt`), and `info`/`validate`/`tree`/`version` (self-hosted `cli_core`, library-compiled to the generated `dart/self_host/lib/cli_rt.h` via `gen_cli_cpp.dart`). Verbs/run gate on their generated artifacts (stubbed when absent, so the build-isolated main cpp CI job still builds `ball`). Parity gate: `test_cli_parity` (see `cpp/cli/AGENTS.md`).
+- Dart-free distribution channels get the real verbs from the **self-host sidecar** (issues #368/#361): `release-cpp.yml` publishes `dart/self_host/lib/{cli_rt.h,engine_rt.cpp}` as the release asset `ball-selfhost-cpp-src-vX.Y.Z.tar.gz`, and `tools/vcpkg-port/`'s portfile downloads + unpacks it into `${SOURCE_PATH}/dart/self_host/lib/` before configuring (default-on `selfhost` feature; `ball-lang[core]` opts out). Never rename that asset on one side only — `tools/vcpkg-port/test/test_selfhost_asset_wiring.sh` pins both spellings, and a mismatch costs every future release its verbs silently.
 - Encoder requires nlohmann/json (FetchContent from GitHub if not installed)
 - Stack sizes: compiler 128MB, encoder 256MB (for deep protobuf ASTs)
 

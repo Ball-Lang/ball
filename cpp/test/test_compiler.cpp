@@ -4322,8 +4322,11 @@ TEST(cov_statement_label_and_if_block_result_branches) {
 // derived struct written before its base would not compile. compile_library
 // therefore stable-sorts type definitions by inheritance depth (a mixin counts
 // as depth 1). Reaching the comparator needs TWO OR MORE classes in one library
-// module — the existing library-mode tests (test_cli.cpp) compile a module with
-// none, so `std::stable_sort` is entered but never calls its predicate.
+// module, and no existing library-mode test supplies that: test_cli.cpp's
+// modules carry no classes at all, and
+// compile_library_class_enum_top_level_var_facade above carries exactly one.
+// `std::stable_sort` never invokes its predicate on a 0- or 1-element range,
+// so it is entered but the comparator stays unhit.
 
 static json cov_lib_class(const std::string& name, const std::string& superclass,
                           std::vector<std::string> mixins) {

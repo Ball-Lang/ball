@@ -139,6 +139,21 @@ jobs:
       - name: dart pub get retry wiring test (#520)
         run: bash .github/actions/dart-pub-get/test/test_dart_pub_get_wiring.sh
 
+      - name: Conformance-count drift guard test (#519)
+        run: bash tools/test/test_check_conformance_doc_counts.sh
+
+      # The conformance-corpus total is hand-copied as prose into CLAUDE.md,
+      # every AGENTS.md, .claude/rules/*.md, README.md and this workflow's own
+      # comments; nothing checked them, so four mutually inconsistent totals
+      # were live at once (#519). This derives the truth from the repo (the
+      # fixtures that have a golden) and fails on any doc that disagrees.
+      # It lives HERE, not in `ball-freshness`: per detect-changed-stacks,
+      # that job is gated on dart||ts||infra and `infra` needs a changed file
+      # OUTSIDE the language dirs — so a PR touching only rust/AGENTS.md would
+      # skip it, i.e. exactly the narrow doc-drift PRs this guard exists for.
+      - name: Conformance-count doc drift guard (#519)
+        run: bash tools/check_conformance_doc_counts.sh
+
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────

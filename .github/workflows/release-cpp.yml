@@ -5,7 +5,7 @@ name: Release C++ binaries
 # linux-x64 and macos-arm64, checksum it, and attach it to the GitHub Release
 # for the tag that was just cut.
 #
-# It also publishes `ball-selfhost-cpp-src-<tag>.tar.gz` — the two Dart-generated
+# It also publishes `ball-selfhost-cpp-src-${tag}.tar.gz` — the two Dart-generated
 # C++ sources (`cli_rt.h`, `engine_rt.cpp`) that gate the self-hosted verbs. This
 # job is the only place in the repo that has both Dart and a bootstrap
 # `ball_cpp_compile`, so shipping its output is what lets a Dart-free consumer

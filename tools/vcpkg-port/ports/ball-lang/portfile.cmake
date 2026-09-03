@@ -7,6 +7,18 @@
 # same way) we only need a release build.
 set(VCPKG_BUILD_TYPE release)
 
+# ...and, for the same reason, ${CURRENT_PACKAGES_DIR}/include stays empty.
+# Without this, vcpkg's post-build validation reports
+#   "The folder ${CURRENT_PACKAGES_DIR}/include is empty or not present ...
+#    If this is not a CMake helper port but this is otherwise intentional, add
+#    set(VCPKG_POLICY_EMPTY_INCLUDE_FOLDER enabled) to suppress this message."
+#   "Found 1 post-build check problem(s) ... Please correct these before
+#    submitting this port to the curated registry."
+# — i.e. a submission blocker, surfaced by the ci.yml vcpkg smoke's own log.
+# NOT VCPKG_POLICY_CMAKE_HELPER_PORT (what ports/vcpkg-tool-ninja uses): that
+# one declares a port which ships only CMake scripts, which this is not.
+set(VCPKG_POLICY_EMPTY_INCLUDE_FOLDER enabled)
+
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Ball-Lang/ball

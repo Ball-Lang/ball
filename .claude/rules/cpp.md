@@ -82,6 +82,68 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ./build/test/Debug/test_selfhost_conformance.exe 01_hello_world
 ```
 
+### CI time budget + the e2e build knobs (#521)
+
+`ctest` in ci.yml's `cpp` job runs with `-j <runner CPUs> --no-tests=error`, and
+its `Run tests` step carries a **step-level `timeout-minutes`: 20 on Windows, 8
+on Linux/macOS** (job budget 25), against a pre-fix 28m33s / 12m12s / 9m56s.
+Those numbers are a gate, not decoration — a change that puts the fixture
+compiles back on one core fails the job. Re-measure and update them (with the
+run id, as the workflow comment does) if you change what the step does.
+
+Size them against the **cold**-ccache run, never the warm one. Warm, the
+Linux/macOS step is 11s / 19s; cold it is 5m19s / 4m57s (run 33698642352, with
+`ccache -s` showing 22 hits of 292 cacheable calls). A cold cache is normal and
+blameless — every PR that touches the Ball->C++ emitter or
+`cpp/shared/include/ball_dyn.h` changes all ~269 generated TUs, as does a cache
+eviction or a first run on a new key — so a budget sized to the warm number
+red-lights a required check on an innocent PR.
+
+Windows is the outlier by measurement, not assumption: each generated fixture is
+a ~278 KB TU pulling 29 standard headers, MSVC needs ~1000s of front-end CPU for
+the 269 of them, link is 0.33s per fixture, and the generator is irrelevant (a
+Ninja scratch build measured 590s against MSBuild's 591s). Reaching the issue's
+aspirational 6-10 min there needs a compiler cache that actually works on
+Windows (see below) or a decision to run a subset of the corpus on that leg.
+
+Two env knobs drive the per-fixture compiles; CI sets both, and they work the
+same way for `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
+
+| Env | Meaning |
+|-----|---------|
+| `BALL_E2E_JOBS` | Fixture compiles to run concurrently. Default: `hardware_concurrency()` / `nproc`. `1` restores the old serial behaviour. |
+| `BALL_E2E_LAUNCHER` | Compiler launcher (`ccache` / `sccache`) for the fixture compiles, so an unchanged fixture is a cache hit. Empty/unset = none. |
+
+`BALL_E2E_LAUNCHER` is set on Linux/macOS **only**. CMake honours
+`<LANG>_COMPILER_LAUNCHER` for the Makefile and Ninja generators; the Visual
+Studio (MSBuild) generator ignores it, so on Windows it would advertise a cache
+that never gets used. (This is not hypothetical: on main run 33673078770 the
+Windows leg's own `Post ccache` step reported `Compile requests 0` — the parent
+build's `-DCMAKE_CXX_COMPILER_LAUNCHER=sccache` is a no-op there too. Moving that
+leg to `-G Ninja` would make both real; it is tracked separately.)
+
+Parallelism must never shrink coverage, so each harness asserts its own count:
+`test_e2e` compares executed tests against `e2e_fixture_list.h` + 3 inline
+programs, `full_e2e.sh`/`quick_e2e.sh` compare recorded outcomes against the
+selected fixtures, and `cpp/test/CMakeLists.txt` fails at configure time if the
+self-host fixture glob matches nothing.
+
+`test_e2e` also writes its count line to `BALL_E2E_COVERAGE_FILE`
+(`<build>/test/e2e_coverage.txt`), because `ctest --output-on-failure` prints
+nothing for a passing test — the number would otherwise never appear in a green
+log. ci.yml deletes that file before `ctest` and re-checks it afterwards
+(`C++ e2e fixture coverage`), which also detects "the e2e test never ran".
+
+Both shell harnesses run each fixture binary in a private empty directory, since
+they execute fixtures concurrently (`test_e2e` parallelises only the build).
+That is what makes concurrent execution safe for a future `std_fs` fixture; do
+not drop it.
+
+`full_e2e.sh` gets required-check coverage on every PR: the changed-fixture gate
+when a PR touches fixtures, and otherwise a derived four-fixture harness smoke
+on the Linux leg. Without one of those, the only thing exercising it is the
+dispatch-only `C++ Compiled` matrix leg, which runs after merge.
+
 ### Fast local `test_compiler` without CMake
 
 The full CMake build is 40+ minutes and does not work on native Windows, which

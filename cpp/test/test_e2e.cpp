@@ -23,6 +23,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "ball_file.h"
@@ -88,6 +89,60 @@ static int run_capture(const std::string& cmd, std::string& out) {
 #else
     return pclose(pipe);
 #endif
+}
+
+// ── Scratch-build knobs (issue #521) ────────────────────────────────────────
+//
+// The scratch sub-project below has one `add_executable` per fixture (~269
+// targets). It used to be configured with only -S/-B/-G and built with a bare
+// `cmake --build`, i.e. ~269 compiles+links run ONE AT A TIME with no compiler
+// cache — 28 of the C++ Windows CI job's 32 minutes. Two env knobs fix that
+// without changing what is tested:
+//
+//   BALL_E2E_JOBS      parallel build jobs (default: hardware_concurrency()).
+//   BALL_E2E_LAUNCHER  compiler launcher (ccache / sccache) threaded into the
+//                      nested configure as -DCMAKE_{C,CXX}_COMPILER_LAUNCHER,
+//                      so the fixture compiles share the cache the parent
+//                      build already populates. Empty/unset = no launcher.
+//                      NOTE: CMake only honours <LANG>_COMPILER_LAUNCHER for
+//                      the Makefile and Ninja generators — the Visual Studio
+//                      (MSBuild) generator ignores it, so CI sets this on
+//                      Linux/macOS only. See cpp/test/AGENTS.md.
+//
+// Only the BUILD is parallelised. Each fixture binary is still RUN one at a
+// time, in list order, so stdout diffing stays deterministic.
+static std::string env_or_empty(const char* name) {
+    const char* v = std::getenv(name);
+    return (v && *v) ? std::string(v) : std::string();
+}
+
+// Wall-clock seconds since `t0`, one decimal. The configure/build phase split
+// is what tells a slow toolchain apart from a slow CMake generation pass; both
+// are printed (and flushed) unconditionally, so a CI step killed by its
+// step-level timeout still shows which phase it died in instead of nothing.
+static std::string elapsed_s(std::chrono::steady_clock::time_point t0) {
+    const double secs = std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - t0).count();
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.1f", secs);
+    return std::string(buf);
+}
+
+static unsigned build_jobs() {
+    const std::string v = env_or_empty("BALL_E2E_JOBS");
+    if (!v.empty()) {
+        try {
+            long n = std::stol(v);
+            if (n >= 1) return static_cast<unsigned>(n);
+        } catch (const std::exception&) {
+            // Fall through to the hardware default; a malformed value must
+            // never silently mean "serial".
+            std::cout << "  [warn] BALL_E2E_JOBS='" << v
+                      << "' is not a positive integer - using hardware concurrency\n";
+        }
+    }
+    unsigned hc = std::thread::hardware_concurrency();
+    return hc > 0 ? hc : 1u;
 }
 
 static std::string quote(const std::string& s) {
@@ -203,29 +258,48 @@ static bool build_sub_project(const fs::path& proj_dir,
         }
     }
 
-    // Configure.
+    // Configure. When BALL_E2E_LAUNCHER is set, the fixture compiles go
+    // through the same ccache/sccache instance as the parent build instead of
+    // being recompiled from scratch every run (issue #521).
+    const std::string launcher = env_or_empty("BALL_E2E_LAUNCHER");
     std::string gen_cmd = quote(BALL_E2E_CMAKE) +
                           " -S " + quote(proj_dir.string()) +
                           " -B " + quote(build_dir.string()) +
-                          " -G " + quote(BALL_E2E_GENERATOR) +
-                          " 2>&1";
+                          " -G " + quote(BALL_E2E_GENERATOR);
+    if (!launcher.empty()) {
+        gen_cmd += " -DCMAKE_C_COMPILER_LAUNCHER=" + quote(launcher) +
+                   " -DCMAKE_CXX_COMPILER_LAUNCHER=" + quote(launcher);
+    }
+    gen_cmd += " 2>&1";
     gen_cmd = cmd_wrap(gen_cmd);
     std::string gen_output;
+    const auto gen_t0 = std::chrono::steady_clock::now();
     int gen_rc = run_capture(gen_cmd, gen_output);
+    std::cout << "Scratch configure: " << elapsed_s(gen_t0) << "s" << std::endl;
     if (gen_rc != 0) {
         failure_msg = "cmake configure failed (rc=" + std::to_string(gen_rc) +
                       "):\n" + gen_output;
         return false;
     }
 
-    // Build all targets at once.
+    // Build all targets at once, in parallel. The ~269 fixture targets are
+    // fully independent, so this is a straight wall-clock win (issue #521).
+    const unsigned jobs = build_jobs();
+    std::cout << "Scratch build: " << programs.size() << " target(s), "
+              << jobs << " parallel job(s), launcher="
+              << (launcher.empty() ? std::string("(none)") : launcher)
+              << std::endl;
     std::string build_cmd = quote(BALL_E2E_CMAKE) +
                             " --build " + quote(build_dir.string()) +
                             " --config " BALL_E2E_BUILD_TYPE +
+                            " --parallel " + std::to_string(jobs) +
                             " 2>&1";
     build_cmd = cmd_wrap(build_cmd);
     std::string build_output;
+    const auto build_t0 = std::chrono::steady_clock::now();
     int build_rc = run_capture(build_cmd, build_output);
+    std::cout << "Scratch compile+link: " << elapsed_s(build_t0) << "s"
+              << std::endl;
     if (build_rc != 0) {
         failure_msg = "cmake build failed (rc=" + std::to_string(build_rc) +
                       "):\n" + build_output;
@@ -601,6 +675,10 @@ int main() {
     // The canonical fixture list now lives in e2e_fixture_list.h so the fast
     // coverage-only corpus_driver can share it (issue #63).
     const std::vector<std::string>& program_names = ball_e2e::program_names();
+    // 2 inline std_fs programs (#319) + 1 inline std_time program (#328) are
+    // appended to the corpus below; the count is pinned here so the
+    // coverage-preserving assertion at the end of main() can check it.
+    constexpr size_t kInlineProgramCount = 3;
 
     fs::path conformance_dir(BALL_CONFORMANCE_DIR);
     (void)conformance_dir;  // resolve_fixture() scans both dirs internally
@@ -733,5 +811,54 @@ int main() {
               << "Results: " << tests_passed << " passed, "
               << tests_failed << " failed, "
               << tests_run << " total\n";
+
+    // Coverage-preserving assertion (issue #521). Speeding the scratch build up
+    // must not quietly shrink what runs: "0 failed" and "0 ran" are
+    // indistinguishable to CTest, and a dropped fixture looks exactly like a
+    // passing one. Every name in e2e_fixture_list.h contributes EXACTLY one
+    // outcome (a load/compile failure in step 1, or a run in step 3), and the
+    // three inline programs (2x std_fs #319, 1x std_time #328) contribute one
+    // each — so the executed count is knowable up front. Assert it.
+    const size_t expected_tests = program_names.size() + kInlineProgramCount;
+    std::ostringstream coverage;
+    coverage << "Fixtures: " << program_names.size()
+             << " from e2e_fixture_list.h + " << kInlineProgramCount
+             << " inline (2 std_fs, 1 std_time) = " << expected_tests
+             << " expected, " << tests_run << " executed";
+    std::cout << coverage.str() << "\n";
+
+    // ...and write the same line to BALL_E2E_COVERAGE_FILE (an absolute path
+    // baked in by cpp/test/CMakeLists.txt). stdout is NOT a delivery mechanism
+    // here: `ctest --output-on-failure` prints nothing for a PASSING test, so on
+    // a green run the line above never reaches a CI log — a coverage number
+    // nobody can see is a number nobody checks. ci.yml's "C++ e2e fixture
+    // coverage" step prints this file and re-derives expected == executed >= 1
+    // from it, which also catches "e2e_tests never ran at all" — something an
+    // exit code alone cannot distinguish from success. Truncate-and-write on
+    // every run, and fail loud if the write fails, so CI can never assert
+    // against a stale file left by an earlier run.
+    {
+        std::ofstream cov(BALL_E2E_COVERAGE_FILE, std::ios::trunc);
+        if (!cov) {
+            std::cout << "\nCOVERAGE REPORT UNWRITABLE: could not open "
+                      << BALL_E2E_COVERAGE_FILE << " for writing.\n";
+            return 1;
+        }
+        cov << coverage.str() << "\n";
+        cov.close();
+        if (!cov) {
+            std::cout << "\nCOVERAGE REPORT UNWRITABLE: failed to flush "
+                      << BALL_E2E_COVERAGE_FILE << ".\n";
+            return 1;
+        }
+    }
+
+    if (static_cast<size_t>(tests_run) != expected_tests) {
+        std::cout << "\nFIXTURE COUNT MISMATCH: executed " << tests_run
+                  << " test(s) but the fixture list declares " << expected_tests
+                  << ". A fixture was dropped (or double-counted) - this leg no "
+                     "longer covers what it claims to.\n";
+        return 1;
+    }
     return tests_failed > 0 ? 1 : 0;
 }

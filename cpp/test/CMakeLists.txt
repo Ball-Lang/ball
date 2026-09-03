@@ -110,6 +110,12 @@ target_compile_definitions(test_e2e PRIVATE
     BALL_E2E_CMAKE="${CMAKE_COMMAND}"
     BALL_E2E_GENERATOR="${CMAKE_GENERATOR}"
     BALL_E2E_BUILD_TYPE="$<CONFIG>"
+    # Where test_e2e writes its "Fixtures: N expected, N executed" line (#521).
+    # A passing CTest test prints nothing under --output-on-failure, so the
+    # coverage number would otherwise never appear in a GREEN CI log; ci.yml's
+    # "C++ e2e fixture coverage" step reads this file. Absolute, and inside the
+    # build tree so it is never mistaken for a source artifact.
+    BALL_E2E_COVERAGE_FILE="${CMAKE_CURRENT_BINARY_DIR}/e2e_coverage.txt"
 )
 
 # Snapshot tests — pins the exact CppCompiler output for each fixture.
@@ -377,6 +383,21 @@ if(BALL_SELFHOST_AVAILABLE)
     # `ctest -L selfhost -j N`; CONFIGURE_DEPENDS re-globs as fixtures change.
     file(GLOB _ball_selfhost_fixtures CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/conformance/*.ball.json")
+    # Coverage-preserving floor (issue #521). A glob that matches nothing
+    # registers zero tests, and `ctest -L selfhost` over zero tests exits 0 —
+    # a green tally that proved nothing. `--no-tests=error` in CI catches that
+    # too, but only after a full build; failing at configure time is the
+    # cheaper, louder signal. The count is echoed so the number this leg
+    # actually covers is visible in the configure log, not just inferred.
+    list(LENGTH _ball_selfhost_fixtures _ball_selfhost_fixture_count)
+    if(_ball_selfhost_fixture_count EQUAL 0)
+        message(FATAL_ERROR
+            "Self-host conformance glob matched NO tests/conformance/*.ball.json "
+            "fixtures - the selfhost tally would pass over an empty set.")
+    endif()
+    message(STATUS
+        "Self-host conformance: registering ${_ball_selfhost_fixture_count} "
+        "per-fixture CTest tests (label 'selfhost')")
     foreach(_fx ${_ball_selfhost_fixtures})
         get_filename_component(_fxfile "${_fx}" NAME)
         string(REGEX REPLACE "\\.ball\\.json$" "" _fxname "${_fxfile}")

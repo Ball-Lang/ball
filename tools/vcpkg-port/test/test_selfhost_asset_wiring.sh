@@ -241,6 +241,18 @@ else
     "mirroring release-cpp.yml's own pregeneration steps"
 fi
 
+# The overlay's swap banners NAME vcpkg_from_github in prose, so the job's own
+# hermeticity grep must be anchored to the start of a line or it reads that
+# comment as a surviving call — which is exactly how this job failed the first
+# time it ran. Same anchor make_ci_overlay.py uses.
+if printf '%s\n' "$JOB" | grep -q "vcpkg_from_\[a-z_\]" &&
+  printf '%s\n' "$JOB" | grep -q "'\^\[\[:space:\]\]\*(vcpkg_from_"; then
+  ok "ci.yml's overlay hermeticity grep is line-anchored"
+else
+  no "ci.yml's overlay hermeticity grep is line-anchored" \
+    "an unanchored pattern matches the generator's own swap-banner comment"
+fi
+
 if printf '%s\n' "$JOB" | grep -q 'dart-pub-get'; then
   ok "ci.yml's vcpkg job uses the dart-pub-get composite, not a bare pub get"
 else

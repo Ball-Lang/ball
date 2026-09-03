@@ -922,7 +922,11 @@ jobs:
             n="$(grep -cF "$marker" "$overlay")"
             [ "$n" -eq 1 ] || { echo "::error::expected exactly one \`$marker\` line in the CI overlay, found $n"; exit 1; }
           done
-          if grep -nE 'vcpkg_from_[a-z]+\(|vcpkg_download_distfile\(' "$overlay"; then
+          # ANCHORED to the start of a line, exactly like make_ci_overlay.py's
+          # own hermeticity check: the swap banners the generator writes NAME
+          # vcpkg_from_github in prose, and an unanchored pattern reads that
+          # comment as a surviving call (it did, on this job's first run).
+          if grep -nE '^[[:space:]]*(vcpkg_from_[a-z_]+|vcpkg_download_distfile)[[:space:]]*\(' "$overlay"; then
             echo "::error::the CI overlay still contains a network fetch — the smoke would not be hermetic"
             exit 1
           fi

@@ -172,9 +172,60 @@ covered end-to-end on the same leg from both sides — `rust/cli/tests/cli_encod
 missing_fn_main_exits_2` for the default rejection and
 `rust/encoder/tests/library_mode.rs` + `cli_encode.rs::encode_lib_flag_allows_missing_main`
 for the `--lib` opt-in below — and the *compiler* side of receiver-less associated functions
-already works (`type_emit.rs::method_prologue`'s `is_static` bypass, fixture
-`tests/conformance/105_static_methods.ball.json`, issue #288) — the remaining work there is
-encoder-side mapping only.
+already worked (`type_emit.rs::method_prologue`'s `is_static` bypass, fixture
+`tests/conformance/105_static_methods.ball.json`, issue #288) — the remaining work there was
+encoder-side mapping only, closed by slice 3 below.
+
+**Read the study table's rows precisely.** `unsupported call target (only same-file functions)`
+(15 files, `lib.rs::encode_call`'s path-based `ExprCall` fallback) and `unsupported method call,
+callee not in this file` (24 files, `methods.rs`'s own panic on a `receiver.method(args)` whose
+method name isn't in the `collect_impl_method_params` pre-pass) are **different rows against
+different panic sites**. Slice 3 closed the first; the second is the largest remaining bucket, has
+no `documented_gaps.rs` pin yet, and is the recommended next slice.
+
+#### Receiver-less associated functions + cross-file calls (#491 slice 3)
+
+Two more buckets closed, both encoder-side only (no compiler, proto or self-hosted-engine change):
+
+- **`impl Point { fn new(x, y) -> Point { … } }` (26/196 files).** A receiver-less `impl` fn now
+  encodes as a `metadata.kind = "method"` + `metadata.is_static = true` class member —
+  the exact shape `type_emit.rs::method_prologue`/`compile_method_dispatchers` has supported since
+  #288 — and a `Point::new(3, 4)` call site emits `FunctionCall{module: "", function: "new"}`
+  packed with the callee's real parameter names and no `"self"` field.
+  `rust/encoder/tests/static_methods.rs` is the proof: it encodes real source, compiles it through
+  `ball-lang-compiler`, `cargo build`s it and asserts the program prints `7`.
+  The **trait** sibling (`trait Maker { fn make() -> i32; }`) is still a documented gap on
+  purpose — `compile_method_dispatchers` skips every `is_abstract` member, so a signature-only
+  static trait item would have no dispatcher for a call site to resolve to.
+- **`other_file::helper(1)` (15/196 files).** A module-qualified call whose callee this file does
+  not declare no longer panics: it emits `FunctionCall{module: "other_file", function: "helper"}`
+  plus a **source-less `ModuleImport`** on the `main` module — the proto's own "reference only"
+  shape, matching `go/encoder/encoder.go`'s `ModuleImport{Name: name}` convention.
+  Arguments pack **positionally** (`arg0`/`arg1`), because an external callee's real parameter
+  names are unknown to a single-file encoder. The referenced module is deliberately never
+  synthesised as a base module.
+
+  **Module, not type**, and Rust's own naming convention is the discriminator: the fallback
+  applies only when the segment immediately OWNING the function is `snake_case`. So
+  `other_file::helper` and `std::cmp::max` encode, while `Vec::new()` and `std::vec::Vec::new()`
+  keep failing loud — an associated function on a foreign type is not a missing module, and no
+  import could ever supply it, so degrading it into an unresolved import would swap a loud failure
+  for an unfixable one. Pinned both ways in `tests/cross_module_calls.rs`.
+
+  The **verified** contract of an unresolved import (measured against the reference tooling, not
+  assumed): a source-less import is structurally legal and deliberately unresolved.
+  `dart/shared/lib/cli_core.dart`'s `validationErrors` never inspects `module_imports` and its
+  `treeReport` renders exactly this shape as `ref only`; `dart/cli/lib/src/runner.dart`'s
+  `ball build` counts an import as needing the resolver only when `whichSource() != notSet`; and
+  `rust/cli/src/commands/check.rs`'s `validate_structure` likewise never inspects imports. So
+  `ball check` **accepts** the program (pinned by `cli_check.rs::
+  encoded_cross_file_call_is_structurally_valid_but_unresolved`) and it is deliberately not
+  runnable until the referenced module is supplied — the same boundary library mode established
+  for an empty `entry_function`. Known limitation, documented in `lib.rs`: a
+  `crate::`/`self::`-qualified call to a same-file function is treated as external too.
+
+  The C# encoder's own cross-file bucket (#492, bucket d) is still open; when it lands it should
+  mirror this "emit an unresolved `ModuleImport` rather than fail" decision.
 
 #### Library mode — `encode_library` / `ball encode --lib` (#491 slice 2)
 

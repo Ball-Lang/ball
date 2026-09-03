@@ -25,13 +25,13 @@
 //!   `EnumDescriptorProto`) plus a companion, descriptor-less
 //!   `TypeDefinition`; `trait` → an `is_abstract` `TypeDefinition` with
 //!   signature-only abstract members; `impl`/`impl Trait for Type` blocks →
-//!   instance methods (`self`/`&self`/`&mut self` receiver required — see
-//!   `types.rs`'s module doc comment for why an associated function with no
-//!   receiver, e.g. `Point::new(...)`, is a documented gap instead: it would
-//!   silently panic at run time in `ball-lang-compiler`'s existing
-//!   `method_prologue`, not just fail to compile). Construction uses Rust's
-//!   own struct-literal syntax (`Point { x, y }`), which needs no
-//!   constructor at all — it's a plain `message_creation`.
+//!   instance methods (`self`/`&self`/`&mut self` receiver) **and
+//!   receiver-less associated functions** (`Point::new(...)` → a
+//!   `metadata.is_static` class member, issue #491 — see `types.rs`'s module
+//!   doc comment; the signature-only *trait* sibling is still a documented
+//!   gap). Construction can also use Rust's own struct-literal syntax
+//!   (`Point { x, y }`), which needs no constructor at all — it's a plain
+//!   `message_creation`.
 //! - **Cosmetic metadata** (invariant #2): visibility (`pub` →
 //!   `metadata.is_public`), `async`, a type's `kind`, generics/type params,
 //!   and a `let` binding's `mut`-ness all round-trip into `metadata` Structs
@@ -52,6 +52,48 @@
 //! Top-level `use`/`mod` items are still silently skipped (no runtime
 //! semantics of their own); anything else unhandled is a loud panic, never a
 //! silent skip.
+//!
+//! ## Cross-file calls: an unresolved `ModuleImport`, not a panic (issue #491)
+//!
+//! A call into a MODULE this file does not declare (`other_file::helper(1)`)
+//! used to be a loud panic, which made the encoder unusable for any
+//! multi-file crate. It now encodes as `FunctionCall{module: "other_file",
+//! function: "helper"}` plus a **source-less `ModuleImport`** on the `main`
+//! module — the proto's own "reference only" import shape, and the same
+//! convention `go/encoder/encoder.go` already uses. Arguments
+//! are packed **positionally** (`arg0`/`arg1`/…) because an external callee's
+//! real parameter names are unknown to a single-file encoder; guessing them
+//! would be worse than the honest fallback.
+//!
+//! **Module, not type.** The fallback applies only when the segment
+//! immediately owning the function is `snake_case`, Rust's own module naming
+//! convention — so `other_file::helper` and `std::cmp::max` encode, while
+//! `Vec::new()` and `std::vec::Vec::new()` still fail loud. An associated
+//! function on a foreign TYPE is not a missing module: no import could ever
+//! supply it, so degrading it into an unresolved import would replace a loud
+//! failure with an unfixable one.
+//!
+//! **The verified contract** (measured against the reference tooling, not
+//! assumed — see `rust/encoder/tests/cross_module_calls.rs` and
+//! `rust/cli/tests/cli_check.rs::encoded_cross_file_call_is_structurally_valid_but_unresolved`):
+//! a source-less import is *structurally legal and deliberately unresolved*.
+//! `dart/shared/lib/cli_core.dart`'s `validationErrors` (the self-hosted `ball
+//! validate`) never inspects `module_imports`, and its `treeReport` renders
+//! exactly this shape as `ref only`; `dart/cli/lib/src/runner.dart`'s `ball
+//! build` counts an import as needing the resolver only when
+//! `whichSource() != notSet`; and `rust/cli/src/commands/check.rs`'s
+//! `validate_structure` likewise checks entry points, module names and
+//! bodiless non-base functions, never imports. So `ball check` accepts the
+//! encoded program, and it is **deliberately not runnable** until the
+//! referenced module is supplied — the same boundary library mode established
+//! for an empty `entry_function`. The referenced module is never synthesised
+//! as a base module: that would silently paper over the missing code.
+//!
+//! **Known limitation of this fallback**: a `crate::`/`self::`-qualified call
+//! to a function declared in *this* file (`crate::helper(1)`) is likewise
+//! treated as external, so it too becomes an unresolved `crate` import rather
+//! than resolving to the same-file `helper`. Resolving those aliases is a
+//! documented follow-up, not part of this slice.
 //!
 //! No metadata/round-trip fidelity beyond the above and the one exception
 //! every reference encoder already relies on for correctness: a function/
@@ -115,12 +157,16 @@ use ball_lang_shared::proto::google::protobuf::{ListValue, Struct, Value};
 /// entry point — a library crate — is encoded by [`encode_library`]
 /// instead (`ball encode --lib`).
 pub fn encode(source: &str) -> Program {
-    let (main_module, has_main) = encode_main_module(source);
+    let EncodedFile {
+        module: main_module,
+        has_main,
+        unresolved_modules,
+    } = encode_main_module(source);
     assert!(
         has_main,
         "ball-lang-encoder: a Ball Program requires a `fn main()` entry point"
     );
-    assemble_program(main_module, "main")
+    assemble_program(main_module, "main", &unresolved_modules)
 }
 
 /// Encode a Rust **library** source file into a Ball [`Program`] — the same
@@ -147,8 +193,8 @@ pub fn encode(source: &str) -> Program {
 ///
 /// [`compile_library`]: https://docs.rs/ball-lang-compiler
 pub fn encode_library(source: &str) -> Program {
-    let (main_module, _has_main) = encode_main_module(source);
-    assemble_program(main_module, "")
+    let encoded = encode_main_module(source);
+    assemble_program(encoded.module, "", &encoded.unresolved_modules)
 }
 
 /// Wrap an encoded `main` [`Module`] in a [`Program`], accumulating the
@@ -156,12 +202,24 @@ pub fn encode_library(source: &str) -> Program {
 /// call. Shared by [`encode`] and [`encode_library`]; `entry_function` is
 /// the *only* difference between the two (`"main"` vs. `""` — see
 /// [`encode_library`]'s "Deliberately non-runnable").
-fn assemble_program(main_module: Module, entry_function: &str) -> Program {
+fn assemble_program(
+    main_module: Module,
+    entry_function: &str,
+    unresolved_modules: &BTreeSet<String>,
+) -> Program {
     let mut used: HashMap<String, BTreeSet<String>> = HashMap::new();
     for func in &main_module.functions {
         if let Some(body) = &func.body {
             collect_used_functions(body, &mut used);
         }
+    }
+    // An unresolved external module is NOT a base module — synthesising a
+    // `Module` for it (with its called functions marked `is_base = true`)
+    // would silently paper over the very import this encoder deliberately
+    // leaves unresolved (issue #491). Drop it from the accumulation; the
+    // `main` module's `ModuleImport` is the only record of it.
+    for alias in unresolved_modules {
+        used.remove(alias);
     }
 
     // `std` is always present (mirrors `dart/encoder/lib/encoder.dart`'s
@@ -300,12 +358,21 @@ fn build_used_module(name: &str, fn_names: BTreeSet<String>) -> Module {
 /// producing an actually-runnable [`Program`]; [`encode_library`] produces
 /// the same `Program` shape for entry-point-less library source.
 pub fn encode_module_only(source: &str) -> Module {
-    encode_main_module(source).0
+    encode_main_module(source).module
 }
 
-/// Shared implementation behind [`encode`] and [`encode_module_only`].
-/// Returns `(module, has_main)`.
-fn encode_main_module(source: &str) -> (Module, bool) {
+/// One encoded source file: its `main` [`Module`], whether that file declared
+/// a `fn main()`, and every module alias a call site referenced but the file
+/// does not declare (issue #491 — see [`Encoder::unresolved_modules`]).
+struct EncodedFile {
+    module: Module,
+    has_main: bool,
+    unresolved_modules: BTreeSet<String>,
+}
+
+/// Shared implementation behind [`encode`], [`encode_library`] and
+/// [`encode_module_only`].
+fn encode_main_module(source: &str) -> EncodedFile {
     let file: syn::File = syn::parse_file(source)
         .unwrap_or_else(|err| panic!("ball-lang-encoder: failed to parse Rust source: {err}"));
 
@@ -330,6 +397,17 @@ fn encode_main_module(source: &str) -> (Module, bool) {
             }
             syn::Item::Enum(item_enum) => {
                 encoder.enum_names.insert(item_enum.ident.to_string());
+                encoder.local_type_names.insert(item_enum.ident.to_string());
+            }
+            syn::Item::Struct(item_struct) => {
+                encoder
+                    .local_type_names
+                    .insert(item_struct.ident.to_string());
+            }
+            syn::Item::Trait(item_trait) => {
+                encoder
+                    .local_type_names
+                    .insert(item_trait.ident.to_string());
             }
             syn::Item::Impl(item_impl) => {
                 encoder.collect_impl_method_params(item_impl);
@@ -389,6 +467,15 @@ fn encode_main_module(source: &str) -> (Module, bool) {
             ..Default::default()
         });
     }
+    // Every module a call site referenced but this file does not declare,
+    // as a source-less ("ref only") import — deterministically ordered by
+    // `unresolved_modules`' `BTreeSet` (issue #491).
+    for alias in &encoder.unresolved_modules {
+        module_imports.push(ModuleImport {
+            name: alias.clone(),
+            ..Default::default()
+        });
+    }
     let module = Module {
         name: "main".to_string(),
         functions,
@@ -397,7 +484,11 @@ fn encode_main_module(source: &str) -> (Module, bool) {
         enums,
         ..Default::default()
     };
-    (module, has_main)
+    EncodedFile {
+        module,
+        has_main,
+        unresolved_modules: encoder.unresolved_modules,
+    }
 }
 
 fn item_kind_name(item: &syn::Item) -> &'static str {
@@ -442,6 +533,28 @@ pub(crate) struct Encoder {
     /// resolves purely by short name too — see
     /// `rust/compiler/src/type_emit.rs`.
     pub(crate) method_params: HashMap<String, Vec<String>>,
+    /// Every **receiver-less** associated function's `(owner short, method
+    /// short) → parameter names`, in declaration order (issue #491) —
+    /// populated by the same pre-pass as [`Self::method_params`]. Keyed by the
+    /// owner too (unlike `method_params`) because a `Point::new(...)` call
+    /// site names its owner explicitly, so there is no need to fall back on
+    /// short-name-only resolution — and doing so would let an unrelated
+    /// type's same-named associated fn answer for it.
+    pub(crate) static_method_params: HashMap<(String, String), Vec<String>>,
+    /// The short name of every type declared in **this** file (`struct`,
+    /// `enum`, `trait`, and every `impl` block's self type) — consulted by
+    /// [`Self::encode_call`] to tell `Point::new(...)` (a local associated
+    /// call) from `other_file::helper(...)` (a genuinely external,
+    /// module-qualified call). Without it the two are syntactically
+    /// identical, and misreading the first as the second would silently
+    /// downgrade a working static call into an unresolved import.
+    pub(crate) local_type_names: HashSet<String>,
+    /// Every module alias a call site referenced but this file does not
+    /// declare — recorded as an unresolved [`ModuleImport`] on the `main`
+    /// module (see [`Self::encode_call`]'s unresolved-external branch). A
+    /// `BTreeSet` so the emitted import list is deterministic regardless of
+    /// the order call sites were encoded in.
+    pub(crate) unresolved_modules: BTreeSet<String>,
 }
 
 impl Encoder {
@@ -451,6 +564,9 @@ impl Encoder {
             scopes: Vec::new(),
             enum_names: HashSet::new(),
             method_params: HashMap::new(),
+            static_method_params: HashMap::new(),
+            local_type_names: HashSet::new(),
+            unresolved_modules: BTreeSet::new(),
         }
     }
 
@@ -813,15 +929,166 @@ impl Encoder {
                     let name = ident.to_string();
                     return self.encode_user_call(&name, &e.args);
                 }
+
+                // ── (a) LOCAL ASSOCIATED CALL — `Point::new(3, 4)` ────────
+                //
+                // Checked BEFORE the unresolved-external fallback below, and
+                // the order is load-bearing: `Point::new(...)` and
+                // `other_file::helper(...)` are syntactically identical, so
+                // classifying by the fallback first would silently downgrade
+                // every working static call into an unresolved import.
+                //
+                // Emits `FunctionCall{module: "", function: <short name>}` —
+                // the shape `rust/compiler/src/type_emit.rs`'s
+                // `compile_method_dispatchers` emits a free `pub fn <short>`
+                // for when a static member's short name has a single owner
+                // (issue #288). Never packs a `"self"` field.
+                if path.segments.len() == 2 {
+                    let owner = path.segments[0].ident.to_string();
+                    if self.local_type_names.contains(&owner) {
+                        if let Some(params) = self
+                            .static_method_params
+                            .get(&(owner.clone(), last_name.clone()))
+                            .cloned()
+                        {
+                            return self.encode_associated_call(&last_name, &params, &e.args);
+                        }
+                        panic!(
+                            "ball-lang-encoder: `{owner}::{last_name}(...)` names a type declared \
+                             in this file, but `{last_name}` is not one of its receiver-less \
+                             associated functions — a UFCS call to an instance method \
+                             (`{owner}::method(&value)`) is a documented gap; call it as \
+                             `value.{last_name}(...)` instead"
+                        );
+                    }
+                }
+
+                // ── (b) UNRESOLVED EXTERNAL MODULE CALL ───────────────────
+                //
+                // A call into a MODULE this file does not declare: name the
+                // module and leave the import unresolved for a
+                // resolver/engine to supply, rather than failing — the same
+                // convention `go/encoder/encoder.go` already uses
+                // unconditionally, and the proto's own "reference only"
+                // `ModuleImport` shape (no `source`). See the crate root doc
+                // comment's "Cross-file calls" section for the verified
+                // contract this produces (structurally valid, deliberately
+                // not runnable until the module is supplied).
+                //
+                // **Module, not type** — and Rust's own naming convention is
+                // what tells them apart. The segment that matters is the one
+                // immediately OWNING the function: `snake_case` means a
+                // module (`other_file::helper`, `std::cmp::max`),
+                // `UpperCamelCase` means a TYPE (`Vec::new`,
+                // `std::vec::Vec::new`). An associated function on a FOREIGN
+                // type is not a missing module — no import could ever supply
+                // it — so it keeps failing loud below rather than degrading
+                // into an unresolved import nothing can resolve.
+                // `Vec::new()`/`HashMap::new()` are the common shapes this
+                // protects; pinned by `tests/cross_module_calls.rs`.
+                if path.segments.len() >= 2 {
+                    let owner_segment = &path.segments[path.segments.len() - 2].ident;
+                    if starts_lowercase(&owner_segment.to_string()) {
+                        let alias = path
+                            .segments
+                            .iter()
+                            .take(path.segments.len() - 1)
+                            .map(|segment| segment.ident.to_string())
+                            .collect::<Vec<_>>()
+                            .join("::");
+                        return self.encode_external_call(&alias, &last_name, &e.args);
+                    }
+                }
             }
         }
         panic!(
-            "ball-lang-encoder: unsupported call target `{}` — only same-file functions, \
-             `Ok`/`Err`/`Some`, `String::from`, and `Box::new` are supported (an associated \
-             function with no `self` receiver, e.g. `Point::new(...)`, is a documented gap — \
-             see `types.rs`'s module doc comment — use a struct-literal expression instead)",
+            "ball-lang-encoder: unsupported call target `{}` — a call target must be a same-file \
+             function, `Ok`/`Err`/`Some`, `String::from`/`Box::new`, a receiver-less associated \
+             function of a type declared in this file, or a `snake_case`-module-qualified path \
+             (which encodes as an unresolved `ModuleImport` — see the crate root doc comment). An \
+             associated function on a foreign TYPE (`Vec::new()`) is a documented gap: no module \
+             import can supply it",
             quote::quote!(#e)
         );
+    }
+
+    /// A receiver-less associated call (`Point::new(3, 4)`) — issue #491.
+    /// Uses the same 0/1/2+ packing convention [`Self::encode_user_call`]
+    /// does, with `params` (the callee's real declared parameter names, from
+    /// [`Self::static_method_params`]) as the field keys.
+    fn encode_associated_call(
+        &mut self,
+        method_short: &str,
+        params: &[String],
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        let encoded: Vec<Expression> = args.iter().map(|a| self.encode_expr(a)).collect();
+        let input = match encoded.len() {
+            0 => None,
+            1 => Some(encoded.into_iter().next().expect("length checked above")),
+            _ => {
+                let field_names: Vec<String> = if params.len() == encoded.len() {
+                    params.to_vec()
+                } else {
+                    (0..encoded.len()).map(|i| format!("arg{i}")).collect()
+                };
+                Some(args_message(
+                    field_names
+                        .iter()
+                        .map(String::as_str)
+                        .zip(encoded)
+                        .collect(),
+                ))
+            }
+        };
+        Expression {
+            expr: Some(Expr::Call(Box::new(FunctionCall {
+                module: String::new(),
+                function: method_short.to_string(),
+                input: input.map(Box::new),
+                type_args: vec![],
+            }))),
+        }
+    }
+
+    /// A call into a module this file does not declare (`other_file::helper(1)`)
+    /// — issue #491. Registers the alias as an unresolved [`ModuleImport`]
+    /// (deduped by [`Self::unresolved_modules`]) and packs 2+ arguments
+    /// **positionally**: an external callee's real parameter names are simply
+    /// unknown to a single-file encoder, and guessing them would be worse than
+    /// the honest `arg0`/`arg1` convention every reference encoder already
+    /// falls back to for an unknown signature.
+    fn encode_external_call(
+        &mut self,
+        alias: &str,
+        function: &str,
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        self.unresolved_modules.insert(alias.to_string());
+        let encoded: Vec<Expression> = args.iter().map(|a| self.encode_expr(a)).collect();
+        let input = match encoded.len() {
+            0 => None,
+            1 => Some(encoded.into_iter().next().expect("length checked above")),
+            _ => {
+                let field_names: Vec<String> =
+                    (0..encoded.len()).map(|i| format!("arg{i}")).collect();
+                Some(args_message(
+                    field_names
+                        .iter()
+                        .map(String::as_str)
+                        .zip(encoded)
+                        .collect(),
+                ))
+            }
+        };
+        Expression {
+            expr: Some(Expr::Call(Box::new(FunctionCall {
+                module: alias.to_string(),
+                function: function.to_string(),
+                input: input.map(Box::new),
+                type_args: vec![],
+            }))),
+        }
     }
 
     /// Pack `args` as the input to a call targeting `name` — a bare Rust
@@ -1328,7 +1595,7 @@ impl MetaBuilder {
 /// leading `self` receiver instead of panicking on it). Fails loud on `self`
 /// receivers and on destructuring parameter patterns (`fn f((a, b):
 /// (i64, i64))`, deferred).
-fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
+pub(crate) fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
     sig.inputs
         .iter()
         .map(|arg| match arg {
@@ -1360,6 +1627,24 @@ fn param_names_and_types(sig: &syn::Signature) -> Vec<(String, String)> {
 /// `ball-lang-compiler` never parses these strings back).
 pub(crate) fn type_to_string(ty: &syn::Type) -> String {
     quote::quote!(#ty).to_string().replace(' ', "")
+}
+
+/// Does `ident` follow Rust's `snake_case` **module** naming convention (as
+/// opposed to an `UpperCamelCase` type name)? The discriminator
+/// [`Encoder::encode_call`]'s unresolved-import fallback applies to the
+/// segment immediately owning the called function, to tell
+/// `other_file::helper(1)`/`std::cmp::max(a, b)` (calls into another module —
+/// encodable as an unresolved import) from `Vec::new()`/`std::vec::Vec::new()`
+/// (associated functions on a foreign type — still a documented, loud gap,
+/// since no module import could supply them). A leading `_` counts as
+/// module-shaped; a non-alphabetic leading character (impossible for a Rust
+/// identifier other than `_`) does not.
+fn starts_lowercase(ident: &str) -> bool {
+    match ident.chars().next() {
+        Some('_') => true,
+        Some(c) => c.is_lowercase(),
+        None => false,
+    }
 }
 
 fn path_to_string(path: &syn::Path) -> String {

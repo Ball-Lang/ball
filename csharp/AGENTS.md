@@ -442,11 +442,35 @@ compiles to a plain top-level function `"Owner_Method"` (underscore, to avoid co
 dot-based instance convention) — **except** a method literally named `Main`, always the bare
 entry-point name `"Main"` regardless of which class declares it.
 
-### Construction is field-mapping only
+### Construction is field-mapping only — a constructor body is RESOLVED, never interpreted
 
-`new Foo(a, b)` / `new Foo { X = 1 }` never interprets a constructor **body** — only the
-constructor's (or a C# 12 primary constructor's) parameter list is consulted to map positional
-args onto field names; a class may declare at most one constructor. `List<T>`/`HashSet<T>`/…
+`new Foo(a, b)` / `new Foo { X = 1 }` never *interprets* a constructor body. Since issue #492's
+slice B it does **resolve** one, syntactically: `Encoder.CollectDeclarations` reduces each declared
+non-static constructor to a `CtorShape` — its parameter names (which fix its arity) plus the
+ordered list of fields it assigns, each sourced either from a parameter (by index) or from a
+constant literal in the body. Exactly two statement shapes are recognised, `field = param;` /
+`this.field = param;` and `field = literal;`; **anything else throws**, naming the class and the
+offending statement. A call site selects the shape whose parameter count equals its argument
+count, so **multiple constructors of distinct arities are supported**.
+
+**Why the field name, not the parameter name — this was a silent-wrong-output bug.** A method body
+reads instance state through the class's own declared field names (`ClassFields`, sourced from
+`field`/auto-property declarations). Before slice B, `EncodeObjectCreation` keyed the
+`MessageCreation` by the *constructor's parameter names* instead. Those agree only for a primary
+constructor or an object initializer — the only two shapes any test exercised — and differ for the
+single most common real C# idiom, `private int _x; public Point(int x) { _x = x; }`. Verified end
+to end on the Dart reference engine: `new Point(1, 2).Sum()` printed **`0`** instead of `3`,
+because every `field_access(self, "_x")` read the proto3 default of a field that was never
+populated. Two documented scope limits fall out of the fix: a **non-trivial constructor body** and
+**same-arity constructor overloads** (a syntax-only encoder cannot type-match arguments) both
+throw. Both are pinned by `encoder/test/ConstructorFieldMappingTests.cs`.
+
+Rust's sibling encoder reaches the same construction shape from the other side: since #491 slice 3
+it maps a receiver-less `Type::new(...)` associated function onto a `metadata.is_static` class
+member, and Rust's own struct-literal syntax needs no constructor at all. Both end at a plain
+`message_creation` keyed by real field names.
+
+`List<T>`/`HashSet<T>`/…
 construction becomes a Ball list literal; `Dictionary<K,V>` has no native Ball map literal (see
 `proto/ball/v1/ball.proto`'s `Literal` oneof — no map case), so it routes through
 `std_collections.map_from_entries` instead. A `*Exception`-named unknown type (no same-file class
@@ -457,10 +481,25 @@ declaration) is assumed to be a BCL exception and becomes an anonymous `{Message
 
 Target-typed `new(...)` (no semantic model to resolve the implied type); `enum` declarations;
 `goto`/switch pattern-matching labels/catch exception filters; chained `?.` beyond one level;
-multiple constructors per class; local functions; sized array allocation without an initializer;
-interpolation alignment/format specifiers (`{x,5:F2}`). A few method names are inherently
-ambiguous without a semantic model and bias toward one route (documented in `Methods.cs`'s module
-doc comment): `.Contains`/`.IndexOf` → string ops; `.Remove` → `map_delete`.
+local functions; sized array allocation without an initializer; interpolation alignment/format
+specifiers (`{x,5:F2}`); a constructor body doing anything but `field = param;`/`field = literal;`;
+same-arity constructor overloads; a namespace-qualified static receiver deeper than `System.X`
+(`System.Text.Encoding.GetEncoding(...)`). A few method names are inherently ambiguous without a
+semantic model and bias toward one route (documented in `Methods.cs`'s module doc comment):
+`.Contains`/`.IndexOf` → string ops; `.Remove` → `map_delete`.
+
+**Bodyless members are the one shape that is OMITTED rather than thrown on** (issue #492 slice A):
+an interface method or an `abstract`/`partial`/`extern` declaration is a signature with nothing to
+encode, so `EncodeTypeDeclaration` skips it (the declaration itself still round-trips as a
+`TypeDefinition`). Emitting it as an `IsBase = true` member instead would be *worse* than useless:
+`CSharpCompiler`'s class-member registration loop — which populates `_classMembersByOwner`, the map
+`TypeEmit.cs`'s `CompileClassMembers`/`CompileMethodImpl` consume — has its own
+`if (func.IsBase) { continue; }` guard evaluated **before** the dotted-name split, so such a member
+would vanish from the compiled class with no diagnostic at all. Nothing is lost by omitting it:
+Ball dispatch resolves by the receiver's concrete runtime `type_name`, never by the declaring
+interface/abstract type, so the member is unreachable at run time. Pinned by
+`encoder/test/BodylessMembersTests.cs`, including a regression guard that a concrete override in
+the same file still encodes and dispatches.
 
 ### Real-world sweep (issue #492, slice 1) — a ratchet, not a gate
 
@@ -474,8 +513,10 @@ purpose: no network fetch and no third-party licensing (vendoring real packages 
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slice 2 (library mode): **`Results: 1 passed, 6 failed, 7 total`** (slice 1's was
-`0 passed, 7 failed, 7 total`). The **global** passed count is printed, never asserted on —
+Baseline after slices A and B: **`Results: 4 passed, 3 failed, 7 total`** (slice 1's was
+`0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`). Buckets (b), (c) and (g) closed together;
+(d) cross-file, (e) the expression long tail and (f) target-typed `new()` remain open.
+The **global** passed count is printed, never asserted on —
 asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets
 remain open, and asserting `N == 0` would block the very slices that fix them. What it *does*
 assert is a positive floor (a sweep that ran nothing cannot read as green), that the shipped
@@ -486,9 +527,18 @@ sweep's line, never a hand-maintained count.
 **Per bucket it does assert, and must.** Each taxonomy row declares the encoder entry point that
 shape is supported by today (`EncodeMode.Program` → `Encode`, `EncodeMode.Library` →
 `EncodeLibrary`) plus a `MustEncode` flag. Slice 2 flipped bucket (a) to
-`Library`/`MustEncode: true`, so a regression in library mode now fails the suite. "The printed
+`Library`/`MustEncode: true`; slices A and B flipped (b), (c) and (g). "The printed
 baseline moved" is not evidence on its own — nothing asserted it — so **every closed bucket gets a
 real assertion here**, and the sweep additionally asserts `passed >= (number of closed buckets)`.
+
+**A bucket flip must never be bought by weakening its fixture.** Buckets (b) and (g) both write
+`System.Console.WriteLine(...)`, which the encoder could not encode at all —
+`EncodeMemberInvocation` special-cased only a *bare* `IdentifierNameSyntax` receiver, so a
+namespace-qualified one fell through to `DispatchInstanceOrBuiltinMethod` and threw. Closing their
+own gap alone would have left them red on that unrelated one. `Encoder.StaticReceiverName`
+(`Methods.cs`) fixes it properly, so both buckets flip on their **unmodified committed fixtures**;
+`encoder/test/QualifiedBclReceiverTests.cs` pins it, including that a deeper namespace still fails
+loud and that a local named `Console` still shadows the BCL static.
 
 The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
 table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
@@ -500,9 +550,11 @@ editing the table *and* committing the fixture.
 **Throw-site taxonomy (#492's issue text gets this wrong — do not repeat it).** An `interface`
 does *not* hit `CSharpEncoder.cs`'s "unsupported type declaration kind" throw:
 `InterfaceDeclarationSyntax` derives from `TypeDeclarationSyntax`, so it passes that check and
-reaches `EncodeTypeDeclaration`, failing only at `Types.cs`'s "method has no body". A member-less
-interface therefore encodes fine — an interface fixture **must** carry a method or it silently
-inflates the passed count. A `delegate` is not a `BaseTypeDeclarationSyntax` at all and hits the
+reaches `EncodeTypeDeclaration` — where, before slice A, it failed at `Types.cs`'s now-deleted
+"method has no body" throw. (A member-less interface always encoded fine, which is why an
+interface fixture **must** carry a method; that remains true, and since slice A the fixture's
+value is that it proves the member is OMITTED rather than mis-encoded.) A `delegate` is not a
+`BaseTypeDeclarationSyntax` at all and hits the
 earlier "unsupported top-level declaration" throw. Only `enum` actually reaches the
 "unsupported type declaration kind" site.
 
@@ -527,8 +579,14 @@ makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must s
 build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
 attached.
 
-Still open on #492 after this slice: cross-file symbol resolution, interfaces/abstract members,
-multiple constructors, and the expression-kind long tail.
+Still open on #492 after slices A and B: **cross-file symbol resolution** (bucket d), the
+**expression-kind long tail** (bucket e — `PredefinedType` static receivers such as `int.Parse`,
+0-arg `.Count()`), and **target-typed `new()`** (bucket f). Bucket d needs a public-API decision
+(an `EncodeProject` over several files) rather than a slice; when it is taken it should mirror the
+Rust encoder's #491 slice-3 decision — emit an **unresolved, source-less `ModuleImport`** naming
+the callee's module rather than failing, which `ball check` accepts as structurally valid and
+deliberately not runnable (see `rust/AGENTS.md`'s "Receiver-less associated functions + cross-file
+calls").
 
 ### Proof (verified 2026-07-11 against the DART reference engine — no C# engine exists yet, #383)
 

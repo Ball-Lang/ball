@@ -8,8 +8,8 @@ paths:
 Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the `ball`
 CLI (`run`/`compile`/`encode`/`check`, #437) are all in place and tested (the self-hosted cli-core
 verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported). The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 334 passed,
-0 failed, 334 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 335 passed,
+0 failed, 335 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance sweep — and the
 `go-engine` row in `conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.
@@ -141,7 +141,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 334 passed, 0 failed, 334 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 335 passed, 0 failed, 335 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Build-tag gating.** `compiled_engine.go` is a gitignored artifact absent from a fresh checkout,
   so everything that references it (`driver.go`, `run_selfhost.go`, `conformance/runner.go` +
@@ -181,6 +181,23 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   participates in the build under `-tags selfhost`.
 
 ## Testing
+
+- **Third-party coverage study, Tier A (#493).** `tools/coverage-study/go` (a
+  standalone tool module, deliberately OUTSIDE `go/` and out of `go.work` — the six
+  modules there are published paths `tools/go-module-proxy/smoke.sh` sweeps) runs
+  real pinned modules through `encoder.Encode` -> `compiler.CompileLibrary` ->
+  `encoder.Encode`, diffs the declaration inventory with **`go/parser` + `go/ast`
+  directly** (never `go/encoder`'s own walk) and checks a second-generation
+  fixpoint. Honest first baseline **0/21 clean, 0 files even encoded**: every real
+  library file trips the documented top-level `type`/`const`/`var` and
+  method-with-receiver gaps. Because `go/encoder` has **no library mode** (unlike
+  Rust's `encode_library` / C#'s `EncodeLibrary`), the harness appends an empty
+  `func main() {}` before encoding when a file has none, and excludes it (and any
+  real `main`, which `CompileLibrary` renames to `ball_main`) from the inventory —
+  a disclosed accommodation, pinned by its own test. `go test ./...` there IS gated
+  on every PR in the `go` job; the RUN is the report-only `go-tier-a` job in
+  `coverage-study.yml`, which has **no `pull_request:` trigger**. Methodology:
+  `tests/conformance/COVERAGE_STUDY.md`.
 
 - `go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...`
   (default, no tag) runs the compiler end-to-end tests, encoder round-trip tests, runtime unit

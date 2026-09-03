@@ -7,6 +7,18 @@
 # same way) we only need a release build.
 set(VCPKG_BUILD_TYPE release)
 
+# ...and, for the same reason, ${CURRENT_PACKAGES_DIR}/include stays empty.
+# Without this, vcpkg's post-build validation reports
+#   "The folder ${CURRENT_PACKAGES_DIR}/include is empty or not present ...
+#    If this is not a CMake helper port but this is otherwise intentional, add
+#    set(VCPKG_POLICY_EMPTY_INCLUDE_FOLDER enabled) to suppress this message."
+#   "Found 1 post-build check problem(s) ... Please correct these before
+#    submitting this port to the curated registry."
+# — i.e. a submission blocker, surfaced by the ci.yml vcpkg smoke's own log.
+# NOT VCPKG_POLICY_CMAKE_HELPER_PORT (what ports/vcpkg-tool-ninja uses): that
+# one declares a port which ships only CMake scripts, which this is not.
+set(VCPKG_POLICY_EMPTY_INCLUDE_FOLDER enabled)
+
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Ball-Lang/ball
@@ -17,6 +29,80 @@ vcpkg_from_github(
              # paste that hash here before submitting (see ../README.md).
     HEAD_REF main
 )
+
+# ── Self-hosted verbs: the pre-generated C++ sidecar (issues #368/#361) ──────
+# `ball compile` / `ball encode` / `ball version` only need the C++ compiler and
+# encoder libraries built here, so they are always real. `ball run` and the
+# self-hosted `info`/`validate`/`tree` verbs are the SELF-HOSTED half of the CLI
+# (issue #367): they are Ball programs compiled to C++ by Ball's own compiler
+# into dart/self_host/lib/{engine_rt.cpp,cli_rt.h}, which cpp/cli/CMakeLists.txt
+# EXISTS-gates at configure time. Producing them needs Dart plus a bootstrap
+# build of `ball_cpp_compile` — neither of which exists inside vcpkg's
+# sandboxed, network-isolated build.
+#
+# So the release workflow (.github/workflows/release-cpp.yml) runs that Dart
+# pipeline once per tag and publishes the two generated sources as a release
+# asset beside the `ball` binaries; this port downloads and unpacks that asset
+# into ${SOURCE_PATH}/dart/self_host/lib/ before configuring, and the same
+# EXISTS gates that give the Releases binaries every verb fire here too.
+#
+# It is a FEATURE, on by default, rather than an unconditional download:
+# vcpkg_download_distfile has no non-fatal mode, so gating it is the only way
+# vcpkg supports "this build does not need the sidecar". `vcpkg install
+# ball-lang[core]` therefore still yields exactly the compile/encode/version-only
+# `ball` this port shipped before — no download attempted, no hard failure —
+# while the default install gets every verb.
+#
+# FEATURE_OPTIONS is intentionally NOT forwarded to vcpkg_cmake_configure below:
+# the feature selects whether the two generated sources are *present*, and
+# cpp/cli/CMakeLists.txt keys off their existence, not off a -D flag. Passing an
+# unused -DBALL_WITH_SELFHOST would only earn a "manually-specified variables
+# were not used" warning from CMake.
+vcpkg_check_features(
+    OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    FEATURES
+        selfhost BALL_WITH_SELFHOST
+)
+
+if(BALL_WITH_SELFHOST)
+    vcpkg_download_distfile(
+        BALL_SELFHOST_ARCHIVE
+        URLS "https://github.com/Ball-Lang/ball/releases/download/v${VERSION}/ball-selfhost-cpp-src-v${VERSION}.tar.gz"
+        FILENAME "ball-selfhost-cpp-src-v${VERSION}.tar.gz"
+        SHA512 0 # PLACEHOLDER — same fill-in-at-submission-time flow as the
+                 # source SHA512 above, and likewise only computable once a real
+                 # tagged release actually carries this asset (../README.md).
+    )
+    # NO_REMOVE_ONE_LEVEL: the asset is a flat archive of the two generated
+    # sources, deliberately with no wrapping directory, so the file names it
+    # unpacks are exactly the names cpp/cli/CMakeLists.txt gates on.
+    vcpkg_extract_source_archive(
+        BALL_SELFHOST_DIR
+        ARCHIVE "${BALL_SELFHOST_ARCHIVE}"
+        SOURCE_BASE "ball-selfhost-cpp-src"
+        NO_REMOVE_ONE_LEVEL
+    )
+    # Fail loud, not silently verbless: a sidecar that unpacked to something
+    # other than these two names would otherwise leave the EXISTS gates unmet
+    # and hand the user a stub `ball run` with a green install log.
+    foreach(_ball_selfhost_file IN ITEMS cli_rt.h engine_rt.cpp)
+        if(NOT EXISTS "${BALL_SELFHOST_DIR}/${_ball_selfhost_file}")
+            message(FATAL_ERROR
+                "ball-lang[selfhost]: ${_ball_selfhost_file} is missing from "
+                "ball-selfhost-cpp-src-v${VERSION}.tar.gz. Install "
+                "ball-lang[core] for the compile/encode/version-only build, or "
+                "report this against https://github.com/Ball-Lang/ball/issues.")
+        endif()
+    endforeach()
+    file(COPY
+        "${BALL_SELFHOST_DIR}/cli_rt.h"
+        "${BALL_SELFHOST_DIR}/engine_rt.cpp"
+        DESTINATION "${SOURCE_PATH}/dart/self_host/lib"
+    )
+    message(STATUS "ball-lang: self-hosted verbs ENABLED (run/info/validate/tree)")
+else()
+    message(STATUS "ball-lang: self-hosted verbs stubbed (feature 'selfhost' not selected) — compile/encode/version only")
+endif()
 
 # This configures the FULL cpp/ CMake project (shared + compiler + encoder +
 # cli + test) — there is no standalone `cpp/cli/CMakeLists.txt` entry point
@@ -50,22 +136,5 @@ vcpkg_copy_tools(
     DESTINATION "${CURRENT_PACKAGES_DIR}/tools/${PORT}"
     AUTO_CLEAN
 )
-
-# ── Known limitation: verb coverage in a from-source vcpkg build ──
-# `ball compile` / `ball encode` / `ball version` are always real (they only
-# need the C++ compiler+encoder libraries built here). `ball run` and the
-# self-hosted `info`/`validate`/`tree` verbs are the SELF-HOSTED half of the
-# CLI (issue #367): they need Dart + `ball_cpp_compile --library` to
-# pre-generate dart/self_host/lib/{engine_rt.cpp,cli_rt.h} BEFORE this CMake
-# project is configured (see cpp/cli/CMakeLists.txt's EXISTS gates, and
-# .github/workflows/release-cpp.yml, which runs that Dart pipeline before
-# building `ball`). vcpkg's sandboxed, network-isolated, Dart-free build
-# cannot do that, so those files are absent and the affected verbs compile as
-# fail-loud stubs — exactly the "build-isolated main cpp CI job" behavior
-# described in PR #374, not a defect specific to this port. The GitHub
-# Releases binaries (built by release-cpp.yml) are the fully-verbed build;
-# this vcpkg port is compile/encode/version-only until a Dart-free way to
-# pre-generate those two generated files ships (tracked as a possible
-# follow-up to #368, not yet filed).
 
 vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

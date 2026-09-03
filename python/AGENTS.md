@@ -2,6 +2,25 @@
 
 # Python (runtime + compiler + encoder + engine + cli)
 
+## Third-party coverage study — Tier A (`tools/coverage-study/rq1_study_py.py`, #493)
+
+Runs pinned third-party packages through `ball_encoder.encode` →
+`ball_compiler.compile_library` → `ball_encoder.encode`, diffs the declaration
+inventory using the **stdlib `ast` directly** — never `ball_encoder`'s own walk —
+and checks a second-generation fixpoint.
+
+Honest first baseline: **0/73 clean** (4 pinned packages,
+`tools/coverage-study/packages/python.json`). 5 files encode and compile back;
+the wall is stage 3, because the compiler's `try/except` + `ballrt.*` output is
+outside the encoder's surface, and the other 68 never encode at all (the
+top-level-class gap). Do not "improve" that number by changing the pin list.
+
+`python tools/coverage-study/test/rq1_study_py_self_test.py` is the harness's own
+self-test and **is gated on every PR** in ci.yml's `python` job (both files are
+also in the `compileall` syntax gate). The RUN is the report-only
+`python-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
+trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+
 ## Purpose
 The Python Ball target. A **compiler + runtime + encoder + self-hosted engine +
 CLI** (Ball epic #445 Phases 2-5), **CI-gated** (Phase 7): the `python` job in
@@ -50,7 +69,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 **compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
 four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 334 passed, 0 failed, 334 total (4 skipped carve-outs)` — Dart-identical
+`Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify

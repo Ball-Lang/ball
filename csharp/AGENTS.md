@@ -26,6 +26,30 @@ and the root `CLAUDE.md`/`AGENTS.md` status paragraphs, cross-checked against th
 CI job and `csharp-engine` conformance-matrix row. This completes all 10 phases of epic #377's
 phase table (the epic issue itself closes separately, per maintainer review).
 
+## Third-party coverage study — Tier A (`csharp/coverage-study`, issue #493)
+
+A separate Exe project in `Ball.slnx` (mirroring `engine/tool`/`cli/tool`) plus
+its `test/` sibling. It runs pinned third-party libraries through
+`CSharpEncoder.EncodeLibrary` → `CSharpCompiler.Compile` →
+`CSharpEncoder.EncodeLibrary`, diffs the declaration inventory using a **Roslyn
+`CSharpSyntaxWalker` directly** — never `Ball.Encoder`'s own walk, so an encoder
+bookkeeping bug cannot hide from the instrument measuring it — and checks a
+second-generation fixpoint. `Compile` needs no special mode: it already emits
+`Main` only when the entry function exists, so an `EncodeLibrary` Program with
+an empty `EntryFunction` compiles fine.
+
+Honest first baseline: **0/472 clean** (4 pinned libraries,
+`tools/coverage-study/packages/csharp.json`) — but C# gets furthest of the four
+ports, and the funnel is the story: 74 files encode, 73 compile back, 58
+re-encode, and the wall is stage 4, `declaration-drift`. Do not "improve" that
+number by changing the pin list.
+
+`dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj` is the
+harness's own self-test and **is gated on every PR** in ci.yml's `csharp` job.
+The RUN is the report-only `csharp-tier-a` job in `coverage-study.yml`, which
+has **no `pull_request:` trigger**. Methodology:
+`tests/conformance/COVERAGE_STUDY.md`.
+
 ## Layout
 
 ```
@@ -795,7 +819,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 334 passed, 0 failed, 334 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1019,7 +1043,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 334 passed, 0 failed, 334 total (4 skipped carve-outs)`.
+  `Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1086,7 +1110,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 334 passed, 0 failed, 334 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 335 passed, 0 failed, 335 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
@@ -1256,8 +1280,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 334 passed, 0 failed,
-  334 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 335 passed, 0 failed,
+  335 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

@@ -292,6 +292,7 @@
         "438_ctor_initializer_list_with_body",
         "439_unrelated_field_name_collision",
         "43_countdown",
+        "442_switch_goto_fallthrough_guard_or_pattern",
         "55_scope_variable",
         "60_collatz",
         "66_digit_sum",
@@ -416,6 +417,7 @@
         "280_enc_labeled_break",
         "291_enc_continue",
         "400_switch_continue_label",
+        "442_switch_goto_fallthrough_guard_or_pattern",
         "48_break_continue"
       ],
       "engineImplementedDart": true,
@@ -538,6 +540,7 @@
         "274_enc_nested_control",
         "291_enc_continue",
         "400_switch_continue_label",
+        "442_switch_goto_fallthrough_guard_or_pattern",
         "48_break_continue"
       ],
       "engineImplementedDart": true,
@@ -906,6 +909,7 @@
         "436_recursive_ctor_named",
         "437_recursive_ctor_tree",
         "43_countdown",
+        "442_switch_goto_fallthrough_guard_or_pattern",
         "47_do_while",
         "50_if_else_chain",
         "51_nested_if",
@@ -2298,6 +2302,7 @@
         "439_unrelated_field_name_collision",
         "43_countdown",
         "440_base_typed_param_return_slicing",
+        "442_switch_goto_fallthrough_guard_or_pattern",
         "44_for_loop_basic",
         "45_for_in_loop",
         "46_while_loop",
@@ -2895,7 +2900,8 @@
         "306_nullable_type_patterns",
         "394_mappattern_excludes_set",
         "396_switch_case_fallthrough",
-        "400_switch_continue_label"
+        "400_switch_continue_label",
+        "442_switch_goto_fallthrough_guard_or_pattern"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3455,6 +3461,7 @@
         "350_set_value",
         "392_empty_set_literal",
         "400_switch_continue_label",
+        "442_switch_goto_fallthrough_guard_or_pattern",
         "76_list_map_filter",
         "85_closure_counter",
         "97_stack_operations",

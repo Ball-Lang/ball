@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 334 passed, 0
-failed, 334 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 335 passed, 0
+failed, 335 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -14,6 +14,28 @@ sibling for compiler/encoder patterns since both emit target source via string
 concatenation. **Verify maturity against CI, not this prose** — the `rust` job in
 `.github/workflows/ci.yml` gates build/test/fmt/clippy plus the self-host
 run-acceptance and the full conformance sweep.
+
+## Third-party coverage study — Tier A (`rust/tools/rq1-study`, issue #493)
+
+`ball-rq1-study` (a `publish = false` workspace member, so `cargo build/fmt/clippy
+--workspace` cover it) runs pinned third-party crates through
+`encode_library` → `compile_library` → `encode_library`, diffs the declaration
+inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so an
+encoder bookkeeping bug cannot hide from the instrument measuring it — and
+checks a second-generation fixpoint.
+
+Honest first baseline: **0/110 clean, 0 files even encoded** (5 pinned crates,
+`tools/coverage-study/packages/rust.json`). Every scored file is an
+`encode-error`: the encoder's documented gaps (item-level `const`/`static`/
+`type`, tuple structs, methods declared in another file) are present in
+essentially every real crate file. That is the honest number, not a
+cherry-picked one — do not "improve" it by changing the pin list.
+
+`cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
+every PR** in ci.yml's `rust` job. The RUN is the report-only `rust-tier-a` job
+in `coverage-study.yml`, which has **no `pull_request:` trigger** — the row is
+absent, not green, on a PR. Methodology and the funnel's meaning:
+`tests/conformance/COVERAGE_STUDY.md`.
 
 ## Package Layout
 
@@ -113,8 +135,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 334 passed, 0 failed,
-334 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 335 passed, 0 failed,
+335 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it

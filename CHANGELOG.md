@@ -1,3 +1,17 @@
+# [1.63.0](https://github.com/Ball-Lang/ball/compare/v1.62.0...v1.63.0) (2026-09-03)
+
+
+### Features
+
+* **coverage-study:** port the Tier A third-party study to Rust, C#, Go and Python ([#535](https://github.com/Ball-Lang/ball/issues/535)) ([083663b](https://github.com/Ball-Lang/ball/commit/083663b3f4ccf9cfdbe89e094348c037aa84854d)), closes [#493](https://github.com/Ball-Lang/ball/issues/493) [#493](https://github.com/Ball-Lang/ball/issues/493) [#493](https://github.com/Ball-Lang/ball/issues/493)
+
+# [1.62.0](https://github.com/Ball-Lang/ball/compare/v1.61.1...v1.62.0) (2026-09-03)
+
+
+### Features
+
+* **cpp:** ship a Dart-free self-host source asset so a vcpkg-built ball has real run/info/validate/tree ([#534](https://github.com/Ball-Lang/ball/issues/534)) ([e71e484](https://github.com/Ball-Lang/ball/commit/e71e48484e7092a73464e154a6428c0fcd2ed679)), closes [#368](https://github.com/Ball-Lang/ball/issues/368) [#361](https://github.com/Ball-Lang/ball/issues/361) [#508](https://github.com/Ball-Lang/ball/issues/508)
+
 ## [1.61.1](https://github.com/Ball-Lang/ball/compare/v1.61.0...v1.61.1) (2026-09-03)
 
 

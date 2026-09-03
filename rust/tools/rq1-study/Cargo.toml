@@ -1,0 +1,32 @@
+[package]
+name = "ball-rq1-study"
+description = "Tier A of the third-party coverage study for the Rust pipeline (issue #493)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+# An internal measuring instrument, never a published crate — hence
+# `publish = false` and the `tools/` home (mirroring `engine/tool` and
+# `cli/tool`, which are workspace members for the same reason: they must build,
+# be formatted and be linted with everything else, but they are not part of the
+# shipped surface). publish-crates.yml publishes the five crates by name, so an
+# extra member changes nothing there.
+
+[[bin]]
+name = "rq1-study"
+path = "src/main.rs"
+
+[dependencies]
+ball-lang-compiler = { workspace = true }
+ball-lang-encoder = { workspace = true }
+ball-lang-shared = { workspace = true }
+prost = { workspace = true }
+prost-reflect = { workspace = true, features = ["serde"] }
+# The declaration inventory is walked with `syn` DIRECTLY rather than through
+# ball-lang-encoder's own walk, so a bug in the encoder's bookkeeping cannot
+# hide a lost declaration from the harness.
+syn = { workspace = true }
+serde_json = "1"

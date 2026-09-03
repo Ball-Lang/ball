@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 334 passed, 0 failed, 334 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 335 passed, 0 failed, 335 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -156,7 +156,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 334 passed, 0 failed, 334 total` (the 4
+  whole corpus with Dart-identical output: `Results: 335 passed, 0 failed, 335 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -177,6 +177,19 @@ cargo fmt --check && cargo clippy --workspace
   via `cargo run -p ball-engine-regen`.
 
 ## Testing
+
+- **Third-party coverage study, Tier A (#493).** `rust/tools/rq1-study` (crate
+  `ball-rq1-study`, `publish = false`, a workspace member so it is built/formatted/
+  linted with everything else) runs real pinned crates through
+  `encode_library` -> `compile_library` -> `encode_library`, diffs the declaration
+  inventory with **`syn` directly** (never the encoder's own walk) and checks a
+  second-generation fixpoint. Honest first baseline **0/110 clean, 0 files even
+  encoded** — the encoders' documented gaps (item-level `const`/`static`/`type`,
+  tuple structs) are in essentially every real crate file. `cargo test -p
+  ball-rq1-study` (the harness's own self-test) IS gated on every PR in the `rust`
+  job; the RUN is the report-only `rust-tier-a` job in `coverage-study.yml`, which
+  has **no `pull_request:` trigger**. Methodology:
+  `tests/conformance/COVERAGE_STUDY.md`.
 
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.

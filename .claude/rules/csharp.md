@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 334 passed, 0 failed, 334 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 335 passed, 0 failed, 335 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -162,8 +162,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 334 passed, 0 failed,
-  334 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 335 passed, 0 failed,
+  335 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without
@@ -220,6 +220,18 @@ compile items so the sibling projects never double-compile each other's files.
   csharp/cli/tool/Ball.Cli.Regen.csproj`. Only participates in the build under `-p:CliCore=true`.
 
 ## Testing
+
+- **Third-party coverage study, Tier A (#493).** `csharp/coverage-study` (a separate
+  Exe project in `Ball.slnx`, mirroring `engine/tool`) runs real pinned libraries
+  through `EncodeLibrary` -> `CSharpCompiler.Compile` -> `EncodeLibrary`, diffs the
+  declaration inventory with a **Roslyn `CSharpSyntaxWalker` directly** (never
+  `Ball.Encoder`'s own walk) and checks a second-generation fixpoint. Honest first
+  baseline **0/472 clean**, but the funnel is the story: 74 files encode, 73 compile
+  back, 58 re-encode, and the wall is stage 4 (`declaration-drift`) — the furthest
+  any port gets. `dotnet test csharp/coverage-study/test/...` (the harness's own
+  self-test) IS gated on every PR in the `csharp` job; the RUN is the report-only
+  `csharp-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
+  trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 - `dotnet test Ball.slnx` from `csharp/` runs every default-build test project. `Ball.Engine`'s
   and `Ball.Cli`'s self-hosted/cli-core-gated test classes are feature-gated off by default, so

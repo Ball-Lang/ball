@@ -1,0 +1,7 @@
+zero,shared,guarded,ored
+shared,guarded,ored
+shared,guarded,ored
+wild
+ored
+ored
+wild

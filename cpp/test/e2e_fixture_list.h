@@ -19,12 +19,17 @@ namespace ball_e2e {
 // numerically. Programs that fail to compile are logged and counted
 // as failures — no programs are skipped.
 //
-// NOTE (#511): nothing currently gates this list against the real
-// tests/conformance/ directory, so it drifts. It had stopped at
-// 399_bytes_literal, missing EVERY fixture from 400 onward; those are added
-// below. A wider, older gap (a run of fixtures in the 257-296 band) is still
-// unlisted — closing it belongs with the drift guard that makes the list
-// self-maintaining, not with a hand-extended list that can go stale again.
+// GATED (#511 / #63): cpp/test/check_e2e_fixture_list.sh, run by ci.yml's
+// always-on `proto` job, fails when a runnable fixture (a .ball.json with a
+// sibling .expected_output.txt) is neither listed here nor named in
+// cpp/test/e2e_fixture_list_known_gaps.txt — so a NEW fixture can no longer
+// silently skip the C++ e2e leg the way everything from 400 onward once did.
+// The known-gaps file freezes the 90 fixtures in the 257-397 band that were
+// already unlisted when the guard landed; it is a ratchet (the guard also
+// rejects an entry that is already listed, or that names no fixture), so that
+// debt can only shrink. Adding a name here means committing CI to a nested
+// per-fixture cmake+g++ build, so confirm it passes first:
+// `bash cpp/test/quick_e2e.sh <name>`.
 inline const std::vector<std::string>& program_names() {
     static const std::vector<std::string> names = {
         "01_hello",
@@ -301,8 +306,10 @@ inline const std::vector<std::string>& program_names() {
         "431_shadowed_getter_dynamic_dispatch",
         "432_shadowed_getter_setter_write",
         "433_shadowed_field_self_write_and_local",
+        "434_type_of",
         "439_unrelated_field_name_collision",
         "440_base_typed_param_return_slicing",
+        "442_switch_goto_fallthrough_guard_or_pattern",
     };
     return names;
 }

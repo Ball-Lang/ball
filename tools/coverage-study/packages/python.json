@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "Pinned third-party Python packages for the Tier A coverage study (#493).",
+    "Hermeticity here means SOURCE hermeticity — the harness only parses,",
+    "encodes and re-encodes these files, it never installs or runs them — so",
+    "the bar is: pure Python, standard library only (no C/Cython extension",
+    "modules, no generated sources), permissively licensed, and small enough to",
+    "shallow-clone. chardet was considered and REJECTED: it now ships a",
+    "hatch_build_cython.py build hook, so its tree is no longer pure Python.",
+    "Each `ref` is a commit SHA resolved from the repo's default branch on",
+    "2026-09-03 via the GitHub API, so a Tier A number is reproducible; bump it",
+    "deliberately, never to chase a number. `lib` is the subtree that is",
+    "actually studied. An unreachable pin is reported separately and is NOT",
+    "scored as a failure."
+  ],
+  "packages": [
+    {
+      "name": "tomli",
+      "repo": "https://github.com/hukkin/tomli",
+      "ref": "5a77b12a7a9f052ce5a20c335d2825658f6aea52",
+      "lib": "src/tomli"
+    },
+    {
+      "name": "packaging",
+      "repo": "https://github.com/pypa/packaging",
+      "ref": "10590c194edb33c82f84a127883d6097c56b7840",
+      "lib": "src/packaging"
+    },
+    {
+      "name": "boltons",
+      "repo": "https://github.com/mahmoud/boltons",
+      "ref": "967864f89791509f9eb36b22b4579d36b72a6df2",
+      "lib": "boltons"
+    },
+    {
+      "name": "pyparsing",
+      "repo": "https://github.com/pyparsing/pyparsing",
+      "ref": "efd56db4e59f36b1673ce0eb0823e3afaa9d1201",
+      "lib": "pyparsing"
+    }
+  ]
+}

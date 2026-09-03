@@ -14,6 +14,12 @@
   <Folder Name="/compiler/test/">
     <Project Path="compiler/test/Ball.Compiler.Tests.csproj" />
   </Folder>
+  <Folder Name="/coverage-study/">
+    <Project Path="coverage-study/Ball.CoverageStudy.csproj" />
+  </Folder>
+  <Folder Name="/coverage-study/test/">
+    <Project Path="coverage-study/test/Ball.CoverageStudy.Tests.csproj" />
+  </Folder>
   <Folder Name="/encoder/">
     <Project Path="encoder/Ball.Encoder.csproj" />
   </Folder>

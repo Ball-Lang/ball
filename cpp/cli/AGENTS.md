@@ -61,6 +61,32 @@ The full CLI (real verbs + `run`) plus the parity gate build in the
 `cpp-selfhost-tally` CI job (`.github/workflows/regression-gates.yml`), which
 bootstraps Dart + generates the artifacts.
 
+### Getting the real verbs into a Dart-free build (the self-host sidecar)
+
+`cli_rt.h` / `engine_rt.cpp` are emitted by Ball's own compiler from Ball
+source, so producing them needs Dart plus a bootstrap `ball_cpp_compile` — a
+distribution channel that has neither (vcpkg's sandboxed, network-isolated
+build, most of all) used to be permanently stuck on the stubs. It no longer is
+(issues #368/#361):
+
+* `.github/workflows/release-cpp.yml` runs the pregeneration once per tag and
+  publishes those two files, flat, as the release asset
+  **`ball-selfhost-cpp-src-vX.Y.Z.tar.gz`** beside the `ball` binaries.
+* `tools/vcpkg-port/ports/ball-lang/portfile.cmake` downloads that asset (the
+  default-on `selfhost` feature) and copies it into
+  `${SOURCE_PATH}/dart/self_host/lib/` **before** configuring, so the same
+  `EXISTS` gates above fire inside vcpkg. `vcpkg install ball-lang[core]` opts
+  back out to the compile/encode/version-only build.
+* `ci.yml`'s `vcpkg` job pre-generates the sidecar on-runner, *deletes it from
+  the checkout*, and then asserts the vcpkg-INSTALLED `ball run` / `ball info`
+  against the conformance and cli-parity goldens — so the smoke can only pass
+  if the portfile's own download-and-unpack works.
+
+The asset name is written in two places that never meet at runtime;
+`tools/vcpkg-port/test/test_selfhost_asset_wiring.sh` (run in the always-on
+`Proto Checks` job) pins them against each other, because a rename would
+silently cost every future release its verbs rather than failing loudly.
+
 ## Link model (one runtime, no ODR clashes)
 
 `cli_verbs.cpp` (`cli_rt.h`) and `cli_run.cpp` (`engine_rt`) each splice the

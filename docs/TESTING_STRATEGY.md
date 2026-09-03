@@ -301,13 +301,31 @@ unparseable Dart on real library files (#494) all shipped past 18 green required
 checks on the same day.
 
 `tools/coverage-study/` (issue #493) is the instrument for that gap; the
-methodology, the two load-bearing harness settings, the current baseline and the
+methodology, the load-bearing harness settings, the current baselines and the
 honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **report-only**
 — `coverage-study.yml` has no `pull_request:` trigger — because a floor set
 before a baseline exists either goes permanently red and gets ignored or is set
-so low it means nothing. The harness's **own** self-test is gated on every PR
-(`ci.yml`'s Dart job), so the instrument cannot silently start skipping the file
-shapes it exists to look at.
+so low it means nothing. Each harness's **own** self-test is gated on every PR
+(in that language's `ci.yml` job), so the instrument cannot silently start
+skipping the file shapes it exists to look at.
+
+Tier A now exists for **five** languages: Dart (`rq1_study.dart`), Rust
+(`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
+(`tools/coverage-study/go`) and Python (`rq1_study_py.py`). TypeScript is
+deliberately deferred — `ts/compiler`'s `compileModule` takes a single Module
+*facade* built for the `ball_protobuf` inline-embedding case, not one module of
+a loaded multi-module `Program`, so a TS port needs a genuinely new compiler
+primitive rather than a wrapper around the facade.
+
+Each port also prints a per-stage **funnel** beside the clean percentage,
+because for the four ports the clean number is 0% and the information is
+entirely in *where* files stop: the Rust/C#/Go/Python compilers emit
+runtime-call-shaped source their syntactic encoders were never built to read
+back, so stage 3 (re-encode) is a wall — the same wall the `*-roundtrip` rows
+already report as an honest 0/32x on the project's own corpus. A bare 0% would
+hide the difference between "the encoder rejected the file outright" (Rust, Go:
+0 files even encode) and "58 of 472 files got all the way to the declaration
+diff" (C#).
 
 
 ### 3. Fail loud, never degrade silently
@@ -465,6 +483,7 @@ could not parse a summary at all).
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
+| **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++) | push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | push to main + weekly + dispatch — **NOT a PR gate** (no floor either: an honest 0/321 is the product) |
@@ -472,11 +491,13 @@ could not parse a summary at all).
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
-| **Third-party code (§2c)** — Dart Tier A | `tools/coverage-study/rq1_study.dart` via `coverage-study.yml` | weekly + manual — **report-only, NOT a PR gate** (issue #493 slice 1) |
-| Coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` | every PR (`Dart`) |
+| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python | `coverage-study.yml`'s `dart-tier-a` / `rust-tier-a` / `csharp-tier-a` / `go-tier-a` / `python-tier-a` jobs | weekly + manual — **report-only, NOT a PR gate** (issue #493). The one failure mode is a run that scored < 1 file: a harness/checkout failure, never a 0% result |
+| Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python) | every PR (the matching language job) |
 | Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |
 | **The artifact an outside consumer gets, not the checkout** — Python wheel (#496) | `python/tool/wheel_smoke.py` (`python -m build python/`, install into a venv OUTSIDE the repo with no `PYTHONPATH`, run `--version`/`check`/`compile`/`encode`/`run`, `run` diffed against a golden as BYTES) | every PR (`Python`) |
 | Compile-on-first-use engine bootstrap (what a pip-installed wheel actually runs) | `python/engine/tests/test_bootstrap.py` (cache hit/miss/invalidation, failure modes, and a conformance fixture through the cache-compiled engine vs. its golden) | every PR (`Python`, with `BALL_REQUIRE_SELFHOST_SOURCE=1` so it cannot silently skip) |
 | vcpkg port recipe builds (#368) | ci.yml's `vcpkg` job — generated overlay of the real port, `vcpkg install ball-lang --triplet x64-linux`, installed binary runs | cpp/tools-touching PRs — new infrastructure, not a regression gate (the port had never been built once) |
+| **The artifact an outside consumer gets, not the checkout** — vcpkg `ball`'s SELF-HOSTED verbs (#368/#361) | ci.yml's `vcpkg` job — pre-generate `dart/self_host/lib/{cli_rt.h,engine_rt.cpp}` with a real Dart toolchain, tar them as the release asset the portfile downloads, **delete them from the checkout**, then assert the vcpkg-INSTALLED `ball run` against the conformance golden and `ball info` against the Dart-native `cli_core` parity golden. `ball version` alone cannot see this: `BALL_CLI_VERSION` is compiled in unconditionally, so it passes identically in a fully-stubbed build | cpp/tools-touching PRs (`vcpkg port smoke (x64-linux)`) |
+| The self-host sidecar's four-file wiring cannot drift (#368/#361) | `tools/vcpkg-port/test/test_selfhost_asset_wiring.sh` — pins the release-asset name against the portfile's `FILENAME`, that the overlay generator swaps **both** network fetches and emits a hermetic overlay (and fails loudly on an unswapped one), that the sidecar is an opt-out-able default feature, and that the vcpkg job deletes its pre-generated copies before installing | every PR (runs in the always-on `proto` job) |

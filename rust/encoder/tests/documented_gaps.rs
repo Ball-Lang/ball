@@ -2,9 +2,8 @@
 //! (issue #491, slice 1 — measurement only, no behavior change).
 //!
 //! `rust/encoder/src/lib.rs`'s module doc comment scopes the encoder to
-//! single-file programs with a `fn main()`, same-file call resolution,
-//! named-field structs, fieldless enum variants and receiver-bearing
-//! associated items — and **fails loud** (a panic, never a silent skip) the
+//! single-file programs with a `fn main()`, named-field structs and fieldless
+//! enum variants — and **fails loud** (a panic, never a silent skip) the
 //! moment source falls outside that boundary. Issue #491's real-code study
 //! (196 files from 10 popular crates) drove real library code through it and
 //! got 0/196 encodes, every failure landing on one of those panics.
@@ -22,6 +21,17 @@
 //! not the whole sentence, so a legitimate reword of the surrounding prose does
 //! not break the test.
 //!
+//! ## Closed gaps keep their test, flipped
+//!
+//! When a slice closes a gap, its test here flips from `#[should_panic]` to a
+//! positive "encodes successfully" assertion in the **same PR** — leaving it
+//! asserting the old panic text would silently regress a closed gap back to
+//! unverified. Two are flipped today (issue #491, slice 3): receiver-less
+//! associated functions and cross-file call targets. The deeper proofs for
+//! both live in `rust/encoder/tests/static_methods.rs` and
+//! `rust/encoder/tests/cross_module_calls.rs`; the flipped tests here remain
+//! the goalposts that keep this file's gap list honest.
+//!
 //! ## Deliberately NOT pinned here
 //!
 //! - **No `fn main()` (library mode).** Already covered end-to-end on this same
@@ -29,12 +39,16 @@
 //!   missing_fn_main_exits_2`, which asserts the CLI's intentional exit-2
 //!   (`catch_panic_message` wraps `encode`'s panic). A second pin here would add
 //!   no coverage.
-//! - **Compiler support for receiver-less associated functions.** That is
+//! - **Compiler support for receiver-less associated functions.** That was
 //!   already implemented and conformance-tested — `rust/compiler/src/
 //!   type_emit.rs::method_prologue`'s `is_static` bypass, fixture
-//!   `tests/conformance/105_static_methods.ball.json` (issue #288). The gap
-//!   pinned below is *encoder-side mapping only*: turning `Point::new(...)`
-//!   syntax into that already-supported `is_static` shape.
+//!   `tests/conformance/105_static_methods.ball.json` (issue #288). What was
+//!   missing was *encoder-side mapping only*: turning `Point::new(...)`
+//!   syntax into that already-supported `is_static` shape — closed by slice 3.
+//! - **`methods.rs`' cross-file METHOD-call gap** (`receiver.method(args)`
+//!   whose method name isn't in the `collect_impl_method_params` pre-pass —
+//!   24 of 196 study files, the largest remaining bucket). It has no pin here
+//!   yet; adding one belongs with the slice that closes it.
 
 /// Source is only ever encoded, never compiled, so every snippet here is
 /// minimal — the panic must fire on the shape, not on anything downstream.
@@ -67,14 +81,17 @@ fn data_carrying_enum_variant_is_a_documented_gap() {
     encode("enum Shape { Circle(f64), Square }\nfn main() { let _s = Shape::Square; }");
 }
 
-// ── types.rs: receiver-less associated items (slice 4) ───────────────────────
+// ── types.rs: receiver-less associated items ─────────────────────────────────
 
-/// 26 of 196 study files — the single largest error class. The COMPILER
-/// already supports this shape (`is_static`, issue #288); the encoder does not
-/// yet map `Point::new(...)` syntax onto it.
+/// **CLOSED** by issue #491's slice 3 — 26 of 196 study files, the single
+/// largest error class. The COMPILER already supported this shape
+/// (`is_static`, issue #288); the encoder now maps `Point::new(...)` syntax
+/// onto it. Flipped from `#[should_panic]` to a positive assertion in the
+/// same PR that closed it, per this file's own doc comment; the full
+/// encode → compile → run proof lives in
+/// `rust/encoder/tests/static_methods.rs`.
 #[test]
-#[should_panic(expected = "an associated function with no `self` receiver (`Point::new`)")]
-fn impl_associated_fn_without_receiver_is_a_documented_gap() {
+fn impl_associated_fn_without_receiver_encodes() {
     encode(
         "struct Point { x: i32, y: i32 }\n\
          impl Point { fn new(x: i32, y: i32) -> Point { Point { x, y } } }\n\
@@ -82,20 +99,32 @@ fn impl_associated_fn_without_receiver_is_a_documented_gap() {
     );
 }
 
-/// The trait-block sibling of the same gap (a distinct panic site).
+/// The trait-block sibling is still a gap, deliberately: `ball-lang-compiler`'s
+/// `compile_method_dispatchers` skips every `is_abstract` member, so a
+/// signature-only static trait item would have no dispatcher for a
+/// `Maker::make()` call site to resolve to. Closing it needs compiler-side
+/// work with no #288-style precedent — see `types.rs`'s module doc comment.
 #[test]
 #[should_panic(expected = "no `self` receiver inside a `trait`")]
 fn trait_associated_fn_without_receiver_is_a_documented_gap() {
     encode("trait Maker { fn make() -> i32; }\nfn main() {}");
 }
 
-// ── lib.rs: call-target resolution (slice 3) ─────────────────────────────────
+// ── lib.rs: call-target resolution ───────────────────────────────────────────
 
-/// 24 of 196 study files: a call whose target lives in another file/module has
-/// no same-file `FunctionDefinition` to resolve against.
+/// **CLOSED** by issue #491's slice 3 — 15 of 196 study files, per that
+/// issue's own `unsupported call target (only same-file functions)` row. (The
+/// table's larger 24-file row is the SEPARATE `unsupported method call,
+/// callee not in this file` gap: `methods.rs`'s own panic on a
+/// `receiver.method(args)` whose method name isn't in the
+/// `collect_impl_method_params` pre-pass. That bucket is untouched here and
+/// has no pin in this file yet — it is the recommended next slice.)
+///
+/// A cross-file call now encodes as an unresolved `ModuleImport` rather than
+/// panicking; the structural assertions live in
+/// `rust/encoder/tests/cross_module_calls.rs`.
 #[test]
-#[should_panic(expected = "unsupported call target")]
-fn cross_file_call_target_is_a_documented_gap() {
+fn cross_file_call_target_encodes() {
     encode("fn main() { println!(\"{}\", other_file::helper(1)); }");
 }
 

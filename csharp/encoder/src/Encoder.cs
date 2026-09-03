@@ -8,6 +8,29 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Ball.Encoder;
 
+/// <summary>Where one constructor-assigned field's value comes from: a constructor parameter
+/// (by index into <see cref="CtorShape.ParamNames"/>) or a constant literal written directly
+/// in the constructor body (<c>_y = 0;</c>).</summary>
+/// <param name="Field">The class's own DECLARED field name — never the parameter's name.</param>
+/// <param name="ParamIndex">Index into the constructor's parameter list, or <c>-1</c> for a literal.</param>
+/// <param name="Literal">The literal expression, when <paramref name="ParamIndex"/> is <c>-1</c>.</param>
+internal readonly record struct CtorAssignment(string Field, int ParamIndex, ExpressionSyntax? Literal);
+
+/// <summary>
+/// One declared constructor, reduced to exactly what construction needs: its parameter names
+/// (which fix its arity, and therefore which call sites select it) and the ordered list of
+/// fields it assigns.
+///
+/// <para>This is a bounded, SYNTACTIC name/literal resolution — not general constructor-body
+/// interpretation. Only two statement shapes are recognised (<c>field = param;</c> /
+/// <c>this.field = param;</c>, and <c>field = literal;</c>); anything else is a loud
+/// <see cref="EncoderException"/>. That is what makes the encoder's "construction is field
+/// mapping only" invariant actually TRUE, rather than true-by-assumption: before this, a
+/// constructor's PARAMETER names were used as the message's field keys, which silently
+/// produced the wrong message whenever they differed from the class's real field names.</para>
+/// </summary>
+internal sealed record CtorShape(List<string> ParamNames, List<CtorAssignment> Assignments);
+
 /// <summary>
 /// Mutable state + core expression dispatch for one C# source file being encoded. Split
 /// across partial-class files by concern, mirroring <c>rust/encoder/src</c>'s module split:
@@ -28,13 +51,11 @@ internal sealed partial class Encoder
     /// known local) and by object-creation/constructor-parameter mapping.</summary>
     internal readonly Dictionary<string, List<string>> ClassFields = new();
 
-    /// <summary>Owner short name → its single constructor's parameter names, in declaration
-    /// order (empty list when the class has no explicit constructor — construction then
-    /// requires an object-initializer). Only ONE user constructor per class is supported (a
-    /// documented scope decision, matching how this encoder treats construction as a plain
-    /// field-mapping <c>message_creation</c> rather than interpreting a constructor body —
-    /// see <c>Types.cs</c>'s module doc comment).</summary>
-    internal readonly Dictionary<string, List<string>> CtorParams = new();
+    /// <summary>Owner short name → one <see cref="CtorShape"/> per declared non-static
+    /// constructor, in declaration order (empty list when the class declares none —
+    /// construction then requires an object initializer). See <see cref="CtorShape"/> and
+    /// <c>Types.cs</c>'s "Construction is field-mapping only" section.</summary>
+    internal readonly Dictionary<string, List<CtorShape>> CtorShapes = new();
 
     /// <summary>(owner short, method short) → the method's own declared (non-<c>this</c>)
     /// parameter names, in order — consulted at an instance-method **call site** so a 2+-arg
@@ -122,15 +143,19 @@ internal sealed partial class Encoder
         {
             var shortName = decl.Identifier.Text;
             var fieldNames = new List<string>();
-            List<string>? ctorParams = null;
+            var ctorShapes = new List<CtorShape>();
 
             // C# 12 primary constructor (`class Point(int x, int y);` / the long-standing
             // positional-record shorthand `record Point(int X, int Y);`) — its parameters
-            // double as both the constructor's param list AND the type's implicit fields.
+            // double as both the constructor's param list AND the type's implicit fields, so
+            // parameter i maps straight onto field i.
             if (decl.ParameterList is not null)
             {
-                ctorParams = decl.ParameterList.Parameters.Select(p => p.Identifier.Text).ToList();
-                fieldNames.AddRange(ctorParams);
+                var primaryParams = decl.ParameterList.Parameters.Select(p => p.Identifier.Text).ToList();
+                fieldNames.AddRange(primaryParams);
+                ctorShapes.Add(new CtorShape(
+                    primaryParams,
+                    primaryParams.Select((name, i) => new CtorAssignment(name, i, null)).ToList()));
             }
 
             foreach (var member in decl.Members)
@@ -148,18 +173,7 @@ internal sealed partial class Encoder
                         fieldNames.Add(prop.Identifier.Text);
                         break;
                     case ConstructorDeclarationSyntax ctor when !ctor.Modifiers.Any(SyntaxKind.StaticKeyword):
-                        if (ctorParams is not null)
-                        {
-                            throw new EncoderException(
-                                $"ball-encoder: class `{shortName}` declares more than one " +
-                                "constructor — only a single, field-mapping constructor is " +
-                                "supported (construction encodes as a plain message_creation; " +
-                                "see Types.cs's module doc comment)");
-                        }
-
-                        ctorParams = ctor.ParameterList.Parameters
-                            .Select(p => p.Identifier.Text)
-                            .ToList();
+                        ctorShapes.Add(CollectCtorShape(shortName, ctor));
                         break;
                     case MethodDeclarationSyntax method:
                         var methodName = method.Identifier.Text;
@@ -181,9 +195,107 @@ internal sealed partial class Encoder
             }
 
             ClassFields[shortName] = fieldNames;
-            CtorParams[shortName] = ctorParams ?? new List<string>();
+
+            // Two constructors of the same arity cannot be told apart by a syntax-only
+            // encoder (it has no semantic model to type-match arguments against parameters),
+            // so that is a documented, loud scope limit rather than a coin flip. Reported at
+            // COLLECTION time — the ambiguity is a property of the declaration, not of any
+            // particular call site, so reporting it here names it once instead of once per
+            // `new`.
+            var duplicateArity = ctorShapes
+                .GroupBy(shape => shape.ParamNames.Count)
+                .FirstOrDefault(group => group.Count() > 1);
+            if (duplicateArity is not null)
+            {
+                throw new EncoderException(
+                    $"ball-encoder: class `{shortName}` declares {duplicateArity.Count()} " +
+                    $"constructors taking {duplicateArity.Key} argument(s) — ambiguous " +
+                    "constructor arity: a syntax-only encoder cannot disambiguate same-arity " +
+                    "overloads (see Types.cs's module doc comment)");
+            }
+
+            CtorShapes[shortName] = ctorShapes;
         }
     }
+
+    /// <summary>
+    /// Reduce one constructor to its <see cref="CtorShape"/> by walking its body's TOP-LEVEL
+    /// statements and recognising exactly two shapes:
+    /// <list type="bullet">
+    /// <item><c>field = paramName;</c> / <c>this.field = paramName;</c> — a bare-identifier
+    /// right-hand side naming one of this constructor's own parameters.</item>
+    /// <item><c>field = &lt;int|double|bool|string|null literal&gt;;</c> — a constant default.</item>
+    /// </list>
+    /// Anything else (a computed expression, a method call, <c>this(...)</c>/<c>base(...)</c>
+    /// chaining, <c>x ?? throw ...</c>) throws, naming the class and the offending statement.
+    /// Kept deliberately NARROW and documented rather than clever, consistent with the rest of
+    /// this encoder's fail-loud posture — and strictly better than the previous behaviour,
+    /// which ignored the body entirely and therefore dropped such assignments in silence.
+    /// </summary>
+    private static CtorShape CollectCtorShape(string shortName, ConstructorDeclarationSyntax ctor)
+    {
+        var paramNames = ctor.ParameterList.Parameters.Select(p => p.Identifier.Text).ToList();
+
+        if (ctor.Initializer is not null)
+        {
+            throw new EncoderException(
+                $"ball-encoder: constructor of `{shortName}` chains to another constructor " +
+                $"(`{ctor.Initializer}`) — only `field = param;`/`field = literal;` assignment " +
+                "bodies are supported (construction encodes as a plain message_creation)");
+        }
+
+        var assignments = new List<CtorAssignment>();
+        var statements = ctor.Body?.Statements
+            ?? (ctor.ExpressionBody is null
+                ? default
+                : new SyntaxList<StatementSyntax>(SyntaxFactory.ExpressionStatement(ctor.ExpressionBody.Expression)));
+
+        foreach (var statement in statements)
+        {
+            if (statement is not ExpressionStatementSyntax
+                {
+                    Expression: AssignmentExpressionSyntax
+                    {
+                        RawKind: (int)SyntaxKind.SimpleAssignmentExpression,
+                    } assignment,
+                })
+            {
+                throw NonTrivialCtorBody(shortName, statement);
+            }
+
+            var field = assignment.Left switch
+            {
+                IdentifierNameSyntax id => id.Identifier.Text,
+                MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } thisField =>
+                    thisField.Name.Identifier.Text,
+                _ => null,
+            };
+            if (field is null)
+            {
+                throw NonTrivialCtorBody(shortName, statement);
+            }
+
+            switch (assignment.Right)
+            {
+                case IdentifierNameSyntax rhs when paramNames.IndexOf(rhs.Identifier.Text) >= 0:
+                    assignments.Add(new CtorAssignment(field, paramNames.IndexOf(rhs.Identifier.Text), null));
+                    break;
+                case LiteralExpressionSyntax literal:
+                    assignments.Add(new CtorAssignment(field, -1, literal));
+                    break;
+                default:
+                    throw NonTrivialCtorBody(shortName, statement);
+            }
+        }
+
+        return new CtorShape(paramNames, assignments);
+    }
+
+    private static EncoderException NonTrivialCtorBody(string shortName, StatementSyntax statement) =>
+        new($"ball-encoder: constructor of `{shortName}` has a non-trivial field assignment " +
+            $"`{statement.ToString().Trim()}` — only `field = param;` and `field = literal;` are " +
+            "supported (construction encodes as a plain message_creation, so a constructor body " +
+            "is resolved syntactically, never interpreted)");
 
     private static bool IsAutoProperty(PropertyDeclarationSyntax prop)
     {

@@ -68,8 +68,13 @@ public class LibraryModeTests
     public void EncodeLibrary_still_throws_on_every_other_documented_gap()
     {
         // Library mode relaxes the entry-point requirement and nothing else: a
-        // bodyless abstract member (bucket g) still fails loud.
+        // target-typed `new()` (bucket f, still open) fails loud here exactly as it
+        // does through `Encode`.
+        //
+        // This used to use bucket (g)'s bodyless abstract member, which issue #492's
+        // slice A closed — a bodyless member is now OMITTED rather than thrown on
+        // (see BodylessMembersTests), so it is no longer a gap to demonstrate with.
         Assert.Throws<EncoderException>(
-            () => CSharpEncoder.EncodeLibrary(ReadRealWorldFixture("g_abstract_method_no_body.cs")));
+            () => CSharpEncoder.EncodeLibrary(ReadRealWorldFixture("f_target_typed_new.cs")));
     }
 }

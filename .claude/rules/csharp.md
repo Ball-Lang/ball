@@ -114,12 +114,27 @@ compile items so the sibling projects never double-compile each other's files.
 - Instance methods use the engine's unconditional `self` convention: a method call's `input`
   carries a `"self"` field with the receiver; the encoder always addresses a field via explicit
   `field_access(reference("self"), field)`, never a bare name.
-- Construction is **field-mapping only** — a constructor's parameter list (or a primary
-  constructor) maps positional args onto field names; no constructor **body** is interpreted.
+- Construction is **field-mapping only**, and since #492 slice B a constructor body is *resolved*
+  syntactically rather than ignored: `CollectDeclarations` reduces each declared constructor to a
+  `CtorShape` (parameter names + the ordered fields it assigns, each from a parameter index or a
+  body literal), and a call site selects by **arity**, so several constructors of distinct arities
+  work. The `MessageCreation` is keyed by the class's **declared field names**, never the
+  constructor's parameter names — keying by the latter was a verified silent-wrong-output bug
+  (`new Point(1,2).Sum()` printed `0` instead of `3` on the Dart reference engine whenever
+  `private int _x; Point(int x){ _x = x; }`-style names differed). Only `field = param;` and
+  `field = literal;` are recognised; anything else throws.
+- **Bodyless members are OMITTED, not thrown on** (#492 slice A): an interface method or an
+  `abstract`/`partial`/`extern` declaration is skipped by `EncodeTypeDeclaration` (the
+  `TypeDefinition` still round-trips). Do NOT "fix" this by emitting `IsBase = true` — the
+  compiler's class-member registration loop drops `IsBase` members *before* the dotted-name split,
+  so such a member would vanish from the compiled class silently. Dispatch resolves by the
+  receiver's concrete runtime type anyway, so an abstract member is unreachable at run time.
 - Documented gaps (see `csharp/encoder/src/Methods.cs`'s module doc comment and
   `csharp/AGENTS.md`'s "Encoder" section): target-typed `new(...)`, `enum` declarations,
   `goto`/switch pattern-matching labels/catch exception filters, chained `?.` beyond one level,
-  multiple constructors per class, local functions, interpolation alignment/format specifiers.
+  local functions, interpolation alignment/format specifiers, non-trivial constructor bodies,
+  same-arity constructor overloads, and a namespace-qualified static receiver deeper than
+  `System.X` (`System.Console`/`System.Math` DO work — `Encoder.StaticReceiverName`).
 - **Library mode (#492 slice 2).** `Encode` requires a `Main` entry point; `EncodeLibrary` (CLI:
   `ball encode --library`) drops **only** that requirement — every other documented gap still
   throws `EncoderException`. Both share the private `AssembleProgram` helper. A library-mode
@@ -130,13 +145,17 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
   (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 1 passed, 6 failed, 7 total` (slice 1's baseline was `0 passed, 7 failed`). It never
+  `Results: 4 passed, 3 failed, 7 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  `1 passed, 6 failed`; slices A/B closed buckets b, c and g). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
   slice has CLOSED carries a real per-bucket `MustEncode` assertion, so a regression fails rather
-  than quietly lowering the printed baseline. Do not "fix" it by weakening a fixture.
-  Note the corrected throw-site taxonomy in `csharp/AGENTS.md`: an interface fails at
-  `Types.cs`'s "method has no body", not at the "unsupported type declaration kind" site, so an
+  than quietly lowering the printed baseline. **Do not "fix" it by weakening a fixture**: buckets
+  (b)/(g) write `System.Console.WriteLine(...)`, and closing their own gap alone would have left
+  them red on the unrelated namespace-qualified-receiver gap — that was fixed properly
+  (`Encoder.StaticReceiverName`) so both flip on their unmodified committed fixtures.
+  Note the corrected throw-site taxonomy in `csharp/AGENTS.md`: an interface reaches
+  `EncodeTypeDeclaration`, never the "unsupported type declaration kind" site, so an
   interface fixture must carry a method.
 
 ### Engine

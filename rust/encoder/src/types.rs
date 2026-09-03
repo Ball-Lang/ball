@@ -3,33 +3,36 @@
 //! `enum` (fieldless variants only) → `Module.enums[]` (an
 //! `EnumDescriptorProto`) plus a companion, descriptor-less `TypeDefinition`;
 //! `trait` → an `is_abstract` `TypeDefinition` with signature-only abstract
-//! members; `impl`/`impl Trait for Type` blocks → instance methods
-//! registered as `<Owner>.<method>` `FunctionDefinition`s. Mirrors
+//! members; `impl`/`impl Trait for Type` blocks → instance methods **and
+//! receiver-less associated functions** registered as `<Owner>.<method>`
+//! `FunctionDefinition`s. Mirrors
 //! `dart/encoder/lib/encoder.dart`'s class/enum/abstract-class encoding
 //! (the reference implementation this issue names) adapted to Rust's own
 //! `struct`/`enum`/`trait`/`impl` split — there is no single "class"
 //! keyword to dispatch on the way Dart has one.
 //!
-//! ## Why an associated function with no `self` receiver is a documented gap
+//! ## Receiver-less associated functions (`Point::new`) — supported since #491
 //!
-//! `ball-lang-compiler`'s `method_prologue` (`rust/compiler/src/type_emit.rs`)
-//! *unconditionally* extracts a `"self"` field from `input` and then reads
-//! every owner-type descriptor field *off of it* — and `ball_field_get`
-//! (`rust/shared/src/runtime.rs`) panics at run time on a non-message/
-//! non-map value. An associated function called without a receiver
-//! (`Point::new(3, 4)`) has no `"self"` field in its packed `input`, so
-//! encoding it through the same `<Owner>.<method>` class-member path this
-//! module uses for instance methods would produce a Ball program that
-//! panics the moment it runs — a silent semantic corruption, not merely an
-//! unimplemented feature. Rust's own idiomatic alternative — a direct
-//! struct-literal expression (`Point { x: 3, y: 4 }`,
-//! [`Encoder::encode_struct_literal`]) — covers construction without this
-//! trap, since it needs no constructor at all (it's a plain
-//! `message_creation`, exactly like every other reference encoder's
-//! constructor-less literal-field instantiation path). Encountering
-//! `Type::new(...)`-style call syntax therefore still hits `encode_call`'s
-//! existing "unsupported call target" panic (issue #42) rather than being
-//! silently accepted and miscompiled.
+//! An `impl` fn with no `self` receiver is Rust's own idiom for a
+//! "constructor", and it encodes to the `metadata.kind = "method"` +
+//! `metadata.is_static = true` class member that `ball-lang-compiler` has
+//! supported since issue #288: `method_prologue`
+//! (`rust/compiler/src/type_emit.rs`) skips extracting the `"self"` field for
+//! an `is_static` member, and `compile_method_dispatchers` routes a
+//! single-owner static short name straight into its `impl` block instead of
+//! matching on a receiver's (nonexistent) runtime type. The call site is
+//! therefore `FunctionCall{module: "", function: <short name>}` — packed with
+//! the callee's real parameter names and **never** a `"self"` field (see
+//! `Encoder::encode_call`'s local-associated-call branch, and
+//! `rust/encoder/tests/static_methods.rs`, which compiles and runs the whole
+//! round trip).
+//!
+//! The **trait** sibling (`trait Maker { fn make() -> i32; }`) is still a
+//! documented gap, deliberately: `compile_method_dispatchers` skips every
+//! `is_abstract` member, so a signature-only static trait item would have no
+//! dispatcher for a `Maker::make()` call site to resolve to — encoding it
+//! would produce a program that fails to build rather than a working one.
+//! Closing it needs compiler-side work that has no #288-style precedent yet.
 //!
 //! ## Why a method mutating its own field is out of scope
 //!
@@ -314,26 +317,42 @@ impl Encoder {
     /// that textually precedes the `impl` block (or targets a trait-object
     /// receiver whose concrete `impl` isn't known at the call site at all)
     /// can still pack its arguments under their real parameter names.
-    /// Associated functions with no `self` receiver are skipped here, not
-    /// panicked on — the loud panic happens only if [`Self::encode_item_impl`]
-    /// (the second, encoding pass) actually reaches one.
+    ///
+    /// A **receiver-less** associated function is recorded in
+    /// [`Encoder::static_method_params`] instead — keyed by `(owner short,
+    /// method short)`, because a `Point::new(...)` call site names its owner
+    /// explicitly (unlike `receiver.method(...)`, which resolves purely by
+    /// short name through the compiler's runtime dispatcher). The owner's own
+    /// short name is recorded in [`Encoder::local_type_names`] so
+    /// [`Encoder::encode_call`] can tell a locally-declared associated call
+    /// from a genuinely external module-qualified one.
     pub(crate) fn collect_impl_method_params(&mut self, item_impl: &syn::ItemImpl) {
+        let owner_short = type_short_name(&item_impl.self_ty);
+        self.local_type_names.insert(owner_short.clone());
         for impl_item in &item_impl.items {
             if let syn::ImplItem::Fn(impl_fn) = impl_item {
+                let short = impl_fn.sig.ident.to_string();
                 if has_self_receiver(&impl_fn.sig) {
-                    let short = impl_fn.sig.ident.to_string();
                     let params = method_non_self_params(&impl_fn.sig)
                         .into_iter()
                         .map(|(name, _)| name)
                         .collect();
                     self.method_params.insert(short, params);
+                } else {
+                    let params = crate::param_names_and_types(&impl_fn.sig)
+                        .into_iter()
+                        .map(|(name, _)| name)
+                        .collect();
+                    self.static_method_params
+                        .insert((owner_short.clone(), short), params);
                 }
             }
         }
     }
 
     /// `impl Type { ... }` / `impl Trait for Type { ... }` → one
-    /// `FunctionDefinition` per instance method, named `<module>:<Type>.
+    /// `FunctionDefinition` per member (instance method **or** receiver-less
+    /// associated function), named `<module>:<Type>.
     /// <method>` (the `class_members_by_owner` convention
     /// `rust/compiler/src/type_emit.rs` groups by). The `for Trait` half of
     /// a trait impl is deliberately ignored — dispatch is by the receiver's
@@ -353,21 +372,23 @@ impl Encoder {
                      (associated consts/types are a documented gap): `impl {owner_short}`"
                 );
             };
-            if !has_self_receiver(&impl_fn.sig) {
-                panic!(
-                    "ball-lang-encoder: an associated function with no `self` receiver \
-                     (`{owner_short}::{}`) is not supported — see the module doc comment; use \
-                     a struct-literal expression (`{owner_short} {{ ... }}`) to construct \
-                     `{owner_short}` instead",
-                    impl_fn.sig.ident
-                );
-            }
+            let is_static = !has_self_receiver(&impl_fn.sig);
             let method_short = impl_fn.sig.ident.to_string();
-            let params = method_non_self_params(&impl_fn.sig);
+            // A receiver-less associated function declares no `self` to skip,
+            // so every one of its parameters is a real parameter (issue #491).
+            let params = if is_static {
+                crate::param_names_and_types(&impl_fn.sig)
+            } else {
+                method_non_self_params(&impl_fn.sig)
+            };
             let body = self.encode_block(&impl_fn.block);
 
             let mut meta = MetaBuilder::new();
             meta.set_string("kind", "method");
+            // The one metadata key with real code-generation effect here:
+            // `rust/compiler/src/type_emit.rs`'s `method_prologue` keys its
+            // `self`-extraction bypass off `is_static` (issue #288).
+            meta.set_bool_if_true("is_static", is_static);
             meta.set_bool_if_true("is_public", is_pub(&impl_fn.vis));
             meta.set_bool_if_true("is_async", impl_fn.sig.asyncness.is_some());
             meta.set_params(&params);

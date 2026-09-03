@@ -1135,7 +1135,7 @@ jobs:
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
       # is left. Mirrors the dart job's rq1_study_self_test.dart step.
-      - name: Tier A coverage-study harness self-test (issue #493)
+      - name: "Tier A coverage-study harness self-test (issue #493)"
         run: cd rust && cargo test -p ball-rq1-study
 
       # ── Self-hosted engine: regenerate + RUN (issue #300) ──
@@ -1243,7 +1243,7 @@ jobs:
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
       # is left. Mirrors the dart job's rq1_study_self_test.dart step.
-      - name: Tier A coverage-study harness self-test (issue #493)
+      - name: "Tier A coverage-study harness self-test (issue #493)"
         run: dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj
 
       # ── Self-hosted engine: regenerate + RUN (issue #383/#384) ──
@@ -1373,7 +1373,7 @@ jobs:
       # outside go/ and out of go/go.work (the six modules there are published
       # paths that tools/go-module-proxy/smoke.sh sweeps), so it needs its own
       # gofmt/vet/test invocation rather than another entry in the lists above.
-      - name: Tier A coverage-study harness self-test (issue #493)
+      - name: "Tier A coverage-study harness self-test (issue #493)"
         run: |
           set -euo pipefail
           cd tools/coverage-study/go
@@ -1522,7 +1522,7 @@ jobs:
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
       # is left. Mirrors the dart job's rq1_study_self_test.dart step.
-      - name: Tier A coverage-study harness self-test (issue #493)
+      - name: "Tier A coverage-study harness self-test (issue #493)"
         run: python tools/coverage-study/test/rq1_study_py_self_test.py
 
       # Runs BEFORE the self-host regen below, so compiled_engine.py is absent

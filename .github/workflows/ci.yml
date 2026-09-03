@@ -131,6 +131,19 @@ jobs:
       - name: C++ coverage-floor CI wiring test (#63)
         run: bash cpp/test/test_cov_floor_ci_wiring.sh
 
+      # cpp/test/e2e_fixture_list.h is the single list of programs the C++ e2e
+      # test compiles + builds + runs. It was hand-maintained and gated by
+      # nothing, so it silently stopped at 399_bytes_literal and missed every
+      # fixture from 400 onward (#511). This guard fails when a runnable
+      # fixture is neither listed there nor named in the frozen known-gaps
+      # file, so a new fixture can no longer skip the C++ e2e leg unnoticed.
+      # `--self-test` first, so a guard that found nothing to compare cannot
+      # report success.
+      - name: C++ e2e fixture-list drift guard (#63 / #511)
+        run: |
+          bash cpp/test/check_e2e_fixture_list.sh --self-test
+          bash cpp/test/check_e2e_fixture_list.sh
+
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────

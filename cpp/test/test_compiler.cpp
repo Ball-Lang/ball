@@ -4048,6 +4048,339 @@ TEST(base_typed_local_from_a_subclass_local_keeps_the_concrete_type) {
 }
 
 // ================================================================
+// Coverage: compile_std_call / compile_statement / compile_library residual
+// arms (issue #63, epic #59)
+// ================================================================
+//
+// These are COVERAGE-ADDITIVE tests, not regression tests: every arm below is
+// already correct, and every assertion passes on first run. They exist because
+// full-branch coverage of `compile_std_call` / `compile_statement` /
+// `compile_library` was never a project goal until #63 — the conformance corpus
+// was built for base-function PRESENCE (gated by check_encoder_completeness.dart),
+// not for per-branch coverage of any single emitter function.
+//
+// Each arm here is reached only by an IR shape the CURRENT Dart encoder does not
+// emit, which is why it is a direct `cov_*` unit test rather than a conformance
+// fixture (the repo's stated preference). The per-shape reason is recorded above
+// each test.
+
+// A Ball map-literal entry sentinel: a MessageCreation with an empty typeName
+// and exactly the two fields `key` and `value` (see `_isMapEntrySentinel`).
+static json cov_map_entry(json key, json value) {
+    return make_msg("", {{"key", std::move(key)}, {"value", std::move(value)}});
+}
+
+// `std.collection_if(condition:, then:[, else:])`.
+static json cov_collection_if(json cond, json then_e,
+                              json else_e = json(nullptr)) {
+    std::vector<std::pair<std::string, json>> fields;
+    fields.push_back({"condition", std::move(cond)});
+    if (!then_e.is_null()) fields.push_back({"then", std::move(then_e)});
+    if (!else_e.is_null()) fields.push_back({"else", std::move(else_e)});
+    return std_call("collection_if",
+                    make_msg("CollectionIfInput", std::move(fields)));
+}
+
+// ---- compile_std_call: the `collection_if` arm ----
+//
+// The Dart encoder never routes a collection_if through compile_std_call: a
+// conditional element of a list/set literal is spliced by
+// `compile_collection_element`, and of a map literal by
+// `compile_map_collection_element` — both intercept `fn == "collection_if"`
+// before compile_expr's generic std dispatch is reached. compile_std_call's own
+// arm is what a collection_if compiled in its OWN right lands in: the shape a
+// hand-written Ball program (or a non-Dart encoder) can produce, and the shape
+// the map-context branch recurses into for a nested comprehension. Hence a unit
+// test, not a fixture.
+
+TEST(cov_collection_if_map_context_entry_sentinels) {
+    // then/else are both map-entry sentinels -> conditional map insertion into
+    // the `__m` accumulator that collection_for's IIFE has in scope.
+    auto prog = build_program(print_call(std_unary(
+        "to_string",
+        cov_collection_if(lit_bool(true),
+                          cov_map_entry(lit_string("hit"), lit_int(1)),
+                          cov_map_entry(lit_string("miss"), lit_int(2))))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "if (_ball_pred_true(true)) { __m[ball_to_string(\"hit\"s)]");
+    ASSERT_CONTAINS(out, "else { __m[ball_to_string(\"miss\"s)]");
+    // A map-context collection_if must NOT fall through to the list push form.
+    ASSERT_NOT_CONTAINS(out, "__r.push_back(std::any(BallDyn(__m");
+}
+
+TEST(cov_collection_if_map_context_nested_comprehension) {
+    // then/else are themselves collection_ifs whose leaves are entry sentinels:
+    // `_bodyProducesMapEntries` still reports map context, but neither branch is
+    // a sentinel, so both go through the nested compile_expr fallback.
+    auto inner_then =
+        cov_collection_if(lit_bool(true), cov_map_entry(lit_string("a"), lit_int(1)));
+    auto inner_else =
+        cov_collection_if(lit_bool(false), cov_map_entry(lit_string("b"), lit_int(2)));
+    auto prog = build_program(print_call(std_unary(
+        "to_string", cov_collection_if(lit_bool(true), std::move(inner_then),
+                                       std::move(inner_else)))));
+    auto out = compile_program(prog);
+    // Outer conditional wraps the two recursively compiled inner statements.
+    ASSERT_CONTAINS(out, "__m[ball_to_string(\"a\"s)]");
+    ASSERT_CONTAINS(out, "__m[ball_to_string(\"b\"s)]");
+    ASSERT_CONTAINS(out, "else {");
+}
+
+TEST(cov_collection_if_list_context_push_and_invalid) {
+    // Plain (non-entry) then/else -> conditional push into the `__r` list
+    // accumulator.
+    auto prog = build_program(print_call(std_unary(
+        "to_string",
+        cov_collection_if(lit_bool(true), lit_int(7), lit_int(9)))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "__r.push_back(std::any(BallDyn(static_cast<int64_t>(7))))");
+    ASSERT_CONTAINS(out, "else { __r.push_back(std::any(BallDyn(static_cast<int64_t>(9))))");
+
+    // No `then` at all: neither the map nor the list branch can fire, so the
+    // arm emits its explicit invalid marker rather than silently producing
+    // nothing (the fail-loud convention).
+    auto bad = build_program(print_call(std_unary(
+        "to_string", cov_collection_if(lit_bool(true), json(nullptr)))));
+    auto bad_out = compile_program(bad);
+    ASSERT_CONTAINS(bad_out, "/* invalid collection_if */");
+}
+
+// ---- compile_std_call: `map_create`'s elements-pattern arm ----
+//
+// map_create carries EITHER repeated `entry` fields (the shape today's Dart
+// encoder emits for `{k: v}`), repeated `element` fields (comprehension /
+// spread), or a single `elements` list of key/value MessageCreations. Only the
+// third is unreachable from the current Dart encoder — `_encodeSetOrMapLiteral`
+// emits `entry`/`element`/`type_args` and never `elements` — so this arm, which
+// exists for that alternative encoding, needs a direct test.
+
+TEST(cov_map_create_elements_pattern_populated) {
+    auto prog = build_program(print_call(std_unary(
+        "to_string",
+        std_call("map_create",
+                 make_msg("MapInput",
+                          {{"type_args", lit_string("String, int")},
+                           {"elements",
+                            lit_list({cov_map_entry(lit_string("a"), lit_int(1)),
+                                      cov_map_entry(lit_string("b"),
+                                                    lit_int(2))})}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "BallOrderedMap __m;");
+    ASSERT_CONTAINS(out, "__m[ball_to_string(\"a\"s)] = std::any(static_cast<int64_t>(1));");
+    ASSERT_CONTAINS(out, "__m[ball_to_string(\"b\"s)] = std::any(static_cast<int64_t>(2));");
+    ASSERT_CONTAINS(out, "return BallDyn(std::move(__m));");
+    // `elements` must not survive as a phantom string key (the off-by-one this
+    // branch was written to avoid — conformance 78 / 124).
+    ASSERT_NOT_CONTAINS(out, "__m[\"elements\"]");
+}
+
+TEST(cov_map_create_elements_pattern_empty) {
+    auto prog = build_program(print_call(std_unary(
+        "to_string", std_call("map_create",
+                              make_msg("MapInput",
+                                       {{"elements", lit_list({})}})))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "BallOrderedMap __m; return BallDyn(std::move(__m));");
+    ASSERT_NOT_CONTAINS(out, "__m[\"elements\"]");
+}
+
+// ---- compile_std_call: constructor-call throw type extraction ----
+//
+// `throw` derives the BallException type tag from a MessageCreation value
+// (`throw FormatException('x')`, conformance 146). The OTHER shape it accepts is
+// a Call whose function identifier names the constructor — `mod:Foo.new` — from
+// which the module prefix and the `.new` suffix are stripped so a typed catch on
+// `Foo` matches. Today's Dart encoder emits neither for a tear-off invocation
+// (`throw Foo.new(x)` becomes `std.new(self: Foo, arg0: x)` — see issue filed
+// alongside this PR), so this arm is driven directly.
+
+static json cov_throw_value(json value) {
+    return std_call("throw", make_msg("ThrowInput", {{"value", std::move(value)}}));
+}
+
+TEST(cov_throw_constructor_call_type_name_extraction) {
+    // `mod:Foo.new(...)` -> strip the module prefix, then the `.new` suffix.
+    auto prog = build_program(cov_throw_value(
+        call("main", "main:NotFound.new",
+             make_msg("CtorInput", {{"arg0", lit_string("missing")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_make_exception(\"NotFound\"s,");
+    ASSERT_NOT_CONTAINS(out, "_ball_make_exception(\"Exception\"s,");
+}
+
+TEST(cov_throw_constructor_call_lowercase_keeps_generic_tag) {
+    // A lowercase identifier is a plain factory function, not a type name: the
+    // extraction must LEAVE the generic "Exception" tag in place rather than
+    // tagging the exception `makeError`.
+    auto prog = build_program(cov_throw_value(
+        call("main", "main:makeError",
+             make_msg("CtorInput", {{"arg0", lit_string("boom")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_make_exception(\"Exception\"s,");
+    ASSERT_NOT_CONTAINS(out, "_ball_make_exception(\"makeError\"s,");
+}
+
+// ---- compile_statement: `for` with an opaque string-literal init ----
+//
+// The statement-form `for` accepts an `init` that is either a Block holding a
+// single `let` (what today's Dart encoder emits) or an OPAQUE Dart source string
+// like `"var i = 0"`, which is translated to a C++ declaration in place. The
+// string form is a legacy/alternative encoding no current Dart fixture produces.
+
+TEST(cov_for_statement_string_literal_init_lowering) {
+    auto make_for = [](const std::string& init) {
+        return stmt_expr(std_call(
+            "for", make_msg("ForInput",
+                            {{"init", lit_string(init)},
+                             {"condition", lit_bool(false)},
+                             {"update", lit_int(0)},
+                             {"body", block({stmt_expr(print_call(
+                                  lit_string("body")))})}})));
+    };
+    auto prog = build_program(block({
+        make_for("var i = 0"),
+        make_for("final j = 1"),
+        make_for("num k = 2"),
+        make_for("String s = \"x\""),
+        make_for("int n = 3"),
+        // `.length` inside the init is rewritten to `.size()`; a longer word
+        // starting with `.length` (`.lengthy`) must be left alone.
+        make_for("var m = xs.length"),
+        make_for("var q = xs.lengthy"),
+    }, lit_int(0)));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "for (auto i = 0;");
+    ASSERT_CONTAINS(out, "for (auto j = 1;");
+    ASSERT_CONTAINS(out, "for (double k = 2;");
+    ASSERT_CONTAINS(out, "for (std::string s = \"x\";");
+    ASSERT_CONTAINS(out, "for (int n = 3;");
+    ASSERT_CONTAINS(out, "for (auto m = xs.size();");
+    ASSERT_CONTAINS(out, "for (auto q = xs.lengthy;");
+}
+
+// ---- compile_statement: statement-context block-with-result branches ----
+//
+// `labeled` / `label` / `if` each accept a body that is a Block. When that
+// Block carries a tail `result` expression (rather than only statements), or is
+// not a Block at all, the statement emitter has a separate branch for it. The
+// Dart encoder normalises its bodies to statement-only Blocks, so those
+// branches are only reachable from hand-built or non-Dart-encoder IR.
+//
+// `labeled` has one more residual: when its body is NOT a recognised loop the
+// pending label is never consumed, and it plants a bare break target so a
+// `break <label>` still has somewhere to land.
+
+TEST(cov_statement_label_and_if_block_result_branches) {
+    // `labeled` around a non-loop body: the label is never consumed by a loop,
+    // so the fallback break target is planted.
+    auto labeled_non_loop = stmt_expr(std_call(
+        "labeled",
+        make_msg("LabeledInput",
+                 {{"label", lit_string("outer")},
+                  {"body", block({stmt_expr(print_call(lit_string("in")))})}})));
+
+    // `std.label` with a Block body carrying a tail `result` expression.
+    auto label_block_result = stmt_expr(std_call(
+        "label", make_msg("LabelInput",
+                          {{"name", lit_string("top")},
+                           {"body", block({stmt_expr(print_call(lit_string("a")))},
+                                          print_call(lit_string("tail")))}})));
+
+    // `std.label` with a body that is not a Block at all.
+    auto label_bare_body = stmt_expr(std_call(
+        "label", make_msg("LabelInput",
+                          {{"name", lit_string("bare")},
+                           {"body", print_call(lit_string("bare-body"))}})));
+
+    // `std.if` whose then-branch Block carries a tail `result` expression.
+    auto if_block_result = stmt_expr(std_call(
+        "if", make_msg("IfInput",
+                       {{"condition", lit_bool(true)},
+                        {"then", block({stmt_expr(print_call(lit_string("t")))},
+                                       print_call(lit_string("t-tail")))}})));
+
+    auto prog = build_program(block({labeled_non_loop, label_block_result,
+                                     label_bare_body, if_block_result},
+                                    lit_int(0)));
+    auto out = compile_program(prog);
+
+    ASSERT_CONTAINS(out, "__ball_break_outer:;");
+    ASSERT_CONTAINS(out, "top:;");
+    ASSERT_CONTAINS(out, "\"tail\"s");
+    ASSERT_CONTAINS(out, "bare:;");
+    ASSERT_CONTAINS(out, "\"bare-body\"s");
+    ASSERT_CONTAINS(out, "\"t-tail\"s");
+    // A block tail expression must be emitted as a real statement, not dropped
+    // and not rendered as a comment placeholder.
+    ASSERT_NOT_CONTAINS(out, "/* tail */");
+}
+
+// ---- compile_library: mixin/superclass depth ordering ----
+//
+// Library mode (`ball_cpp_compile --library`, used for ball_protobuf) emits
+// every class as a plain struct with no forward-declared inheritance, so a
+// derived struct written before its base would not compile. compile_library
+// therefore stable-sorts type definitions by inheritance depth (a mixin counts
+// as depth 1). Reaching the comparator needs TWO OR MORE classes in one library
+// module — the existing library-mode tests (test_cli.cpp) compile a module with
+// none, so `std::stable_sort` is entered but never calls its predicate.
+
+static json cov_lib_class(const std::string& name, const std::string& superclass,
+                          std::vector<std::string> mixins) {
+    json meta;
+    meta["kind"] = "class";
+    if (!superclass.empty()) meta["superclass"] = superclass;
+    if (!mixins.empty()) {
+        json arr = json::array();
+        for (auto& m : mixins) arr.push_back(m);
+        meta["mixins"] = std::move(arr);
+    }
+    return cov_class_td("lib:" + name, {{"tag", "TYPE_INT64"}}, std::move(meta));
+}
+
+TEST(cov_library_mode_orders_classes_by_inheritance_depth) {
+    // Declaration order is deliberately INVERTED: Grandchild (depth 2) first,
+    // then Child (depth 1), then Base (depth 0), plus a mixin-only class
+    // (depth 1). A naive declaration-order emission would put Grandchild before
+    // the Base it derives from.
+    json mod_json;
+    mod_json["name"] = "covlib";
+    mod_json["typeDefs"].push_back(cov_lib_class("Grandchild", "Child", {}));
+    mod_json["typeDefs"].push_back(cov_lib_class("Child", "Base", {}));
+    mod_json["typeDefs"].push_back(cov_lib_class("Mixed", "", {"Helper"}));
+    mod_json["typeDefs"].push_back(cov_lib_class("Base", "", {}));
+
+    json fn;
+    fn["name"] = "lib:describe";
+    fn["outputType"] = "String";
+    fn["body"] = lit_string("ok");
+    mod_json["functions"].push_back(std::move(fn));
+
+    auto module = ball::ir::parseModule(mod_json);
+    auto result = CppCompiler::compile_library(module, "covlib");
+
+    // Match the DEFINITIONS, not the forward declarations: emit_forward_decls
+    // runs before the depth sort and still lists the classes in declaration
+    // order, so `find("struct Base")` alone would match a forward decl (and
+    // `struct Base64Codec` in the spliced runtime preamble besides).
+    auto base = result.header.find("struct Base {");
+    auto child = result.header.find("struct Child : public Base {");
+    auto mixed = result.header.find("struct Mixed : public Helper {");
+    auto grand = result.header.find("struct Grandchild : public Child {");
+    ASSERT_TRUE(base != std::string::npos);
+    ASSERT_TRUE(child != std::string::npos);
+    ASSERT_TRUE(mixed != std::string::npos);
+    ASSERT_TRUE(grand != std::string::npos);
+    // Depth order (Base 0 < Child 1 < Grandchild 2), not declaration order
+    // (which was Grandchild, Child, Mixed, Base).
+    ASSERT_TRUE(base < child);
+    ASSERT_TRUE(child < grand);
+    // A mixin with no superclass counts as depth 1, so it sorts after Base.
+    ASSERT_TRUE(base < mixed);
+    ASSERT_CONTAINS(result.header, "namespace covlib {");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

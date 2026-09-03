@@ -61,8 +61,13 @@ cd ts/compiler && npm install && npm test
 
 # Regenerate compiled TS engine from self-hosted Ball source. This is the ONE
 # COMMITTED compiled engine (Rust/C#/Go/Python/C++ regenerate theirs from source
-# in-job), so it is the only one that can go stale in git — ci.yml's `Ball
-# Artifact Freshness` job runs these exact two commands and diffs the result.
+# in-job), so it is the only one that can go stale in git.
+# CI-ENFORCED since #517: ci.yml's `Ball Artifact Freshness` job runs these exact
+# two commands and then `git diff --exit-code -- ts/engine/src/compiled_engine.ts`,
+# so a change to dart/engine/lib/engine.dart or to ts/compiler's codegen that is
+# not followed by a regen fails the build. Keep this block and that step
+# identical — there is exactly ONE such gate; do not add a second regeneration
+# pass to the `typescript` job.
 # engine.ball.json is generated + gitignored, and is a self-describing
 # google.protobuf.Any envelope ({"@type":"…/ball.v1.Program", …}) whose @type the
 # script strips before compiling.
@@ -411,8 +416,8 @@ full status table and `.claude/rules/python.md` for key patterns:
 - `python/engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as
   TS/C++/Rust/C#/Go: compiles `dart/self_host/engine.ball.json` through `python/compiler` (library
   mode) into the gitignored `ball_engine/compiled_engine.py`. **Complete, at Dart parity**: the
-  compiled engine runs the whole conformance corpus with Dart-identical output (`Results: 320
-  passed, 0 failed, 320 total`; the 4 golden-less resource-limit/sandbox fixtures are documented
+  compiled engine runs the whole conformance corpus with Dart-identical output (`Results: 329
+  passed, 0 failed, 329 total`; the 4 golden-less resource-limit/sandbox fixtures are documented
   carve-outs). `compiled_engine.py` is gitignored + absent from a fresh checkout — the
   pytest/compileall gates never need it; the conformance runner (subprocess-per-fixture) regenerates
   it first. See `python/engine/AGENTS.md`.

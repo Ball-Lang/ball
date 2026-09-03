@@ -161,16 +161,19 @@ const json = toJson(ProgramSchema, program);
 
 To regenerate the compiled engine. Note `engine.ball.json` is a self-describing
 `google.protobuf.Any` envelope (`{"@type":"…/ball.v1.Program", …}`), so the
-`@type` key is stripped before compiling:
+`@type` key is stripped before compiling (the committed
+`ts/compiler/tool/regen_compiled_engine.mjs` script does that unwrapping).
+**This is CI-enforced (#517):** the `ball-freshness` job (`Ball Artifact
+Freshness`) runs this exact recipe and then
+`git diff --exit-code -- ts/engine/src/compiled_engine.ts`, so a Dart-engine or
+`ts/compiler` change landed without a regen fails the build — it is the only
+committed compiled engine (Rust/Go/C#/Python gitignore theirs), so it was the
+only one that could go stale unnoticed. There is exactly ONE such gate: it sits
+in `ball-freshness` beside the std.json / ball_protobuf freshness gates (same
+`if:` condition as the `typescript` job), not in the `typescript` job:
 ```bash
-cd ts/compiler && node --experimental-strip-types -e "
-const {readFileSync, writeFileSync} = require('fs');
-const {compile} = require('./src/index.ts');
-function unwrapBallFile(json){ if(json===null||typeof json!=='object'||Array.isArray(json))return json; const t=json['@type']; if(t===undefined)return json; const b={}; for(const[k,v]of Object.entries(json)){if(k!=='@type')b[k]=v;} return b; }
-const program = unwrapBallFile(JSON.parse(readFileSync('../../dart/self_host/engine.ball.json', 'utf8')));
-const ts = compile(program);
-writeFileSync('../engine/src/compiled_engine.ts', '// @ts-nocheck — auto-generated\n' + ts);
-"
+cd dart && dart run compiler/tool/gen_engine_json.dart
+cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs
 ```
 
 ## Testing

@@ -131,6 +131,29 @@ jobs:
       - name: C++ coverage-floor CI wiring test (#63)
         run: bash cpp/test/test_cov_floor_ci_wiring.sh
 
+      # Same technique, pointed for the first time at a raw external-network
+      # command instead of a repo-owned script: every `dart pub get` in this
+      # workflow must be retry-wrapped, so one transient pub.dev resolver hiccup
+      # cannot redden a required job on a commit that changed nothing relevant
+      # (run 33640533368's `Python` job, #520).
+      - name: dart pub get retry wiring test (#520)
+        run: bash .github/actions/dart-pub-get/test/test_dart_pub_get_wiring.sh
+
+      - name: Conformance-count drift guard test (#519)
+        run: bash tools/test/test_check_conformance_doc_counts.sh
+
+      # The conformance-corpus total is hand-copied as prose into CLAUDE.md,
+      # every AGENTS.md, .claude/rules/*.md, README.md and this workflow's own
+      # comments; nothing checked them, so four mutually inconsistent totals
+      # were live at once (#519). This derives the truth from the repo (the
+      # fixtures that have a golden) and fails on any doc that disagrees.
+      # It lives HERE, not in `ball-freshness`: per detect-changed-stacks,
+      # that job is gated on dart||ts||infra and `infra` needs a changed file
+      # OUTSIDE the language dirs — so a PR touching only rust/AGENTS.md would
+      # skip it, i.e. exactly the narrow doc-drift PRs this guard exists for.
+      - name: Conformance-count doc drift guard (#519)
+        run: bash tools/check_conformance_doc_counts.sh
+
   # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────
@@ -167,7 +190,9 @@ jobs:
           cache-dependency-path: ts/compiler/package-lock.json
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       - name: Install & build @ball-lang/compiler
         run: cd ts/compiler && npm ci && npm run build
@@ -272,7 +297,9 @@ jobs:
           restore-keys: pub-${{ runner.os }}-
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       - name: Regenerate shared Ball artifacts
         run: |
@@ -416,7 +443,9 @@ jobs:
           restore-keys: pub-${{ runner.os }}-
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       # ball_protobuf_gen — protoc-gen-ball / -connect / -grpc plugins
       - name: Analyze ball_protobuf_gen
@@ -883,7 +912,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       # Builds only the conformance_test_runner target (protobuf + abseil +
       # conformance harness). It statically links the TestAllTypes* descriptors,
@@ -957,7 +988,9 @@ jobs:
       # Dart is needed to regenerate engine.ball.json for the engine
       # self-host parse test under ts/compiler/test/engine_parse.test.ts.
       - name: Bootstrap Dart workspace
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       # @ball-lang/shared (protobuf-es generated types; no build step)
       - name: Install @ball-lang/shared deps
@@ -1000,6 +1033,24 @@ jobs:
       # Coverage-gated (issue #62): fixtures + engine parse tests, under c8.
       - name: Test @ball-lang/compiler (fixtures + engine parse, coverage-gated)
         run: cd ts/compiler && npm run coverage
+
+      # ts/engine/src/compiled_engine.ts is the ONLY committed self-hosted
+      # engine: rust/go/csharp/python all gitignore theirs and regenerate
+      # unconditionally, so they structurally cannot go stale — this one could,
+      # and nothing noticed. `npm run build`/`npm run coverage` above consume it
+      # as a committed INPUT (coverage even --excludes it), and the one test
+      # that does compile dart/self_host/engine.ball.json
+      # (ts/compiler/test/engine_parse.test.ts) smoke-loads the string it just
+      # produced and discards it — it never diffs the committed artifact (#517).
+      #
+      # The regenerate-and-diff gate that closes this lives ONCE, in the
+      # `ball-freshness` job ("Regenerate the compiled TS self-hosted engine" +
+      # "Assert compiled TS engine is up to date"), beside the std.json /
+      # ball_protobuf freshness gates and driven by the same committed
+      # ts/compiler/tool/regen_compiled_engine.mjs recipe CLAUDE.md documents.
+      # `ball-freshness` carries the identical `if:` condition as this job
+      # (dart || ts || infra) and is a required check, so nothing is lost by not
+      # repeating a second full regeneration pass here.
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only. The full
       # ~350-fixture full_e2e.ts sweep (Ball IR -> native TS -> node, diffed
@@ -1105,9 +1156,10 @@ jobs:
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
-          dart pub get
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../rust && cargo run -p ball-engine-regen
       - name: Self-host run tests (Dart-identical output)
@@ -1211,9 +1263,10 @@ jobs:
       # matters (see csharp/AGENTS.md's "Build & Test"). gen_engine_json.dart
       # alone only writes the JSON, which exceeds System.Text.Json's default
       # depth limit for this program, so the .pb must be materialized instead.
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate engine.ball.pb
         run: |
-          dart pub get
           cd dart
           dart run compiler/tool/compile_engine_cpp.dart || true
           test -f self_host/engine.ball.pb
@@ -1228,7 +1281,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)" — the
+      # "Results: 329 passed, 0 failed, 329 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -1361,9 +1414,10 @@ jobs:
       # gen_engine_json.dart writes dart/self_host/engine.ball.json; cmd/regen
       # reads it (it prefers engine.ball.pb, absent here, and falls back to the
       # JSON) and compiles it into compiled/compiled_engine.go.
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
-          dart pub get
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../go/engine && go run ./cmd/regen
 
@@ -1371,7 +1425,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)" — the 4
+      # "Results: 329 passed, 0 failed, 329 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -1465,9 +1519,10 @@ jobs:
       # gen_engine_json.dart writes dart/self_host/engine.ball.json; the
       # `ball_engine.regen` module reads it and compiles it into
       # ball_engine/compiled_engine.py.
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
-          dart pub get
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../python/engine && python -m ball_engine.regen
 
@@ -1475,7 +1530,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 320 passed, 0 failed, 320 total (4 skipped carve-outs)" — the 4
+      # "Results: 329 passed, 0 failed, 329 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

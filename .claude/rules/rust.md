@@ -116,11 +116,32 @@ cargo fmt --check && cargo clippy --workspace
   `param_alias_prologue` turns it into a real local binding); 2+ params → packed into one
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
 - Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs`): tuple/unit structs,
-  data-carrying enum variants, receiver-less associated functions (`Point::new(...)` — would
-  silently panic in `ball-lang-compiler`'s `method_prologue`, so it's rejected rather than encoded).
-  Each is pinned by a `#[should_panic]` characterization test in
+  data-carrying enum variants, signature-only **trait** associated functions, a
+  `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic —
+  24/196 files, the largest remaining bucket), item-level `const`/`static`/`type`, unmapped
+  macros. Each is pinned by a `#[should_panic]` characterization test in
   `rust/encoder/tests/documented_gaps.rs` (#491 slice 1) — flip it to a positive assertion in the
-  same PR that closes the gap.
+  same PR that closes the gap. Two were flipped that way by #491 slice 3 (below).
+- **Receiver-less associated functions + cross-file calls (#491 slice 3).**
+  `impl Point { fn new(x, y) … }` now encodes as a `metadata.is_static` class member (the shape
+  `type_emit.rs::method_prologue` has supported since #288), and `Point::new(3, 4)` emits
+  `FunctionCall{module: "", function: "new"}` with the callee's real parameter names and no
+  `"self"` field — proven end to end (encode → compile → `cargo build` → run) by
+  `rust/encoder/tests/static_methods.rs`. A call into a module this file does not declare
+  (`other_file::helper(1)`) emits `FunctionCall{module: "other_file", …}` plus a **source-less
+  `ModuleImport`** ("ref only") instead of panicking, with arguments packed **positionally**
+  since an external callee's parameter names are unknown; `rust/encoder/tests/cross_module_calls.rs`
+  pins the shape. That fallback is **module-only** — it applies when the segment immediately
+  owning the function is `snake_case`, so `Vec::new()`/`std::vec::Vec::new()` (an associated fn on
+  a foreign TYPE, which no import could supply) still fail loud. **Verified contract**, not assumed: a source-less import is structurally legal
+  and deliberately unresolved — `ball check` accepts the program
+  (`rust/cli/tests/cli_check.rs::encoded_cross_file_call_is_structurally_valid_but_unresolved`),
+  matching the Dart reference (`cli_core.dart`'s `validationErrors` never inspects imports;
+  `runner.dart`'s `ball build` treats only a source-BEARING import as needing the resolver), and
+  the program is not runnable until the module is supplied — the same boundary library mode set
+  for an empty `entry_function`. Keep this decision consistent with the C# encoder's eventual
+  cross-file slice (#492 bucket d). Known limitation: a `crate::`/`self::`-qualified call to a
+  same-file function is treated as external too.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which

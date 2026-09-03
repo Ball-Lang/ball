@@ -100,6 +100,34 @@ const json = toJson(ProgramSchema, program);
   behaviour-affecting `warn()` plus a placeholder, throwing under
   `{ strictBehaviorAffecting: true }`) and be listed in
   `ts/encoder/ENCODER_CARVEOUTS.md`. Never silently return the untouched operand.
+- **`?.` is checked BEFORE the std-method table, and a std-mapped builtin gets
+  a synthesized guard — never `null_aware_call`.** `encodeCall`'s
+  property-access branch consulted `mapMethodToStd` first, so the
+  `questionDotToken` branch was unreachable for every `STR_METHODS`/
+  `ARR_METHODS` name and `missing?.push(3)` encoded to a bare `list_push` that
+  threw on a null receiver — silently, with no warning (#504). The guard is
+  `block { let __ball_recv_N = <recv>; result: std.if(std.not_equals(ref, null),
+  <std call on ref>, null) }`: primitives every target compiler already
+  implements, the receiver evaluated exactly once, and a per-call-site counter
+  so nested chains do not shadow. It must NOT reuse `null_aware_call` — both
+  `ts/compiler` and `dart/compiler` emit that node's `method` field verbatim as
+  `target?.<method>(...)` in the TARGET language, so the JS spelling `push`
+  would compile to a nonexistent `List.push` in Dart. `?.` on a *user-defined*
+  method still routes through `null_aware_call`, which is correct.
+- **A method name on BOTH String and Array warns.** `slice`/`indexOf`/
+  `includes` resolve to the String mapping because `STR_METHODS` is consulted
+  first, which is wrong for an Array receiver. That ambiguity now emits a
+  behaviour-affecting `warn()` (kind `AmbiguousStringArrayMethod`) so it is
+  visible at encode time and rejected under `{ strictBehaviorAffecting: true }`
+  — resolving it correctly needs the TS semantic model (#506).
+- **Test harnesses that diff `execSync` stdout must pin the child's colour
+  state.** Node's `console.log` colourises a bare `number` but never a
+  `string`, and the Ball compiler always stringifies via `__ball_to_string(...)`
+  — so an un-pinned round-trip diff fails on ANSI bytes in any colour-capable
+  shell while passing on a TTY-less CI runner. Pass
+  `env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" }` to `execSync` and
+  strip SGR escapes before comparing; `NO_COLOR` alone is ignored by Node when
+  `FORCE_COLOR` is already set (#518).
 
 ## Generated Files — NEVER Edit
 

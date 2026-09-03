@@ -1,3 +1,17 @@
+# [1.61.0](https://github.com/Ball-Lang/ball/compare/v1.60.3...v1.61.0) (2026-09-03)
+
+
+### Features
+
+* **rust,csharp:** encode receiver-less associated functions and cross-file calls, and key C# construction by declared field names ([#526](https://github.com/Ball-Lang/ball/issues/526)) ([b16473a](https://github.com/Ball-Lang/ball/commit/b16473a6b074bbd736751d992db2035f1c773bae)), closes [#498](https://github.com/Ball-Lang/ball/issues/498) [#288](https://github.com/Ball-Lang/ball/issues/288) [#491](https://github.com/Ball-Lang/ball/issues/491) [closed-#382](https://github.com/closed-/issues/382) [#492](https://github.com/Ball-Lang/ball/issues/492)
+
+## [1.60.3](https://github.com/Ball-Lang/ball/compare/v1.60.2...v1.60.3) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ts:** keep null-safety on optional-chained std-mapped builtins, warn on String/Array ambiguity, and make the round-trip harness colour-independent (closes [#504](https://github.com/Ball-Lang/ball/issues/504), closes [#518](https://github.com/Ball-Lang/ball/issues/518)) ([#525](https://github.com/Ball-Lang/ball/issues/525)) ([e4dc8e5](https://github.com/Ball-Lang/ball/commit/e4dc8e5b737228442083436d235b720d4b8b2d42)), closes [#489](https://github.com/Ball-Lang/ball/issues/489) [#506](https://github.com/Ball-Lang/ball/issues/506) [#506](https://github.com/Ball-Lang/ball/issues/506)
+
 ## [1.60.2](https://github.com/Ball-Lang/ball/compare/v1.60.1...v1.60.2) (2026-09-02)
 
 

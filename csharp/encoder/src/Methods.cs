@@ -137,11 +137,9 @@ internal sealed partial class Encoder
     {
         var methodName = member.Name.Identifier.Text;
 
-        if (member.Expression is IdentifierNameSyntax recv &&
-            !IsKnownLocal(recv.Identifier.Text) &&
-            !IsKnownField(recv.Identifier.Text))
+        if (StaticReceiverName(member.Expression) is { } receiverName)
         {
-            switch (recv.Identifier.Text)
+            switch (receiverName)
             {
                 case "Console":
                     return EncodeConsoleCall(methodName, argExprs);
@@ -149,11 +147,11 @@ internal sealed partial class Encoder
                     return EncodeMathCall(methodName, argExprs);
             }
 
-            if (ClassNames.ContainsKey(recv.Identifier.Text) &&
-                StaticMethodParams.TryGetValue((recv.Identifier.Text, methodName), out var staticParams))
+            if (ClassNames.ContainsKey(receiverName) &&
+                StaticMethodParams.TryGetValue((receiverName, methodName), out var staticParams))
             {
                 return Builders.UserCall(
-                    StaticFunctionName(recv.Identifier.Text, methodName),
+                    StaticFunctionName(receiverName, methodName),
                     PackArgs(argExprs, staticParams));
             }
         }
@@ -161,6 +159,29 @@ internal sealed partial class Encoder
         var receiver = EncodeExpr(member.Expression);
         return DispatchInstanceOrBuiltinMethod(receiver, methodName, argExprs);
     }
+
+    /// <summary>
+    /// The short name a call's receiver denotes when that receiver is a TYPE rather than a
+    /// value — <c>Console</c>, <c>Math</c>, or a same-file class — or <c>null</c> when it is
+    /// an ordinary value expression.
+    ///
+    /// <para>Accepts both the bare spelling (<c>Console.WriteLine(...)</c>, which needs a
+    /// shadowing check: a local or field of the same name always wins) and the
+    /// namespace-qualified one (<c>System.Console.WriteLine(...)</c>, which needs none — a
+    /// C# local or field cannot be spelled <c>System.Console</c>). Only the <c>System</c>
+    /// namespace is unwrapped: deeper namespaces (<c>System.Text.Encoding</c>) name types
+    /// this encoder has no mapping for anyway, so they keep falling through to the loud
+    /// "unsupported method call" path rather than being silently mis-resolved.</para>
+    /// </summary>
+    private string? StaticReceiverName(ExpressionSyntax expr) => expr switch
+    {
+        IdentifierNameSyntax id when !IsKnownLocal(id.Identifier.Text) && !IsKnownField(id.Identifier.Text) =>
+            id.Identifier.Text,
+        MemberAccessExpressionSyntax qualified
+            when qualified.Expression is IdentifierNameSyntax { Identifier.Text: "System" } =>
+            qualified.Name.Identifier.Text,
+        _ => null,
+    };
 
     private Expression EncodeConsoleCall(string methodName, List<ExpressionSyntax> argExprs)
     {

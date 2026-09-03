@@ -91,18 +91,18 @@ public class RealWorldSweepTests(ITestOutputHelper output)
     [
         ("a: namespaced class library, no Main", "a_namespaced_library_no_main.cs", EncodeMode.Library, true,
             "CLOSED by #492 slice 2 — encoded via EncodeLibrary (`ball encode --library`); Encode() itself still requires a `Main` entry point"),
-        ("b: interface with a method", "b_interface_with_method.cs", EncodeMode.Program, false,
-            "bodyless interface member (Types.cs's `method has no body` gap) — NOT the `unsupported type declaration kind` site, which only catches `enum`"),
-        ("c: class with two constructors", "c_two_constructors.cs", EncodeMode.Program, false,
-            "construction is field-mapping only, so at most one constructor per class (Encoder.cs)"),
+        ("b: interface with a method", "b_interface_with_method.cs", EncodeMode.Program, true,
+            "CLOSED by #492 slice A — a bodyless interface member is OMITTED from Module.Functions (Types.cs), never thrown on; the declaration itself still round-trips as a TypeDefinition"),
+        ("c: class with two constructors", "c_two_constructors.cs", EncodeMode.Program, true,
+            "CLOSED by #492 slice B — each constructor reduces to a CtorShape (params + the fields it assigns) and a call site selects by arity; fields are keyed by the class's DECLARED names, never the ctor's parameter names"),
         ("d: call into a type declared in a sibling file", "d_cross_file_caller.cs", EncodeMode.Program, false,
             "no cross-file symbol table — the encoder sees one file per Encode() call"),
         ("e: lambda / PredefinedType-heavy expression", "e_lambda_and_predefined_types.cs", EncodeMode.Program, false,
             "explicitly typed lambda parameters and generic collection initializers"),
         ("f: target-typed new()", "f_target_typed_new.cs", EncodeMode.Program, false,
             "a target-typed `new()` carries no type name for a message_creation"),
-        ("g: abstract method with no body", "g_abstract_method_no_body.cs", EncodeMode.Program, false,
-            "abstract/partial/extern members are a documented gap (Types.cs)"),
+        ("g: abstract method with no body", "g_abstract_method_no_body.cs", EncodeMode.Program, true,
+            "CLOSED by #492 slice A — same omission path as bucket (b); dispatch resolves by the receiver's concrete runtime type, so an abstract member is unreachable anyway"),
     ];
 
     /// <summary>Drive one fixture through the entry point its bucket declares.</summary>

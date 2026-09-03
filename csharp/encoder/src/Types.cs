@@ -16,17 +16,49 @@ namespace Ball.Encoder;
 /// issue names) and <c>rust/encoder/src/types.rs</c>'s struct/impl split, adapted to C#'s single
 /// <c>class</c>/<c>struct</c>/<c>record</c> declaration shape.
 ///
-/// ## Construction is field-mapping only — no constructor **body** is ever interpreted
+/// ## Construction is field-mapping only — a constructor body is RESOLVED, never interpreted
 ///
-/// A C# constructor's body is NOT encoded or executed by this encoder — only its **parameter
-/// list** is consulted (see <see cref="Encoder.CtorParams"/>), to map `new Foo(a, b)`'s
-/// positional arguments onto field names by position. This mirrors
-/// <c>rust/encoder/src/types.rs</c>'s own posture toward Rust's `Type::new(...)` associated
-/// functions (a documented gap there for a different reason — no `self` receiver to dispatch
-/// through) and every reference encoder's shared assumption that a plain field-value literal
-/// (`Point { x: 3, y: 4 }`/`new Point(3, 4)`) needs no constructor interpretation at all. Only a
-/// single user-declared constructor (or a C# 12 primary constructor) per class is supported —
-/// see <see cref="Encoder.CollectDeclarations"/>'s "multiple constructors" check.
+/// A C# constructor's body is not encoded or executed. It is reduced, at collection time, to a
+/// <see cref="CtorShape"/>: the constructor's parameter names (which fix its arity) plus the
+/// ordered list of fields it assigns, each sourced either from a parameter (by index) or from a
+/// constant literal written in the body. See <see cref="Encoder.CollectDeclarations"/> and
+/// <see cref="Encoder.CtorShapes"/>. Exactly two statement shapes are recognised —
+/// <c>field = param;</c>/<c>this.field = param;</c> and <c>field = literal;</c> — and anything
+/// else throws, naming the class and the offending statement.
+///
+/// <para><b>Why the field NAME, not the parameter name.</b> A method body reads instance state
+/// through the class's own declared field names (<see cref="Encoder.ClassFields"/>, sourced
+/// from <c>field</c>/auto-property declarations). Keying a construction's
+/// <see cref="MessageCreation"/> by the constructor's PARAMETER names instead — which this
+/// encoder did before issue #492's slice B — agrees with that only when the two happen to
+/// match (a primary constructor, or an object initializer). For the ordinary
+/// <c>private int _x; public Point(int x) { _x = x; }</c> idiom they differ, and the result was
+/// silent wrong output: verified on the Dart reference engine, a `Sum()` reading `_x`/`_y` off a
+/// message carrying `x`/`y` printed <c>0</c> instead of <c>3</c>. Resolving the body's
+/// assignments is what makes "field mapping only" actually TRUE rather than assumed.</para>
+///
+/// <para><b>Selecting among several constructors.</b> A call site picks the
+/// <see cref="CtorShape"/> whose parameter count equals its argument count. Two constructors of
+/// the SAME arity are a documented scope limit — a syntax-only encoder has no semantic model to
+/// type-match arguments — and are rejected loudly at collection time.</para>
+///
+/// <para>Rust's sibling encoder reaches the same construction shape from the other side: since
+/// issue #491 it maps a receiver-less <c>Type::new(...)</c> associated function onto a
+/// <c>metadata.is_static</c> class member, and Rust's own struct-literal syntax needs no
+/// constructor at all. Both end at a plain <c>message_creation</c> keyed by real field names.</para>
+///
+/// ## Bodyless members are omitted, never thrown on
+///
+/// An interface method or an <c>abstract</c>/<c>partial</c>/<c>extern</c> declaration is a
+/// signature with nothing to encode, so <see cref="EncodeTypeDeclaration"/> simply skips it
+/// (issue #492, buckets b and g). Emitting it as an <c>IsBase = true</c> member instead would
+/// be worse than useless: <c>CSharpCompiler</c>'s class-member registration loop (which
+/// populates <c>_classMembersByOwner</c>, consumed by <c>TypeEmit.cs</c>'s
+/// <c>CompileClassMembers</c>/<c>CompileMethodImpl</c>) has its own
+/// <c>if (func.IsBase) { continue; }</c> guard evaluated BEFORE the dotted-name split, so such a
+/// member would vanish from the compiled class with no diagnostic at all. Nothing is lost by
+/// omitting it — Ball dispatch resolves by the receiver's concrete runtime <c>type_name</c>,
+/// never by the declaring interface/abstract type, so the member is unreachable at run time.
 ///
 /// ## Instance-method dispatch convention (verified against the reference engine)
 ///
@@ -134,6 +166,16 @@ internal sealed partial class Encoder
         var members = new List<FunctionDefinition>();
         foreach (var member in decl.Members)
         {
+            // A member with neither a block body nor an expression body is a signature only —
+            // an interface method, an `abstract`/`partial`/`extern` declaration. There is
+            // nothing to encode, so it is OMITTED rather than encoded or thrown on (issue
+            // #492, taxonomy buckets b and g). See the module doc comment's "Bodyless members
+            // are omitted" section for why omission beats emitting an `is_base` member.
+            if (member is MethodDeclarationSyntax { Body: null, ExpressionBody: null })
+            {
+                continue;
+            }
+
             if (member is MethodDeclarationSyntax method)
             {
                 members.Add(EncodeMethodDeclaration(shortName, method));
@@ -156,21 +198,12 @@ internal sealed partial class Encoder
         _currentOwnerShort = ownerShort;
         PushScope(paramNames);
 
-        Expression body;
-        if (method.ExpressionBody is not null)
-        {
-            body = EncodeExpr(method.ExpressionBody.Expression);
-        }
-        else if (method.Body is not null)
-        {
-            body = EncodeStatementsAsBlock(method.Body.Statements);
-        }
-        else
-        {
-            throw new EncoderException(
-                $"ball-encoder: method `{ownerShort}.{methodShort}` has no body " +
-                "(abstract/partial/extern methods are a documented gap — issue #382's scope)");
-        }
+        // A bodyless member never reaches here — `EncodeTypeDeclaration` omits it (issue
+        // #492, buckets b/g). The `ExpressionBody`-first order matters: an expression-bodied
+        // method (`double Area() => 1.0;`) has a null `Body`.
+        Expression body = method.ExpressionBody is not null
+            ? EncodeExpr(method.ExpressionBody.Expression)
+            : EncodeStatementsAsBlock(method.Body!.Statements);
 
         PopScope();
         _currentInstanceOwner = previousOwner;
@@ -249,24 +282,40 @@ internal sealed partial class Encoder
 
         var fields = new List<(string Name, Expression Value)>();
         var args = objCreate.ArgumentList?.Arguments ?? default;
-        if (args.Count > 0)
+        var shapes = CtorShapes.TryGetValue(shortName, out var declared) ? declared : new List<CtorShape>();
+
+        // A 0-argument `new Foo()` on a class that declares no constructor at all stays on the
+        // pre-existing object-initializer-only path (no constructor to select, nothing to
+        // report) — exactly as before.
+        if (args.Count > 0 || shapes.Count > 0)
         {
-            var ctorParams = CtorParams.TryGetValue(shortName, out var cp) ? cp : new List<string>();
-            if (ctorParams.Count != args.Count)
+            // Arity selects the constructor. `CollectDeclarations` already rejected same-arity
+            // overloads, so at most one shape can match.
+            var shape = shapes.FirstOrDefault(s => s.ParamNames.Count == args.Count);
+            if (shape is null)
             {
                 throw new EncoderException(
                     $"ball-encoder: `new {typeText}(...)` passes {args.Count} positional " +
                     $"argument(s) but `{shortName}` " +
-                    (ctorParams.Count == 0
+                    (shapes.Count == 0
                         ? "has no declared constructor"
-                        : $"declares {ctorParams.Count} constructor parameter(s)") +
-                    " — declare a single matching constructor (or primary constructor), or " +
-                    "use an object initializer instead");
+                        : "declares constructor(s) taking " +
+                          string.Join(", ", shapes.Select(s => s.ParamNames.Count).OrderBy(n => n)) +
+                          " argument(s)") +
+                    " — declare a matching constructor (or primary constructor), or use an " +
+                    "object initializer instead");
             }
 
-            for (var i = 0; i < args.Count; i++)
+            // Every field the selected constructor assigns, keyed by the class's own DECLARED
+            // FIELD NAME — never the constructor's parameter name. Those two agree only for a
+            // primary constructor; for the ordinary `private int _x; Point(int x){ _x = x; }`
+            // idiom they differ, and keying by the parameter name silently built a message
+            // whose fields no method body could read (issue #492).
+            foreach (var (field, paramIndex, literal) in shape.Assignments)
             {
-                fields.Add((ctorParams[i], EncodeExpr(args[i].Expression)));
+                fields.Add((
+                    field,
+                    paramIndex >= 0 ? EncodeExpr(args[paramIndex].Expression) : EncodeExpr(literal!)));
             }
         }
 

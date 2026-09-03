@@ -743,7 +743,7 @@ protobuf's 100-level nesting default) — compiled through the Ball → C# compi
   `element` spread/collection_if/collection_for entries, the map analog of the Round-9 list splice)
   (`185`/`188`).
 - **Full corpus parity (Round 15, this PR):** the informal `tests/conformance/*.ball.json` sweep is
-  now at **330 passed / 330** (0 failed, 0 timeouts) — the compiled engine runs the WHOLE golden
+  now at **320 passed / 320** (0 failed, 0 timeouts) — the compiled engine runs the WHOLE golden
   corpus at Dart parity (the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs,
   as for every other self-host target). Three bounded root-cause categories closed the last residuals,
   each in `Ball.Shared`/`csharp/compiler` (never the generated file): (a) **bytes as `List<int>`** —
@@ -779,11 +779,12 @@ Three legs, one runner, selected via `--leg=`:
   through `BallEngine.FromJson(json).Run()` (needs `-p:SelfHost=true`, which propagates to the
   `Ball.Engine` project reference — same mechanism `Ball.Engine.Tests` uses), each on a watchdog
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
-  whole sweep, and a leaked worker thread is harmless for a measurement run"). Verified fresh
-  (2026-07-11, after regenerating `CompiledEngine.cs` from `dart/self_host/engine.ball.pb` in this
-  worktree): **`Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)`** — Dart parity,
-  matching Round 15's informal count exactly. This is what closes #383's acceptance bar ("full
-  corpus at Dart parity via the Phase-7 harness").
+  whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
+  `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
+  **`Results: 330 passed, 0 failed, 330 total (4 skipped carve-outs)`** — Dart parity. This is what
+  closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
+  live number off that job, not off this line; a repo-derived drift guard
+  (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
 - **`compiler`**: every fixture compiles Ball → C# (`CSharpCompiler.Compile`), runs in-memory via
   Roslyn (a small `CSharpRunner` duplicated from `csharp/compiler/test/TestSupport.cs`'s technique,
   generalized to the whole corpus and returning outcomes instead of throwing so one fixture's
@@ -1210,7 +1211,7 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   `Loader`/`BallEngine`/`BallProto` foundation with real tests, and the category grind that took the
   generated `CompiledEngine.cs` from 474 `csc` errors to **0 — it now COMPILES** under
   `-p:SelfHost=true`, and — after the Round-4 execution grind — **RUNS the WHOLE conformance corpus
-  at Dart parity**: **330 passed / 330** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact
+  at Dart parity**: **320 passed / 320** (0 failed, 0 timeouts; `hello_world`+`fibonacci` byte-exact
   golden; the 4 golden-less resource-limit/sandbox fixtures are documented carve-outs) after the
   Rounds 5–15 bounded-category grind (Round 5: RegExp surface, core-collection copy/fill
   constructors, universal `toString` fallback; Round 6: the double-value-representation gap; Round
@@ -1222,7 +1223,7 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   `catch (e, stackTrace)`, in-place `Map.addAll` merge — see "Self-hosted engine" above and #383).
   **Phase 7 (#384): the conformance harness** (`csharp/engine/conformance/`) formalizes that sweep
   into a committed, CI-runnable runner printing the canonical `Results: N passed, M failed, T total`
-  line — `engine` leg fresh-verified at `330 passed, 0 failed, 330 total` (Dart parity, closing
+  line — `engine` leg fresh-verified at `320 passed, 0 failed, 320 total` (Dart parity, closing <!-- corpus-count: historical -->
   #383's acceptance bar), plus a `compiler` leg (`246 passed, 74 failed, 320 total` — the Phase-4
   compiler's own honest scope-gap count) and a `roundtrip` leg (`0 passed, 320 failed, 320 total` —
   an honest, expected zero given the Phase-5 encoder's syntactic heuristics don't yet recognize

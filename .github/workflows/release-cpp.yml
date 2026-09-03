@@ -5,6 +5,12 @@ name: Release C++ binaries
 # linux-x64 and macos-arm64, checksum it, and attach it to the GitHub Release
 # for the tag that was just cut.
 #
+# It also publishes `ball-selfhost-cpp-src-${tag}.tar.gz` — the two Dart-generated
+# C++ sources (`cli_rt.h`, `engine_rt.cpp`) that gate the self-hosted verbs. This
+# job is the only place in the repo that has both Dart and a bootstrap
+# `ball_cpp_compile`, so shipping its output is what lets a Dart-free consumer
+# (the vcpkg port, `tools/vcpkg-port/`) build a fully-verbed `ball` too.
+#
 # NOT triggered by `push: tags:` — semantic-release (release.yml) creates the
 # release + its `vX.Y.Z` tag using the default GITHUB_TOKEN, and GitHub's
 # recursion protection means events produced by GITHUB_TOKEN never trigger
@@ -194,6 +200,48 @@ jobs:
           set -euo pipefail
           tag="${{ steps.ver.outputs.tag }}"
           archive="${{ steps.pkg.outputs.archive }}"
+          gh release upload "$tag" "$archive" "${archive}.sha256" --clobber --repo "${{ github.repository }}"
+
+      # ── Self-host C++ sidecar (issues #368/#361) ────────────────────────────
+      # dart/self_host/lib/{cli_rt.h,engine_rt.cpp} are what turn `ball run` and
+      # the self-hosted info/validate/tree verbs from fail-loud stubs into the
+      # real thing (cpp/cli/CMakeLists.txt EXISTS-gates on exactly these two
+      # names). They are gitignored build outputs of the Dart pipeline this job
+      # just ran, so a build that has no Dart toolchain — vcpkg's sandbox, most
+      # of all — can never produce them for itself. Publishing them as a release
+      # asset is what lets tools/vcpkg-port/ports/ball-lang/portfile.cmake ship a
+      # fully-verbed `ball` (see that file's `selfhost` feature).
+      #
+      # Emitted by Ball's own compiler from Ball source, so the archive is
+      # PLATFORM-INDEPENDENT — uploaded from the linux-x64 leg only. Both matrix
+      # legs generate byte-identical content, and two legs racing `gh release
+      # upload --clobber` on ONE filename is a genuine race; one uploader is not.
+      #
+      # The filename must resolve to exactly what the portfile's
+      # `v${VERSION}`-derived URL asks for, or every future release silently
+      # loses the verbs. tools/vcpkg-port/test/test_selfhost_asset_wiring.sh
+      # pins the two names against each other on every PR.
+      - name: Package + upload the self-host C++ sidecar (linux-x64 leg only)
+        if: matrix.target == 'linux-x64'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.ver.outputs.tag }}"
+          lib="dart/self_host/lib"
+          for f in cli_rt.h engine_rt.cpp; do
+            [ -f "$lib/$f" ] || {
+              echo "::error::$lib/$f was not generated — the self-host pregeneration steps above did not produce it, so the vcpkg port would lose run/info/validate/tree for release $tag"
+              exit 1
+            }
+          done
+          archive="ball-selfhost-cpp-src-${tag}.tar.gz"
+          # Flat archive (no wrapping directory): the portfile extracts with
+          # NO_REMOVE_ONE_LEVEL and copies these exact two names into
+          # ${SOURCE_PATH}/dart/self_host/lib/.
+          tar -C "$lib" -czf "$archive" cli_rt.h engine_rt.cpp
+          sha256sum "$archive" > "${archive}.sha256"
+          cat "${archive}.sha256"
           gh release upload "$tag" "$archive" "${archive}.sha256" --clobber --repo "${{ github.repository }}"
 
   # ──────────────────────────────────────────────────

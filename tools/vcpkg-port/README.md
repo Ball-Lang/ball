@@ -20,21 +20,37 @@ maintainer becomes the first person to try it:
 
 1. bootstrap `microsoft/vcpkg` pinned to a fixed release tag *and* its commit
    sha (a moved tag fails the job — a tag alone is not a pin);
-2. `python3 tools/vcpkg-port/make_ci_overlay.py <dir> <checkout>` **generates**
-   the CI overlay from the real port, replacing exactly one thing — the
-   `vcpkg_from_github(...)` download — with `set(SOURCE_PATH "<checkout>")`.
-   Every other line, `vcpkg_cmake_configure` / `vcpkg_cmake_install` /
-   `vcpkg_copy_tools` / `vcpkg_install_copyright` included, stays byte-identical
-   to the submission file, so a hand-maintained duplicate cannot rot out of sync
-   with what is actually submitted (the job prints the `diff` to prove it);
-3. `vcpkg install ball-lang --overlay-ports=<dir> --triplet x64-linux`;
-4. assert `installed/x64-linux/tools/ball-lang/ball` exists and `ball version`
-   prints something.
+2. pre-generate the self-host sidecar (`dart/self_host/lib/{cli_rt.h,
+   engine_rt.cpp}`) with a real Dart toolchain, tar it, and **delete it from the
+   checkout** — see "Self-hosted verbs" below for why the deletion is the whole
+   point;
+3. `python3 tools/vcpkg-port/make_ci_overlay.py <dir> <checkout> <sidecar.tar.gz>`
+   **generates** the CI overlay from the real port, replacing exactly its two
+   network fetches — `vcpkg_from_github(...)` with `set(SOURCE_PATH "<checkout>")`
+   and `vcpkg_download_distfile(...)` with
+   `set(BALL_SELFHOST_ARCHIVE "<sidecar.tar.gz>")`. Every other line,
+   `vcpkg_check_features` / the extraction / `vcpkg_cmake_configure` /
+   `vcpkg_cmake_install` / `vcpkg_copy_tools` / `vcpkg_install_copyright`
+   included, stays byte-identical to the submission file, so a hand-maintained
+   duplicate cannot rot out of sync with what is actually submitted (the job
+   prints the `diff`, asserts it is exactly two hunks, and asserts the overlay
+   is hermetic — no `vcpkg_from_*` / `vcpkg_download_distfile` call survives);
+4. `vcpkg install ball-lang --overlay-ports=<dir> --triplet x64-linux`;
+5. assert `installed/x64-linux/tools/ball-lang/ball` exists, `ball version`
+   prints something, and — since issues #368/#361 — that `ball run` matches
+   `tests/conformance/100_complex_control_flow.expected_output.txt` and
+   `ball info` matches the Dart-native `cli_core` parity golden.
+
+Step 5's `run`/`info` assertions are the load-bearing ones. `ball version` is
+compiled in unconditionally (`BALL_CLI_VERSION`), so it passes identically in a
+fully-verbed build and a fully-stubbed one and can never notice the verb loss
+this port used to guarantee.
 
 This is **new infrastructure, not a regression gate** — there is no prior
 working state to have regressed. What it does catch from now on is a rename of
 the `ball` target, a removed `install(TARGETS ball ...)` rule, a dropped
-`BALL_BUILD_*` option, or a `vcpkg_copy_tools TOOL_NAMES` mismatch.
+`BALL_BUILD_*` option, a `vcpkg_copy_tools TOOL_NAMES` mismatch, or a broken
+self-host sidecar download/unpack.
 
 It earned its keep on its very first run: the staged portfile configured the
 bare `${SOURCE_PATH}` (the repository root, which has no `CMakeLists.txt` — the
@@ -48,9 +64,24 @@ Residual gap: x64-linux only, matching the existing Linux-only
 linker-flag interaction under vcpkg's applied `CMAKE_CXX_FLAGS`, say) would
 still surface for the first time during upstream review.
 
-Run it locally with `python3 tools/vcpkg-port/make_ci_overlay.py /tmp/overlay "$PWD"`
-followed by `vcpkg install ball-lang --overlay-ports=/tmp/overlay --triplet x64-linux`
-(Linux/WSL; it is a full `cpp/` CMake build inside vcpkg's sandbox).
+Run it locally (Linux/WSL; it is a full `cpp/` CMake build inside vcpkg's
+sandbox) with:
+
+```bash
+# Compile/encode/version only — no sidecar needed, so the third argument can
+# point anywhere; the `[core]` install never reads it.
+python3 tools/vcpkg-port/make_ci_overlay.py /tmp/overlay "$PWD" /tmp/none.tar.gz
+vcpkg install 'ball-lang[core]' --overlay-ports=/tmp/overlay --triplet x64-linux
+
+# Every verb — needs the sidecar, i.e. Dart + a bootstrap ball_cpp_compile:
+cmake -S cpp -B cpp/ci-build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build cpp/ci-build --target ball_cpp_compile
+dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+(cd dart && dart run compiler/tool/gen_cli_json.dart && dart run compiler/tool/gen_cli_cpp.dart)
+tar -C dart/self_host/lib -czf /tmp/selfhost.tar.gz cli_rt.h engine_rt.cpp
+python3 tools/vcpkg-port/make_ci_overlay.py /tmp/overlay "$PWD" /tmp/selfhost.tar.gz
+vcpkg install ball-lang --overlay-ports=/tmp/overlay --triplet x64-linux
+```
 
 ## Why staged, not submitted
 
@@ -106,26 +137,62 @@ today) and is also what lets `release-cpp.yml` and this port both use
 standard CMake install semantics instead of reaching into the build tree by
 hand.
 
-## Known limitation: this port ships the compile/encode/version-only `ball`
+## Self-hosted verbs: how a Dart-free vcpkg build gets `run`/`info`/`validate`/`tree`
 
-Ball's self-hosted verbs (`run`, `info`, `validate`, `tree`) are compiled
-from a Ball program (`dart/self_host/`) through the C++ compiler itself, as a
+Ball's self-hosted verbs (`run`, `info`, `validate`, `tree`) are compiled from
+a Ball program (`dart/self_host/`) through the C++ compiler itself, as a
 **pre-build code-generation step that needs Dart** (see
 `cpp/cli/CMakeLists.txt`'s `EXISTS` gates on `dart/self_host/lib/{cli_rt.h,
-engine_rt.cpp}`, and `CLAUDE.md`'s "Build & Test" section). vcpkg's
-sandboxed builds have no Dart toolchain and no network access beyond the
-declared source download, so a vcpkg-built `ball` cannot run that
-pre-generation step — those verbs compile as the same fail-loud stubs the
-"build-isolated main cpp CI job" already produces (see PR #374's "Build
-gating" section). `compile`/`encode`/`version` are always real.
+engine_rt.cpp}`, and `CLAUDE.md`'s "Build & Test" section). vcpkg's sandboxed
+builds have no Dart toolchain and no network access beyond declared downloads,
+so this port used to ship a permanently stubbed `ball` — `compile`/`encode`/
+`version` real, everything else a fail-loud stub.
 
-The GitHub Releases binaries (`.github/workflows/release-cpp.yml`) run the
-full Dart + self-host pipeline first, so those binaries have every verb.
-Closing this gap for vcpkg (e.g. committing the two generated files, or a
-Dart-free pre-generation path) is a possible follow-up, not filed as an
-issue yet — flag it to the user/maintainer before pursuing it, since
-committing generated `dart/self_host/lib/*` artifacts would cut against this
-repo's "never hand-edit/commit generated files" convention.
+That gap is closed (issues #368/#361) without committing a single generated
+file, i.e. without touching `CLAUDE.md`'s "never hand-edit/commit generated
+files" invariant:
+
+1. `.github/workflows/release-cpp.yml` already ran the whole Dart + self-host
+   pipeline before building the Releases binaries. It now also tars the two
+   generated sources — flat, no wrapping directory — and uploads them as
+   **`ball-selfhost-cpp-src-vX.Y.Z.tar.gz`**, from the `linux-x64` leg only
+   (Ball's compiler emits them from Ball source, so they are
+   platform-independent, and one uploader means two matrix legs cannot race
+   `--clobber` on one filename).
+2. `portfile.cmake` declares a **`selfhost` feature, on by default**. When
+   selected it `vcpkg_download_distfile`s that asset from
+   `https://github.com/Ball-Lang/ball/releases/download/v${VERSION}/...` —
+   the same `v${VERSION}` its `vcpkg_from_github` REF uses — extracts it, and
+   copies `cli_rt.h` + `engine_rt.cpp` into
+   `${SOURCE_PATH}/dart/self_host/lib/` before `vcpkg_cmake_configure`. The
+   existing `EXISTS` gates then produce a fully-verbed `ball`.
+3. `vcpkg install ball-lang[core]` drops the feature and yields exactly the
+   old compile/encode/version-only build — no download attempted, no failure.
+   That opt-out is *how* the sidecar is optional: `vcpkg_download_distfile` has
+   no non-fatal mode ([reference][distfile-ref]), so a feature is the only
+   mechanism vcpkg offers for "this build does not need it". A sidecar that is
+   selected but broken still fails loudly, per `CLAUDE.md`'s fail-loud rule —
+   silently handing a user a verbless `ball` is the outcome being prevented,
+   not the fallback.
+
+[distfile-ref]: https://learn.microsoft.com/en-us/vcpkg/maintainers/functions/vcpkg_download_distfile
+
+Two things about this are load-bearing enough to be pinned by
+`tools/vcpkg-port/test/test_selfhost_asset_wiring.sh` (an always-run,
+sub-second unit test in `ci.yml`'s `Proto Checks` job), because every failure
+mode here is a *silent* verb loss with a green log:
+
+* the asset name is spelled in `release-cpp.yml` and in `portfile.cmake`, which
+  never meet at runtime — a rename on one side 404s the sidecar for **every**
+  future release, not just the next one;
+* `ci.yml`'s vcpkg job pre-generates the sidecar *inside the very checkout
+  vcpkg builds from*, so it must delete those files before `vcpkg install` or
+  the `EXISTS` gates fire off the leftovers and the smoke proves nothing about
+  the port.
+
+Both `SHA512` placeholders — the source tarball's and the sidecar's — can only
+be filled in once a real tagged release actually carries the asset; see the
+submission flow below.
 
 ## Open question a human must resolve before submitting: the port name
 

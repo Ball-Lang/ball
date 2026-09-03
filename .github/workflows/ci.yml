@@ -142,6 +142,17 @@ jobs:
       - name: Conformance-count drift guard test (#519)
         run: bash tools/test/test_check_conformance_doc_counts.sh
 
+      # The vcpkg self-host sidecar (issues #368/#361) is wired across four
+      # files that never see each other at runtime: the release workflow that
+      # publishes the asset, the portfile that names it, the overlay generator
+      # that must swap BOTH network fetches, and the vcpkg job whose smoke has
+      # to delete its own pre-generated copies or prove nothing. Every seam
+      # fails silently — a verbless `ball` with a green install log — so it is
+      # pinned statically here, on every PR, rather than only by the vcpkg job
+      # (which is path-filtered) or only by a real release (too late).
+      - name: vcpkg self-host sidecar wiring test (#368)
+        run: bash tools/vcpkg-port/test/test_selfhost_asset_wiring.sh
+
       # The conformance-corpus total is hand-copied as prose into CLAUDE.md,
       # every AGENTS.md, .claude/rules/*.md, README.md and this workflow's own
       # comments; nothing checked them, so four mutually inconsistent totals
@@ -734,11 +745,21 @@ jobs:
   # the `ball` target, a removed `install(TARGETS ball ...)` rule, a dropped
   # BALL_BUILD_* option, or a vcpkg_copy_tools TOOL_NAMES mismatch.
   #
-  # The overlay is GENERATED at job time from the real port (only the
-  # vcpkg_from_github download block is swapped for a local SOURCE_PATH), so a
-  # hand-maintained duplicate cannot rot out of sync with the submission file.
-  # The real port files are never modified — the real SHA512 and the version
-  # bump stay maintainer-only submission steps.
+  # The overlay is GENERATED at job time from the real port (only the two
+  # network fetches — the source tarball and the self-host sidecar asset — are
+  # swapped for local paths), so a hand-maintained duplicate cannot rot out of
+  # sync with the submission file. The real port files are never modified — the
+  # real SHA512s and the version bump stay maintainer-only submission steps.
+  #
+  # Since issues #368/#361 the smoke also proves the SELF-HOSTED verbs, not just
+  # that the recipe builds: `ball version` is compiled in unconditionally
+  # (BALL_CLI_VERSION), so it passes even in a fully stubbed build and can never
+  # notice the permanent loss of `run`/`info`/`validate`/`tree` that a Dart-free
+  # vcpkg sandbox used to guarantee. The job pre-generates the sidecar with a
+  # real Dart toolchain, removes it from the checkout, and then asserts the
+  # vcpkg-INSTALLED binary's `run`/`info` against the conformance and cli-parity
+  # goldens — so the only thing that can make those verbs real is the portfile's
+  # own download-and-unpack step.
   #
   # Linux/x64 only for this first cut, matching the existing Linux-only
   # BALL_BUILD_PROTOBUF_RT precedent in the cpp job; Windows/macOS triplets
@@ -755,6 +776,88 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # ── Self-host sidecar pregeneration (issues #368/#361) ──────────────────
+      # A vcpkg build has no Dart toolchain, so it can never produce
+      # dart/self_host/lib/{engine_rt.cpp,cli_rt.h} for itself — which is why a
+      # released `ball` gets them from a release asset the portfile downloads.
+      # This job builds that same asset on-runner (mirroring release-cpp.yml's
+      # own pregeneration steps) and hands it to the overlay generator, so the
+      # smoke exercises the real download-and-unpack recipe WITHOUT a live
+      # network fetch of an asset that only exists once a tag has been cut.
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+        with:
+          key: vcpkg-selfhost-bootstrap
+          max-size: 1G
+
+      - name: Install nlohmann-json + ninja
+        run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
+
+      - name: Configure CMake (bootstrap compiler)
+        run: cmake -S cpp -B cpp/ci-build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+
+      - name: Build ball_cpp_compile
+        run: cmake --build cpp/ci-build --config Release --target ball_cpp_compile
+
+      - name: Generate engine_rt.cpp (self-hosted engine, monolithic)
+        run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+
+      - name: Generate self-hosted CLI core (cli.ball.json + cli_rt.h)
+        run: |
+          cd dart
+          dart run compiler/tool/gen_cli_json.dart
+          dart run compiler/tool/gen_cli_cpp.dart
+
+      # The `ball info` assertion below is diffed against the SAME Dart-native
+      # cli_core goldens the C++ parity gate uses (cpp/test/test_cli_parity.cpp),
+      # so "real output" means byte-identical to the Dart CLI, not merely
+      # non-empty. Written outside the checkout so vcpkg's configure of
+      # ${SOURCE_PATH}/cpp never sees them.
+      - name: Generate CLI parity goldens (Dart-native cli_core)
+        run: cd dart && dart run cli/tool/gen_cli_parity_goldens.dart "$RUNNER_TEMP/cli_parity_goldens"
+
+      # Package the two generated sources exactly as release-cpp.yml does, THEN
+      # delete them from the checkout. Without that deletion the smoke would be
+      # hollow: vcpkg builds ${SOURCE_PATH}/cpp = this very workspace, so
+      # cpp/cli/CMakeLists.txt's EXISTS gates would fire off the leftovers and
+      # `ball run`/`ball info` would pass even if the portfile's download and
+      # extraction were completely broken. After this step the ONLY way those
+      # verbs can be real is the portfile unpacking the sidecar itself.
+      - name: Package the self-host sidecar, then remove it from the checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          lib="dart/self_host/lib"
+          for f in cli_rt.h engine_rt.cpp; do
+            [ -f "$lib/$f" ] || { echo "::error::pregeneration did not produce $lib/$f"; exit 1; }
+          done
+          mkdir -p "$RUNNER_TEMP/selfhost"
+          tar -C "$lib" -czf "$RUNNER_TEMP/selfhost/ball-selfhost-cpp-src-ci.tar.gz" cli_rt.h engine_rt.cpp
+          rm -f dart/self_host/lib/cli_rt.h dart/self_host/lib/engine_rt.cpp
+          for f in cli_rt.h engine_rt.cpp; do
+            if [ -e "$lib/$f" ]; then
+              echo "::error::$lib/$f still present — the smoke would prove nothing about the port"
+              exit 1
+            fi
+          done
+          ls -l "$RUNNER_TEMP/selfhost"
 
       # Pinned to the 2026.07.29 release tag's commit for reproducibility — a
       # floating microsoft/vcpkg would let an upstream change turn this red with
@@ -779,24 +882,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 tools/vcpkg-port/make_ci_overlay.py "$RUNNER_TEMP/overlay" "$GITHUB_WORKSPACE"
+          python3 tools/vcpkg-port/make_ci_overlay.py "$RUNNER_TEMP/overlay" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/selfhost/ball-selfhost-cpp-src-ci.tar.gz"
+          overlay="$RUNNER_TEMP/overlay/ball-lang/portfile.cmake"
           # Print the overlay delta for the log. `diff` exits 1 whenever the two
           # files differ, which here is ALWAYS by construction (the overlay
-          # swaps the vcpkg_from_github download block for a local SOURCE_PATH),
-          # so its status is consumed explicitly instead of being discarded with
-          # `|| true`: 1 is the expected case, 0 means the generator silently
-          # stopped rewriting anything, and anything else is a broken diff.
+          # swaps the two network fetches for local paths), so its status is
+          # consumed explicitly instead of being discarded with `|| true`: 1 is
+          # the expected case, 0 means the generator silently stopped rewriting
+          # anything, and anything else is a broken diff.
           set +e
-          delta="$(diff -u tools/vcpkg-port/ports/ball-lang/portfile.cmake "$RUNNER_TEMP/overlay/ball-lang/portfile.cmake")"
+          delta="$(diff -u tools/vcpkg-port/ports/ball-lang/portfile.cmake "$overlay")"
           status=$?
           set -e
           case "$status" in
             1)
-              echo "--- overlay portfile.cmake differs from the submission port ONLY in the download block:"
+              echo "--- overlay portfile.cmake differs from the submission port ONLY in the two download blocks:"
               echo "$delta"
               ;;
             0)
-              echo "::error::the CI overlay portfile is byte-identical to the submission port — make_ci_overlay.py did not swap the download block, so this smoke would build a downloaded tarball instead of this checkout"
+              echo "::error::the CI overlay portfile is byte-identical to the submission port — make_ci_overlay.py did not swap the download blocks, so this smoke would build a downloaded tarball instead of this checkout"
               exit 1
               ;;
             *)
@@ -804,6 +908,24 @@ jobs:
               exit 1
               ;;
           esac
+          # "differs" alone stopped being a meaningful assertion the moment there
+          # were TWO things to swap: a generator that swapped only the source
+          # tarball would still exit 1 here while leaving the sidecar download
+          # pointed at a release asset that does not exist yet. So assert the
+          # shape of the delta, not merely its existence.
+          hunks="$(printf '%s\n' "$delta" | grep -c '^@@')"
+          if [ "$hunks" -ne 2 ]; then
+            echo "::error::expected exactly 2 swapped blocks in the CI overlay (source tarball + self-host sidecar), found $hunks"
+            exit 1
+          fi
+          for marker in 'set(SOURCE_PATH "' 'set(BALL_SELFHOST_ARCHIVE "'; do
+            n="$(grep -cF "$marker" "$overlay")"
+            [ "$n" -eq 1 ] || { echo "::error::expected exactly one \`$marker\` line in the CI overlay, found $n"; exit 1; }
+          done
+          if grep -nE 'vcpkg_from_[a-z]+\(|vcpkg_download_distfile\(' "$overlay"; then
+            echo "::error::the CI overlay still contains a network fetch — the smoke would not be hermetic"
+            exit 1
+          fi
 
       - name: vcpkg install ball-lang
         shell: bash
@@ -816,7 +938,12 @@ jobs:
           echo "VCPKG_INSTALL_SECONDS=$((SECONDS - start))" >> "$GITHUB_ENV"
 
       # Mirrors the cpp job's Install-smoke assertions: the tool actually lands
-      # where vcpkg_copy_tools put it, and it actually runs.
+      # where vcpkg_copy_tools put it, and it actually runs — and then goes
+      # strictly further, because `ball version` alone cannot tell a fully-verbed
+      # build from a fully-stubbed one (BALL_CLI_VERSION is compiled in
+      # unconditionally, so `version` passes in both). `run` and `info` are the
+      # verbs the sidecar exists for, so they are what this asserts, against the
+      # same goldens the conformance suite and the C++ CLI parity gate use.
       - name: Installed-binary smoke
         shell: bash
         run: |
@@ -826,9 +953,35 @@ jobs:
           out="$("$bin" version)"
           [ -n "$out" ] || { echo "::error::vcpkg-installed ball printed nothing for 'ball version'"; exit 1; }
           echo "vcpkg-installed ball version: $out"
+
+          fixture=tests/conformance/100_complex_control_flow.ball.json
+
+          # `ball run` — trailing-whitespace-insensitive comparison, matching
+          # cpp/test/full_e2e.sh's own convention.
+          actual="$("$bin" run "$fixture" | sed -e 's/[[:space:]]*$//')"
+          expected="$(sed -e 's/[[:space:]]*$//' tests/conformance/100_complex_control_flow.expected_output.txt)"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::vcpkg-installed ball run: output does not match the conformance golden (a stubbed build exits 2 with 'built without the self-hosted engine (engine_rt)')"
+            echo "actual:"; echo "$actual"
+            echo "expected:"; echo "$expected"
+            exit 1
+          fi
+
+          # `ball info` — byte-identical to the Dart-native cli_core golden.
+          actual="$("$bin" info "$fixture")"
+          expected="$(cat "$RUNNER_TEMP/cli_parity_goldens/100_complex_control_flow.info.txt")"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::vcpkg-installed ball info: output does not match the cli-parity golden (a stubbed build exits 2 with 'built without the self-hosted cli_core')"
+            echo "actual:"; echo "$actual"
+            echo "expected:"; echo "$expected"
+            exit 1
+          fi
+
           {
             echo "vcpkg overlay-port smoke (issue #368): x64-linux OK"
             echo "- \`ball version\` -> $out"
+            echo "- \`ball run\` matches tests/conformance/100_complex_control_flow.expected_output.txt"
+            echo "- \`ball info\` matches the Dart-native cli_core parity golden"
             echo "- \`vcpkg install\` wall clock: ${VCPKG_INSTALL_SECONDS}s"
           } >> "$GITHUB_STEP_SUMMARY"
 

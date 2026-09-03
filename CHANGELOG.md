@@ -1,3 +1,10 @@
+# [1.62.0](https://github.com/Ball-Lang/ball/compare/v1.61.1...v1.62.0) (2026-09-03)
+
+
+### Features
+
+* **cpp:** ship a Dart-free self-host source asset so a vcpkg-built ball has real run/info/validate/tree ([#534](https://github.com/Ball-Lang/ball/issues/534)) ([e71e484](https://github.com/Ball-Lang/ball/commit/e71e48484e7092a73464e154a6428c0fcd2ed679)), closes [#368](https://github.com/Ball-Lang/ball/issues/368) [#361](https://github.com/Ball-Lang/ball/issues/361) [#508](https://github.com/Ball-Lang/ball/issues/508)
+
 ## [1.61.1](https://github.com/Ball-Lang/ball/compare/v1.61.0...v1.61.1) (2026-09-03)
 
 

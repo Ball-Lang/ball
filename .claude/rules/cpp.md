@@ -82,6 +82,37 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ./build/test/Debug/test_selfhost_conformance.exe 01_hello_world
 ```
 
+### CI time budget + the e2e build knobs (#521)
+
+`ctest` in ci.yml's `cpp` job runs with `-j <runner CPUs> --no-tests=error`, and
+its `Run tests` step carries a **step-level `timeout-minutes`: 12 on Windows, 6
+on Linux/macOS** (job budget 25). Those numbers are a gate, not decoration — a
+change that puts the fixture compiles back on one core fails the job. Re-measure
+and update them (with the run id, as the workflow comment does) if you change
+what the step does.
+
+Two env knobs drive the per-fixture compiles; CI sets both, and they work the
+same way for `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
+
+| Env | Meaning |
+|-----|---------|
+| `BALL_E2E_JOBS` | Fixture compiles to run concurrently. Default: `hardware_concurrency()` / `nproc`. `1` restores the old serial behaviour. |
+| `BALL_E2E_LAUNCHER` | Compiler launcher (`ccache` / `sccache`) for the fixture compiles, so an unchanged fixture is a cache hit. Empty/unset = none. |
+
+`BALL_E2E_LAUNCHER` is set on Linux/macOS **only**. CMake honours
+`<LANG>_COMPILER_LAUNCHER` for the Makefile and Ninja generators; the Visual
+Studio (MSBuild) generator ignores it, so on Windows it would advertise a cache
+that never gets used. (This is not hypothetical: on main run 33673078770 the
+Windows leg's own `Post ccache` step reported `Compile requests 0` — the parent
+build's `-DCMAKE_CXX_COMPILER_LAUNCHER=sccache` is a no-op there too. Moving that
+leg to `-G Ninja` would make both real; it is tracked separately.)
+
+Parallelism must never shrink coverage, so each harness asserts its own count:
+`test_e2e` compares executed tests against `e2e_fixture_list.h` + 3 inline
+programs, `full_e2e.sh`/`quick_e2e.sh` compare recorded outcomes against the
+selected fixtures, and `cpp/test/CMakeLists.txt` fails at configure time if the
+self-host fixture glob matches nothing.
+
 ### Fast local `test_compiler` without CMake
 
 The full CMake build is 40+ minutes and does not work on native Windows, which

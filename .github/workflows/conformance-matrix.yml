@@ -355,8 +355,19 @@ jobs:
 
       - name: Run C++ e2e conformance
         id: conformance
+        # full_e2e.sh compiles one g++ TU per fixture. Before #521 that whole
+        # ~350-fixture sweep ran serially with no compiler cache — the bulk of
+        # this leg's 15 minutes. BALL_E2E_JOBS parallelises it across the
+        # runner's cores; BALL_E2E_LAUNCHER routes the fixture compiles through
+        # the ccache this job already restores (key `cpp-compiled-matrix`), so
+        # an unchanged fixture is a cache hit instead of a fresh compile. The
+        # per-fixture outcomes are still aggregated in corpus order, so the
+        # `Results:` line this step parses is unchanged by the concurrency.
+        env:
+          BALL_E2E_LAUNCHER: ccache
         run: |
           set +e
+          export BALL_E2E_JOBS="$(nproc)"
           output=$(bash cpp/test/full_e2e.sh 2>&1)
           exit_code=$?
           echo "$output"

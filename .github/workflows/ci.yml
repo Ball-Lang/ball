@@ -462,6 +462,27 @@ jobs:
       - name: Build all targets
         run: cmake --build cpp/build --config Release
 
+      # One place decides the parallelism for `ctest -j` and for the scratch
+      # fixture build inside test_e2e (issue #521). `nproc` ships with GNU
+      # coreutils on the Linux runner AND with Git for Windows' bash, so the
+      # only outlier is macOS, where `sysctl -n hw.ncpu` is the equivalent.
+      # Fail loud rather than silently falling back to 1: a serial run is
+      # exactly the regression this PR removes, and a silent fallback would
+      # reintroduce it invisibly.
+      - name: Resolve build parallelism
+        id: jobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          n="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-}")"
+          case "$n" in
+            ''|*[!0-9]*|0)
+              echo "::error::Could not determine the runner CPU count (got '$n'). Refusing to fall back to a serial build."
+              exit 1;;
+          esac
+          echo "n=$n" >> "$GITHUB_OUTPUT"
+          echo "Runner CPU count: $n"
+
       # The ONLY install() rule in the C++ tree — cpp/cli/CMakeLists.txt's
       # `install(TARGETS ball RUNTIME DESTINATION bin)`, added by PR #376 for
       # the distribution epic (#368) — was exercised by NOTHING until this step.
@@ -491,9 +512,40 @@ jobs:
       # CMake project. Budget: 12 min on Windows (MSVC/MSBuild, the slowest
       # toolchain here), 6 min on Linux/macOS. See the per-step measurements in
       # the job comment above for the pre-fix numbers these replace.
+      #
+      # `-j`: every CTest test here is its own process, so they parallelise
+      # safely (each test binary owns a distinct temp-path prefix). NOTE this
+      # build never registers the per-fixture `selfhost` tests — engine_rt is
+      # gitignored and no Dart runs in this job — so `-j` does NOT put the
+      # heavy self-host fixtures in contention; regression-gates.yml's
+      # `C++ Self-Host Tally`, which does register them, stays deliberately
+      # sequential for the reason documented there.
+      #
+      # `--no-tests=error`: a positive floor. Exit code alone cannot tell
+      # "everything passed" from "nothing ran", and a CMake change that stopped
+      # registering the tests would otherwise be indistinguishable from green.
+      #
+      # BALL_E2E_JOBS / BALL_E2E_LAUNCHER are read by cpp/test/test_e2e.cpp for
+      # the nested scratch project: build the ~269 fixture targets in parallel,
+      # and route their compiles through the same compiler cache as the parent
+      # build. The launcher is Linux/macOS only ON PURPOSE — CMake honours
+      # <LANG>_COMPILER_LAUNCHER for the Makefile and Ninja generators but the
+      # Visual Studio (MSBuild) generator ignores it, so setting it on Windows
+      # would claim a cache that is not there. (Measured: the Windows leg of
+      # run 33673078770 finished with sccache reporting `Compile requests 0`
+      # for the same reason — the parent build's launcher is a no-op there too.
+      # Moving the Windows leg to `-G Ninja` would fix both; tracked as
+      # follow-up work, deliberately out of scope here.)
       - name: Run tests
         timeout-minutes: ${{ runner.os == 'Windows' && 12 || 6 }}
-        run: ctest --test-dir cpp/build --output-on-failure -C Release
+        env:
+          BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
+          # NB: written as `!= 'Windows' && 'ccache' || ''` on purpose — an
+          # empty string is FALSY in a GitHub expression, so the intuitive
+          # `== 'Windows' && '' || 'ccache'` would fall through to 'ccache' on
+          # Windows and claim a cache MSBuild cannot use.
+          BALL_E2E_LAUNCHER: ${{ runner.os != 'Windows' && 'ccache' || '' }}
+        run: ctest --test-dir cpp/build --output-on-failure -C Release -j ${{ steps.jobs.outputs.n }} --no-tests=error
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
       # leg (avoids tripling cost across the 3-OS matrix). The full-corpus
@@ -511,6 +563,13 @@ jobs:
       # determine a diff base) — run full_e2e.sh against just those. See #347.
       - name: "C++ compiled e2e — new/changed fixtures only (closes main-only-leg escape class)"
         if: ${{ runner.os == 'Linux' && needs.changes.outputs.changed_fixtures != '' }}
+        # full_e2e.sh compiles one g++ TU per fixture. Same two knobs as
+        # test_e2e above (issue #521): compile the fixtures concurrently, and
+        # route them through this job's ccache so an unchanged fixture is a
+        # cache hit rather than a fresh compile.
+        env:
+          BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
+          BALL_E2E_LAUNCHER: ccache
         run: |
           if [ "${{ needs.changes.outputs.changed_fixtures }}" = "ALL" ]; then
             echo "No usable diff base upstream — running the FULL full_e2e.sh sweep."

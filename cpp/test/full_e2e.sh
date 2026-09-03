@@ -6,6 +6,7 @@
 # Usage: full_e2e.sh [--compiler PATH] [--root PATH] [--fixtures "STEMS"]
 #   --compiler  path to ball_cpp_compile binary (default: auto-detect)
 #   --root      repo root (default: auto-detect from script location)
+#   --jobs      parallel fixture compiles (default: $BALL_E2E_JOBS, else nproc)
 #   --fixtures  restrict the run to just these conformance fixture stems (bare
 #               names, no dir, no .ball.json extension), space- or
 #               comma-separated, e.g. --fixtures "400_switch_continue_label
@@ -17,11 +18,56 @@
 #               catch a PR-introduced regression (see #347). A requested stem
 #               that doesn't exist under tests/conformance/ is a HARD ERROR
 #               (fail loud, never a silent no-op). Omit to run the full corpus.
+#
+# Environment (issue #521):
+#   BALL_E2E_JOBS      how many fixtures to compile+run concurrently. Default:
+#                      nproc / sysctl hw.ncpu. 1 restores the old serial run.
+#   BALL_E2E_LAUNCHER  compiler launcher prefixed to g++ (e.g. `ccache`), so an
+#                      unchanged fixture is a cache hit instead of a fresh
+#                      compile. Unset/empty = plain g++.
+#
+# Fixtures are compiled AND run concurrently, but results are collected into
+# per-fixture files and aggregated in corpus order afterwards, so the counts,
+# the category lists and the `Results:` line are byte-identical to the old
+# serial run regardless of scheduling.
 set -u
 
 # Auto-detect repo root from script location (works in CI + local dev).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+
+# ── Worker mode (issue #521) ────────────────────────────────────────────────
+# `full_e2e.sh --worker <stem>` compiles + runs ONE fixture and records its
+# outcome in $W_RESULTS/<stem>. The parent re-invokes this via xargs -P to get
+# portable process-level parallelism (xargs -P works on GNU and BSD/macOS;
+# `wait -n` does not exist in the bash 3.2 that ships with macOS). The worker
+# always exits 0 — the outcome lives in the result file, so one failing fixture
+# never aborts the pool.
+if [[ "${1:-}" == "--worker" ]]; then
+  name="$2"
+  prog="$W_CONF/$name.ball.json"
+  exp="$W_CONF/$name.expected_output.txt"
+  out="$W_RESULTS/$name"
+  work="$W_WORK/$name"
+  if ! "$W_COMPILER" "$prog" > "$work.cpp" 2>"$work.cerr"; then
+    printf 'compile_err\t\n' > "$out"; exit 0
+  fi
+  # -O0: faster builds, avoids false timeouts on large generator programs.
+  # ${W_LAUNCHER} is intentionally unquoted: empty expands to nothing.
+  if ! timeout 120 ${W_LAUNCHER} g++ -std=c++20 -O0 "$work.cpp" -o "$work.bin" 2>"$work.gerr"; then
+    detail="$(grep -m1 'error:' "$work.gerr" | sed -E 's/.*error: //' | head -c 80)"
+    printf 'gpp_err\t%s\n' "$detail" > "$out"; exit 0
+  fi
+  # 30s (was 15s): fixtures now run concurrently, so a compute-heavy one can
+  # be descheduled behind its peers. Still far below any real hang.
+  actual="$(timeout 30 "$work.bin" 2>/dev/null)"
+  rc=$?
+  if [[ $rc -eq 124 ]]; then printf 'timeout\t\n' > "$out"; exit 0; fi
+  a="$(printf '%s' "$actual" | sed -e 's/[[:space:]]*$//')"
+  e="$(printf '%s' "$(cat "$exp")" | sed -e 's/[[:space:]]*$//')"
+  if [[ "$a" == "$e" ]]; then printf 'pass\t\n' > "$out"; else printf 'mismatch\t\n' > "$out"; fi
+  exit 0
+fi
 
 # Auto-detect compiler: prefer build/ (CI), then build-wsl/ (local WSL dev).
 COMPILER=""
@@ -34,9 +80,12 @@ done
 # CLI overrides
 FIXTURES_FILTER=""
 FILTER_ACTIVE=0
+JOBS="${BALL_E2E_JOBS:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --compiler) COMPILER="$2"; shift 2 ;;
+    --jobs) JOBS="$2"; shift 2 ;;
+    --jobs=*) JOBS="${1#--jobs=}"; shift ;;
     --root) ROOT="$2"; shift 2 ;;
     --fixtures) FIXTURES_FILTER="$2"; FILTER_ACTIVE=1; shift 2 ;;
     --fixtures=*) FIXTURES_FILTER="${1#--fixtures=}"; FILTER_ACTIVE=1; shift ;;
@@ -47,6 +96,15 @@ done
 CONF="$ROOT/tests/conformance"
 [[ -n "$COMPILER" ]] || { echo "ERROR: ball_cpp_compile not found. Build first."; exit 1; }
 [[ -x "$COMPILER" ]] || { echo "ERROR: $COMPILER is not executable."; exit 1; }
+
+# Parallelism (issue #521). Fail loud on a non-numeric override rather than
+# silently dropping back to a serial sweep — serial is the regression.
+[[ -n "$JOBS" ]] || JOBS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+case "$JOBS" in
+  ''|*[!0-9]*|0) echo "::error::--jobs/BALL_E2E_JOBS must be a positive integer (got '$JOBS')"; exit 1 ;;
+esac
+LAUNCHER="${BALL_E2E_LAUNCHER:-}"
+echo "C++ e2e: $JOBS parallel job(s), launcher=${LAUNCHER:-(none)}"
 
 # Optional --fixtures filter: resolve the requested stems to a set, failing loud
 # on any stem that has no tests/conformance/<stem>.ball.json (same hard-error
@@ -75,6 +133,7 @@ if [[ $FILTER_ACTIVE -eq 1 ]]; then
 fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/results" "$TMP/work"
 
 pass=0; fail=0; skip=0; carved=0
 COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
@@ -103,6 +162,10 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 CPP_COMPILE_CARVEOUTS=("416_user_method_name_arity_collision")
 _is_carved() { local n="$1" c; for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 
+# Pass 1 — select. Skip/carve-out bookkeeping stays here (sequential, cheap)
+# so the counts do not depend on scheduling; RUN holds the corpus-ordered list
+# of fixtures the workers will actually compile.
+RUN=()
 for prog in "$CONF"/*.ball.json; do
   name="$(basename "$prog" .ball.json)"
   # When a --fixtures filter is active, run only the requested stems.
@@ -110,22 +173,46 @@ for prog in "$CONF"/*.ball.json; do
   exp="$CONF/$name.expected_output.txt"
   [[ -f "$exp" ]] || { ((skip++)); continue; }
   if _is_carved "$name"; then ((carved++)); continue; fi
-
-  if ! "$COMPILER" "$prog" > "$TMP/p.cpp" 2>"$TMP/cerr"; then
-    COMPILE_ERR+=("$name"); ((fail++)); continue
-  fi
-  # -O0: faster builds, avoids false timeouts on large generator programs.
-  if ! timeout 120 g++ -std=c++20 -O0 "$TMP/p.cpp" -o "$TMP/p.bin" 2>"$TMP/gerr"; then
-    GPP_ERR+=("$name: $(grep -m1 'error:' "$TMP/gerr" | sed -E 's/.*error: //' | head -c 80)")
-    ((fail++)); continue
-  fi
-  actual="$(timeout 15 "$TMP/p.bin" 2>/dev/null)"
-  rc=$?
-  if [[ $rc -eq 124 ]]; then TIMEOUT+=("$name"); ((fail++)); continue; fi
-  a="$(printf '%s' "$actual" | sed -e 's/[[:space:]]*$//')"
-  e="$(printf '%s' "$(cat "$exp")" | sed -e 's/[[:space:]]*$//')"
-  if [[ "$a" == "$e" ]]; then ((pass++)); else MISMATCH+=("$name"); ((fail++)); fi
+  RUN+=("$name")
 done
+
+# Pass 2 — compile + run, $JOBS at a time. Workers only write result files;
+# xargs' own exit status is deliberately ignored (workers always exit 0, and a
+# missing result file is caught as a hard error in pass 3).
+if [[ ${#RUN[@]} -gt 0 ]]; then
+  printf '%s\n' "${RUN[@]}" | \
+    W_CONF="$CONF" W_COMPILER="$COMPILER" W_RESULTS="$TMP/results" \
+    W_WORK="$TMP/work" W_LAUNCHER="$LAUNCHER" \
+    xargs -P "$JOBS" -I{} bash "$SCRIPT_DIR/full_e2e.sh" --worker {}
+fi
+
+# Pass 3 — aggregate in corpus order, so output is identical to a serial run.
+for name in "${RUN[@]:-}"; do
+  [[ -n "$name" ]] || continue
+  res="$TMP/results/$name"
+  if [[ ! -f "$res" ]]; then
+    echo "::error::no result recorded for fixture '$name' — the parallel worker did not run it."
+    exit 1
+  fi
+  IFS=$'\t' read -r status detail < "$res"
+  case "$status" in
+    pass)        ((pass++)) ;;
+    compile_err) COMPILE_ERR+=("$name"); ((fail++)) ;;
+    gpp_err)     GPP_ERR+=("$name: $detail"); ((fail++)) ;;
+    timeout)     TIMEOUT+=("$name"); ((fail++)) ;;
+    mismatch)    MISMATCH+=("$name"); ((fail++)) ;;
+    *)
+      echo "::error::fixture '$name' recorded an unrecognised status '$status'."
+      exit 1 ;;
+  esac
+done
+
+# Coverage-preserving assertion (issue #521): parallelism must not drop a
+# fixture. Every selected fixture must have produced exactly one outcome.
+if [[ $((pass + fail)) -ne ${#RUN[@]} ]]; then
+  echo "::error::selected ${#RUN[@]} fixture(s) but recorded $((pass + fail)) outcome(s) — fixtures were dropped."
+  exit 1
+fi
 
 total=$((pass+fail))
 echo "=================================================="

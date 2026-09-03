@@ -152,11 +152,15 @@ unwrapped_site_lines() {
   ' "$WORKFLOW"
 }
 
-count_lines() { grep -c '' || true; }
+# count_lines — line count of stdin. awk, not `grep -c`: grep exits 1 on "no
+# matches", and swallowing that with `|| true` would also swallow a real grep
+# error (exit 2) — the kind of silent degradation this whole test exists to
+# prevent.
+count_lines() { awk 'END { print NR }'; }
 
 # wrapped_sites — steps delegating to the retry composite action.
 wrapped_sites() {
-  grep -cE "uses:[[:space:]]*${ACTION_REF//./\\.}([[:space:]]|$)" "$WORKFLOW" || true
+  grep -E "uses:[[:space:]]*${ACTION_REF//./\\.}([[:space:]]|$)" "$WORKFLOW" | count_lines
 }
 
 sites_at_least_floor() {

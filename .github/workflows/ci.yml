@@ -175,7 +175,9 @@ jobs:
           cache-dependency-path: ts/compiler/package-lock.json
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       - name: Install & build @ball-lang/compiler
         run: cd ts/compiler && npm ci && npm run build
@@ -280,7 +282,9 @@ jobs:
           restore-keys: pub-${{ runner.os }}-
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       - name: Regenerate shared Ball artifacts
         run: |
@@ -385,7 +389,9 @@ jobs:
           restore-keys: pub-${{ runner.os }}-
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       # ball_protobuf_gen — protoc-gen-ball / -connect / -grpc plugins
       - name: Analyze ball_protobuf_gen
@@ -852,7 +858,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev ninja-build
 
       - name: Install dependencies
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       # Builds only the conformance_test_runner target (protobuf + abseil +
       # conformance harness). It statically links the TestAllTypes* descriptors,
@@ -926,7 +934,9 @@ jobs:
       # Dart is needed to regenerate engine.ball.json for the engine
       # self-host parse test under ts/compiler/test/engine_parse.test.ts.
       - name: Bootstrap Dart workspace
-        run: cd dart && dart pub get
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
 
       # @ball-lang/shared (protobuf-es generated types; no build step)
       - name: Install @ball-lang/shared deps
@@ -1074,9 +1084,10 @@ jobs:
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
-          dart pub get
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../rust && cargo run -p ball-engine-regen
       - name: Self-host run tests (Dart-identical output)
@@ -1180,9 +1191,10 @@ jobs:
       # matters (see csharp/AGENTS.md's "Build & Test"). gen_engine_json.dart
       # alone only writes the JSON, which exceeds System.Text.Json's default
       # depth limit for this program, so the .pb must be materialized instead.
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate engine.ball.pb
         run: |
-          dart pub get
           cd dart
           dart run compiler/tool/compile_engine_cpp.dart || true
           test -f self_host/engine.ball.pb
@@ -1330,9 +1342,10 @@ jobs:
       # gen_engine_json.dart writes dart/self_host/engine.ball.json; cmd/regen
       # reads it (it prefers engine.ball.pb, absent here, and falls back to the
       # JSON) and compiles it into compiled/compiled_engine.go.
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
-          dart pub get
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../go/engine && go run ./cmd/regen
 
@@ -1434,9 +1447,10 @@ jobs:
       # gen_engine_json.dart writes dart/self_host/engine.ball.json; the
       # `ball_engine.regen` module reads it and compiles it into
       # ball_engine/compiled_engine.py.
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
       - name: Regenerate self-hosted engine
         run: |
-          dart pub get
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../python/engine && python -m ball_engine.regen
 

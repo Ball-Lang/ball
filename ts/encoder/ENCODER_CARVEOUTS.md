@@ -9,7 +9,11 @@ producing a Ball program that computes something different.
 The point of this file is the distinction CI needs to make: a **known** gap that
 warns is fine; a **silent** gap is a bug. Issue #490 existed because six
 constructs were in the second category — and three of them were locked in place
-by tests asserting the broken behaviour as correct.
+by tests asserting the broken behaviour as correct. The
+"Ambiguous without a type checker" table below was the last entry for which the
+opening claim was **not** true: it was documented here but emitted no warning at
+all, so `encodeWithWarnings(...)` came back empty even under
+`{ strictBehaviorAffecting: true }`. It warns as of **#506**.
 
 Companion gates:
 
@@ -43,23 +47,33 @@ Companion gates:
 
 The encoder is **syntax-only** (`ts.createSourceFile`, no semantic model), so a
 method name that exists on both `String` and `Array` cannot be resolved from
-syntax alone. `STR_METHODS` is consulted first, so the string mapping wins:
+syntax alone. `STR_METHODS` is consulted first, so the string mapping wins.
+
+Since **#506** each of these emits a behaviour-affecting `warn()` at encode time
+(kind `AmbiguousStringArrayMethod`, the same mechanism and severity as the
+`ArraySplice` warning), so `encodeWithWarnings(...)` reports the ambiguity and
+`{ strict: true }` / `{ strictBehaviorAffecting: true }` reject it. The warning
+fires on **every** receiver, including a genuine `String` one — without a type
+checker the encoder cannot tell them apart, which is precisely the gap:
 
 | Method | Encoded as | Consequence |
 | --- | --- | --- |
 | `slice` | `std.string_substring` | `arr.slice(1, 3)` compiles to `arr.substring(1, 3)` and throws at runtime. Use `arr.filter`/index arithmetic, or encode with a type-aware front end. |
-| `indexOf`, `includes` | `std.string_index_of` / `std.string_contains` | Survivable in the TS target only because JS `Array` happens to spell both the same way; it would be wrong on a target where the two are distinct. |
+| `indexOf`, `includes` | `std.string_index_of` / `std.string_contains` | Survivable in the TS target only because JS `Array` happens to spell both the same way; it would be wrong on a target where the two are distinct — so the TS round-trip cannot detect it and the encode-time warning is the only signal. |
 
 `concat` is **not** in this table: it has no `STR_METHODS` entry at all, so
 `a.concat(b)` always takes the array path (`std_collections.list_concat`, field
 `other`) and the compiler's `case "list_concat"` reads it correctly. This note
 exists only so the row is not re-added: it was checked, and it is unambiguous.
 
-Resolving these needs the TypeScript **semantic** model (a `ts.Program` with a
-type checker), which is a larger change than the vocabulary alignment #489
-covers. Until then they are ambiguities, not silent corruption: the failure is a
-loud runtime `TypeError` on the compiled output, and the fixtures in
-`roundtrip.test.ts` deliberately avoid the ambiguous spellings.
+Resolving these — actually picking `std_collections.list_*` for an array
+receiver instead of merely warning — needs the TypeScript **semantic** model (a
+`ts.Program` with a type checker), which is a larger change than the vocabulary
+alignment #489 covers and is the open half of **#506**. Until then they are
+ambiguities, not silent corruption: the encode-time warning above names the
+construct, `slice`'s failure is additionally a loud runtime `TypeError` on the
+compiled output, and the fixtures in `roundtrip.test.ts` deliberately avoid the
+ambiguous spellings on an array receiver.
 
 ## Erasure-only — warns, but never behaviour-affecting
 

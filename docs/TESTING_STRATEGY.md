@@ -82,6 +82,21 @@ for Dart. Both mismatched names and mismatched *field* names die there and
 nowhere else — `string_replace` fed the wrong field names compiled silently to
 `''`, which no name assertion can see.
 
+A stdout-diffing harness must also be **environment-independent**, or its
+verdict is not about the code. `roundtrip.test.ts` spawned each side with the
+inherited environment and compared raw bytes; Node's `console.log` colourises a
+bare `number` but never a `string`, and the Ball compiler always stringifies via
+`__ball_to_string(...)`, so in a colour-capable shell the original came back
+ANSI-wrapped and the round-trip plain — 18 phantom failures locally, and zero on
+a TTY-less CI runner, which is why nothing caught it
+([#518](https://github.com/Ball-Lang/ball/issues/518)). The harness now pins the
+CHILD's `FORCE_COLOR=0`/`NO_COLOR=1` through `execSync`'s `env` (a shell prefix
+is not cross-platform, and `NO_COLOR` alone is ignored by Node whenever
+`FORCE_COLOR` is already set), strips SGR escapes from both sides, and carries
+an invariant test that runs one fixture under a forced-colour and a colour-less
+child and asserts the two agree — so the regression is gated on the CI runner
+too, without a colour-forced CI leg.
+
 > Coverage measured by *function-name presence* (the old 67% number tracked in
 > [issue #134](https://github.com/Ball-Lang/ball/issues/134)) is **not**
 > completeness: it counted

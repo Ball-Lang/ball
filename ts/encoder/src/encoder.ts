@@ -846,20 +846,58 @@ export class TsEncoder {
         );
       }
 
+      const isOptionalCall =
+        node.expression.questionDotToken !== undefined || node.questionDotToken !== undefined;
+
       // Map common JS/TS method calls to their Ball std equivalents.
       // The engine's std module uses snake_case names with type prefixes.
       const stdMethod = this.mapMethodToStd(method, args);
       if (stdMethod) {
-        return this.stdCall(stdMethod.fn, [
-          { name: stdMethod.selfName ?? "value", value: obj },
+        const callWith = (receiver: Expression): Expression => this.stdCall(stdMethod.fn, [
+          { name: stdMethod.selfName ?? "value", value: receiver },
           ...stdMethod.extraFields(args),
         ], stdMethod.module ?? "std");
+        // `obj?.push(1)` on a std-MAPPED builtin (#504). This dispatch used to
+        // run unconditionally, ahead of the `questionDotToken` check below, so
+        // that branch was unreachable for every STR_METHODS/ARR_METHODS name
+        // and the `?.` short-circuit was silently dropped: `missing?.push(3)`
+        // compiled to a bare `list_push` that threw on a null receiver.
+        //
+        // The guard is synthesized from primitives every target compiler
+        // already implements rather than routed through `null_aware_call`,
+        // because that node emits its `method` field VERBATIM as
+        // `target?.<method>(...)` in the TARGET language (ts/compiler's
+        // `case "null_aware_call"`, dart/compiler's `_compileNullAwareCall`),
+        // so the JS spelling `push` would become a nonexistent `List.push` in
+        // Dart. The receiver is bound to a per-call-site temp so it is
+        // evaluated exactly once — `getArr()?.push(1)` must not call `getArr`
+        // twice — and so nested chains cannot shadow each other.
+        if (isOptionalCall) {
+          const temp = `__ball_recv_${this.desugarCounter++}`;
+          const tempRef: Expression = { reference: { name: temp } };
+          return {
+            block: {
+              statements: [{ let: { name: temp, value: obj } }],
+              result: this.stdCall("if", [
+                { name: "condition", value: this.stdCall("not_equals", [
+                  { name: "left", value: tempRef },
+                  { name: "right", value: this.nullLiteral() },
+                ]) },
+                { name: "then", value: callWith(tempRef) },
+                { name: "else", value: this.nullLiteral() },
+              ]),
+            },
+          };
+        }
+        return callWith(obj);
       }
 
       // Optional chaining call: obj?.method(). Canonical name + field shape
       // (target/method), matching compileStdCall's `case "null_aware_call"`;
       // "optional_call" with an `object` field matched no case at all (#489).
-      if (node.expression.questionDotToken || node.questionDotToken) {
+      // Only user-defined methods reach here now — a std-mapped builtin is
+      // guarded above (#504).
+      if (isOptionalCall) {
         return this.stdCall("null_aware_call", [
           { name: "target", value: obj },
           { name: "method", value: { literal: { stringValue: method } } },
@@ -1492,21 +1530,11 @@ export class TsEncoder {
       charAt: { fn: "string_char_at", args: ["index"] },
       charCodeAt: { fn: "string_code_unit_at", args: ["index"] },
     };
-    // hasOwnProperty (not `in`) — `in` also matches names inherited from
-    // Object.prototype (toString, valueOf, hasOwnProperty, ...). A bare `in`
-    // check here made `.toString()`/`.valueOf()`/etc. on ANY object silently
-    // match this dict via prototype lookup, setting `fn` to the *native JS
-    // Function* (e.g. `Object.prototype.toString`) instead of a string, which
-    // made the dedicated `toString` mapping below unreachable and produced a
-    // corrupt call.function (a function object, not "to_string") in the Ball
-    // IR. Found via coverage analysis of the always-dead toString branch.
-    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
-      const m = STR_METHODS[method];
-      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
-    }
-
     // Array methods: `list` is the receiver. All of them live in
     // std_collections — the module the Dart reference declares them in.
+    //
+    // Declared BEFORE the STR_METHODS lookup below so that lookup can tell
+    // whether the name is ambiguous (#506).
     const ARR_METHODS: Record<string, { fn: string; args: string[] }> = {
       push: { fn: "list_push", args: ["value"] },
       pop: { fn: "list_pop", args: [] },
@@ -1525,6 +1553,40 @@ export class TsEncoder {
       every: { fn: "list_all", args: ["function"] },
       some: { fn: "list_any", args: ["function"] },
     };
+
+    // hasOwnProperty (not `in`) — `in` also matches names inherited from
+    // Object.prototype (toString, valueOf, hasOwnProperty, ...). A bare `in`
+    // check here made `.toString()`/`.valueOf()`/etc. on ANY object silently
+    // match this dict via prototype lookup, setting `fn` to the *native JS
+    // Function* (e.g. `Object.prototype.toString`) instead of a string, which
+    // made the dedicated `toString` mapping below unreachable and produced a
+    // corrupt call.function (a function object, not "to_string") in the Ball
+    // IR. Found via coverage analysis of the always-dead toString branch.
+    if (Object.prototype.hasOwnProperty.call(STR_METHODS, method)) {
+      const m = STR_METHODS[method];
+      // `slice`, `indexOf` and `includes` exist on BOTH String and Array, and
+      // this syntax-only encoder (no ts.Program/TypeChecker) resolves them to
+      // the STRING mapping because STR_METHODS is consulted first. On an Array
+      // receiver that is wrong: `arr.slice(1, 3)` compiles to
+      // `arr.substring(1, 3)`, which throws. ENCODER_CARVEOUTS.md documents
+      // the ambiguity, but this branch never called `warn()`, so the encode
+      // was completely silent — even under `{ strictBehaviorAffecting: true }`
+      // — contradicting that file's own "every entry here warns" policy.
+      // Same mechanism and severity as the ArraySplice warning in encodeCall.
+      // Resolving it correctly (rather than merely loudly) needs the TS
+      // semantic model — tracked by #506.
+      if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
+        this.warn(
+          `\`.${method}(...)\` exists on both String and Array; the syntax-only ` +
+          `encoder resolves it to std.${m.fn} (the String mapping), which is ` +
+          `wrong for an Array receiver — see ts/encoder/ENCODER_CARVEOUTS.md ` +
+          `"Ambiguous without a type checker"`,
+          "AmbiguousStringArrayMethod",
+        );
+      }
+      return { fn: m.fn, selfName: "value", extraFields: named(...m.args) };
+    }
+
     // Same hasOwnProperty rationale as STR_METHODS above.
     if (Object.prototype.hasOwnProperty.call(ARR_METHODS, method)) {
       const m = ARR_METHODS[method];

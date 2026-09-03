@@ -1,3 +1,10 @@
+## [1.60.3](https://github.com/Ball-Lang/ball/compare/v1.60.2...v1.60.3) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ts:** keep null-safety on optional-chained std-mapped builtins, warn on String/Array ambiguity, and make the round-trip harness colour-independent (closes [#504](https://github.com/Ball-Lang/ball/issues/504), closes [#518](https://github.com/Ball-Lang/ball/issues/518)) ([#525](https://github.com/Ball-Lang/ball/issues/525)) ([e4dc8e5](https://github.com/Ball-Lang/ball/commit/e4dc8e5b737228442083436d235b720d4b8b2d42)), closes [#489](https://github.com/Ball-Lang/ball/issues/489) [#506](https://github.com/Ball-Lang/ball/issues/506) [#506](https://github.com/Ball-Lang/ball/issues/506)
+
 ## [1.60.2](https://github.com/Ball-Lang/ball/compare/v1.60.1...v1.60.2) (2026-09-02)
 
 

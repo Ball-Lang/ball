@@ -137,7 +137,9 @@ python python/tool/wheel_smoke.py              # build + clean-venv install + al
   round trip from the real index. See `docs/RELEASE.md`.
 - **Maintainer one-time step:** create the PyPI *pending publisher* (project
   `ball-lang`, owner `Ball-Lang`, repo `ball`, workflow `publish-pypi.yml`,
-  environment `pypi`). Without it the OIDC exchange fails loudly.
+  environment left blank — the workflow declares no GitHub environment, matching
+  the npm/crates/nuget/pub.dev channels). Without it the OIDC exchange fails
+  loudly.
 
 ## For AI Agents
 - The compiler and encoder both use the raw proto3-JSON dict view (camelCase

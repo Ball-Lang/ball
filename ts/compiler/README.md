@@ -58,6 +58,10 @@ console.log(tsSource); // emitted TypeScript
 ## API
 
 - `compile(program: Program, options?: CompileOptions): string` — compile a whole program to TypeScript source.
+- `compileLibrary(program: Program, options?: CompileLibraryOptions): string` —
+  compile a whole Program as a **library**: no assumed entry point, no
+  synthesized invocation, every top-level declaration exported. The analog of
+  `compile_library`/`CompileLibrary` in the Rust/Go/Python compilers.
 - `compileModule(module: Module, options?: CompileModuleOptions): string` — compile a single module.
 - `BallCompiler` — the underlying class, if you need finer control.
 - `TS_RUNTIME_PREAMBLE` — the Dart-flavored runtime polyfill preamble injected at the top of compiled output.

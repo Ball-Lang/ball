@@ -184,6 +184,37 @@ jobs:
           "$BALL" validate tests/conformance/100_complex_control_flow.ball.json > /dev/null
           "$BALL" tree tests/conformance/100_complex_control_flow.ball.json > /dev/null
 
+      # The target NAME is a promise about the binary's architecture, and it is
+      # the one promise every step above would keep silently if it were broken:
+      # a `macos-x64` leg accidentally left on an Apple-Silicon label builds,
+      # passes the parity gate, and passes every smoke — it runs fine on the
+      # machine that built it — then ships an arm64 binary under an x64
+      # filename that no Intel Mac can execute. Nothing here cross-compiles, so
+      # the runner's own architecture IS the binary's; assert they agree.
+      #
+      # A SEPARATE step, before the tag gate, on purpose: this is a fact about
+      # the build, not about packaging, so a branch-ref rehearsal (see below)
+      # checks it too.
+      - name: Verify binary architecture matches the target name
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="${{ matrix.target }}"
+          case "$target" in
+            *-x64) want=x86_64 ;;
+            *-arm64) want=arm64 ;;
+            *)
+              echo "::error::no expected architecture is mapped for target '$target' — add one here before adding the leg"
+              exit 1
+              ;;
+          esac
+          got="$(uname -m)"
+          file "${{ github.workspace }}/cpp/build/cli/ball"
+          if [ "$got" != "$want" ]; then
+            echo "::error::${target} was built on a '${got}' runner but its name promises '${want}'. Fix the matrix's runs-on label — publishing this asset would hand users a binary that cannot run on the platform it names."
+            exit 1
+          fi
+
       # ── Package + checksum ──
       # Deliberately placed AFTER every build/parity/smoke step: a dispatch
       # against a BRANCH is then a complete rehearsal of a release build (the
@@ -216,35 +247,11 @@ jobs:
           set -euo pipefail
           tag="${{ steps.ver.outputs.tag }}"
           target="${{ matrix.target }}"
-
-          # The target NAME is a promise about the binary's architecture, and
-          # it is the one promise every other step in this job would keep
-          # silently if it were broken: a `macos-x64` leg accidentally left on
-          # an Apple-Silicon label builds, passes the parity gate, passes every
-          # smoke (it runs fine on the machine that built it), checksums
-          # cleanly, and ships an arm64 binary under an x64 filename that no
-          # Intel Mac can execute. Nothing here cross-compiles, so the runner's
-          # own architecture IS the binary's; assert they agree.
-          case "$target" in
-            *-x64) want=x86_64 ;;
-            *-arm64) want=arm64 ;;
-            *)
-              echo "::error::no expected architecture is mapped for target '$target' — add one here before adding the leg"
-              exit 1
-              ;;
-          esac
-          got="$(uname -m)"
-          if [ "$got" != "$want" ]; then
-            echo "::error::${target} was built on a '${got}' runner but its name promises '${want}'. Fix the matrix's runs-on label — publishing this asset would hand users a binary that cannot run on the platform it names."
-            exit 1
-          fi
-
           stage="dist/ball-${tag}-${target}"
           mkdir -p "$stage"
           cp cpp/build/cli/ball "$stage/ball"
           cp LICENSE "$stage/LICENSE"
           chmod +x "$stage/ball"
-          file "$stage/ball"
           archive="ball-${tag}-${target}.tar.gz"
           tar -C dist -czf "$archive" "ball-${tag}-${target}"
           sha256sum "$archive" > "${archive}.sha256"

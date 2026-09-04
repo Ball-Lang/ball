@@ -212,17 +212,29 @@ else
   no "each leg uploads BOTH the archive and its .sha256"
 fi
 
-# The packaging step must PROVE the binary's architecture matches the promise
-# in its target name. This is the one lie every other step keeps silently: a
-# `-x64` leg left on an Apple-Silicon label builds, passes the parity gate,
-# passes every smoke (it runs fine where it was built) and checksums cleanly.
-if grep -q 'got="\$(uname -m)"' "$RELEASE_WORKFLOW" &&
+# The workflow must PROVE the binary's architecture matches the promise in its
+# target name. This is the one lie every other step keeps silently: a `-x64`
+# leg left on an Apple-Silicon label builds, passes the parity gate, passes
+# every smoke (it runs fine where it was built) and checksums cleanly.
+if grep -q 'name: Verify binary architecture matches the target name' "$RELEASE_WORKFLOW" &&
+  grep -q 'got="\$(uname -m)"' "$RELEASE_WORKFLOW" &&
   grep -q '\*-x64) want=x86_64 ;;' "$RELEASE_WORKFLOW" &&
   grep -q '\*-arm64) want=arm64 ;;' "$RELEASE_WORKFLOW"; then
-  ok "the packaging step asserts the built binary's architecture matches its target name"
+  ok "the workflow asserts the built binary's architecture matches its target name"
 else
-  no "the packaging step asserts the built binary's architecture matches its target name" \
+  no "the workflow asserts the built binary's architecture matches its target name" \
     "without it, an arm64 binary can ship under an x64 filename with every other step green"
+fi
+
+# ...and that assertion must run BEFORE the tag gate, or a branch-ref rehearsal
+# (the only pre-release way to exercise this workflow) never reaches it.
+arch_line="$(grep -n 'name: Verify binary architecture matches the target name' "$RELEASE_WORKFLOW" | head -1 | cut -d: -f1)"
+tag_line="$(grep -n 'name: Determine release tag' "$RELEASE_WORKFLOW" | head -1 | cut -d: -f1)"
+if [ -n "$arch_line" ] && [ -n "$tag_line" ] && [ "$arch_line" -lt "$tag_line" ]; then
+  ok "the architecture assertion runs before the tag gate (a branch rehearsal reaches it)"
+else
+  no "the architecture assertion runs before the tag gate" \
+    "arch step at line ${arch_line:-<none>}, tag gate at line ${tag_line:-<none>}"
 fi
 
 # Every target must be covered by that case statement, or the assertion is

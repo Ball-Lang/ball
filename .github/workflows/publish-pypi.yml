@@ -26,9 +26,16 @@ name: Publish PyPI
 #   Owner:             Ball-Lang
 #   Repository name:   ball
 #   Workflow name:     publish-pypi.yml
-#   Environment name:  pypi
-# Until that exists the OIDC exchange fails loudly at the publish step and
-# nothing is pushed. See python/AGENTS.md § Publishing and docs/RELEASE.md.
+#   Environment name:  (leave blank)
+# No GitHub environment: the other registry channels (publish-npm.yml,
+# publish-crates.yml, publish-nuget.yml, release-publish.yml) bind their
+# trusted publisher to the workflow alone, and this channel matches them. A
+# `pypi` environment was briefly required here and had to be dropped — the
+# publisher was registered without one, PyPI rejects the OIDC token when the
+# claimed environment does not match, and the repo has no protection rules to
+# put on it anyway (an environment referenced by a job is auto-created empty).
+# Until the publisher exists the OIDC exchange fails loudly at the publish step
+# and nothing is pushed. See python/AGENTS.md § Publishing and docs/RELEASE.md.
 #
 # What ships: python/pyproject.toml bundles the five python/ source trees plus
 # the generated ball.v1 binding, and ball_engine/_selfhost/engine.ball.json.gz —
@@ -52,7 +59,6 @@ jobs:
     name: Publish ball-lang to PyPI
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    environment: pypi
     permissions:
       id-token: write # OIDC token exchange for PyPI Trusted Publishing
       contents: read

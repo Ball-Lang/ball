@@ -123,6 +123,31 @@ compile items so the sibling projects never double-compile each other's files.
   (`new Point(1,2).Sum()` printed `0` instead of `3` on the Dart reference engine whenever
   `private int _x; Point(int x){ _x = x; }`-style names differed). Only `field = param;` and
   `field = literal;` are recognised; anything else throws.
+- **`: this(...)` chaining is resolved in a SECOND pass (#492 slice D); `: base(...)` still
+  throws.** `CollectDeclarations` collects `CtorDraft`s first and flattens chains afterwards,
+  because C# lets a constructor delegate to a sibling declared either before or after it — a
+  single textual pass resolves only backward chains and silently mis-shapes forward ones. A
+  chaining constructor's shape is the target's assignments re-sourced through the initializer's
+  own arguments (same param-reference-or-literal constraint as a plain body), then its own body
+  assignments; recursion is guarded so a cycle fails loud. `: base(...)` keeps throwing with a
+  this-vs-base message: resolving it needs the superclass's own shapes and fields, and routing it
+  through the same-class path would build a message from the wrong class's fields — **silently**,
+  since nothing fails loud on a wrong mapping. That is why
+  `encoder/test/ConstructorChainingTests.cs` compiles the encoded program back and RUNS it rather
+  than only asserting a shape.
+- **`enum` declarations encode (#492 slice C) — match the cross-language IR convention exactly.**
+  An `enum` becomes an `EnumDescriptorProto` in `Module.Enums[]` (`main:<ShortName>`) plus a
+  companion **descriptor-less** `TypeDefinition` tagged `metadata.kind = "enum"`; a member
+  reference is `field_access(reference("Color"), "Green")`. That is the same shape
+  `rust/encoder/src/types.rs` emits and the one `csharp/compiler/src/TypeEmit.cs::CompileEnum`
+  already consumed — never invent a different one, a divergence surfaces only later as a
+  round-trip mismatch. Member numbering follows C# (explicit `= N`, then N + 1 onward), and a
+  **computed** discriminant (`1 << 0`, `Read | Write`) is the narrowed remaining gap: a
+  syntax-only encoder has no constant evaluator, so it fails loud naming the member.
+  `Encoder.EnumNames`/`EnumMembers` are kept separate from `ClassNames` so a `Color.Green`
+  receiver is distinguishable from a static-field access and from an unresolved cross-file one,
+  and the branch runs before `EncodePropertyAccess` so a member named `Count`/`Length`/`Keys`/
+  `Values` is not rewritten into a `std.length`/`std_collections` call.
 - **Bodyless members are OMITTED, not thrown on** (#492 slice A): an interface method or an
   `abstract`/`partial`/`extern` declaration is skipped by `EncodeTypeDeclaration` (the
   `TypeDefinition` still round-trips). Do NOT "fix" this by emitting `IsBase = true` — the
@@ -130,11 +155,12 @@ compile items so the sibling projects never double-compile each other's files.
   so such a member would vanish from the compiled class silently. Dispatch resolves by the
   receiver's concrete runtime type anyway, so an abstract member is unreachable at run time.
 - Documented gaps (see `csharp/encoder/src/Methods.cs`'s module doc comment and
-  `csharp/AGENTS.md`'s "Encoder" section): target-typed `new(...)`, `enum` declarations,
-  `goto`/switch pattern-matching labels/catch exception filters, chained `?.` beyond one level,
-  local functions, interpolation alignment/format specifiers, non-trivial constructor bodies,
-  same-arity constructor overloads, and a namespace-qualified static receiver deeper than
-  `System.X` (`System.Console`/`System.Math` DO work — `Encoder.StaticReceiverName`).
+  `csharp/AGENTS.md`'s "Encoder" section): target-typed `new(...)`, a **computed** `enum`
+  discriminant, `goto`/switch pattern-matching labels/catch exception filters, chained `?.` beyond
+  one level, local functions, interpolation alignment/format specifiers, non-trivial constructor
+  bodies, `: base(...)` constructor chaining, same-arity constructor overloads, and a
+  namespace-qualified static receiver deeper than `System.X` (`System.Console`/`System.Math` DO
+  work — `Encoder.StaticReceiverName`).
 - **Library mode (#492 slice 2).** `Encode` requires a `Main` entry point; `EncodeLibrary` (CLI:
   `ball encode --library`) drops **only** that requirement — every other documented gap still
   throws `EncoderException`. Both share the private `AssembleProgram` helper. A library-mode
@@ -145,8 +171,10 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
   (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 4 passed, 3 failed, 7 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
-  `1 passed, 6 failed`; slices A/B closed buckets b, c and g). It never
+  `Results: 5 passed, 3 failed, 8 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  `1 passed, 6 failed`; slices A/B closed buckets b, c and g; slice C added and closed bucket
+  (h), `enum` declarations — the taxonomy grows only when a fresh measurement says so, which is
+  how the enum bucket stayed invisible until it was the largest). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
   slice has CLOSED carries a real per-bucket `MustEncode` assertion, so a regression fails rather

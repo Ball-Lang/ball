@@ -185,6 +185,104 @@ internal sealed partial class Encoder
         return (typeDef, members);
     }
 
+    // ════════════════════════════════════════════════════════════
+    // enum
+    // ════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// <c>enum Color { Red, Green, Blue }</c> → an <see cref="EnumDescriptorProto"/> for
+    /// <c>Module.Enums[]</c> plus a companion, <b>descriptor-less</b>
+    /// <see cref="TypeDefinition"/> tagged <c>metadata.kind = "enum"</c> (issue #492, slice C).
+    ///
+    /// <para>The shape is not invented here — it is the convention
+    /// <c>rust/encoder/src/types.rs</c>'s <c>encode_item_enum</c> and
+    /// <c>dart/encoder/lib/encoder.dart</c> already emit, and the one
+    /// <c>csharp/compiler/src/TypeEmit.cs</c>'s <c>CompileEnum</c> already consumes: the real
+    /// value/number data lives in the <see cref="EnumDescriptorProto"/>, while the
+    /// <see cref="TypeDefinition"/> carries only cosmetic metadata and deliberately no
+    /// descriptor (which is exactly how <c>CompileModuleTypes</c> knows not to re-emit it as a
+    /// class). Two encoders that disagree here would only surface the divergence much later, as
+    /// a round-trip mismatch.</para>
+    ///
+    /// <para><b>Member numbering follows C#, not position.</b> A member with an explicit
+    /// <c>= N</c> takes N, and every member after it continues from N + 1 — so
+    /// <c>{ Red, Green = 5, Blue }</c> is 0/5/6, not 0/5/2.</para>
+    /// </summary>
+    internal (TypeDefinition TypeDef, EnumDescriptorProto EnumDef) EncodeEnumDeclaration(EnumDeclarationSyntax decl)
+    {
+        var shortName = decl.Identifier.Text;
+        var qualified = QualifiedTypeName(shortName);
+
+        var values = new List<EnumValueDescriptorProto>();
+        var valuesMeta = new List<Google.Protobuf.WellKnownTypes.Value>();
+        var next = 0;
+        foreach (var member in decl.Members)
+        {
+            var memberName = member.Identifier.Text;
+            if (member.EqualsValue is not null)
+            {
+                next = ConstantMemberValue(shortName, memberName, member.EqualsValue.Value);
+            }
+
+            values.Add(new EnumValueDescriptorProto { Name = memberName, Number = next });
+            valuesMeta.Add(Builders.StructValue(("name", Builders.StrValue(memberName))));
+            next++;
+        }
+
+        var meta = new MetaBuilder();
+        meta.SetString("kind", "enum");
+        meta.SetBoolIfTrue("is_public", decl.Modifiers.Any(SyntaxKind.PublicKeyword));
+        meta.SetListIfNonempty("values", valuesMeta);
+
+        var typeDef = new TypeDefinition
+        {
+            Name = qualified,
+            Description = $"Enum metadata for {qualified}",
+            Metadata = meta.Build(),
+        };
+
+        var enumDef = new EnumDescriptorProto { Name = qualified };
+        enumDef.Value.AddRange(values);
+        return (typeDef, enumDef);
+    }
+
+    /// <summary>
+    /// An enum member's explicit discriminant, which must be an integer literal (optionally
+    /// negated). A computed constant expression (<c>1 &lt;&lt; 2</c>, <c>Read | Write</c>) needs
+    /// a constant evaluator this syntax-only encoder does not have, so it fails loud naming the
+    /// member rather than guessing an ordinal — a NARROW, documented gap, unlike the blanket
+    /// "enums are unsupported" this slice replaced.
+    /// </summary>
+    private static int ConstantMemberValue(string enumShort, string memberName, ExpressionSyntax value)
+    {
+        var (literal, negate) = value switch
+        {
+            LiteralExpressionSyntax lit => (lit, false),
+            PrefixUnaryExpressionSyntax { Operand: LiteralExpressionSyntax operand } unary
+                when unary.IsKind(SyntaxKind.UnaryMinusExpression) => (operand, true),
+            _ => (null, false),
+        };
+
+        if (literal is null || literal.Token.Value is not int and not long)
+        {
+            throw new EncoderException(
+                $"ball-encoder: enum `{enumShort}` member `{memberName}` has a computed value " +
+                $"`{value}` — only an integer literal discriminant is supported (a syntax-only " +
+                "encoder has no constant evaluator)");
+        }
+
+        var magnitude = Convert.ToInt64(literal.Token.Value, System.Globalization.CultureInfo.InvariantCulture);
+        var signed = negate ? -magnitude : magnitude;
+        if (signed is < int.MinValue or > int.MaxValue)
+        {
+            throw new EncoderException(
+                $"ball-encoder: enum `{enumShort}` member `{memberName}` value `{signed}` does " +
+                "not fit in the 32-bit `EnumValueDescriptorProto.number` field");
+        }
+
+        return (int)signed;
+    }
+
     private FunctionDefinition EncodeMethodDeclaration(string ownerShort, MethodDeclarationSyntax method)
     {
         var methodShort = method.Identifier.Text;

@@ -63,18 +63,27 @@ public class TierASelfTests
         }
         """;
 
-    /// <summary>A construct the encoder explicitly rejects (a top-level
-    /// <c>enum</c> declaration is a documented gap). The negative control: it
-    /// must be REPORTED with its own taxonomy tag and must stop strictly
-    /// earlier in the funnel than the plain file, so the harness cannot pass by
-    /// painting every file with one reason.</summary>
+    /// <summary>A construct the encoder explicitly rejects — today, target-typed
+    /// <c>new()</c>, which has no semantic model to resolve the implied type and
+    /// is bucket (f) of the real-world sweep's still-open taxonomy. The negative
+    /// control: it must be REPORTED with its own taxonomy tag and must stop
+    /// strictly earlier in the funnel than the plain file, so the harness cannot
+    /// pass by painting every file with one reason.
+    ///
+    /// <para>This was a top-level <c>enum</c> until #492 slice C closed that gap.
+    /// When a slice closes the gap this control uses, MOVE it to another
+    /// still-open one (`csharp/AGENTS.md`'s "Documented gaps" list) — never
+    /// relax the assertion, which is what would actually blind the harness.
+    /// </para></summary>
     private const string UnsupportedSource = """
         namespace Demo;
 
-        public enum Colour
+        public class Widget
         {
-            Red,
-            Green,
+            public Widget Clone()
+            {
+                return new();
+            }
         }
         """;
 
@@ -135,7 +144,7 @@ public class TierASelfTests
         try
         {
             var results = TierA.StudyDirectory("synthetic", dir);
-            results.Add(TierA.StudyFile("synthetic", "Colour.cs", UnsupportedSource));
+            results.Add(TierA.StudyFile("synthetic", "Widget.cs", UnsupportedSource));
             foreach (var result in results)
             {
                 Assert.Contains(":", result.Reason, StringComparison.Ordinal);
@@ -154,7 +163,7 @@ public class TierASelfTests
     [Fact]
     public void The_harness_discriminates_between_failure_modes()
     {
-        var unsupported = TierA.StudyFile("synthetic", "Colour.cs", UnsupportedSource);
+        var unsupported = TierA.StudyFile("synthetic", "Widget.cs", UnsupportedSource);
         Assert.True(unsupported.Scored);
         Assert.False(unsupported.Clean);
         Assert.StartsWith("encode-error:", unsupported.Reason, StringComparison.Ordinal);

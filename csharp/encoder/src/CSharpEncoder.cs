@@ -191,13 +191,30 @@ public static class CSharpEncoder
 
         foreach (var typeDecl in typeDecls)
         {
+            // An `enum` declaration encodes to a `Module.Enums[]` entry plus a companion,
+            // descriptor-less `TypeDefinition` (issue #492, slice C) — the shape
+            // `csharp/compiler/src/TypeEmit.cs`'s `CompileEnum` has always consumed, and the
+            // same one `rust/encoder/src/types.rs` emits.
+            if (typeDecl is EnumDeclarationSyntax enumDecl)
+            {
+                var (enumTypeDef, enumDef) = encoder.EncodeEnumDeclaration(enumDecl);
+                typeDefList.Add(enumTypeDef);
+                enums.Add(enumDef);
+                continue;
+            }
+
             if (typeDecl is not TypeDeclarationSyntax classLike)
             {
-                // `enum` declarations are a documented gap for this issue's scope (not part
-                // of the explicit construct list) — fail loud rather than silently drop.
+                // Exhaustiveness guard. `BaseTypeDeclarationSyntax` has exactly two subclasses
+                // in Roslyn today — `TypeDeclarationSyntax` (class/struct/interface/record) and
+                // the `EnumDeclarationSyntax` handled just above — so nothing reaches here now.
+                // It stays so that a future Roslyn declaration kind fails loud instead of being
+                // silently dropped from the encoded module. (A `delegate` is NOT a
+                // `BaseTypeDeclarationSyntax`; it is rejected earlier, by the top-level
+                // "unsupported top-level declaration" check.)
                 throw new EncoderException(
                     $"ball-encoder: unsupported type declaration kind `{typeDecl.Kind()}` " +
-                    "(only class/struct/record declarations are supported — issue #382's scope)");
+                    "(only class/struct/record/enum declarations are supported — issue #382's scope)");
             }
 
             var (typeDef, members2) = encoder.EncodeTypeDeclaration(classLike);

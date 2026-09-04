@@ -18,6 +18,25 @@
 
   <ItemGroup>
     <ProjectReference Include="../Ball.Encoder.csproj" />
+    <!-- The enum round-trip proof (issue #492 slice C) runs the ENCODED program
+         back through the compiler and executes it, so this suite needs the
+         compiler and the runtime the emitted code binds against. -->
+    <ProjectReference Include="../../compiler/Ball.Compiler.csproj" />
+    <ProjectReference Include="../../shared/Ball.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Roslyn, for the in-memory compile+run harness linked below. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- LINKED, not copied: `CSharpRunner` (compile emitted C# in-memory, run it,
+         capture stdout) is the compiler suite's harness and is single-sourced
+         there. Duplicating it would let the two drift — notably its
+         process-global Console.Out lock and its trusted-platform-assembly
+         reference set. -->
+    <Compile Include="../../compiler/test/TestSupport.cs" Link="TestSupport.cs" />
   </ItemGroup>
 
   <!-- The real-world sweep's fixtures are DATA, not part of this assembly: they

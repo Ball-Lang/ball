@@ -48,6 +48,14 @@ namespace Ball.Encoder.Tests;
 /// <c>Main</c>-less class library. "The printed baseline moved" is not evidence
 /// on its own — nothing asserted it — so every closed bucket gets a real
 /// assertion here.</para>
+///
+/// <para><b>The taxonomy is fixed only until a measurement says otherwise.</b>
+/// Rows (a)-(g) were transcribed once from #492's original manual study and have
+/// no way to grow on their own — which is precisely how the <c>enum</c> bucket
+/// became the largest live failure mode invisibly, after slices A/B/2 closed
+/// buckets a, b, c and g. Row (h) was added by slice C from a fresh Tier A
+/// measurement; when a later measurement shows a new dominant shape, add its row
+/// the same way rather than assuming this table still describes reality.</para>
 /// </summary>
 public class RealWorldSweepTests(ITestOutputHelper output)
 {
@@ -103,6 +111,8 @@ public class RealWorldSweepTests(ITestOutputHelper output)
             "a target-typed `new()` carries no type name for a message_creation"),
         ("g: abstract method with no body", "g_abstract_method_no_body.cs", EncodeMode.Program, true,
             "CLOSED by #492 slice A — same omission path as bucket (b); dispatch resolves by the receiver's concrete runtime type, so an abstract member is unreachable anyway"),
+        ("h: enum declaration with a use site", "h_enum_declaration.cs", EncodeMode.Program, true,
+            "CLOSED by #492 slice C — an `enum` encodes to a Module.Enums[] EnumDescriptorProto plus a descriptor-less `kind: \"enum\"` TypeDefinition, and `Color.Green` to field_access(reference(\"Color\"), \"Green\") — the shape TypeEmit.CompileEnum already consumed and rust/encoder already emits"),
     ];
 
     /// <summary>Drive one fixture through the entry point its bucket declares.</summary>

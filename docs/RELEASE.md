@@ -105,9 +105,11 @@ first use (`BALL_CACHE_DIR` overrides the location). See
 **Maintainer setup (one-time, before the first tag):** create a PyPI **pending
 publisher** at <https://pypi.org/manage/account/publishing/> — project
 `ball-lang`, owner `Ball-Lang`, repository `ball`, workflow `publish-pypi.yml`,
-environment `pypi`. PyPI allows this before the project exists (unlike
-crates.io). There is no API-token fallback: without the publisher the OIDC
-exchange fails loudly and nothing is pushed.
+environment left **blank** (like every other registry channel here — the
+workflow declares no GitHub environment, and PyPI rejects the OIDC token if the
+publisher's environment and the job's disagree). PyPI allows this before the
+project exists (unlike crates.io). There is no API-token fallback: without the
+publisher the OIDC exchange fails loudly and nothing is pushed.
 
 **Unlike npm/crates/nuget, this lane is also PR-gated**: ci.yml's `python` job
 builds the wheel and installs it into a clean venv on every PR, so a broken

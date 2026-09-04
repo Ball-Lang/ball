@@ -19,7 +19,8 @@ Dart → Ball encoder. Parses Dart source with the `analyzer` package and emits 
 | `tool/concat_engine.dart` | Flatten engine `part` files for self-encoding |
 
 ## For AI Agents
-- Entry point: `DartEncoder.encode`. The encoder is **syntactic** (`parseString`, no static types) — dispatch by syntax/name heuristics; see the syntactic-encoder gotchas in `.claude/rules/dart.md` (e.g. `addAll` mis-routing, constructor-vs-call by first letter).
+- Entry point: `DartEncoder.encode`. The encoder is **syntactic by default** (`parseString`, no static types) — dispatch by syntax/name heuristics; see the syntactic-encoder gotchas in `.claude/rules/dart.md` (e.g. `addAll` mis-routing, constructor-vs-call by first letter).
+- **`PackageEncoder.prepareStaticTypes()` is the one opt-in that changes that** (#488 slice 1). `await` it before `encode()` and every in-package file is encoded from an analyzer-RESOLVED unit, so `Expression.staticType` is non-null and the receiver-type gate fires. It is fail-soft (a missing `package_config.json` yields a `warnings` entry, never an exception) and costs a multi-second analyzer cold start. `encode(String)` / `encodeModule(String, …)` are unaffected and stay resolution-free by design.
 - Encoder changes hit user programs AND the self-hosted engine — verify all three engines, not Dart-only.
 - Every new emittable construct needs a `tests/conformance/src/*.dart` fixture (gated). See `docs/TESTING_STRATEGY.md`.
 - Tests in `test/`.

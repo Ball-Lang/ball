@@ -946,12 +946,13 @@ export class TsEncoder {
 
       const obj = this.encodeExpr(node.expression.expression);
 
-      // `.forEach(cb)` has no runtime std equivalent — there is no
-      // list_for_each / list_foreach in dart/shared/lib/std_collections.dart at
-      // all, and the Dart encoder never routes iteration through a std call.
-      // Pointing at the TS compiler's (dead) `list_foreach` case would create a
-      // construct with no Dart-side meaning, so it is desugared to the native
-      // for_each control-flow node instead (#489).
+      // `.forEach(cb)` is desugared to the native `for_each` control-flow node
+      // rather than routed to `std_collections.list_foreach` (#489). The TS
+      // encoder deliberately keeps iteration as control flow so every target
+      // lowers it to a real loop; `list_foreach` exists (it is declared in
+      // dart/shared/lib/std_collections.dart since #505 and the Dart encoder
+      // routes `.forEach` to it), but adopting it here would change this
+      // encoder's established lowering for no behavioral gain.
       if (method === "forEach" && node.arguments.length === 1) {
         return this.desugarForEach(obj, node.arguments[0]);
       }

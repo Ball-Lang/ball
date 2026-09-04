@@ -56,11 +56,37 @@ avoid constructs that need receiver-type info:
   outside that window falls through to the generic user-method encoding
   (`function: <name>`, `self` field). So a user class may safely declare
   `int split()`, `int indexOf()` or `int toInt(int, int)` — they no longer get
-  rerouted into `std.string_split` / `list_index_of` / `to_int`. What the gate
-  canNOT see is the RECEIVER TYPE, so a same-arity collision (`Set.add` vs
-  `List.add`, `Map.toList` vs `List.toList`) is still misrouted — that is
-  #488's remaining, resolver-backed half. `unaryRoutes` needs no window: its
-  whole branch is already guarded by `args.isEmpty`.
+  rerouted into `std.string_split` / `list_index_of` / `to_int`.
+  `unaryRoutes` needs no window: its whole branch is already guarded by
+  `args.isEmpty`.
+- **The RECEIVER-TYPE gate is opt-in and only `PackageEncoder` turns it on**
+  (issue #488 slice 1). `encode(String)` / `encodeModule(String, …)` parse with
+  `parseString`, whose AST leaves `Expression.staticType` null — they are, and
+  stay, resolution-free. `await PackageEncoder(dir).prepareStaticTypes()` before
+  `encode()` swaps in analyzer-RESOLVED units, and the encoder then declines
+  every `'list'`-flavored `collectionRoutes` entry whose receiver resolves to a
+  `dart:core` `Set` (`_receiverIsSet`), letting the generic method-call encoding
+  re-emit the source's own `s.add(x)`. It DECLINES rather than re-routing to
+  `std_collections.set_add`: `set_add` is value-flavored (the Dart engine
+  returns the NEW SET and the Dart compiler emits `s..add(v)`) — and it is
+  bool-flavored on the TS engine, a live cross-target divergence tracked as
+  issue #545 — so re-routing would reproduce the very `return s..add(x)` /
+  `return_of_invalid_type` this fixed and import #545 along with it. `prepareStaticTypes()` is fail-soft —
+  no `package_config.json` (never `pub get`-ed) means a warning and an
+  unresolved encode, never an exception — and costs a multi-second analyzer cold
+  start, so callers that do not need receiver types should not call it.
+  Still misrouted, because the seam is not extended there yet: `String.contains`
+  vs `Iterable.contains`, `Map…toList` vs `List.toList`, and nullable-receiver
+  `!`/`?.`/`??` preservation (#488 slice 2).
+- **A name the encoder ROUTES to must be DECLARED by the canonical builder.**
+  `dart/shared/test/std_routed_declarations_test.dart` re-derives every
+  `('std'|'std_collections', '<fn>', …)` tuple from `encoder.dart` and asserts
+  it is a subset of `buildStdModule()` / `buildStdCollectionsModule()`. Nothing
+  else can see that drift — runtime never reads `std.json` (each encoder builds
+  a program's `modules[]` from the names it used, so fixtures self-describe),
+  `check_encoder_completeness.dart` checks the opposite direction, and
+  `gen_std_coverage.dart` derives its canonical list from the same builders.
+  That blind spot hid thirteen routed-but-undeclared functions until #505.
 - **Constructor vs function call** is decided by the first *letter* (skipping a
   leading `_`): `Foo()`/`_Foo()` → `MessageCreation`; `foo()`/`_foo()` → `call`.
   (A prior bug treated every `_`-prefixed name as a constructor — `'_'.toUpperCase()`

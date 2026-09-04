@@ -477,7 +477,7 @@ Supporting configs:
 ## Typical Feature Workflow
 
 1. Does it need a schema change? Edit `proto/ball/v1/ball.proto`, then `buf lint` → `buf breaking ...` → `buf generate`.
-2. Does it need a new std function? Edit `dart/shared/lib/std.dart`, then rerun `gen_std.dart`.
+2. Does it need a new std function? Edit `dart/shared/lib/std.dart` (or the sibling `std_*.dart` builder), then rerun `gen_std.dart` **and** `cd dart/encoder && dart run bin/gen_std_coverage.dart` — `ball-freshness` regenerates and diffs both. A function the encoder/compiler/engine implement by hardcoded name but the builder never declares is invisible to every other gate; `dart/shared/test/std_routed_declarations_test.dart` is what catches that (issue #505).
 3. Implement in `dart/compiler/lib/compiler.dart`.
 4. Implement in `dart/engine/lib/engine.dart`. **Fail loud** on any shape you do
    not handle — never return `null`/`[]`/a placeholder string (that silent

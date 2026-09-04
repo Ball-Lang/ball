@@ -66,11 +66,17 @@ while [ "$attempt" -le "$ATTEMPTS" ]; do
   echo "dart pub get (attempt $attempt of $ATTEMPTS) in $(pwd)"
   # No capture: the resolver's own output — including the final failure's — is
   # the diagnostic, and it belongs in the job log verbatim.
+  # The `else` is load-bearing (issue #540): an `if`/`fi` with no else exits 0
+  # on the false branch, so a `last_rc=$?` placed AFTER the compound captures
+  # that 0 and every message below misreports "(exit 0)". Capturing inside the
+  # else — as its FIRST statement, with nothing between it and the failed
+  # `dart pub get` — is what makes `$?` the resolver's own status.
   if dart pub get; then
     succeeded=1
     break
+  else
+    last_rc=$?
   fi
-  last_rc=$?
   echo "attempt $attempt of $ATTEMPTS failed (exit $last_rc); pub.dev may be momentarily flaky"
   if [ "$attempt" -lt "$ATTEMPTS" ]; then
     sleep "$SLEEP_SECONDS"

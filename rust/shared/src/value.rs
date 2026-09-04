@@ -778,12 +778,29 @@ impl fmt::Display for BallValue {
 
 /// Shared `{key: value, ...}` rendering for [`BallValue::Map`] and
 /// [`BallValue::Message`].
+///
+/// The portable ordered-set shape `{'__ball_set__': [1, 2]}` (issue #528)
+/// renders as Dart's own set form, `{1, 2}` — the tag is a representation
+/// detail and must never reach a user's output.
 fn write_entries<'a>(
     f: &mut fmt::Formatter<'_>,
     entries: impl Iterator<Item = (&'a String, &'a BallValue)>,
 ) -> fmt::Result {
+    let entries: Vec<_> = entries.collect();
+    if let [(key, BallValue::List(items))] = entries.as_slice() {
+        if key.as_str() == BALL_SET_TAG {
+            write!(f, "{{")?;
+            for (index, item) in items.snapshot().iter().enumerate() {
+                if index > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(f, "{item}")?;
+            }
+            return write!(f, "}}");
+        }
+    }
     write!(f, "{{")?;
-    for (index, (key, value)) in entries.enumerate() {
+    for (index, (key, value)) in entries.into_iter().enumerate() {
         if index > 0 {
             write!(f, ", ")?;
         }
@@ -791,6 +808,12 @@ fn write_entries<'a>(
     }
     write!(f, "}}")
 }
+
+/// The marker key of the portable ordered-set value (`{'__ball_set__': [...]}`).
+/// Re-exported as `crate::runtime::BALL_SET_TAG`, the name the rest of the crate
+/// uses; it lives here because `Display` needs it and `runtime` depends on
+/// `value`, not the other way round.
+pub(crate) const BALL_SET_TAG: &str = "__ball_set__";
 
 /// Format a Ball `double` the way every reference engine's stdout does.
 ///

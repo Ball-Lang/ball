@@ -572,6 +572,20 @@ pub fn ball_field_get(value: BallValue, field: &str) -> BallValue {
             _ => {}
         }
     }
+    // A Set is the portable `{'__ball_set__': [...]}` tagged map (issue #528),
+    // so its virtual Iterable properties must read the WRAPPED list, not the
+    // one-entry wrapper (`{1,2,3,4,5}.length` would otherwise answer 1).
+    if is_ball_set_value(&value) {
+        let items = as_list(value.clone());
+        match field {
+            "length" => return BallValue::Int(items.len() as i64),
+            "isEmpty" => return BallValue::Bool(items.is_empty()),
+            "isNotEmpty" => return BallValue::Bool(!items.is_empty()),
+            "first" => return items.first().cloned().unwrap_or(BallValue::Null),
+            "last" => return items.last().cloned().unwrap_or(BallValue::Null),
+            _ => {}
+        }
+    }
     match value {
         BallValue::Map(map) => {
             // A real key wins; otherwise resolve a **virtual collection
@@ -959,7 +973,7 @@ fn message_is_type(type_name: &str, target: &str) -> bool {
 /// The marker key of the portable ordered-set value
 /// (`{'__ball_set__': [...]}`). Mirrors `dart/engine/lib/engine_types.dart`'s
 /// `_kBallSetTag` and the C++ self-host's `ball_is_ball_set`.
-pub const BALL_SET_TAG: &str = "__ball_set__";
+pub const BALL_SET_TAG: &str = crate::value::BALL_SET_TAG;
 
 /// True when `value` is the portable ordered-set representation — a
 /// `BallValue::Map` carrying the [`BALL_SET_TAG`] marker key. The self-hosted
@@ -1008,21 +1022,20 @@ pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
         "Iterable" => {
             matches!(value, BallValue::List(_) | BallValue::Bytes(_)) || is_ball_set_value(value)
         }
-        // An ordered `Set` in the self-hosted engine's value model is the
-        // portable `{'__ball_set__': [...]}` **map** form (matching the Dart/C++
-        // self-hosts — the engine's `_ballSetOf` builds it and
-        // `_ballValueIsSet` detects it), NOT a plain `BallValue::List`. The old
-        // rule (every list is a `Set`) made the engine's
-        // `_isBallSet(nativeList)` wrongly true, so a target `result.add(x)`
-        // (`std_collections.list_push`) / set op on a freshly-built empty list
-        // detoured into the set branch and produced a nested `{{…}, x}` instead
-        // of appending (issues #39/#300). Regular (non-self-host) compiled
-        // programs keep list-backed sets, but there a list and a set are
-        // structurally identical, so `x is Set` is inherently ambiguous (issue
-        // #35/#68) — the self-host engine, which represents sets distinctly, is
-        // the correct bar (and no non-self-host test relies on `x is Set`).
+        // An ordered `Set` is the portable `{'__ball_set__': [...]}` **map**
+        // form (matching the Dart/C++ self-hosts — the engine's `_ballSetOf`
+        // builds it and `_ballValueIsSet` detects it), NOT a plain
+        // `BallValue::List`. The old rule (every list is a `Set`) made the
+        // engine's `_isBallSet(nativeList)` wrongly true, so a target
+        // `result.add(x)` (`std_collections.list_push`) / set op on a
+        // freshly-built empty list detoured into the set branch and produced a
+        // nested `{{…}, x}` instead of appending (issues #39/#300). Since #528 a
+        // DIRECTLY-COMPILED program's `ball_set_create` builds the same tagged
+        // shape, so this arm now answers correctly on both paths.
         "Set" | "set" => is_ball_set_value(value),
-        "Map" | "map" => matches!(value, BallValue::Map(_)),
+        // …and a set must NOT also answer `is Map`: the tag is a representation
+        // detail, not a user-visible map (issue #528).
+        "Map" | "map" => matches!(value, BallValue::Map(_)) && !is_ball_set_value(value),
         "Function" => matches!(value, BallValue::Function(_)),
         "Null" | "null" => matches!(value, BallValue::Null),
         "Object" | "dynamic" | "var" => true,
@@ -1057,14 +1070,6 @@ pub fn ball_is(value: BallValue, type_name: &str) -> BallValue {
 /// module prefix stripped (`main:Chain` → `Chain`). Both Dart's
 /// `value.runtimeType.toString()` and JavaScript's `typeof` encode to this
 /// function, so it must agree with the Dart reference engine's `_typeNameOf`.
-///
-/// KNOWN DIVERGENCE (issue #528): a set answers `"List"` here for a program
-/// compiled straight to Rust. [`ball_set_create`] returns a `BallValue::List`
-/// because `BallValue` has no `Set` variant, so the `Set` arm below — which
-/// keys on the portable `{'__ball_set__': [...]}` map form — only ever fires
-/// for the *self-hosted engine*, which materialises that shape. `ball_is_type`
-/// has the same blind spot. Conformance fixture `434_type_of` is what makes it
-/// visible (it passes every engine and fails this crate's compiler leg).
 pub fn ball_type_of(value: BallValue) -> BallValue {
     let name = match &value {
         BallValue::Null => "Null".to_string(),
@@ -1078,10 +1083,10 @@ pub fn ball_type_of(value: BallValue) -> BallValue {
         BallValue::Message(message) => short_type_name(&message.type_name).to_string(),
         BallValue::Map(map) => {
             // An ordered set is the portable `{'__ball_set__': [...]}` map form
-            // — a shape only the SELF-HOSTED ENGINE produces (see the
-            // divergence note above; a directly-compiled set is a `List`) — and
-            // a self-hosted-engine object is a map tagged with `__type__`; both
-            // must be discriminated before plain `Map`.
+            // — built both by `ball_set_create` (a directly-compiled program,
+            // since issue #528) and by the self-hosted engine's `_ballSetOf` —
+            // and a self-hosted-engine object is a map tagged with `__type__`;
+            // both must be discriminated before plain `Map`.
             if is_ball_set_value(&value) {
                 "Set".to_string()
             } else {
@@ -1499,6 +1504,14 @@ fn as_list(value: BallValue) -> Vec<BallValue> {
             .into_iter()
             .map(|b| BallValue::Int(b as i64))
             .collect(),
+        // A `Set` is the portable `{'__ball_set__': [...]}` tagged map (issue
+        // #528) and Dart's `Set implements Iterable`, so every list-shaped read
+        // (for-in, map/where/join, spread, addAll, toList) sees through the
+        // wrapper to its elements.
+        BallValue::Map(map) if map.contains_key(BALL_SET_TAG) => match map.get(BALL_SET_TAG) {
+            Some(BallValue::List(items)) => items.snapshot(),
+            other => panic!("ball-lang-compiler runtime: malformed set value: {other:?}"),
+        },
         other => panic!("ball-lang-compiler runtime: expected a list, got {other:?}"),
     }
 }
@@ -1867,63 +1880,92 @@ pub fn ball_string_join(list: BallValue, separator: BallValue) -> BallValue {
 //
 // `BallValue` has no dedicated `Set` variant (the value model — issue #35 —
 // only defines `Null`/`Bool`/`Int`/`Double`/`String`/`Bytes`/`List`/`Map`/
-// `Function`/`Message`). A `Set` is represented as a `List` with
-// insertion-order-preserving, duplicate-free membership — the same
-// simplification the value model already makes for every other "no
-// dedicated variant" case. Adding a real `Set` variant is a `ball_lang_shared`
-// schema decision out of this issue's scope.
+// `Function`/`Message`), so a `Set` is the **portable tagged map**
+// `{'__ball_set__': [...]}` (issue #528) — the same shape C++'s `ball_make_set`
+// builds and the self-hosted engine's `_ballSetOf` materialises: a
+// duplicate-free, insertion-ordered list wrapped under [`BALL_SET_TAG`].
+//
+// Before #528 a directly-compiled program's set was a bare `BallValue::List`,
+// indistinguishable from a list, so `x is Set` was false and `std.type_of(x)`
+// answered `"List"` — [`ball_is_type`]'s `"Set"` arm and [`ball_type_of`]'s
+// `Map` arm were already written for the tagged shape but never received it.
+//
+// Reference semantics survive because mutation reaches THROUGH the wrapper to
+// the wrapped list's shared `Arc<Mutex<Vec>>` backing ([`set_backing`], the
+// analog of the C++ self-host's `_setBackingList()`) — never by rebuilding the
+// map, which would silently stop a `set.add(x)` from being observed through
+// another alias.
+
+/// Wrap `items` as a Set value — no copy: the list becomes the shared backing.
+fn wrap_set(items: BallList) -> BallValue {
+    let map = BallMap::new();
+    map.insert(BALL_SET_TAG, BallValue::List(items));
+    BallValue::Map(map)
+}
+
+/// The shared backing list of a Set — the list wrapped under [`BALL_SET_TAG`]
+/// in a map (or message, the shape a self-hosted-engine object can carry). A
+/// bare list is accepted as its own backing so a set op applied to a plain list
+/// still behaves.
+fn set_backing(set: &BallValue) -> BallList {
+    match set {
+        BallValue::Map(map) => match map.get(BALL_SET_TAG) {
+            Some(BallValue::List(items)) => items,
+            _ => panic!("ball-lang-compiler runtime: set op on a non-set map: {set:?}"),
+        },
+        BallValue::Message(message) => match message.get(BALL_SET_TAG) {
+            Some(BallValue::List(items)) => items,
+            _ => panic!("ball-lang-compiler runtime: set op on a non-set message: {set:?}"),
+        },
+        BallValue::List(items) => items.clone(),
+        other => panic!("ball-lang-compiler runtime: set op on a non-set value: {other:?}"),
+    }
+}
 
 pub fn ball_set_create(list: BallValue) -> BallValue {
     let mut out: Vec<BallValue> = Vec::new();
-    for item in as_list(list) {
+    for item in set_backing(&list).snapshot() {
         if !out.contains(&item) {
             out.push(item);
         }
     }
-    BallValue::List(BallList::from(out))
+    wrap_set(BallList::from(out))
 }
 
 pub fn ball_set_add(set: &mut BallValue, value: BallValue) -> BallValue {
-    match set {
-        BallValue::List(items) => {
-            if !items.contains(&value) {
-                items.push(value);
-            }
-            set.clone()
-        }
-        other => panic!("ball-lang-compiler runtime: set_add on a non-set value: {other:?}"),
+    let items = set_backing(set);
+    if !items.contains(&value) {
+        items.push(value);
     }
+    set.clone()
 }
 
 pub fn ball_set_remove(set: &mut BallValue, value: BallValue) -> BallValue {
-    match set {
-        BallValue::List(items) => {
-            let before = items.len();
-            items.retain(|item| *item != value);
-            BallValue::Bool(items.len() != before)
-        }
-        other => panic!("ball-lang-compiler runtime: set_remove on a non-set value: {other:?}"),
-    }
+    let items = set_backing(set);
+    let before = items.len();
+    items.retain(|item| *item != value);
+    BallValue::Bool(items.len() != before)
 }
 
 pub fn ball_set_contains(set: BallValue, value: BallValue) -> BallValue {
-    BallValue::Bool(as_list(set).contains(&value))
+    BallValue::Bool(set_backing(&set).contains(&value))
 }
 
 pub fn ball_set_union(left: BallValue, right: BallValue) -> BallValue {
-    let mut out = as_list(left);
-    for item in as_list(right) {
+    let mut out = set_backing(&left).snapshot();
+    for item in set_backing(&right).snapshot() {
         if !out.contains(&item) {
             out.push(item);
         }
     }
-    BallValue::List(BallList::from(out))
+    wrap_set(BallList::from(out))
 }
 
 pub fn ball_set_intersection(left: BallValue, right: BallValue) -> BallValue {
-    let right_items = as_list(right);
-    BallValue::List(
-        as_list(left)
+    let right_items = set_backing(&right).snapshot();
+    wrap_set(
+        set_backing(&left)
+            .snapshot()
             .into_iter()
             .filter(|item| right_items.contains(item))
             .collect(),
@@ -1931,9 +1973,10 @@ pub fn ball_set_intersection(left: BallValue, right: BallValue) -> BallValue {
 }
 
 pub fn ball_set_difference(left: BallValue, right: BallValue) -> BallValue {
-    let right_items = as_list(right);
-    BallValue::List(
-        as_list(left)
+    let right_items = set_backing(&right).snapshot();
+    wrap_set(
+        set_backing(&left)
+            .snapshot()
             .into_iter()
             .filter(|item| !right_items.contains(item))
             .collect(),
@@ -1941,15 +1984,15 @@ pub fn ball_set_difference(left: BallValue, right: BallValue) -> BallValue {
 }
 
 pub fn ball_set_length(set: BallValue) -> BallValue {
-    BallValue::Int(as_list(set).len() as i64)
+    BallValue::Int(set_backing(&set).len() as i64)
 }
 
 pub fn ball_set_is_empty(set: BallValue) -> BallValue {
-    BallValue::Bool(as_list(set).is_empty())
+    BallValue::Bool(set_backing(&set).is_empty())
 }
 
 pub fn ball_set_to_list(set: BallValue) -> BallValue {
-    BallValue::List(BallList::from(as_list(set)))
+    BallValue::List(BallList::from(set_backing(&set).snapshot()))
 }
 
 // ════════════════════════════════════════════════════════════
@@ -3223,7 +3266,8 @@ mod dartsdk {
     }
 
     /// `Iterable.toSet()` — an insertion-ordered, de-duplicated `Set` (the
-    /// `List`-backed set representation, matching `ball_set_create`).
+    /// portable `{'__ball_set__': [...]}` representation `ball_set_create`
+    /// builds).
     pub fn toSet(input: BallValue) -> BallValue {
         ball_set_create(m_get(&input, "self"))
     }
@@ -4161,12 +4205,120 @@ mod tests {
 
     #[test]
     fn set_add_deduplicates() {
-        let mut set = BallValue::List(BallList::from(vec![BallValue::Int(1)]));
+        let mut set = ball_set_create(BallValue::List(BallList::from(vec![BallValue::Int(1)])));
         ball_set_add(&mut set, BallValue::Int(1));
         ball_set_add(&mut set, BallValue::Int(2));
         assert_eq!(
-            set,
+            ball_set_to_list(set),
             BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]))
+        );
+    }
+
+    // ── A Set is a real, discriminable value (issue #528) ──
+    //
+    // `ball_set_create` used to return a bare `BallValue::List`, so a
+    // directly-compiled Ball program's set answered "List" to both `x is Set`
+    // and `std.type_of(x)` — `ball_is_type`'s "Set" arm and `ball_type_of`'s Map
+    // arm key on the portable `{'__ball_set__': [...]}` map the SELF-HOSTED
+    // ENGINE builds from its own Ball source (it never calls set_create), so
+    // they never fired. These run on every PR (`cargo test --workspace`, no
+    // `self_host` feature); the whole-corpus `rust-compiler` leg that measures
+    // the same gap lives only in conformance-matrix.yml, which has no
+    // `pull_request:` trigger and is a ratchet on an aggregate count.
+
+    fn one_two_set() -> BallValue {
+        ball_set_create(BallValue::List(BallList::from(vec![
+            BallValue::Int(1),
+            BallValue::Int(2),
+        ])))
+    }
+
+    #[test]
+    fn set_create_produces_a_value_that_is_a_set_and_not_a_list() {
+        let set = one_two_set();
+        assert!(ball_is_type(&set, "Set"));
+        assert!(!ball_is_type(&set, "List"));
+        // The tag is a representation detail, not a user-visible map.
+        assert!(!ball_is_type(&set, "Map"));
+        // Dart's `Set implements Iterable`.
+        assert!(ball_is_type(&set, "Iterable"));
+    }
+
+    #[test]
+    fn type_of_a_set_created_set_is_set() {
+        assert_eq!(
+            ball_type_of(one_two_set()),
+            BallValue::String("Set".to_string())
+        );
+    }
+
+    #[test]
+    fn set_mutation_is_observed_through_every_alias() {
+        // Reference semantics: `set.add(x)` through one binding must be visible
+        // through every other binding of the SAME set — the regression the
+        // representation change is most likely to break (the wrapper must reach
+        // THROUGH to the shared backing, never rebuild the map).
+        let mut set = one_two_set();
+        let mut alias = set.clone();
+        ball_set_add(&mut alias, BallValue::Int(3));
+        assert_eq!(ball_set_length(set.clone()), BallValue::Int(3));
+        assert_eq!(
+            ball_set_contains(set.clone(), BallValue::Int(3)),
+            BallValue::Bool(true)
+        );
+
+        ball_set_remove(&mut set, BallValue::Int(1));
+        assert_eq!(ball_set_length(alias.clone()), BallValue::Int(2));
+        assert_eq!(
+            ball_set_contains(alias, BallValue::Int(1)),
+            BallValue::Bool(false)
+        );
+    }
+
+    #[test]
+    fn set_renders_as_a_brace_list_not_its_tagged_map() {
+        assert_eq!(
+            ball_to_string(one_two_set()),
+            BallValue::String("{1, 2}".to_string())
+        );
+    }
+
+    #[test]
+    fn set_algebra_produces_sets_and_iterates_as_a_list() {
+        let left = one_two_set();
+        let right = ball_set_create(BallValue::List(BallList::from(vec![
+            BallValue::Int(2),
+            BallValue::Int(3),
+        ])));
+        for result in [
+            ball_set_union(left.clone(), right.clone()),
+            ball_set_intersection(left.clone(), right.clone()),
+            ball_set_difference(left.clone(), right.clone()),
+        ] {
+            assert_eq!(ball_type_of(result), BallValue::String("Set".to_string()));
+        }
+        assert_eq!(
+            ball_to_string(ball_set_union(left.clone(), right.clone())),
+            BallValue::String("{1, 2, 3}".to_string())
+        );
+        // A Set is Iterable: every list-shaped read sees its ELEMENTS, not the
+        // one-entry wrapper (`{1, 2}.length` must be 2, never 1).
+        assert_eq!(
+            ball_field_get(left.clone(), "length"),
+            BallValue::Int(2),
+            "a set's virtual .length must read the wrapped list"
+        );
+        assert_eq!(
+            ball_field_get(left.clone(), "isEmpty"),
+            BallValue::Bool(false)
+        );
+        assert_eq!(
+            ball_set_to_list(left),
+            BallValue::List(BallList::from(vec![BallValue::Int(1), BallValue::Int(2)]))
+        );
+        assert_eq!(
+            ball_spread_iter(right),
+            vec![BallValue::Int(2), BallValue::Int(3)]
         );
     }
 
@@ -4459,8 +4611,10 @@ mod dartsdk_tests {
             BallValue::Int(2),
             BallValue::Int(3),
         ]));
+        let set = toSet(call(&[("self", list)]));
+        assert_eq!(ball_type_of(set.clone()), BallValue::String("Set".into()));
         assert_eq!(
-            toSet(call(&[("self", list)])),
+            ball_set_to_list(set),
             BallValue::List(BallList::from(vec![
                 BallValue::Int(2),
                 BallValue::Int(1),
@@ -4520,8 +4674,9 @@ mod dartsdk_tests {
             BallValue::Int(3),
             BallValue::Int(4),
         ]));
+        // Every set operation answers with a real Set, not a bare list (#528).
         assert_eq!(
-            union_(call(&[("self", a.clone()), ("arg0", b.clone())])),
+            ball_set_to_list(union_(call(&[("self", a.clone()), ("arg0", b.clone())]))),
             BallValue::List(BallList::from(vec![
                 BallValue::Int(1),
                 BallValue::Int(2),
@@ -4530,11 +4685,14 @@ mod dartsdk_tests {
             ]))
         );
         assert_eq!(
-            intersection(call(&[("self", a.clone()), ("arg0", b.clone())])),
+            ball_set_to_list(intersection(call(&[
+                ("self", a.clone()),
+                ("arg0", b.clone())
+            ]))),
             BallValue::List(BallList::from(vec![BallValue::Int(2), BallValue::Int(3)]))
         );
         assert_eq!(
-            difference(call(&[("self", a), ("arg0", b)])),
+            ball_set_to_list(difference(call(&[("self", a), ("arg0", b)]))),
             BallValue::List(BallList::from(vec![BallValue::Int(1)]))
         );
     }

@@ -248,18 +248,106 @@ public class BallRuntimeTests
     }
 
     [Fact]
-    public void SetRuntimeOpsDedupAsList()
+    public void SetRuntimeOpsDedupAndPreserveOrder()
     {
-        var set = (BallList)BallRuntime.SetCreate(new BallList(new BallValue[]
+        var set = BallRuntime.SetCreate(new BallList(new BallValue[]
         {
             BallValue.Int(1), BallValue.Int(1), BallValue.Int(2),
         }));
-        Assert.Equal(2, set.Count); // deduped
+        Assert.Equal(BallValue.Int(2), BallRuntime.SetLength(set)); // deduped
         Assert.Equal(BallValue.Bool(true), BallRuntime.SetContains(set, BallValue.Int(2)));
         BallRuntime.SetAdd(set, BallValue.Int(2)); // already present — no-op
-        Assert.Equal(2, set.Count);
+        Assert.Equal(BallValue.Int(2), BallRuntime.SetLength(set));
         BallRuntime.SetAdd(set, BallValue.Int(3));
-        Assert.Equal(3, set.Count);
+        Assert.Equal(BallValue.Int(3), BallRuntime.SetLength(set));
+        Assert.Equal(
+            new BallList(new BallValue[] { BallValue.Int(1), BallValue.Int(2), BallValue.Int(3) }),
+            BallRuntime.SetToList(set));
+    }
+
+    // ── A Set is a real, discriminable value (issue #528) ──────────────────
+    //
+    // `SetCreate` used to return a bare `BallList`, so a directly-compiled Ball
+    // program's set answered "List" to both `x is Set` and `std.type_of(x)` —
+    // `IsOfType` had no "Set" arm at all, and `TypeOfName`'s arm keys on the
+    // portable `{'__ball_set__': [...]}` map the SELF-HOSTED ENGINE builds from
+    // its own Ball source (it never calls set_create), so it never fired. These
+    // run on every PR (`dotnet test Ball.slnx`); the whole-corpus
+    // `csharp-compiler` leg that measures the same gap lives only in
+    // conformance-matrix.yml, which has no `pull_request:` trigger.
+
+    private static BallValue OneTwoSet() => BallRuntime.SetCreate(
+        new BallList(new BallValue[] { BallValue.Int(1), BallValue.Int(2) }));
+
+    [Fact]
+    public void SetCreateProducesAValueThatIsASetAndNotAList()
+    {
+        var set = OneTwoSet();
+        Assert.Equal(BallValue.Bool(true), BallRuntime.IsType(set, "Set"));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.IsType(set, "List"));
+    }
+
+    [Fact]
+    public void TypeOfASetCreatedSetIsSet()
+    {
+        Assert.Equal(BallValue.Str("Set"), BallRuntime.TypeOf(OneTwoSet()));
+    }
+
+    [Fact]
+    public void SetMutationIsObservedThroughEveryAlias()
+    {
+        // Reference semantics: `set.add(x)` through one binding must be visible
+        // through every other binding of the SAME set (the regression the
+        // representation change is most likely to break).
+        var set = OneTwoSet();
+        var alias = set;
+        BallRuntime.SetAdd(alias, BallValue.Int(3));
+        Assert.Equal(BallValue.Int(3), BallRuntime.SetLength(set));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.SetContains(set, BallValue.Int(3)));
+
+        BallRuntime.SetRemove(set, BallValue.Int(1));
+        Assert.Equal(BallValue.Int(2), BallRuntime.SetLength(alias));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.SetContains(alias, BallValue.Int(1)));
+    }
+
+    [Fact]
+    public void SetRendersAsABraceListNotItsTaggedMap()
+    {
+        Assert.Equal(BallValue.Str("{1, 2}"), BallRuntime.ToStringValue(OneTwoSet()));
+    }
+
+    [Fact]
+    public void SetAlgebraProducesSets()
+    {
+        var left = BallRuntime.SetCreate(new BallList(new BallValue[] { BallValue.Int(1), BallValue.Int(2) }));
+        var right = BallRuntime.SetCreate(new BallList(new BallValue[] { BallValue.Int(2), BallValue.Int(3) }));
+        foreach (var result in new[]
+        {
+            BallRuntime.SetUnion(left, right),
+            BallRuntime.SetIntersection(left, right),
+            BallRuntime.SetDifference(left, right),
+        })
+        {
+            Assert.Equal(BallValue.Str("Set"), BallRuntime.TypeOf(result));
+        }
+
+        // A Set is Iterable: its virtual properties read the WRAPPED list, not
+        // the one-entry wrapper (`{1, 2}.length` must be 2, never 1).
+        Assert.Equal(BallValue.Int(2), BallRuntime.FieldGet(left, "length"));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.FieldGet(left, "isEmpty"));
+
+        Assert.Equal(BallValue.Str("{1, 2, 3}"), BallRuntime.ToStringValue(BallRuntime.SetUnion(left, right)));
+        Assert.Equal(BallValue.Str("{2}"), BallRuntime.ToStringValue(BallRuntime.SetIntersection(left, right)));
+        Assert.Equal(BallValue.Str("{1}"), BallRuntime.ToStringValue(BallRuntime.SetDifference(left, right)));
+    }
+
+    [Fact]
+    public void ToSetOnAListProducesASet()
+    {
+        var list = new BallList(new BallValue[] { BallValue.Int(1), BallValue.Int(1), BallValue.Int(2) });
+        var set = BallRuntime.CallMethod("toSet", new BallMap { ["self"] = list });
+        Assert.Equal(BallValue.Str("Set"), BallRuntime.TypeOf(set));
+        Assert.Equal(BallValue.Int(2), BallRuntime.SetLength(set));
     }
 
     [Fact]

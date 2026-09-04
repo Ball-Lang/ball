@@ -429,6 +429,10 @@ public static partial class BallRuntime
         return source switch
         {
             BallList list => new BallList(list.Snapshot()),
+            // `Set.unmodifiable(s)` must stay a Set (issue #528) — a plain map
+            // snapshot of the tagged shape would still read as a Set, but going
+            // through SetCreate also dedups and keeps the intent explicit.
+            _ when IsBallSet(source) => SetCreate(source),
             BallMap map => map.Snapshot(),
             _ => throw new BallRuntimeException($"unmodifiable on unsupported source {TypeName(source)} (type {typeName})"),
         };

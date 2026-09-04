@@ -9,12 +9,41 @@
 //! **No `rust_std` module**: every arm below routes through `std`/
 //! `std_collections` base-function calls — there is no Rust-specific
 //! runtime hook anywhere in this file.
+//!
+//! ## Permanent carve-outs (issue #491, slice 6)
+//!
+//! The catch-all panic at the bottom of [`Encoder::encode_method_call`] is a
+//! deliberate boundary, not an unbounded TODO bucket. These methods are named
+//! here as **permanent** carve-outs — a syntactic (no semantic-model) encoder
+//! cannot encode them correctly, so nothing should "just add one more arm":
+//!
+//! - `.next()` — needs stateful-iterator semantics (a cursor that advances,
+//!   and an `Option` distinguishing exhaustion from a real `None` element).
+//!   Ball's collections are values, not stateful iterators.
+//! - `.unwrap_or_default()` — needs the receiver's `Default` impl, which is a
+//!   type-specific value no syntax tree carries (`0`? `""`? `vec![]`? a
+//!   user struct's own `Default`?).
+//! - `.spilled()` (`SmallVec`), `.iter_names()` (`bitflags`) — type-specific
+//!   behaviour of a foreign type, with no universal `std` equivalent at all.
+//! - `.serialize_seq()`, `.is_human_readable()` (serde) — trait-object
+//!   dispatch against a caller-supplied `Serializer`; there is no receiver
+//!   value to encode against.
+//! - `.ok_or()` — maps `Option` → `Result` with a caller-supplied error, and
+//!   Ball's unified outcome shape (`lib.rs::option_result_message`) has no
+//!   distinct error channel to map onto.
+//! - `.value()`, `.multiunzip()` — resolvable only once the receiver's
+//!   concrete type is known (which `.value()` it is depends entirely on the
+//!   trait in scope).
+//!
+//! `.fuse()` and `.is_empty()` used to sit in that same bucket and were
+//! closed by slice 6 precisely because neither needs type information: see
+//! their arms below and `rust/encoder/tests/method_sugar.rs`.
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::{Expression, FunctionCall};
 
 use crate::{
-    Encoder, args_message, collections_call, field_access, if_call, let_stmt, list_literal,
-    named_message, reference, std_call, string_literal,
+    Encoder, args_message, collections_call, field_access, if_call, int_literal, let_stmt,
+    list_literal, named_message, reference, std_call, string_literal,
 };
 
 impl Encoder {
@@ -22,8 +51,10 @@ impl Encoder {
         let method = e.method.to_string();
         match method.as_str() {
             // ── Identity passthroughs (no Ball-level effect) ──
-            "iter" | "into_iter" | "iter_mut" | "by_ref" | "as_ref" | "as_mut" | "as_str"
-            | "as_slice" | "clone" | "to_owned" | "collect" | "as_bytes"
+            // `.fuse()` joins them (issue #491, slice 6): a Ball `List` has no
+            // "already exhausted" state for a fused iterator to preserve.
+            "iter" | "into_iter" | "iter_mut" | "by_ref" | "fuse" | "as_ref" | "as_mut"
+            | "as_str" | "as_slice" | "clone" | "to_owned" | "collect" | "as_bytes"
                 if e.args.is_empty() =>
             {
                 self.encode_expr(&e.receiver)
@@ -32,6 +63,20 @@ impl Encoder {
             // ── String / universal conversions ──
             "to_string" if e.args.is_empty() => self.un_std("to_string", &e.receiver),
             "len" if e.args.is_empty() => self.un_std("length", &e.receiver),
+            // `.is_empty()` reuses the very same universal `std.length`
+            // dispatch `.len()` routes through, so it stays correct whether
+            // the receiver turns out to be a `String` or a `List` at runtime
+            // — no new base function, no type inference (issue #491, slice 6).
+            "is_empty" if e.args.is_empty() => {
+                let length = self.un_std("length", &e.receiver);
+                std_call(
+                    "equals",
+                    Some(args_message(vec![
+                        ("left", length),
+                        ("right", int_literal(0)),
+                    ])),
+                )
+            }
             "trim" if e.args.is_empty() => self.un_std("string_trim", &e.receiver),
             "trim_start" if e.args.is_empty() => self.un_std("string_trim_start", &e.receiver),
             "trim_end" if e.args.is_empty() => self.un_std("string_trim_end", &e.receiver),

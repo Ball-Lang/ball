@@ -26,10 +26,12 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. Two are flipped today (issue #491, slice 3): receiver-less
-//! associated functions and cross-file call targets. The deeper proofs for
-//! both live in `rust/encoder/tests/static_methods.rs` and
-//! `rust/encoder/tests/cross_module_calls.rs`; the flipped tests here remain
+//! unverified. Three are flipped today: receiver-less associated functions
+//! and cross-file call targets (issue #491, slice 3), and non-`Fn` items
+//! inside an `impl` block (issue #491, slice 5). The deeper proofs for all
+//! three live in `rust/encoder/tests/static_methods.rs`,
+//! `rust/encoder/tests/cross_module_calls.rs` and
+//! `rust/encoder/tests/mixed_impl_items.rs`; the flipped tests here remain
 //! the goalposts that keep this file's gap list honest.
 //!
 //! ## Deliberately NOT pinned here
@@ -96,6 +98,38 @@ fn impl_associated_fn_without_receiver_encodes() {
         "struct Point { x: i32, y: i32 }\n\
          impl Point { fn new(x: i32, y: i32) -> Point { Point { x, y } } }\n\
          fn main() { let p = Point::new(1, 2); println!(\"{}\", p.x); }",
+    );
+}
+
+/// **CLOSED** by issue #491's slice 5 — 14 of the 110 scored files in the
+/// live Tier A funnel. A non-`Fn` item inside an `impl` block (an associated
+/// `const`/`type`, or an item-position macro) is now SKIPPED instead of
+/// aborting the block, matching the tolerance the sibling pre-pass
+/// `collect_impl_method_params` always had. Flipped from `#[should_panic]`
+/// to a positive assertion in the PR that closed it, per this file's own doc
+/// comment; the encode → compile → run proof lives in
+/// `rust/encoder/tests/mixed_impl_items.rs`.
+#[test]
+fn non_method_item_in_impl_encodes() {
+    encode(
+        "struct Point { x: i32 }\n\
+         impl Point { const CAP: i32 = 4; fn get_x(&self) -> i32 { self.x } }\n\
+         fn main() { let p = Point { x: 1 }; println!(\"{}\", p.get_x()); }",
+    );
+}
+
+/// The `impl`-block sibling gap that is STILL open, and is a structurally
+/// different one: an `impl` whose *self type* is not a plain named type
+/// (`impl<I> Trait for (I::Item,)` — 8 of the 110 scored Tier A files, e.g.
+/// `itertools/adaptors/mod.rs`). Ball's class model keys members on an
+/// owner's short *name*, so a tuple/GAT self type has no owner to register
+/// them under — closing it needs a representation decision, not the
+/// tolerance tweak slice 5 applied above.
+#[test]
+#[should_panic(expected = "unsupported `impl` self type")]
+fn impl_for_a_non_named_self_type_is_a_documented_gap() {
+    encode(
+        "struct Pair;\nimpl From<Pair> for (i32, i32) { fn zero(&self) -> i32 { 0 } }\nfn main() {}",
     );
 }
 

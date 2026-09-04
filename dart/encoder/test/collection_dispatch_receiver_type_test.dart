@@ -95,105 +95,112 @@ Set<String> _calledFunctions(Expression e) {
 }
 
 void main() {
-  group('receiver-type-aware collection dispatch (#488)', () {
-    late Directory pkg;
-    late Program program;
-    late String compiled;
+  // The analyzer has a multi-second cold start and test 4 spawns a real
+  // `dart analyze`, so the 30s default is uncomfortably tight on a loaded CI
+  // runner. Raised deliberately — these tests do real work, they do not wait.
+  group(
+    'receiver-type-aware collection dispatch (#488)',
+    timeout: const Timeout(Duration(minutes: 3)),
+    () {
+      late Directory pkg;
+      late Program program;
+      late String compiled;
 
-    setUpAll(() async {
-      pkg = _scratchPackage('receiver_type_probe', _sourceUnderTest);
-      final encoder = PackageEncoder(pkg);
-      await encoder.prepareStaticTypes();
-      expect(
-        encoder.hasStaticTypes,
-        isTrue,
-        reason:
-            'the analyzer resolved no file in the scratch package, so this '
-            'suite would be vacuous. Warnings: ${encoder.warnings}',
-      );
-      program = encoder.encode();
-      compiled = DartCompiler(program).compileModule('lib.subject');
-    });
-
-    tearDownAll(() {
-      if (pkg.existsSync()) pkg.deleteSync(recursive: true);
-    });
-
-    test('Set<T>.add(v) is not routed into the list_* family', () {
-      final subject = program.modules.firstWhere(
-        (m) => m.name == 'lib.subject',
-      );
-      final addFoo = subject.functions.firstWhere((f) => f.name == 'addFoo');
-      expect(
-        _calledFunctions(addFoo.body),
-        isNot(contains('std_collections.list_push')),
-        reason:
-            'addFoo takes a Set<String>; routing its .add() through '
-            'std_collections.list_push makes the Dart compiler emit the '
-            'List-flavored cascade `s..add(x)` (issue #488).',
-      );
-    });
-
-    test('List<T>.add(v) still routes to list_push (no over-correction)', () {
-      final subject = program.modules.firstWhere(
-        (m) => m.name == 'lib.subject',
-      );
-      final addBar = subject.functions.firstWhere((f) => f.name == 'addBar');
-      expect(
-        _calledFunctions(addBar.body),
-        contains('std_collections.list_push'),
-        reason:
-            'a genuine List receiver must keep its std_collections route — the '
-            'fix declines the route only when the receiver resolves to a Set.',
-      );
-    });
-
-    test('the compiled Dart calls Set.add directly, not as a cascade', () {
-      expect(
-        compiled,
-        contains('return s.add(x);'),
-        reason: 'compiled output was:\n$compiled',
-      );
-      // Anchored on `return ` so `addBar`'s legitimate statement-position
-      // `xs..add(x);` (which merely ENDS with `s..add(x)`) cannot satisfy it.
-      expect(
-        compiled,
-        isNot(contains('return s..add(x)')),
-        reason:
-            'the cascade `s..add(x)` evaluates to the Set, not the bool '
-            'Set.add returns (issue #488). Compiled output was:\n$compiled',
-      );
-    });
-
-    test('the compiled Dart passes the real `dart analyze`', () async {
-      final out = _scratchPackage('receiver_type_analyze', 'const _ = 0;\n');
-      addTearDown(() {
-        if (out.existsSync()) out.deleteSync(recursive: true);
+      setUpAll(() async {
+        pkg = _scratchPackage('receiver_type_probe', _sourceUnderTest);
+        final encoder = PackageEncoder(pkg);
+        await encoder.prepareStaticTypes();
+        expect(
+          encoder.hasStaticTypes,
+          isTrue,
+          reason:
+              'the analyzer resolved no file in the scratch package, so this '
+              'suite would be vacuous. Warnings: ${encoder.warnings}',
+        );
+        program = encoder.encode();
+        compiled = DartCompiler(program).compileModule('lib.subject');
       });
-      File('${out.path}/lib/subject.dart').writeAsStringSync(compiled);
 
-      final analyze = await Process.run(
-        'dart',
-        ['analyze', '--format=machine', out.path],
-        stdoutEncoding: utf8,
-        stderrEncoding: utf8,
-      );
+      tearDownAll(() {
+        if (pkg.existsSync()) pkg.deleteSync(recursive: true);
+      });
 
-      // `--format=machine` prints one `SEVERITY|TYPE|CODE|FILE|...` line per
-      // diagnostic; count only ERRORs so a lint or hint never reds the gate.
-      final errors = const LineSplitter()
-          .convert('${analyze.stdout}\n${analyze.stderr}')
-          .where((l) => l.startsWith('ERROR|'))
-          .toList();
+      test('Set<T>.add(v) is not routed into the list_* family', () {
+        final subject = program.modules.firstWhere(
+          (m) => m.name == 'lib.subject',
+        );
+        final addFoo = subject.functions.firstWhere((f) => f.name == 'addFoo');
+        expect(
+          _calledFunctions(addFoo.body),
+          isNot(contains('std_collections.list_push')),
+          reason:
+              'addFoo takes a Set<String>; routing its .add() through '
+              'std_collections.list_push makes the Dart compiler emit the '
+              'List-flavored cascade `s..add(x)` (issue #488).',
+        );
+      });
 
-      expect(
-        errors,
-        isEmpty,
-        reason:
-            'dart analyze rejected the compiled-back Dart:\n'
-            '${errors.join('\n')}\n\n'
-            'Compiled source was:\n$compiled',
-      );
-    });
-  });
+      test('List<T>.add(v) still routes to list_push (no over-correction)', () {
+        final subject = program.modules.firstWhere(
+          (m) => m.name == 'lib.subject',
+        );
+        final addBar = subject.functions.firstWhere((f) => f.name == 'addBar');
+        expect(
+          _calledFunctions(addBar.body),
+          contains('std_collections.list_push'),
+          reason:
+              'a genuine List receiver must keep its std_collections route — the '
+              'fix declines the route only when the receiver resolves to a Set.',
+        );
+      });
+
+      test('the compiled Dart calls Set.add directly, not as a cascade', () {
+        expect(
+          compiled,
+          contains('return s.add(x);'),
+          reason: 'compiled output was:\n$compiled',
+        );
+        // Anchored on `return ` so `addBar`'s legitimate statement-position
+        // `xs..add(x);` (which merely ENDS with `s..add(x)`) cannot satisfy it.
+        expect(
+          compiled,
+          isNot(contains('return s..add(x)')),
+          reason:
+              'the cascade `s..add(x)` evaluates to the Set, not the bool '
+              'Set.add returns (issue #488). Compiled output was:\n$compiled',
+        );
+      });
+
+      test('the compiled Dart passes the real `dart analyze`', () async {
+        final out = _scratchPackage('receiver_type_analyze', 'const _ = 0;\n');
+        addTearDown(() {
+          if (out.existsSync()) out.deleteSync(recursive: true);
+        });
+        File('${out.path}/lib/subject.dart').writeAsStringSync(compiled);
+
+        final analyze = await Process.run(
+          'dart',
+          ['analyze', '--format=machine', out.path],
+          stdoutEncoding: utf8,
+          stderrEncoding: utf8,
+        );
+
+        // `--format=machine` prints one `SEVERITY|TYPE|CODE|FILE|...` line per
+        // diagnostic; count only ERRORs so a lint or hint never reds the gate.
+        final errors = const LineSplitter()
+            .convert('${analyze.stdout}\n${analyze.stderr}')
+            .where((l) => l.startsWith('ERROR|'))
+            .toList();
+
+        expect(
+          errors,
+          isEmpty,
+          reason:
+              'dart analyze rejected the compiled-back Dart:\n'
+              '${errors.join('\n')}\n\n'
+              'Compiled source was:\n$compiled',
+        );
+      });
+    },
+  );
 }

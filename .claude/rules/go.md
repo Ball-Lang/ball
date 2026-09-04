@@ -47,6 +47,13 @@ build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance
   `go install github.com/ball-lang/ball/go/cli/cmd/ball@v0.1.0` into a clean GOPATH/GOMODCACHE and
   executes the installed binary. Run it locally after touching any `go.mod`/`go.work`; it needs
   `go` + `python3` and no network beyond the public proxy for `google.golang.org/protobuf`.
+- **Both legs use a FRESH `GOMODCACHE`** — do not "simplify" that away. The intra-repo modules
+  always resolve at the same version string (`v0.1.0` names a tag, not a commit), so a warm module
+  cache holding `go/<m>@v0.1.0` from an earlier run serves the OLD content and the sweep measures
+  stale code: a false red when the tree just gained an API the cached copy lacks, and — the
+  dangerous direction — a false green when a change breaks external resolution but the cached copy
+  still builds. `actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the committed
+  `go.sum` files, so this bit CI as well as local runs (found while landing #537).
 - **Bumping the module version is one edit in two files, and the smoke asserts they agree.**
   `build_local_proxy.py` (which `smoke.sh` runs first) refuses unless every intra-repo `require`
   names the same version, no `go.mod` carries a `replace`, and `go/go.work`'s versioned pins name

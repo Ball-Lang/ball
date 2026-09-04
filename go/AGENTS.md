@@ -89,6 +89,14 @@ and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
 GOPATH and runs the binary. Off the *public* proxy this resolves only once the
 six `go/<module>/v0.1.0` tags are pushed on one commit.
 
+**Both legs run against a fresh `GOMODCACHE`** — leg 1 gained one while landing
+#537. `v0.1.0` names a tag, not a commit, so a warm module cache already holding
+`go/<m>@v0.1.0` serves that older content and the sweep measures stale code: a
+false red when the tree just gained an API the cached copy lacks, and a false
+green when a change breaks external resolution but the cached copy still builds.
+`actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the
+committed `go.sum` files, so this affected CI too. Do not remove it.
+
 Before it builds anything, the script asserts the version story is internally
 consistent: every intra-repo `require` names the same version, no `go.mod` has a
 `replace`, and `go/go.work`'s versioned pins name that same version and cover

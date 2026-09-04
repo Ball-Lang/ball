@@ -94,6 +94,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 # how the workflow is written and how a reviewer reads it.
 extract_matrix() {
   awk '
+    { sub(/\r$/, "") }   # a CRLF checkout must not defeat the $ anchors below
     /^ *include: *$/ { inside = 1; next }
     inside && /^ *- os: *[^ ]+ *$/ {
       os = $NF
@@ -116,6 +117,7 @@ expected_sorted="$(printf '%s\n' $EXPECTED_TARGETS | sort | tr '\n' ' ' | sed -e
 # same matrix WITHOUT it before trusting any of its output.
 DRIFT="$SCRATCH/release-cpp-drift.yml"
 awk '
+  { sub(/\r$/, "") }
   !dropped && /^ *- os: *[^ ]+ *$/ {
     getline t
     if (t ~ /^ *target: *[^ ]+ *$/) { dropped = 1; next }
@@ -210,6 +212,49 @@ else
   no "each leg uploads BOTH the archive and its .sha256"
 fi
 
+# The packaging step must PROVE the binary's architecture matches the promise
+# in its target name. This is the one lie every other step keeps silently: a
+# `-x64` leg left on an Apple-Silicon label builds, passes the parity gate,
+# passes every smoke (it runs fine where it was built) and checksums cleanly.
+if grep -q 'got="\$(uname -m)"' "$RELEASE_WORKFLOW" &&
+  grep -q '\*-x64) want=x86_64 ;;' "$RELEASE_WORKFLOW" &&
+  grep -q '\*-arm64) want=arm64 ;;' "$RELEASE_WORKFLOW"; then
+  ok "the packaging step asserts the built binary's architecture matches its target name"
+else
+  no "the packaging step asserts the built binary's architecture matches its target name" \
+    "without it, an arm64 binary can ship under an x64 filename with every other step green"
+fi
+
+# Every target must be covered by that case statement, or the assertion is
+# skipped for the very leg someone just added.
+uncovered=""
+for t in $EXPECTED_TARGETS; do
+  case "$t" in
+  *-x64 | *-arm64) ;;
+  *) uncovered="$uncovered $t" ;;
+  esac
+done
+if [ -z "$uncovered" ]; then
+  ok "every target name carries an architecture suffix the packaging assertion recognises"
+else
+  no "every target name carries an architecture suffix the packaging assertion recognises" \
+    "unmapped:$uncovered — release-cpp.yml's case statement would exit 1 on these legs"
+fi
+
+# ── 3b. Only a TAG ref may package or publish. ────────────────────────────
+# The workflow can be dispatched against a branch — that is how its matrix is
+# rehearsed before a tag exists — so the tag guard must reject a branch by ref
+# TYPE. A name-based `!= "main"` check let any other branch name through and
+# become the "tag", which then surfaced as a confusing `tar` failure two steps
+# later rather than as the wrong-ref error it actually was.
+if grep -q 'REF_TYPE: \${{ github\.ref_type }}' "$RELEASE_WORKFLOW" &&
+  grep -q '\[ "\$REF_TYPE" != "tag" \]' "$RELEASE_WORKFLOW"; then
+  ok "packaging is gated on github.ref_type == 'tag', not on a branch-name guess"
+else
+  no "packaging is gated on github.ref_type == 'tag', not on a branch-name guess" \
+    "a name-based guard lets any non-main branch name become the release tag"
+fi
+
 # ── 4. The self-host sidecar has exactly one uploader, and it is a real leg. ─
 sidecar_guards="$(grep -oE "if: matrix\.target == '[^']+'" "$RELEASE_WORKFLOW" | sed -e "s/.*'\(.*\)'/\1/" | sort -u)"
 n_guards="$(printf '%s\n' "$sidecar_guards" | awk 'NF' | wc -l | tr -d ' ')"
@@ -244,6 +289,7 @@ fi
 # The table is sliced out by its own heading so a `| \`linux-x64\` |` row in
 # some other document section cannot stand in for it.
 DOC_TABLE="$(awk '
+  { sub(/\r$/, "") }
   /^## C\+\+ `ball` binaries lane/ { inside = 1; next }
   inside && /^#{1,2} / { inside = 0 }
   inside { print }

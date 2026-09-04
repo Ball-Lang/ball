@@ -185,13 +185,26 @@ jobs:
           "$BALL" tree tests/conformance/100_complex_control_flow.ball.json > /dev/null
 
       # ── Package + checksum ──
+      # Deliberately placed AFTER every build/parity/smoke step: a dispatch
+      # against a BRANCH is then a complete rehearsal of a release build (the
+      # only way to exercise this tag-triggered workflow before a tag exists)
+      # that stops cleanly right here instead of publishing anything.
+      #
+      # `!= "main"` was too weak a guard for that: any other branch name sailed
+      # through and became the "tag", so `ci/release-cpp-macos-x64` reached the
+      # packaging step and died there on `tar: Failed to open
+      # 'ball-ci/release-cpp-macos-x64-….tar.gz'` — a slash in a branch name
+      # masquerading as a packaging bug. `github.ref_type` answers the actual
+      # question.
       - name: Determine release tag
         id: ver
         shell: bash
+        env:
+          REF_TYPE: ${{ github.ref_type }}
         run: |
           tag="${GITHUB_REF_NAME}"
-          if [ -z "$tag" ] || [ "$tag" = "main" ]; then
-            echo "::error::Could not determine a release tag from GITHUB_REF_NAME ('$tag'). This workflow must run against a tag ref (dispatched with --ref vX.Y.Z, or a 'release: published' event)."
+          if [ "$REF_TYPE" != "tag" ] || [ -z "$tag" ]; then
+            echo "::error::This workflow must run against a TAG ref (dispatched with --ref vX.Y.Z, or a 'release: published' event), but ref_type='$REF_TYPE' and GITHUB_REF_NAME='$tag'. Everything above this step is a valid build/smoke rehearsal; nothing is packaged or published from a non-tag ref."
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
@@ -203,11 +216,35 @@ jobs:
           set -euo pipefail
           tag="${{ steps.ver.outputs.tag }}"
           target="${{ matrix.target }}"
+
+          # The target NAME is a promise about the binary's architecture, and
+          # it is the one promise every other step in this job would keep
+          # silently if it were broken: a `macos-x64` leg accidentally left on
+          # an Apple-Silicon label builds, passes the parity gate, passes every
+          # smoke (it runs fine on the machine that built it), checksums
+          # cleanly, and ships an arm64 binary under an x64 filename that no
+          # Intel Mac can execute. Nothing here cross-compiles, so the runner's
+          # own architecture IS the binary's; assert they agree.
+          case "$target" in
+            *-x64) want=x86_64 ;;
+            *-arm64) want=arm64 ;;
+            *)
+              echo "::error::no expected architecture is mapped for target '$target' — add one here before adding the leg"
+              exit 1
+              ;;
+          esac
+          got="$(uname -m)"
+          if [ "$got" != "$want" ]; then
+            echo "::error::${target} was built on a '${got}' runner but its name promises '${want}'. Fix the matrix's runs-on label — publishing this asset would hand users a binary that cannot run on the platform it names."
+            exit 1
+          fi
+
           stage="dist/ball-${tag}-${target}"
           mkdir -p "$stage"
           cp cpp/build/cli/ball "$stage/ball"
           cp LICENSE "$stage/LICENSE"
           chmod +x "$stage/ball"
+          file "$stage/ball"
           archive="ball-${tag}-${target}.tar.gz"
           tar -C dist -czf "$archive" "ball-${tag}-${target}"
           sha256sum "$archive" > "${archive}.sha256"

@@ -248,6 +248,48 @@
       "isBase": true
     },
     {
+      "name": "to_double",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "To double: value.toDouble()",
+      "isBase": true
+    },
+    {
+      "name": "to_int",
+      "inputType": "UnaryInput",
+      "outputType": "",
+      "description": "To int: value.toInt()",
+      "isBase": true
+    },
+    {
+      "name": "compare_to",
+      "inputType": "CompareToInput",
+      "outputType": "",
+      "description": "Three-way compare: value.compareTo(other)",
+      "isBase": true
+    },
+    {
+      "name": "to_string_as_fixed",
+      "inputType": "NumFormatInput",
+      "outputType": "",
+      "description": "Fixed-point string: value.toStringAsFixed(digits)",
+      "isBase": true
+    },
+    {
+      "name": "to_string_as_exponential",
+      "inputType": "NumFormatInput",
+      "outputType": "",
+      "description": "Exponential string: value.toStringAsExponential([digits])",
+      "isBase": true
+    },
+    {
+      "name": "to_string_as_precision",
+      "inputType": "NumFormatInput",
+      "outputType": "",
+      "description": "Precision string: value.toStringAsPrecision(precision)",
+      "isBase": true
+    },
+    {
       "name": "null_coalesce",
       "inputType": "BinaryInput",
       "outputType": "",
@@ -497,6 +539,13 @@
       "inputType": "IndexInput",
       "outputType": "",
       "description": "Char code at index: target.codeUnitAt(index)",
+      "isBase": true
+    },
+    {
+      "name": "string_code_unit_at",
+      "inputType": "IndexInput",
+      "outputType": "",
+      "description": "Code unit at index: target.codeUnitAt(index)",
       "isBase": true
     },
     {
@@ -1435,6 +1484,57 @@
           },
           {
             "name": "padding",
+            "number": 3,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CompareToInput",
+      "descriptor": {
+        "name": "CompareToInput",
+        "field": [
+          {
+            "name": "value",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "other",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NumFormatInput",
+      "descriptor": {
+        "name": "NumFormatInput",
+        "field": [
+          {
+            "name": "value",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "digits",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "precision",
             "number": 3,
             "label": "LABEL_OPTIONAL",
             "type": "TYPE_MESSAGE",

@@ -34,6 +34,23 @@ thin `os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))`.
 - `output.go` — `writeOut` (`-o <file>` vs. stdout) / `printLine`.
 - `run.go` / `compile.go` / `encode.go` / `check.go` — one file per verb.
 
+## `encode -lib` (library mode, issue #537)
+
+`ball encode <source.go>` requires a `func main()`. `ball encode -lib
+<source.go>` does not: it routes through `encoder.EncodeLibrary`, the sibling of
+Rust's `encode_library` and C#'s `EncodeLibrary`, for the entry-point-less files
+every real Go library is made of. The resulting program keeps `entry_module =
+"main"` but has an **empty `entry_function`** and is deliberately non-runnable —
+`ball check` on it reports `missing entry_function` (exit 2) and `ball run` has
+nothing to call. That boundary is the contract, pinned by
+`encode_lib_test.go`; never quiet it by synthesising a fake entry function.
+
+**Cross-CLI flag-name asymmetry, on purpose.** Go's `flag` package is
+single-dash and this CLI already spells its options `-o`/`-format`, so the flag
+is `-lib`. Rust's clap CLI spells the same thing `--lib` and C#'s
+System.CommandLine CLI `--library`. The behaviour is identical in all three;
+only the spelling follows each ecosystem's convention.
+
 ## Exit-code contract
 
 Mirrors the Rust CLI (`rust/cli/src/error.rs`) so the four Go verbs behave

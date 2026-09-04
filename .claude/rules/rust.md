@@ -140,6 +140,11 @@ cargo fmt --check && cargo clippy --workspace
   `.iter_names()`, `.serialize_seq()`, `.is_human_readable()`, `.ok_or()`, `.value()`,
   `.multiunzip()`. Each needs stateful-iterator semantics Ball lacks, or a type-specific default
   no syntactic encoder can supply; guessing produces silently wrong output, not a loud failure.
+  **Both new arms defer to a same-file user method of that name** (a `!method_params.contains_key`
+  guard) — unlike every older arm, which matches on the name alone. That older bias is inherent to
+  a syntactic encoder (a user's `fn len(&self)` has always become `std.length`), but a `Vec`-backed
+  struct's own `is_empty` lowered to `std.length(struct) == 0` would be silently wrong output, so
+  slice 6 deliberately does not widen it.
 - **Receiver-less associated functions + cross-file calls (#491 slice 3).**
   `impl Point { fn new(x, y) … }` now encodes as a `metadata.is_static` class member (the shape
   `type_emit.rs::method_prologue` has supported since #288), and `Point::new(3, 4)` emits

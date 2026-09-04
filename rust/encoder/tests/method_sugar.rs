@@ -26,6 +26,8 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use ball_lang_compiler::Compiler;
+use ball_lang_shared::proto::ball::v1::expression::Expr;
+use ball_lang_shared::proto::ball::v1::statement::Stmt;
 
 const METHOD_SUGAR_SOURCE: &str = r#"
 fn main() {
@@ -144,5 +146,64 @@ fn fuse_and_is_empty_encode_compile_and_run() {
         "13",
         "`.fuse()` passes the 3-element list through and `\"\".is_empty()` adds 10 while \
          `[1,2,3].is_empty()` adds nothing\n--- generated main.rs ---\n{compiled}"
+    );
+}
+
+/// The guard that keeps slice 6 from WIDENING the encoder's built-in-name bias.
+///
+/// Every other built-in arm in `methods.rs` matches on the method name alone, so
+/// a user-declared `fn len(&self)` is silently encoded as `std.length`. That is
+/// a pre-existing, documented hazard; adding a new instance of it is not
+/// justified by consistency. A `Vec`-backed struct's own `is_empty` lowered to
+/// `std.length(struct) == 0` would be exactly the silently-wrong output this
+/// crate's fail-loud posture exists to prevent — so the `.is_empty()` arm defers
+/// to a same-file `impl` method of that name.
+#[test]
+fn user_declared_is_empty_wins_over_the_builtin_arm() {
+    let program = ball_lang_encoder::encode(
+        "struct Bag { items: Vec<i64> }\n\
+         impl Bag { fn is_empty(&self) -> bool { false } }\n\
+         fn main() { let b = Bag { items: vec![] }; let e = b.is_empty(); println!(\"{}\", e); }",
+    );
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("the encoded program must carry a `main` module");
+    let main_fn = main_module
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .expect("`fn main` must encode");
+    let Some(Expr::Block(block)) = main_fn.body.as_ref().and_then(|b| b.expr.as_ref()) else {
+        panic!("`main`'s body is a block");
+    };
+    let Some(Stmt::Let(binding)) = &block.statements[1].stmt else {
+        panic!("`let e = b.is_empty();` is a let binding");
+    };
+    let value = binding
+        .value
+        .as_ref()
+        .expect("the let binding carries a value");
+    let Some(Expr::Call(call)) = &value.expr else {
+        panic!("`b.is_empty()` encodes as a call, not {:?}", value.expr);
+    };
+    assert_eq!(
+        call.module, "",
+        "a user instance-method call resolves through the compiler's short-name dispatcher, so it \
+         carries no module qualifier — `std` here would mean the built-in \
+         `std.equals(std.length(receiver), 0)` lowering swallowed the user's own method"
+    );
+    assert_eq!(
+        call.function, "is_empty",
+        "a same-file `fn is_empty(&self)` must dispatch to the USER's method"
+    );
+    let Some(Expr::MessageCreation(input)) = call.input.as_ref().and_then(|i| i.expr.as_ref())
+    else {
+        panic!("a user method call packs its receiver into a message_creation");
+    };
+    assert!(
+        input.fields.iter().any(|f| f.name == "self"),
+        "an instance-method call packs its receiver under `self`"
     );
 }

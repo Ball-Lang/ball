@@ -38,6 +38,24 @@
 //! `.fuse()` and `.is_empty()` used to sit in that same bucket and were
 //! closed by slice 6 precisely because neither needs type information: see
 //! their arms below and `rust/encoder/tests/method_sugar.rs`.
+//!
+//! ## Shadowing: a same-file user method wins over the two new arms
+//!
+//! Every built-in arm above is matched on the method's NAME alone, so a
+//! user-declared `fn len(&self)` is encoded as `std.length` rather than as its
+//! own method — an inherent, pre-existing bias of a syntactic encoder with no
+//! type information, mirroring the `_looksLikeTypeName` caveat documented in
+//! `.claude/rules/dart.md`.
+//!
+//! Slice 6 deliberately does **not** widen that bias: `.fuse()` and
+//! `.is_empty()` each carry a `!self.method_params.contains_key(..)` guard, so
+//! an `impl` block in this very file declaring `fn is_empty(&self)` still
+//! dispatches to the user's method. A `Vec`-backed struct's own `is_empty`
+//! lowered to `std.length(struct) == 0` would be silently wrong output — the
+//! one failure mode this crate's fail-loud posture exists to prevent — and
+//! adding a new instance of a known hazard is not justified by consistency
+//! with the older arms. Pinned by
+//! `method_sugar.rs::user_declared_is_empty_wins_over_the_builtin_arm`.
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::{Expression, FunctionCall};
 
@@ -51,12 +69,19 @@ impl Encoder {
         let method = e.method.to_string();
         match method.as_str() {
             // ── Identity passthroughs (no Ball-level effect) ──
-            // `.fuse()` joins them (issue #491, slice 6): a Ball `List` has no
-            // "already exhausted" state for a fused iterator to preserve.
-            "iter" | "into_iter" | "iter_mut" | "by_ref" | "fuse" | "as_ref" | "as_mut"
-            | "as_str" | "as_slice" | "clone" | "to_owned" | "collect" | "as_bytes"
+            "iter" | "into_iter" | "iter_mut" | "by_ref" | "as_ref" | "as_mut" | "as_str"
+            | "as_slice" | "clone" | "to_owned" | "collect" | "as_bytes"
                 if e.args.is_empty() =>
             {
+                self.encode_expr(&e.receiver)
+            }
+
+            // `.fuse()` is the same identity passthrough (issue #491, slice 6):
+            // a Ball `List` has no "already exhausted" state for a fused
+            // iterator to preserve. Unlike the arm above, it DEFERS to a
+            // same-file user method of that name — see this file's module doc
+            // comment, "Shadowing".
+            "fuse" if e.args.is_empty() && !self.method_params.contains_key("fuse") => {
                 self.encode_expr(&e.receiver)
             }
 
@@ -67,7 +92,9 @@ impl Encoder {
             // dispatch `.len()` routes through, so it stays correct whether
             // the receiver turns out to be a `String` or a `List` at runtime
             // — no new base function, no type inference (issue #491, slice 6).
-            "is_empty" if e.args.is_empty() => {
+            // DEFERS to a same-file user method of that name — see this file's
+            // module doc comment, "Shadowing".
+            "is_empty" if e.args.is_empty() && !self.method_params.contains_key("is_empty") => {
                 let length = self.un_std("length", &e.receiver);
                 std_call(
                     "equals",

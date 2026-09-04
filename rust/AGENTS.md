@@ -286,6 +286,13 @@ that file's catch-all bucket resolvable **without type information**:
 
 Proof: `rust/encoder/tests/method_sugar.rs` (encode → compile → `cargo build` → run, asserts `13`).
 
+**Both new arms defer to a same-file user method of that name**, unlike every older arm in the
+file. Matching on the name alone is an inherent bias of a syntactic encoder — a user's
+`fn len(&self)` has always encoded as `std.length` — but a `Vec`-backed struct's own `is_empty`
+lowered to `std.length(struct) == 0` would be *silently wrong output*, the one failure mode this
+crate's fail-loud posture exists to prevent, so slice 6 does not widen that bias. Pinned by
+`method_sugar.rs::user_declared_is_empty_wins_over_the_builtin_arm`.
+
 **The rest of that bucket is a PERMANENT carve-out, listed by name** in `methods.rs`'s module doc
 comment so it stops being an unbounded TODO: `.next()` (stateful-iterator semantics Ball does not
 have), `.unwrap_or_default()` (needs the receiver's `Default` impl), `.spilled()` (SmallVec),

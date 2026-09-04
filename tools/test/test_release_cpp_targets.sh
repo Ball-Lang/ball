@@ -30,6 +30,15 @@
 #   5. DOC DRIFT. docs/RELEASE.md documents which platforms a release ships.
 #      A matrix change that leaves the table behind makes the documented
 #      download matrix a lie.
+#   6. AN UNPROVEN ARCHITECTURE. (2) is only caught at release time if the
+#      workflow actually checks it, so the workflow must carry that assertion
+#      — and carry it BEFORE the tag gate, or the one pre-release way to
+#      exercise this workflow (dispatching it against a branch) stops short of
+#      it and can never prove the check itself works.
+#   7. A NON-TAG REF PACKAGING. That branch rehearsal must stop at the tag
+#      gate. A name-based guard (`!= "main"`) let any other branch name become
+#      the "release tag", which then surfaced as a `tar` failure two steps
+#      later instead of as the wrong-ref error it was.
 #
 # Every case here is a static check against the repo's own files — no network,
 # no toolchain, sub-second — in the same always-run `Proto Checks` slot as the

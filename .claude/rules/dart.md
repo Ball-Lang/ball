@@ -87,6 +87,13 @@ avoid constructs that need receiver-type info:
   `check_encoder_completeness.dart` checks the opposite direction, and
   `gen_std_coverage.dart` derives its canonical list from the same builders.
   That blind spot hid thirteen routed-but-undeclared functions until #505.
+  **A `_fn(...)` added here must be ported to the two hand-maintained mirrors in
+  the same PR** — `csharp/shared/src/StdModuleBuilders.cs` and
+  `rust/shared/src/std_*_module.rs`. Both are gated name-for-name against this
+  Dart source (`csharp/shared/test/StdModuleBuilderTests.cs`,
+  `rust/shared/src/std_dart_parity.rs`), so a Dart-only change turns those jobs
+  red. Go, Python, TypeScript and C++ have no std module builders and need
+  nothing.
 - **Constructor vs function call** is decided by the first *letter* (skipping a
   leading `_`): `Foo()`/`_Foo()` → `MessageCreation`; `foo()`/`_foo()` → `call`.
   (A prior bug treated every `_`-prefixed name as a constructor — `'_'.toUpperCase()`

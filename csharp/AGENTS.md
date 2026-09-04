@@ -273,7 +273,12 @@ factories `BallValue.Null` / `.Bool(bool)` / `.Int(long)` / `.Double(double)` / 
   `IsBase = true`, no `Body`). Counts are **asserted against the canonical Dart inventory** in the
   tests — `std` name-for-name against `dart/shared/std.json` (parsed at test time), and
   `std_collections`/`std_io`/`std_memory` (which have no committed JSON) against each `_fn('name',
-  …)` in `dart/shared/lib/std_*.dart`. Never hardcode a bare count. `DescriptorBuilders`
+  …)` in `dart/shared/lib/std_*.dart`. Never hardcode a bare count. **These builders are a PORT
+  of the Dart ones: when a `_fn(...)` is added or removed in `dart/shared/lib/std*.dart`, port it
+  here in the SAME PR** — otherwise this job goes red on a Dart-only change, which is exactly what
+  it is for (#505 landed thirteen such functions and this gate caught the missing C# half in 73
+  seconds). Rust carries the identical contract via `rust/shared/src/std_dart_parity.rs`.
+  `DescriptorBuilders`
   (`TypeDef`/`ExprField`/`StringField`/`BaseFn`/…) mirrors `rust/shared/src/descriptor_builders.rs`.
 - `Fields.Extract(FunctionCall) → OrderedDictionary<string, Expression>` — the named-argument
   convention: no input ⇒ empty; a `MessageCreation` input ⇒ `{field.name: field.value}` (an

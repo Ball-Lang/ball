@@ -41,7 +41,7 @@ absent, not green, on a PR. Methodology and the funnel's meaning:
 
 | Crate | Path | Purpose | Status |
 |-------|------|---------|--------|
-| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders + `runtime::*` base-op helpers | Complete (#34, #35) |
+| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders (a PORT of `dart/shared/lib/std*.dart`, gated name-for-name by `src/std_dart_parity.rs` — port every `_fn(...)` change in the same PR, #505) + `runtime::*` base-op helpers | Complete (#34, #35) |
 | `ball-lang-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
 | `ball-lang-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
 | `ball-lang-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |

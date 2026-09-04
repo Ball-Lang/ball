@@ -191,6 +191,16 @@ cargo fmt --check && cargo clippy --workspace
   has **no `pull_request:` trigger**. Methodology:
   `tests/conformance/COVERAGE_STUDY.md`.
 
+- **The std module builders are a PORT of Dart's and are gated name-for-name** (#505).
+  `rust/shared/src/std_dart_parity.rs` (a `#[cfg(test)]` module) scans
+  `dart/shared/lib/<module>.dart` for `_fn('name'` registrations and each
+  `std_*_module.rs`'s `function_names_match_dart_source` test asserts the Rust builder declares
+  exactly that set. These used to be bare `assert_eq!(module.functions.len(), N)` counts, which
+  can only notice a change made in Rust — that is how this crate silently fell thirteen functions
+  behind when Dart declared its routed-but-undeclared std functions. **When you add or remove a
+  `_fn(...)` in `dart/shared/lib/std*.dart`, port it here in the same PR**; a hardcoded count is
+  never an acceptable substitute for the name-for-name check. C# has the same contract
+  (`csharp/shared/test/StdModuleBuilderTests.cs`); Go/Python/TS/C++ have no std module builders.
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
 - `rust/engine/tests/roundtrip_conformance.rs` is a **measurement-only** whole-corpus sweep

@@ -262,3 +262,50 @@ jobs:
           name: coverage-study-tier-a-python
           path: ${{ runner.temp }}/tier_a.json
           if-no-files-found: warn
+
+  ts-tier-a:
+    name: Tier A (TypeScript)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ts/compiler/package-lock.json
+            ts/encoder/package-lock.json
+
+      # The harness imports @ball-lang/encoder and @ball-lang/compiler straight
+      # from source (node --experimental-strip-types), so both packages' deps
+      # must be installed; it has no node_modules of its own.
+      - name: Install @ball-lang/compiler deps
+        run: cd ts/compiler && npm ci
+      - name: Install @ball-lang/encoder deps
+        run: cd ts/encoder && npm ci
+
+      # The harness measures other people's code, so prove the harness first.
+      - name: Harness self-test
+        run: node --experimental-strip-types tools/coverage-study/test/rq1_study_ts_self_test.mts
+
+      - name: Clone pinned packages
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/ts.json "$RUNNER_TEMP/checkouts"
+
+      - name: Run Tier A
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types tools/coverage-study/rq1_study_ts.mts \
+            --pins tools/coverage-study/packages/ts.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
+          bash tools/coverage-study/summarize.sh TypeScript "$RUNNER_TEMP/tier_a.log"
+
+      - name: Upload Tier A report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-a-typescript
+          path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn

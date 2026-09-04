@@ -545,10 +545,10 @@ was already `AddRange`d into the module; it was simply never populated, because
 convention identical: a divergence here would surface only much later, as a round-trip mismatch.
 
 Member numbering follows **C#**, not position: an explicit `= N` takes N and every member after it
-continues from N + 1, so `{ Red, Green = 5, Blue }` is 0/5/6. `Encoder.EnumNames`/`EnumMembers`
-(collected in `CollectDeclarations`, deliberately separate from `ClassNames`) make a
+continues from N + 1, so `{ Red, Green = 5, Blue }` is 0/5/6. `Encoder.EnumMembers`
+(collected in `CollectDeclarations`, deliberately separate from `ClassNames`) makes a
 `Color.Green` receiver distinguishable from a class's static-field access and from an unresolved
-cross-file receiver — and let `Color.Grene` fail loud instead of encoding a dangling field access.
+cross-file receiver — and lets `Color.Grene` fail loud instead of encoding a dangling field access.
 That branch runs BEFORE `EncodePropertyAccess`, so a member named `Count`/`Length`/`Keys`/`Values`
 is not silently rewritten into a `std.length`/`std_collections` call. Pinned by
 `encoder/test/EnumDeclarationTests.cs`, whose `EnumValueReferenceEncodesCompilesAndRuns` runs the

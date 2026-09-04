@@ -144,7 +144,7 @@ compile items so the sibling projects never double-compile each other's files.
   round-trip mismatch. Member numbering follows C# (explicit `= N`, then N + 1 onward), and a
   **computed** discriminant (`1 << 0`, `Read | Write`) is the narrowed remaining gap: a
   syntax-only encoder has no constant evaluator, so it fails loud naming the member.
-  `Encoder.EnumNames`/`EnumMembers` are kept separate from `ClassNames` so a `Color.Green`
+  `Encoder.EnumMembers` is kept separate from `ClassNames` so a `Color.Green`
   receiver is distinguishable from a static-field access and from an unresolved cross-file one,
   and the branch runs before `EncodePropertyAccess` so a member named `Count`/`Length`/`Keys`/
   `Values` is not rewritten into a `std.length`/`std_collections` call.

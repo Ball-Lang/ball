@@ -72,15 +72,14 @@ internal sealed partial class Encoder
     /// <c>Types.cs</c>'s "Construction is field-mapping only" section.</summary>
     internal readonly Dictionary<string, List<CtorShape>> CtorShapes = new();
 
-    /// <summary>Every declared <c>enum</c>'s short name → its module-qualified Ball name
-    /// (<c>"main:Color"</c>). Kept SEPARATE from <see cref="ClassNames"/> so a
+    /// <summary>Every declared <c>enum</c>'s short name → its declared member names, in
+    /// declaration order (issue #492, slice C). Kept SEPARATE from <see cref="ClassNames"/> so a
     /// <c>Color.Green</c>-shaped member access is distinguishable from both a class's static
-    /// field access and an unresolved cross-file receiver (issue #492, slice C).</summary>
-    internal readonly Dictionary<string, string> EnumNames = new();
-
-    /// <summary>Enum short name → its declared member names, in declaration order — consulted
-    /// at a <c>Color.Green</c> use site so a typo (<c>Color.Grene</c>) fails loud instead of
-    /// encoding a field access nothing will ever resolve.</summary>
+    /// field access and an unresolved cross-file receiver, and carrying the members (not just
+    /// the name) so a typo — <c>Color.Grene</c> — fails loud rather than encoding a field access
+    /// nothing will ever resolve. The module-qualified name is not stored: it is
+    /// <see cref="QualifiedTypeName"/> of the key, and a member reference encodes against the
+    /// SHORT name (<c>field_access(reference("Color"), "Green")</c>).</summary>
     internal readonly Dictionary<string, List<string>> EnumMembers = new();
 
     /// <summary>(owner short, method short) → the method's own declared (non-<c>this</c>)
@@ -167,9 +166,7 @@ internal sealed partial class Encoder
 
         foreach (var decl in typeDecls.OfType<EnumDeclarationSyntax>())
         {
-            var shortName = decl.Identifier.Text;
-            EnumNames[shortName] = QualifiedTypeName(shortName);
-            EnumMembers[shortName] = decl.Members.Select(m => m.Identifier.Text).ToList();
+            EnumMembers[decl.Identifier.Text] = decl.Members.Select(m => m.Identifier.Text).ToList();
         }
 
         var drafts = new Dictionary<string, List<CtorDraft>>(StringComparer.Ordinal);

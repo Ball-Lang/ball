@@ -21,12 +21,26 @@ func (c *Compiler) compileCall(call *ballv1.FunctionCall) string {
 		return fmt.Sprintf("ballrt.UnsupportedBaseCall(%q, %q)", call.GetModule(), call.GetFunction())
 	}
 
+	fn := call.GetFunction()
+	name := sanitize(fn)
+
+	// A NAMED-CONSTRUCTOR call, `Class.name(args)` (issue #527). The Dart
+	// encoder emits it as an ordinary method call whose packed `self` field is a
+	// bare reference to the CLASS name — a static, syntactic name, not a runtime
+	// value — so it resolves at COMPILE time to the class's constructor impl,
+	// and the class reference itself is never compiled as a value (it is not
+	// one). SHADOWING WINS: a binding of that name IS a real value, and the call
+	// stays an ordinary dispatch on it.
+	if recv := c.selfFieldClassReference(call); recv != "" {
+		if impl, ok := c.namedConstructorImpl(recv, fn); ok {
+			return fmt.Sprintf("%s(%s)", impl, c.callArgsWithoutSelf(call))
+		}
+	}
+
 	input := "ballrt.Value(nil)"
 	if call.GetInput() != nil {
 		input = c.compileExpr(call.GetInput())
 	}
-	fn := call.GetFunction()
-	name := sanitize(fn)
 
 	// A call through a first-class function value held in a local (shadows a
 	// top-level namesake).
@@ -55,6 +69,48 @@ func (c *Compiler) compileCall(call *ballv1.FunctionCall) string {
 	}
 
 	return fmt.Sprintf("%s(%s)", name, input)
+}
+
+// selfFieldClassReference returns the class short name a call's packed `self`
+// field names, when that field is a bare reference to a known user class that is
+// NOT shadowed by a binding in scope — the `Class.name(args)` receiver shape
+// (issue #527). Returns "" otherwise.
+func (c *Compiler) selfFieldClassReference(call *ballv1.FunctionCall) string {
+	mc := call.GetInput().GetMessageCreation()
+	if mc == nil {
+		return ""
+	}
+	for _, fv := range mc.GetFields() {
+		if fv.GetName() != "self" {
+			continue
+		}
+		ref := fv.GetValue().GetReference()
+		if ref == nil {
+			return ""
+		}
+		short := ref.GetName()
+		if _, isClass := c.typeDefsByShort[short]; !isClass || c.isLocal(short) {
+			return ""
+		}
+		return short
+	}
+	return ""
+}
+
+// callArgsWithoutSelf compiles a call's packed input with its `self` field
+// dropped — the argument message a constructor impl reads its parameters from.
+func (c *Compiler) callArgsWithoutSelf(call *ballv1.FunctionCall) string {
+	mc := call.GetInput().GetMessageCreation()
+	rest := &ballv1.MessageCreation{}
+	for _, fv := range mc.GetFields() {
+		if fv.GetName() != "self" {
+			rest.Fields = append(rest.Fields, fv)
+		}
+	}
+	if len(rest.GetFields()) == 0 {
+		return "ballrt.NewMap()"
+	}
+	return c.compileMessageCreation(rest)
 }
 
 func callInputHasExplicitSelf(call *ballv1.FunctionCall) bool {

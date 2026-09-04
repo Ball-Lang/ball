@@ -57,18 +57,50 @@ var valueModelWrapperFields = map[string][]string{
 	"BallBool": {"value"}, "BallList": {"items"}, "BallMap": {"entries"},
 }
 
-// indexConstructors records every body-carrying constructor's impl name.
+// indexConstructors records every constructor's impl name.
+//
+// Two indexes, deliberately different (issue #527):
+//   - bodyCtorImpl is the UNNAMED (`new`) body-carrying constructor only — the
+//     one a `messageCreation` for the class invokes. Keying every constructor
+//     here made the LAST named constructor win, so `Point(3, 4)` ran
+//     `Point.constants()`'s body instead of its own.
+//   - ctorImpl is every constructor by "<ClassShort>.<ctorShort>" — the target a
+//     `Class.name(args)` call resolves to (compileCall).
 func (c *Compiler) indexConstructors() {
 	for _, owner := range c.classMemberOrder {
+		ownerShort := typeShortName(owner)
 		for _, member := range c.classMembers[owner] {
-			if metaString(member.GetMetadata(), "kind") != "constructor" || member.GetBody() == nil {
+			if metaString(member.GetMetadata(), "kind") != "constructor" {
 				continue
 			}
-			if _, m, ok := splitMemberName(member.GetName()); ok {
-				c.bodyCtorImpl[typeShortName(owner)] = memberImplName(typeShortName(owner), m)
+			_, m, ok := splitMemberName(member.GetName())
+			if !ok {
+				continue
 			}
+			impl := memberImplName(ownerShort, m)
+			if m == unnamedCtorMember {
+				if member.GetBody() != nil {
+					c.bodyCtorImpl[ownerShort] = impl
+				}
+				continue
+			}
+			// A named constructor always gets an impl emitted (see
+			// compileClassMembers), body or not — it is only ever reached
+			// through a `Class.name(...)` call.
+			c.ctorImpl[ownerShort+"."+m] = impl
 		}
 	}
+}
+
+// unnamedCtorMember is the member short name the encoders give Dart's unnamed
+// constructor (`main:Point.new`).
+const unnamedCtorMember = "new"
+
+// namedConstructorImpl returns the impl func of class classShort's named
+// constructor ctorShort, if there is one.
+func (c *Compiler) namedConstructorImpl(classShort, ctorShort string) (string, bool) {
+	impl, ok := c.ctorImpl[classShort+"."+ctorShort]
+	return impl, ok
 }
 
 // memberImplName is the impl func name for a class member (Owner__member).
@@ -186,7 +218,13 @@ func (c *Compiler) compileClassMembers() string {
 			implName := memberImplName(typeShortName(owner), memberShort)
 
 			if metaString(member.GetMetadata(), "kind") == "constructor" {
-				if member.GetBody() != nil {
+				// A NAMED constructor always needs an impl: it is only ever
+				// reached through a `Class.name(...)` call, which compiles to a
+				// direct call of this func (issue #527). The unnamed one needs
+				// an impl only when it carries a body — a bodyless unnamed
+				// constructor's instance is built inline by
+				// compileMessageCreation.
+				if member.GetBody() != nil || memberShort != unnamedCtorMember {
 					impls.WriteString(c.compileConstructor(implName, ownerTd, member))
 					impls.WriteString("\n")
 				}
@@ -343,11 +381,11 @@ func (c *Compiler) compileConstructor(implName string, ownerTd *ballv1.TypeDefin
 	b.WriteString("\t__fields := ballrt.NewMap()\n")
 	for _, field := range fields {
 		var value string
-		switch {
+		switch init := c.constructorInitializer(ctor, field, paramSet); {
 		case paramSet[field]:
 			value = sanitize(field)
-		case c.fieldInitializerParam(ctor, field, paramSet) != "":
-			value = sanitize(c.fieldInitializerParam(ctor, field, paramSet))
+		case init != "":
+			value = init
 		default:
 			if def := c.fieldDefaultExpr(ownerTd, field); def != "" {
 				value = def
@@ -486,6 +524,12 @@ func (c *Compiler) lowerFieldInitializer(init string, visiting map[string]bool) 
 	if isIntLiteral(s) {
 		return "int64(" + s + ")"
 	}
+	if isDoubleLiteral(s) {
+		return "float64(" + s + ")"
+	}
+	if lit, ok := plainStringLiteral(s); ok {
+		return fmt.Sprintf("%q", lit)
+	}
 	if strings.HasSuffix(s, "()") {
 		typeName := strings.TrimSpace(strings.TrimSuffix(s, "()"))
 		if isSimpleIdent(typeName) {
@@ -546,20 +590,27 @@ func (c *Compiler) nativeInheritedFieldDefault(td *ballv1.TypeDefinition, field 
 	return ""
 }
 
-// fieldInitializerParam returns the parameter a metadata.initializers entry sets
-// field from (field = param / field = param ?? default), or "".
-func (c *Compiler) fieldInitializerParam(ctor *ballv1.FunctionDefinition, field string, paramNames map[string]bool) string {
+// constructorInitializer returns the Go expression a metadata.initializers entry
+// gives field, or "" when the constructor has no initializer for it.
+//
+// The initializer's `value` is cosmetic source text (not an expression tree), so
+// two shapes are recognised: a bare parameter reference (`x = a`), and any
+// literal / zero-arg-constructor shape lowerFieldInitializer already handles
+// (`label = 'pt'`, `y = -3`, `ratio = 0.5`, `on = true`). A richer expression
+// still yields "" — the documented best-effort boundary — but it no longer
+// silently drops the whole initializer list of a body-carrying constructor
+// (issue #527: `label` stayed nil and the body's `label + '!'` then crashed).
+func (c *Compiler) constructorInitializer(ctor *ballv1.FunctionDefinition, field string, paramNames map[string]bool) string {
 	for _, init := range metaList(ctor.GetMetadata(), "initializers") {
 		s := init.GetStructValue()
 		if s == nil || structString(s, "kind") != "field" || structString(s, "name") != field {
 			continue
 		}
-		value := structString(s, "value")
-		token := leadingIdent(strings.TrimSpace(value))
-		if paramNames[token] {
-			return token
+		value := strings.TrimSpace(structString(s, "value"))
+		if token := leadingIdent(value); paramNames[token] {
+			return sanitize(token)
 		}
-		return ""
+		return c.lowerFieldInitializer(value, map[string]bool{})
 	}
 	return ""
 }
@@ -575,9 +626,16 @@ func (c *Compiler) constructorParamNames(typeName string) []string {
 			continue
 		}
 		for _, member := range c.classMembers[owner] {
-			if metaString(member.GetMetadata(), "kind") == "constructor" {
-				return funcParams(member)
+			// The UNNAMED constructor's parameters are the ones a
+			// `messageCreation`'s positional argN fields map onto; a named
+			// constructor's are read at its own call site (issue #527).
+			if metaString(member.GetMetadata(), "kind") != "constructor" {
+				continue
 			}
+			if _, m, ok := splitMemberName(member.GetName()); ok && m != unnamedCtorMember {
+				continue
+			}
+			return funcParams(member)
 		}
 	}
 	if fields, ok := valueModelWrapperFields[short]; ok {

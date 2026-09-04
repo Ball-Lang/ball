@@ -84,8 +84,12 @@ type Compiler struct {
 	enumShortNames map[string]bool
 
 	// bodyCtorImpl maps a class short name to the impl func of its body-carrying
-	// constructor (if any) — the target CompileMessageCreation invokes.
+	// UNNAMED constructor (if any) — the target CompileMessageCreation invokes.
 	bodyCtorImpl map[string]string
+
+	// ctorImpl maps "<ClassShort>.<ctorShort>" to that constructor's impl func —
+	// the target a `Class.name(args)` call resolves to (issue #527).
+	ctorImpl map[string]string
 
 	// volatileByOwner caches the reassigned-field set per owner TypeDefinition.
 	volatileByOwner map[string]map[string]bool
@@ -145,6 +149,7 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
 		enumShortNames:  map[string]bool{},
 		bodyCtorImpl:    map[string]string{},
+		ctorImpl:        map[string]string{},
 		volatileByOwner: map[string]map[string]bool{},
 		volatileFields:  map[string]bool{},
 	}

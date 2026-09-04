@@ -53,6 +53,9 @@ PROVEN = [
     "233_int_arithmetic_edges",   # int64 arithmetic wrap
     "249_string_control_char_edges",  # embedded control chars incl. CR
     "341_setter_param_binding",   # setter parameter binding
+    "435_recursive_ctor_construction",   # a constructor building its own class
+    "436_recursive_ctor_named",   # `Class.name(...)` named-ctor dispatch (#527)
+    "438_ctor_initializer_list_with_body",  # initializer list + body (#527)
 ]
 
 

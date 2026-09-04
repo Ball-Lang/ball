@@ -36,8 +36,14 @@ namespace Ball.Compiler;
 /// </summary>
 public sealed partial class CSharpCompiler
 {
-    /// <summary>Short type name → the impl method name of its body-carrying constructor (if any).</summary>
+    /// <summary>The member short name the encoders give Dart's unnamed constructor (<c>main:Point.new</c>).</summary>
+    private const string UnnamedCtorMember = "new";
+
+    /// <summary>Short type name → the impl method name of its body-carrying UNNAMED constructor (if any).</summary>
     private readonly Dictionary<string, string> _bodyCtorImplByShort = new(StringComparer.Ordinal);
+
+    /// <summary><c>"&lt;ClassShort&gt;.&lt;ctorShort&gt;"</c> → that NAMED constructor's impl method name (issue #527).</summary>
+    private readonly Dictionary<string, string> _namedCtorImplByShort = new(StringComparer.Ordinal);
 
     /// <summary>The backing instance fields of a <b>native</b> superclass (no user <c>TypeDefinition</c>).</summary>
     private static readonly Dictionary<string, string[]> NativeSuperclassFields = new(StringComparer.Ordinal)
@@ -47,26 +53,54 @@ public sealed partial class CSharpCompiler
         ["BallMap"] = new[] { "entries" },
     };
 
-    /// <summary>Register every body-carrying constructor's impl name (called from the ctor, before any emission).</summary>
+    /// <summary>
+    /// Register every constructor's impl name (called from the ctor, before any
+    /// emission). Two indexes, deliberately different (issue #527):
+    /// <list type="bullet">
+    /// <item><see cref="_bodyCtorImplByShort"/> holds the UNNAMED (<c>new</c>)
+    /// body-carrying constructor only — the one a <c>messageCreation</c> for the
+    /// class invokes. Keying every constructor here made the LAST named
+    /// constructor win, so <c>Point(3, 4)</c> ran <c>Point.constants()</c>'s
+    /// body instead of its own.</item>
+    /// <item><see cref="_namedCtorImplByShort"/> holds every NAMED constructor —
+    /// the target a <c>Class.name(args)</c> call resolves to.</item>
+    /// </list>
+    /// </summary>
     private void IndexConstructors()
     {
         foreach (var (owner, members) in _classMembersByOwner)
         {
             foreach (var member in members)
             {
-                if (MetaString(member.Metadata, "kind") != "constructor" || member.Body is null)
+                if (MetaString(member.Metadata, "kind") != "constructor"
+                    || Naming.SplitMemberName(member.Name) is not { } split)
                 {
                     continue;
                 }
 
-                if (Naming.SplitMemberName(member.Name) is { } split)
+                var ownerShort = Naming.TypeShortName(owner);
+                var impl = MemberImplName(ownerShort, split.Member);
+                if (split.Member == UnnamedCtorMember)
                 {
-                    var ownerShort = Naming.TypeShortName(owner);
-                    _bodyCtorImplByShort[ownerShort] = MemberImplName(ownerShort, split.Member);
+                    if (member.Body is not null)
+                    {
+                        _bodyCtorImplByShort[ownerShort] = impl;
+                    }
+
+                    continue;
                 }
+
+                // A named constructor always gets an impl emitted (see
+                // CompileTypeMembers), body or not — it is only ever reached
+                // through a `Class.name(...)` call.
+                _namedCtorImplByShort[$"{ownerShort}.{split.Member}"] = impl;
             }
         }
     }
+
+    /// <summary>The impl method of class <paramref name="classShort"/>'s named constructor <paramref name="ctorShort"/>, or <c>null</c>.</summary>
+    private string? NamedConstructorImpl(string classShort, string ctorShort) =>
+        _namedCtorImplByShort.GetValueOrDefault($"{classShort}.{ctorShort}");
 
     /// <summary>
     /// The impl method name for a class member — <c>Owner__member</c>, or
@@ -234,6 +268,13 @@ public sealed partial class CSharpCompiler
             return $"Double({Naming.DoubleLiteral(d)})";
         }
 
+        // A plain (non-interpolated, unescaped) string literal — `label = 'pt'`
+        // in a constructor initializer list (issue #527).
+        if (PlainStringLiteral(s) is { } text)
+        {
+            return $"Str({Naming.StringLiteral(text)})";
+        }
+
         if (s.EndsWith("()", StringComparison.Ordinal))
         {
             var typeName = s[..^2].Trim();
@@ -244,6 +285,18 @@ public sealed partial class CSharpCompiler
         }
 
         return null;
+    }
+
+    /// <summary>Unquote a Dart string literal carrying no escape and no interpolation (<c>'pt'</c> → <c>pt</c>), else <c>null</c>.</summary>
+    private static string? PlainStringLiteral(string s)
+    {
+        if (s.Length < 2 || s[0] != s[^1] || (s[0] is not '\'' and not '"'))
+        {
+            return null;
+        }
+
+        var inner = s[1..^1];
+        return inner.Contains('\\') || inner.Contains('$') || inner.Contains(s[0]) ? null : inner;
     }
 
     /// <summary>Construct a <c>Type()</c> default instance — call its body-constructor, or build a field-default map for a bodyless type; <c>null</c> for a native/unknown type.</summary>
@@ -369,9 +422,9 @@ public sealed partial class CSharpCompiler
             {
                 value = paramLocal;
             }
-            else if (FieldInitializerParam(ctor, field, paramSet) is { } initParam && LocalName(initParam) is { } initLocal)
+            else if (ConstructorInitializer(ctor, field, paramSet) is { } initValue)
             {
-                value = initLocal;
+                value = initValue;
             }
             else if (FieldInitializerText(ownerTd, field) is { } text
                      && LowerFieldInitializer(text, new HashSet<string>(StringComparer.Ordinal)) is { } defaultValue)
@@ -443,6 +496,55 @@ public sealed partial class CSharpCompiler
         PopScope();
         PopInput();
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The C# expression a <c>metadata.initializers</c> entry gives
+    /// <paramref name="field"/>, or <c>null</c> when the constructor has no
+    /// initializer for it.
+    ///
+    /// <para>The initializer's <c>value</c> is cosmetic source text (not an
+    /// expression tree), so two shapes are recognised: a parameter reference
+    /// (<c>x = a</c>, <c>x = a ?? default</c>), and any literal /
+    /// zero-arg-constructor shape <see cref="LowerFieldInitializer"/> handles
+    /// (<c>label = 'pt'</c>, <c>y = -3</c>, <c>ratio = 0.5</c>). A richer
+    /// expression still yields <c>null</c> — the documented best-effort boundary
+    /// — but a body-carrying constructor no longer silently drops its whole
+    /// initializer list (issue #527: <c>label</c> stayed <c>Null</c> and the
+    /// body's <c>label + '!'</c> then threw).</para>
+    /// </summary>
+    private string? ConstructorInitializer(FunctionDefinition ctor, string field, HashSet<string> paramNames)
+    {
+        if (FieldInitializerParam(ctor, field, paramNames) is { } param && LocalName(param) is { } local)
+        {
+            return local;
+        }
+
+        return FieldInitializerValueText(ctor, field) is { } text
+            ? LowerFieldInitializer(text, new HashSet<string>(StringComparer.Ordinal))
+            : null;
+    }
+
+    /// <summary>The raw initializer source text a <c>metadata.initializers</c> entry gives <paramref name="field"/>, or <c>null</c>.</summary>
+    private static string? FieldInitializerValueText(FunctionDefinition ctor, string field)
+    {
+        var initializers = MetaList(ctor.Metadata, "initializers");
+        if (initializers is null)
+        {
+            return null;
+        }
+
+        foreach (var init in initializers)
+        {
+            if (init.KindCase == Value.KindOneofCase.StructValue
+                && StructString(init.StructValue, "kind") == "field"
+                && StructString(init.StructValue, "name") == field)
+            {
+                return StructString(init.StructValue, "value");
+            }
+        }
+
+        return null;
     }
 
     /// <summary>The parameter that a <c>metadata.initializers</c> field entry sets <paramref name="field"/> from (the <c>field = param</c> / <c>field = param ?? default</c> shape), or <c>null</c>.</summary>

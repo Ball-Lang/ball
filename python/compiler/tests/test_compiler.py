@@ -140,3 +140,67 @@ def test_missing_entry_fails_loud():
     prog["entryFunction"] = "ghost"
     with pytest.raises(CompileError):
         compile_program(prog)
+
+
+# ── Named-constructor call resolution (issue #527) ───────────────────────────
+
+def _class_program(type_defs, members, body):
+    """A program with `main`'s body plus a class (typeDefs + member functions)."""
+    prog = _program(body)
+    prog["modules"][1]["typeDefs"] = type_defs
+    prog["modules"][1]["functions"].extend(members)
+    return prog
+
+
+def test_named_ctor_call_on_class_reference_resolves(conformance_dir):
+    """``Class.name(args)`` — a call whose packed ``self`` field is a bare
+    reference to a ``TypeDefinition`` short name — resolves to the class's named
+    constructor and records NO compiler error.
+
+    Before the fix ``value_call`` eagerly evaluated the raw ``self`` field
+    through ``reference()``, whose fail-loud path appended ``unresolved
+    reference 'Countdown'`` for every such call site and failed the whole
+    compile — even though the class-static branch that actually fires never uses
+    that value."""
+    src = compile_program(load_program(conformance_dir / "436_recursive_ctor_named.ball.json"))
+    assert "Countdown.b_from(" in src
+    assert "Countdown.pair(" in src
+
+
+def test_named_ctor_dispatch_does_not_beat_a_shadowing_local():
+    """A local binding whose name matches a class short name still wins — the
+    call is a dispatch on that local's *value*, never a class-static call.
+
+    (A regression guard for the lazy-``self_expr`` refactor rather than a
+    red-before-fix case: Python's ``sr in self.type_defs and not
+    self.lookup(sr)`` guard is the reference the other three compilers copy.)"""
+    type_defs = [{
+        "descriptor": {"name": "main:Countdown",
+                       "field": [{"name": "value", "number": 1, "type": "TYPE_INT64"}]},
+        "metadata": {"kind": "class", "fields": [{"name": "value"}]},
+    }]
+    body = {"block": {"statements": [
+        {"let": {"name": "Countdown", "value": _lit_str("ab")}},
+        {"expression": _print({"call": {"function": "contains", "input": {"messageCreation": {
+            "fields": [{"name": "self", "value": {"reference": {"name": "Countdown"}}},
+                       {"name": "arg0", "value": _lit_str("a")}]}}}})},
+    ]}}
+    src = compile_program(_class_program(type_defs, [], body))
+    # The shadowing local's value is dispatched on; no `Countdown.contains`
+    # class-static call is emitted (there is no such classmethod).
+    assert 'ballrt.call_method(Countdown, "contains", "a")' in src
+    assert run_source(src) == "true\n"
+
+
+def test_ctor_initializer_list_is_applied_when_the_ctor_has_a_body(conformance_dir):
+    """A constructor's ``metadata.initializers`` must run before its body, on the
+    unnamed (``messageCreation``) path AND on every named-constructor path."""
+    src = compile_program(
+        load_program(conformance_dir / "438_ctor_initializer_list_with_body.ball.json"))
+    assert 'self.label = "pt"' in src        # unnamed ctor
+    assert 'self.label = "origin"' in src    # named ctor, no params
+    assert 'self.label = "axis"' in src      # named ctor with a `this.` param
+    assert 'self.label = "constants"' in src
+    assert "self.on = True" in src
+    assert "self.ratio = 0.5" in src
+    assert "self.y = -3" in src

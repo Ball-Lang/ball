@@ -993,6 +993,20 @@ public sealed partial class CSharpCompiler
             return Unsupported(call);
         }
 
+        // A NAMED-CONSTRUCTOR call, `Class.name(args)` (issue #527). The Dart
+        // encoder emits it as an ordinary method call whose packed `self` field
+        // is a bare reference to the CLASS name — a static, syntactic name, not
+        // a runtime value — so it resolves at COMPILE time to the class's
+        // constructor impl, and the class reference itself is never compiled as
+        // a value (it is not one; CompileReference would answer with
+        // BallRuntime.UnresolvedReference). SHADOWING WINS: a binding of that
+        // name IS a real value, and the call stays an ordinary dispatch on it.
+        if (SelfFieldClassReference(call) is { } receiverClass
+            && NamedConstructorImpl(receiverClass, call.Function) is { } ctorImpl)
+        {
+            return $"{ctorImpl}({CallArgsWithoutSelf(call)})";
+        }
+
         var input = call.Input is null ? "BallValue.Null" : CompileExpression(call.Input);
         var name = Naming.Sanitize(call.Function);
         var prefix = ResolveUserCallPrefix(call.Module);
@@ -1030,6 +1044,55 @@ public sealed partial class CSharpCompiler
         }
 
         return $"{prefix}{name}({input})";
+    }
+
+    /// <summary>
+    /// The class short name a call's packed <c>self</c> field names, when that
+    /// field is a bare reference to a known user class NOT shadowed by a binding
+    /// in scope — the <c>Class.name(args)</c> receiver shape (issue #527).
+    /// <c>null</c> otherwise.
+    /// </summary>
+    private string? SelfFieldClassReference(FunctionCall call)
+    {
+        if (call.Input is not { ExprCase: Expression.ExprOneofCase.MessageCreation } input)
+        {
+            return null;
+        }
+
+        foreach (var field in input.MessageCreation.Fields)
+        {
+            if (field.Name != "self")
+            {
+                continue;
+            }
+
+            if (field.Value is not { ExprCase: Expression.ExprOneofCase.Reference } reference)
+            {
+                return null;
+            }
+
+            var shortName = reference.Reference.Name;
+            return _typeDefsByShortName.ContainsKey(shortName) && LocalName(shortName) is null
+                ? shortName
+                : null;
+        }
+
+        return null;
+    }
+
+    /// <summary>Compile a call's packed input with its <c>self</c> field dropped — the argument message a constructor impl reads its parameters from.</summary>
+    private string CallArgsWithoutSelf(FunctionCall call)
+    {
+        var rest = new MessageCreation();
+        foreach (var field in call.Input.MessageCreation.Fields)
+        {
+            if (field.Name != "self")
+            {
+                rest.Fields.Add(field);
+            }
+        }
+
+        return rest.Fields.Count == 0 ? "(BallValue)new BallMap()" : CompileMessageCreation(rest);
     }
 
     /// <summary>Whether <paramref name="call"/>'s input is a <c>MessageCreation</c> already carrying an explicit <c>self</c> field (an <c>obj.method(...)</c> call).</summary>

@@ -165,6 +165,16 @@ jobs:
       - name: Release dispatch wiring guard (#361)
         run: bash tools/release/check_release_dispatch_wiring.sh
 
+      # release-cpp.yml is tag-dispatched, so its build matrix is never
+      # exercised by a PR — a dropped leg, an `x64` target pointed at an
+      # Apple-Silicon runner, or a target table in docs/RELEASE.md left behind
+      # by a matrix change all ship a green release that is quietly wrong. This
+      # pins the matrix, the runner label each target's architecture requires,
+      # the asset names the packaging step derives from it, the single-uploader
+      # invariant for the self-host sidecar, and the docs that describe them.
+      - name: Release binary target matrix test (#368)
+        run: bash tools/test/test_release_cpp_targets.sh
+
       # The conformance-corpus total is hand-copied as prose into CLAUDE.md,
       # every AGENTS.md, .claude/rules/*.md, README.md and this workflow's own
       # comments; nothing checked them, so four mutually inconsistent totals

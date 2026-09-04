@@ -57,7 +57,7 @@ build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance
 - **`go install` off the public proxy needs the tags.** `go/<module>/v0.1.0` for all six modules
   must be pushed on one commit before `go install github.com/ball-lang/ball/go/cli/cmd/ball@go/cli/v0.1.0`
   resolves for a real outside consumer; until then the target is still clone-and-build in practice,
-  even though the module shape is now correct and CI proves it (#361). **No `go/**` tag exists as of
+  even though the module shape is now correct and CI proves it (#361). **No `go/` tag exists as of
   v1.64.0.** The tags are cut by `.github/workflows/tag-go-modules.yml`, dispatched from `release.yml`
   on every release; the already-shipped releases need a one-time maintainer backfill
   (`gh workflow run tag-go-modules.yml --ref main`). `tools/release/check_release_dispatch_wiring.sh`

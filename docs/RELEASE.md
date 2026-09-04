@@ -148,7 +148,7 @@ merely the job's `if:`. No run row is created at all, so the dead channel read a
 `tools/release/check_release_dispatch_wiring.sh` (ci.yml's `Proto Checks` job) now
 pins the dispatch contract for all three channels so this cannot recur.
 
-**Status: no `go/**` tags exist yet.** As of v1.64.0 the public proxy has nothing
+**Status: no `go/` tags exist yet.** As of v1.64.0 the public proxy has nothing
 to serve, so `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` does
 **not** resolve — the Go modules remain clone-and-build in practice. The dispatch
 wiring above only covers releases from here on; the already-shipped ones need a

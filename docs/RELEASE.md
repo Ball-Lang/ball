@@ -137,6 +137,7 @@ tag vX.Y.Z exists (cut by release.yml / semantic-release)
   └► gh workflow run release-cpp.yml --ref vX.Y.Z     ← EXPLICIT dispatch
        ├─ build matrix: one `ball` per platform, every verb real
        │    (Dart self-host pregeneration + cli-parity gate + run/info smokes)
+       ├─ per leg: assert the binary's arch matches its target name
        ├─ per leg: tar + sha256 + `gh release upload --clobber`
        ├─ linux-x64 leg only: the self-host C++ sidecar
        └► checksums job: concatenate every `.sha256` into SHA256SUMS.txt
@@ -175,6 +176,21 @@ PR never exercises the matrix. `tools/test/test_release_cpp_targets.sh`
 matrix, each target's runner architecture, the asset names the packaging step
 derives from `matrix.target`, the single-uploader invariant for the self-host
 sidecar, and this table, against each other.
+
+**Rehearsing it before a tag exists.** Dispatch it against a *branch*:
+
+```sh
+gh workflow run release-cpp.yml --ref <branch>
+```
+
+Every leg then runs the full build, the `cli_parity_tests` gate, the
+`run`/`info`/`validate`/`tree` smokes and the architecture assertion, and stops
+at `Determine release tag` with an explicit wrong-ref error. That step is
+placed after all of the above precisely so this rehearsal is useful, and it is
+gated on `github.ref_type == 'tag'` so nothing is ever packaged or published
+from a branch. Use it whenever you change the matrix, add a platform, or touch
+the build steps — it is the only way to find out that a leg works before a
+release depends on it.
 
 [gh-runners]: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 [rimg-13045]: https://github.com/actions/runner-images/issues/13045

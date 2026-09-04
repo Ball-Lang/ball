@@ -130,6 +130,55 @@ lines; the next release commit publishes it. `tools/go-module-proxy/smoke.sh`
 github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
 proxy before any tag exists.
 
+## C++ `ball` binaries lane (GitHub Release assets)
+
+```
+tag vX.Y.Z exists (cut by release.yml / semantic-release)
+  └► gh workflow run release-cpp.yml --ref vX.Y.Z     ← EXPLICIT dispatch
+       ├─ build matrix: one `ball` per platform, every verb real
+       │    (Dart self-host pregeneration + cli-parity gate + run/info smokes)
+       ├─ per leg: tar + sha256 + `gh release upload --clobber`
+       ├─ linux-x64 leg only: the self-host C++ sidecar
+       └► checksums job: concatenate every `.sha256` into SHA256SUMS.txt
+```
+
+| Target (`matrix.target`) | Runner label (`matrix.os`) | Release assets |
+|---|---|---|
+| `linux-x64` | `ubuntu-latest` | `ball-vX.Y.Z-linux-x64.tar.gz` + `.sha256` |
+| `macos-arm64` | `macos-latest` | `ball-vX.Y.Z-macos-arm64.tar.gz` + `.sha256` |
+| `macos-x64` | `macos-15-intel` | `ball-vX.Y.Z-macos-x64.tar.gz` + `.sha256` |
+
+Plus, once per release: `ball-selfhost-cpp-src-vX.Y.Z.tar.gz` + `.sha256`
+(the two Dart-generated C++ sources that give a Dart-free consumer — the vcpkg
+port — the self-hosted `run`/`info`/`validate`/`tree` verbs; see
+`tools/vcpkg-port/README.md`) and `SHA256SUMS.txt`.
+
+**The runner label is load-bearing, not cosmetic.** `macos-latest` is Apple
+Silicon; the Intel x86_64 macOS runner is separately labelled. A `macos-x64`
+leg pointed at an arm64 label would publish an arm64 binary under an x64
+filename — an asset that exists, checksums cleanly, and cannot run on the
+machine it names. `macos-15-intel` is a *standard* runner (4 CPU / 14 GB,
+architecture Intel; standard runners are free and unlimited on public
+repositories, [runners reference][gh-runners]). It replaced `macos-13` — the
+old Intel default, retired 2025-12-04 — and is the **last** x86_64 macOS image
+Actions will offer, available until August 2027
+([actions/runner-images#13045][rimg-13045]). When it retires, so does this leg.
+
+**Why the explicit dispatch:** same GITHUB_TOKEN recursion protection as the
+npm lane above — a `push: tags:` trigger would never fire for an automated
+release. `release: published` is kept only as a fallback for a manually
+published release.
+
+**Not PR-gated, and cannot be.** The workflow only runs against a tag, so a
+PR never exercises the matrix. `tools/test/test_release_cpp_targets.sh`
+(ci.yml's always-on `Proto Checks` job) is the PR-time stand-in: it pins the
+matrix, each target's runner architecture, the asset names the packaging step
+derives from `matrix.target`, the single-uploader invariant for the self-host
+sidecar, and this table, against each other.
+
+[gh-runners]: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+[rimg-13045]: https://github.com/actions/runner-images/issues/13045
+
 ## Failure recovery
 
 - **publish-npm failed mid-run:** nothing published (all publishes run after

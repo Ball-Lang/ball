@@ -2,8 +2,8 @@ name: Release C++ binaries
 
 # Issue #368 (epic #361 Wave 3): build the unified `ball` CLI binary (PR #374 —
 # compile/encode/run + self-hosted info/validate/tree/version verbs) for
-# linux-x64 and macos-arm64, checksum it, and attach it to the GitHub Release
-# for the tag that was just cut.
+# linux-x64, macos-arm64 and macos-x64, checksum it, and attach it to the
+# GitHub Release for the tag that was just cut.
 #
 # It also publishes `ball-selfhost-cpp-src-${tag}.tar.gz` — the two Dart-generated
 # C++ sources (`cli_rt.h`, `engine_rt.cpp`) that gate the self-hosted verbs. This
@@ -40,9 +40,32 @@ jobs:
   # Build the unified `ball` binary with EVERY verb real (compile/encode/run +
   # the self-hosted info/validate/tree/version verbs) — the same recipe
   # regression-gates.yml's `cpp-selfhost-tally` job uses to prove the CI
-  # binary, extended with packaging + checksumming. linux-x64 + macos-arm64
-  # per issue #368 ("macos (arm64 at minimum)"); macos-latest is Apple Silicon
-  # (confirmed via actions/runner-images — see PR body).
+  # binary, extended with packaging + checksumming.
+  #
+  # Targets, per issue #368 ("linux and macos (arm64/x64)"):
+  #
+  #   linux-x64    ubuntu-latest
+  #   macos-arm64  macos-latest      — the `macos-latest` label is Apple
+  #                                    Silicon (arm64), NOT Intel
+  #   macos-x64    macos-15-intel    — the Intel x86_64 macOS standard runner
+  #
+  # The runner label is the whole correctness question for the two macOS legs:
+  # a leg named `macos-x64` running on an arm64 label would publish an arm64
+  # binary under an x64 filename — a release asset that exists, checksums
+  # cleanly, and cannot execute on the machine it names. GitHub's runner
+  # reference lists `macos-15-intel` as a STANDARD runner (4 CPU / 14 GB /
+  # Architecture "Intel"), and standard runners are "free and unlimited on
+  # public repositories":
+  #   https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+  # It replaced `macos-13`, the old Intel default, which was retired
+  # 2025-12-04 ("GitHub Actions: macOS 13 runner image is closing down"), and
+  # is the last x86_64 macOS image Actions will offer — available until
+  # August 2027 (actions/runner-images#13045). When it goes, the macos-x64 leg
+  # goes with it; that is an upstream end-of-life, not a choice this repo makes.
+  #
+  # tools/test/test_release_cpp_targets.sh pins this matrix, each target's
+  # runner architecture, the asset names below and docs/RELEASE.md's table
+  # against each other on every PR — this workflow itself never runs on one.
   # ──────────────────────────────────────────────────
   build:
     name: Build ball (${{ matrix.target }})
@@ -54,6 +77,8 @@ jobs:
             target: linux-x64
           - os: macos-latest
             target: macos-arm64
+          - os: macos-15-intel
+            target: macos-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     steps:
@@ -189,10 +214,12 @@ jobs:
           cat "${archive}.sha256"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
-      # Attach straight from the matrix leg (each leg's filename is unique, so
-      # concurrent uploads to the same release from linux-x64/macos-arm64
-      # never race each other). --clobber lets a re-dispatched run replace a
-      # previous attempt's assets for the same tag.
+      # Attach straight from the matrix leg. Each leg's filename carries its
+      # own `matrix.target`, so concurrent uploads to the same release from
+      # linux-x64/macos-arm64/macos-x64 never race each other — the names are
+      # distinct by construction, which is why adding a leg needs no upload
+      # serialization. --clobber lets a re-dispatched run replace a previous
+      # attempt's assets for the same tag.
       - name: Upload binary + checksum to the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -213,9 +240,12 @@ jobs:
       # fully-verbed `ball` (see that file's `selfhost` feature).
       #
       # Emitted by Ball's own compiler from Ball source, so the archive is
-      # PLATFORM-INDEPENDENT — uploaded from the linux-x64 leg only. Both matrix
-      # legs generate byte-identical content, and two legs racing `gh release
-      # upload --clobber` on ONE filename is a genuine race; one uploader is not.
+      # PLATFORM-INDEPENDENT — uploaded from the linux-x64 leg only. Every
+      # matrix leg generates byte-identical content, and legs racing `gh release
+      # upload --clobber` on ONE filename is a genuine race; one uploader is
+      # not. That is why this guard is `matrix.target == 'linux-x64'` and not
+      # `runner.os == 'Linux'` or a per-OS condition: adding a platform must
+      # never add a second uploader.
       #
       # The filename must resolve to exactly what the portfile's
       # `v${VERSION}`-derived URL asks for, or every future release silently

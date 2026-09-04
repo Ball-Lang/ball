@@ -255,6 +255,10 @@ else
   ok "docs/RELEASE.md documents the C++ binaries lane"
 fi
 
+# The `|| true` is value-capture only: `grep` exits 1 on zero matches, and an
+# unset capture under `set -u` would abort the run instead of FAILing the case
+# below. The empty value IS asserted — it is exactly the "table has no rows"
+# failure — so nothing is swallowed here.
 doc_rows="$(printf '%s\n' "$DOC_TABLE" | grep -E '^\| `[a-z0-9-]+` +\| `[a-z0-9-]+` +\|' || true)"
 doc_targets="$(printf '%s\n' "$doc_rows" | sed -nE 's/^\| `([a-z0-9-]+)` .*/\1/p' | sort | tr '\n' ' ' | sed -e 's/ *$//')"
 if [ -n "$doc_targets" ] && [ "$doc_targets" = "$matrix_targets" ]; then

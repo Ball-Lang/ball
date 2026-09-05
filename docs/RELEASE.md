@@ -1,9 +1,18 @@
 # Release & Publishing Pipeline
 
-How a commit on `main` becomes published packages. Two independent lanes —
-npm (TypeScript) and pub.dev (Dart) — both cut from the same trunk, both
-fully automated. Verified end-to-end 2026-07-02 (npm 1.3.4; pub.dev
-0.3.0+1 across all nine packages).
+How a commit on `main` becomes published packages. Seven lanes — npm, pub.dev,
+PyPI, Go modules, C++ binaries, crates.io and NuGet — all cut from the same
+trunk, **all fully automated with no human step in any critical path**.
+
+> **The invariant that matters.** No release lane may contain a manual action.
+> The pub.dev lane used to: `melos version` opened a rolling `chore/release` PR
+> that a maintainer squash-merged. Every automated part of that lane worked and
+> stayed green, and it still shipped nothing from 2026-07-06 to 2026-09-05,
+> because PR #272 was never merged (issue #551). A human step that stops
+> happening is invisible — the automation *around* it keeps reporting success.
+> Two guards now pin this: `tools/release/check_pubdev_release_wiring.sh` (every
+> PR — the lane's shape) and `.github/workflows/pubdev-freshness.yml` (weekly —
+> pub.dev's live state versus `main`).
 
 ## npm lane (@ball-lang/engine, cli, compiler, encoder)
 
@@ -44,35 +53,97 @@ publish steps, add a `pkgRoot` entry to `.releaserc.json`.
 
 ## pub.dev lane (nine Dart packages)
 
+**Independent per-package versions**, one `semantic-release` run per package, no
+rolling PR and no human step (issue #551).
+
 ```
 push to main
-  └► release-prepare.yml (skipped on chore(release) commits)
-       └─ melos version → rolling release PR on the fixed chore/release branch
-          (resets to main + re-applies bumps on every push; exactly one open PR)
-
-squash-merge the release PR              ← the ONLY manual step
-  └► release-tag.yml (fires on the chore(release) merge commit)
-       ├─ melos tag: <pkg>-v<version> per changed package
-       └─ gh workflow run release-publish.yml --ref <pkg>-v<version>  (per package)
-            └► release-publish.yml: melos-action publish → pub.dev OIDC
+  └► release.yml → semantic-release (as in the npm lane above)
+       └► gh workflow run pubdev-release.yml --ref main    ← EXPLICIT dispatch
+            └► pubdev-release.yml: for each of the nine packages, IN ORDER,
+                 semantic-release with .github/release/<pkg>.releaserc.json
+                   ├─ only-package-commits.mjs: only commits touching
+                   │  dart/<pkg>/ count toward this package's version
+                   ├─ prepareCmd
+                   │    ├─ set_manifest_version.mjs  → dart/<pkg>/pubspec.yaml
+                   │    ├─ sync_pubspec_deps.mjs     → re-pin sibling ranges
+                   │    └─ (ball_cli only) gen_version.dart → version.g.dart
+                   ├─ @semantic-release/changelog → dart/<pkg>/CHANGELOG.md
+                   ├─ @semantic-release/git  → chore(release): <pkg> X.Y.Z [skip ci]
+                   │                            + tag <pkg>-vX.Y.Z
+                   └─ publishCmd
+                        └► gh workflow run release-publish.yml --ref <pkg>-vX.Y.Z
+                             └► release-publish.yml
+                                  ├─ melos-action publish → pub.dev OIDC
+                                  └─ verify-published (separate job): poll the
+                                     pub.dev API for the version, resolve it as
+                                     an external consumer, and for ball_cli
+                                     `dart pub global activate` + run it
 ```
 
-**Ordering:** dispatches run concurrently (no `--order-dependents` — the
-workspace has dev-dependency cycles that hard-fail melos's topological sort,
-and dispatch order wouldn't serialize the runs anyway). Steady-state releases
-are order-independent because caret ranges are satisfied by the previously
-published versions. Only a catch-up release for a package whose deps have
-never reached pub.dev needs manual, tiered dispatch:
+**Why `--ref main` and not the `vX.Y.Z` tag** the three sibling dispatches use:
+they build a released tree, this one *runs* semantic-release, whose
+`@semantic-release/git` step pushes commits and tags to a **branch**. A detached
+tag ref leaves it no branch to release from. It is dispatched (not
+`push:`-triggered) so it starts only after `release.yml` has finished pushing its
+own release commit — two push-triggered releasers would race main.
+
+**Why sequential, never a matrix:** each package's `@semantic-release/git` pushes
+its own commit to main; concurrent pushes lose to non-fast-forward rejections.
+
+**Why deps-first order is load-bearing:** `sync_pubspec_deps.mjs` re-pins each
+package's constraints on its siblings (`ball_base: ^0.3.0+3` → `^0.4.0`) by
+reading their versions **from the working tree**. `melos version` used to do this
+as part of one workspace-wide run; semantic-release's per-package model has no
+workspace view. Because `ball_base` releases and commits before `ball_cli`
+prepares, `ball_cli` picks up the current range. Without it the lane would
+publish `ball_cli 0.4.0` still requiring `ball_base ^0.3.0+3` — resolvable,
+green, and semantically wrong (a caret on a `0.x` version pins the minor, so
+`^0.3.0+3` never admits `0.4.0`). `verify-published`'s external-consumer
+resolution is the backstop that catches it if the sync ever regresses.
+
+**Version continuity:** the existing `<pkg>-v0.3.*` tags are the anchors, so
+there is no seeding and no reset — `ball_engine-v0.3.0+6` → `0.4.0`. The Dart
+`+N` build-number suffix is intentionally dropped going forward
+(`set_manifest_version.mjs` emits a pure `X.Y.Z`).
+
+**Ordering of the *publishes* themselves:** none, deliberately. `publishCmd`
+dispatches and returns, so the nine publish runs overlap. pub.dev resolves a
+package's caret ranges against **previously published** versions of its
+dependencies, so once both sides of a dev-dependency cycle
+(`ball_base`↔`ball_protobuf`, `ball_engine`↔`ball_encoder`) have published at
+least once — true for all nine since 2026-07-02 — steady-state releases are
+order-independent. Do not add ordering logic. The one case that needs it is a
+catch-up release for a package whose deps have *never* reached pub.dev, and that
+is manual, tiered dispatch:
 
 ```sh
 gh workflow run release-publish.yml --ref <pkg>-v<version>   # deps first
 ```
 
-**pub.dev config per package:** Admin → Automated publishing → GitHub
-Actions, repository `Ball-Lang/ball`, tag pattern `<pkg>-v{{version}}`.
-A package's very first publish must be manual (`dart pub publish` from its
-directory) — the admin page doesn't exist before that. See issue #152 for
-the two packages still awaiting the config (ball_rpc, ball_protobuf_gen).
+**pub.dev config per package:** Admin → Automated publishing → GitHub Actions,
+repository `Ball-Lang/ball`, tag pattern `<pkg>-v{{version}}` — which is exactly
+each config's `tagFormat`, so nothing pub.dev-side changed at cutover. All nine
+are configured (issue #152, closed). A package's very first publish must be
+manual (`dart pub publish` from its directory) — the admin page doesn't exist
+before that.
+
+**On pub.dev's "must be triggered by pushing a git tag" rule**
+(<https://dart.dev/tools/pub/automated-publishing>): `release-publish.yml` is
+invoked with `gh workflow run --ref <pkg>-v<version>`, a `workflow_dispatch` at a
+**tag ref**. pub.dev matches the OIDC token's `ref` claim against the configured
+tag pattern, and accepts this — every real publish this repo has done arrived
+that way (e.g. runs `28782924129`–`28782934612`, 2026-07-06, published
+`ball_cli`/`ball_compiler`/`ball_engine` at `0.3.0+6`). The explicit dispatch is
+required because the tag is created with `GITHUB_TOKEN`, and GitHub's recursion
+protection means a `push: tags:` trigger never fires for it.
+
+**Adding a tenth Dart package:** add `.github/release/<pkg>.releaserc.json`
+(copy any of the nine), list it in `pubdev-release.yml`'s `PACKAGES` loop in
+dependency order, and configure Automated publishing on pub.dev after its first
+manual publish. `tools/release/check_pubdev_release_wiring.sh` fails on every PR
+until the first two are done — it discovers publishable packages from
+`dart/*/pubspec.yaml`, so a package cannot silently fall outside the lane.
 
 ## PyPI lane (`ball-lang` — the whole Python toolchain in ONE wheel)
 
@@ -138,7 +209,8 @@ first) — it is not the repo's `vX.Y.Z` release version, which only selects the
 commit the tags land on.
 
 **Why the explicit dispatch** — same reason as npm and C++ above, and this lane
-learned it the expensive way. The job originally lived in `release-tag.yml` behind
+learned it the expensive way. The job originally lived in `release-tag.yml`
+(since deleted, #551) behind
 `on: push: branches:[main]` + `if: contains(head_commit.message, 'chore(release)')`.
 semantic-release commits `chore(release): X.Y.Z [skip ci]`, and GitHub's skip-ci
 recursion protection suppresses the **entire workflow run** on such a push — not
@@ -251,27 +323,70 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   that package with its tag (see above); the others are unaffected.
 - **"publishing from github is not enabled":** pub.dev-side Automated
   publishing config missing for that package (uploader-only, see above).
+- **`pubdev-release.yml` failed part-way through the nine packages:** the ones
+  that already released are done (tag pushed, publish dispatched); nothing is
+  half-applied, because each package's commit+tag+dispatch is its own
+  semantic-release run. Re-dispatch the workflow — `gh workflow run
+  pubdev-release.yml --ref main`; packages with no new qualifying commits
+  compute "no release" and are skipped.
+- **`verify-published` red but `publish` green:** the upload happened and the
+  package is not usable. Most likely a sibling constraint no published version
+  satisfies (check `sync_pubspec_deps.mjs` ran in that package's prepare log) or
+  a dependency whose own publish failed. Fix forward and cut a new patch —
+  pub.dev versions are immutable.
+- **`pubdev-freshness.yml` red:** pub.dev is behind `main`. Check
+  `gh run list --workflow=pubdev-release.yml` for a failed or never-dispatched
+  run. This is the alarm issue #551 did not have.
+- **Rehearsing without publishing:** `gh workflow run pubdev-release.yml --ref
+  main -f dry_run=true` computes every package's next version and creates no
+  tags, commits, releases or publishes.
+
+## The guards, and what each one can and cannot see
+
+A release channel can fail in three distinct ways, and this repo has now been
+bitten by all three. Each guard covers exactly one; none of them substitutes for
+another.
+
+| Guard | Runs | Catches | Blind to |
+|---|---|---|---|
+| `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
+| `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing | whether a release was actually cut — it is entirely static |
+| `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
+| `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version | anything about packages this run did not publish |
+
+The 30-day staleness bound is a judgement call, not a release cadence: it says
+"if this package's code has been moving for over a month and pub.dev has not,
+someone should look". Tune it with `MAX_STALE_DAYS` (env, or the workflow's
+dispatch input).
 
 ---
 
-# Release v2 — per-package semantic-release (gated, not yet live)
+# Release v2 — per-package semantic-release (Dart slice LIVE; the rest gated)
 
 Everything above is the **current, live** release flow. This section documents
-the **v2** flow that will replace it: a per-package matrix of plain
-`semantic-release` configs with **independent per-package versions**, fully
-automated on push to main. v2 lands **alongside** the live flow and is **gated
-OFF** — merging it changes no release behavior. The cutover (flip the gate,
-delete the Melos flow) is a later, separate PR.
+the **v2** model: a per-package matrix of plain `semantic-release` configs with
+**independent per-package versions**, fully automated.
+
+**Status.** The **nine Dart / pub.dev configs cut over in #551** and are live in
+`.github/workflows/pubdev-release.yml` (see the pub.dev lane above) — the Melos
+rolling-PR flow, `release-prepare.yml`, `release-tag.yml` and the root
+`pubspec.yaml`'s `melos: command: version:` block are **deleted**. The remaining
+slice — npm (`ts-*`), crates.io (`rust-crates`) and the C++/meta `repo` line —
+is still in `release-v2.yml`, still **gated OFF**; those lanes are not broken
+and were deliberately left out of the pub.dev fix to keep its blast radius to
+the lane that was.
 
 ## Why
 
-The live flow runs **two** release mechanisms side by side: semantic-release
+The live flow ran **two** release mechanisms side by side: semantic-release
 (npm, lockstep `vX.Y.Z`) and Melos (pub.dev, a rolling `chore/release` PR that a
-human squash-merges). They both write `CHANGELOG.md`, which made the Melos PR go
+human squash-merged). They both wrote `CHANGELOG.md`, which made the Melos PR go
 perpetually conflicting after every semantic-release commit (issue #194), and the
-human merge is the one manual step in an otherwise-automated pipeline. v2 unifies
-**every** publishable package (npm + pub.dev + crates.io + the C++ binary) onto
-one mechanism — `semantic-release` — with no manual step.
+human merge was the one manual step in an otherwise-automated pipeline — the step
+that then stopped happening for two months (issue #551). v2 unifies **every**
+publishable package (npm + pub.dev + crates.io + the C++ binary) onto one
+mechanism — `semantic-release` — with no manual step. pub.dev is done; the rest
+remains.
 
 ## Model
 
@@ -294,24 +409,30 @@ One `semantic-release` config per publishable package under
   `@semantic-release/exec` (`prepareCmd` writes the manifest version via
   `tools/release/set_manifest_version.mjs`; `publishCmd` dispatches the existing
   OIDC publish workflow) + `@semantic-release/git` + `@semantic-release/github`.
+  The Dart configs' `prepareCmd` additionally runs
+  `tools/release/sync_pubspec_deps.mjs`, which re-pins that package's caret
+  ranges on its **workspace siblings** — the one thing `melos version` did that
+  a per-package model has no view of. `ball_cli` also regenerates
+  `dart/cli/lib/src/version.g.dart` (issue #363) and commits it.
 - npm packages keep `@semantic-release/npm` (`npmPublish: false` — bump the
   `package.json` only; the actual publish stays in `publish-npm.yml`), exactly as
   the live `.releaserc.json` does today.
 
-`.github/workflows/release-v2.yml` runs `semantic-release` **once per package,
-SEQUENTIALLY** (each package's `@semantic-release/git` pushes a `chore(release):
-… [skip ci]` commit to main; concurrent pushes race into non-fast-forward
-rejections). Recursion protection is preserved: the tag semantic-release pushes
-is created with `GITHUB_TOKEN`, so the publish backends' `push: tags:` triggers
-do **not** fire — each config's `publishCmd` therefore **explicitly dispatches**
-its backend with `gh workflow run --ref <tag>`, the same pattern the live
-`release.yml` / `release-tag.yml` already use.
+`.github/workflows/pubdev-release.yml` (Dart, live) and
+`.github/workflows/release-v2.yml` (the rest, gated) each run `semantic-release`
+**once per package, SEQUENTIALLY** (each package's `@semantic-release/git`
+pushes a `chore(release): … [skip ci]` commit to main; concurrent pushes race
+into non-fast-forward rejections). Recursion protection is preserved: the tag
+semantic-release pushes is created with `GITHUB_TOKEN`, so the publish backends'
+`push: tags:` triggers do **not** fire — each config's `publishCmd` therefore
+**explicitly dispatches** its backend with `gh workflow run --ref <tag>`, the
+same pattern `release.yml` already uses for npm, C++ and Go.
 
 ### The 15 packages + version continuity
 
 | Config | tagFormat | Ecosystem | Continuity |
 |---|---|---|---|
-| `ball_base`,`ball_engine`,`ball_compiler`,`ball_cli`,`ball_encoder`,`ball_resolver`,`ball_protobuf`,`ball_protobuf_gen`,`ball_rpc` | `<pkg>-v${version}` | pub.dev | existing `<pkg>-v0.3.*` tags are the anchors → **no seeding**. pub.dev Automated-publishing pattern `<pkg>-v{{version}}` keeps working unchanged. `+N` build metadata is dropped going forward (`0.3.0+6` → `0.4.0`; not a reset). |
+| `ball_base`,`ball_engine`,`ball_compiler`,`ball_cli`,`ball_encoder`,`ball_resolver`,`ball_protobuf`,`ball_protobuf_gen`,`ball_rpc` | `<pkg>-v${version}` | pub.dev — **LIVE** (#551) | existing `<pkg>-v0.3.*` tags are the anchors → **no seeding**. pub.dev Automated-publishing pattern `<pkg>-v{{version}}` keeps working unchanged. `+N` build metadata is dropped going forward (`0.3.0+6` → `0.4.0`; not a reset). |
 | `ts-engine`,`ts-cli`,`ts-compiler`,`ts-encoder` | `@ball-lang/<pkg>-v${version}` | npm | new per-package format — **must seed** at the current published version (see prerequisites), else the first run defaults to `1.0.0` (a regression below the live line). |
 | `rust-crates` | `rust-crates/v${version}` | crates.io | **lockstep** — one config for the whole Rust workspace (per the locked maintainer decision; de-lockstep is a later follow-up). The anchor tag `rust-crates/v0.1.0` **already exists** on origin (from the #403 rename / #366 crates.io work), so **no seeding is needed** — the config continues from `0.1.0`. The `/` deliberately dodges the pub.dev `*-v[0-9]…` tag filter. |
 | `repo` | `v${version}` | GitHub Release (C++ binary) | continues the existing `vX.Y.Z` line (`v1.42.0` → next); path-scoped to `cpp/**`, drives `release-cpp.yml`. **No seeding.** |
@@ -322,12 +443,19 @@ workspace-internal), and the `publish = false` Rust tool crates.
 
 ## Gating
 
+This applies to the **still-gated** slice only (`ts-*`, `rust-crates`, `repo`).
 `release-v2.yml` is `workflow_dispatch`-only (no `push:` trigger — it cannot fire
 on a merge). A **dry-run** is always allowed; a **real** release additionally
 requires the repo variable `RELEASE_V2 == 'true'`. With `RELEASE_V2` unset, a
 non-dry-run dispatch is skipped and the live flow stays authoritative. It creates
-no tags/commits/releases in dry-run and never modifies the live
-`release.yml`/`release-prepare.yml`/`release-tag.yml`/`.releaserc.json`.
+no tags/commits/releases in dry-run and never modifies `release.yml` or the root
+`.releaserc.json`.
+
+The nine Dart configs are **not** in `release-v2.yml` any more — they are live in
+`pubdev-release.yml`, which is their single owner.
+`tools/release/check_pubdev_release_wiring.sh` fails if any other workflow starts
+driving them too, because two drivers for one package cut duplicate tags and
+double-bump the same pubspec.
 
 ## Dry-run evidence (semantic-release 25.0.6)
 
@@ -352,7 +480,7 @@ root for each `<pkg>`:
 history spawning one `git diff-tree` per commit and is slow; on CI Linux and for
 seeded packages it is fast.)
 
-## Human prerequisites (do NOT perform as part of the alongside PR)
+## Human prerequisites for the REMAINING (npm / crates / repo) slice
 
 1. **Seed the npm per-package git tags** at the **current** published npm
    version, then push:
@@ -360,37 +488,44 @@ seeded packages it is fast.)
    the `1.0.0` first release. **Dart, Rust, and the `repo` line need none** —
    their anchor tags (`<pkg>-v0.3.*`, `rust-crates/v0.1.0`, `v1.42.0`) already
    exist.
-2. **pub.dev Automated-publishing** for the uploader-only packages `ball_rpc`,
-   `ball_protobuf_gen`, `ball_protobuf` (issue #152): repo `Ball-Lang/ball`, tag
-   pattern `<pkg>-v{{version}}` — required before their `publishCmd` can publish.
+2. **pub.dev Automated-publishing**: done for all nine packages (issue #152,
+   closed) — repo `Ball-Lang/ball`, tag pattern `<pkg>-v{{version}}`, which is
+   exactly each config's `tagFormat`. Nothing pub.dev-side changed at the #551
+   cutover. If a package's admin page ever shows this **disabled**, its next
+   publish fails with "publishing from github is not enabled"; re-enable it and
+   re-dispatch `gh workflow run release-publish.yml --ref <pkg>-v<version>`.
 3. **crates.io** (issue #366): done. The `ball-lang-*` crates were bootstrapped at
    0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is now configured for all
    five and the token fallback has been removed (OIDC is the only auth path), so
    the `CARGO_REGISTRY_TOKEN` secret can be deleted.
 4. **Confirm the release bot may push** `chore(release): … [skip ci]` commits +
    tags to `main` with `GITHUB_TOKEN` (the live npm semantic-release already
-   does). `RELEASE_PAT` is likely **removable** — it existed only for the deleted
-   Melos `create-pull-request` flow.
+   does, and since #551 so does the Dart lane). **`RELEASE_PAT` is now
+   removable** — its only consumer was `release-prepare.yml`'s
+   `create-pull-request` step, deleted with that workflow.
 
-## Cutover checklist (a later, separate PR)
+## Cutover checklist for the remaining slice (a later, separate PR)
 
-1. Do the prerequisites above (seed tags; pub.dev configs; crates.io bootstrap).
+The Dart slice is done; items below are what is left for npm / crates.io / the
+C++ `repo` line.
+
+1. Do the prerequisites above (seed the npm tags).
 2. Split `publish-npm.yml` to accept a `package` input and publish one package
    per dispatch (the ts configs already pass `-f package=<name>`; **the current
    `publish-npm.yml` has no such input yet** — this split is a cutover task, and
    the `publishCmd` never runs before cutover so it is not a live break).
-3. `ball_cli` only: `dart/cli/lib/src/version.g.dart` is generated from
-   `dart/cli/pubspec.yaml` (issue #363) and is guarded by a CI `gen_version.dart
-   --check`. A `ball_cli` version bump must regenerate it, or that guard fails on
-   the next push. At cutover, add Dart SDK setup (+ `dart pub get`) to the release
-   job and extend `ball_cli.releaserc.json`'s `prepareCmd` with
-   `dart run tool/gen_version.dart`, adding `dart/cli/lib/src/version.g.dart` to its
-   `@semantic-release/git` assets. (Left out here so all 9 Dart configs stay
-   uniform while the release job has no Dart toolchain.)
+3. ~~`ball_cli` version.g.dart regeneration~~ — **done in #551**:
+   `ball_cli.releaserc.json`'s `prepareCmd` runs `dart run tool/gen_version.dart`
+   after the pubspec bump, `dart/cli/lib/src/version.g.dart` is in its
+   `@semantic-release/git` assets, and `pubdev-release.yml` sets up a Dart SDK.
+   `check_pubdev_release_wiring.sh` pins all three.
 4. Set `RELEASE_V2=true`, rename `release-v2.yml` → `release.yml`, and in the
-   same PR delete the Melos flow: `release-prepare.yml`, `release-tag.yml`, the
-   root `.releaserc.json`, `PACKAGES_CHANGELOG.md`, and the `pubspec.yaml`
-   `melos: command: version:` block (Melos stays as a dev task-runner).
+   same PR delete the root `.releaserc.json`. (`release-prepare.yml`,
+   `release-tag.yml` and the `pubspec.yaml` `melos: command: version:` block are
+   already gone — #551. `PACKAGES_CHANGELOG.md` is kept as the frozen history of
+   the Melos lane; the live Dart changelogs are the per-package
+   `dart/*/CHANGELOG.md` files semantic-release writes. Melos stays as a dev
+   task-runner.)
 5. **Rollback** = revert that one PR. The publish backends
    (`release-publish.yml`, `publish-npm.yml`, `publish-crates.yml`,
    `release-cpp.yml`) are untouched throughout, so publishing works under either

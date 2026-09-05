@@ -2,9 +2,15 @@ name: Release v2 (per-package, gated)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 0/1 of the release-unification (docs/RELEASE.md): the per-package
-# semantic-release matrix, running ALONGSIDE the live Melos + root-.releaserc.json
-# flow WITHOUT changing it. This workflow is GATED OFF and never fires
-# automatically:
+# semantic-release matrix, running ALONGSIDE the live root-.releaserc.json flow
+# WITHOUT changing it. This workflow is GATED OFF and never fires automatically:
+#
+# SCOPE NOTE (#551): the nine Dart / pub.dev configs have already CUT OVER and
+# no longer belong to this workflow — they run live from
+# .github/workflows/pubdev-release.yml, dispatched by release.yml. What is left
+# here is the still-gated npm (`ts-*`), crates.io (`rust-crates`) and C++/meta
+# (`repo`) slice. Those lanes are not broken and were deliberately left alone.
+#
 #   - trigger is workflow_dispatch ONLY (no push) — it cannot run on a merge; and
 #   - a REAL (non-dry-run) release additionally requires the repo variable
 #     RELEASE_V2 == 'true'. With RELEASE_V2 unset, only --dry-run is allowed.
@@ -22,7 +28,7 @@ name: Release v2 (per-package, gated)
 # (release-publish.yml / publish-npm.yml / publish-crates.yml / release-cpp.yml)
 # do NOT fire. Each config's @semantic-release/exec publishCmd therefore
 # EXPLICITLY dispatches its backend with `gh workflow run --ref <tag>` — the same
-# proven pattern release.yml / release-tag.yml already use.
+# proven pattern release.yml / pubdev-release.yml already use.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -154,16 +160,12 @@ jobs:
           # Dependency order (deps before dependents). Steady-state releases are
           # order-independent — caret ranges resolve against previously-published
           # versions — so order only matters for a catch-up/first release.
+          # The nine Dart / pub.dev configs are NOT listed here. They went live
+          # in .github/workflows/pubdev-release.yml (#551) and that workflow is
+          # their single owner; running them from here as well would cut
+          # duplicate tags and double-bump the same pubspecs.
+          # tools/release/check_pubdev_release_wiring.sh enforces that.
           PACKAGES="
-            ball_base
-            ball_resolver
-            ball_protobuf
-            ball_protobuf_gen
-            ball_rpc
-            ball_compiler
-            ball_encoder
-            ball_engine
-            ball_cli
             ts-engine
             ts-cli
             ts-compiler

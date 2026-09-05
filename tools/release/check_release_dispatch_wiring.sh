@@ -33,7 +33,6 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 RELEASE="$WORKFLOWS/release.yml"
-RELEASE_TAG="$WORKFLOWS/release-tag.yml"
 
 # Every workflow that must react to a release side effect. Adding a channel here
 # without wiring its dispatch is a hard failure, by design.
@@ -55,12 +54,10 @@ no() {
   for line in "$@"; do printf '  %s\n' "$line"; done
 }
 
-for f in "$RELEASE" "$RELEASE_TAG"; do
-  [ -f "$f" ] || {
-    echo "::error::missing $f"
-    exit 1
-  }
-done
+[ -f "$RELEASE" ] || {
+  echo "::error::missing $RELEASE"
+  exit 1
+}
 
 # ── 1..4 per target. ──────────────────────────────────────────────────────
 for target in $TARGETS; do
@@ -120,13 +117,31 @@ done
 # tag-go-modules lived in release-tag.yml behind `on: push: branches:[main]` +
 # `if: contains(head_commit.message, 'chore(release)')`. That shape is proven
 # unreachable for `chore(release): X.Y.Z [skip ci]` commits; re-adding it would
-# silently resurrect the dead channel next to the live one.
-if grep -q 'tag-go-modules' "$RELEASE_TAG"; then
-  no "release-tag.yml no longer carries a tag-go-modules job" \
-    "release-tag.yml is push-triggered, so a tag-go-modules job there can never fire on a semantic-release commit" \
-    "Go tagging lives in .github/workflows/tag-go-modules.yml, dispatched from release.yml"
+# silently resurrect the dead channel next to the live one. release-tag.yml is
+# gone entirely since #551, so this now checks the general case: nothing but the
+# channel's own workflow and release.yml's dispatch may mention it.
+# Matched against the JOB declaration and the dispatch command only, never
+# against prose — several workflows legitimately describe this history in
+# comments.
+stray=()
+for wf in "$WORKFLOWS"/*.yml; do
+  [ -f "$wf" ] || continue
+  [ "$(basename "$wf")" = "tag-go-modules.yml" ] && continue
+  # A job named `tag-go-modules:` at job indentation, anywhere but its own file.
+  grep -qE '^[[:space:]]{2}tag-go-modules:' "$wf" && stray+=("$(basename "$wf"): declares a tag-go-modules job")
+  # An actual dispatch (not a comment) from anywhere but release.yml.
+  if [ "$(basename "$wf")" != "release.yml" ]; then
+    sed 's/#.*$//' "$wf" | grep -qF 'gh workflow run tag-go-modules.yml' &&
+      stray+=("$(basename "$wf"): dispatches tag-go-modules.yml")
+  fi
+done
+if [ "${#stray[@]}" -eq 0 ]; then
+  ok "Go module tagging lives only in tag-go-modules.yml, dispatched only from release.yml"
 else
-  ok "release-tag.yml no longer carries a tag-go-modules job"
+  no "Go module tagging lives only in tag-go-modules.yml, dispatched only from release.yml" \
+    "${stray[@]}" \
+    "a push-triggered workflow can never fire on a semantic-release commit ([skip ci] suppresses the run)," \
+    "which is how the channel shipped zero tags across five releases (#361)"
 fi
 
 # ── 6. This guard is itself wired into an always-run CI job. ──────────────

@@ -1,0 +1,164 @@
+name: Release Dart packages (pub.dev)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The pub.dev lane, fully automated (#551).
+#
+# WHAT THIS REPLACED: `release-prepare.yml` ran Melos on every push to main and
+# refreshed one rolling `chore/release` PR; a maintainer squash-merged it; only
+# then did `release-tag.yml` tag each package and dispatch `release-publish.yml`.
+# Every automated link in that chain worked and stayed green — and the lane
+# still shipped nothing between 2026-07-06 and 2026-09-05, because the rolling
+# PR (#272) was never merged. It was the only one of this repo's seven release
+# channels with a human in the critical path, and a human step that stops
+# happening is invisible: the automation around it keeps reporting success.
+#
+# THE MODEL NOW: one `semantic-release` config per publishable Dart package
+# (`.github/release/<pkg>.releaserc.json`), each with its own `<pkg>-vX.Y.Z` tag
+# line and a path-scoped commit filter, run here once per package. No rolling
+# PR, no `melos version`, no human step. This is the Dart slice of the
+# per-package model documented under "Release v2" in docs/RELEASE.md — landed
+# narrowly for pub.dev because pub.dev is the lane that was broken; npm, Go,
+# C++, crates.io, PyPI and NuGet are untouched and keep their current flows.
+#
+# WHY workflow_dispatch AND NOT `push: branches: [main]`:
+#   `release.yml` is already push-triggered and its semantic-release step pushes
+#   `chore(release): X.Y.Z [skip ci]` to main. If this workflow also fired on
+#   that same push, two jobs would race commits onto main and lose to
+#   non-fast-forward rejections. Instead `release.yml` dispatches this workflow
+#   explicitly, AFTER its own push has landed, guarded on a release actually
+#   having been cut — the identical pattern it already uses for
+#   publish-npm.yml, release-cpp.yml and tag-go-modules.yml, and the pattern
+#   `tools/release/check_pubdev_release_wiring.sh` pins.
+#
+#   That dispatch uses `--ref main`, NOT the `vX.Y.Z` tag the sibling channels
+#   use. Those channels build a released tree, so pinning them to the tag is
+#   right. This one RUNS semantic-release, whose @semantic-release/git step
+#   pushes commits and tags to a BRANCH; a detached tag ref gives it no branch
+#   to release from.
+#
+# SEQUENTIAL, NEVER A MATRIX: each package's @semantic-release/git step pushes
+# its own commit to main, and concurrent pushes race into non-fast-forward
+# rejections. A successful push leaves the runner's local branch in sync with
+# origin, so the next package starts fast-forward-clean.
+#
+# RECURSION PROTECTION IS PRESERVED: the `<pkg>-vX.Y.Z` tag semantic-release
+# pushes is created with GITHUB_TOKEN, so `release-publish.yml`'s
+# `push: tags:` trigger does NOT fire for it. Each config's
+# @semantic-release/exec `publishCmd` therefore dispatches the publish backend
+# explicitly with `gh workflow run release-publish.yml --ref <pkg>-v<version>`.
+# That workflow_dispatch-with-a-tag-ref shape is what the retired
+# `release-tag.yml` used, and pub.dev accepted it for every real publish (e.g.
+# runs 28782924129-28782934612 on 2026-07-06 published ball_cli/ball_compiler/
+# ball_engine 0.3.0+6): the OIDC token's `ref` claim is the tag, which is what
+# pub.dev matches against each package's configured `<pkg>-v{{version}}` tag
+# pattern.
+#
+# ORDERING: none, deliberately. The workspace has dev-dependency cycles
+# (ball_base↔ball_protobuf, ball_engine↔ball_encoder) that hard-fail melos's
+# topological sort, and pub.dev resolves a package's caret ranges against
+# PREVIOUSLY PUBLISHED versions of its dependencies — so once both sides of a
+# cycle have published at least once (true since 2026-07-02 for all nine),
+# steady-state releases are order-independent. The list below is still written
+# deps-first as documentation of intent, and it is the order that would matter
+# for a catch-up release of a package whose deps have never reached pub.dev.
+# Do not add ordering logic; that case needs manual tiered dispatch instead
+# (docs/RELEASE.md § Failure recovery).
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only — compute the next version per package, create no tags, commits, releases or publishes. Use this to rehearse."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  # gh workflow run (each publishCmd dispatches release-publish.yml)
+  actions: write
+
+# One Dart release run at a time — sequential per-package pushes to main must
+# never overlap with another run of this workflow.
+concurrency:
+  group: pubdev-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Per-package semantic-release (pub.dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Always release from the tip of main, never from whatever ref the
+          # dispatch happened to name.
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      # ball_cli's prepareCmd regenerates dart/cli/lib/src/version.g.dart, the
+      # single source of the `ball` CLI version (#363). ci.yml runs
+      # `gen_version.dart --check` on every PR, so a release that bumps
+      # dart/cli/pubspec.yaml without regenerating that file leaves main red for
+      # the next contributor. This is the Dart toolchain the "Release v2"
+      # scaffolding deliberately deferred (docs/RELEASE.md cutover item 3).
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      # Resolves the whole pub workspace from the repo root (retry-wrapped, so a
+      # transient pub.dev resolver hiccup cannot fail a release — #520).
+      - name: Resolve the Dart workspace
+        uses: ./.github/actions/dart-pub-get
+
+      # Pinned toolchain (tools/release/package-lock.json). The local path-filter
+      # plugin (tools/release/only-package-commits.mjs) resolves its
+      # @semantic-release/commit-analyzer + release-notes-generator imports from
+      # this node_modules, so it MUST be installed here (not `-g`).
+      - name: Install release toolchain
+        run: cd tools/release && npm ci
+
+      - name: Run semantic-release per package (sequential)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${DRY_RUN}" = "true" ]; then FLAG="--dry-run"; fi
+          SR="tools/release/node_modules/semantic-release/bin/semantic-release.js"
+
+          # Deps-first for documentation of intent; see the ORDERING note above.
+          PACKAGES="
+            ball_base
+            ball_resolver
+            ball_protobuf
+            ball_protobuf_gen
+            ball_rpc
+            ball_compiler
+            ball_encoder
+            ball_engine
+            ball_cli
+          "
+
+          for cfg in $PACKAGES; do
+            echo "::group::semantic-release $cfg"
+            # Stage this package's config as THE config semantic-release
+            # discovers. The root .releaserc.json (the npm lockstep lane, still
+            # live) would otherwise be auto-discovered by cosmiconfig and merged
+            # OVER the per-package config, and its branches/plugins/tagFormat
+            # would win. The copy is in no @semantic-release/git `assets` list,
+            # so it is never committed.
+            cp ".github/release/${cfg}.releaserc.json" ".releaserc.json"
+            node "$SR" $FLAG
+            echo "::endgroup::"
+          done

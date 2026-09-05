@@ -324,11 +324,18 @@ if [ -f "$PUBLISH" ]; then
       "mirrors publish-pypi.yml: after publishing, read the package back from the real index" \
       "and run it — uploading is not the same as being installable"
   fi
-  if grep -qF 'pub.dev/api/packages/' "$PUBLISH"; then
+  # The poll itself moved into resolve_published.py with #568, so the assertion
+  # follows it: either the workflow queries the API inline, or it delegates to
+  # the script that does. What must never disappear is the read-back.
+  RESOLVER="$ROOT/tools/release/resolve_published.py"
+  if grep -qF 'pub.dev/api/packages/' "$PUBLISH" ||
+    { grep -qF 'resolve_published.py' "$PUBLISH" && grep -qF -- '--await-index' "$PUBLISH" &&
+      [ -f "$RESOLVER" ] && grep -qF 'pub.dev/api/packages/' "$RESOLVER"; }; then
     ok "release-publish.yml reads the published version back from the pub.dev API"
   else
     no "release-publish.yml reads the published version back from the pub.dev API" \
-      "expected a poll of https://pub.dev/api/packages/<pkg> asserting latest.version == the tag's version"
+      "expected a poll of https://pub.dev/api/packages/<pkg> asserting the tag's version is served," \
+      "inline or via 'tools/release/resolve_published.py --await-index'"
   fi
   # Resolving is NOT sufficient: `ball_compiler 0.4.0` requiring `ball_encoder
   # ^0.3.2` resolves for an outside consumer because 0.3.2 is still published.
@@ -339,6 +346,26 @@ if [ -f "$PUBLISH" ]; then
     no "release-publish.yml checks the published resolution against the tag's own tree" \
       "expected tools/release/check_published_siblings.py after the consumer resolution;" \
       "a stale sibling constraint resolves cleanly and is invisible to every other guard"
+  fi
+  # #568: the consumer resolution must DELEGATE its retry to the classifier
+  # script, not carry an inline loop again. An inline `for attempt in 1 2 3 ...`
+  # cannot tell "pub.dev's index has not caught up with the upload yet" from "a
+  # sibling pin nothing satisfies", so it either gives up on a correct release
+  # (run 33957914166) or waits out a permanent conflict.
+  if grep -qF 'tools/release/resolve_published.py' "$PUBLISH"; then
+    ok "release-publish.yml delegates the consumer resolution to resolve_published.py (#568)"
+  else
+    no "release-publish.yml delegates the consumer resolution to resolve_published.py (#568)" \
+      "expected the 'Resolve the published package as an external consumer' step to run" \
+      "tools/release/resolve_published.py — an inline retry loop treats index propagation" \
+      "and a real sibling conflict alike, and is unreachable from any PR"
+  fi
+  if grep -qE '^[[:space:]]*for attempt in 1 2 3 4 5 6; do' "$PUBLISH"; then
+    no "release-publish.yml carries no fixed six-attempt inline retry loop (#568)" \
+      "a 6 x 20 s inline loop is the budget that failed run 33957914166 while pub.dev was" \
+      "still indexing ball_resolver 0.3.1; the polling budget lives in resolve_published.py"
+  else
+    ok "release-publish.yml carries no fixed six-attempt inline retry loop (#568)"
   fi
 else
   no "release-publish.yml exists" "the pub.dev publish backend is missing"
@@ -380,6 +407,17 @@ else
   no "ci.yml exercises the published-sibling classifier on every PR" \
     "that check only runs during a real publish, so without a --self-test here its first" \
     "exercise would be the day it had to catch something"
+fi
+
+# #568: same argument for the retry classifier. Its verdicts decide whether a
+# red verify-published means "wait" or "this release is broken", and the live
+# step only ever runs during a publish.
+if grep -qF 'tools/release/resolve_published.py --self-test' "$CI"; then
+  ok "ci.yml exercises the published-resolution retry classifier on every PR (#568)"
+else
+  no "ci.yml exercises the published-resolution retry classifier on every PR (#568)" \
+    "expected: python3 tools/release/resolve_published.py --self-test in the Proto Checks job;" \
+    "a misclassifying retry either reds a correct release (#568) or waits out a real conflict"
 fi
 
 # The workspace-wide sweep must be what the release configs actually invoke; a

@@ -230,6 +230,20 @@ jobs:
       - name: Published-sibling freshness classifier self-test (#551)
         run: python3 tools/release/check_published_siblings.py --self-test
 
+      # #568: the step BEFORE that one — reading the upload back out of pub.dev
+      # — has to tell two failures apart that look identical in the log. "<pkg>
+      # <version> which doesn't match any versions" for the package this run just
+      # published means the index is still propagating (run 33957914166 failed a
+      # correct ball_resolver 0.3.1 release 131 s after upload); the same
+      # sentence naming a SIBLING pin is the permanent #566 conflict, and waiting
+      # on it only delays the report. Getting that wrong either reds a good
+      # release — which teaches people to ignore this gate — or sits on a broken
+      # one for fifteen minutes. Both polling budgets and every classification
+      # are driven here on the verbatim solver output, since the live steps only
+      # run during a real publish.
+      - name: Published-resolution retry classifier self-test (#568)
+        run: python3 tools/release/resolve_published.py --self-test
+
       # #566: the workspace guards above validate the REPO, and the classifier
       # above validates a tarball AFTER it is uploaded. Neither can see the
       # failure that actually shipped — a package the release sweep re-pinned

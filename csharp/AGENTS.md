@@ -265,6 +265,13 @@ factories `BallValue.Null` / `.Bool(bool)` / `.Int(long)` / `.Double(double)` / 
   `SetCreateProducesAValueThatIsASetAndNotAList` / `TypeOfASetCreatedSetIsSet` /
   `SetMutationIsObservedThroughEveryAlias` / `SetRendersAsABraceListNotItsTaggedMap` /
   `SetAlgebraProducesSets`, which run on every PR.
+- **`SetAdd`/`SetRemove` answer a `bool`, never the set** (issue #545): they mutate the shared
+  backing in place and return `true` only when the element was newly inserted / was actually
+  present, exactly like Dart's `Set.add`/`Set.remove`. That is the ONE portable contract every
+  target now implements — before #545 both returned the set here, which disagreed with the other
+  targets the moment the result reached a value position. Pinned by `BallRuntimeTests`'
+  `SetAddAndRemoveReturnBoolAndMutateInPlace` and, cross-target, by conformance fixture
+  `459_set_add_remove_bool`.
 - **A named constructor (`Class.name(args)`) compiles** since #527. The Dart encoder emits it as a
   method call whose packed `self` field is a bare `reference{name: "Class"}` — a static, syntactic
   class name, not a value — so `CompileCall` resolves it at COMPILE time to the class's

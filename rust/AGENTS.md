@@ -346,6 +346,13 @@ cli-core verb) rejects it for the same reason and for the same correct cause.
   `type_of_a_set_created_set_is_set` / `set_mutation_is_observed_through_every_alias` /
   `set_renders_as_a_brace_list_not_its_tagged_map` /
   `set_algebra_produces_sets_and_iterates_as_a_list`, which run on every PR.
+- **`ball_set_add`/`ball_set_remove` answer a `bool`, never the set** (issue #545): they mutate
+  the shared backing in place and return `true` only when the element was newly inserted / was
+  actually present, exactly like Dart's `Set.add`/`Set.remove`. That is the ONE portable contract
+  every target now implements — before #545 `ball_set_add` returned the set here, disagreeing
+  with `ball_set_remove`'s own bool. Pinned by `runtime.rs`'s
+  `set_add_remove_return_bool_and_mutate_in_place` and, cross-target, by conformance fixture
+  `459_set_add_remove_bool`.
 - **A named constructor (`Class.name(args)`) compiles** since #527. The Dart encoder emits it as a
   method call whose packed `self` field is a bare `reference{name: "Class"}` — a static, syntactic
   class name, not a value — so `compile_call` resolves it at COMPILE time to the class's associated

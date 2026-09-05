@@ -1,0 +1,447 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:Baz.new",
+          "outputType": "main:Baz",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "v",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Sink.new",
+          "outputType": "main:Sink",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "assign",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "target",
+                      "value": {
+                        "reference": {
+                          "name": "v"
+                        }
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "multiply",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "reference": {
+                                      "name": "n"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "literal": {
+                                      "intValue": "2"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "n",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Pair.new",
+          "outputType": "main:Pair",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "a",
+                "is_this": true
+              },
+              {
+                "name": "b",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "sumOfPair",
+          "inputType": "Pair",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "p"
+                            }
+                          },
+                          "field": "a"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "p"
+                            }
+                          },
+                          "field": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "p",
+                "type": "Pair"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "messageCreation": {
+                                      "typeName": "main:Baz",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "3"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "field": "v"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "messageCreation": {
+                                      "typeName": "main:Sink",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "3"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "field": "v"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "sumOfPair",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "main:Pair",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "8"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "9"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Baz",
+          "descriptor": {
+            "name": "main:Baz",
+            "field": [
+              {
+                "name": "v",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Baz",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "v",
+                "type": "int",
+                "initializer": "7"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Sink",
+          "descriptor": {
+            "name": "main:Sink",
+            "field": [
+              {
+                "name": "v",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Sink",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "v",
+                "type": "int",
+                "initializer": "7"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Pair",
+          "descriptor": {
+            "name": "main:Pair",
+            "field": [
+              {
+                "name": "a",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "b",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Pair",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "a",
+                "type": "int"
+              },
+              {
+                "name": "b",
+                "type": "int"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

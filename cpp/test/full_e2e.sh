@@ -185,10 +185,23 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # that issue is fixed, so all three compile, build and run on this leg and are
 # listed in cpp/test/e2e_fixture_list.h.
 #
-# The array is EMPTY: every conformance fixture with a golden compiles, builds
-# and runs on this leg. Keep it that way - a new entry needs an open issue and
-# a measured, one-fixture-at-a-time justification.
-CPP_COMPILE_CARVEOUTS=()
+# 453_ctor_param_shadows_field / 454_inline_instance_argument_name_collision
+# (#561): the Ball->C++ compiler carries its own copy of the #539 constructor
+# defect the Dart engine just lost — `Holder(auto b) : seen(b)` initializes the
+# sole int64_t field FROM a class-typed parameter, which g++ rejects outright
+# ("cannot convert '{anonymous}::Pair' to 'int64_t' in initialization") — and it
+# drops a class's inline field initializers for constructors that carry a body
+# or are named, so 453 reads back `null` where the golden has 5/7/11. Both
+# fixtures pass on the Dart reference engine and on all six self-hosted engines,
+# the C++ one included; only this compiled path fails.
+# 455_ctor_field_writes_that_survive, the positive half of the same test design
+# (a `this.`-formal, a body assignment, and a non-colliding inline-constructed
+# argument), PASSES here and is listed in cpp/test/e2e_fixture_list.h — so this
+# leg still proves something for the change that added all three.
+CPP_COMPILE_CARVEOUTS=(
+  "453_ctor_param_shadows_field"
+  "454_inline_instance_argument_name_collision"
+)
 _is_carved() { local n="$1" c; (( ${#CPP_COMPILE_CARVEOUTS[@]} == 0 )) && return 1;
   for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 

@@ -319,6 +319,7 @@ inline const std::vector<std::string>& program_names() {
         "445_let_bound_to_call_returning_class",
         "450_constructor_tearoff_user_class",
         "451_thrown_builtin_exception_tearoff",
+        "455_ctor_field_writes_that_survive",
     };
     return names;
 }

@@ -1,3 +1,10 @@
+## [0.3.1](https://github.com/Ball-Lang/ball/compare/ball_protobuf_gen-v0.3.0...ball_protobuf_gen-v0.3.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **gen,compiler,cpp:** presence rule, real memory_realloc, extension guard, orphan runtime removal ([#151](https://github.com/Ball-Lang/ball/issues/151)) ([97c85be](https://github.com/Ball-Lang/ball/commit/97c85be50dc57219abe0b79c220f0ecefee9d739)), closes [140-#143](https://github.com/140-/issues/143) [#140](https://github.com/Ball-Lang/ball/issues/140) [#141](https://github.com/Ball-Lang/ball/issues/141) [#142](https://github.com/Ball-Lang/ball/issues/142) [#143](https://github.com/Ball-Lang/ball/issues/143) [#140](https://github.com/Ball-Lang/ball/issues/140) [#141](https://github.com/Ball-Lang/ball/issues/141) [#142](https://github.com/Ball-Lang/ball/issues/142) [140-#143](https://github.com/140-/issues/143)
+
 ## 0.3.0+4
 
  - Update a dependency to the latest release.

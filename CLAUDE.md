@@ -497,7 +497,12 @@ Supporting configs:
    languages: Dart, Rust (`rust/tools/rq1-study`), C#
    (`csharp/coverage-study`), Go (`tools/coverage-study/go`), Python
    (`rq1_study_py.py`) and TypeScript (`rq1_study_ts.mts`, which needed
-   `ts/compiler`'s `compileLibrary` primitive first — issue #536). Each
+   `ts/compiler`'s `compileLibrary` primitive first — issue #536). Tier A is
+   **structural** and by design cannot see a construct that round-trips
+   syntactically clean but changes behaviour (the #488 class); **Tier B**
+   (Dart only: `rq1_tierb.dart` per-file, `rq1_tierb_all.dart` whole-package)
+   is the behavioural half — it substitutes a library file with the pipeline's
+   compiled-back version and runs that package's own `dart test`. Each
    harness's self-test IS gated on every PR, in that language's own `ci.yml`
    job.
 7. Regenerate self-hosted engines: `cd dart && dart run compiler/tool/gen_engine_json.dart`, then `dart run compiler/tool/compile_engine_cpp.dart` (C++) and regen `compiled_engine.ts` (TS, see Build & Test). **Re-run conformance on ALL THREE engines** — a Dart-only fix is half a fix. If you touched the portable CLI verbs (`dart/shared/lib/cli_core.dart`), also regenerate the self-hosted CLI: `dart run compiler/tool/gen_cli_json.dart`, then re-run the parity gate (`cd dart/cli && dart test test/cli_core_parity_test.dart`).

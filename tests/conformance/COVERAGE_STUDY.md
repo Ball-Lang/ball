@@ -279,12 +279,127 @@ This corroborates, on third-party code, what the `csharp-roundtrip` /
 **own** corpus. Tier A is the independent, third-party-code confirmation that
 the encoders cannot read back their own compilers' output.
 
-## Tier B — substitution into a package's own test suite (not yet built)
+## Tier B — substitution into a package's own test suite (Dart)
 
-For hermetic packages, replace one library file at a time with its compiled-back
-version and run the package's own `dart test`. This is the tier that would catch
-the #488 class, because the package's tests exercise real types and real values.
-Not implemented in slice 1.
+Tier A is structural, and it says so: a construct that round-trips syntactically
+clean but changes what the program computes scores `clean`. Tier B is the
+instrument that sees that class. For each of the same five hermetic pins, it
+swaps a library file for the pipeline's own compiled-back version and runs **that
+package's own `dart test`**, comparing against a baseline run of the untouched
+checkout. A construct that changes behaviour shows up as a test that stops
+passing.
+
+Two harnesses, two questions, meant to be read together:
+
+* `tools/coverage-study/rq1_tierb.dart` — **per-file isolation.** One
+  substitution at a time; the original bytes go back before the next file, so
+  runs never compound. Answers "can this one file survive the round trip?"
+* `tools/coverage-study/rq1_tierb_all.dart` — **whole-package.** Every eligible
+  file substituted at once, no restore in between, one `dart test`, one verdict
+  per package. The stricter signal: a pipeline can be right on most files and
+  still not produce a working library, because `clean` compounds
+  multiplicatively.
+
+### The taxonomy is the point
+
+Mirrors Tier A's `encode-error`/`fixpoint-drift`/`skipped` split.
+
+| tag | meaning | scored? |
+| --- | --- | --- |
+| `clean` | substituted, the suite still passes exactly as it did | yes |
+| `behavioral-drift` | substituted, the suite regressed | yes |
+| `not-compiled` | never reached Tier A stage 2 — nothing to substitute | no |
+| `test-timeout` | the substituted suite did not finish inside the bound | no |
+| `baseline-unstable` | the package's UNMODIFIED suite is not a usable yardstick | no |
+
+`test-timeout` and `baseline-unstable` stay **out** of the drift count rather
+than folded into it. A flaky or network-touching third-party suite would
+otherwise manufacture drift one file at a time and charge it to the encoder —
+the same rule Tier A applies to an unreachable pin. `not-compiled` is excluded
+because it is already a Tier A finding; counting it here would double-count one
+defect across two tiers. A package is `baseline-unstable` when `dart pub get`
+fails, it has no tests, it does not pass 100%, **or two consecutive runs of the
+untouched checkout disagree** — a yardstick has to be reproducible, not merely
+green once.
+
+### Load-bearing settings — do not "simplify" these away
+
+* **`dart test --reporter=json`, not the human `+N -M` line.** A suite that
+  fails to *compile* prints no tally at all, and scraping the human output
+  would score that as "0 failures" — silently turning the loudest possible
+  failure into a pass.
+* **`dart test --concurrency=1`.** This is a correctness knob, not a
+  performance one. `dart test` runs VM suites as isolates inside one process, so
+  a suite that mutates process-global state makes an *unrelated* suite flaky.
+  dart-lang/path — a pin this study measures — sets `io.Directory.current` in
+  `test/io_test.dart`, and path equality reads it. Run unserialized, the harness
+  reported `503 → 502 passing, 1 failing` for `src/path_exception.dart`,
+  `src/utils.dart` and `src/path_map.dart`, every failure a `path_map`/`path_set`
+  equality test ("considers unequal two distinct paths"): six invented encoder
+  regressions, charged to files that cannot affect path equality at all. With
+  `--concurrency=1` those same six files score `clean` and only the four genuine
+  drifts remain. A measuring instrument that manufactures its own findings is
+  worse than no instrument.
+* **Per-module `compileModule` and format-before-use** — the same two settings
+  Tier A documents above, for the same reasons.
+
+### Restoration integrity
+
+A run that leaves a checkout dirty compounds substitutions across files and
+silently corrupts every later verdict, so this is the harness's first
+obligation, not an afterthought. The original bytes are snapshotted before the
+write, restored in a `finally`, and the restored file's SHA-256 is compared
+against the snapshot's. A mismatch **throws** — it is never reported as a
+verdict. The self-test asserts it by hash, and the CI job re-asserts it from
+outside the harness with `git status --porcelain` on every checkout before the
+whole-package mode reuses the same trees.
+
+### What the self-test proves
+
+`tools/coverage-study/test/rq1_tierb_self_test.dart` builds a synthetic
+two-file package with a real passing `dart test` suite and asserts, against the
+real pipeline: substitution restores every file byte-for-byte; a file whose
+compiled-back Dart still passes is scored `clean` (the harness cannot pass by
+calling everything dirty); a directives-only facade is `not-compiled` and **not
+scored**; a package whose unmodified suite is already red is `baseline-unstable`
+and excluded from the denominator; at least one file was actually scored and a
+`Results:`-shaped line was printed (an exit code plus a zero failure count
+cannot tell "everything passed" from "nothing ran").
+
+The load-bearing assertion is the pair: a file carrying the #488 shape —
+`return seen.add(name)` on a `Set<String>` — is scored `behavioral-drift` by
+Tier B **while Tier A scores the very same source `clean`**, both verdicts
+asserted side by side in one test. That pair is the entire justification for
+Tier B existing. That self-test runs as a **gated** step in `ci.yml`'s Dart job,
+exactly like Tier A's — the instrument is gated even though the study is not.
+
+### No floor, deliberately
+
+`dart-tier-b` in `.github/workflows/coverage-study.yml` is `workflow_dispatch` +
+the weekly Monday cron, like every other job in that file. It has **no
+`pull_request:` trigger and will not become a PR gate** in this slice. The only
+thing it fails on is the shared positive floor in
+`tools/coverage-study/summarize.sh`: a run that scored zero files is a
+checkout/harness failure, never a 0% result. No quality floor is set until
+several scheduled runs establish the variance — the project has been burned by
+floors set before a baseline existed. #488's own ad-hoc prototype measured
+88/106 files clean per-file and 1 of 5 packages clean whole-package; treat that
+as the sanity check a first scheduled run should land near, not as a committed
+number.
+
+One pin was run end-to-end while building this harness, as a smoke test rather
+than a baseline: `path` @ `7e3d5d8` scored **9/13 clean (69%)** per-file and
+**0/1 whole-package**, and its checkout was byte-identical to its pinned commit
+after both runs. The per-file run took ~530 s on a developer machine for 13 files
+plus the two baseline runs — roughly 35 s per `dart test`, which is what sizes
+the job's 180-minute bound. The first real numbers come from a scheduled run over
+all five pins, not from this.
+
+### Fixing what it finds is not this instrument's job
+
+Tier B reports; it does not repair. An encoder or compiler bug it surfaces gets
+its own issue and its own PR — #488 above all. A harness that also changed the
+thing it measures could not be trusted to measure it.
 
 ## Running it
 
@@ -326,6 +441,29 @@ node --experimental-strip-types tools/coverage-study/rq1_study_ts.mts \
   --pins tools/coverage-study/packages/ts.json --checkouts /tmp/co
 
 # Every harness also takes --package <name> --source-dir <dir> for a one-off.
+
+# ── Tier B (Dart) ──────────────────────────────────────────────────────────
+# Its self-test is gated in ci.yml's Dart job too.
+dart run tools/coverage-study/test/rq1_tierb_self_test.dart
+
+# Per-file isolation, then whole-package, over the same five pins.
+# --jobs parallelizes across PACKAGES only (files of one package share a working
+# tree). --test-timeout bounds every `dart test`; --max-files caps a package's
+# file count, which changes the denominator but never a verdict.
+bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/dart.json /tmp/co
+dart run tools/coverage-study/rq1_tierb.dart \
+  --pins tools/coverage-study/packages/dart.json \
+  --checkouts /tmp/co --jobs 4 --test-timeout 600 --json tier_b.json
+
+dart run tools/coverage-study/rq1_tierb_all.dart \
+  --pins tools/coverage-study/packages/dart.json \
+  --checkouts /tmp/co --jobs 4 --test-timeout 600 --json tier_b_all.json
+
+# One package, no pin file. The checkout must be git-clean afterwards — that is
+# the restoration-integrity property, and it is worth checking by hand the first
+# time you point the harness at a new tree.
+dart run tools/coverage-study/rq1_tierb.dart --package path --checkout /tmp/co/path
+git -C /tmp/co/path status --porcelain   # must print nothing
 ```
 
 ## Status and honest limits
@@ -345,6 +483,12 @@ Remaining slices of #493:
 * Floor the TypeScript Tier A number once a few scheduled runs establish a
   baseline — it is the only port that is not at 0%, so it is the second
   candidate for a ratchet after Dart.
-* **Tier B for Dart** (hermetic test-suite substitution) — the tier that catches
-  the #488 class. Deferred out of this slice, not cancelled.
+* Floor the Dart Tier B numbers (per-file and whole-package) once a few
+  scheduled runs establish their variance — the same measure-before-gating rule
+  Tier A is waiting on, and the reason `dart-tier-b` ships with only the
+  positive floor.
+* Port Tier B to the other five languages. Dart is the only one where the
+  compiler emits idiomatic source its own encoder reads back; the others emit
+  runtime-call-shaped source and are still at 0% on Tier A, so there is nothing
+  behavioural to measure until their round trip closes.
 * Publish the coverage table next to the engine-parity table in the README.

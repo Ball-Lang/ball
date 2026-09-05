@@ -1,3 +1,10 @@
+# [1.67.0](https://github.com/Ball-Lang/ball/compare/v1.66.2...v1.67.0) (2026-09-05)
+
+
+### Features
+
+* **ts:** add a library-mode compile primitive and port the Tier A coverage study to TypeScript ([#549](https://github.com/Ball-Lang/ball/issues/549)) ([00c5b4e](https://github.com/Ball-Lang/ball/commit/00c5b4e7c8b715acba7d1fa7f751f27d648dadd3)), closes [#536](https://github.com/Ball-Lang/ball/issues/536) [#536](https://github.com/Ball-Lang/ball/issues/536) [#493](https://github.com/Ball-Lang/ball/issues/493)
+
 ## [1.66.2](https://github.com/Ball-Lang/ball/compare/v1.66.1...v1.66.2) (2026-09-05)
 
 

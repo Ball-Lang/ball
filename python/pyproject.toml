@@ -8,11 +8,13 @@
 # that makes `pip install ball-lang` work: ONE wheel bundling all five source
 # trees plus the generated protobuf binding the engine loader needs.
 #
-# The generated compiled_engine.py is NEVER shipped and never committed. Instead
-# the wheel carries the self-host Ball SOURCE as package data
-# (ball_engine/_selfhost/engine.ball.json.gz, produced at build time by
-# python/engine/tool/bundle_selfhost.py) and `ball run` compiles it into a user
-# cache dir on first use — see ball_engine/bootstrap.py.
+# The generated compiled_engine.py / compiled_cli.py are NEVER shipped and never
+# committed. Instead the wheel carries the Ball SOURCE of each as package data
+# (ball_engine/_selfhost/engine.ball.json.gz from
+# python/engine/tool/bundle_selfhost.py, ball_cli/_clicore/cli_core.ball.json.gz
+# from python/cli/tool/bundle_cli_core.py) and `ball run` / `ball info|validate|
+# tree|version` compile them into a user cache dir on first use — see
+# ball_engine/bootstrap.py and ball_cli/bootstrap_clicore.py.
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
@@ -88,3 +90,4 @@ ball = "shared/gen/ball"
 # fixture from the installed wheel.
 [tool.setuptools.package-data]
 ball_engine = ["_selfhost/*.gz"]
+ball_cli = ["_clicore/*.gz"]

@@ -3,9 +3,11 @@
 Everything declarative lives in pyproject.toml; this file exists for one
 structural reason (issue #496).
 
-`ball_engine/compiled_engine.py` is a ~690 KB GENERATED artifact — gitignored,
-written by `python -m ball_engine.regen`, and present in any tree that has run
-the self-host regeneration (every CI job that runs the conformance sweep does).
+`ball_engine/compiled_engine.py` (~690 KB) and `ball_cli/compiled_cli.py` (issue
+#570) are GENERATED artifacts — gitignored, written by `python -m
+ball_engine.regen` / `python -m ball_cli.regen`, and present in any tree that has
+run those regenerations (every CI job that runs the conformance sweep or the
+cli-core parity gate does).
 `[tool.setuptools] packages = ["ball_engine", ...]` sweeps in every `.py` in that
 directory, so a wheel built after a regen would silently ship it — defeating the
 whole compile-on-first-use design and the repo's "never distribute generated
@@ -15,8 +17,9 @@ code" rule. setuptools' declarative config has no per-module exclusion
 order or which workflow triggers it.
 
 The wheel smoke (`python/tool/wheel_smoke.py`) asserts the result: the built
-wheel must NOT contain `ball_engine/compiled_engine.py`, and `ball run` must
-compile the bundled source into the cache dir.
+wheel must NOT contain `ball_engine/compiled_engine.py` or
+`ball_cli/compiled_cli.py`, and `ball run` / `ball info` must compile their
+bundled sources into the cache dir.
 """
 
 from __future__ import annotations
@@ -25,7 +28,10 @@ from setuptools import setup
 from setuptools.command.build_py import build_py
 
 #: (package, module) pairs that are generated build artifacts, never shipped.
-EXCLUDED_MODULES = {("ball_engine", "compiled_engine")}
+EXCLUDED_MODULES = {
+    ("ball_engine", "compiled_engine"),
+    ("ball_cli", "compiled_cli"),
+}
 
 
 class BuildPyWithoutGeneratedModules(build_py):

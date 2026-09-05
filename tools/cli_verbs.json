@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "The cross-CLI verb-set contract (issue #570, epic #361). tools/check_cli_verb_parity.py",
+    "runs each shipped `ball` CLI's --help, extracts its verb set, and checks it against this",
+    "file. Editing this file is how a verb-set difference gets ACCEPTED — deliberately, in a",
+    "reviewed diff — instead of drifting silently, which is exactly what happened to Go and",
+    "Python: #361's 'every registry's ball exposes the uniform verb set' lived only in prose.",
+    "",
+    "portable  the verbs every `ball` must expose. Adding one here fails every CLI that has",
+    "          not shipped it yet — that is the point.",
+    "ignore    pseudo-verbs a CLI may list in its Commands block that are not real verbs.",
+    "clis[x].extras    verbs this CLI exposes BEYOND the portable set, each an accepted",
+    "                  target-specific surface. An undeclared extra fails the check.",
+    "clis[x].missing   portable verbs this CLI does NOT expose yet, with a reason. A missing",
+    "                  entry that is no longer missing also fails, so the carve-out cannot",
+    "                  outlive the gap."
+  ],
+
+  "portable": ["run", "compile", "encode", "check", "info", "validate", "tree", "version"],
+  "ignore": ["help"],
+
+  "clis": {
+    "dart": {
+      "extras": ["round-trip", "audit", "build", "init", "add", "resolve", "publish"],
+      "missing": ["check"],
+      "reason": "Dart is the reference CLI and predates `check`; its `validate` covers the same ground (dart/cli/lib/src/runner.dart's _validate). The registry verbs (init/add/resolve/publish/build) and round-trip are Dart-only by design — no other target ships a package registry."
+    },
+    "ts": {
+      "extras": ["audit"],
+      "missing": ["compile", "encode", "check"],
+      "reason": "ts/cli ships the execution + report verbs only; @ball-lang/compiler and @ball-lang/encoder are consumed as libraries rather than through the CLI (ts/cli/AGENTS.md). `audit` is shared with Dart, whose analyzers self-host (#362)."
+    },
+    "go": {
+      "extras": [],
+      "missing": [],
+      "reason": "Full portable surface since #570."
+    },
+    "python": {
+      "extras": [],
+      "missing": [],
+      "reason": "Full portable surface since #570."
+    },
+    "rust": {
+      "extras": ["audit"],
+      "missing": [],
+      "reason": "Full portable surface since #365; `audit` is shared with Dart/TS."
+    },
+    "csharp": {
+      "extras": [],
+      "missing": [],
+      "reason": "Full portable surface since #385."
+    }
+  }
+}

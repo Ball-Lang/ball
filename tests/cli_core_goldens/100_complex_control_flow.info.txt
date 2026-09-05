@@ -1,0 +1,10 @@
+Program: encoded v1.0.0
+Entry:   main.main
+Modules: 2
+
+  std (base)
+    typeDefs:  3
+    functions: 13
+    desc:      Universal standard library base module
+  main
+    functions: 1

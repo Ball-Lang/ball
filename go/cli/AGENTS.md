@@ -4,11 +4,16 @@
 
 The binary `ball` (module `github.com/ball-lang/ball/go/cli`, entry point
 `cmd/ball`): the four core verbs `run` / `compile` / `encode` / `check` over
-`go/engine`, `go/compiler`, and `go/encoder` (epic #426 Phase 5). The Go sibling
-of `rust/cli` and `csharp/cli`; narrower than `dart/cli` (no package-registry
-commands, no `audit`). The self-hosted cli-core verbs (`info`/`validate`/`tree`/
-`version`, compiled from `dart/self_host/cli.ball.json` — what the Rust/C# CLIs
-added later) are a deliberate follow-up, not part of Phase 5.
+`go/engine`, `go/compiler`, and `go/encoder` (epic #426 Phase 5), plus the four
+self-hosted cli-core verbs `info` / `validate` / `tree` / `version` (issue #570).
+The Go sibling of `rust/cli` and `csharp/cli`; narrower than `dart/cli` (no
+package-registry commands, no `audit`).
+
+The cli-core verbs do **not** compute their own report text: it comes from
+`dart/shared/lib/cli_core.dart` compiled through `go/compiler` into the
+gitignored `compiled/compiled_cli.go`, so every `ball` on every registry prints
+byte-identical reports. `tests/cli_core_goldens/` (the canonical golden set,
+shared with the Python gate) is the proof.
 
 ## Layout
 
@@ -32,7 +37,20 @@ thin `os.Exit(cli.Run(os.Args[1:], os.Stdout, os.Stderr))`.
 - `serialize.go` — `programToJSON` (`@type`-enveloped proto3 JSON) / `programToBinary`
   (Any-wrapped binary) for `encode`'s output.
 - `output.go` — `writeOut` (`-o <file>` vs. stdout) / `printLine`.
-- `run.go` / `compile.go` / `encode.go` / `check.go` — one file per verb.
+- `run.go` / `compile.go` / `encode.go` / `check.go` / `info.go` / `validate.go`
+  / `tree.go` / `version.go` — one file per verb. `tree.go` also holds
+  `loadCliCoreView`, the shared "parse the one program positional, return its
+  proto3-JSON view" helper the three program-taking cli-core verbs use.
+- `cli_core_stub.go` (`//go:build !clicore`) / `cli_core_clicore.go`
+  (`//go:build clicore`) — the cli-core availability seam (below).
+- `compiled/` — `doc.go` (untagged) + `driver.go` (`clicore`; the exported
+  `InfoReport`/`ValidateOk`/`ValidateReport`/`TreeReport`/`VersionLine` wrappers
+  over the generated, lowercase Ball function names) + the generated, gitignored
+  `compiled_cli.go`. The same shape as `go/engine/compiled/`.
+- `cmd/regen` — regenerates `compiled/compiled_cli.go` (below).
+- `version.go` — `moduleVersion` (the published Go module version, drift-guarded
+  against `go.mod` by `version_test.go`) and `toolchainVersion()`, which prefers
+  the build-info stamp a `go install …@vX.Y.Z` binary carries.
 
 ## `encode -lib` (library mode, issue #537)
 
@@ -83,6 +101,53 @@ This is the Go analog of the Rust CLI's `self_host` Cargo feature and C#'s
 `-p:SelfHost=true` MSBuild property. `compile`/`encode`/`check` are unaffected by
 the tag.
 
+## The cli-core verbs and the `clicore` build tag (issue #570)
+
+`info`/`validate`/`tree`/`version` delegate to the compiled CLI core in
+`go/cli/compiled`, gated behind this module's own **`clicore`** build tag —
+deliberately **independent of `selfhost`**:
+
+- these verbs never touch the interpreter, so requiring the (much larger,
+  engine-bearing) self-host artifact for a pure report call would be wrong;
+- it matches Rust's `cli_core` Cargo feature and C#'s `-p:CliCore=true`, both
+  separate from their self-host gates;
+- the two combine freely: `go build -tags "clicore selfhost" ./cmd/ball`.
+
+Behaviour, exactly like `run`'s:
+
+- **Default build**: the verbs still EXIST — they are dispatched and listed in
+  `--help`, so `tools/check_cli_verb_parity.py`'s answer never depends on how the
+  binary was built — and fail loud at runtime with exit 1 plus the two commands
+  that fix it (`cli_core_stub.go`). Never a silent success, never a build failure.
+- **`-tags clicore`** (after `go run ./cmd/regen`): real reports.
+
+A missing or malformed program is still reported FIRST (exit 3 / exit 2): the
+verbs load the program before consulting the CLI core, so the build-tag message
+can never mask a more specific failure.
+
+`validate` is the PORTABLE report every cli-core `ball` shares; `check` remains
+this CLI's own Go-target battery (with the opt-in `-compile` dry run). They
+overlap but are not the same verb.
+
+### Regenerating `compiled/compiled_cli.go`
+
+```bash
+cd dart && dart run compiler/tool/gen_cli_json.dart   # dart/self_host/cli.ball.{json,pb}
+cd ../go/cli && go run ./cmd/regen                    # -> compiled/compiled_cli.go (gitignored)
+go test -tags clicore ./...                           # the golden-parity gate
+```
+
+`cmd/regen` mirrors `go/engine/cmd/regen` with one addition: `CompileLibrary`
+hardcodes `//go:build selfhost` in its emitted header (its only caller until now
+was the engine regenerator), so this tool rewrites that single constraint line to
+`//go:build clicore` and **fails loud** if the constraint it expects is absent.
+Post-processing keeps codegen shared with `go/engine/cmd/regen` untouched — the
+same route `ts/compiler` already takes for `compiled_cli.ts`'s export rewrite.
+
+`compiled_cli.go` is a GENERATED, NEVER-edit file: fix
+`dart/shared/lib/cli_core.dart` (then rerun `gen_cli_json.dart`) or `go/compiler`
+and rerun the regenerator.
+
 ## Build & Test
 
 ```bash
@@ -90,11 +155,17 @@ cd go/cli
 go build ./...                     # default build — the `ball` binary + package
 go vet ./...
 gofmt -l .                         # must print nothing
-go test ./...                      # default-build tests (run's honest-failure path)
+go test ./...                      # default-build tests (run's + cli-core's honest-failure paths)
 
 # Full run execution, after regenerating the compiled engine (go/engine/AGENTS.md):
 cd ../engine && go run ./cmd/regen        # writes compiled/compiled_engine.go
 cd ../cli && go test -tags selfhost ./... # adds the golden-driven `run` cases
+
+# The cli-core verbs, after regenerating the compiled CLI core:
+cd ../../dart && dart run compiler/tool/gen_cli_json.dart
+cd ../go/cli && go run ./cmd/regen
+go build -tags clicore ./... && go vet -tags clicore ./...
+go test -tags clicore ./...               # adds the golden-parity gate
 ```
 
 Tests drive each verb in-process through `cli.Run` (helpers in `helpers_test.go`).
@@ -106,17 +177,27 @@ stdout, proving `compile`/`encode`→`compile` produce Go that actually runs. Th
 the built CLI and compares stdout to their committed goldens; the default-build
 `run_test.go` proves the honest-failure path.
 
+`cli_core_parity_test.go` (`clicore`) is the cli-core golden gate: `info` /
+`validate` / `tree` over the five-fixture set in `tests/cli_core_goldens/`,
+byte-compared to the Dart CLI's own output, with a positive floor on the number
+of comparisons made. `cli_core_default_test.go` (`!clicore`) is the other half:
+every verb exits 1 with an actionable hint, prints nothing, and stays listed in
+`--help`. `version_test.go` is the version drift guard (untagged): `moduleVersion`
+must match the version `go.mod` requires its intra-repo siblings at, which is what
+`tools/go-module-proxy/build_local_proxy.py --print-version` publishes.
+
+Cross-CLI, `tools/check_cli_verb_parity.py` (the always-on `CLI Verb Parity` CI
+job) asserts this CLI's `--help` verb set against `tools/cli_verbs.json`, so a
+verb silently disappearing here fails even though every Go test would still pass.
+
 ## Known gaps / follow-ups
 
-- No cli-core verbs (`info`/`validate`/`tree`/`version`) yet — the pattern ports
-  from `rust/cli`/`csharp/cli` (compile `dart/self_host/cli.ball.json` through
-  `go/compiler` in library mode into a gitignored `compiled_cli.go`, gated like
-  the engine). A follow-up, out of Phase 5 scope.
 - No package-registry commands (`dart/cli`'s `init`/`add`/`resolve`/`publish`) and
-  no `ball audit` — same scope boundary as `rust/cli`.
+  no `ball audit` — same scope boundary as `rust/cli`. (`cli_core.auditReport`
+  itself compiles fine into `compiled_cli.go`; the verb, its options and its
+  goldens are a separate slice, declared in `tools/cli_verbs.json`.)
 - `check --compile` is a Go-target-specific dry-run compile (opt-in; can false-
   positive on a valid program that hits a documented `go/compiler` scope gap).
-- CI wiring is Phase 7 — not added here.
 - **`go install` needs the module tags pushed** (issue #361). The module *shape*
   is now correct: `go/cli/go.mod` `require`s `compiler`/`encoder`/`engine`/
   `shared` (+ indirect `runtime`) at **`v0.1.0`** and carries **no `replace`

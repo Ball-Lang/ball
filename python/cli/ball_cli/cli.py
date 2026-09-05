@@ -1,11 +1,13 @@
 """``ball`` — the Ball language CLI for the Python toolchain (epic #445 Phase 5).
 
 The four core verbs ``run`` / ``compile`` / ``encode`` / ``check`` over
-``python/engine``, ``python/compiler``, and ``python/encoder``. The verb surface
-mirrors the Go (``go/cli``), Rust (``rust/cli``), and C# (``csharp/cli``) CLIs'
-core four; the self-hosted cli-core verbs those targets added later
-(``info``/``validate``/``tree``/``version``) are a deliberate follow-up — see
-``python/cli/AGENTS.md``.
+``python/engine``, ``python/compiler``, and ``python/encoder``, plus the
+self-hosted cli-core verbs ``info`` / ``validate`` / ``tree`` / ``version``
+(issue #570), whose report text is computed by ``dart/shared/lib/cli_core.dart``
+compiled through the Ball → Python compiler, so every ``ball`` prints
+byte-identical reports. The verb surface therefore matches the Go (``go/cli``),
+Rust (``rust/cli``), and C# (``csharp/cli``) CLIs' — see ``python/cli/AGENTS.md``
+and :mod:`ball_cli.cli_core`.
 
 All logic lives here (and in ``commands/``) so the whole CLI is exercisable
 in-process by the tests through :func:`run`, without spawning a subprocess;
@@ -21,7 +23,11 @@ from .argparse_util import HelpRequested
 from .commands import check as check_cmd
 from .commands import compile as compile_cmd
 from .commands import encode as encode_cmd
+from .commands import info as info_cmd
 from .commands import run as run_cmd
+from .commands import tree as tree_cmd
+from .commands import validate as validate_cmd
+from .commands import version as version_cmd
 from .errors import EXIT_OK, EXIT_USAGE, CliError
 from .paths import bootstrap_sys_path
 
@@ -38,9 +44,18 @@ Commands:
   compile  <program.ball.json>   Compile a Ball program to Python source     [-o out.py]
   encode   <source.py>           Encode a Python source file into a Ball program [-o out.ball.json]
   check    <program.ball.json>   Parse and validate a Ball program without running it [--compile]
+  info     <program.ball.json>   Print a program's structure (modules, functions, types)
+  validate <program.ball.json>   Validate a program and print the portable report
+  tree     <program.ball.json>   Print a program's module/import tree
+  version                        Print the CLI version (the portable cli-core line)
+
+The info/validate/tree/version reports come from the self-hosted CLI core; in a
+checkout regenerate it with: python -m ball_cli.regen
 
 Options:
   --version                      Print the installed toolchain version and exit
+                                 (the toolchain banner; `ball version` is the
+                                 portable one-line form every `ball` shares)
 
 Programs are read as proto3 JSON (.ball.json / .json), optionally wrapped in a
 google.protobuf.Any @type envelope.
@@ -53,6 +68,10 @@ _HANDLERS = {
     "compile": compile_cmd.command,
     "encode": encode_cmd.command,
     "check": check_cmd.command,
+    "info": info_cmd.command,
+    "validate": validate_cmd.command,
+    "tree": tree_cmd.command,
+    "version": version_cmd.command,
 }
 
 
@@ -86,10 +105,11 @@ def _dispatch(argv: list[str], stdout: TextIO, stderr: TextIO) -> int:
     if cmd in ("-h", "--help", "help"):
         stdout.write(_USAGE)
         return EXIT_OK
-    # `--version` is a FLAG, deliberately not a `version` verb: in the sibling
-    # CLIs `ball version <program>` is a self-hosted cli-core report about a Ball
-    # PROGRAM (dart/shared/lib/cli_core.dart's versionLine). Porting those verbs
-    # here is still a follow-up, so squatting the name would be a collision.
+    # `--version` is a FLAG and `version` is a VERB, deliberately both (exactly
+    # as Rust has clap's built-in `--version` alongside a `version` subcommand):
+    # the flag prints this toolchain's own banner, the verb prints the PORTABLE
+    # `ball <version>` line cli_core.versionLine computes. The flag is matched
+    # here, before the subcommand table, so the two never collide.
     if cmd in ("-V", "--version"):
         stdout.write(version_line() + "\n")
         return EXIT_OK

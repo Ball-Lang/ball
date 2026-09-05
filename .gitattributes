@@ -60,3 +60,8 @@ dart/shared/ball_protobuf.bin linguist-generated=true
 tests/snapshots/** linguist-generated=true
 tests/fixtures/dart/_generated/** linguist-generated=true
 tests/conformance/*.ball.json linguist-generated=true
+
+# CLI-core golden reports (issue #570) — byte-compared by the Go and Python
+# cli-core parity gates. Pinned to LF so the comparison is identical on every
+# platform; a CRLF checkout would fail the gates for no real reason.
+tests/cli_core_goldens/*.txt text eol=lf

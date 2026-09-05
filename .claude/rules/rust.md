@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 341 passed, 0 failed, 341 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 343 passed, 0 failed, 343 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -115,15 +115,33 @@ cargo fmt --check && cargo clippy --workspace
   input; 1 param → kept as a plain `reference(name)` driven by `metadata.params` (compiler's
   `param_alias_prologue` turns it into a real local binding); 2+ params → packed into one
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
-- Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): tuple/unit structs,
-  data-carrying enum variants, signature-only **trait** associated functions, a
+- Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): data-carrying enum
+  variants, signature-only **trait** associated functions, a
   `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic — the
   largest remaining bucket), an `impl` whose **self type** is not a plain named type
   (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
-  files), item-level `const`/`static`/`type`, unmapped macros. Each is pinned by a
-  `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs` (#491 slice
-  1) — flip it to a positive assertion in the same PR that closes the gap. Three are flipped that
-  way today: #491 slice 3's two (below) and slice 5's non-`Fn` impl item.
+  files), destructuring patterns (`let Pair(a, b) = p;`), item-level `const`/`static`/`type`,
+  unmapped macros (`write!` — the measured largest *next* bucket, 9 of the 110 files). Each is
+  pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
+  (#491) — flip it to a positive assertion in the same PR that closes the gap. Five are flipped
+  that way today: the two cross-file/associated-fn ones (below), the non-`Fn` impl item, and
+  tuple + unit structs.
+- **Tuple + unit structs (#491).** All three `struct` shapes encode to the same class-shaped
+  `TypeDefinition`; only the field names differ. A tuple element is declared under its
+  **positional index as a decimal string** (`"0"`, `"1"`) — the very name
+  `types.rs::member_name` has always produced for the matching `p.0` *read*, and an opaque map key
+  to the compiler (`is_positional_arg_name` matches only `arg<digits>`). A unit struct declares
+  zero fields. **Declaration alone would be a regression**, so two `lib.rs` interceptions ship with
+  it: `encode_call` turns `Pair(3, 4)` into a `message_creation` *before* its same-file-function
+  branch (the two are the same syntax), and `encode_path_expr` turns a bare `Marker` into an
+  empty-field `message_creation` *before* its `reference(name)` fallback — but *after*
+  `is_current_multi_param`, so a same-named parameter still wins; that name-only bias is inherited
+  from the `.fuse()`/`.is_empty()` precedent and deliberately not widened. Proof:
+  `rust/encoder/tests/tuple_and_unit_structs.rs` (encode → compile → `cargo build` → run).
+  **Closing this category did NOT move the Tier A aggregate** — measured before *and* after:
+  `Results: 0 passed, 110 failed, 110 total`; all 14 files simply land on their next gap (7 on
+  `write!`). See `rust/AGENTS.md`'s histogram; never let a green `documented_gaps.rs` be read as a
+  moved floor. *Destructuring* a tuple struct remains a separate, still-open pattern gap.
 - **Non-`Fn` items inside an `impl` block are SKIPPED, not thrown on (#491 slice 5).** An
   associated `const`/`type` (or an item-position macro) beside real methods no longer aborts the
   whole file — `types.rs::encode_item_impl` skips it and keeps encoding the block's methods, the
@@ -179,7 +197,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 341 passed, 0 failed, 341 total` (the 4
+  whole corpus with Dart-identical output: `Results: 343 passed, 0 failed, 343 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -206,9 +224,12 @@ cargo fmt --check && cargo clippy --workspace
   linted with everything else) runs real pinned crates through
   `encode_library` -> `compile_library` -> `encode_library`, diffs the declaration
   inventory with **`syn` directly** (never the encoder's own walk) and checks a
-  second-generation fixpoint. Honest first baseline **0/110 clean, 0 files even
-  encoded** — the encoders' documented gaps (item-level `const`/`static`/`type`,
-  tuple structs) are in essentially every real crate file. `cargo test -p
+  second-generation fixpoint. Honest baseline, **still 0/110 clean, 0 files even
+  encoded** after every #491 slice so far — the encoders' documented gaps
+  (item-level `const`/`static`/`type`, unmapped macros like `write!`, cross-file
+  method calls) are in essentially every real crate file, and a file that clears
+  one lands on the next. A closed gap category moves the histogram, not the
+  aggregate. `cargo test -p
   ball-rq1-study` (the harness's own self-test) IS gated on every PR in the `rust`
   job; the RUN is the report-only `rust-tier-a` job in `coverage-study.yml`, which
   has **no `pull_request:` trigger**. Methodology:

@@ -46,6 +46,23 @@
 // `paths` may also be supplied via the SR_PKG_PATHS env var (comma-separated);
 // an explicit `paths` in the config wins. A commit is kept when ANY of its
 // changed files sits at or under ANY configured root.
+//
+// LOCKSTEP OVERRIDE (SR_FORCE_RELEASE, issue #566)
+// -----------------------------------------------
+// A package that this filter finds no releasable commits for is normally not
+// released — and that is exactly right for a package nothing touched. It is
+// WRONG for a package the release loop's workspace-wide sibling sweep left
+// behind: its pubspec in the repo now pins a sibling version that its PUBLISHED
+// pubspec does not admit, so pub.dev keeps serving an unsolvable graph
+// (`ball_resolver 0.3.0+3` requiring `ball_base ^0.3.0+3` while ball_base is
+// live at 0.4.0). `tools/release/lockstep_plan.mjs --decide` computes exactly
+// which packages are in that state, and `pubdev-release.yml` passes its verdict
+// in as SR_FORCE_RELEASE for that one semantic-release invocation.
+//
+// The override only ever PROMOTES a no-release verdict to the given level; a
+// real analyzer verdict always wins, so a genuine `feat` still cuts a minor.
+// An unrecognised value throws rather than being ignored: a typo that silently
+// disabled the lockstep rule would reproduce #566 with a guard in place.
 
 import { execFileSync } from 'node:child_process';
 import { analyzeCommits as commitAnalyzer } from '@semantic-release/commit-analyzer';
@@ -130,9 +147,36 @@ function scopedContext(pluginConfig, context) {
   return { ...context, commits };
 }
 
+const FORCE_LEVELS = ['patch', 'minor', 'major'];
+
+/** The lockstep level SR_FORCE_RELEASE asks for, or null when unset. */
+function forcedLevel() {
+  const raw = (process.env.SR_FORCE_RELEASE || '').trim();
+  if (raw === '') return null;
+  if (!FORCE_LEVELS.includes(raw)) {
+    throw new Error(
+      `only-package-commits: SR_FORCE_RELEASE="${raw}" is not one of ${FORCE_LEVELS.join('/')}. ` +
+        'It is set by pubdev-release.yml from tools/release/lockstep_plan.mjs --decide; ' +
+        'refusing to run rather than silently skipping the lockstep release (#566).',
+    );
+  }
+  return raw;
+}
+
 export async function analyzeCommits(pluginConfig, context) {
   const analyzerConfig = (pluginConfig && pluginConfig.commitAnalyzer) || {};
-  return commitAnalyzer(analyzerConfig, scopedContext(pluginConfig, context));
+  const type = await commitAnalyzer(analyzerConfig, scopedContext(pluginConfig, context));
+  if (type) return type;
+  const forced = forcedLevel();
+  if (!forced) return type;
+  if (context.logger && typeof context.logger.log === 'function') {
+    context.logger.log(
+      'only-package-commits: no releasable commits, but the pub.dev lockstep planner ' +
+        'requires a %s release for this package (SR_FORCE_RELEASE) — see #566',
+      forced,
+    );
+  }
+  return forced;
 }
 
 export async function generateNotes(pluginConfig, context) {

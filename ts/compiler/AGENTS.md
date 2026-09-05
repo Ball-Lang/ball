@@ -49,6 +49,23 @@ Ball → TypeScript compiler. Consumes a `Program` (proto3-JSON object) and emit
   The self-hosted engine's own oneof dispatchers are defaultless switch
   *expressions*, so verify any change here with `engine_runtime.test.ts` — they
   are safe only because each carries an explicit `notSet` arm.
+- **A constructor test that only regex-matches emitted TEXT cannot see whether
+  the constructor CONSTRUCTS.** `buildNamedCtor`'s body-only branch shipped a
+  `static named(x) { return console.log(x); }` — no instance, `this` bound to
+  the class — and the unit test covering it asserted `console.log` appeared in
+  the emitted body and called that the intended contract (#564). Any assertion
+  about constructor semantics belongs on `runCompiled()` in
+  `test/class_emission_extra.test.ts`; a text match is at most a supplement.
+  The three invariants that suite now pins: a non-`factory` named constructor
+  always constructs; `Object.create` seeds every declared field's default
+  first; and only a `this.`-formal writes a parameter into its field.
+- **`test/full_e2e.ts` is the whole-corpus compiled leg and its `CARVE_OUTS`
+  table is zero-tolerance in both directions** — a non-carved failure fails the
+  leg, and so does a carved-out fixture that starts PASSING (a stale entry). It
+  is not part of `npm test`'s `test/*.test.ts` glob (one node process per
+  fixture); run it directly, unfiltered, for any codegen change, and compare
+  the printed pass count against the previous run rather than trusting
+  "0 failed".
 - Never import from `ts/shared/gen/` in compiler source — this package uses raw proto3-JSON trees (plain objects), not protobuf-es `Message` types.
 - See `.claude/rules/ts.md` and `CLAUDE.md` for TS API conventions and invariants.
 

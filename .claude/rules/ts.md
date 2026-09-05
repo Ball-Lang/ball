@@ -80,7 +80,46 @@ const json = toJson(ProgramSchema, program);
   `ts-compiled` leg of `dart/compiler/test/conformance_roundtrip_test.dart`
   catches them; conformance `436_recursive_ctor_named` /
   `438_ctor_initializer_list_with_body` pin them.
+- **A named constructor CONSTRUCTS unless it is a `factory`, and
+  `Object.create` runs no field initializer** (#564, conformance
+  `453_ctor_param_shadows_field` / `454_inline_instance_argument_name_collision`).
+  Two invariants in `buildNamedCtor`:
+  1. Branch selection may not depend on the ctor having an initializer list or
+     a `this.`-formal. A BODY-ONLY named ctor (`Bar.named(int x) { print(x); }`)
+     used to fall through to a plain `static named(x) { return console.log(x); }`
+     — no instance at all, `this` bound to the CLASS, and the method returning
+     the body's own value (`undefined`). It constructs like every other named
+     ctor now; only `metadata.is_factory` keeps the run-the-body-and-return-it
+     shape, because a `factory` returns some *other* object by definition.
+  2. `Object.create(C.prototype)` deliberately skips the real constructor,
+     which also skips the class's inline field initializers — so seed EVERY
+     declared non-static field with `dartInitializerToTs(...)` (the same
+     default the class declaration emits) immediately after the `Object.create`
+     and before any ctor-specific write, matching Dart's ordering. Without it a
+     field the ctor never mentions (`Init.viaList`'s `w`,
+     `StdModuleHandler.subset`'s `_dispatch`) stays `undefined` forever.
+- **Only a `this.`-formal writes a constructor parameter into its field.**
+  `buildCtor`'s prologue used to emit `this.<p> = <p>;` for `p.isThis ||
+  classFields.has(p.name)` — so a PLAIN parameter that merely shared a field's
+  name clobbered that field's initializer (`class Foo { int x = 5; Foo(int x)
+  { print(x); } }` left `x` at 9, not 5). That is the byte-identical defect the
+  Dart ENGINE carried until #563; the TS compiler's copy fell with #564. A unit
+  test asserting emitted TEXT cannot see it — the shape compiles fine and
+  silently answers with the wrong value, so the guard is a `runCompiled()`
+  assertion in `test/class_emission_extra.test.ts` plus conformance 453.
 - Base function dispatch in `_callBaseFunction()` switch
+- **`Box.new(7)` is a CONSTRUCTOR TEAR-OFF, not a static method (#531).** The
+  Dart encoder emits it as a generic self-carrying call
+  (`{function: "new", input: {self: Reference("Box"), arg0: 7}}`), NOT as the
+  `main:Box.new` Call `compileCall` special-cases up front, so it fell through
+  to the generic `<self>.<fn>(args)` form and emitted `Box.new_(7)` - `new` is
+  not a legal TS member name, and no emitted class declares it. A `new`
+  receiver that `isUserClassName()` recognises now compiles to
+  `new Box(args)`; one named in `DART_EXCEPTION_TYPES` compiles to the same
+  tagged object literal the direct `FormatException('x')` spelling produces,
+  because that is the shape the emitted typed-`catch` guards test. The
+  typeDef registry is keyed by the QUALIFIED name (`main:Box`), so a bare
+  lookup alone silently misses.
 - **Never lower a key-membership test to the bare `in` operator.** `in` walks
   the prototype chain, and the preamble patches the whole Dart-SDK method
   surface (`putIfAbsent`, `addAll`, `toList`, `firstWhere`, …) onto

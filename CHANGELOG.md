@@ -1,3 +1,38 @@
+## [1.68.6](https://github.com/Ball-Lang/ball/compare/v1.68.5...v1.68.6) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ts:** a named constructor must construct a real instance and seed every declared field default (closes [#564](https://github.com/Ball-Lang/ball/issues/564)) ([#571](https://github.com/Ball-Lang/ball/issues/571)) ([d9881b9](https://github.com/Ball-Lang/ball/commit/d9881b94c414306ceef0e377a8a2156e74b3e029)), closes [#563](https://github.com/Ball-Lang/ball/issues/563) [#563](https://github.com/Ball-Lang/ball/issues/563)
+
+## [1.68.5](https://github.com/Ball-Lang/ball/compare/v1.68.4...v1.68.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* **release:** keep verify-published polling while pub.dev indexes the package, fail fast only on a sibling conflict (closes [#568](https://github.com/Ball-Lang/ball/issues/568)) ([#572](https://github.com/Ball-Lang/ball/issues/572)) ([5765189](https://github.com/Ball-Lang/ball/commit/576518986a9d717b2a6ae3c170cdf89f7e42c919)), closes [#566](https://github.com/Ball-Lang/ball/issues/566) [#566](https://github.com/Ball-Lang/ball/issues/566) [#566-shaped](https://github.com/Ball-Lang/ball/issues/566-shaped)
+
+## [1.68.4](https://github.com/Ball-Lang/ball/compare/v1.68.3...v1.68.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* **rust:** encode tuple and unit structs, including their construction (advances [#491](https://github.com/Ball-Lang/ball/issues/491)) ([#569](https://github.com/Ball-Lang/ball/issues/569)) ([7d1c165](https://github.com/Ball-Lang/ball/commit/7d1c165778b452a4bbe1f0c3dbd2cb07fb8079fb)), closes [#498](https://github.com/Ball-Lang/ball/issues/498)
+
+## [1.68.3](https://github.com/Ball-Lang/ball/compare/v1.68.2...v1.68.3) (2026-09-05)
+
+
+### Bug Fixes
+
+* **cpp,dart:** stop emitting a duplicate default constructor and resolve constructor tear-offs (closes [#514](https://github.com/Ball-Lang/ball/issues/514), closes [#531](https://github.com/Ball-Lang/ball/issues/531)) ([#565](https://github.com/Ball-Lang/ball/issues/565)) ([e5e78a8](https://github.com/Ball-Lang/ball/commit/e5e78a8f536a6820818d8e5fcf492072c9d7f743)), closes [#172](https://github.com/Ball-Lang/ball/issues/172) [#563](https://github.com/Ball-Lang/ball/issues/563)
+
+## [1.68.2](https://github.com/Ball-Lang/ball/compare/v1.68.1...v1.68.2) (2026-09-05)
+
+
+### Bug Fixes
+
+* **release:** publish re-pinned pub.dev siblings lockstep and simulate against pub.dev state (closes [#566](https://github.com/Ball-Lang/ball/issues/566)) ([#567](https://github.com/Ball-Lang/ball/issues/567)) ([b84a622](https://github.com/Ball-Lang/ball/commit/b84a6222344aef3919b6aad38eaefebcedcb3fd9))
+
 ## [1.68.1](https://github.com/Ball-Lang/ball/compare/v1.68.0...v1.68.1) (2026-09-05)
 
 

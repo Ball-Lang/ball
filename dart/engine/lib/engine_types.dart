@@ -635,3 +635,35 @@ const _builtinTypeNames = {
   'Symbol',
   'Never',
 };
+
+/// Dart's built-in exception / error classes.
+///
+/// None of them carries a `TypeDefinition`, a registered constructor or a
+/// static method, so the class-reference test in `_evalReference` can never
+/// accept one — yet `throw FormatException.new('bad input')` has to resolve
+/// its receiver before the throw/catch machinery ever runs (#531). The list is
+/// EXPLICITLY enumerated (it mirrors the C++ compiler's
+/// `is_builtin_exception_name`): treating any unbound upper-case identifier as
+/// a class reference would silently swallow a genuine typo instead of failing
+/// loud.
+const _builtinExceptionNames = {
+  'Exception',
+  'Error',
+  'FormatException',
+  'RangeError',
+  'ArgumentError',
+  'StateError',
+  'UnsupportedError',
+  'UnimplementedError',
+  'TypeError',
+  'NoSuchMethodError',
+  'OutOfMemoryError',
+  'StackOverflowError',
+  'IntegerDivisionByZeroException',
+  'ConcurrentModificationError',
+  'IndexError',
+  'IOException',
+  'FileSystemException',
+  'HttpException',
+  'SocketException',
+};

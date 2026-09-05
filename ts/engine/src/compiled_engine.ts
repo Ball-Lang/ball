@@ -1681,8 +1681,6 @@ export class BallEngine {
   constructor(program: any, stdout: any, stderr: any, stdinReader: any, envGet: any, args: any, enableProfiling: any, maxRecursionDepth: any, timeoutMs: any, maxMemoryBytes: any, maxModules: any, maxExpressionDepth: any, maxProgramSizeBytes: any, sandbox: any, moduleHandlers: any, resolver: any) {
     if (typeof stdout === 'object' && stdout !== null && !Array.isArray(stdout) && ('stdout' in stdout || 'stderr' in stdout || 'stdinReader' in stdout || 'envGet' in stdout || 'args' in stdout || 'enableProfiling' in stdout || 'maxRecursionDepth' in stdout || 'timeoutMs' in stdout || 'maxMemoryBytes' in stdout || 'maxModules' in stdout || 'maxExpressionDepth' in stdout || 'maxProgramSizeBytes' in stdout || 'sandbox' in stdout || 'moduleHandlers' in stdout || 'resolver' in stdout)) { let __n = stdout; stdout = __n.stdout; stderr = __n.stderr; stdinReader = __n.stdinReader; envGet = __n.envGet; args = __n.args; enableProfiling = __n.enableProfiling; maxRecursionDepth = __n.maxRecursionDepth; timeoutMs = __n.timeoutMs; maxMemoryBytes = __n.maxMemoryBytes; maxModules = __n.maxModules; maxExpressionDepth = __n.maxExpressionDepth; maxProgramSizeBytes = __n.maxProgramSizeBytes; sandbox = __n.sandbox; moduleHandlers = __n.moduleHandlers; resolver = __n.resolver; }
     this.program = program;
-    this.stdout = stdout;
-    this.stderr = stderr;
     this.stdinReader = stdinReader;
     this.maxRecursionDepth = maxRecursionDepth;
     this.timeoutMs = timeoutMs;
@@ -1691,7 +1689,6 @@ export class BallEngine {
     this.maxExpressionDepth = maxExpressionDepth;
     this.maxProgramSizeBytes = maxProgramSizeBytes;
     this.sandbox = sandbox;
-    this.moduleHandlers = moduleHandlers;
     this.stdout = stdout ?? print;
     this._resolver = resolver;
     this.stderr = stderr ?? ((s) => io.stderr.writeln(s));
@@ -3400,6 +3397,17 @@ export class BallEngine {
             })();
             return this._unwrapFuture(await this._callFunction(modPart2, staticFunc, staticInput));
           }
+          if (__ball_eq(call.function, 'new')) {
+            let ctorFields = _ballUserMap();
+            for (const e of inputMap.entries) {
+              if (__ball_eq(e.key, 'self')) {
+                continue;
+              }
+              ctorFields[e.key] = e.value;
+            }
+            ctorFields['__type__'] = qualifiedName;
+            return ctorFields.cast();
+          }
         }
         let typeName = __ball_index(selfMap, '__type__');
         if (((!__ball_eq(typeName, null) && !__ball_eq(typeName, '__builtin_class__')) && !__ball_eq(typeName, '__class__'))) {
@@ -3767,6 +3775,9 @@ export class BallEngine {
       }));
       let typeExists = (__ball_map_has(this._types, 'map_contains_key', name) || __ball_map_has(this._types, 'map_contains_key', qualifiedName));
       if ((typeExists && (hasCtor || hasStaticMethods))) {
+        return { ['__class_ref__']: name, ['__type__']: '__class__' };
+      }
+      if (_builtinExceptionNames.includes(name)) {
         return { ['__class_ref__']: name, ['__type__']: '__class__' };
       }
     }
@@ -10422,6 +10433,10 @@ export class StdModuleHandler extends BallModuleHandler {
 
   static subset(functions: any): any {
     const __inst = Object.create(StdModuleHandler.prototype);
+    __inst._dispatch = {};
+    __inst._composedDispatch = {};
+    __inst._allowlist = null;
+    __inst._tombstones = new Set();
     __inst._allowlist = functions.toSet();
     return __inst;
   }
@@ -10490,6 +10505,7 @@ export class StdModuleHandler extends BallModuleHandler {
 let _kBallSetTag = (() => { return '__ball_set__'; })();
 let _sentinel = (() => { return { '__type': 'main:Object' }; })();
 let _builtinTypeNames = (() => { return new Set(['int', 'double', 'num', 'String', 'bool', 'List', 'Map', 'Set', 'Null', 'void', 'Object', 'dynamic', 'Function', 'Future', 'Stream', 'Iterable', 'Iterator', 'Type', 'Symbol', 'Never']); })();
+let _builtinExceptionNames = (() => { return new Set(['Exception', 'Error', 'FormatException', 'RangeError', 'ArgumentError', 'StateError', 'UnsupportedError', 'UnimplementedError', 'TypeError', 'NoSuchMethodError', 'OutOfMemoryError', 'StackOverflowError', 'IntegerDivisionByZeroException', 'ConcurrentModificationError', 'IndexError', 'IOException', 'FileSystemException', 'HttpException', 'SocketException']); })();
 let _ballPointerBytes = (() => { return 8; })();
 let _ballStringCodeUnitBytes = (() => { return 2; })();
 let _ballMapEntryBytes = (() => { return __ball_mul(_ballPointerBytes, 2); })();

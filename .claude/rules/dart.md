@@ -184,6 +184,27 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   (`_evalMessageCreation` and `_callObjectConstructor`), not only for body-less
   constructors. A string-literal initializer is stored as SOURCE text
   (`label = 'pt'` → `"'pt'"`) and its quotes must be stripped.
+- **A constructor TEAR-OFF (`ClassName.new(args)`) is not the construction
+  path (#531).** The encoder emits it as a generic self-carrying method call
+  (`{function: "new", input: {self: Reference(Cls), arg0: ...}}`), never as a
+  `messageCreation`, so it lands in `_evalCall`'s class-reference dispatch
+  rather than in `_evalMessageCreation`. Three consequences the fix pins:
+  (a) a BUILT-IN exception name (`FormatException`) has no `TypeDefinition`,
+  no registered constructor and no static method, so `_evalReference`'s
+  class-reference test rejected it and resolution fell through to
+  `scope.lookup` - `Undefined variable: "FormatException"`. It is now accepted
+  from the EXPLICITLY enumerated `_builtinExceptionNames`; never widen that to
+  "any unbound upper-case identifier", which would swallow a real typo.
+  (b) with no registered constructor the class-ref dispatch has nothing to
+  call, so `call.function == 'new'` builds the same generic instance the
+  typeDef-less `messageCreation` fallback produces
+  (`{...args, __type__: '<module>:<Class>'}`) - which is exactly what
+  `std.throw`'s `arg0 -> message` rename consumes.
+  (c) a BODY-LESS constructor reached this way goes through
+  `_buildConstructorInstance`, which never applied the class's own inline
+  field initializers - `Counter.new()` produced an instance with no `n` field
+  at all while `Counter()` worked. It now calls `_initFieldDefaults` like the
+  `messageCreation` path does.
 
 ## Generated Files — NEVER Edit
 

@@ -310,12 +310,15 @@ inline const std::vector<std::string>& program_names() {
         "435_recursive_ctor_construction",
         "436_recursive_ctor_named",
         "437_recursive_ctor_tree",
+        "438_ctor_initializer_list_with_body",
         "439_unrelated_field_name_collision",
         "440_base_typed_param_return_slicing",
         "442_switch_goto_fallthrough_guard_or_pattern",
         "443_nullable_field_chain_member_read",
         "444_inline_constructed_call_argument",
         "445_let_bound_to_call_returning_class",
+        "450_constructor_tearoff_user_class",
+        "451_thrown_builtin_exception_tearoff",
         "455_ctor_field_writes_that_survive",
     };
     return names;

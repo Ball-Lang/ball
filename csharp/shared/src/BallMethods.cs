@@ -184,6 +184,19 @@ public static partial class BallRuntime
 
     private static BallValue MethodAddAll(BallValue self, BallValue other)
     {
+        // A Set (the `{"__ball_set__": [...]}` tagged map, issue #528) unions in
+        // the other iterable's ELEMENTS, de-duplicating, and must not take the
+        // plain-Map arm below.
+        if (IsBallSet(self))
+        {
+            foreach (var item in AsList(other).Snapshot())
+            {
+                SetAdd(self, item);
+            }
+
+            return BallValue.Null;
+        }
+
         switch (self)
         {
             case BallList list:
@@ -222,6 +235,13 @@ public static partial class BallRuntime
 
     private static BallValue MethodClear(BallValue self)
     {
+        // A Set (the `{"__ball_set__": [...]}` tagged map, issue #528) clears
+        // its ELEMENTS in place and stays a Set.
+        if (IsBallSet(self))
+        {
+            return MethodClear(AsList(self));
+        }
+
         switch (self)
         {
             case BallList list:
@@ -237,6 +257,14 @@ public static partial class BallRuntime
 
     private static BallValue MethodRemove(BallValue self, BallValue value)
     {
+        // A Set is the portable `{"__ball_set__": [...]}` tagged map (issue
+        // #528), so it must be discriminated BEFORE the plain-Map arm:
+        // `set.remove(v)` removes the ELEMENT `v`, never a map key.
+        if (IsBallSet(self))
+        {
+            return MethodRemove(AsList(self), value);
+        }
+
         switch (self)
         {
             case BallList list:

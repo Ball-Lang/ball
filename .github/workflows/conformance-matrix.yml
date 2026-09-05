@@ -865,13 +865,14 @@ jobs:
       # this to turn a red build green — preventing exactly that is the whole
       # point of a ratchet. Open families are catalogued in #452.
       #
-      # 248 is main's own value (#510). This branch restores fixture 406
-      # (406_subclass_field_over_getter), which the C# compiler already handles
-      # (#461 taught it this exact shape), so the measured count rises by one;
-      # the floor is re-ratcheted from this branch's own dispatched matrix run,
-      # never from memory. 431 and 432 do NOT compile on this leg yet and are
-      # correctly NOT counted; Rust/Go/Python measured no change and keep theirs.
-      CSHARP_COMPILER_FLOOR: "250"
+      # 255 was main's own measured value before #527/#528. Those two land
+      # 436_recursive_ctor_named and 438_ctor_initializer_list_with_body on this
+      # leg (+2). A local before/after per-fixture diff accounted for every
+      # change: only those two flipped to passing, and #528's Set
+      # representation change flipped NOTHING to failing once a set's virtual
+      # `.length` was taught to read the wrapped list (118_set_operations
+      # briefly answered `Length: 1`). Measured locally at 257, never predicted.
+      CSHARP_COMPILER_FLOOR: "257"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1469,7 +1470,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      GO_COMPILER_FLOOR: "266"
+      # 271 was main's own measured value before #527. That fix lands
+      # 436_recursive_ctor_named and 438_ctor_initializer_list_with_body on this
+      # leg (+2); a local before/after per-fixture diff accounted for every
+      # change (106 and 112 only moved further along the pipeline, still
+      # failing). Measured locally at 273, never predicted.
+      GO_COMPILER_FLOOR: "273"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1549,7 +1555,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      PYTHON_COMPILER_FLOOR: "240"
+      # 243 was main's own measured value before #527. That fix lands
+      # 436_recursive_ctor_named and 438_ctor_initializer_list_with_body on this
+      # leg (+2); a local before/after per-fixture diff accounted for every
+      # change (105, 106 and 112 only moved further along the pipeline, still
+      # failing). Measured locally at 245, never predicted.
+      PYTHON_COMPILER_FLOOR: "245"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

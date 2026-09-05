@@ -255,34 +255,45 @@ too, without a colour-forced CI leg.
 > draft of the paragraph above also claimed those four fixtures "pass on the
 > Rust/Go/Python/C# compiler legs". Measured one fixture at a time, they do not:
 > `435_recursive_ctor_construction` and `437_recursive_ctor_tree` (unnamed
-> constructors) pass all four, while `436_recursive_ctor_named` and
-> `438_ctor_initializer_list_with_body` fail **all four** — Rust
+> constructors) passed all four, while `436_recursive_ctor_named` and
+> `438_ctor_initializer_list_with_body` failed **all four** — Rust
 > `[E0425] cannot find value 'Countdown'`, C# `CS0103: The name 'from' does not
 > exist in the current context`, a Go `build` error, Python
-> `unresolved reference 'Countdown'`. None of those four compilers resolves a
+> `unresolved reference 'Countdown'`. None of those four compilers resolved a
 > NAMED constructor (`Class.name(args)`), which the Dart encoder emits as a
-> method call on the class reference rather than as a `messageCreation`; that
-> pre-existing gap is filed as
-> [#527](https://github.com/Ball-Lang/ball/issues/527). CI stays green because
+> method call on the class reference rather than as a `messageCreation`, and
+> none applied a constructor's `metadata.initializers` when the constructor also
+> carried a body. Both were fixed in
+> [#527](https://github.com/Ball-Lang/ball/issues/527), whose regression cover is
+> deliberately a **PR-gated unit test per language** (`cargo test --workspace`,
+> `dotnet test Ball.slnx`, `go test ./compiler/...`, `pytest`) rather than the
+> fixtures alone — because the fixture leg still does not run on PRs. CI stayed
+> green throughout because
 > those legs are **ratcheted** — they fail only on a DROP below a recorded floor
 > (73-89 pre-existing failures each), and are explicitly not parity gates. A
 > ratcheted leg going green tells you nothing about a specific fixture: run it.
 >
 > **A new base function can be right everywhere and still not agree everywhere.**
-> `434_type_of` (#489's fixture) prints `Set` on line 8 — the real `dart run`
+> `434_type_of` (#489's fixture) printed `Set` on line 8 — the real `dart run`
 > oracle — on every engine, on the C++ compiled leg, and on the Go and Python
-> compiler legs, and prints `List` on the Rust and C# ones. That is not a
-> `type_of` defect: neither runtime has a set representation at all
-> (`rust/shared`'s `ball_set_create` returns a `BallValue::List`,
-> `csharp/shared`'s `SetCreate` returns a `BallList`), so a compiled set *is* a
-> list there; both runtimes' `Set` arm keys on the portable
+> compiler legs, and `List` on the Rust and C# ones. That was not a `type_of`
+> defect: neither runtime had a set representation at all
+> (`rust/shared`'s `ball_set_create` returned a `BallValue::List`,
+> `csharp/shared`'s `SetCreate` returned a `BallList`), so a compiled set *was* a
+> list there, while both runtimes' `Set` arm keyed on the portable
 > `{'__ball_set__': [...]}` map form only the self-hosted engines materialise.
-> `x is Set` has been answering wrongly in those two targets for as long as it
-> has existed, unnoticed, because nothing ever asked — 434 is the first test
-> that does. Filed as
-> [#528](https://github.com/Ball-Lang/ball/issues/528); the fixture keeps its
-> `Set` line, because deleting it would delete the only place the divergence is
-> visible.
+> `x is Set` had been answering wrongly in those two targets for as long as it
+> had existed, unnoticed, because nothing ever asked — 434 was the first test
+> that did. Fixed in
+> [#528](https://github.com/Ball-Lang/ball/issues/528) by giving both runtimes
+> the same portable tagged-map set C++ already shipped; the fixture keeps its
+> `Set` line, because deleting it would have deleted the only place the
+> divergence was visible. **The lasting lesson is the shape, not the bug:** a
+> divergence that only a not-PR-gated, ratcheted leg can see needs PR-gated unit
+> tests to close it for good, which is why #528's fix landed with
+> `ball_is_type`/`ball_type_of`/alias-mutation/rendering assertions in
+> `cargo test --workspace` and `dotnet test Ball.slnx` — legs that DO run on
+> every PR.
 >
 > A carve-out can also hollow out the leg itself: `full_e2e.sh`'s gate was
 > `[[ $fail -eq 0 ]]`, so a `--fixtures` filter whose every entry was carved out

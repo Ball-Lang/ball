@@ -291,8 +291,10 @@ public sealed partial class CSharpCompiler
 
     /// <summary>
     /// <c>{'k': p, …}</c> — every pattern key must be PRESENT (extra subject keys
-    /// are allowed, unlike a record). A Ball <c>Set</c> is a list, not a map, so
-    /// it can never match here (issue #178 / fixture 394).
+    /// are allowed, unlike a record). A Ball <c>Set</c> is a Set, not a Map, so
+    /// it can never match here — <see cref="BallRuntime.PatternIsMap"/> excludes
+    /// the portable <c>{"__ball_set__": [...]}</c> shape explicitly (issue #178 /
+    /// fixture 394; the tag became a real one-key map in issue #528).
     /// </summary>
     private PatternMatch CompileMapPattern(string subject, OrderedDictionary<string, Expression> f)
     {

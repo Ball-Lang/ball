@@ -311,6 +311,51 @@ public class BallRuntimeTests
     }
 
     [Fact]
+    public void GenericListOpsAcceptASetReceiver()
+    {
+        // The Dart encoder lowers `set.add(x)` / `set.contains(x)` to the
+        // GENERIC `std_collections.list_push` / `list_contains` ops (a `Set` is
+        // an `Iterable` and the encoder has no static receiver type), so every
+        // list op must accept the tagged set — `129_unique_elements` is exactly
+        // `Set<int> seen = {}; … if (!seen.contains(item)) seen.add(item);`.
+        var set = BallRuntime.SetCreate(new BallList());
+        BallRuntime.ListPush(set, BallValue.Int(1));
+        BallRuntime.ListPush(set, BallValue.Int(2));
+        Assert.Equal(BallValue.Str("Set"), BallRuntime.TypeOf(set));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.ListContains(set, BallValue.Int(2)));
+        Assert.Equal(BallValue.Int(2), BallRuntime.FieldGet(set, "length"));
+
+        // …and the Dart-SDK method surface's Map-shaped arms must not swallow a
+        // set: `remove`/`clear`/`addAll` operate on its ELEMENTS.
+        Assert.Equal(
+            BallValue.Bool(true),
+            BallRuntime.CallMethod("remove", new BallMap { ["self"] = set, ["arg0"] = BallValue.Int(1) }));
+        Assert.Equal(BallValue.Int(1), BallRuntime.FieldGet(set, "length"));
+
+        BallRuntime.CallMethod("addAll", new BallMap
+        {
+            ["self"] = set,
+            ["arg0"] = new BallList(new BallValue[] { BallValue.Int(2), BallValue.Int(7) }),
+        });
+        Assert.Equal(BallValue.Str("{2, 7}"), BallRuntime.ToStringValue(set));
+
+        BallRuntime.CallMethod("clear", new BallMap { ["self"] = set });
+        Assert.Equal(BallValue.Bool(true), BallRuntime.SetIsEmpty(set));
+        Assert.Equal(BallValue.Str("Set"), BallRuntime.TypeOf(set));
+    }
+
+    [Fact]
+    public void ASetNeverSatisfiesAMapPattern()
+    {
+        // Issue #178 / fixture 394: a Dart Set is not a Map, so `case {…}:` must
+        // fall through. Since #528 a Set IS a real one-key map
+        // (`{"__ball_set__": [...]}`), so the map gate has to exclude it
+        // explicitly — a pattern keyed on that marker would otherwise match.
+        Assert.False(BallRuntime.PatternIsMap(OneTwoSet()));
+        Assert.True(BallRuntime.PatternIsMap(new BallMap { ["k"] = BallValue.Int(7) }));
+    }
+
+    [Fact]
     public void SetRendersAsABraceListNotItsTaggedMap()
     {
         Assert.Equal(BallValue.Str("{1, 2}"), BallRuntime.ToStringValue(OneTwoSet()));

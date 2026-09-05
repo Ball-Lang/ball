@@ -1711,42 +1711,44 @@ pub fn ball_list_concat(list: BallValue, value: BallValue) -> BallValue {
 
 // ── mutating (take a `&mut BallValue` slot — see rust/compiler/src/lvalue.rs) ──
 
-pub fn ball_list_push(list: &mut BallValue, value: BallValue) -> BallValue {
-    match list {
-        BallValue::List(items) => {
-            items.push(value);
-            list.clone()
-        }
-        other => panic!("ball-lang-compiler runtime: list_push on a non-list value: {other:?}"),
+/// The SHARED backing list a mutating list op must write through: a
+/// `BallValue::List`'s own backing, or — since issue #528 — the list wrapped
+/// inside a portable `{'__ball_set__': [...]}` set.
+///
+/// The Dart encoder lowers `set.add(x)` / `set.remove(x)` to the generic
+/// `std_collections.list_push` / `list_remove_at` ops (a `Set` is an
+/// `Iterable`, and the encoder has no static receiver type), so every mutating
+/// list op must accept a set — `129_unique_elements` does exactly
+/// `Set<int> seen = {}; … seen.add(item);`.
+fn mutable_list_backing(value: &BallValue, op: &str) -> BallList {
+    match value {
+        BallValue::List(items) => items.clone(),
+        BallValue::Map(map) if map.contains_key(BALL_SET_TAG) => match map.get(BALL_SET_TAG) {
+            Some(BallValue::List(items)) => items,
+            other => panic!("ball-lang-compiler runtime: malformed set value: {other:?}"),
+        },
+        other => panic!("ball-lang-compiler runtime: {op} on a non-list value: {other:?}"),
     }
+}
+
+pub fn ball_list_push(list: &mut BallValue, value: BallValue) -> BallValue {
+    mutable_list_backing(list, "list_push").push(value);
+    list.clone()
 }
 
 pub fn ball_list_pop(list: &mut BallValue) -> BallValue {
-    match list {
-        BallValue::List(items) => items.pop().unwrap_or_else(|| {
-            panic!("ball-lang-compiler runtime: .removeLast() on an empty list")
-        }),
-        other => panic!("ball-lang-compiler runtime: list_pop on a non-list value: {other:?}"),
-    }
+    mutable_list_backing(list, "list_pop")
+        .pop()
+        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: .removeLast() on an empty list"))
 }
 
 pub fn ball_list_insert(list: &mut BallValue, index: BallValue, value: BallValue) -> BallValue {
-    match list {
-        BallValue::List(items) => {
-            items.insert(as_index(&index), value);
-            list.clone()
-        }
-        other => panic!("ball-lang-compiler runtime: list_insert on a non-list value: {other:?}"),
-    }
+    mutable_list_backing(list, "list_insert").insert(as_index(&index), value);
+    list.clone()
 }
 
 pub fn ball_list_remove_at(list: &mut BallValue, index: BallValue) -> BallValue {
-    match list {
-        BallValue::List(items) => items.remove(as_index(&index)),
-        other => {
-            panic!("ball-lang-compiler runtime: list_remove_at on a non-list value: {other:?}")
-        }
-    }
+    mutable_list_backing(list, "list_remove_at").remove(as_index(&index))
 }
 
 // ════════════════════════════════════════════════════════════
@@ -2721,13 +2723,8 @@ pub fn ball_list_join(list: BallValue, separator: BallValue) -> BallValue {
 
 /// `list.clear()` — empty the list in place, returning it.
 pub fn ball_list_clear(list: &mut BallValue) -> BallValue {
-    match list {
-        BallValue::List(items) => {
-            items.clear();
-            BallValue::List(items.clone())
-        }
-        other => panic!("ball-lang-compiler runtime: list_clear on a non-list value: {other:?}"),
-    }
+    mutable_list_backing(list, "list_clear").clear();
+    list.clone()
 }
 
 /// `list.sort([comparator])` — sort in place, returning the sorted list. With
@@ -2735,24 +2732,20 @@ pub fn ball_list_clear(list: &mut BallValue) -> BallValue {
 /// negative/zero/positive int (the single-`input` calling convention); without
 /// one, elements order by their natural string/number comparison.
 pub fn ball_list_sort(list: &mut BallValue, comparator: BallValue) -> BallValue {
-    match list {
-        BallValue::List(items) => {
-            match &comparator {
-                BallValue::Function(_) => {
-                    items.sort_by(|a, b| {
-                        let input = BallMap::new();
-                        input.insert("arg0".to_string(), a.clone());
-                        input.insert("arg1".to_string(), b.clone());
-                        let result = ball_call_function(comparator.clone(), BallValue::Map(input));
-                        as_i64(&result).cmp(&0)
-                    });
-                }
-                _ => items.sort_by(ball_natural_cmp),
-            }
-            BallValue::List(items.clone())
+    let items = mutable_list_backing(list, "list_sort");
+    match &comparator {
+        BallValue::Function(_) => {
+            items.sort_by(|a, b| {
+                let input = BallMap::new();
+                input.insert("arg0".to_string(), a.clone());
+                input.insert("arg1".to_string(), b.clone());
+                let result = ball_call_function(comparator.clone(), BallValue::Map(input));
+                as_i64(&result).cmp(&0)
+            });
         }
-        other => panic!("ball-lang-compiler runtime: list_sort on a non-list value: {other:?}"),
+        _ => items.sort_by(ball_natural_cmp),
     }
+    list.clone()
 }
 
 /// Natural ordering for `list_sort` without a comparator: numbers by value,
@@ -3182,6 +3175,16 @@ mod dartsdk {
     pub fn addAll(input: BallValue) -> BallValue {
         let receiver = m_get(&input, "self");
         let other = m_get(&input, "arg0");
+        // A Set (the `{'__ball_set__': [...]}` tagged map, issue #528) unions in
+        // the other iterable's ELEMENTS, de-duplicating, and must not take the
+        // plain-Map arm below.
+        if is_ball_set_value(&receiver) {
+            let mut set = receiver;
+            for item in as_list(other) {
+                ball_set_add(&mut set, item);
+            }
+            return set;
+        }
         match receiver {
             BallValue::Map(map) => {
                 match other {
@@ -3217,6 +3220,13 @@ mod dartsdk {
     pub fn remove(input: BallValue) -> BallValue {
         let receiver = m_get(&input, "self");
         let target = m_get(&input, "arg0");
+        // A Set is the portable `{'__ball_set__': [...]}` tagged map (issue
+        // #528), so it must be discriminated BEFORE the plain-Map arm:
+        // `set.remove(v)` removes the ELEMENT `v`, never a map key.
+        if is_ball_set_value(&receiver) {
+            let mut set = receiver;
+            return ball_set_remove(&mut set, target);
+        }
         match receiver {
             BallValue::Map(map) => map.remove(&index_key(&target)).unwrap_or(BallValue::Null),
             // `List.remove(value)` mutates in place; the receiver's shared
@@ -3237,7 +3247,14 @@ mod dartsdk {
 
     /// `List.clear()` / `Map.clear()` / `Set.clear()` — the emptied receiver.
     pub fn clear(input: BallValue) -> BallValue {
-        match m_get(&input, "self") {
+        let receiver = m_get(&input, "self");
+        // A Set (the `{'__ball_set__': [...]}` tagged map, issue #528) clears
+        // its ELEMENTS in place and stays a Set.
+        if is_ball_set_value(&receiver) {
+            let mut set = receiver;
+            return ball_list_clear(&mut set);
+        }
+        match receiver {
             BallValue::Map(_) => BallValue::Map(BallMap::new()),
             BallValue::List(_) => BallValue::List(BallList::new()),
             other => other,
@@ -4273,6 +4290,57 @@ mod tests {
             ball_set_contains(alias, BallValue::Int(1)),
             BallValue::Bool(false)
         );
+    }
+
+    #[test]
+    fn generic_list_ops_accept_a_set_receiver() {
+        // The Dart encoder lowers `set.add(x)` / `set.contains(x)` to the
+        // GENERIC `std_collections.list_push` / `list_contains` ops (a `Set` is
+        // an `Iterable` and the encoder has no static receiver type), so every
+        // list op must accept the tagged set — `129_unique_elements` is exactly
+        // `Set<int> seen = {}; … if (!seen.contains(item)) seen.add(item);`.
+        let mut set = ball_set_create(BallValue::List(BallList::new()));
+        ball_list_push(&mut set, BallValue::Int(1));
+        ball_list_push(&mut set, BallValue::Int(2));
+        assert_eq!(ball_type_of(set.clone()), BallValue::String("Set".into()));
+        assert_eq!(
+            ball_list_contains(set.clone(), BallValue::Int(2)),
+            BallValue::Bool(true)
+        );
+        assert_eq!(ball_field_get(set.clone(), "length"), BallValue::Int(2));
+
+        // …and the Dart-SDK method surface's Map-shaped arms must not swallow a
+        // set: `remove`/`clear`/`addAll` operate on its ELEMENTS.
+        let method_input = |args: &[(&str, BallValue)]| {
+            let map = BallMap::new();
+            for (key, value) in args {
+                map.insert((*key).to_string(), value.clone());
+            }
+            BallValue::Map(map)
+        };
+
+        let removed = dartsdk::remove(method_input(&[
+            ("self", set.clone()),
+            ("arg0", BallValue::Int(1)),
+        ]));
+        assert_eq!(removed, BallValue::Bool(true));
+        assert_eq!(ball_field_get(set.clone(), "length"), BallValue::Int(1));
+
+        dartsdk::addAll(method_input(&[
+            ("self", set.clone()),
+            (
+                "arg0",
+                BallValue::List(BallList::from(vec![BallValue::Int(2), BallValue::Int(7)])),
+            ),
+        ]));
+        assert_eq!(
+            ball_to_string(set.clone()),
+            BallValue::String("{2, 7}".into())
+        );
+
+        dartsdk::clear(method_input(&[("self", set.clone())]));
+        assert_eq!(ball_set_is_empty(set.clone()), BallValue::Bool(true));
+        assert_eq!(ball_type_of(set), BallValue::String("Set".into()));
     }
 
     #[test]

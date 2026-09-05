@@ -1,5 +1,5 @@
-//! Type declarations → Ball `TypeDefinition`s (issue #43): `struct` (named
-//! fields only) → a class-shaped `TypeDefinition` + `DescriptorProto`;
+//! Type declarations → Ball `TypeDefinition`s (issue #43): `struct` (named,
+//! tuple **and** unit) → a class-shaped `TypeDefinition` + `DescriptorProto`;
 //! `enum` (fieldless variants only) → `Module.enums[]` (an
 //! `EnumDescriptorProto`) plus a companion, descriptor-less `TypeDefinition`;
 //! `trait` → an `is_abstract` `TypeDefinition` with signature-only abstract
@@ -10,6 +10,40 @@
 //! (the reference implementation this issue names) adapted to Rust's own
 //! `struct`/`enum`/`trait`/`impl` split — there is no single "class"
 //! keyword to dispatch on the way Dart has one.
+//!
+//! ## Tuple and unit structs — supported since #491
+//!
+//! `struct Pair(i64, i64);` and `struct Marker;` used to abort the whole file
+//! at an unconditional `syn::Fields::Named` guard — 14 of the 110 scored files
+//! in the live Tier A funnel (`tools/coverage-study/packages/rust.json`), the
+//! largest declaration-shape bucket. All three shapes now produce the same
+//! class-shaped `TypeDefinition`; only the field *names* differ.
+//!
+//! A tuple element is declared under its **positional index rendered as a
+//! decimal string** — `"0"`, `"1"` — never `"field0"` or the `"arg0"`
+//! constructor-call convention. That spelling is load-bearing, not cosmetic:
+//! [`member_name`] has always turned a `syn::Member::Unnamed` *read* (`p.0`)
+//! into exactly that string, so declaration and read agree without either side
+//! needing a translation table, and `ball-lang-compiler` treats a field name as
+//! an opaque map key (`is_positional_arg_name` matches only `arg<digits>`, so a
+//! bare `"0"` is inserted verbatim). Field *numbers* in the `DescriptorProto`
+//! stay 1-based positional, same as the named case.
+//!
+//! A unit struct declares zero fields — an empty `DescriptorProto`, not a
+//! missing one, so it stays a real class the compiler emits a declaration for.
+//!
+//! Two `lib.rs` call sites close the loop, and shipping the declaration
+//! without them would trade a loud failure for a silent one: `Pair(3, 4)` is
+//! syntactically a bare-identifier call, so `encode_call` intercepts a known
+//! tuple-struct name and emits a `message_creation` instead of a call to a
+//! function nobody declared, and `Marker` used as a value is syntactically a
+//! variable read, so `encode_path_expr` intercepts a known unit-struct name
+//! instead of referencing a binding nobody made.
+//!
+//! **Still a gap, deliberately:** *destructuring* a tuple struct
+//! (`let Pair(a, b) = p;`, or a `fn f(Pair(a, b): Pair)` parameter) — a
+//! separate, pre-existing destructuring-pattern gap that has nothing to do
+//! with the struct's declared shape. Read positionally (`p.0`) instead.
 //!
 //! ## Receiver-less associated functions (`Point::new`) — supported since #491
 //!
@@ -102,24 +136,40 @@ impl Encoder {
     pub(crate) fn encode_item_struct(&mut self, item: &syn::ItemStruct) -> TypeDefinition {
         let short = item.ident.to_string();
         let full = qualified_type_name(&short);
-        let syn::Fields::Named(named) = &item.fields else {
-            panic!(
-                "ball-lang-encoder: only a struct with named fields is supported (tuple/unit \
-                 structs are a documented gap): `struct {short}`"
-            );
+
+        // All three struct shapes produce the SAME class-shaped
+        // `TypeDefinition`; only the field *names* differ. A named field
+        // keeps its identifier; a tuple element is named by its positional
+        // index (`"0"`, `"1"`, …) — see the module doc comment for why that
+        // exact spelling is load-bearing; a unit struct declares none.
+        let declared: Vec<(String, &syn::Field)> = match &item.fields {
+            syn::Fields::Named(named) => named
+                .named
+                .iter()
+                .map(|field| {
+                    let name = field
+                        .ident
+                        .as_ref()
+                        .expect("a named field always has an identifier")
+                        .to_string();
+                    (name, field)
+                })
+                .collect(),
+            syn::Fields::Unnamed(unnamed) => unnamed
+                .unnamed
+                .iter()
+                .enumerate()
+                .map(|(index, field)| (index.to_string(), field))
+                .collect(),
+            syn::Fields::Unit => Vec::new(),
         };
 
-        let mut proto_fields = Vec::with_capacity(named.named.len());
-        let mut fields_meta = Vec::with_capacity(named.named.len());
-        for (index, field) in named.named.iter().enumerate() {
-            let field_name = field
-                .ident
-                .as_ref()
-                .expect("a named field always has an identifier")
-                .to_string();
-            proto_fields.push(field_descriptor(&field_name, (index + 1) as i32, &field.ty));
+        let mut proto_fields = Vec::with_capacity(declared.len());
+        let mut fields_meta = Vec::with_capacity(declared.len());
+        for (index, (field_name, field)) in declared.iter().enumerate() {
+            proto_fields.push(field_descriptor(field_name, (index + 1) as i32, &field.ty));
             fields_meta.push(struct_value(vec![
-                ("name", str_value(&field_name)),
+                ("name", str_value(field_name)),
                 ("type", str_value(type_to_string(&field.ty))),
                 ("is_public", bool_value(is_pub(&field.vis))),
             ]));
@@ -184,6 +234,49 @@ impl Encoder {
             expr: Some(Expr::MessageCreation(MessageCreation {
                 type_name: full,
                 fields,
+                metadata: None,
+            })),
+        }
+    }
+
+    /// `Pair(3, 4)` → the same `message_creation`
+    /// [`Self::encode_struct_literal`] builds, with each positional argument
+    /// keyed by its index rendered as a decimal string (`"0"`, `"1"`, …) —
+    /// the very names [`member_name`] gives the matching `p.0`/`p.1` reads,
+    /// and the names [`Self::encode_item_struct`] declared. Issue #491; see
+    /// the module doc comment's "Tuple and unit structs" section for why a
+    /// construction cannot be left to `encode_user_call`.
+    pub(crate) fn encode_tuple_struct_creation(
+        &mut self,
+        short: &str,
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        let fields = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| FieldValuePair {
+                name: index.to_string(),
+                value: Some(self.encode_expr(arg)),
+            })
+            .collect();
+        Expression {
+            expr: Some(Expr::MessageCreation(MessageCreation {
+                type_name: qualified_type_name(short),
+                fields,
+                metadata: None,
+            })),
+        }
+    }
+
+    /// `Marker` used as a value → an empty-fields `message_creation` for that
+    /// type. Issue #491 — a unit struct is never *called*, so this is the only
+    /// way one is ever constructed, and without it the bare path would fall
+    /// through to a reference to a variable nobody declared.
+    pub(crate) fn encode_unit_struct_creation(&self, short: &str) -> Expression {
+        Expression {
+            expr: Some(Expr::MessageCreation(MessageCreation {
+                type_name: qualified_type_name(short),
+                fields: vec![],
                 metadata: None,
             })),
         }

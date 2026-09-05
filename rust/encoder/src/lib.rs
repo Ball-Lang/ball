@@ -18,8 +18,9 @@
 //! — issue #43 — adds types, cosmetic metadata, and fine-grained std
 //! accumulation)
 //!
-//! - **Types** (`types.rs`): `struct` (named fields only — tuple/unit
-//!   structs are a documented gap) → a `TypeDefinition` in `type_defs[]`
+//! - **Types** (`types.rs`): `struct` — named, **tuple** or **unit** (issue
+//!   #491; a tuple element is declared and read under its positional index
+//!   `"0"`/`"1"`) → a `TypeDefinition` in `type_defs[]`
 //!   plus a `DescriptorProto`; `enum` (fieldless variants only —
 //!   data-carrying variants are a documented gap) → `Module.enums[]` (an
 //!   `EnumDescriptorProto`) plus a companion, descriptor-less
@@ -31,7 +32,14 @@
 //!   doc comment; the signature-only *trait* sibling is still a documented
 //!   gap). Construction can also use Rust's own struct-literal syntax
 //!   (`Point { x, y }`), which needs no constructor at all — it's a plain
-//!   `message_creation`.
+//!   `message_creation`. **A tuple struct's construction (`Pair(3, 4)`,
+//!   [`Encoder::encode_call`]) and a unit struct's bare value (`Marker`,
+//!   [`Encoder::encode_path_expr`]) are each intercepted before the branch
+//!   they are syntactically indistinguishable from** — a same-file function
+//!   call and a variable read respectively — and become the same
+//!   `message_creation`; see `types.rs`'s "Tuple and unit structs" section.
+//!   *Destructuring* one (`let Pair(a, b) = p;`) remains a separate,
+//!   pre-existing pattern gap.
 //! - **Cosmetic metadata** (invariant #2): visibility (`pub` →
 //!   `metadata.is_public`), `async`, a type's `kind`, generics/type params,
 //!   and a `let` binding's `mut`-ness all round-trip into `metadata` Structs
@@ -400,9 +408,24 @@ fn encode_main_module(source: &str) -> EncodedFile {
                 encoder.local_type_names.insert(item_enum.ident.to_string());
             }
             syn::Item::Struct(item_struct) => {
-                encoder
-                    .local_type_names
-                    .insert(item_struct.ident.to_string());
+                let name = item_struct.ident.to_string();
+                encoder.local_type_names.insert(name.clone());
+                // Record the struct's SHAPE too (issue #491): a tuple struct's
+                // construction and a unit struct's bare value are each
+                // syntactically identical to something else entirely (a
+                // function call / a variable read), so both need the
+                // declaration in hand before the expression that uses them is
+                // encoded — which, since a use may textually precede its
+                // declaration, means here in the pre-pass.
+                match item_struct.fields {
+                    syn::Fields::Unnamed(_) => {
+                        encoder.tuple_struct_names.insert(name);
+                    }
+                    syn::Fields::Unit => {
+                        encoder.unit_struct_names.insert(name);
+                    }
+                    syn::Fields::Named(_) => {}
+                }
             }
             syn::Item::Trait(item_trait) => {
                 encoder
@@ -549,6 +572,22 @@ pub(crate) struct Encoder {
     /// identical, and misreading the first as the second would silently
     /// downgrade a working static call into an unresolved import.
     pub(crate) local_type_names: HashSet<String>,
+    /// The short name of every **tuple** struct declared in this file
+    /// (`struct Pair(i64, i64);`) — issue #491. Consulted by
+    /// [`Self::encode_call`] to tell a tuple-struct *construction*
+    /// (`Pair(3, 4)`) from a same-file function call: at the syntax level a
+    /// bare-identifier call target is exactly the same thing, so without this
+    /// set the construction would silently encode as a `FunctionCall` naming a
+    /// function nobody declared.
+    pub(crate) tuple_struct_names: HashSet<String>,
+    /// The short name of every **unit** struct declared in this file
+    /// (`struct Marker;`) — issue #491. Consulted by
+    /// [`Self::encode_path_expr`] to tell a unit-struct *value* (`let m =
+    /// Marker;`) from a variable read, which a bare single-segment path is
+    /// otherwise indistinguishable from. Mutually exclusive with
+    /// [`Self::tuple_struct_names`] — a struct is named, tuple, or unit, never
+    /// two of them.
+    pub(crate) unit_struct_names: HashSet<String>,
     /// Every module alias a call site referenced but this file does not
     /// declare — recorded as an unresolved [`ModuleImport`] on the `main`
     /// module (see [`Self::encode_call`]'s unresolved-external branch). A
@@ -566,6 +605,8 @@ impl Encoder {
             method_params: HashMap::new(),
             static_method_params: HashMap::new(),
             local_type_names: HashSet::new(),
+            tuple_struct_names: HashSet::new(),
+            unit_struct_names: HashSet::new(),
             unresolved_modules: BTreeSet::new(),
         }
     }
@@ -738,6 +779,17 @@ impl Encoder {
             }
             if self.is_current_multi_param(&name) {
                 return field_access(reference("input"), name);
+            }
+            // A UNIT STRUCT used as a value (`let m = Marker;`) — issue #491.
+            // Syntactically identical to a variable read, so it is checked
+            // here, *after* the enclosing fn/closure's own parameters (a
+            // parameter of the same name still wins, matching this file's
+            // established syntactic, name-only resolution — see the
+            // `.fuse()`/`.is_empty()` precedent) and *before* the
+            // `reference(name)` fallback, which would otherwise name a
+            // binding nobody declared.
+            if self.unit_struct_names.contains(&name) {
+                return self.encode_unit_struct_creation(&name);
             }
             return reference(name);
         }
@@ -923,6 +975,29 @@ impl Encoder {
                         return option_result_message(is_err, value);
                     }
                 }
+                // ── TUPLE-STRUCT CONSTRUCTION — `Pair(3, 4)` ──────────────
+                //
+                // Checked BEFORE the same-file-function branch below, and the
+                // order is load-bearing for the same reason the local
+                // associated call is checked before the external fallback:
+                // `Pair(3, 4)` and `helper(3, 4)` are the SAME syntax, so
+                // classifying by the function branch first would silently
+                // encode a construction as a call to a function nobody
+                // declared. Emits the very `message_creation`
+                // `encode_struct_literal` would produce, keyed by each
+                // element's positional index (`"0"`, `"1"` — the spelling
+                // `types.rs::member_name` gives the matching `p.0` read).
+                //
+                // A unit struct never reaches here: `Marker()` is not valid
+                // Rust for a unit struct, so it is only ever a bare path
+                // (see `encode_path_expr`).
+                if let Some(ident) = path.get_ident() {
+                    let name = ident.to_string();
+                    if self.tuple_struct_names.contains(&name) {
+                        return self.encode_tuple_struct_creation(&name, &e.args);
+                    }
+                }
+
                 // A same-file user function — pack args using its *real*
                 // declared parameter names when it takes 2+ of them.
                 if let Some(ident) = path.get_ident() {

@@ -175,6 +175,13 @@ jobs:
       - name: Release binary target matrix test (#368)
         run: bash tools/test/test_release_cpp_targets.sh
 
+      # The go/<module>/vX.Y.Z tagging logic (tag-go-modules.yml, #361) only ever
+      # runs on a manual dispatch, so its one real bug shipped untested and the
+      # first dispatch created zero tags. The script it now delegates to is
+      # driven here against a scratch repo: create/idempotent/half-tagged/empty.
+      - name: Go module tagging test (#361)
+        run: bash tools/test/test_tag_go_modules.sh
+
       # The conformance-corpus total is hand-copied as prose into CLAUDE.md,
       # every AGENTS.md, .claude/rules/*.md, README.md and this workflow's own
       # comments; nothing checked them, so four mutually inconsistent totals

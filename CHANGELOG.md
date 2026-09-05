@@ -1,3 +1,16 @@
+# [1.69.0](https://github.com/Ball-Lang/ball/compare/v1.68.7...v1.69.0) (2026-09-05)
+
+
+### Bug Fixes
+
+* **dart:** extend the receiver-type seam to Map/String/null-aware receivers, stop four arity windows dropping an operand, and wire Tier B to the seam (advances [#488](https://github.com/Ball-Lang/ball/issues/488)) ([#577](https://github.com/Ball-Lang/ball/issues/577)) ([fba36c2](https://github.com/Ball-Lang/ball/commit/fba36c20da43e9a3c54849157aa54d807beb8bde))
+* **std:** one bool contract for set_add/set_remove across all targets + declared-outputType gate ([#545](https://github.com/Ball-Lang/ball/issues/545)) ([#562](https://github.com/Ball-Lang/ball/issues/562)) ([d902ab1](https://github.com/Ball-Lang/ball/commit/d902ab19711c220244d18300a578386e213dc7e3)), closes [#488](https://github.com/Ball-Lang/ball/issues/488)
+
+
+### Features
+
+* **ci:** publish the third-party coverage table with ratchet floors at the measured baselines (closes [#493](https://github.com/Ball-Lang/ball/issues/493)) ([#575](https://github.com/Ball-Lang/ball/issues/575)) ([519c069](https://github.com/Ball-Lang/ball/commit/519c069e0010a2903659231eb8da6eca52222a8e))
+
 ## [1.68.7](https://github.com/Ball-Lang/ball/compare/v1.68.6...v1.68.7) (2026-09-05)
 
 

@@ -129,9 +129,17 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Always release from the tip of main, never from whatever ref the
-          # dispatch happened to name.
-          ref: main
+          # A REAL release always runs from the tip of main, never from whatever
+          # ref the dispatch happened to name.
+          #
+          # A DRY RUN checks out the dispatched ref instead, and it must: a
+          # rehearsal that always runs main's tree cannot rehearse a change to
+          # the release lane itself, which is why #566 shipped unrehearsed — the
+          # only way to exercise it was to merge it. A dry run creates no
+          # commits, tags, releases or publishes (semantic-release skips
+          # prepare, publish, addChannel, success and fail), so there is nothing
+          # for the branch choice to damage.
+          ref: ${{ inputs.dry_run && github.ref || 'main' }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -184,7 +192,16 @@ jobs:
         run: |
           set -euo pipefail
           FLAG=""
-          if [ "${DRY_RUN}" = "true" ]; then FLAG="--dry-run"; fi
+          if [ "${DRY_RUN}" = "true" ]; then
+            # `branches: ["main"]` in every config, and semantic-release reads
+            # the CURRENT branch from the CI environment (GITHUB_REF), not from
+            # git — so on a rehearsal branch it would stop at "configured to
+            # only publish from main" and compute nothing. --branches makes the
+            # dispatched branch a release branch FOR THE REHEARSAL ONLY. A real
+            # run never gets this flag, and a dry run publishes nothing whatever
+            # branch it is on.
+            FLAG="--dry-run --branches ${GITHUB_REF_NAME}"
+          fi
           SR="tools/release/node_modules/semantic-release/bin/semantic-release.js"
           echo '{}' > "$SR_LOCKSTEP_STATE"
 

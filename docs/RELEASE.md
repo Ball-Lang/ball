@@ -483,7 +483,13 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   run. This is the alarm issue #551 did not have.
 - **Rehearsing without publishing:** `gh workflow run pubdev-release.yml --ref
   main -f dry_run=true` computes every package's next version and creates no
-  tags, commits, releases or publishes.
+  tags, commits, releases or publishes. A dry run checks out **the ref it was
+  dispatched for** (a real run always checks out `main`) and passes
+  `--branches <that ref>` to semantic-release, so a change to the release lane
+  can be rehearsed on its own branch before it is merged —
+  `gh workflow run pubdev-release.yml --ref <branch> -f dry_run=true`. #566
+  shipped unrehearsed because this step pinned `main` unconditionally and the
+  only way to exercise a change was to merge it.
 
 ## The guards, and what each one can and cannot see
 
@@ -494,7 +500,7 @@ another.
 | Guard | Runs | Catches | Blind to |
 |---|---|---|---|
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
-| `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, and the lockstep wiring (#566) going missing | whether a release was actually cut — it is entirely static |
+| `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, the lockstep wiring (#566) going missing, and a dry run losing the ability to rehearse the branch it was dispatched for | whether a release was actually cut — it is entirely static |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
 | `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |

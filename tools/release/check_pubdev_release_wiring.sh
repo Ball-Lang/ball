@@ -442,6 +442,32 @@ if [ -f "$DRIVER" ]; then
   fi
 fi
 
+# A REAL release must still run from the tip of main — that is what makes
+# @semantic-release/git's push a fast-forward. A DRY RUN must be able to run the
+# dispatched ref, or a change to this lane can only ever be exercised by merging
+# it, which is how #566 shipped unrehearsed. Both halves are pinned here so
+# neither can be dropped in favour of the other.
+if [ -f "$DRIVER" ]; then
+  ref_probs=()
+  grep -qF "inputs.dry_run && github.ref || 'main'" "$DRIVER" ||
+    ref_probs+=(
+      "expected the checkout ref: \${{ inputs.dry_run && github.ref || 'main' }}"
+      "a real run must check out main; a dry run must check out the ref it was dispatched for"
+    )
+  grep -qF -- '--branches ${GITHUB_REF_NAME}' "$DRIVER" ||
+    ref_probs+=(
+      "expected the dry-run flag to carry --branches \${GITHUB_REF_NAME}"
+      "every config declares branches: [\"main\"], and semantic-release reads the current branch"
+      "from GITHUB_REF, so a rehearsal on any other branch computes nothing at all"
+    )
+  if [ "${#ref_probs[@]}" -eq 0 ]; then
+    ok "pubdev-release.yml releases from main but rehearses the dispatched ref under dry_run"
+  else
+    no "pubdev-release.yml releases from main but rehearses the dispatched ref under dry_run" \
+      "${ref_probs[@]}"
+  fi
+fi
+
 if [ -f "$FILTER" ] && grep -qF 'SR_FORCE_RELEASE' "$FILTER"; then
   ok "only-package-commits.mjs promotes a no-release verdict when SR_FORCE_RELEASE is set"
 else

@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`) are all in place and tested (the self-hosted cli-core
 verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported — like Go). The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 338 passed,
-0 failed, 338 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 340 passed,
+0 failed, 340 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -111,7 +111,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 338 passed, 0 failed, 338 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 340 passed, 0 failed, 340 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`

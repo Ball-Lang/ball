@@ -120,3 +120,21 @@
 # the compiled leg and are listed in e2e_fixture_list.h too. Delete this line
 # when #514 lands.
 438_ctor_initializer_list_with_body
+
+# Added by the #539/#555 lane, NOT frozen debt: both fixtures pass on the Dart,
+# TypeScript, Rust, C#, Go and Python engines and fail only on the C++ COMPILER,
+# against the OPEN issue #561 they were filed from. Measured with
+# `bash cpp/test/quick_e2e.sh <name>` on this branch, using a Release
+# ball_cpp_compile built from this tree:
+#   453 -> output mismatch: every inline field initializer reads back `null`
+#          after a body-carrying or named constructor, and a lone plain
+#          parameter overwrites the sole field (the C++ compiler's own copy of
+#          the #539 defect the Dart engine just lost)
+#   454 -> g++: cannot convert '{anonymous}::Pair' to 'int64_t' in
+#          initialization — the emitted `Holder(auto b) : seen(b)` initializes
+#          the sole field FROM the class-typed parameter
+# 444_inline_constructed_call_argument, the neighbouring #523 fixture, PASSES;
+# these two are a different defect, not a regression of it. Delete both lines
+# when #561 lands.
+453_ctor_param_shadows_field
+454_inline_instance_argument_name_collision

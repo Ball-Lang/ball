@@ -105,9 +105,11 @@ first use (`BALL_CACHE_DIR` overrides the location). See
 **Maintainer setup (one-time, before the first tag):** create a PyPI **pending
 publisher** at <https://pypi.org/manage/account/publishing/> — project
 `ball-lang`, owner `Ball-Lang`, repository `ball`, workflow `publish-pypi.yml`,
-environment `pypi`. PyPI allows this before the project exists (unlike
-crates.io). There is no API-token fallback: without the publisher the OIDC
-exchange fails loudly and nothing is pushed.
+environment left **blank** (like every other registry channel here — the
+workflow declares no GitHub environment, and PyPI rejects the OIDC token if the
+publisher's environment and the job's disagree). PyPI allows this before the
+project exists (unlike crates.io). There is no API-token fallback: without the
+publisher the OIDC exchange fails loudly and nothing is pushed.
 
 **Unlike npm/crates/nuget, this lane is also PR-gated**: ci.yml's `python` job
 builds the wheel and installs it into a clean venv on every PR, so a broken
@@ -129,6 +131,71 @@ lines; the next release commit publishes it. `tools/go-module-proxy/smoke.sh`
 (gating in ci.yml's `go` job) proves `go install
 github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
 proxy before any tag exists.
+
+## C++ `ball` binaries lane (GitHub Release assets)
+
+```
+tag vX.Y.Z exists (cut by release.yml / semantic-release)
+  └► gh workflow run release-cpp.yml --ref vX.Y.Z     ← EXPLICIT dispatch
+       ├─ build matrix: one `ball` per platform, every verb real
+       │    (Dart self-host pregeneration + cli-parity gate + run/info smokes)
+       ├─ per leg: assert the binary's arch matches its target name
+       ├─ per leg: tar + sha256 + `gh release upload --clobber`
+       ├─ linux-x64 leg only: the self-host C++ sidecar
+       └► checksums job: concatenate every `.sha256` into SHA256SUMS.txt
+```
+
+| Target (`matrix.target`) | Runner label (`matrix.os`) | Release assets |
+|---|---|---|
+| `linux-x64` | `ubuntu-latest` | `ball-vX.Y.Z-linux-x64.tar.gz` + `.sha256` |
+| `macos-arm64` | `macos-latest` | `ball-vX.Y.Z-macos-arm64.tar.gz` + `.sha256` |
+| `macos-x64` | `macos-15-intel` | `ball-vX.Y.Z-macos-x64.tar.gz` + `.sha256` |
+
+Plus, once per release: `ball-selfhost-cpp-src-vX.Y.Z.tar.gz` + `.sha256`
+(the two Dart-generated C++ sources that give a Dart-free consumer — the vcpkg
+port — the self-hosted `run`/`info`/`validate`/`tree` verbs; see
+`tools/vcpkg-port/README.md`) and `SHA256SUMS.txt`.
+
+**The runner label is load-bearing, not cosmetic.** `macos-latest` is Apple
+Silicon; the Intel x86_64 macOS runner is separately labelled. A `macos-x64`
+leg pointed at an arm64 label would publish an arm64 binary under an x64
+filename — an asset that exists, checksums cleanly, and cannot run on the
+machine it names. `macos-15-intel` is a *standard* runner (4 CPU / 14 GB,
+architecture Intel; standard runners are free and unlimited on public
+repositories, [runners reference][gh-runners]). It replaced `macos-13` — the
+old Intel default, retired 2025-12-04 — and is the **last** x86_64 macOS image
+Actions will offer, available until August 2027
+([actions/runner-images#13045][rimg-13045]). When it retires, so does this leg.
+
+**Why the explicit dispatch:** same GITHUB_TOKEN recursion protection as the
+npm lane above — a `push: tags:` trigger would never fire for an automated
+release. `release: published` is kept only as a fallback for a manually
+published release.
+
+**Not PR-gated, and cannot be.** The workflow only runs against a tag, so a
+PR never exercises the matrix. `tools/test/test_release_cpp_targets.sh`
+(ci.yml's always-on `Proto Checks` job) is the PR-time stand-in: it pins the
+matrix, each target's runner architecture, the asset names the packaging step
+derives from `matrix.target`, the single-uploader invariant for the self-host
+sidecar, and this table, against each other.
+
+**Rehearsing it before a tag exists.** Dispatch it against a *branch*:
+
+```sh
+gh workflow run release-cpp.yml --ref <branch>
+```
+
+Every leg then runs the full build, the `cli_parity_tests` gate, the
+`run`/`info`/`validate`/`tree` smokes and the architecture assertion, and stops
+at `Determine release tag` with an explicit wrong-ref error. That step is
+placed after all of the above precisely so this rehearsal is useful, and it is
+gated on `github.ref_type == 'tag'` so nothing is ever packaged or published
+from a branch. Use it whenever you change the matrix, add a platform, or touch
+the build steps — it is the only way to find out that a leg works before a
+release depends on it.
+
+[gh-runners]: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+[rimg-13045]: https://github.com/actions/runner-images/issues/13045
 
 ## Failure recovery
 

@@ -25,19 +25,19 @@
 //
 //  1. LIBRARY-MODE COMPILE, never Compile(). Real library files have no entry
 //     point; compiler.Compile requires one. compiler.CompileLibrary does not.
-//  2. A SYNTHESIZED ENTRY POINT FOR ENCODING ONLY. Unlike the Dart, Rust and C#
-//     encoders, go/encoder has no library mode: Encode fails loud with "a Ball
-//     Program requires a `func main()` entry point" on every entry-point-less
-//     file, which is every real library file. Rather than score all of them as
-//     one blanket encode-error — a measurement of the missing library mode, not
-//     of the encoder's construct coverage — the harness appends an EMPTY
-//     `func main() {}` before encoding when the file has none. That carries no
-//     semantics and is excluded from the declaration inventory on both sides
-//     (so is a real `func main`, which library-mode compilation deliberately
-//     renames to `ball_main`). This accommodation is the Go analog of the Dart
-//     harness's per-module compileModule setting, and it is disclosed in
-//     tests/conformance/COVERAGE_STUDY.md — a Go encoder library mode would
-//     remove the need for it.
+//  2. LIBRARY-MODE ENCODE for an entry-point-less file. encoder.Encode requires
+//     a `func main()`, which no real library file has; encoder.EncodeLibrary
+//     (issue #537) runs the same walk without that requirement. The harness
+//     dispatches on the parsed file: EncodeLibrary when it declares no
+//     top-level `func main`, Encode when it does. Nothing is synthesized —
+//     until #537 landed this harness had to append an empty `func main() {}`
+//     before encoding, a disclosed accommodation that measured the missing
+//     library mode rather than the encoder's construct coverage. Go now
+//     matches Dart, Rust and C# here.
+//
+// `func main` is still excluded from the declaration inventory on both sides,
+// for the unrelated reason that library-mode COMPILATION deliberately renames a
+// real entry function to `ball_main`.
 //
 // The declaration inventory is walked with go/parser + go/ast DIRECTLY, never
 // through go/encoder's own walk, so a bug in the encoder's bookkeeping cannot
@@ -164,20 +164,26 @@ func canonicalIR(prog *ballv1.Program) (string, error) {
 	return string(out), nil
 }
 
-// entryDecl is the empty entry point appended for encoding only — see the
-// package doc's load-bearing setting 2.
-const entryDecl = "\n\nfunc main() {}\n"
-
-// withEntry returns source with an empty `func main()` appended when the file
-// declares none, and reports whether it had to add one.
-func withEntry(file *ast.File, source string) string {
+// hasEntryPoint reports whether file declares a top-level `func main()`.
+func hasEntryPoint(file *ast.File) bool {
 	for _, decl := range file.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if ok && fn.Recv == nil && fn.Name.Name == "main" {
-			return source
+			return true
 		}
 	}
-	return source + entryDecl
+	return false
+}
+
+// encodeSource encodes source the way the harness must: through go/encoder's
+// LIBRARY mode when the file declares no entry point (which is every real
+// library file), and through the default program mode when it does — see the
+// package doc's load-bearing setting 2.
+func encodeSource(file *ast.File, source string) (*ballv1.Program, error) {
+	if hasEntryPoint(file) {
+		return encoder.Encode(source)
+	}
+	return encoder.EncodeLibrary(source)
 }
 
 // DeclarationInventory is the declaration inventory of source: one entry per
@@ -287,8 +293,9 @@ func StudyFile(pkg, file, source string) FileResult {
 			Reason: "skipped: no top-level declarations to compile"}
 	}
 
-	// Stage 1 — encode (with the synthesized entry point, see the package doc).
-	prog, err := encoder.Encode(withEntry(parsed, source))
+	// Stage 1 — encode (library mode when the file has no entry point, see the
+	// package doc).
+	prog, err := encodeSource(parsed, source)
 	if err != nil {
 		return FileResult{Package: pkg, File: file, Scored: true,
 			Reason: "encode-error: " + firstLine(err)}
@@ -316,7 +323,7 @@ func StudyFile(pkg, file, source string) FileResult {
 		return FileResult{Package: pkg, File: file, Scored: true,
 			Reason: "reencode-error: the compiler emitted Go that does not parse — " + firstLine(err)}
 	}
-	prog2, err := encoder.Encode(withEntry(compiledParsed, compiled))
+	prog2, err := encodeSource(compiledParsed, compiled)
 	if err != nil {
 		return FileResult{Package: pkg, File: file, Scored: true,
 			Reason: "reencode-error: " + firstLine(err)}
@@ -355,7 +362,7 @@ func StudyFile(pkg, file, source string) FileResult {
 		return FileResult{Package: pkg, File: file, Scored: true, IRStable: irStable,
 			Reason: "fixpoint-error: generation 2 does not parse — " + firstLine(err)}
 	}
-	prog3, err := encoder.Encode(withEntry(compiled2Parsed, compiled2))
+	prog3, err := encodeSource(compiled2Parsed, compiled2)
 	if err != nil {
 		return FileResult{Package: pkg, File: file, Scored: true, IRStable: irStable,
 			Reason: "fixpoint-error: generation 2 failed to re-encode — " + firstLine(err)}

@@ -125,7 +125,7 @@ generations 2 and 3 instead.
 | Dart | `tools/coverage-study/rq1_study.dart` | `DartEncoder.encode` | `DartCompiler.compileModule` per module | `analyzer` |
 | Rust | `rust/tools/rq1-study` (`cargo run -p ball-rq1-study`) | `ball_lang_encoder::encode_library` | `Compiler::compile_library` | `syn::parse_file` |
 | C# | `csharp/coverage-study` | `CSharpEncoder.EncodeLibrary` | `CSharpCompiler.Compile` | Roslyn `CSharpSyntaxWalker` |
-| Go | `tools/coverage-study/go` | `encoder.Encode` (+ synthesized entry, below) | `compiler.CompileLibrary` | `go/parser` + `go/ast` |
+| Go | `tools/coverage-study/go` | `encoder.EncodeLibrary` / `encoder.Encode` (below) | `compiler.CompileLibrary` | `go/parser` + `go/ast` |
 | Python | `tools/coverage-study/rq1_study_py.py` | `ball_encoder.encode` | `ball_compiler.compile_library` | stdlib `ast` |
 
 **Every inventory column is a parser, never that language's encoder.** The
@@ -145,23 +145,26 @@ has no "compile one module of a Program, in Program context" primitive today.
 Porting Tier A to TS needs a small genuinely-new compiler primitive; faking it
 with the facade shape would measure the facade, not the pipeline.
 
-### Two load-bearing settings the ports inherit, and one they add
+### The load-bearing setting every port inherits
 
 The ports inherit the Dart harness's "never reach for the entry-point-requiring
 API" rule: Rust uses `encode_library`/`compile_library` (issue #491), C# uses
 `EncodeLibrary` (issue #492) with `Compile`, which already emits `Main` only
 when the entry function exists, and Python uses `compile_library`.
 
-**Go adds one accommodation.** `go/encoder` has no library mode: `Encode` fails
-loud with "a Ball Program requires a `func main()` entry point" on every
-entry-point-less file, i.e. every real library file. Scoring all of them as one
-blanket `encode-error` would measure the *missing library mode*, not the
-encoder's construct coverage, so the Go harness appends an **empty
-`func main() {}`** before encoding when the file declares none. It carries no
-semantics and is excluded from the declaration inventory on both sides — as is
-a real `func main`, which library-mode compilation deliberately renames to
-`ball_main`. `TestSyntheticEntryPointIsAddedOnlyWhenMissing` pins both halves.
-A Go encoder library mode would remove the need for it.
+**Go now matches them.** It used to be the one exception: `go/encoder` had no
+library mode, so `Encode` failed loud with "a Ball Program requires a `func
+main()` entry point" on every entry-point-less file — i.e. every real library
+file — and the Go harness appended an **empty `func main() {}`** before encoding
+rather than score them all as one blanket `encode-error` (which would have
+measured the missing library mode, not construct coverage). Issue #537 added
+`encoder.EncodeLibrary` and `ball encode -lib`, so that accommodation is gone:
+the harness dispatches to `EncodeLibrary` when the parsed file declares no
+top-level `func main` and to `Encode` when it does, and synthesizes nothing.
+`TestEntryPointLessFilesAreEncodedThroughLibraryMode` pins that. A real `func
+main` is still excluded from the declaration inventory on both sides, for the
+separate reason that library-mode compilation deliberately renames it to
+`ball_main`.
 
 ### What every port's self-test asserts, and what it deliberately does not
 

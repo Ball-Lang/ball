@@ -77,7 +77,8 @@ Commands:
   run      <program.ball.json>   Execute a Ball program via the self-hosted engine
                                  (requires a build with -tags selfhost)
   compile  <program.ball.json>   Compile a Ball program to Go source        [-o out.go]
-  encode   <source.go>           Encode a Go source file into a Ball program [-o out] [-format json|binary]
+  encode   <source.go>           Encode a Go source file into a Ball program [-lib] [-o out] [-format json|binary]
+                                 (-lib: no func main() required; the result is non-runnable)
   check    <program.ball.json>   Parse and validate a Ball program without running it [-compile]
 
 Programs are read as proto3 JSON (.ball.json / .json) or binary protobuf (.bin / .pb),

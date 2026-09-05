@@ -50,6 +50,18 @@ export GOWORK=off
 export GOFLAGS=
 
 # ── leg 1: every module builds standalone off the proxy ──────────────────────
+#
+# Leg 1 gets its own EMPTY module cache, exactly as leg 2 does. The intra-repo
+# modules are always resolved at the SAME version string (`v0.1.0` — it names a
+# tag, not this commit), so a warm GOMODCACHE that already holds
+# `go/<m>@v0.1.0` from an earlier run serves that OLD content and the sweep
+# silently measures stale code: a false RED when the tree just gained an API the
+# cached copy lacks, and — the dangerous direction — a false GREEN when a change
+# breaks external resolution but the cache still holds a copy that builds.
+# `actions/setup-go` restores GOMODCACHE across CI runs keyed only on the
+# committed go.sum files, so this bit CI as well as local runs.
+gohome1="$(mktemp -d)"
+export GOMODCACHE="$gohome1/pkg/mod"
 pass=0
 fail=0
 total=0

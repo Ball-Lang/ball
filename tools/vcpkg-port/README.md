@@ -157,8 +157,10 @@ files" invariant:
    generated sources — flat, no wrapping directory — and uploads them as
    **`ball-selfhost-cpp-src-vX.Y.Z.tar.gz`**, from the `linux-x64` leg only
    (Ball's compiler emits them from Ball source, so they are
-   platform-independent, and one uploader means two matrix legs cannot race
-   `--clobber` on one filename).
+   platform-independent, and one uploader means the matrix legs —
+   `linux-x64`, `macos-arm64`, `macos-x64` — cannot race `--clobber` on one
+   filename; `tools/test/test_release_cpp_targets.sh` asserts there is
+   exactly one such uploader and that it names a leg the matrix builds).
 2. `portfile.cmake` declares a **`selfhost` feature, on by default**. When
    selected it `vcpkg_download_distfile`s that asset from
    `https://github.com/Ball-Lang/ball/releases/download/v${VERSION}/...` —

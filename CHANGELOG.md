@@ -1,3 +1,10 @@
+## [1.66.1](https://github.com/Ball-Lang/ball/compare/v1.66.0...v1.66.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ci:** report the resolver's real exit code and dispatch Go module tagging from the release pipeline ([#546](https://github.com/Ball-Lang/ball/issues/546)) ([2ae7dba](https://github.com/Ball-Lang/ball/commit/2ae7dbae35de9886e61d19e536e1bc116fc3d632)), closes [#540](https://github.com/Ball-Lang/ball/issues/540) [#361](https://github.com/Ball-Lang/ball/issues/361) [#540](https://github.com/Ball-Lang/ball/issues/540) [#361](https://github.com/Ball-Lang/ball/issues/361)
+
 # [1.66.0](https://github.com/Ball-Lang/ball/compare/v1.65.0...v1.66.0) (2026-09-05)
 
 

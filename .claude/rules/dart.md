@@ -60,7 +60,7 @@ avoid constructs that need receiver-type info:
   `unaryRoutes` needs no window: its whole branch is already guarded by
   `args.isEmpty`.
 - **The RECEIVER-TYPE gate is opt-in and only `PackageEncoder` turns it on**
-  (issue #488 slice 1). `encode(String)` / `encodeModule(String, …)` parse with
+  (issue #488 slices 1-2). `encode(String)` / `encodeModule(String, …)` parse with
   `parseString`, whose AST leaves `Expression.staticType` null — they are, and
   stay, resolution-free. `await PackageEncoder(dir).prepareStaticTypes()` before
   `encode()` swaps in analyzer-RESOLVED units, and the encoder then declines
@@ -75,9 +75,38 @@ avoid constructs that need receiver-type info:
   no `package_config.json` (never `pub get`-ed) means a warning and an
   unresolved encode, never an exception — and costs a multi-second analyzer cold
   start, so callers that do not need receiver types should not call it.
-  Still misrouted, because the seam is not extended there yet: `String.contains`
-  vs `Iterable.contains`, `Map…toList` vs `List.toList`, and nullable-receiver
-  `!`/`?.`/`??` preservation (#488 slice 2).
+  Slice 2 extended the same DECLINE to a resolved `dart:core` `Map`
+  (`_receiverIsMap` — `Map.map()` returns a `Map`, but `list_map`'s codegen
+  always appends `.toList()`) and `String` (`_receiverIsString`), and taught the
+  null-aware lowering to bind a temporary local when the receiver is something
+  Dart's flow analysis cannot PROMOTE — a field, a top-level variable, a getter
+  (`_nullAwareNeedsTemp`). `x?.foo` desugars to `std.if(equals(x, null), null,
+  x.foo)`, which names the receiver twice; for a mutable field
+  (`StreamSubscription<T>? _inner;`) Dart rejects the else-branch access
+  outright. Still open, and filed as #573 because it is a
+  different mechanism entirely: flow-sensitive promotion through REASSIGNMENT
+  (`from = from ?? current;` promoting a `String?` parameter for the rest of a
+  body — `path/lib/src/context.dart`), and generic type-parameter erasure
+  across a cascade return (`async/lib/src/stream_sink_transformer/typed.dart`).
+  Ball's IR is untyped, so neither survives the round trip.
+- **An arity window may never be WIDER than the std function it stands for.**
+  A route whose `maxArgs` admits an argument the target function does not
+  declare silently DROPS that argument — the compiler emits exactly the
+  operands the function models and nothing warns. Four routes had this before
+  #488 slice 2: `indexOf` (1,2), `startsWith` (1,2), `lastIndexOf` (1,2) and
+  `replaceFirst` (2,3), all now narrowed so the extra-operand form declines to
+  the generic method-call encoding. `indexOf` was the worst: `arg0` and `arg1`
+  BOTH renamed to `'value'`, so the second overwrote the first in the
+  compiler's field map and `path.indexOf('\', 2)` compiled to
+  `path.indexOf(2)`. When you add or widen a `collectionRoutes` entry, check
+  the compiler's codegen for that name actually consumes every operand the
+  window admits — `_methodCall2` emits exactly two, `_compileStringReplace`
+  exactly three. The engine's GENERIC instance-method dispatch
+  (`engine_control_flow.dart`) is what then has to implement the declined
+  form, and it must do so PORTABLY: a two-argument `indexOf`/`startsWith`
+  written inside the engine's own source would be declined by this very rule
+  when the engine is self-hosted, so compose from `substring` plus the
+  one-argument overload instead.
 - **A name the encoder ROUTES to must be DECLARED by the canonical builder.**
   `dart/shared/test/std_routed_declarations_test.dart` re-derives every
   `('std'|'std_collections', '<fn>', …)` tuple from `encoder.dart` and asserts

@@ -575,15 +575,6 @@ extension BallEngineInvocation on BallEngine {
       }
     }
 
-    // Apply the CLASS's own inline field initializers (`int n = 0;`) for every
-    // field neither an argument nor a `this.`-param supplied. The
-    // messageCreation construction path has always done this; this one never
-    // did, so a body-less constructor reached through a tear-off
-    // (`Counter.new()`) produced an instance with the field missing entirely —
-    // `Undefined variable: "n"` the first time a method touched it, while the
-    // ordinary `Counter()` spelling worked (#531).
-    _initFieldDefaults(typeName, instance);
-
     // Process field initializers from constructor metadata.
     _applyConstructorInitializers(func, instance, resolvedParams);
 
@@ -596,6 +587,11 @@ extension BallEngineInvocation on BallEngine {
     // initializer list still wins (applied just above), matching Dart's
     // ordering, and only fields still absent are filled. Inherited values are
     // merged below and are left to that path.
+    //
+    // This is also what a body-less constructor reached through a TEAR-OFF
+    // needs (`Counter.new()` — #531): without it the instance had no `n` field
+    // at all and the first method to touch it threw `Undefined variable: "n"`,
+    // while the ordinary `Counter()` spelling worked.
     _initFieldDefaults(typeName, instance);
     if (typeDef != null) {
       final superclass = _getMetaString(typeDef, 'superclass');

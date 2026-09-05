@@ -2513,7 +2513,6 @@ export class BallEngine {
         }
       }
     }
-    this._initFieldDefaults(typeName, instance);
     this._applyConstructorInitializers(func, instance, resolvedParams);
     let typeDef = this._findTypeDef(typeName);
     this._initFieldDefaults(typeName, instance);

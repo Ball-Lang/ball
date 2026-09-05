@@ -228,7 +228,7 @@ Module buildStdCollectionsModule() {
     // `set_add`. The contract is Dart-exact: mutate in place, answer `bool`.
     //
     // A declared `outputType` here is LOAD-BEARING, not decoration:
-    // `dart/shared/test/std_output_type_contract_test.dart` fails if a declared
+    // `dart/engine/test/std_output_type_contract_test.dart` fails if a declared
     // base function's Dart-engine handler returns something else, and refuses a
     // declaration it has no probe for — so this field cannot outrun its guard.
     // Conformance fixture `459_set_add_remove_bool` gates the same contract on

@@ -480,6 +480,36 @@ void CppCompiler::build_lookup_tables() {
             for (const auto& fd : td_ptr->descriptor["field"])
                 own.insert(sanitize_name(ball::ir::getStr(fd, "name")));
         }
+        // #513: each class's DECLARED field types, flattened over the chain.
+        // emit_struct maps every non-primitive descriptor field to a `BallDyn`
+        // member, so after emission the class a class-typed member holds is
+        // recoverable only from this metadata. Own fields are recorded first
+        // and an ancestor never overwrites a nearer declaration, which mirrors
+        // C++ member hiding.
+        for (const auto& [cls, _td] : class_typedefs_) {
+            (void)_td;
+            auto& decl = class_field_decl_types_by_sname_[sanitize_name(bare_of(cls))];
+            std::string cur = cls;
+            std::unordered_set<std::string> seen;
+            while (!cur.empty() && seen.insert(cur).second) {
+                auto tit = class_typedefs_.find(cur);
+                if (tit != class_typedefs_.end() && tit->second != nullptr) {
+                    const json* fields = meta_find(tit->second->metadata, "fields");
+                    if (fields && fields->is_array()) {
+                        for (const auto& elem : *fields) {
+                            if (!elem.is_object()) continue;
+                            const json* nm = meta_find(elem, "name");
+                            const json* ty = meta_find(elem, "type");
+                            if (!nm || !nm->is_string() || !ty || !ty->is_string())
+                                continue;
+                            decl.emplace(sanitize_name(nm->get<std::string>()),
+                                         ty->get<std::string>());
+                        }
+                    }
+                }
+                cur = super_key_of(cur);
+            }
+        }
         // Getters are FLATTENED over the inheritance chain: an inherited getter
         // must still answer for a subclass receiver (`b.x` where only A declares
         // `int get x`).
@@ -534,6 +564,135 @@ std::string CppCompiler::static_class_of(const ball::ir::Expression& expr) const
         return "";
     }
     return "";
+}
+
+// Defined below, next to the type-declaration emitter it belongs with.
+static bool is_runtime_stub_type(const std::string& type_name);
+
+std::string CppCompiler::concrete_class_of_declared_type(
+    const std::string& ball_type) const {
+    if (ball_type.empty()) return "";
+    std::string t = ball_type;
+    // `T?` is emitted as BallDyn (map_type), but it still NAMES T.
+    while (!t.empty() && t.back() == '?') t.pop_back();
+    // A generic instantiation (`Box<int>`) is map-backed, never a struct.
+    if (t.find('<') != std::string::npos) return "";
+    const std::string s = sanitize_name_const(t);
+    if (user_class_names_.count(s) == 0) return "";
+    if (enum_names_.count(s) > 0) return "";
+    if (is_dynamic_class(s)) return "";
+    // Runtime/stub types are map-backed BallDyn values whose "fields" are
+    // bracket keys — recovering a struct out of one would be a lie.
+    if (is_runtime_stub_type(s)) return "";
+    return s;
+}
+
+// Dart's `!` null-assertion encodes to `std.null_check(value: <expr>)`, which
+// the C++ emitter passes straight through — so `a.b!.c`'s receiver is a Call
+// wrapping the field access, and every receiver-type question has to look past
+// it or `h.leaf!.weight` is answered differently from `h.leaf.weight`. (#513)
+static const ball::ir::Expression* strip_null_check(
+    const ball::ir::Expression& expr) {
+    const ball::ir::Expression* e = &expr;
+    while (e != nullptr && e->kind == ball::ir::ExprKind::Call &&
+           e->call != nullptr && e->call->function == "null_check" &&
+           e->call->input != nullptr &&
+           e->call->input->kind == ball::ir::ExprKind::MessageCreation) {
+        const ball::ir::Expression* inner = nullptr;
+        for (const auto& f : e->call->input->messageCreation->fields)
+            if (f.name == "value" && f.value != nullptr) inner = f.value.get();
+        if (inner == nullptr) break;
+        e = inner;
+    }
+    return e;
+}
+
+std::string CppCompiler::receiver_class_of(const ball::ir::Expression& raw) const {
+    const ball::ir::Expression& expr = *strip_null_check(raw);
+    // A provably CONCRETE slot answers first (self/this, a local emitted with a
+    // concrete struct type, a fresh instance expression).
+    const std::string concrete = static_class_of(expr);
+    if (!concrete.empty()) return concrete;
+
+    if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
+        auto it = local_declared_types_.find(expr.reference->name);
+        if (it == local_declared_types_.end()) return "";
+        return concrete_class_of_declared_type(it->second);
+    }
+    if (expr.kind == ball::ir::ExprKind::FieldAccess &&
+        expr.fieldAccess != nullptr && expr.fieldAccess->object != nullptr) {
+        const std::string owner = receiver_class_of(*expr.fieldAccess->object);
+        if (owner.empty()) return "";
+        std::string f = expr.fieldAccess->field;
+        if (f == "field_2") f = "field";
+        const std::string sf = sanitize_name_const(f);
+        // A getter — and a #501 shadowed field, which is emitted as an accessor
+        // pair — is a CALL whose C++ return type is map_return_type's answer,
+        // not this metadata's. Refuse rather than guess.
+        if (class_has_getter(owner, sf)) return "";
+        if (class_field_shadows_getter(owner, sf)) return "";
+        auto cit = class_field_decl_types_by_sname_.find(owner);
+        if (cit == class_field_decl_types_by_sname_.end()) return "";
+        auto fit = cit->second.find(sf);
+        if (fit == cit->second.end()) return "";
+        return concrete_class_of_declared_type(fit->second);
+    }
+    return "";
+}
+
+bool CppCompiler::receiver_is_erased(const ball::ir::Expression& raw) const {
+    const ball::ir::Expression& expr = *strip_null_check(raw);
+    // Anything static_class_of can prove is emitted as the concrete struct.
+    if (!static_class_of(expr).empty()) return false;
+    if (expr.kind == ball::ir::ExprKind::Reference && expr.reference != nullptr) {
+        auto it = local_declared_types_.find(expr.reference->name);
+        if (it == local_declared_types_.end()) return false;
+        // A NON-nullable user-class parameter is emitted with the concrete
+        // struct type (map_param_type), so only the nullable form is erased.
+        // Every other slot this map records went through map_type, which
+        // answers BallDyn for `T?`.
+        if (it->second.empty() || it->second.back() != '?') return false;
+        return !concrete_class_of_declared_type(it->second).empty();
+    }
+    if (expr.kind == ball::ir::ExprKind::FieldAccess &&
+        expr.fieldAccess != nullptr) {
+        // Every class-typed struct MEMBER is a BallDyn, nullable or not.
+        return !receiver_class_of(expr).empty();
+    }
+    return false;
+}
+
+void CppCompiler::compile_ctor_body(const ball::ir::Expression& body) {
+    // The encoder's self-variable pattern: `let self = ClassName{}` … `return
+    // self`. The emitted C++ constructor IS `self`, so both are artifacts.
+    auto is_self_artifact = [](const ball::ir::Statement& s) {
+        if (s.let != nullptr && s.let->name == "self") return true;
+        return s.expr != nullptr && s.expr->kind == ball::ir::ExprKind::Call &&
+               s.expr->call != nullptr && s.expr->call->function == "return";
+    };
+    if (body.kind == ball::ir::ExprKind::Block && body.block != nullptr) {
+        for (const auto& s : body.block->statements)
+            if (!is_self_artifact(s)) compile_statement(s);
+        return;
+    }
+    // A single-expression body. Route it through compile_statement's expression
+    // path — that is what gives `std.if` / `std.for` / `std.while` their
+    // statement-shaped emission instead of an expression-shaped one.
+    if (body.kind == ball::ir::ExprKind::Call && body.call != nullptr &&
+        body.call->function == "return")
+        return;
+    ball::ir::Statement stmt;
+    stmt.kind = ball::ir::StatementKind::Expr;
+    stmt.expr = clone_expr_ptr(body);
+    compile_statement(stmt);
+}
+
+bool CppCompiler::is_instance_creation_value(
+    const ball::ir::MessageCreation& msg) const {
+    if (msg.typeName.empty()) return false;
+    const std::string s = sanitize_name_const(msg.typeName);
+    if (enum_names_.count(s) > 0) return false;
+    return user_class_names_.count(s) > 0 || is_dynamic_class(s);
 }
 
 bool CppCompiler::class_is_or_descends_from(const std::string& derived,
@@ -672,6 +831,24 @@ static std::vector<ParamSpec> extract_param_specs(
         result.push_back(ps);
     }
     return result;
+}
+
+void CppCompiler::record_param_declared_types(
+    const ball::ir::FunctionDefinition& func,
+    const std::vector<std::string>& params) {
+    if (params.empty()) {
+        // A parameterless signature still takes the single Ball input, emitted
+        // as `input` (see emit_function / emit_method).
+        if (!func.inputType.empty())
+            local_declared_types_["input"] = func.inputType;
+        return;
+    }
+    const auto specs = (func.metadata.is_object())
+                           ? extract_param_specs(func.metadata)
+                           : std::vector<ParamSpec>{};
+    for (size_t i = 0; i < params.size() && i < specs.size(); ++i)
+        if (!specs[i].type.empty())
+            local_declared_types_[params[i]] = specs[i].type;
 }
 
 // Translate a Dart default-value literal into a C++ initializer expression for
@@ -1781,6 +1958,13 @@ std::string CppCompiler::compile_reference(const ball::ir::Reference& ref) {
         class_field_shadows_getter(current_class_name_, sname)) {
         return sname + "()";
     }
+    // #513: inside a NAMED constructor's body — lowered to a static factory
+    // method — an own-field reference has no `this` to resolve against, so name
+    // the `__obj` instance the factory is building instead.
+    if (!ref_is_local && !ctor_obj_prefix_.empty() &&
+        current_class_fields_.count(ref.name) > 0) {
+        return ctor_obj_prefix_ + sname;
+    }
     if (!ref_is_local && !current_class_methods_.empty() &&
         current_class_methods_.count(sname) > 0) {
         // Check if it's a getter in the current class
@@ -2033,8 +2217,27 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
         // the intended behavior for proto-shaped values. (self-host engine #19)
         {
             std::string sf = sanitize_name(field);
-            if (sf == "value" || sf == "fields" || sf == "kind" || sf == "values")
-                skip_struct = true;
+            if (sf == "value" || sf == "fields" || sf == "kind" || sf == "values") {
+                // #513: …unless the receiver's own class is PROVABLE and
+                // declares a plain data member of that name. Those four names
+                // are BallDyn accessor METHODS, which is exactly why a
+                // proto-shaped (map-backed) receiver must keep bracket access —
+                // but a concrete user class with a field called `value` reads it
+                // as a struct member, and bracket access on such a receiver
+                // silently answers null (fixture 436's `cursor.value` printed
+                // nothing instead of the countdown). The receiver-scoped proof
+                // is what tells the two apart; every unprovable receiver keeps
+                // the pre-existing bracket path.
+                const std::string rc = receiver_class_of(*access.object);
+                bool rc_declares_field = false;
+                if (!rc.empty() && !class_has_getter(rc, sf) &&
+                    !class_field_shadows_getter(rc, sf)) {
+                    auto cit = class_field_decl_types_by_sname_.find(rc);
+                    rc_declares_field = cit != class_field_decl_types_by_sname_.end() &&
+                                        cit->second.count(sf) > 0;
+                }
+                if (!rc_declares_field) skip_struct = true;
+            }
         }
         if (!skip_struct) {
             std::string sfield = sanitize_name(field);
@@ -2050,7 +2253,21 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
             // shadows nothing. Every other case, and every receiver whose class
             // cannot be proven, falls through to the unscoped scan — the
             // pre-#515 behaviour, kept deliberately rather than guessed away.
-            const std::string recv_cls = static_class_of(*access.object);
+            //
+            // #513: `receiver_class_of` widens that proof to receivers the
+            // compiler ERASED to a `BallDyn` — a `T?` local/parameter, and every
+            // class-typed struct member (emit_struct maps each non-primitive
+            // descriptor field to a BallDyn). `struct_obj` is then the receiver
+            // recovered with `ball_obj_as<C>(…)`, which yields the `C&` the
+            // struct-member and accessor forms need; without it g++ rejects the
+            // access with "'class BallDyn' has no member named '…'". Only those
+            // two forms use it — the bracket fallback below must keep reading
+            // the untouched BallDyn.
+            const std::string recv_cls = receiver_class_of(*access.object);
+            const std::string struct_obj =
+                (!recv_cls.empty() && receiver_is_erased(*access.object))
+                    ? "ball_obj_as<" + recv_cls + ">(" + obj + ")"
+                    : obj;
             bool receiver_resolved = false;
             if (!recv_cls.empty()) {
                 if (class_has_getter(recv_cls, sfield)) {
@@ -2099,10 +2316,10 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
                 }
             }
             if (is_getter) {
-                return obj + "." + sfield + "()";
+                return struct_obj + "." + sfield + "()";
             }
             if (is_plain_field) {
-                return obj + "." + sfield;
+                return struct_obj + "." + sfield;
             }
         }
     }
@@ -4273,7 +4490,11 @@ std::string CppCompiler::compile_call(const ball::ir::FunctionCall& call) {
             if (user_class_names_.count(class_name) > 0) {
                 std::string result = class_name + "(";
                 if ((call.input != nullptr)) {
-                    if (call.input->kind == ball::ir::ExprKind::MessageCreation) {
+                    // #523: same guard as compile_call_arguments — an instance
+                    // creation is one argument VALUE, never a bag to destructure
+                    // (`Chain(Node())` must not become `Chain()`).
+                    if (call.input->kind == ball::ir::ExprKind::MessageCreation &&
+                        !is_instance_creation_value((*call.input->messageCreation))) {
                         bool first = true;
                         for (const auto& f : call.input->messageCreation->fields) {
                             if (!first) result += ", ";
@@ -4310,6 +4531,17 @@ std::string CppCompiler::compile_call(const ball::ir::FunctionCall& call) {
 
 std::string CppCompiler::compile_call_arguments(
     const std::string& cpp_name, const ball::ir::MessageCreation& msg) {
+    // #523: an INSTANCE CREATION written inline at the call site is the call's
+    // sole argument VALUE, not its argument bag. Its `fields` are the CLASS's
+    // fields, so matching them against the callee's parameter names places
+    // nothing and the argument list came out empty — `readBox(Box())` was
+    // emitted as `readBox()` (g++: "too few arguments"), and with a class the
+    // compiler can widen the argument was dropped with no diagnostic at all.
+    // A real argument bag has an EMPTY typeName, or a std input-message name
+    // (`PrintInput`, `FormatTimestampInput`); only an instance creation names a
+    // user class. TS fixed the same bug class under #213.
+    if (is_instance_creation_value(msg)) return compile_message_creation(msg);
+
     const auto& fields = msg.fields;
 
     // Plain appearance-order emission (the historical behavior, and the safe
@@ -7398,6 +7630,16 @@ void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
             }
         }
 
+        // #513: remember this local's DECLARED Ball type, whatever it turns out
+        // to be emitted as. A `T?` annotation maps to BallDyn (map_type), which
+        // erases the class — this is the only record of what the slot holds, and
+        // it is what lets `cursor.depth` on a `Chain? cursor` recover the struct.
+        if (stmt.let->metadata.is_object()) {
+            const json* dt = meta_find(stmt.let->metadata, "type");
+            if (dt && dt->is_string() && !dt->get<std::string>().empty())
+                local_declared_types_[stmt.let->name] = dt->get<std::string>();
+        }
+
         // Check if the value is a user-class construction. If so, emit the
         // concrete class type so that method calls and field accesses resolve
         // directly on the struct (BallDyn wrapping erases the type and breaks
@@ -7441,6 +7683,68 @@ void CppCompiler::compile_statement(const ball::ir::Statement& stmt) {
                     if (user_class_names_.count(stype) > 0) {
                         is_user_class = true;
                         class_type = stype;
+                    }
+                }
+            }
+        }
+
+        // #524: a CALL initialiser. Neither branch above matches one — the let
+        // carries no `type` metadata (`final r = makeViaReturn();`) and the
+        // value is not a MessageCreation — so the local fell into the generic
+        // `auto r = BallDyn(f());` path and every later member read named a
+        // member of BallDyn ("'class BallDyn' has no member named 'x'").
+        // `map_return_type` is the single source of truth for the callee's
+        // EMITTED C++ return type, #516's concrete-class widening included, so
+        // taking it here declares the local with exactly the type the call
+        // yields: BallDyn erases the members, and the callee's *declared* base
+        // type would slice the subclass the body actually returns.
+        // `map_return_type` is the emitted return type for a top-level function
+        // AND for a named constructor (emitted `static <Class> name(...)`, e.g.
+        // fixture 436's `Countdown.from`). The one callee whose emission does
+        // NOT follow it is a FACTORY constructor — always `static BallDyn`,
+        // whatever its declared output type says — so that is the exclusion.
+        if (stmt.let->value->kind == ball::ir::ExprKind::Call &&
+            stmt.let->value->call != nullptr) {
+            const auto& lcall = (*stmt.let->value->call);
+            auto cit = functions_by_cpp_name_.find(sanitize_name(lcall.function));
+            if (cit == functions_by_cpp_name_.end() && (lcall.input != nullptr) &&
+                lcall.input->kind == ball::ir::ExprKind::MessageCreation) {
+                // A named constructor / static method arrives as a METHOD-CALL
+                // shape — `function: "from"` plus a `self` field referencing the
+                // class — so the bare name misses the function table
+                // (fixture 436's `Countdown.from`).
+                for (const auto& f : lcall.input->messageCreation->fields) {
+                    if (f.name != "self" || f.value == nullptr) continue;
+                    if (f.value->kind != ball::ir::ExprKind::Reference ||
+                        f.value->reference == nullptr)
+                        break;
+                    const std::string cls = sanitize_name(f.value->reference->name);
+                    if (user_class_names_.count(cls) == 0) break;
+                    cit = functions_by_cpp_name_.find(
+                        sanitize_name(cls + "." + lcall.function));
+                    break;
+                }
+            }
+            bool callee_is_typed = false;
+            if (cit != functions_by_cpp_name_.end() && cit->second != nullptr &&
+                !cit->second->isBase) {
+                auto cmeta = read_meta(*cit->second);
+                callee_is_typed =
+                    !(cmeta.count("is_factory") && cmeta["is_factory"] == "true");
+            }
+            if (callee_is_typed) {
+                const std::string rt = map_return_type(*cit->second);
+                if (user_class_names_.count(rt) > 0 && enum_names_.count(rt) == 0 &&
+                    !is_dynamic_class(rt) && !is_runtime_stub_type(rt)) {
+                    if (!is_user_class) {
+                        is_user_class = true;
+                        class_type = rt;
+                    } else if (rt != class_type &&
+                               class_is_or_descends_from(rt, class_type)) {
+                        // An ANNOTATED local (`final Point p = makePoint();`)
+                        // took the declared type above; #516's widening is the
+                        // more precise answer and never slices.
+                        class_type = rt;
                     }
                 }
             }
@@ -9659,11 +9963,20 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
     // BallDyn index; everything else falls back to cpp_param_default. Field
     // types here are not known precisely, so prefer BallDyn-friendly output.
     auto dart_field_init_to_cpp = [this](const std::string& field_cpp_type,
-                                         const std::string& raw) -> std::string {
+                                         const std::string& raw,
+                                         const std::vector<std::string>& ctor_params)
+        -> std::string {
         std::string d = raw;
         size_t b = d.find_first_not_of(" \t\r\n");
         size_t e = d.find_last_not_of(" \t\r\n");
         d = (b == std::string::npos) ? std::string() : d.substr(b, e - b + 1);
+        // #513: a colon-initializer whose value is one of this constructor's own
+        // PARAMETERS (`Countdown.pair(int start) : value = start`). It is not a
+        // literal, so cpp_param_default answered with the field type's default
+        // and the field was seeded 0 instead of `start` (fixture 436). Scoped to
+        // the declared parameter names, so nothing else changes meaning.
+        for (const auto& pn : ctor_params)
+            if (pn == d) return sanitize_name(d);
         // `name[index]` subscript (e.g. `coords[0]`) → BallDyn(name)[index].
         auto lb = d.find('[');
         if (lb != std::string::npos && !d.empty() && d.back() == ']' && lb > 0) {
@@ -9868,7 +10181,8 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 auto emit_default_field_inits = [&]() {
                     for (const auto& [fname, fval] : default_field_inits) {
                         emit_line("this->" + member_name(fname) + " = " +
-                                  dart_field_init_to_cpp(field_cpp_type(fname), fval) +
+                                  dart_field_init_to_cpp(field_cpp_type(fname), fval,
+                                                         params) +
                                   ";");
                     }
                 };
@@ -9887,10 +10201,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                     out_ << ") {\n";
                     indent_++;
                     emit_default_field_inits();
-                    if (func->body->kind == ball::ir::ExprKind::Block) {
-                        for (const auto& s : func->body->block->statements)
-                            compile_statement(s);
-                    }
+                    compile_ctor_body((*func->body));
                     indent_--;
                     emit_line("}");
                     queue_split_definition(out_.str());
@@ -9902,20 +10213,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                     out_ << " {\n";
                     indent_++;
                     emit_default_field_inits();
-                    if ((func->body != nullptr) &&
-                        func->body->kind == ball::ir::ExprKind::Block) {
-                        for (const auto& s : func->body->block->statements) {
-                            // Skip encoder-generated `let self = ClassName{}`
-                            // and `return self` patterns in constructor bodies.
-                            // These are artifacts of the encoder's self-variable
-                            // pattern; the C++ constructor IS `self`.
-                            if ((s.let != nullptr) && s.let->name == "self") continue;
-                            if ((s.expr != nullptr) &&
-                                s.expr->kind == ball::ir::ExprKind::Call &&
-                                s.expr->call->function == "return") continue;
-                            compile_statement(s);
-                        }
-                    }
+                    if ((func->body != nullptr)) compile_ctor_body((*func->body));
                     indent_--;
                     emit_line("}");
                 } else {
@@ -9948,16 +10246,19 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                     for (const auto& [fname, fval] :
                          extract_field_inits(func->metadata)) {
                         emit_line("__obj." + member_name(fname) + " = " +
-                                  dart_field_init_to_cpp(field_cpp_type(fname), fval) +
+                                  dart_field_init_to_cpp(field_cpp_type(fname), fval,
+                                                         params) +
                                   ";");
                     }
                 }
                 if ((func->body != nullptr)) {
-                    // Named constructors with a body are rare; emit the body.
-                    if (func->body->kind == ball::ir::ExprKind::Block) {
-                        for (const auto& s : func->body->block->statements)
-                            compile_statement(s);
-                    }
+                    // #513: the body runs in a STATIC factory, so own-field
+                    // references have to name `__obj` rather than a `this` that
+                    // does not exist (see ctor_obj_prefix_).
+                    auto saved_ctor_obj_prefix = ctor_obj_prefix_;
+                    ctor_obj_prefix_ = "__obj.";
+                    compile_ctor_body((*func->body));
+                    ctor_obj_prefix_ = saved_ctor_obj_prefix;
                 }
                 emit_line("return __obj;");
                 indent_--;
@@ -10084,16 +10385,19 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
         // (self-host engine #19)
         auto saved_declared_locals = declared_locals_;
         auto saved_local_class_types = local_class_types_;
+        auto saved_local_declared_types = local_declared_types_;
         auto saved_generic_locals = generic_locals_;
         auto saved_fn_params = current_fn_params_;
         auto saved_fn_locals = current_fn_locals_;
         declared_locals_.clear();
         local_class_types_.clear();
+        local_declared_types_.clear();
         generic_locals_.clear();
         current_fn_params_.clear();
         current_fn_locals_.clear();
         for (const auto& p : params) declared_locals_.insert(p);
         for (const auto& p : params) current_fn_params_.insert(p);
+        record_param_declared_types(*func, params);
         if ((func->body != nullptr)) _collect_declared_locals((*func->body), declared_locals_);
         // Record this method's `let` names so compile_lambda's escaping-closure
         // safety net can VALUE-CAPTURE (snapshot) the ones a returned/stored
@@ -10147,6 +10451,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
             out_ << ") = 0;\n";
             declared_locals_ = saved_declared_locals;
             local_class_types_ = saved_local_class_types;
+            local_declared_types_ = saved_local_declared_types;
             generic_locals_ = saved_generic_locals;
             current_fn_params_ = saved_fn_params;
             current_fn_locals_ = saved_fn_locals;
@@ -10280,6 +10585,7 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
         // Restore the enclosing local scope for the next method. (self-host #19)
         declared_locals_ = saved_declared_locals;
         local_class_types_ = saved_local_class_types;
+        local_declared_types_ = saved_local_declared_types;
         generic_locals_ = saved_generic_locals;
         current_fn_params_ = saved_fn_params;
         current_fn_locals_ = saved_fn_locals;
@@ -10406,12 +10712,14 @@ void CppCompiler::emit_dynamic_class(
         value_capture_vars_.clear();
         declared_locals_.clear();
         local_class_types_.clear();
+        local_declared_types_.clear();
         generic_locals_.clear();
         // The single method parameter (if any) is the closure's `input`. Bind
         // its declared name as an alias so the body resolves it.
         auto params = (func->metadata.is_object()) ? extract_params(func->metadata)
                                             : std::vector<std::string>{};
         for (const auto& p : params) declared_locals_.insert(p);
+        record_param_declared_types(*func, params);
         if ((func->body != nullptr)) _collect_declared_locals((*func->body), declared_locals_);
         if (params.size() == 1 && sanitize_name(params[0]) != "input")
             emit_line("auto& " + sanitize_name(params[0]) + " = input;");
@@ -10926,8 +11234,10 @@ void CppCompiler::emit_function(const ball::ir::FunctionDefinition& func) {
     // the Dart type-object string literal.
     declared_locals_.clear();
     local_class_types_.clear();
+    local_declared_types_.clear();
     generic_locals_.clear();
     for (const auto& p : params) declared_locals_.insert(p);
+    record_param_declared_types(func, params);
     if ((func.body != nullptr)) _collect_declared_locals((*func.body), declared_locals_);
 
     // (boxed_vars_/boxed_params_ were computed above, before the signature.)
@@ -11035,6 +11345,7 @@ void CppCompiler::emit_function(const ball::ir::FunctionDefinition& func) {
     current_return_type_ = prev_return_type;
     declared_locals_.clear();
     local_class_types_.clear();
+    local_declared_types_.clear();
     generic_locals_.clear();
     boxed_vars_.clear();
     boxed_params_.clear();
@@ -11061,11 +11372,13 @@ void CppCompiler::emit_top_level_var(const ball::ir::FunctionDefinition& func) {
     const std::string name = sanitize_name(func.name);
     declared_locals_.clear();
     local_class_types_.clear();
+    local_declared_types_.clear();
     generic_locals_.clear();
     if ((func.body != nullptr)) _collect_declared_locals((*func.body), declared_locals_);
     const std::string init = (func.body != nullptr) ? compile_expr((*func.body)) : "0";
     declared_locals_.clear();
     local_class_types_.clear();
+    local_declared_types_.clear();
     generic_locals_.clear();
     emit_indent();
     // A namespace-scope (non-local) lambda may not carry a [&]/[=] capture
@@ -11136,6 +11449,7 @@ void CppCompiler::emit_main(const ball::ir::FunctionDefinition& entry) {
     // string-literal special-casing in compile_reference.
     declared_locals_.clear();
     local_class_types_.clear();
+    local_declared_types_.clear();
     generic_locals_.clear();
     if ((entry.body != nullptr)) _collect_declared_locals((*entry.body), declared_locals_);
     if ((entry.body != nullptr)) compute_boxed_vars((*entry.body), {});

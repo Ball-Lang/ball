@@ -307,9 +307,15 @@ inline const std::vector<std::string>& program_names() {
         "432_shadowed_getter_setter_write",
         "433_shadowed_field_self_write_and_local",
         "434_type_of",
+        "435_recursive_ctor_construction",
+        "436_recursive_ctor_named",
+        "437_recursive_ctor_tree",
         "439_unrelated_field_name_collision",
         "440_base_typed_param_return_slicing",
         "442_switch_goto_fallthrough_guard_or_pattern",
+        "443_nullable_field_chain_member_read",
+        "444_inline_constructed_call_argument",
+        "445_let_bound_to_call_returning_class",
         "459_set_add_remove_bool",
     };
     return names;

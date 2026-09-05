@@ -117,6 +117,21 @@ using BallListRef = std::shared_ptr<BallList>;
 // dereferences transparently, and `ball_identical` compares pointers.
 using BallUserRef = std::shared_ptr<std::any>;
 
+// True for a CONCRETE user-class struct the Ball -> C++ compiler emitted.
+// `emit_struct` gives every one of them a `static constexpr const char*
+// __ball_type_name()` (and nothing else does — no standard-library type, no
+// runtime type here, and not the enum emitter), so this is an exact, closed
+// discriminator rather than a "some class type" catch-all. That precision is
+// what makes the BallDyn constructor below safe: it cannot steal overload
+// resolution from the BallMap / BallList / typed-`std::vector` constructors.
+// (`ball_type_of` / `ball_object_type_matches` already SFINAE on the same
+// member.) Issue #513.
+template <class T, class = void>
+struct ball_is_user_struct : std::false_type {};
+template <class T>
+struct ball_is_user_struct<T, std::void_t<decltype(T::__ball_type_name())>>
+    : std::true_type {};
+
 // Unique marker for Dart engine `_sentinel` (dispatch not found). Must not
 // compare equal to null/empty BallDyn() returned by void builtin methods.
 struct BallDispatchNotFound {};
@@ -265,6 +280,22 @@ public:
     // Reference-semantic concrete user-class struct instance (BallUserRef).
     // The shared_ptr<std::any> wraps the struct; copies of BallDyn share it.
     BallDyn(BallUserRef v) : _val(std::move(v)) {}
+    // #513: a concrete user-class STRUCT flowing into a BallDyn slot — a `T?`
+    // parameter/field, an `identical()` operand, a collection element. Without
+    // this the only route was `std::any`, which needs TWO user-defined
+    // conversions and so is not viable: g++ rejected `countNodes(root)` with
+    // "could not convert 'root' from 'Node' to 'BallDyn'". Boxed through
+    // BallUserRef, exactly like a factory-constructed instance, so
+    // `ball_obj_as<T>` recovers it and `ball_identical` compares pointers.
+    // Constrained to compiler-emitted structs (see ball_is_user_struct), so it
+    // never competes with the typed-container constructors above.
+    template <typename T,
+              std::enable_if_t<ball_is_user_struct<std::decay_t<T>>::value &&
+                                   !std::is_base_of_v<BallDyn, std::decay_t<T>>,
+                               int> = 0>
+    BallDyn(T&& v)
+        : _val(BallUserRef(std::make_shared<std::any>(
+              std::any(std::decay_t<T>(std::forward<T>(v)))))) {}
 
     // ── Reference-semantic list accessors ──
     // Return a pointer to the underlying vector whether stored by-value (legacy /

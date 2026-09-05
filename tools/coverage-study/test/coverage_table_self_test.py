@@ -504,6 +504,33 @@ def main() -> int:
             f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
         )
 
+        # ── 14b. a baseline that floors nothing ─────────────────────────────
+        # An empty rows list would check nothing, find no breach and exit 0 —
+        # the same fake-green shape as an absent gate. It is a positive floor
+        # on the floor itself.
+        norows = Case(tmp, "norows")
+        norows.put_artifact("coverage-study-tier-a-dart/tier_a.json", tier_a_artifact(clean=3, drift=1, encode_errors=0))
+        norows.put_baseline([])
+        got = norows.run()
+        check(
+            "a baseline declaring no rows fails instead of passing vacuously",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
+        )
+
+        # ── 14c. two rows claiming one artifact ─────────────────────────────
+        # The second row would silently shadow the first, so one of the two
+        # floors would stop being enforced without anything saying so.
+        dupe = Case(tmp, "dupe")
+        dupe.put_artifact("coverage-study-tier-a-dart/tier_a.json", tier_a_artifact(clean=3, drift=1, encode_errors=0))
+        dupe.put_baseline([baseline_row(), baseline_row(language="Dart (again)")])
+        got = dupe.run()
+        check(
+            "two baseline rows claiming the same artifact fail",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
+        )
+
         # ── 15. check mode reports a stale README without rewriting it ──────
         stale = Case(tmp, "stale")
         stale.put_artifact("coverage-study-tier-a-dart/tier_a.json", tier_a_artifact(clean=3, drift=1, encode_errors=0))

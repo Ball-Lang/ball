@@ -26,7 +26,7 @@ dependencies:
   ball_compiler: ^0.4.0
   ball_encoder: ^0.4.0
   ball_engine: ^0.4.0
-  ball_resolver: ^0.3.0+3
+  ball_resolver: ^0.3.1
   fixnum: ^1.1.1
   protobuf: ^6.0.0
   yaml: ^3.1.0

@@ -257,7 +257,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 335 passed, 0 failed, 335 total`; 4 golden-less
+  (`Results: 338 passed, 0 failed, 338 total`; 4 golden-less
   resource-limit/sandbox carve-outs). Behind the off-by-default `selfhost` build
   tag. See `go/engine/AGENTS.md`.
 - **CLI (Phase 5): complete** — `go/cli` produces the `ball` binary with the four

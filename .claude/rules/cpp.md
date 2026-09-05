@@ -84,6 +84,48 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `map_return_type()` emits the concrete class the body provably returns. Both
   are scoped to subclassed classes only — a leaf class keeps by-value emission,
   and nothing is universalized into `BallDyn`.
+- **A class-typed FIELD is erased to `BallDyn`; recover it before naming a
+  member (#513).** `emit_struct` maps every non-primitive descriptor field to a
+  `BallDyn` member, and `map_type` answers `BallDyn` for every `T?`, so a
+  receiver that is a class-typed field, or a `T?` local/parameter, is a BallDyn
+  at the C++ level even though it holds a struct. Resolve it with
+  `receiver_class_of()` (which widens `static_class_of()` with the DECLARED
+  types recorded in `local_declared_types_` / `class_field_decl_types_by_sname_`
+  and looks past the `std.null_check` a Dart `!` encodes to), ask
+  `receiver_is_erased()`, and wrap the receiver in `ball_obj_as<C>(…)` before
+  emitting the struct-member or accessor form. The bracket fallback must keep
+  reading the untouched BallDyn. The same receiver-scoped proof is what lets a
+  field literally named `value` / `fields` / `kind` / `values` take the struct
+  path — that four-name skip list exists for map-backed proto-shaped receivers,
+  not for a concrete class that declares such a field.
+- **`BallDyn` accepts a compiler-emitted struct (#513).** `ball_is_user_struct`
+  SFINAEs on the `static __ball_type_name()` every emitted struct carries — no
+  standard-library or runtime type has it — so the constructor cannot steal
+  overload resolution from the `BallMap` / `BallList` / typed-`std::vector`
+  ones. It boxes through `BallUserRef`, so `ball_obj_as<T>` recovers the struct
+  and `ball_identical` compares pointers. Without it, `f(root)` into a `Node?`
+  (BallDyn) parameter needed two user-defined conversions and did not compile.
+- **A constructor body is not always a Block (#513).** `Chain(this.depth) { if
+  (…) … }` encodes to a single `std.if` Call. Emit every constructor body
+  through `compile_ctor_body()`, never a Block-only loop — the old loops dropped
+  a single-expression body silently, so the constructor ran and did nothing. A
+  NAMED constructor additionally lowers to a STATIC factory over a local
+  `__obj`, so its body needs `ctor_obj_prefix_` set: a bare own-field reference
+  has no `this` to resolve against there.
+- **An instance creation is a VALUE, not an argument bag (#523).** The Ball
+  encoder gives a call's argument bag an EMPTY `typeName` (or a std input
+  message name like `PrintInput`); only an instance creation names a user class.
+  Check `is_instance_creation_value()` FIRST in `compile_call_arguments` and in
+  the `.new` constructor-call path — matching a class's own fields against the
+  callee's parameter names places nothing and drops the argument entirely. TS
+  fixed the same bug class under #213.
+- **A `let` bound to a CALL takes the callee's emitted return type (#524).**
+  `map_return_type()` is the single source of truth for that type, #516's
+  concrete-class widening included, and it covers a named constructor
+  (`static <Class> from(...)`) as well as a top-level function. The only callee
+  whose emission does not follow it is a FACTORY constructor (always
+  `static BallDyn`). Declaring the local `BallDyn` erases every member;
+  declaring it with the callee's *declared* base type slices.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)

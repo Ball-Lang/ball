@@ -49,7 +49,7 @@ The self-hosted engine compiles cleanly through `ball-lang-compiler` (`cargo bui
 conformance corpus with output **identical to the Dart reference engine**:
 `BallEngine::run` (under `self_host`) constructs the compiled `main_BallEngine`,
 registers the `StdModuleHandler`, drives its `run`, and produces Dart-identical
-output. The whole-corpus sweep reports **`Results: 335 passed, 0 failed, 335
+output. The whole-corpus sweep reports **`Results: 338 passed, 0 failed, 338
 total`** — every golden-having fixture passes. The 4 golden-less fixtures
 (196_timeout / 197_memory_limit / 201_input_validation / 202_sandbox_mode) are
 documented resource-limit/sandbox **carve-outs** (`tests/conformance/CARVEOUTS.md`)

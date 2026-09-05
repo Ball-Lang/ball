@@ -67,11 +67,15 @@ avoid constructs that need receiver-type info:
   every `'list'`-flavored `collectionRoutes` entry whose receiver resolves to a
   `dart:core` `Set` (`_receiverIsSet`), letting the generic method-call encoding
   re-emit the source's own `s.add(x)`. It DECLINES rather than re-routing to
-  `std_collections.set_add`: `set_add` is value-flavored (the Dart engine
-  returns the NEW SET and the Dart compiler emits `s..add(v)`) — and it is
-  bool-flavored on the TS engine, a live cross-target divergence tracked as
-  issue #545 — so re-routing would reproduce the very `return s..add(x)` /
-  `return_of_invalid_type` this fixed and import #545 along with it. `prepareStaticTypes()` is fail-soft —
+  `std_collections.set_add`, and that is now a SCOPE choice, not a correctness
+  one: issue #545 gave `set_add`/`set_remove` one bool contract on every target
+  (mutate in place, return `true` only on a fresh insert / an actual removal),
+  so the cross-target divergence that used to make re-routing unsafe is gone and
+  the Dart compiler no longer emits the offending cascade `s..add(v)`. Routing a
+  `Set` receiver to `set_add`/`set_remove` is #488's call to make; until it does,
+  the declined form stays executable because the Dart engine's generic method
+  dispatch implements `Set.add`/`remove` with the same semantics.
+  `prepareStaticTypes()` is fail-soft —
   no `package_config.json` (never `pub get`-ed) means a warning and an
   unresolved encode, never an exception — and costs a multi-second analyzer cold
   start, so callers that do not need receiver types should not call it.

@@ -7959,23 +7959,22 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let items = this._ballSetItems(__ball_index(m, 'set'));
         let value = __ball_index(m, 'value');
-        if (!items.includes(value)) {
-          this._trackMemoryAllocation(_ballPointerBytes);
-          return this._ballSetOf([items, value]);
+        if (items.includes(value)) {
+          return false;
         }
-        return this._ballSetOf(items);
+        this._trackMemoryAllocation(_ballPointerBytes);
+        items = (items.push(value), items);
+        return true;
       }), ['set_remove']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let items = this._ballSetItems(__ball_index(m, 'set'));
-        let value = __ball_index(m, 'value');
-        let kept = [];
-        for (const e of items) {
-          if (!__ball_eq(e, value)) {
-            kept = (kept.push(e), kept);
-          }
+        let index = items.indexOf(__ball_index(m, 'value'));
+        if (__ball_lt(index, 0)) {
+          return false;
         }
-        return this._ballSetOf(kept);
+        items.splice(index, 1)[0];
+        return true;
       }), ['set_contains']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);

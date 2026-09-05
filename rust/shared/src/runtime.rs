@@ -1934,12 +1934,18 @@ pub fn ball_set_create(list: BallValue) -> BallValue {
     wrap_set(BallList::from(out))
 }
 
+/// `set.add(value)` — mutates the shared backing list; returns `true` ONLY when
+/// the element was newly inserted (Dart `Set.add` semantics, issue #545). It
+/// used to return the set itself, which disagreed with `ball_set_remove`'s bool
+/// and with every other target; conformance fixture `459_set_add_remove_bool`
+/// now pins the one contract.
 pub fn ball_set_add(set: &mut BallValue, value: BallValue) -> BallValue {
     let items = set_backing(set);
-    if !items.contains(&value) {
-        items.push(value);
+    if items.contains(&value) {
+        return BallValue::Bool(false);
     }
-    set.clone()
+    items.push(value);
+    BallValue::Bool(true)
 }
 
 pub fn ball_set_remove(set: &mut BallValue, value: BallValue) -> BallValue {
@@ -4483,6 +4489,59 @@ mod tests {
         assert_eq!(
             ball_math_lcm(BallValue::Int(4), BallValue::Int(6)),
             BallValue::Int(12)
+        );
+    }
+
+    /// The ONE portable contract for `std_collections.set_add` / `set_remove`
+    /// (issue #545): both mutate the receiver set IN PLACE and return a
+    /// `bool` — `true` only when the element was newly inserted / was actually
+    /// present — exactly like Dart's own `Set.add` / `Set.remove`.
+    ///
+    /// Before #545 `ball_set_add` returned the set itself, so a compiled Rust
+    /// program that put its result in a value position computed something
+    /// different from every other target. Conformance fixture
+    /// `459_set_add_remove_bool` is the cross-target half of this guard; this
+    /// is the Rust half, because no CI leg compiles a conformance fixture to
+    /// Rust.
+    #[test]
+    fn set_add_remove_return_bool_and_mutate_in_place() {
+        let mut set = ball_set_create(BallValue::List(BallList::from(vec![
+            BallValue::Int(1),
+            BallValue::Int(2),
+        ])));
+
+        assert_eq!(
+            ball_set_add(&mut set, BallValue::Int(3)),
+            BallValue::Bool(true),
+            "a fresh insert reports true"
+        );
+        assert_eq!(
+            ball_set_add(&mut set, BallValue::Int(3)),
+            BallValue::Bool(false),
+            "a duplicate insert reports false"
+        );
+        // The insert landed on the SHARED set, exactly once — a functional
+        // (copying) implementation would leave this at 2.
+        assert_eq!(ball_set_length(set.clone()), BallValue::Int(3));
+        assert_eq!(
+            ball_set_contains(set.clone(), BallValue::Int(3)),
+            BallValue::Bool(true)
+        );
+
+        assert_eq!(
+            ball_set_remove(&mut set, BallValue::Int(2)),
+            BallValue::Bool(true),
+            "removing a present element reports true"
+        );
+        assert_eq!(
+            ball_set_remove(&mut set, BallValue::Int(2)),
+            BallValue::Bool(false),
+            "removing an absent element reports false"
+        );
+        assert_eq!(ball_set_length(set.clone()), BallValue::Int(2));
+        assert_eq!(
+            ball_set_contains(set, BallValue::Int(2)),
+            BallValue::Bool(false)
         );
     }
 }

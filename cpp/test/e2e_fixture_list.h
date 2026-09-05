@@ -310,6 +310,7 @@ inline const std::vector<std::string>& program_names() {
         "439_unrelated_field_name_collision",
         "440_base_typed_param_return_slicing",
         "442_switch_goto_fallthrough_guard_or_pattern",
+        "459_set_add_remove_bool",
     };
     return names;
 }

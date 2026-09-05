@@ -23,7 +23,7 @@
   },
   "summary": {
     "encoderEmittable": 121,
-    "coveredByFixture": 125,
+    "coveredByFixture": 129,
     "engineImplementedDart": 233,
     "carvedOut": 0
   },
@@ -2316,6 +2316,7 @@
         "440_base_typed_param_return_slicing",
         "442_switch_goto_fallthrough_guard_or_pattern",
         "44_for_loop_basic",
+        "459_set_add_remove_bool",
         "45_for_in_loop",
         "46_while_loop",
         "47_do_while",
@@ -3149,6 +3150,7 @@
         "431_shadowed_getter_dynamic_dispatch",
         "43_countdown",
         "44_for_loop_basic",
+        "459_set_add_remove_bool",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -3876,8 +3878,11 @@
       "module": "std_collections",
       "name": "set_add",
       "inputType": "SetInput",
+      "outputType": "bool",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "459_set_add_remove_bool"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3886,7 +3891,9 @@
       "name": "set_contains",
       "inputType": "SetInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "459_set_add_remove_bool"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3903,7 +3910,8 @@
         "392_empty_set_literal",
         "394_mappattern_excludes_set",
         "417_null_aware_collection_elements",
-        "434_type_of"
+        "434_type_of",
+        "459_set_add_remove_bool"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3940,7 +3948,9 @@
       "name": "set_length",
       "inputType": "SetInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "459_set_add_remove_bool"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3948,8 +3958,11 @@
       "module": "std_collections",
       "name": "set_remove",
       "inputType": "SetInput",
+      "outputType": "bool",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "459_set_add_remove_bool"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },

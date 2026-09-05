@@ -15,7 +15,7 @@ Every base function across the 8 universal std modules, generated directly from 
 |---|---|
 | Total base functions | 271 |
 | Encoder-emittable | 121 |
-| Covered by a conformance fixture | 125 |
+| Covered by a conformance fixture | 129 |
 | Dart engine-implemented | 233 |
 | Documented carve-outs | 0 |
 
@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 336 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +333 more | ✅ |
+| `print` | ✅ | ✅ 337 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +334 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -143,7 +143,7 @@ Universal standard library base module. Every function here represents a languag
 | `throw` | ✅ | ✅ 20 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +17 more | ✅ |
 | `to_double` | ✅ | ✅ 4 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +1 more | ✅ |
 | `to_int` | ✅ | ✅ 5 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +2 more | ✅ |
-| `to_string` | ✅ | ✅ 184 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +181 more | ✅ |
+| `to_string` | ✅ | ✅ 185 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +182 more | ✅ |
 | `to_string_as_exponential` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
 | `to_string_as_fixed` | ✅ | ✅ 1 fixture(s): `316_to_string_as_fixed` | ✅ |
 | `to_string_as_precision` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
@@ -207,14 +207,14 @@ Standard collections module. List and map operations. Separate from std because 
 | `map_put_if_absent` | ✅ | ❌ | ✅ |
 | `map_set` | ❌ | ❌ | ✅ |
 | `map_values` | ❌ | ❌ | ✅ |
-| `set_add` | ❌ | ❌ | ✅ |
-| `set_contains` | ❌ | ❌ | ✅ |
-| `set_create` | ✅ | ✅ 8 fixture(s): `118_set_operations`, `129_unique_elements`, `310_set_map_comprehension` +5 more | ✅ |
+| `set_add` | ❌ | ✅ 1 fixture(s): `459_set_add_remove_bool` | ✅ |
+| `set_contains` | ❌ | ✅ 1 fixture(s): `459_set_add_remove_bool` | ✅ |
+| `set_create` | ✅ | ✅ 9 fixture(s): `118_set_operations`, `129_unique_elements`, `310_set_map_comprehension` +6 more | ✅ |
 | `set_difference` | ❌ | ❌ | ✅ |
 | `set_intersection` | ❌ | ❌ | ✅ |
 | `set_is_empty` | ❌ | ❌ | ✅ |
-| `set_length` | ❌ | ❌ | ✅ |
-| `set_remove` | ❌ | ❌ | ✅ |
+| `set_length` | ❌ | ✅ 1 fixture(s): `459_set_add_remove_bool` | ✅ |
+| `set_remove` | ❌ | ✅ 1 fixture(s): `459_set_add_remove_bool` | ✅ |
 | `set_to_list` | ❌ | ❌ | ✅ |
 | `set_union` | ❌ | ❌ | ✅ |
 | `string_join` | ❌ | ❌ | ✅ |

@@ -5433,20 +5433,71 @@ function __isUnknownFnError(e: any): boolean {
         if (list) return `${this.expr(list)}.join('')`;
         return "''";
       }
-      // Neither encoder ever emits these as a direct `std.<fn>` base-
-      // function call — a Set method call (mySet.union(other), etc.)
-      // routes through compileCall's generic "self"-field method dispatch
-      // onto native JS Set.prototype methods instead, so this case is
-      // never actually reached. The old fallback compiled it to a call on
-      // a nonexistent bare identifier (a confusing runtime ReferenceError
-      // if it WERE ever hit); fail loud at compile time instead, matching
-      // the policy above (#257).
-      case "set_add": case "set_remove": case "set_contains":
-      case "set_union": case "set_intersection": case "set_difference":
-      case "set_length": case "set_is_empty": case "set_to_list":
-        throw new Error(
-          `TS compiler: std.${fn} is not implemented (compileStdCall) — Set method calls should route through native JS Set methods, not this base function`,
-        );
+      // The `std_collections` set family, on native JS `Set`s — the same value
+      // `set_create` above compiles to (`new Set([...])`).
+      //
+      // These used to throw "not implemented", on the reasoning that neither
+      // encoder emits a direct `std_collections.set_*` call (a Set METHOD call
+      // routes through compileCall's generic "self"-field dispatch instead). But
+      // "no encoder emits it" is not "no program contains it": a hand-authored
+      // or tool-generated Ball program can, and every other compiler in the repo
+      // (Dart/C++/Rust/C#/Go/Python) implements the family. Conformance fixture
+      // 459_set_add_remove_bool is exactly such a program, and it made this
+      // throw reachable — so implement the family rather than carve it out.
+      //
+      // `set_add`/`set_remove` mutate in place and answer BOOL (issue #545) —
+      // `Set.add` returns the set in JS, so it is wrapped; `Set.delete` already
+      // reports presence.
+      case "set_add": {
+        const set = f.get("set") ?? f.get("collection");
+        const value = f.get("value") ?? f.get("element");
+        if (set && value) {
+          return `(() => { const __s = ${this.expr(set)}; const __v = ${this.expr(value)}; if (__s.has(__v)) return false; __s.add(__v); return true; })()`;
+        }
+        return "false";
+      }
+      case "set_remove": {
+        const set = f.get("set") ?? f.get("collection");
+        const value = f.get("value") ?? f.get("element");
+        if (set && value) return `${this.expr(set)}.delete(${this.expr(value)})`;
+        return "false";
+      }
+      case "set_contains": {
+        const set = f.get("set") ?? f.get("collection");
+        const value = f.get("value") ?? f.get("element");
+        if (set && value) return `${this.expr(set)}.has(${this.expr(value)})`;
+        return "false";
+      }
+      case "set_length": {
+        const set = f.get("set") ?? f.get("collection");
+        return set ? `${this.expr(set)}.size` : "0";
+      }
+      case "set_is_empty": {
+        const set = f.get("set") ?? f.get("collection");
+        return set ? `(${this.expr(set)}.size === 0)` : "true";
+      }
+      case "set_to_list": {
+        const set = f.get("set") ?? f.get("collection");
+        return set ? `[...${this.expr(set)}]` : "[]";
+      }
+      case "set_union": {
+        const l = f.get("left") ?? f.get("set");
+        const r = f.get("right") ?? f.get("other");
+        if (l && r) return `new Set([...${this.expr(l)}, ...${this.expr(r)}])`;
+        return "new Set()";
+      }
+      case "set_intersection": {
+        const l = f.get("left") ?? f.get("set");
+        const r = f.get("right") ?? f.get("other");
+        if (l && r) return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => __b.has(__x))); })()`;
+        return "new Set()";
+      }
+      case "set_difference": {
+        const l = f.get("left") ?? f.get("set");
+        const r = f.get("right") ?? f.get("other");
+        if (l && r) return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => !__b.has(__x))); })()`;
+        return "new Set()";
+      }
       // I/O
       case "print_error": {
         const msg = f.get("message") ?? f.get("value");

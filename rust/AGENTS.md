@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 335 passed, 0
-failed, 335 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 336 passed, 0
+failed, 336 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -135,8 +135,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 335 passed, 0 failed,
-335 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 336 passed, 0 failed,
+336 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it

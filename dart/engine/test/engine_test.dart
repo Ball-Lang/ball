@@ -7614,21 +7614,22 @@ void main() {
                 ]),
               ),
             ),
-            letStmt(
-              'left2',
-              stdCall(
-                'set_add',
-                msg([field('set', ref('left')), field('value', literal(4))]),
+            // set_add MUTATES `left` in place and answers a bool (#545) — it
+            // does NOT return a new set, so the union below reads `left`
+            // itself. Printing the bool proves the fresh-insert answer.
+            stmt(
+              printToString(
+                stdCall(
+                  'set_add',
+                  msg([field('set', ref('left')), field('value', literal(4))]),
+                ),
               ),
             ),
             letStmt(
               'unioned',
               stdCall(
                 'set_union',
-                msg([
-                  field('left', ref('left2')),
-                  field('right', ref('right')),
-                ]),
+                msg([field('left', ref('left')), field('right', ref('right'))]),
               ),
             ),
             stmt(
@@ -7650,7 +7651,7 @@ void main() {
           ]),
         ],
       );
-      expect(await runAndCapture(p), ['true', '4']);
+      expect(await runAndCapture(p), ['true', 'true', '4']);
     });
   });
 

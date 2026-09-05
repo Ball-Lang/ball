@@ -480,9 +480,18 @@ void main() {
     test('set operations', () {
       final set = _field('set', _ref('s'));
       final v = _field('value', _intLit(1));
+      // A PLAIN call, never the cascade `s..add(1)` (issue #545): Dart's
+      // `Set.add` mutates in place and evaluates to a `bool`, which is the one
+      // portable contract. The cascade evaluated to the SET, so the compiled
+      // program disagreed with the engines, and `return set_add(...)` from a
+      // bool-returning function was rejected by Dart's own front end.
       expect(
         _compile(_call('std_collections', 'set_add', [set, v])),
-        contains('s..add(1)'),
+        contains('s.add(1)'),
+      );
+      expect(
+        _compile(_call('std_collections', 'set_add', [set, v])),
+        isNot(contains('s..add(1)')),
       );
       expect(
         _compile(_call('std_collections', 'set_remove', [set, v])),

@@ -526,11 +526,18 @@ func SetCreate(iterable Value) Value {
 	return s
 }
 
-// SetAdd adds value to the set in place, returning the set.
+// SetAdd adds value to the set in place, reporting whether it was newly
+// inserted (Dart Set.add semantics, issue #545). It used to return the set
+// itself, which disagreed with SetRemove's bool and with every other target the
+// moment the result reached a value position; conformance fixture
+// 459_set_add_remove_bool pins the one contract.
 func SetAdd(set, value Value) Value {
 	s := asSet(set)
+	if s.indexOf(value) >= 0 {
+		return false
+	}
 	s.add(value)
-	return s
+	return true
 }
 
 // SetRemove removes value from the set in place, reporting whether it was present.

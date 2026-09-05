@@ -96,3 +96,40 @@ def test_call_method_still_answers_protobuf_presence_for_plain_maps():
     it exists for (``binding.hasBody()`` on a decoded Ball message)."""
     assert ballrt.call_method({"body": {"literal": 1}}, "hasBody") is True
     assert ballrt.call_method({}, "hasBody") is False
+
+
+def test_set_add_remove_return_bool_and_mutate_in_place():
+    """The ONE portable contract for std_collections.set_add / set_remove (#545).
+
+    Both mutate the receiver set IN PLACE and return a bool -- True only when
+    the element was newly inserted / was actually present -- exactly like Dart's
+    own ``Set.add`` / ``Set.remove``. Before #545 both returned the set itself,
+    so a compiled Python program that put the result in a value position
+    (``if s.add(x): ...``) computed something different from every other target.
+    Conformance fixture ``459_set_add_remove_bool`` is the cross-target half of
+    this guard; this is the Python half, because no CI leg compiles a
+    conformance fixture to Python.
+    """
+    s = ballrt.col.set_create([1, 2])
+
+    assert ballrt.col.set_add(s, 3) is True     # fresh insert
+    assert ballrt.col.set_add(s, 3) is False    # duplicate
+    # The insert landed on the SHARED set, exactly once -- a functional
+    # (copying) implementation would leave this at 2.
+    assert ballrt.col.set_length(s) == 3
+    assert ballrt.col.set_contains(s, 3) is True
+
+    assert ballrt.col.set_remove(s, 2) is True   # was present
+    assert ballrt.col.set_remove(s, 2) is False  # already gone
+    assert ballrt.col.set_length(s) == 2
+    assert ballrt.col.set_contains(s, 2) is False
+
+
+def test_ball_set_add_returns_bool_like_dart():
+    """``BallSet.add`` is the method form the self-hosted engine calls; Dart's
+    ``Set.add`` returns bool, so ours must too (#545)."""
+    s = ballrt.BallSet([1])
+    assert s.add(2) is True
+    assert s.add(2) is False
+    assert s.remove(2) is True
+    assert s.remove(2) is False

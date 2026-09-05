@@ -232,8 +232,9 @@ passed. Assertion 2 states the strongest thing that is true today, and
 strengthens by itself the moment the round trip closes.
 
 These self-tests validate the **harness**. They are not regression tests for
-#488/#489/#491/#492: the Tier A run is report-only, so a pipeline regression it
-measures reddens no PR.
+#488/#489/#491/#492: the Tier A run has no `pull_request:` trigger, so a
+pipeline regression it measures reddens no PR — it reddens the next scheduled
+run, via the ratchet floors described below.
 
 ### First baselines (2026-09-03; TypeScript 2026-09-05)
 
@@ -249,6 +250,12 @@ after measuring.
 | Rust | 110 | 0 (0%) | 0 | 0 | 0 | 0 |
 | Go | 21 | 0 (0%) | 0 | 0 | 0 | 0 |
 | TypeScript | 48 | 4 (8%) | 29 | 28 | 21 | 16 |
+
+These are the FIRST numbers, kept here as a dated record. The **live** ones are
+the generated table in `README.md`, which the weekly run regenerates and floors
+(see "The published table and its floors" below); where the two disagree, the
+README is current and this table is history. C# in particular has moved — 123 of
+472 files reach stage 1 as of run 33953210701, up from the 74 recorded here.
 
 Read these as a map of where each pipeline stops on real code, not as a grade:
 
@@ -373,19 +380,23 @@ asserted side by side in one test. That pair is the entire justification for
 Tier B existing. That self-test runs as a **gated** step in `ci.yml`'s Dart job,
 exactly like Tier A's — the instrument is gated even though the study is not.
 
-### No floor, deliberately
+### Floored, by ratchet
 
 `dart-tier-b` in `.github/workflows/coverage-study.yml` is `workflow_dispatch` +
 the weekly Monday cron, like every other job in that file. It has **no
-`pull_request:` trigger and will not become a PR gate** in this slice. The only
-thing it fails on is the shared positive floor in
-`tools/coverage-study/summarize.sh`: a run that scored zero files is a
-checkout/harness failure, never a 0% result. No quality floor is set until
-several scheduled runs establish the variance — the project has been burned by
-floors set before a baseline existed. #488's own ad-hoc prototype measured
-88/106 files clean per-file and 1 of 5 packages clean whole-package; treat that
-as the sanity check a first scheduled run should land near, not as a committed
-number.
+`pull_request:` trigger and is not a PR gate**: a regression it finds reddens
+the next scheduled run, not the PR that caused it.
+
+Both of its numbers are floored, at the measured baseline, by the `publish` job
+— see "The published table and its floors" below. Its own step still carries
+the shared positive floor in `tools/coverage-study/summarize.sh` (a run that
+scored zero files is a checkout/harness failure, never a 0% result), which is
+the guard that must hold *before* a percentage means anything at all.
+
+#488's own ad-hoc prototype had measured 88/106 files clean per-file and 1 of 5
+packages clean whole-package. The first full scheduled run landed near it but
+not on it — 93/106 and 2/5 — which is exactly why the committed floor is the
+measured number and not the prototype's.
 
 One pin was run end-to-end while building this harness, as a smoke test rather
 than a baseline: `path` @ `7e3d5d8` scored **9/13 clean (69%)** per-file and
@@ -464,31 +475,120 @@ dart run tools/coverage-study/rq1_tierb_all.dart \
 # time you point the harness at a new tree.
 dart run tools/coverage-study/rq1_tierb.dart --package path --checkout /tmp/co/path
 git -C /tmp/co/path status --porcelain   # must print nothing
+
+# ── The published table and its floors ─────────────────────────────────────
+# Its self-test is gated in ci.yml's python job.
+python3 tools/coverage-study/test/coverage_table_self_test.py
+
+# Check the floors against a real run's reports, without touching anything.
+# Any run of coverage-study.yml works; `gh run download` lays the artifacts out
+# in exactly the directory shape the job's download step produces.
+gh run download <run-id> -D /tmp/reports
+python3 tools/coverage-study/coverage_table.py \
+  --artifacts /tmp/reports \
+  --baseline tools/coverage-study/baseline.json \
+  --readme README.md
+
+# Add --write to regenerate the README block and persist any raised floor
+# (what the `publish` job runs), and --summary "$GITHUB_STEP_SUMMARY" to also
+# print the table into the job summary.
 ```
+
+## The published table and its floors
+
+The eight numbers above are published in `README.md`, next to the engine-parity
+table, and every one of them is floored. Both halves are
+`tools/coverage-study/coverage_table.py`, run by the `publish` job in
+`.github/workflows/coverage-study.yml` after the seven measuring jobs. They are
+one script on purpose: a table rendered by one program and floored by another
+can publish a number that nothing is guarding.
+
+### Why a ratchet and not the issue's 95% / 75%
+
+Issue #493 proposed "Dart Tier A >= 95%, Tier B >= 75%". Measured, Dart Tier A
+is 61%, and four of the six Tier A rows are at 0% clean, for the documented
+reason above: those compilers emit runtime-call-shaped source their syntactic
+encoders were never built to read back. A 95% floor would have been red on its
+first run and stayed red — which in practice means muted, and a muted gate is
+worse than none because it also silences the movement it *could* have caught.
+
+This project's rule for a known-incomplete leg is to **ratchet** it: fail only
+on a drop below a checked-in baseline, raise the baseline automatically on an
+improvement, never parity-gate it and never skip it. So each row is floored at
+exactly what it measured on run
+[33953210701](https://github.com/Ball-Lang/ball/actions/runs/33953210701), the
+first all-green run of the full seven-job matrix, and those numbers are
+committed in `tools/coverage-study/baseline.json`.
+
+### Three axes, because a percentage alone is gameable
+
+For each row the floor checks:
+
+1. **`scored`, the denominator itself.** Fewer files scored than the baseline
+   fails even if the percentage *improved*. A shrinking corpus almost always
+   means a pin failed to clone or files stopped being collected, and it makes
+   the percentage incomparable — 2/2 is not better than 3/4. This is the same
+   reasoning as `summarize.sh`'s positive floor, one level up.
+2. **`clean / scored`.** Compared exactly, by cross-multiplication, never on
+   the rounded percentage — so a drop smaller than the rounding step still
+   fails.
+3. **`encoded / scored`** (Tier A only) — how many scored files survived stage 1
+   of the funnel. This is what gives the four 0%-clean rows a live guard:
+   `clean` cannot fall below 0, but "110 Rust files reached stage 1" can, and
+   that movement is precisely what the funnel exists to show. It is also the
+   answer to the objection this document used to record, that "a ratchet on 0 is
+   meaningless".
+
+A row whose artifact is **missing**, whose report **scored nothing**, whose
+verdicts are not bools, or whose taxonomy tag is unrecognised is a hard failure.
+An absent artifact read as "0 scored, 0 clean" would satisfy every percentage
+floor forever — the most expensive failure mode available here, and the reason
+the `publish` job runs with `if: always()` rather than being skipped by a failed
+upstream job (a skipped check reads as green).
+
+### How the table stays fresh
+
+The `publish` job regenerates the README block and the raised baseline and, **on
+`main` only**, commits both with `[skip ci]` — the same bot-commit pattern
+`release.yml` and `tag-go-modules.yml` already use. The rendered block carries
+no timestamp and no run id, so it is a pure function of the reports: a week that
+moved no number produces no commit at all, and provenance lives in the commit
+message, which names the run. A `workflow_dispatch` on a topic branch runs the
+whole check-and-render end-to-end and commits nothing.
+
+Changing a pin list changes a denominator, which is a **breach by design**: it
+trips the `scored` floor, and the row must then be re-seeded deliberately in the
+same reviewed commit that changed the pins. Adding a seventh measuring job
+likewise fails until its baseline row exists — an artifact with no baseline row
+is published unfloored, so the script refuses.
+
+The renderer's own self-test,
+`tools/coverage-study/test/coverage_table_self_test.py`, is **gated on every
+PR** in `ci.yml`'s python job, exactly like each harness's self-test. It asserts
+that below fails and names both numbers, at passes, above raises, a missing
+artifact fails loud, a non-integer tally fails, a shrinking denominator fails
+even with a better ratio, the funnel floor bites at 0% clean, and that
+regenerating twice is byte-identical.
 
 ## Status and honest limits
 
-`.github/workflows/coverage-study.yml` is `workflow_dispatch` + a weekly
-Monday schedule. It has **no `pull_request:` trigger and is not a required
-check**, so a regression it finds does not block the PR that caused it. That is
-deliberate — floors set before a baseline exists either go permanently red and
-get ignored, or are set so low they mean nothing. The job fails only when the
-harness itself failed (no summary line, or zero files scored).
+`.github/workflows/coverage-study.yml` is `workflow_dispatch` + a weekly Monday
+schedule. It has **no `pull_request:` trigger and is not a required check**, so
+a regression it finds does not block the PR that caused it — it reddens the next
+scheduled or dispatched run. That remains deliberate: these harnesses clone and
+build third-party packages, which is not something to put on every PR's critical
+path.
 
-Remaining slices of #493:
+What is gated on every PR is the instruments: each harness's self-test, and the
+renderer/floor self-test above.
 
-* Floor the Dart Tier A number once a few scheduled runs establish a baseline.
-  Rust, C#, Go and Python are at 0% and have no floor to set yet — a ratchet on
-  0 is meaningless; watch the funnel rows instead.
-* Floor the TypeScript Tier A number once a few scheduled runs establish a
-  baseline — it is the only port that is not at 0%, so it is the second
-  candidate for a ratchet after Dart.
-* Floor the Dart Tier B numbers (per-file and whole-package) once a few
-  scheduled runs establish their variance — the same measure-before-gating rule
-  Tier A is waiting on, and the reason `dart-tier-b` ships with only the
-  positive floor.
-* Port Tier B to the other five languages. Dart is the only one where the
-  compiler emits idiomatic source its own encoder reads back; the others emit
+Remaining work, now that #493 is closed:
+
+* Port Tier B to the other five languages. Dart is the only one whose compiler
+  emits idiomatic source its own encoder reads back; the others emit
   runtime-call-shaped source and are still at 0% on Tier A, so there is nothing
   behavioural to measure until their round trip closes.
-* Publish the coverage table next to the engine-parity table in the README.
+* Close the gaps the study measures. The floors keep the numbers from sliding
+  back; they do not move them forward. Every drift and encode-error tag in the
+  reports above is a real gap in an encoder or a compiler, and fixing them is
+  what raises these rows — the ratchet then makes each gain permanent.

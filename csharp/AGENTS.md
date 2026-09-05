@@ -46,8 +46,9 @@ number by changing the pin list.
 
 `dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj` is the
 harness's own self-test and **is gated on every PR** in ci.yml's `csharp` job.
-The RUN is the report-only `csharp-tier-a` job in `coverage-study.yml`, which
-has **no `pull_request:` trigger**. Methodology:
+The RUN is the `csharp-tier-a` job in `coverage-study.yml`, which has **no
+`pull_request:` trigger**; its row is floored by ratchet in that workflow's
+`publish` job. Methodology:
 `tests/conformance/COVERAGE_STUDY.md`.
 
 ## Layout

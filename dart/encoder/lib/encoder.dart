@@ -19,6 +19,8 @@ library;
 import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
+import 'package:analyzer/dart/element/element.dart'
+    show FormalParameterElement, LocalVariableElement;
 import 'package:analyzer/dart/element/type.dart' show InterfaceType;
 import 'package:ball_base/ball_base.dart' show buildStdConvertModule;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
@@ -3079,7 +3081,7 @@ class DartEncoder {
           : _encodeExpr(target);
 
       if (expr.operator.lexeme == '?.') {
-        return _buildNullAwareAccess(targetExpr, field);
+        return _buildNullAwareAccess(targetExpr, field, astTarget: target);
       }
 
       // coverage:ignore-start
@@ -3911,6 +3913,7 @@ class DartEncoder {
         methodName,
         args,
         _parseTypeArgs(typeArgSrc),
+        astTarget: realTarget,
       );
     }
 
@@ -3952,7 +3955,16 @@ class DartEncoder {
         'insert': ('std_collections', 'list_insert', 'list', 2, 2),
         'clear': ('std_collections', 'list_clear', 'list', 0, 0),
         'contains': ('std_collections', 'list_contains', 'list', 1, 1),
-        'indexOf': ('std_collections', 'list_index_of', 'list', 1, 2),
+        // `(1, 1)`, NOT `(1, 2)`. Dart's `indexOf(element, [start])` accepts a
+        // start offset, but `std_collections.list_index_of` declares no such
+        // operand and no engine implements one, so the two-argument form can
+        // only be modelled by dropping an argument — and it silently was: the
+        // rename pass below gave `arg0` the name `'value'` and `arg1` fell to
+        // the `_ => 'value'` default, so the two collided in the compiler's
+        // field map and `path.indexOf('\\', 2)` compiled back as
+        // `path.indexOf(2)` (issue #488). Declining hands the call to the
+        // generic method-call encoding, which re-emits the source verbatim.
+        'indexOf': ('std_collections', 'list_index_of', 'list', 1, 1),
         'join': ('std_collections', 'list_join', 'list', 0, 1),
         'sublist': ('std_collections', 'list_slice', 'list', 1, 2),
         'sort': ('std_collections', 'list_sort', 'list', 0, 1),
@@ -3985,10 +3997,24 @@ class DartEncoder {
         'substring': ('std', 'string_substring', 'value', 1, 2),
         'split': ('std', 'string_split', 'value', 1, 1),
         'replaceAll': ('std', 'string_replace_all', 'value', 2, 2),
-        'replaceFirst': ('std', 'string_replace', 'value', 2, 3),
-        'lastIndexOf': ('std', 'string_last_index_of', 'left', 1, 2),
+        // `(2, 2)` and `(1, 1)`, not `(2, 3)` / `(1, 2)` — same rule as
+        // `indexOf` above. `String.replaceFirst(from, to, [startIndex])` and
+        // `lastIndexOf(pattern, [start])` have an optional offset that
+        // `std.string_replace` / `std.string_last_index_of` do not declare and
+        // no compiler emits (`_compileStringReplace` reads only `from`/`to`;
+        // `_methodCall2` emits exactly two operands), so the offset was
+        // silently discarded. Decline instead, and let the generic method-call
+        // encoding re-emit the source's own call.
+        'replaceFirst': ('std', 'string_replace', 'value', 2, 2),
+        'lastIndexOf': ('std', 'string_last_index_of', 'left', 1, 1),
         'gcd': ('std', 'math_gcd', 'left', 1, 1),
-        'startsWith': ('std', 'string_starts_with', 'left', 1, 2),
+        // `(1, 1)`: `String.startsWith(pattern, [index])`'s offset is dropped
+        // by `_methodCall2` the same way. This one was MEASURED — it is why
+        // `path/lib/src/style/url.dart` still failed 32 of its own tests after
+        // the `indexOf` fix let it compile (`path.startsWith('//', i + 1)`
+        // became `path.startsWith('//')`, so `rootLength` skipped three
+        // characters it should not have).
+        'startsWith': ('std', 'string_starts_with', 'left', 1, 1),
         'endsWith': ('std', 'string_ends_with', 'left', 1, 1),
         'padLeft': ('std', 'string_pad_left', 'value', 1, 2),
         'padRight': ('std', 'string_pad_right', 'value', 1, 2),
@@ -4030,7 +4056,26 @@ class DartEncoder {
       // with `parseString`, whose AST leaves `staticType` null, so their
       // behavior is bit-for-bit unchanged; `PackageEncoder.prepareStaticTypes()`
       // is the opt-in that supplies a resolved AST.
-      if (route != null && route.$3 == 'list' && _receiverIsSet(realTarget)) {
+      //
+      // Slice 2 extends the same decline to the other two receiver kinds a
+      // `'list'`-flavored route mis-models:
+      //
+      //  * **`Map`** — `Map.map()` takes a two-parameter callback and returns
+      //    a new `Map`, but `list_map`'s Dart codegen always appends
+      //    `.toList()`, which a `Map` does not have
+      //    (`collection/lib/src/canonicalized_map.dart` in #488). `forEach`,
+      //    `addAll` and `clear` collide the same way — every one of them is a
+      //    real `Map` method whose `list_*` model is an `Iterable`'s.
+      //  * **`String`** — `'abc'.contains(p)`/`indexOf(p)` take a `Pattern`,
+      //    not an element. The compiled Dart happens to be textually identical
+      //    today, so this is a modelling fix rather than a measured failure:
+      //    it keeps a future `list_contains` refinement from silently changing
+      //    what a `String` receiver means.
+      if (route != null &&
+          route.$3 == 'list' &&
+          (_receiverIsSet(realTarget) ||
+              _receiverIsMap(realTarget) ||
+              _receiverIsString(realTarget))) {
         route = null;
       }
       if (route != null) {
@@ -4175,12 +4220,38 @@ class DartEncoder {
   /// could not complete. That default is what makes the receiver-type gate a
   /// pure refinement — with no resolution available the encoder behaves
   /// exactly as it always has (issue #488).
-  static bool _receiverIsSet(ast.Expression? target) {
+  static bool _receiverIsSet(ast.Expression? target) =>
+      _receiverIsCoreType(target, 'Set');
+
+  /// Whether [target]'s RESOLVED static type is a `dart:core` `Map` — the type
+  /// itself or any subtype (`LinkedHashMap`, `HashMap`, `SplayTreeMap`,
+  /// `UnmodifiableMapView`, a user class that `implements Map<K, V>`, …).
+  ///
+  /// Same unknown-means-false default as [_receiverIsSet]; see issue #488.
+  static bool _receiverIsMap(ast.Expression? target) =>
+      _receiverIsCoreType(target, 'Map');
+
+  /// Whether [target]'s RESOLVED static type is `dart:core`'s `String`.
+  ///
+  /// `String` is `final`, so only the type itself can match; the supertype
+  /// walk below is harmless and keeps all three checks one shape.
+  static bool _receiverIsString(ast.Expression? target) =>
+      _receiverIsCoreType(target, 'String');
+
+  /// Shared implementation of the three receiver-kind checks: is [target]'s
+  /// resolved static type `dart:core`'s [name], or any subtype of it?
+  ///
+  /// Returns `false` whenever the type is simply unknown: an unresolved AST
+  /// (everything `parseString` produces), `dynamic`, or a type the analyzer
+  /// could not complete. That default is what makes the receiver-type gate a
+  /// pure refinement — with no resolution available the encoder behaves
+  /// exactly as it always has (issue #488).
+  static bool _receiverIsCoreType(ast.Expression? target, String name) {
     final type = target?.staticType;
     if (type is! InterfaceType) return false;
-    bool isCoreSet(InterfaceType t) =>
-        t.element.name == 'Set' && t.element.library.isDartCore;
-    return isCoreSet(type) || type.allSupertypes.any(isCoreSet);
+    bool isMatch(InterfaceType t) =>
+        t.element.name == name && t.element.library.isDartCore;
+    return isMatch(type) || type.allSupertypes.any(isMatch);
   }
 
   /// Whether [name] syntactically looks like a type/constructor name rather
@@ -5596,14 +5667,50 @@ class DartEncoder {
     ]);
   }
 
+  /// Whether a null-aware receiver must be bound to a temporary local before
+  /// the `std.if(equals(t, null), null, t.…)` guard names it twice (#488).
+  ///
+  /// The guard mentions the receiver on BOTH branches, so the compiled Dart is
+  /// `t == null ? null : t.foo` — which type-checks only if Dart's flow
+  /// analysis promotes `t` to non-null on the else-branch. Promotion applies to
+  /// locals and parameters; it NEVER applies to a field, a top-level variable
+  /// or a getter. `StreamSubscription<T>? _inner;` is the shape #488 measured
+  /// across the `async` package (`stream_subscription_transformer.dart`,
+  /// `cancelable_operation.dart`, `stream_group.dart`): the compiled
+  /// `_inner == null ? null : _inner.isPaused` is rejected outright.
+  ///
+  /// Binding the receiver to a fresh local first restores promotion, costs one
+  /// `LetBinding`, and is exactly the path the encoder ALREADY takes for a
+  /// non-`Reference` target — so this is a widening of an existing branch, not
+  /// a new lowering strategy.
+  ///
+  /// Gated on RESOLVED types, like every other receiver-kind check here: with
+  /// no `element` to inspect the answer is `false` and the encoder behaves
+  /// exactly as it always has, keeping `encode(String)` — and therefore
+  /// `dart/self_host/engine.ball.json` — bit-for-bit unchanged.
+  static bool _nullAwareNeedsTemp(ast.Expression? astTarget) {
+    if (astTarget is! ast.SimpleIdentifier) return false;
+    final element = astTarget.element;
+    if (element == null) return false;
+    // Locals and parameters promote; everything else that can appear as a bare
+    // identifier here (a field, a top-level variable, a getter) does not.
+    return !(element is LocalVariableElement ||
+        element is FormalParameterElement);
+  }
+
   /// Expand `target?.field` to `std.if(equals(target, null), null, target.field)`.
   /// For simple Reference targets, emits the if directly (no temp variable).
   /// For complex targets, wraps in a Block with a LetBinding to avoid
   /// evaluating the target twice.
-  Expression _buildNullAwareAccess(Expression targetExpr, String field) {
+  Expression _buildNullAwareAccess(
+    Expression targetExpr,
+    String field, {
+    ast.Expression? astTarget,
+  }) {
     _usedBaseFunctions.addAll(['if', 'equals']);
 
-    if (targetExpr.whichExpr() == Expression_Expr.reference) {
+    if (targetExpr.whichExpr() == Expression_Expr.reference &&
+        !_nullAwareNeedsTemp(astTarget)) {
       final name = targetExpr.reference.name;
       return _buildNullGuard(
         () => _refExpr(name),
@@ -5641,8 +5748,9 @@ class DartEncoder {
     Expression targetExpr,
     String methodName,
     List<FieldValuePair> args,
-    List<TypeRef> typeArgs,
-  ) {
+    List<TypeRef> typeArgs, {
+    ast.Expression? astTarget,
+  }) {
     _usedBaseFunctions.addAll(['if', 'equals']);
 
     Expression buildInnerCall(Expression Function() selfBuilder) {
@@ -5661,7 +5769,8 @@ class DartEncoder {
       return Expression()..call = call;
     }
 
-    if (targetExpr.whichExpr() == Expression_Expr.reference) {
+    if (targetExpr.whichExpr() == Expression_Expr.reference &&
+        !_nullAwareNeedsTemp(astTarget)) {
       final name = targetExpr.reference.name;
       return _buildNullGuard(
         () => _refExpr(name),

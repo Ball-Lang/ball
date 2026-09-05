@@ -4545,6 +4545,21 @@ function __isUnknownFnError(e: any): boolean {
     return tn !== "" && this.typeDefByName.has(tn);
   }
 
+  /**
+   * True when `name` — a BARE identifier used as a receiver, e.g. the `self` of
+   * a `Box.new(7)` tear-off — names a class this program emits. The typeDef
+   * registry is keyed by the QUALIFIED name (`main:Box`), so a bare lookup
+   * alone silently misses (#531).
+   */
+  private isUserClassName(name: string): boolean {
+    if (name === "") return false;
+    if (this.typeDefByName.has(name)) return true;
+    for (const k of this.typeDefByName.keys()) {
+      if (classTsName(k) === name) return true;
+    }
+    return false;
+  }
+
   private compileBlockExpression(block: NonNullable<Expression["block"]>): string {
     const innerText = this.captureInto(() => {
       this.writeln(""); // leading newline
@@ -4651,6 +4666,25 @@ function __isUnknownFnError(e: any): boolean {
         // Map.fromEntries(list) → Object.fromEntries(list.map(e => [e.arg0, e.arg1]))
         if (fn === "fromEntries" && selfField.value.reference?.name === "Map") {
           return `Object.fromEntries((${otherArgs}).map((e: any) => [e.arg0 ?? e.key, e.arg1 ?? e.value]))`;
+        }
+        // `Box.new(7)` is a CONSTRUCTOR TEAR-OFF, which the Dart encoder emits
+        // as this generic self-carrying shape rather than as the
+        // `mod:Box.new` Call handled at the top of compileCall. `new` is not a
+        // legal TS member name, so the generic form below emitted
+        // `Box.new_(7)` — a static method no emitted class declares (#531).
+        if (call.function === "new" && selfField.value.reference) {
+          const recv = selfField.value.reference.name;
+          if (this.isUserClassName(recv)) {
+            return `new ${classTsName(recv)}(${otherArgs})`;
+          }
+          // A BUILT-IN exception has no emitted class; the direct
+          // `FormatException('x')` spelling produces a tagged object literal,
+          // so the tear-off must produce exactly the same value.
+          if (DART_EXCEPTION_TYPES.has(recv)) {
+            const arg0 = fields.find((f) => f.name === "arg0");
+            const msgExpr = arg0 ? this.expr(arg0.value) : "''";
+            return `{'__type__': '${recv}', 'message': ${msgExpr}}`;
+          }
         }
         return otherArgs === ""
           ? `${selfStr}.${fn}()`
@@ -6114,13 +6148,7 @@ function __isUnknownFnError(e: any): boolean {
     if (tn) {
       // Dart exception types: emit tagged objects with `message` from arg0.
       const shortName = tn.includes(":") ? tn.substring(tn.lastIndexOf(":") + 1) : tn;
-      const dartExceptions = new Set([
-        "FormatException", "StateError", "ArgumentError",
-        "UnsupportedError", "ConcurrentModificationError",
-        "IntegerDivisionByZeroException", "NoSuchMethodError",
-        "UnimplementedError", "AssertionError",
-      ]);
-      if (dartExceptions.has(shortName)) {
+      if (DART_EXCEPTION_TYPES.has(shortName)) {
         const fields = v.messageCreation.fields ?? [];
         const arg0 = fields.find(f => f.name === "arg0");
         const msgExpr = arg0 ? this.expr(arg0.value) : "''";
@@ -6202,6 +6230,20 @@ function __isUnknownFnError(e: any): boolean {
 }
 
 // ───────────────────────── Free helpers ───────────────────────────────
+
+/**
+ * Dart exception/error classes that have no emitted TS class. Constructing one
+ * — through `FormatException('x')` or through the `FormatException.new('x')`
+ * tear-off — produces a tagged object literal whose `message` is the first
+ * positional argument, which is exactly the shape the emitted typed-`catch`
+ * guards test (#531).
+ */
+const DART_EXCEPTION_TYPES = new Set([
+  "FormatException", "StateError", "ArgumentError",
+  "UnsupportedError", "ConcurrentModificationError",
+  "IntegerDivisionByZeroException", "NoSuchMethodError",
+  "UnimplementedError", "AssertionError",
+]);
 
 /**
  * Recursively checks whether an expression tree contains an `assign` call

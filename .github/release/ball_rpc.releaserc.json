@@ -5,6 +5,7 @@
     ["./tools/release/only-package-commits.mjs", { "paths": ["dart/ball_rpc"] }],
     ["@semantic-release/changelog", { "changelogFile": "dart/ball_rpc/CHANGELOG.md" }],
     ["@semantic-release/exec", {
+      "verifyReleaseCmd": "node tools/release/lockstep_plan.mjs --record --package=ball_rpc --version=${nextRelease.version} --type=${nextRelease.type}",
       "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/ball_rpc/pubspec.yaml --version=${nextRelease.version} && node tools/release/sync_pubspec_deps.mjs --workspace-root=.",
       "publishCmd": "gh workflow run release-publish.yml --ref ball_rpc-v${nextRelease.version}"
     }],

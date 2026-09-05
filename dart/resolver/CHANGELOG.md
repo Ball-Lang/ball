@@ -1,3 +1,5 @@
+## [0.3.1](https://github.com/Ball-Lang/ball/compare/ball_resolver-v0.3.0...ball_resolver-v0.3.1) (2026-09-05)
+
 ## 0.3.0+3
 
  - Update a dependency to the latest release.

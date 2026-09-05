@@ -534,6 +534,13 @@ private:
     // parameter slots drops the argument entirely (TS's equivalent guard: #213).
     bool is_instance_creation_value(const ball::ir::MessageCreation& msg) const;
 
+    // True when the sanitized bare class name `cls` declares a FACTORY
+    // constructor called `new` — the one shape that really does compile to a
+    // `Cls::new_(...)` static method. Both the MessageCreation construction
+    // path and the constructor tear-off dispatch consult it before deciding
+    // between `Cls::new_(args)` and plain `Cls(args)` (#531).
+    bool class_has_factory_new(const std::string& cls) const;
+
     // True when `derived` is `base`, or descends from it through
     // class_superclass_. Both arguments are sanitized BARE class names.
     bool class_is_or_descends_from(const std::string& derived,

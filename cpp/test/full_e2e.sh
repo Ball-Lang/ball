@@ -166,23 +166,19 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # argument count falls through to user-defined class method dispatch instead
 # of being spliced into the shortcut's template — issue #511.)
 #
-# 438_ctor_initializer_list_with_body (#514): a class whose ONLY constructor
-# takes no arguments gets both that constructor and the synthesised default
-# one, so g++ reports "'Flags::Flags()' cannot be overloaded with
-# 'Flags::Flags()'". Again a g++ build failure, not a Ball->C++ one.
-#
-# It was added by #512 for issue #499 (a constructor that builds another
-# instance of its own class must not silently get `self` back). What survives
-# carving it out of THIS leg is that it passes on every ENGINE — the Dart
-# reference one plus all six self-hosted ones, the C++ included. It does NOT
-# pass on the Rust/Go/Python/C# COMPILER legs: measured one fixture at a time,
-# 438_ctor_initializer_list_with_body fails all four — none of those compilers
-# resolves a NAMED constructor (`Class.name(args)`), which the Dart encoder
-# emits as a method call on the class reference rather than as a
-# messageCreation. That pre-existing gap is #527. Those four legs are RATCHETED
-# (they fail only on a drop below a recorded floor), not parity gates, so a
-# green ratchet says nothing about any one fixture — measure it. See
-# docs/TESTING_STRATEGY.md's "Name the leg that actually covers it".
+# 438_ctor_initializer_list_with_body was carved out here for #514 (a class
+# whose ONLY constructor takes no arguments got both that constructor and the
+# synthesised default one, so g++ reported "'Flags::Flags()' cannot be
+# overloaded with 'Flags::Flags()'"). That issue is fixed, so the fixture
+# compiles, builds and runs on this leg and is listed in
+# cpp/test/e2e_fixture_list.h. It still does NOT pass on the Rust/Go/Python/C#
+# COMPILER legs - none of those compilers resolves a NAMED constructor
+# (`Class.name(args)`), which the Dart encoder emits as a method call on the
+# class reference rather than as a messageCreation. That pre-existing gap is
+# #527, and those four legs are RATCHETED (they fail only on a drop below a
+# recorded floor), not parity gates, so a green ratchet says nothing about any
+# one fixture - measure it. See docs/TESTING_STRATEGY.md's "Name the leg that
+# actually covers it".
 #
 # 435_recursive_ctor_construction / 436_recursive_ctor_named /
 # 437_recursive_ctor_tree were carved out here for #513 and are NOT any more:
@@ -203,7 +199,6 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # argument), PASSES here and is listed in cpp/test/e2e_fixture_list.h — so this
 # leg still proves something for the change that added all three.
 CPP_COMPILE_CARVEOUTS=(
-  "438_ctor_initializer_list_with_body"
   "453_ctor_param_shadows_field"
   "454_inline_instance_argument_name_collision"
 )

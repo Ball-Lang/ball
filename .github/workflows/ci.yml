@@ -230,6 +230,19 @@ jobs:
       - name: Published-sibling freshness classifier self-test (#551)
         run: python3 tools/release/check_published_siblings.py --self-test
 
+      # #566: the workspace guards above validate the REPO, and the classifier
+      # above validates a tarball AFTER it is uploaded. Neither can see the
+      # failure that actually shipped — a package the release sweep re-pinned
+      # but never published, so pub.dev keeps serving its old pubspec and the
+      # published graph becomes unsolvable. This planner is the oracle for that,
+      # moved BEFORE the upload: it simulates a whole run against live pub.dev
+      # state and decides which re-pinned siblings must release in lockstep.
+      # Offline and deterministic — the network leg (--fetch-published) belongs
+      # to the release job; these cases drive the simulation on fixtures,
+      # including the live nine-package graph the first run left broken.
+      - name: pub.dev lockstep release planner self-test (#566)
+        run: node tools/release/lockstep_plan.mjs --self-test
+
       # release-cpp.yml is tag-dispatched, so its build matrix is never
       # exercised by a PR — a dropped leg, an `x64` target pointed at an
       # Apple-Silicon runner, or a target table in docs/RELEASE.md left behind
@@ -1594,7 +1607,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 342 passed, 0 failed, 342 total (4 skipped carve-outs)" — the
+      # "Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -1764,7 +1777,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 342 passed, 0 failed, 342 total (4 skipped carve-outs)" — the 4
+      # "Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -1882,7 +1895,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 342 passed, 0 failed, 342 total (4 skipped carve-outs)" — the 4
+      # "Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

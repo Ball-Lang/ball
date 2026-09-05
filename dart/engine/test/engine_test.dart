@@ -9840,7 +9840,93 @@ List<Object?> buildReport() {
       expect(result, ['demo', '3', 'a', 'b', 'c']);
     });
   });
+
+  // ── Constructor tear-offs `ClassName.new(...)` (issue #531) ──────────────
+  //
+  // The encoder emits a tear-off as a GENERIC self-carrying method call
+  // (`{function: "new", input: {self: Reference(Cls), arg0: …}}`), not as the
+  // messageCreation every direct construction uses. No engine test and no
+  // conformance fixture had ever used `.new(` before this group.
+  group('constructor tear-off', () {
+    test(
+      'built-in exception class tear-off throws with the right type tag',
+      () async {
+        const src = '''
+void main() {
+  try {
+    throw FormatException.new('bad input');
+  } on FormatException catch (e) {
+    print(e.message);
+  }
 }
+''';
+        // RED before the fix: `BallRuntimeError: Undefined variable:
+        // "FormatException"`, thrown while evaluating the tear-off's receiver —
+        // before the throw/catch machinery ever ran.
+        expect(await runAndCapture(_encodeMain(src)), ['bad input']);
+      },
+    );
+
+    test(
+      'user-class tear-off constructs exactly like the direct form',
+      () async {
+        const src = '''
+class Box {
+  final int v;
+  Box(this.v);
+}
+
+void main() {
+  print(Box.new(7).v);
+  print(Box(7).v);
+}
+''';
+        expect(await runAndCapture(_encodeMain(src)), ['7', '7']);
+      },
+    );
+
+    test('zero-argument tear-off keeps the class field initializers', () async {
+      const src = '''
+class Counter {
+  int n = 0;
+  Counter();
+  int bump() {
+    n = n + 1;
+    return n;
+  }
+}
+
+void main() {
+  final c = Counter.new();
+  print(c.bump());
+  print(c.bump());
+}
+''';
+      // RED before the fix: `Undefined variable: "n"` — the body-less
+      // constructor reached through the tear-off built an instance with no
+      // `n` field at all, while the direct `Counter()` spelling worked.
+      expect(await runAndCapture(_encodeMain(src)), ['1', '2']);
+    });
+
+    test('an unbound upper-case identifier is still a loud error', () async {
+      const src = '''
+void main() {
+  print(NotAClass.new('x'));
+}
+''';
+      // The built-in exception set is explicitly enumerated on purpose:
+      // "any unbound upper-case identifier is a class" would silently swallow
+      // a typo instead of failing loud.
+      expect(
+        () => runAndCapture(_encodeMain(src)),
+        throwsA(isA<BallRuntimeError>()),
+      );
+    });
+  });
+}
+
+/// Encode a Ball-portable Dart [source] library whose entry point is `main`.
+Program _encodeMain(String source) => _encodeMainReturning(source, 'main');
 
 /// Encode a Ball-portable Dart [source] library and wrap it as a Program whose
 /// entry is [entry]. Used by the audit self-host representation tests to run

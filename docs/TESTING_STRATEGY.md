@@ -249,11 +249,12 @@ too, without a colour-forced CI leg.
 > nullable self-referential field emits a concrete-struct member access on
 > `BallDyn`) and [#514](https://github.com/Ball-Lang/ball/issues/514) (a class
 > whose only constructor is zero-argument gets a duplicate default one). Both
-> are g++ build failures, not Ball -> C++ compile failures. #513 is now FIXED:
+> are g++ build failures, not Ball -> C++ compile failures. BOTH are now FIXED:
 > `435_recursive_ctor_construction` / `436_recursive_ctor_named` /
-> `437_recursive_ctor_tree` are de-carved, listed in
-> `cpp/test/e2e_fixture_list.h`, and run on the compiled leg. Only
-> `438_ctor_initializer_list_with_body` (#514) is still carved out.
+> `437_recursive_ctor_tree` were de-carved with #513, and
+> `438_ctor_initializer_list_with_body` with #514. All four are listed in
+> `cpp/test/e2e_fixture_list.h` and run on the compiled leg, and
+> `CPP_COMPILE_CARVEOUTS` is EMPTY again.
 >
 > **Name the leg that actually covers it — measure, do not assume.** An earlier
 > draft of the paragraph above also claimed those four fixtures "pass on the

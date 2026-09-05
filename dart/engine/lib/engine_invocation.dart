@@ -587,6 +587,11 @@ extension BallEngineInvocation on BallEngine {
     // initializer list still wins (applied just above), matching Dart's
     // ordering, and only fields still absent are filled. Inherited values are
     // merged below and are left to that path.
+    //
+    // This is also what a body-less constructor reached through a TEAR-OFF
+    // needs (`Counter.new()` — #531): without it the instance had no `n` field
+    // at all and the first method to touch it threw `Undefined variable: "n"`,
+    // while the ordinary `Counter()` spelling worked.
     _initFieldDefaults(typeName, instance);
     if (typeDef != null) {
       final superclass = _getMetaString(typeDef, 'superclass');

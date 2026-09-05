@@ -5,6 +5,7 @@
     ["./tools/release/only-package-commits.mjs", { "paths": ["dart/shared"] }],
     ["@semantic-release/changelog", { "changelogFile": "dart/shared/CHANGELOG.md" }],
     ["@semantic-release/exec", {
+      "verifyReleaseCmd": "node tools/release/lockstep_plan.mjs --record --package=ball_base --version=${nextRelease.version} --type=${nextRelease.type}",
       "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/shared/pubspec.yaml --version=${nextRelease.version} && node tools/release/sync_pubspec_deps.mjs --workspace-root=.",
       "publishCmd": "gh workflow run release-publish.yml --ref ball_base-v${nextRelease.version}"
     }],

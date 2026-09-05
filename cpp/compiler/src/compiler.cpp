@@ -78,6 +78,23 @@ inline ball::ir::ExpressionPtr clone_expr_ptr(const ball::ir::Expression& e) {
     return std::make_unique<ball::ir::Expression>(
         ball::ir::parseExpression(ball::ir::toJson(e)));
 }
+
+// Dart's built-in exception / error classes. They carry no TypeDefinition, so
+// they never appear in `user_class_names_`, yet a `throw` of one still has to
+// carry its own type tag so a typed `on FormatException catch` matches. The
+// set is EXPLICITLY enumerated — "any upper-case identifier is a type" would
+// silently tag a typo'd factory function as an exception class (#531).
+inline bool is_builtin_exception_name(const std::string& n) {
+    static const std::set<std::string> kBuiltinExc = {
+        "Exception", "Error", "FormatException", "RangeError",
+        "ArgumentError", "StateError", "UnsupportedError",
+        "UnimplementedError", "TypeError", "NoSuchMethodError",
+        "OutOfMemoryError", "StackOverflowError",
+        "IntegerDivisionByZeroException", "ConcurrentModificationError",
+        "IndexError", "IOException", "FileSystemException",
+        "HttpException", "SocketException"};
+    return kBuiltinExc.count(n) > 0;
+}
 }  // namespace
 
 // ================================================================
@@ -685,6 +702,19 @@ void CppCompiler::compile_ctor_body(const ball::ir::Expression& body) {
     stmt.kind = ball::ir::StatementKind::Expr;
     stmt.expr = clone_expr_ptr(body);
     compile_statement(stmt);
+}
+
+bool CppCompiler::class_has_factory_new(const std::string& cls) const {
+    for (const auto& [full, factories] : class_factory_ctors_) {
+        auto colon = full.find(':');
+        std::string bare =
+            colon != std::string::npos ? full.substr(colon + 1) : full;
+        if (sanitize_name_const(bare) != cls) continue;
+        for (const auto& fname : factories)
+            if (fname == "new") return true;
+        return false;
+    }
+    return false;
 }
 
 bool CppCompiler::is_instance_creation_value(
@@ -2610,17 +2640,7 @@ std::string CppCompiler::compile_message_creation(const ball::ir::MessageCreatio
         // (Dynamic-class construction is handled earlier, above all_positional.)
         // Check if this class has a factory constructor for "new" — if so,
         // route through the static factory method instead of direct construction.
-        bool has_factory_new = false;
-        for (const auto& [cls, factories] : class_factory_ctors_) {
-            auto cls_colon = cls.find(':');
-            std::string cls_bare = cls_colon != std::string::npos ? cls.substr(cls_colon + 1) : cls;
-            if (sanitize_name(cls_bare) == type) {
-                for (const auto& fname : factories) {
-                    if (fname == "new") { has_factory_new = true; break; }
-                }
-                break;
-            }
-        }
+        bool has_factory_new = class_has_factory_new(type);
         if (has_factory_new) {
             // Call the factory constructor: ClassName::new_(args)
             // The factory returns BallDyn (with BallUserRef inside).
@@ -5589,15 +5609,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
             }
             // Built-in Dart exceptions store the first positional ctor arg as
             // `.message`; the catch reads `e.message` (conformance 146).
-            static const std::set<std::string> kBuiltinExc = {
-                "Exception", "Error", "FormatException", "RangeError",
-                "ArgumentError", "StateError", "UnsupportedError",
-                "UnimplementedError", "TypeError", "NoSuchMethodError",
-                "OutOfMemoryError", "StackOverflowError",
-                "IntegerDivisionByZeroException", "ConcurrentModificationError",
-                "IndexError", "IOException", "FileSystemException",
-                "HttpException", "SocketException"};
-            bool builtin = kBuiltinExc.count(type_name) > 0;
+            bool builtin = is_builtin_exception_name(type_name);
             std::string fields_init;
             // Resolve positional argN field names to the thrown type's ctor
             // param names (NotFound's arg0 -> "detail") so a typed catch reading
@@ -5633,7 +5645,70 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
                    type_name + "\"s, std::map<std::string, std::string>{" +
                    fields_init + "})";
         }
-        // Constructor-call throw: `FormatException.new("bad input")`.
+        // Constructor TEAR-OFF throw: `throw FormatException.new("bad input")`.
+        // The encoder emits a tear-off as a generic self-carrying method call
+        // — `{function: "new", input: {self: Reference("FormatException"),
+        // arg0: …}}` — so `cval.function` is the bare string "new": the
+        // identifier-based extraction below finds no module prefix, no `.new`
+        // suffix and no upper-case leading char, leaving the generic
+        // "Exception" tag in place so a typed catch could never match (#531).
+        // Take the type name from `self` instead, and compile the payload
+        // directly: routing the call itself through compile_expr would emit
+        // `new_(FormatException, …)`, a function no emitted program defines.
+        if (val_expr && val_expr->kind == ball::ir::ExprKind::Call &&
+            val_expr->call != nullptr && val_expr->call->function == "new" &&
+            val_expr->call->input != nullptr &&
+            val_expr->call->input->kind == ball::ir::ExprKind::MessageCreation) {
+            const auto& mc = (*val_expr->call->input->messageCreation);
+            const ball::ir::Expression* self_ref = nullptr;
+            const ball::ir::Expression* payload = nullptr;
+            for (const auto& f : mc.fields) {
+                if (f.name == "self") {
+                    self_ref = &(*f.value);
+                } else if (payload == nullptr) {
+                    payload = &(*f.value);
+                }
+            }
+            if (self_ref != nullptr &&
+                self_ref->kind == ball::ir::ExprKind::Reference &&
+                self_ref->reference != nullptr) {
+                const std::string& cls = self_ref->reference->name;
+                if (!cls.empty() &&
+                    (std::isupper(static_cast<unsigned char>(cls.front())) ||
+                     is_builtin_exception_name(cls))) {
+                    const std::string esc = cpp_escape_string(cls);
+                    // A built-in exception stores its first positional ctor
+                    // argument as `.message`, which the catch side compiles to
+                    // `e.fields.at("message")` — so it has to land in `fields`,
+                    // exactly as the messageCreation form does. Routing it
+                    // through _ball_make_exception instead would store it under
+                    // `value` and abort with `map::at`.
+                    if (is_builtin_exception_name(cls)) {
+                        std::string msg_expr;
+                        if (payload == nullptr) {
+                            msg_expr = "\"\"s";
+                        } else if (payload->kind == ball::ir::ExprKind::Literal &&
+                                   payload->literal != nullptr &&
+                                   payload->literal->kind ==
+                                       ball::ir::LiteralKind::String) {
+                            msg_expr = "\"" +
+                                       cpp_escape_string(
+                                           payload->literal->stringValue) +
+                                       "\"s";
+                        } else {
+                            msg_expr =
+                                "ball_to_string(" + compile_expr(*payload) + ")";
+                        }
+                        return "throw BallException(\"" + esc + "\"s, \"" + esc +
+                               "\"s, std::map<std::string, std::string>{{\"message\"s, " +
+                               msg_expr + "}})";
+                    }
+                    return "throw _ball_make_exception(\"" + esc + "\"s, " +
+                           (payload ? compile_expr(*payload) : "BallDyn()") + ")";
+                }
+            }
+        }
+        // Constructor-call throw: `mod:FormatException.new("bad input")`.
         // Pull the type name out of the function identifier so a typed
         // catch on `FormatException` actually matches.
         if (val_expr && val_expr->kind == ball::ir::ExprKind::Call) {
@@ -6578,6 +6653,19 @@ std::string CppCompiler::compile_method_call(const std::string& fn,
                     joined += compile_expr((*g.value));
                     first = false;
                 }
+                // #531: `Box.new(7)` is a CONSTRUCTOR TEAR-OFF, not a static
+                // method. `sanitize_name("new")` is `new_` (`new` is a C++
+                // keyword), so this branch used to emit `Box::new_(7)` — a
+                // member no emitted struct declares, which g++ rejects with
+                // "'new_' is not a member of 'Box'". Route it to plain
+                // construction, exactly like the `mod:Box.new`-shaped Call
+                // path. The one class that genuinely DOES define `new_` is one
+                // with a `factory Box.new(...)`; the MessageCreation path
+                // checks `class_factory_ctors_` before emitting that same
+                // static call, so mirror the check here rather than assuming
+                // either answer.
+                if (fn == "new" && !class_has_factory_new(cls))
+                    return cls + "(" + joined + ")";
                 return cls + "::" + sanitize_name(fn) + "(" + joined + ")";
             }
             break;  // self found but not a user-class reference
@@ -10015,17 +10103,36 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
     // Emit a defaulted default constructor so `return ClassName()` compiles
     // as a fallthrough in methods returning this type. Only needed when the
     // class also has user-defined constructors (which suppress the implicit
-    // default constructor).
+    // default constructor) AND none of them already IS the zero-argument
+    // constructor — `Flags() = default;` next to a real `Flags() { … }` is two
+    // declarations of the same signature, which g++ rejects with
+    // "'Flags::Flags()' cannot be overloaded with 'Flags::Flags()'" (#514).
+    //
+    // Only a REAL C++ constructor can collide. A factory constructor compiles
+    // to a static method and a named constructor to a static factory, so both
+    // are skipped: a class whose only constructor is `factory Foo.new(...)` or
+    // `Foo.named(...)` still needs the synthesized default.
     {
         bool has_user_ctor = false;
+        bool has_zero_arg_default_ctor = false;
         for (const auto* func : methods) {
             auto m = read_meta(*func);
-            if ((m.count("kind") ? m["kind"] : "") == "constructor") {
-                has_user_ctor = true;
-                break;
-            }
+            if ((m.count("kind") ? m["kind"] : "") != "constructor") continue;
+            has_user_ctor = true;
+            if (m.count("is_factory") && m["is_factory"] == "true") continue;
+            auto ctor_dot = func->name.rfind('.');
+            std::string ctor_nm = ctor_dot != std::string::npos
+                                      ? func->name.substr(ctor_dot + 1)
+                                      : func->name;
+            // Same default-constructor test the methods loop below uses.
+            if (!(ctor_nm == "new" || ctor_nm == name || ctor_nm.empty()))
+                continue;
+            auto ctor_params = (func->metadata.is_object())
+                                   ? extract_params(func->metadata)
+                                   : std::vector<std::string>{};
+            if (ctor_params.empty()) has_zero_arg_default_ctor = true;
         }
-        if (has_user_ctor) {
+        if (has_user_ctor && !has_zero_arg_default_ctor) {
             emit_line(name + "() = default;");
         }
     }

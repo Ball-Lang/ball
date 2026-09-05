@@ -22,6 +22,19 @@ When working in the Dart packages. The Dart implementation is the **reference** 
 
 All packages use workspace resolution (`resolution: workspace`). The pub-workspace + Melos root is the **repo root** (`/pubspec.yaml`); run `dart pub get` and `melos …` from there. Per-package commands still work from each package dir (pub resolves upward).
 
+## Publishing (pub.dev)
+
+Nine of the packages above publish to pub.dev; `dart/self_host` is `publish_to: none`. Since #551 each one releases **independently**, on its own `<pkg>-vX.Y.Z` version line, from `.github/workflows/pubdev-release.yml` — one `semantic-release` run per package (`.github/release/<pkg>.releaserc.json`), dispatched by `release.yml` after it cuts the repo release. There is **no manual step**: the old `melos version` rolling-PR lane is gone, and so is the root `pubspec.yaml`'s `melos: command: version:` block. Melos remains a dev task runner only.
+
+Consequences when working here:
+
+- **Never hand-edit a `version:` in `dart/*/pubspec.yaml`** — semantic-release owns it, and `tools/release/sync_pubspec_deps.mjs` owns the sibling caret ranges (`ball_base: ^0.4.0`) during a release. A hand bump desynchronises pub.dev from `main` and trips `.github/workflows/pubdev-freshness.yml`.
+- **All ten packages are ONE pub resolution unit.** If you do change a `version:`, every sibling constraint on it must move in the same commit — including `dart/self_host`'s, which has no release config of its own. Otherwise `dart pub get` at the repo root fails for the whole repo (`version solving failed`). Run `node tools/release/sync_pubspec_deps.mjs` to fix them all at once; `node tools/release/check_pubspec_workspace_consistency.mjs` is the PR gate.
+- **A version bump in `dart/cli` must regenerate `lib/src/version.g.dart`** (`dart run tool/gen_version.dart`); the release does this automatically, and ci.yml's `--check` guard fails otherwise.
+- **Adding a tenth publishable package** needs `.github/release/<pkg>.releaserc.json` plus an entry in `pubdev-release.yml`'s `PACKAGES` loop, placed **after every package it depends on at runtime** — `check_pubdev_release_wiring.sh` fails until the config exists, and `check_pubspec_workspace_consistency.mjs` fails until the loop entry is in a valid deps-first position.
+
+Full flow, ordering rationale and failure recovery: `docs/RELEASE.md`.
+
 ## Testing
 
 **Prefer conformance tests over unit tests.** A `.ball.json` fixture in `tests/conformance/` validates the Dart engine, C++ engine, TS engine, and all compilers simultaneously. Engine unit tests should be minimal — only for internal behavior not expressible as a Ball program (e.g., error handling edge cases, async scheduling, memory limits).

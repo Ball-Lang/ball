@@ -3074,7 +3074,10 @@ TEST(emit_struct_only_named_ctor_still_gets_default) {
 TEST(ctor_non_block_body_statement_is_emitted) {
     // Default-constructor branch.
     auto def_out = compile_program(cov_zero_arg_ctor_program());
-    ASSERT_CONTAINS(def_out, "ball_assign(ratio, (ratio + 0.25));");
+    // `this->` because the field write is a `this.`-formal-free own-field
+    // reference inside an unnamed constructor (#561: the body names the
+    // MEMBER, not a same-named parameter).
+    ASSERT_CONTAINS(def_out, "ball_assign(this->ratio, (this->ratio + 0.25));");
 
     // Named-constructor branch (a static factory, so own fields are `__obj.`).
     auto td = cov_class_td("main:Tag", {{"label", "TYPE_STRING"}},
@@ -3113,18 +3116,133 @@ TEST(emit_struct_split_mode_out_of_line) {
     ASSERT_CONTAINS(all, "Foo Foo::clone() {");                  // split method
 }
 
-TEST(emit_struct_auto_assign_positional_ctor) {
-    // A ctor whose params are NOT is_this, with no super initializer, and whose
-    // count matches the class fields → positional auto-assign member-init list.
+// #561: a PLAIN (non-`this.`-formal) constructor parameter must never be
+// written into a field. The emitter used to positionally auto-assign EVERY
+// param into EVERY field whenever the param count happened to equal the field
+// count, with no name matching and no type check — the N-param generalization
+// of the exact "one param, one field, therefore assign" heuristic PR #539
+// deleted from the Dart engine. It is wrong whether or not the types line up:
+// `Holder(Pair b) { seen = b.a; }` emitted `Holder(auto b) : seen(b)` (g++:
+// "cannot convert Pair to int64_t"), and `Box(int n)` silently emitted
+// `Box(auto n) : v(n)` so `Box(3).v` read 3 instead of its own declared 7.
+// A plain parameter's effect on a field must come from an explicit
+// colon-initializer or a body assignment — never from a positional guess.
+// (This test replaces `emit_struct_auto_assign_positional_ctor`, which asserted
+// the defective output as the required output.)
+TEST(emit_struct_plain_param_never_auto_assigned_to_field) {
     json meta;
     meta["kind"] = "class";
-    auto td = cov_class_td("main:Bar", {{"name", "TYPE_STRING"}}, std::move(meta));
+    meta["fields"] = json::array({json{{"name", "v"},
+                                       {"type", "int"},
+                                       {"initializer", "7"}}});
+    auto td = cov_class_td("main:Box", {{"v", "TYPE_INT64"}}, std::move(meta));
     json ctor_meta;
     ctor_meta["kind"] = "constructor";
-    ctor_meta["params"] = json::array({cov_param("name")});
-    auto ctor = cov_class_fn("main:Bar.new", std::move(ctor_meta));
+    ctor_meta["params"] = json::array({cov_param("n")});
+    auto ctor = cov_class_fn("main:Box.new", std::move(ctor_meta));
     auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
-    ASSERT_CONTAINS(out, "Bar(auto name) : name(name) {}");
+    ASSERT_NOT_CONTAINS(out, "v(n)");
+    ASSERT_CONTAINS(out, "Box(auto n) {}");
+    ASSERT_CONTAINS(out, "int64_t v = 7;");
+}
+
+// #561: a field keeps its own inline initializer even when a PLAIN constructor
+// parameter shares its name. `ctor_params` (which gates the field-initializer
+// branch) used to be built from every parameter of every constructor with no
+// `is_this` filter, so `Baz(int x)` suppressed field `x`'s `= 5` and emitted an
+// unseeded nullable `BallDyn x;` — `Baz(9).x` then read null instead of 5.
+TEST(emit_struct_plain_param_field_initializer_survives_collision) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array(
+        {json{{"name", "x"}, {"type", "int"}, {"initializer", "5"}},
+         json{{"name", "y"}, {"type", "int"}, {"initializer", "7"}}});
+    auto td = cov_class_td("main:Coll", {{"x", "TYPE_INT64"}, {"y", "TYPE_INT64"}},
+                           std::move(meta));
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("x")});
+    auto ctor = cov_class_fn("main:Coll.new", std::move(ctor_meta));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "int64_t x = 5;");
+    ASSERT_CONTAINS(out, "int64_t y = 7;");
+}
+
+// #561: a NAMED constructor lowers to a static factory over a local `__obj`, so
+// `compile_reference` rewrites a bare own-field reference to `__obj.<field>`
+// (#513). That rewrite is gated ONLY on `declared_locals_`, which neither
+// constructor branch ever seeded with the constructor's own parameters (every
+// ordinary method does — see emit_struct's method loop). A PLAIN parameter
+// shadows the same-named field for the whole body in Dart, so `Bar.named(int x)
+// { print(x); }` must read the PARAMETER, not the field.
+TEST(emit_struct_named_ctor_plain_param_shadows_field_in_body) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "x"},
+                                       {"type", "int"},
+                                       {"initializer", "5"}}});
+    auto td = cov_class_td("main:Shadow", {{"x", "TYPE_INT64"}}, std::move(meta));
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("x")});
+    auto ctor = cov_class_fn("main:Shadow.named", std::move(ctor_meta),
+                             print_call(ref("x")));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "static Shadow named(auto x) {");
+    ASSERT_NOT_CONTAINS(out, "__obj.x");
+}
+
+// #561 (regression guard for the fix itself): the mirror image of the test
+// above. A `this.`-formal does NOT shadow its field in the body — Dart routes
+// both reads and writes of `v` inside `Baz.tagged(this.v) { v = 99; }` to the
+// FIELD (verified against `dart run`: the constructed object's `v` is 99, and
+// an in-body read after the write sees 99 too). So the named-constructor branch
+// must seed `declared_locals_` with its PLAIN parameters only — seeding the
+// `is_this` ones too would disable the `__obj.` rewrite for them and write the
+// raw C++ factory parameter instead, silently losing the assignment.
+TEST(emit_struct_named_ctor_this_formal_reassign_writes_through_field) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "v"},
+                                       {"type", "int"},
+                                       {"initializer", "4"}}});
+    auto td = cov_class_td("main:Tagged", {{"v", "TYPE_INT64"}}, std::move(meta));
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("v", "", true)});
+    auto ctor = cov_class_fn(
+        "main:Tagged.tagged", std::move(ctor_meta),
+        std_call("assign", make_msg("AssignInput", {{"target", ref("v")},
+                                                    {"value", lit_int(99)}})));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "ball_assign(__obj.v,");
+    ASSERT_NOT_CONTAINS(out, "ball_assign(v,");
+}
+
+// #561: the UNNAMED-constructor half of the same rule, and a bug of its own —
+// `Baz(this.v) { v = 99; }` emits a real C++ member function whose PARAMETER
+// `v` shadows the member `v`, so the body's `ball_assign(v, 99)` wrote the
+// parameter and the constructed object kept 7. Dart says 99 (verified against
+// `dart run`), so a `this.`-formal reference in the body must name the member
+// explicitly — `this->v`. A PLAIN parameter still shadows (test above).
+TEST(emit_struct_unnamed_ctor_this_formal_reassign_writes_through_field) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "v"},
+                                       {"type", "int"},
+                                       {"initializer", "4"}}});
+    auto td = cov_class_td("main:Held", {{"v", "TYPE_INT64"}}, std::move(meta));
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("v", "", true)});
+    auto ctor = cov_class_fn(
+        "main:Held.new", std::move(ctor_meta),
+        std_call("assign", make_msg("AssignInput", {{"target", ref("v")},
+                                                    {"value", lit_int(99)}})));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "Held(auto v) : v(v) {");
+    ASSERT_CONTAINS(out, "ball_assign(this->v,");
+    ASSERT_NOT_CONTAINS(out, "ball_assign(v,");
 }
 
 TEST(emit_struct_static_field_empty_map) {
@@ -4714,7 +4832,10 @@ TEST(constructor_body_that_is_a_single_expression_is_emitted) {
     // The constructor is emitted with its body, not as an empty `{ }`.
     ASSERT_CONTAINS(out, "Chain(auto depth) : depth(depth) {");
     ASSERT_NOT_CONTAINS(out, "Chain(auto depth) : depth(depth) {\n    }");
-    ASSERT_CONTAINS(out, "if ((depth > static_cast<int64_t>(0)))");
+    // `this->depth`, not the parameter: Dart routes an own-field reference in
+    // a constructor body to the FIELD even when a `this.`-formal shares its
+    // name, and the C++ parameter would otherwise shadow the member (#561).
+    ASSERT_CONTAINS(out, "if ((this->depth > static_cast<int64_t>(0)))");
 }
 
 // #523: a freshly-constructed user-class instance written INLINE at a call site

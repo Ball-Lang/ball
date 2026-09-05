@@ -319,6 +319,8 @@ inline const std::vector<std::string>& program_names() {
         "445_let_bound_to_call_returning_class",
         "450_constructor_tearoff_user_class",
         "451_thrown_builtin_exception_tearoff",
+        "453_ctor_param_shadows_field",
+        "454_inline_instance_argument_name_collision",
         "455_ctor_field_writes_that_survive",
         "459_set_add_remove_bool",
     };

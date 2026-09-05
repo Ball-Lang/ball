@@ -137,6 +137,17 @@ internal sealed partial class Encoder
     {
         var methodName = member.Name.Identifier.Text;
 
+        // A PREDEFINED type receiver (`int.Parse(...)`) is its own path: `int` is
+        // a keyword-type node, never an `IdentifierNameSyntax`, so it can never
+        // collide with a local or field and needs no shadowing check — and an
+        // unmapped member on one must name the receiver in its error rather than
+        // falling through to the generic "unsupported expression kind
+        // `PredefinedType`" the bare receiver would produce.
+        if (member.Expression is PredefinedTypeSyntax predefined)
+        {
+            return EncodePredefinedTypeStaticCall(predefined.Keyword.Text, methodName, argExprs);
+        }
+
         if (StaticReceiverName(member.Expression) is { } receiverName)
         {
             switch (receiverName)
@@ -182,6 +193,42 @@ internal sealed partial class Encoder
             qualified.Name.Identifier.Text,
         _ => null,
     };
+
+    /// <summary>
+    /// A static call whose receiver is a predefined (keyword) type —
+    /// <c>int.Parse("41")</c>, <c>double.Parse(s)</c> — routed to the <c>std</c>
+    /// conversion that models it (issue #492, bucket e).
+    ///
+    /// <para>Only <c>Parse</c>, and only the four numeric keywords, because
+    /// <c>string_to_int</c>/<c>string_to_double</c> are the only conversions
+    /// <c>StdModuleBuilders</c> declares. <c>float.Parse</c> → <c>string_to_double</c>
+    /// is a deliberate precision-WIDENING approximation: Ball has no 32-bit float
+    /// type, so a C# <c>float</c> is a double throughout this pipeline (the same
+    /// documented-approximation style as <see cref="EncodeConsoleCall"/>'s
+    /// <c>Write</c>). <c>TryParse</c> is NOT routed here: dropping its
+    /// out-parameter failure branch would compile, run, and be silently wrong on
+    /// bad input — it stays a loud error (and is an <c>out var</c>
+    /// <c>DeclarationExpression</c> shape this encoder does not model anyway).</para>
+    /// </summary>
+    private Expression EncodePredefinedTypeStaticCall(string keyword, string methodName, List<ExpressionSyntax> argExprs)
+    {
+        if (methodName == "Parse" && argExprs.Count == 1)
+        {
+            switch (keyword)
+            {
+                case "int" or "long":
+                    return Builders.UnaryStd("string_to_int", EncodeExpr(argExprs[0]));
+                case "double" or "float":
+                    return Builders.UnaryStd("string_to_double", EncodeExpr(argExprs[0]));
+            }
+        }
+
+        throw new EncoderException(
+            $"ball-encoder: unsupported static call `{keyword}.{methodName}(...)` with " +
+            $"{argExprs.Count} argument(s) (only `Parse` on `int`/`long`/`double`/`float` is " +
+            "modelled — those are the conversions StdModuleBuilders declares; `TryParse` is " +
+            "deliberately not routed, since dropping its failure branch would be silently wrong)");
+    }
 
     private Expression EncodeConsoleCall(string methodName, List<ExpressionSyntax> argExprs)
     {
@@ -230,6 +277,15 @@ internal sealed partial class Encoder
             // ── Identity passthroughs (no Ball-level effect) ──
             case ("ToList" or "ToArray" or "AsEnumerable" or "AsList", 0):
                 return receiver;
+
+            // The 0-argument LINQ extension-method spelling of the SAME thing
+            // `EncodePropertyAccess` maps `.Count`/`.Length` to. C# means the
+            // same by both on a List<T>, so they must encode identically —
+            // `PredefinedTypeCallTests` asserts that equality (issue #492,
+            // bucket e). Like the identity passthroughs above it needs no
+            // `MarkCollectionsUsed()`: `length` is a plain `std` unary op.
+            case ("Count", 0):
+                return Builders.UnaryStd("length", receiver);
 
             // ── String / universal conversions ──
             case ("ToString", 0):

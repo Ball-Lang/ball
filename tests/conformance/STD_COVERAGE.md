@@ -25,24 +25,24 @@ Universal standard library base module. Every function here represents a languag
 
 | Function | Encoder-emittable | Covered by fixture | Dart engine |
 |---|---|---|---|
-| `add` | ✅ | ✅ 105 fixture(s): `101_simple_class`, `104_getter_setter`, `107_method_override_super` +102 more | ✅ |
+| `add` | ✅ | ✅ 107 fixture(s): `101_simple_class`, `104_getter_setter`, `107_method_override_super` +104 more | ✅ |
 | `and` | ✅ | ✅ 16 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `131_insertion_sort` +13 more | ✅ |
 | `as` | ✅ | ✅ 2 fixture(s): `195_deep_nesting`, `256_editions_resolver` | ✅ |
 | `assert` | ✅ | ✅ 1 fixture(s): `313_assert_statement` | ✅ |
-| `assign` | ✅ | ✅ 124 fixture(s): `100_complex_control_flow`, `101_simple_class`, `104_getter_setter` +121 more | ✅ |
+| `assign` | ✅ | ✅ 125 fixture(s): `100_complex_control_flow`, `101_simple_class`, `104_getter_setter` +122 more | ✅ |
 | `await` | ✅ | ✅ 11 fixture(s): `160_async_basic`, `161_async_chained`, `163_generator_async` +8 more | ✅ |
 | `bitwise_and` | ✅ | ✅ 4 fixture(s): `206_integer_arithmetic_edge`, `251_bitwise_signed_edges`, `284_enc_bitwise` +1 more | ✅ |
 | `bitwise_not` | ✅ | ✅ 3 fixture(s): `251_bitwise_signed_edges`, `284_enc_bitwise`, `61_bitwise_ops` | ✅ |
 | `bitwise_or` | ✅ | ✅ 3 fixture(s): `206_integer_arithmetic_edge`, `284_enc_bitwise`, `61_bitwise_ops` | ✅ |
 | `bitwise_xor` | ✅ | ✅ 5 fixture(s): `113_operator_overloading`, `206_integer_arithmetic_edge`, `251_bitwise_signed_edges` +2 more | ✅ |
 | `break` | ✅ | ✅ 11 fixture(s): `100_complex_control_flow`, `136_string_pattern_match`, `148_labeled_loops` +8 more | ✅ |
-| `concat` | ✅ | ✅ 96 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +93 more | ✅ |
+| `concat` | ✅ | ✅ 97 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +94 more | ✅ |
 | `continue` | ✅ | ✅ 7 fixture(s): `100_complex_control_flow`, `148_labeled_loops`, `274_enc_nested_control` +4 more | ✅ |
 | `divide` | ✅ | ✅ 18 fixture(s): `108_class_tostring`, `132_merge_sort`, `143_perfect_number` +15 more | ✅ |
 | `divide_double` | ✅ | ✅ 12 fixture(s): `104_getter_setter`, `130_running_average`, `214_nan_propagation` +9 more | ✅ |
 | `do_while` | ✅ | ✅ 2 fixture(s): `282_enc_do_while`, `47_do_while` | ✅ |
 | `double_to_string` | ✅ | ✅ 1 fixture(s): `389_typed_to_string` | ✅ |
-| `equals` | ✅ | ✅ 69 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `117_list_generate` +66 more | ✅ |
+| `equals` | ✅ | ✅ 70 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `117_list_generate` +67 more | ✅ |
 | `for` | ✅ | ✅ 93 fixture(s): `100_complex_control_flow`, `103_abstract_class`, `105_static_methods` +90 more | ✅ |
 | `for_in` | ✅ | ✅ 47 fixture(s): `103_abstract_class`, `109_enum_values`, `117_list_generate` +44 more | ✅ |
 | `goto` | ❌ | ✅ 1 fixture(s): `390_goto_label` | ✅ |
@@ -94,14 +94,14 @@ Universal standard library base module. Every function here represents a languag
 | `negate` | ✅ | ✅ 43 fixture(s): `105_static_methods`, `135_linear_search_sentinel`, `170_pattern_switch_expr` +40 more | ✅ |
 | `not` | ✅ | ✅ 13 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +10 more | ✅ |
 | `not_equals` | ✅ | ✅ 14 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +11 more | ✅ |
-| `null_check` | ✅ | ✅ 8 fixture(s): `106_factory_constructor`, `119_nested_maps`, `125_group_by` +5 more | ✅ |
+| `null_check` | ✅ | ✅ 9 fixture(s): `106_factory_constructor`, `119_nested_maps`, `125_group_by` +6 more | ✅ |
 | `null_coalesce` | ✅ | ✅ 2 fixture(s): `124_frequency_counter`, `401_switch_expr_null_arm` | ✅ |
 | `or` | ✅ | ✅ 8 fixture(s): `135_linear_search_sentinel`, `151_recursive_descent_parser`, `153_memoized_recursive` +5 more | ✅ |
 | `post_decrement` | ✅ | ✅ 6 fixture(s): `131_insertion_sort`, `308_list_comprehension_cstyle`, `40_increment_decrement` +3 more | ✅ |
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 336 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +333 more | ✅ |
+| `print` | ✅ | ✅ 339 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +336 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -139,7 +139,7 @@ Universal standard library base module. Every function here represents a languag
 | `subtract` | ✅ | ✅ 40 fixture(s): `104_getter_setter`, `113_operator_overloading`, `131_insertion_sort` +37 more | ✅ |
 | `switch` | ✅ | ✅ 23 fixture(s): `109_enum_values`, `147_complex_switch`, `150_state_machine` +20 more | ✅ |
 | `throw` | ✅ | ✅ 20 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +17 more | ✅ |
-| `to_string` | ✅ | ✅ 184 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +181 more | ✅ |
+| `to_string` | ✅ | ✅ 185 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +182 more | ✅ |
 | `try` | ✅ | ✅ 23 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `199_malicious_input_patterns` +20 more | ✅ |
 | `type_of` | ✅ | ✅ 1 fixture(s): `434_type_of` | ✅ |
 | `unsigned_right_shift` | ✅ | ✅ 1 fixture(s): `381_unsigned_right_shift` | ✅ |

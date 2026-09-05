@@ -1,0 +1,708 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:A.x",
+          "outputType": "int",
+          "body": {
+            "literal": {
+              "intValue": "1"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:A.describe",
+          "outputType": "String",
+          "body": {
+            "literal": {
+              "stringValue": "A"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:B.describe",
+          "outputType": "String",
+          "body": {
+            "literal": {
+              "stringValue": "B"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "expression_body": true,
+            "annotations": [
+              "override"
+            ]
+          }
+        },
+        {
+          "name": "main:Point.new",
+          "outputType": "main:Point",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "px",
+                "is_this": true
+              },
+              {
+                "name": "py",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point.sum",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "reference": {
+                          "name": "px"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "reference": {
+                          "name": "py"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "makeViaReturn",
+          "outputType": "A",
+          "body": {
+            "messageCreation": {
+              "typeName": "main:B"
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "makePoint",
+          "outputType": "Point",
+          "body": {
+            "messageCreation": {
+              "typeName": "main:Point",
+              "fields": [
+                {
+                  "name": "arg0",
+                  "value": {
+                    "literal": {
+                      "intValue": "3"
+                    }
+                  }
+                },
+                {
+                  "name": "arg1",
+                  "value": {
+                    "literal": {
+                      "intValue": "4"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        },
+        {
+          "name": "shiftedFrom",
+          "inputType": "Point",
+          "outputType": "Point",
+          "body": {
+            "messageCreation": {
+              "typeName": "main:Point",
+              "fields": [
+                {
+                  "name": "arg0",
+                  "value": {
+                    "call": {
+                      "module": "std",
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "left",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  },
+                                  "field": "px"
+                                }
+                              }
+                            },
+                            {
+                              "name": "right",
+                              "value": {
+                                "literal": {
+                                  "intValue": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "arg1",
+                  "value": {
+                    "call": {
+                      "module": "std",
+                      "function": "add",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "left",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  },
+                                  "field": "py"
+                                }
+                              }
+                            },
+                            {
+                              "name": "right",
+                              "value": {
+                                "literal": {
+                                  "intValue": "1"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "p",
+                "type": "Point"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "r",
+                    "value": {
+                      "call": {
+                        "function": "makeViaReturn"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "r"
+                                    }
+                                  },
+                                  "field": "x"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "describe",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "r"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "p",
+                    "value": {
+                      "call": {
+                        "function": "makePoint"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  },
+                                  "field": "px"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  },
+                                  "field": "py"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  },
+                                  "field": "sum"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "q",
+                    "value": {
+                      "call": {
+                        "function": "shiftedFrom",
+                        "input": {
+                          "reference": {
+                            "name": "p"
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "q"
+                                    }
+                                  },
+                                  "field": "px"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "q"
+                                    }
+                                  },
+                                  "field": "py"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "q"
+                                    }
+                                  },
+                                  "field": "sum"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "annotated",
+                    "value": {
+                      "call": {
+                        "function": "makePoint"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final",
+                      "type": "Point"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "annotated"
+                                    }
+                                  },
+                                  "field": "sum"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:A",
+          "descriptor": {
+            "name": "main:A"
+          },
+          "description": "Class metadata for main:A",
+          "metadata": {
+            "kind": "class"
+          }
+        },
+        {
+          "name": "main:B",
+          "descriptor": {
+            "name": "main:B",
+            "field": [
+              {
+                "name": "x",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:B",
+          "metadata": {
+            "kind": "class",
+            "superclass": "A",
+            "fields": [
+              {
+                "name": "x",
+                "type": "int",
+                "initializer": "10"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Point",
+          "descriptor": {
+            "name": "main:Point",
+            "field": [
+              {
+                "name": "px",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "py",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Point",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "px",
+                "type": "int"
+              },
+              {
+                "name": "py",
+                "type": "int"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

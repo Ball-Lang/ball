@@ -461,6 +461,79 @@ private:
     // shadowing field's 10). Cleared with declared_locals_, per function body.
     std::unordered_map<std::string, std::string> local_class_types_;
 
+    // #513: raw let/parameter name -> the DECLARED Ball type source of that
+    // slot ("Chain?", "int", "List<String>", …), whether or not the slot ends
+    // up emitted as a concrete struct. `local_class_types_` only records the
+    // locals that DID get a concrete struct type; this map is what lets a
+    // receiver whose slot was erased to `BallDyn` (every `T?`, and every
+    // class-typed struct member) still be recovered with `ball_obj_as<T>()`.
+    // Cleared and saved/restored exactly alongside `local_class_types_`.
+    std::unordered_map<std::string, std::string> local_declared_types_;
+
+    // #513: sanitized bare class -> sanitized field name -> the DECLARED Ball
+    // type source of that field, FLATTENED over the inheritance chain (a C++
+    // struct inherits its base's members, so an inherited field is readable on
+    // a subclass receiver). Built from each TypeDefinition's `metadata.fields`
+    // list. `emit_struct` maps every non-primitive descriptor field to a
+    // `BallDyn` member, so this is the only place the class a class-typed
+    // member actually holds is still known.
+    std::unordered_map<std::string,
+                       std::unordered_map<std::string, std::string>>
+        class_field_decl_types_by_sname_;
+
+    // #513: seed `local_declared_types_` with the function's parameters. Their
+    // declared types come from the same `metadata.params` specs the signature
+    // is emitted from, so the recorded type is exactly what `map_param_type`
+    // saw — including the `T?` forms it answers `BallDyn` for.
+    void record_param_declared_types(const ball::ir::FunctionDefinition& func,
+                                     const std::vector<std::string>& params);
+
+    // #513: the sanitized bare user class a member-access RECEIVER denotes,
+    // whether that receiver is emitted as the concrete struct or as an erased
+    // `BallDyn`; "" when it cannot be proven. Wraps `static_class_of` (which
+    // answers only for provably CONCRETE slots) with the declared-type lookups
+    // above.
+    std::string receiver_class_of(const ball::ir::Expression& raw) const;
+
+    // #513: true when that receiver is emitted as an erased `BallDyn` rather
+    // than the concrete struct — a `T?` local/parameter, or a class-typed
+    // struct member. The caller must recover the struct with
+    // `ball_obj_as<C>(…)` before naming a member on it, or g++ rejects the
+    // access with "'class BallDyn' has no member named '…'".
+    bool receiver_is_erased(const ball::ir::Expression& raw) const;
+
+    // #513: the class a DECLARED Ball type source names once it is stripped of
+    // its nullability suffix, when that class is a concrete (struct-emitted)
+    // user class; "" for a primitive, a collection, a generic instantiation, a
+    // dynamic/map-backed class, an enum, or a runtime stub type.
+    std::string concrete_class_of_declared_type(const std::string& ball_type) const;
+
+    // #513: non-empty (`"__obj."`) only while emitting the BODY of a NAMED
+    // constructor, which is lowered to a STATIC factory method building a local
+    // `__obj`. A bare reference to one of the class's own fields resolves to
+    // `this->field` in an ordinary member function, but a static member function
+    // has no `this` — g++: "invalid use of member 'Countdown::tail' in static
+    // member function". Prefixing the instance the factory is filling in is the
+    // static-context equivalent (fixture 436).
+    std::string ctor_obj_prefix_;
+
+    // #513: emit a constructor's Ball body. A body that is a SINGLE expression
+    // rather than a Block — `Chain(this.depth) { if (depth > 0) { … } }` encodes
+    // to one `std.if` Call — was silently DROPPED by the Block-only loops that
+    // used to be inlined at each constructor emission site, so fixtures 435-437
+    // built list/tree nodes whose successor was never assigned, with no
+    // diagnostic anywhere. Also drops the encoder's `let self = Class{}` /
+    // `return self` artifacts, which the C++ constructor itself stands for.
+    void compile_ctor_body(const ball::ir::Expression& body);
+
+    // #523: true when this MessageCreation is an instance-creation VALUE rather
+    // than a call's argument bag. The Ball encoder emits an argument bag with an
+    // EMPTY typeName (`f(a, b)` -> fields `arg0`/`arg1`) or with a std input
+    // message name (`PrintInput`, `FormatTimestampInput`); only an instance
+    // creation names a user CLASS. Destructuring one into the callee's
+    // parameter slots drops the argument entirely (TS's equivalent guard: #213).
+    bool is_instance_creation_value(const ball::ir::MessageCreation& msg) const;
+
     // True when `derived` is `base`, or descends from it through
     // class_superclass_. Both arguments are sanitized BARE class names.
     bool class_is_or_descends_from(const std::string& derived,

@@ -407,7 +407,7 @@ jobs:
 
       # The Tier A coverage-study harness (#493) is itself a measuring
       # instrument, so its own correctness IS gated here even though the study
-      # it drives (coverage-study.yml) is report-only. The self-test proves the
+      # it drives (coverage-study.yml) is not a PR gate. The self-test proves the
       # harness scores `main`-less, cross-file library files instead of quietly
       # skipping them — the exact blind spot #493 exists to close.
       - name: Coverage-study harness self-test (#493)
@@ -416,8 +416,8 @@ jobs:
       # Tier B is the behavioural half of the same study (#493): it swaps a
       # library file for the pipeline's own compiled-back version and runs THAT
       # PACKAGE'S OWN `dart test`. Its self-test is gated here for the same
-      # reason Tier A's is — the study it drives is report-only, the instrument
-      # is not. Two assertions carry the gate: the #488 shape
+      # reason Tier A's is — the study it drives is not a PR gate, the instrument
+      # is. Two assertions carry the gate: the #488 shape
       # (`return set.add(x)`) is scored `behavioral-drift` while Tier A scores
       # the very same source `clean`, which is the entire justification for the
       # tier existing; and every substituted file is restored BYTE-FOR-BYTE
@@ -1391,8 +1391,9 @@ jobs:
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
-      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
-      # pull_request: trigger, per the project's measure-before-gating rule);
+      # first. The Tier A RUN itself is not a PR gate (coverage-study.yml has no
+      # pull_request: trigger; its rows are floored by ratchet in that
+      # workflow's own `publish` job, issue #493);
       # this step gates only the harness's own correctness, so a measuring
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
@@ -1466,8 +1467,9 @@ jobs:
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
-      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
-      # pull_request: trigger, per the project's measure-before-gating rule);
+      # first. The Tier A RUN itself is not a PR gate (coverage-study.yml has no
+      # pull_request: trigger; its rows are floored by ratchet in that
+      # workflow's own `publish` job, issue #493);
       # this step gates only the harness's own correctness, so a measuring
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
@@ -1574,8 +1576,9 @@ jobs:
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
-      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
-      # pull_request: trigger, per the project's measure-before-gating rule);
+      # first. The Tier A RUN itself is not a PR gate (coverage-study.yml has no
+      # pull_request: trigger; its rows are floored by ratchet in that
+      # workflow's own `publish` job, issue #493);
       # this step gates only the harness's own correctness, so a measuring
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
@@ -1621,7 +1624,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 343 passed, 0 failed, 343 total (4 skipped carve-outs)" — the
+      # "Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -1699,8 +1702,9 @@ jobs:
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
-      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
-      # pull_request: trigger, per the project's measure-before-gating rule);
+      # first. The Tier A RUN itself is not a PR gate (coverage-study.yml has no
+      # pull_request: trigger; its rows are floored by ratchet in that
+      # workflow's own `publish` job, issue #493);
       # this step gates only the harness's own correctness, so a measuring
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
@@ -1791,7 +1795,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 343 passed, 0 failed, 343 total (4 skipped carve-outs)" — the 4
+      # "Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -1853,14 +1857,28 @@ jobs:
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
-      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
-      # pull_request: trigger, per the project's measure-before-gating rule);
+      # first. The Tier A RUN itself is not a PR gate (coverage-study.yml has no
+      # pull_request: trigger; its rows are floored by ratchet in that
+      # workflow's own `publish` job, issue #493);
       # this step gates only the harness's own correctness, so a measuring
       # instrument cannot silently start SKIPPING the entry-point-less library
       # files it exists to look at and then report a flattering number over what
       # is left. Mirrors the dart job's rq1_study_self_test.dart step.
       - name: "Tier A coverage-study harness self-test (issue #493)"
         run: python tools/coverage-study/test/rq1_study_py_self_test.py
+
+      # ── Coverage-table renderer + ratchet floor self-test (issue #493) ──
+      # coverage_table.py is what decides whether a coverage-study run passes:
+      # it floors every row against tools/coverage-study/baseline.json and
+      # renders the published README table. It is Python, so it is gated here,
+      # alongside the Tier A harness above — but unlike the harnesses it guards
+      # ALL SIX languages' numbers, so a break here silently unfloors the whole
+      # study. The self-test proves the floor is a floor: below fails and names
+      # both numbers, at passes, above raises, and a missing artifact fails loud
+      # instead of reading as 0 scored / 0 clean (which would satisfy every
+      # percentage floor forever).
+      - name: "Coverage-table renderer + floor self-test (issue #493)"
+        run: python tools/coverage-study/test/coverage_table_self_test.py
 
       # Runs BEFORE the self-host regen below, so compiled_engine.py is absent
       # here and the CLI's honest-failure `run` path (exit 1 + regenerate hint)
@@ -1881,7 +1899,9 @@ jobs:
             python/cli/ball_cli python/shared/gen \
             python/tool python/engine/tool \
             tools/coverage-study/rq1_study_py.py \
-            tools/coverage-study/test/rq1_study_py_self_test.py
+            tools/coverage-study/coverage_table.py \
+            tools/coverage-study/test/rq1_study_py_self_test.py \
+            tools/coverage-study/test/coverage_table_self_test.py
 
       # ── Self-hosted engine: regenerate + RUN (epic #445 Phase 4) ──
       # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
@@ -1909,7 +1929,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 343 passed, 0 failed, 343 total (4 skipped carve-outs)" — the 4
+      # "Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

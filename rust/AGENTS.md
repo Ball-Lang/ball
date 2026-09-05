@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 343 passed, 0
-failed, 343 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 344 passed, 0
+failed, 344 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -36,9 +36,10 @@ structs" below for the measured before/after histogram that proves it does
 not).
 
 `cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
-every PR** in ci.yml's `rust` job. The RUN is the report-only `rust-tier-a` job
+every PR** in ci.yml's `rust` job. The RUN is the `rust-tier-a` job
 in `coverage-study.yml`, which has **no `pull_request:` trigger** — the row is
-absent, not green, on a PR. Methodology and the funnel's meaning:
+absent, not green, on a PR; it is floored by ratchet in that workflow's
+`publish` job. Methodology and the funnel's meaning:
 `tests/conformance/COVERAGE_STUDY.md`.
 
 ## Package Layout
@@ -139,8 +140,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 343 passed, 0 failed,
-343 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 344 passed, 0 failed,
+344 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -424,6 +425,13 @@ cli-core verb) rejects it for the same reason and for the same correct cause.
   `type_of_a_set_created_set_is_set` / `set_mutation_is_observed_through_every_alias` /
   `set_renders_as_a_brace_list_not_its_tagged_map` /
   `set_algebra_produces_sets_and_iterates_as_a_list`, which run on every PR.
+- **`ball_set_add`/`ball_set_remove` answer a `bool`, never the set** (issue #545): they mutate
+  the shared backing in place and return `true` only when the element was newly inserted / was
+  actually present, exactly like Dart's `Set.add`/`Set.remove`. That is the ONE portable contract
+  every target now implements — before #545 `ball_set_add` returned the set here, disagreeing
+  with `ball_set_remove`'s own bool. Pinned by `runtime.rs`'s
+  `set_add_remove_return_bool_and_mutate_in_place` and, cross-target, by conformance fixture
+  `459_set_add_remove_bool`.
 - **A named constructor (`Class.name(args)`) compiles** since #527. The Dart encoder emits it as a
   method call whose packed `self` field is a bare `reference{name: "Class"}` — a static, syntactic
   class name, not a value — so `compile_call` resolves it at COMPILE time to the class's associated

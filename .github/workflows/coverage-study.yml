@@ -11,19 +11,28 @@
 # compiler emitting unparseable Dart on real library files (#494) all shipped
 # past 18 green required checks.
 #
-# WHAT THIS IS NOT: a gate. This workflow has NO `pull_request:` trigger and is
-# not a required check, so a regression it finds does NOT block the PR that
-# caused it. That is deliberate — measure before gating (the project has been
-# burned by floors set before a baseline existed). Slice 2 adds the floor once
-# a few scheduled runs have established one; until then the Tier A percentage
-# is reported and the job exits 0.
+# WHAT THIS IS NOT: a PR gate. This workflow still has NO `pull_request:`
+# trigger and is not a required check, so a regression it finds does not block
+# the PR that caused it — it reddens the next scheduled (or dispatched) run
+# instead.
 #
-# The ONE thing that does fail here is a broken harness: a run that scored zero
-# files is a checkout/harness failure, not a 0% result, and each harness's own
-# self-test runs as a gated step in its language's ci.yml job (Tier A's proves
-# it does not silently skip `main`-less library files; Tier B's proves it scores
-# the #488 shape as drift where Tier A calls it clean, and restores every
-# substituted file byte-for-byte).
+# WHAT IT NOW IS: floored. The measuring jobs below each carry the positive
+# floor in tools/coverage-study/summarize.sh (a run that scored zero files is a
+# checkout/harness failure, never a 0% result). The `publish` job at the bottom
+# adds the quality floors: it downloads all seven artifacts and runs
+# tools/coverage-study/coverage_table.py, which fails the run when any row drops
+# below tools/coverage-study/baseline.json, raises that baseline when a row
+# improves, and regenerates the published table in README.md. The floors are
+# RATCHETS at the measured numbers, not the >= 95% / >= 75% issue #493
+# originally proposed: Dart Tier A measures 61% and four of the six Tier A rows
+# measure 0% clean, so an aspirational floor would be red on day one and get
+# muted. See the `publish` job's own header.
+#
+# Each harness's own self-test also runs as a gated step in its language's
+# ci.yml job (Tier A's proves it does not silently skip `main`-less library
+# files; Tier B's proves it scores the #488 shape as drift where Tier A calls it
+# clean, and restores every substituted file byte-for-byte; the renderer's
+# proves the floor is a floor).
 #
 # Tier A is structural and Tier B is behavioural — see the `dart-tier-b` job's
 # own header for why one cannot stand in for the other.
@@ -436,3 +445,124 @@ jobs:
           name: coverage-study-tier-a-typescript
           path: ${{ runner.temp }}/tier_a.json
           if-no-files-found: warn
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Publish + floor (issue #493, the slice that closes it).
+  #
+  # THE GAP THIS CLOSES: the seven jobs above have produced honest numbers since
+  # slice 1, and nothing consumed them. Each uploaded a JSON artifact and
+  # exited, so a real third-party regression — the Rust encoder going from 110
+  # scored files to 40, the Dart round trip falling from 65/106 to 50/106 — was
+  # visible only to a human who downloaded seven artifacts and diffed them by
+  # hand against a number written in a GitHub comment. The numbers were also
+  # published nowhere a reader of the repository would find them.
+  #
+  # RATCHET, NOT THE ISSUE'S 95%/75%. Issue #493 proposed "Dart Tier A >= 95%,
+  # Tier B >= 75%". Measured, Dart Tier A is 61% and four of the six Tier A rows
+  # are at 0% clean (those compilers emit runtime-call-shaped source their
+  # syntactic encoders were never built to read back — the same wall the
+  # `*-roundtrip` rows in conformance-matrix.yml report on the project's OWN
+  # corpus). A 95% floor would be red on its first run and stay red, and this
+  # project's rule for a known-incomplete leg is to RATCHET it: fail only on a
+  # DROP below a checked-in baseline, raise the baseline on an improvement,
+  # never parity-gate it and never skip it.
+  #
+  # `if: always()` is deliberate and load-bearing. With a bare `needs:`, a
+  # failed measuring job would SKIP this one, and a skipped check reads as green
+  # — the exact way an absent gate has hidden a regression here before. Running
+  # anyway turns a broken upstream job into a loud red: coverage_table.py fails
+  # on a missing artifact rather than treating it as 0 scored, 0 clean (which
+  # would satisfy every percentage floor forever).
+  #
+  # The commit is guarded twice over: this workflow has no `pull_request:`
+  # trigger at all, and the commit step additionally requires `github.ref` to be
+  # refs/heads/main, so a dispatch on a topic branch runs the full check-and-
+  # render end-to-end and commits nothing.
+  # ────────────────────────────────────────────────────────────────────────
+
+  publish:
+    name: Publish coverage table
+    needs:
+      - dart-tier-a
+      - dart-tier-b
+      - rust-tier-a
+      - csharp-tier-a
+      - go-tier-a
+      - python-tier-a
+      - ts-tier-a
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      # Overrides the workflow-level `contents: read`; this is the only job in
+      # the file that writes anything back to the repository.
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      # The renderer decides whether a run passes, so prove it first — the same
+      # rule every measuring job above follows. This is the identical step
+      # ci.yml's python job gates on every PR.
+      - name: Renderer/floor self-test
+        run: python3 tools/coverage-study/test/coverage_table_self_test.py
+
+      # `merge-multiple` is left at its default false, so each artifact lands in
+      # its own directory named after it — the same layout `gh run download`
+      # produces, and the layout the `artifact` path in every baseline row
+      # names (e.g. coverage-study-tier-a-dart/tier_a.json).
+      - name: Download every coverage-study report
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-study-*
+          path: ${{ runner.temp }}/reports
+
+      # Fails the run on a drop in any row's clean ratio, stage-1 funnel ratio,
+      # or scored denominator; raises the baseline on an improvement; rewrites
+      # the generated block in README.md. A missing or zero-scored report is a
+      # hard failure here, never a 0% pass.
+      - name: Check the floors and regenerate the table
+        run: |
+          set -euo pipefail
+          python3 tools/coverage-study/coverage_table.py \
+            --artifacts "$RUNNER_TEMP/reports" \
+            --baseline tools/coverage-study/baseline.json \
+            --readme README.md \
+            --write \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      # Only on main, and only when the regeneration actually changed something
+      # — the renderer is a pure function of the reports and carries no
+      # timestamp, so a week that moved no number produces no commit at all.
+      #
+      # `[skip ci]` matches the marker release.yml's own bot commits use, so
+      # this push does not start a second CI run.
+      - name: Commit the regenerated table and raised baseline
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- README.md tools/coverage-study/baseline.json; then
+            echo "table and baseline already current — nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md tools/coverage-study/baseline.json
+          git commit \
+            -m "chore(coverage-study): refresh the third-party coverage table [skip ci]" \
+            -m "Regenerated from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} by tools/coverage-study/coverage_table.py. A raised row means that measure improved and its floor moved up with it (issue #493)."
+          git push origin HEAD:refs/heads/main
+
+      # Off main the commit step above is skipped by design, which would
+      # otherwise leave a dispatch on a topic branch looking like it did
+      # nothing. Say so, and show the diff the run would have committed.
+      - name: Report what a main run would have committed
+        if: github.ref != 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          echo "ref is ${GITHUB_REF} — not main, so nothing is committed."
+          git --no-pager diff --stat -- README.md tools/coverage-study/baseline.json
+          git --no-pager diff -- tools/coverage-study/baseline.json

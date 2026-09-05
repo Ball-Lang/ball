@@ -118,6 +118,30 @@ Map<String, dynamic> printExpr(Map<String, dynamic> value) {
 
 Map<String, dynamic> stmt(Map<String, dynamic> expr) => {'expression': expr};
 
+Map<String, dynamic> toStr(Map<String, dynamic> value) =>
+    stdCall('to_string', msg([field('value', value)]));
+
+Map<String, dynamic> setCall(
+  String function,
+  String setVar,
+  Map<String, dynamic> value,
+) => collectionsCall(
+  function,
+  msg([field('set', ref(setVar)), field('value', value)]),
+);
+
+Map<String, dynamic> setLen(String setVar) =>
+    collectionsCall('set_length', msg([field('set', ref(setVar))]));
+
+/// A fresh `{1, 2}` — every case in `459_set_add_remove_bool` builds its own,
+/// so the fixture never depends on a mutation surviving to the next call.
+Map<String, dynamic> _setOf12() => stdCall(
+  'set_create',
+  msg([
+    field('elements', listLit([literal(1), literal(2)])),
+  ]),
+);
+
 Map<String, dynamic> letStmt(
   String name,
   Map<String, dynamic> value, {
@@ -209,6 +233,59 @@ const _gotoInputTypeDef = {
   },
 };
 
+Map<String, dynamic> collectionsCall(
+  String function,
+  Map<String, dynamic> input,
+) => call(function, module: 'std_collections', input: input);
+
+const _listInputTypeDef = {
+  'name': 'ListInput',
+  'descriptor': {
+    'name': 'ListInput',
+    'field': [
+      {
+        'name': 'list',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'index',
+        'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'value',
+        'number': 3,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
+const _setInputTypeDef = {
+  'name': 'SetInput',
+  'descriptor': {
+    'name': 'SetInput',
+    'field': [
+      {
+        'name': 'set',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'value',
+        'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
 /// Builds a minimal single-module Program: a `std` module carrying exactly
 /// the base functions used (mirrors the minimal footprint the encoder itself
 /// would produce, and the hand-authored `188_std_time_now` fixture).
@@ -217,12 +294,14 @@ Map<String, dynamic> buildProgramJson({
   required List<Map<String, Object?>> stdFunctions,
   required List<Map<String, Object?>> stdTypeDefs,
   required Map<String, dynamic> mainFunction,
+  List<Map<String, Object?>> extraModules = const [],
 }) {
   return {
     'name': name,
     'version': '1.0.0',
     'modules': [
       {'name': 'std', 'functions': stdFunctions, 'typeDefs': stdTypeDefs},
+      ...extraModules,
       {
         'name': 'main',
         'functions': [mainFunction],
@@ -389,6 +468,87 @@ Future<void> main() async {
             ]),
           ),
         ),
+      ]),
+    ),
+  );
+
+  // ── 459_set_add_remove_bool: the ONE bool contract for
+  // `std_collections.set_add` / `set_remove` (issue #545). Both mutate the
+  // receiver set IN PLACE and return `bool` — `true` only when the element was
+  // newly inserted / was actually present — exactly like Dart's own
+  // `Set.add`/`Set.remove`. Before #545 the Dart engine returned the NEW SET
+  // from both (and never mutated the receiver at all), the Dart and C++
+  // compilers returned the set, and the TS engine returned an UNCONDITIONAL
+  // `true` from `set_add` — several different answers for the same call, and
+  // the Dart engine and Dart compiler disagreed with each OTHER on `set_remove`
+  // alone. Every print here puts the RESULT in a value position; that is the
+  // whole point, since nothing in the corpus ever did.
+  //
+  // Not generatable from Dart source: the Dart encoder deliberately declines to
+  // route a `Set` receiver's `.add()`/`.remove()` to these base functions (see
+  // the receiver-TYPE gate in `dart/encoder/lib/encoder.dart`, issue #488), so
+  // no portable Dart program encodes to a `set_add` call. Hand-built here, and
+  // listed in tests/conformance/CARVEOUTS.md.
+  //
+  // EACH CASE USES A FRESH SET, deliberately — it does not chain calls against
+  // one `let`-bound set and then observe the mutation. That stronger fixture
+  // was written first and it FAILED on the C# and Rust self-hosted engines for
+  // a reason that has nothing to do with #545: their `_ballSetItems` hands back
+  // a COPY of a set's backing list, so every in-place set mutation the engine
+  // performs is silently lost (`list_clear` on a set and the `Set.add`/`remove`
+  // method dispatch are already affected on `main`). That is issue #557; when
+  // it is fixed, chain these calls against one set and assert the interleaved
+  // `set_length`/`set_contains`, which is exactly its regression test. Until
+  // then the four return-value branches below are pinned on every target, and
+  // the in-place mutation is pinned per runtime instead (the C#/Rust/Go/Python
+  // runtime unit tests) and on the Dart reference engine.
+  await writeFixture(
+    '459_set_add_remove_bool',
+    buildProgramJson(
+      name: 'set_add_remove_bool',
+      // `set_create` is declared and CALLED on `std`, not `std_collections`:
+      // that is what every encoder emits today (see `118_set_operations`), and
+      // the Dart compiler's `set_create` case lives on its std switch, so a
+      // `std_collections.set_create` call compiles to an `/* unsupported */`
+      // comment. Mirror the real encoder shape rather than inventing one.
+      stdFunctions: [
+        {'name': 'print', 'isBase': true},
+        {'name': 'to_string', 'isBase': true},
+        {'name': 'set_create', 'isBase': true},
+      ],
+      stdTypeDefs: [_printInputTypeDef, _unaryInputTypeDef, _listInputTypeDef],
+      extraModules: [
+        {
+          'name': 'std_collections',
+          'functions': [
+            // Declared name+isBase only, exactly like every other fixture's
+            // base-function list — the `outputType: 'bool'` DECLARATION lives
+            // in dart/shared/lib/std_collections.dart (and so in std.json), and
+            // is gated by dart/engine/test/std_output_type_contract_test.dart.
+            {'name': 'set_add', 'isBase': true},
+            {'name': 'set_remove', 'isBase': true},
+            {'name': 'set_contains', 'isBase': true},
+            {'name': 'set_length', 'isBase': true},
+          ],
+          'typeDefs': [_setInputTypeDef],
+        },
+      ],
+      mainFunction: mainFn([
+        // set_add — true ONLY on a fresh insert.
+        letStmt('a', _setOf12()),
+        stmt(printExpr(toStr(setCall('set_add', 'a', literal(3))))),
+        letStmt('b', _setOf12()),
+        stmt(printExpr(toStr(setCall('set_add', 'b', literal(2))))),
+        // set_remove — true ONLY when the element was actually present.
+        letStmt('c', _setOf12()),
+        stmt(printExpr(toStr(setCall('set_remove', 'c', literal(2))))),
+        letStmt('d', _setOf12()),
+        stmt(printExpr(toStr(setCall('set_remove', 'd', literal(9))))),
+        // Read-only siblings, so the fixture also covers the two set functions
+        // it needs in order to be readable as a set test at all.
+        letStmt('e', _setOf12()),
+        stmt(printExpr(toStr(setLen('e')))),
+        stmt(printExpr(toStr(setCall('set_contains', 'e', literal(2))))),
       ]),
     ),
   );

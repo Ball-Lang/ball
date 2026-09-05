@@ -4012,13 +4012,18 @@ class DartEncoder {
       // whose value is the Set (`return_of_invalid_type`).
       //
       // Declining the route hands the call to the generic method-call encoding
-      // below, which re-emits the source's own `s.add(x)` verbatim. That is
-      // strictly better than re-routing to `std_collections.set_add`: set_add
-      // is value-flavored on Dart (the Dart engine returns the NEW SET and the
-      // Dart compiler emits `s..add(v)`) yet bool-flavored on the TS engine, so
-      // it would reproduce the very cascade this fixes AND import a
-      // cross-target divergence — tracked separately as issue #545. Do not
-      // route here until that is settled.
+      // below, which re-emits the source's own `s.add(x)` verbatim.
+      //
+      // Declining is now a SCOPE choice, not a correctness one. It used to be
+      // both: `set_add` was value-flavored on Dart (the engine returned the NEW
+      // SET, the compiler emitted the cascade `s..add(v)`) yet bool-flavored on
+      // the TS engine, so re-routing would have reproduced the very cascade
+      // this fixes AND imported a cross-target divergence. Issue #545 settled
+      // that — `set_add`/`set_remove` mutate in place and return `bool` on every
+      // target, and the Dart compiler emits a plain `s.add(v)`. Routing a `Set`
+      // receiver to `std_collections.set_add`/`set_remove` is now a safe move
+      // that belongs to #488, not here; nothing forces it, and the declined
+      // form stays correct.
       //
       // The Dart engine's generic method dispatch already
       // implements `Set.add`/`remove`/… with exact Dart semantics

@@ -35,8 +35,8 @@ top-level `type`/`const`/`var` and method-with-receiver gaps. Do not "improve"
 that number by changing the pin list.
 
 `go test ./...` there **is gated on every PR** in ci.yml's `go` job. The RUN is
-the report-only `go-tier-a` job in `coverage-study.yml`, which has **no
-`pull_request:` trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+the `go-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
+trigger**; its row is floored by ratchet in that workflow's `publish` job. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 ## Purpose
 Ball → Go compiler (Phase 2 of epic #426), the Go → Ball encoder (Phase 3), the
@@ -257,7 +257,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 343 passed, 0 failed, 343 total`; 4 golden-less
+  (`Results: 344 passed, 0 failed, 344 total`; 4 golden-less
   resource-limit/sandbox carve-outs). Behind the off-by-default `selfhost` build
   tag. See `go/engine/AGENTS.md`.
 - **CLI (Phase 5): complete** — `go/cli` produces the `ball` binary with the four

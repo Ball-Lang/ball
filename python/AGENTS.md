@@ -17,9 +17,9 @@ top-level-class gap). Do not "improve" that number by changing the pin list.
 
 `python tools/coverage-study/test/rq1_study_py_self_test.py` is the harness's own
 self-test and **is gated on every PR** in ci.yml's `python` job (both files are
-also in the `compileall` syntax gate). The RUN is the report-only
+also in the `compileall` syntax gate). The RUN is the
 `python-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
-trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+trigger**; its row is floored by ratchet in that workflow's `publish` job. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 ## Purpose
 The Python Ball target. A **compiler + runtime + encoder + self-hosted engine +
@@ -69,7 +69,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 **compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
 four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 343 passed, 0 failed, 343 total (4 skipped carve-outs)` — Dart-identical
+`Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify

@@ -320,6 +320,7 @@ inline const std::vector<std::string>& program_names() {
         "450_constructor_tearoff_user_class",
         "451_thrown_builtin_exception_tearoff",
         "455_ctor_field_writes_that_survive",
+        "459_set_add_remove_bool",
     };
     return names;
 }

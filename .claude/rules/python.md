@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`) are all in place and tested (the self-hosted cli-core
 verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported — like Go). The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 343 passed,
-0 failed, 343 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 344 passed,
+0 failed, 344 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -111,7 +111,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 343 passed, 0 failed, 343 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 344 passed, 0 failed, 344 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -213,8 +213,9 @@ python -m conformance.runner                             # prints the CI-parseab
   the other 68 from encoding at all). `python tools/coverage-study/test/
   rq1_study_py_self_test.py` (the harness's own self-test) IS gated on every PR in
   the `python` job, and both files are in the `compileall` syntax gate; the RUN is
-  the report-only `python-tier-a` job in `coverage-study.yml`, which has **no
-  `pull_request:` trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+  the `python-tier-a` job in `coverage-study.yml`, which has **no
+  `pull_request:` trigger** (its row is floored by ratchet in that workflow's
+  `publish` job). Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 - `python -m pytest -q` from each of `python/compiler`, `python/encoder`, `python/cli` runs the
   compiler golden-exact conformance + runtime unit tests, the encoder structural + round-trip tests,

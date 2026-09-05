@@ -1,3 +1,10 @@
+## [1.68.7](https://github.com/Ball-Lang/ball/compare/v1.68.6...v1.68.7) (2026-09-05)
+
+
+### Bug Fixes
+
+* **release:** treat a published-but-unindexed sibling as still propagating in verify-published (closes [#574](https://github.com/Ball-Lang/ball/issues/574)) ([#576](https://github.com/Ball-Lang/ball/issues/576)) ([db15c99](https://github.com/Ball-Lang/ball/commit/db15c99658edc55e331df7da5ece9531259c9583)), closes [#572](https://github.com/Ball-Lang/ball/issues/572) [#566](https://github.com/Ball-Lang/ball/issues/566)
+
 ## [1.68.6](https://github.com/Ball-Lang/ball/compare/v1.68.5...v1.68.6) (2026-09-05)
 
 

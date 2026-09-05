@@ -1142,25 +1142,37 @@ extension BallEngineStd on BallEngine {
       // std_collections — set operations. Sets are the portable ordered-set
       // value (see [_ballSetOf]); every handler routes through the backing list
       // so it self-hosts to C++/TS with Dart Set semantics.
+      // `set_add`/`set_remove` are Dart-exact (issue #545): they MUTATE the
+      // receiver's backing list and answer `bool` — true only when the element
+      // was newly inserted / was actually present. This is the same code the
+      // generic `Set.add`/`Set.remove` method dispatch in
+      // `engine_control_flow.dart` already ran, and it is now the one contract
+      // every target implements (conformance fixture
+      // `459_set_add_remove_bool`). `_ballSetItems` hands back the LIVE backing
+      // list for the portable `{'__ball_set__': [...]}` form, so mutating it
+      // mutates the caller's set — the returned bool is the only value.
       'set_add': (i) {
         final m = _stdAsMap(i)!;
         final items = _ballSetItems(m['set']);
         final value = m['value'];
-        if (!items.contains(value)) {
-          _trackMemoryAllocation(_ballPointerBytes);
-          return _ballSetOf(<Object?>[...items, value]);
-        }
-        return _ballSetOf(items);
+        if (items.contains(value)) return false;
+        _trackMemoryAllocation(_ballPointerBytes);
+        items.add(value);
+        return true;
       },
       'set_remove': (i) {
         final m = _stdAsMap(i)!;
         final items = _ballSetItems(m['set']);
-        final value = m['value'];
-        final kept = <Object?>[];
-        for (final e in items) {
-          if (e != value) kept.add(e);
-        }
-        return _ballSetOf(kept);
+        // `indexOf` + `removeAt`, NOT `List.remove(value)`: the encoder routes
+        // `.indexOf`/`.removeAt` to `std_collections.list_index_of` /
+        // `list_remove_at`, which every target implements, while `.remove` has
+        // no route and would encode as a generic method call — and
+        // `Array.prototype.remove` does not exist in the TS compiler's preamble
+        // (self-host-portability rule, docs/TESTING_STRATEGY.md §6).
+        final index = items.indexOf(m['value']);
+        if (index < 0) return false;
+        items.removeAt(index);
+        return true;
       },
       'set_contains': (i) {
         final m = _stdAsMap(i)!;

@@ -971,7 +971,14 @@ void main() {
   });
 
   group('set op branches', () {
-    test('set_add of an already-present value returns the same set', () async {
+    // REWRITTEN for issue #545. This test used to assert that `set_add` of an
+    // already-present value "returns the same set" — it was the test that
+    // ENSHRINED the wrong contract, and it passed happily while the Dart engine,
+    // the Dart compiler and the TS engine each answered something different.
+    // `set_add`/`set_remove` are Dart-exact: they mutate in place and answer
+    // `bool`. Both arms of `set_add` (fresh insert vs. duplicate) are covered
+    // here, which is what makes the branch coverage this group exists for real.
+    test('set_add answers false for an already-present value', () async {
       final s = stdCall(
         'set_create',
         msg([
@@ -985,7 +992,16 @@ void main() {
             msg([field('set', s), field('value', literal(1))]),
           ),
         ),
-        '{1, 2}',
+        'false',
+      );
+      expect(
+        await evalToString(
+          stdCall(
+            'set_add',
+            msg([field('set', s), field('value', literal(3))]),
+          ),
+        ),
+        'true',
       );
     });
 

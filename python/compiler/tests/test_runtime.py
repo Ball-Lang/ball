@@ -96,3 +96,44 @@ def test_call_method_still_answers_protobuf_presence_for_plain_maps():
     it exists for (``binding.hasBody()`` on a decoded Ball message)."""
     assert ballrt.call_method({"body": {"literal": 1}}, "hasBody") is True
     assert ballrt.call_method({}, "hasBody") is False
+
+
+def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
+    """``ballrt.proto`` must answer ANY ``has<Field>`` the compiler emits (#570).
+
+    ``python/compiler`` emits ``ballrt.proto.<fn>(obj)`` verbatim for whatever
+    ``ball_proto`` function a program calls, but ``proto.py`` only defined the
+    twelve presence checks the self-hosted ENGINE reaches. The first program to
+    need a thirteenth — ``cli_core``'s ``treeReport``, which discriminates a
+    ``ModuleImport`` source with ``hasHttp``/``hasFile``/``hasGit``/
+    ``hasRegistry``/``hasInline`` — died with ``AttributeError: module
+    'ballrt.proto' has no attribute 'hasHttp'``. Go never had the bug: its
+    compiler emits a generic ``ballrt.HasField(obj, "http")``.
+    """
+    import pytest
+
+    from ballrt import proto
+
+    # The five ModuleImport source arms cli_core reaches, none of which were
+    # defined before #570.
+    checked = 0
+    for field in ("http", "file", "git", "registry", "inline"):
+        fn = getattr(proto, f"has{field[0].upper()}{field[1:]}")
+        assert fn({field: {"url": "x"}}) is True
+        assert fn({}) is False
+        assert fn(None) is False
+        checked += 1
+    assert checked == 5
+
+    # camelCase jsonNames survive the name -> field derivation.
+    assert proto.hasFieldAccess({"fieldAccess": {"field": "x"}}) is True
+    # An empty message reads as absent (the proto3 rule _has implements).
+    assert proto.hasMessageCreation({"messageCreation": {}}) is False
+
+    # The twelve explicit definitions are unchanged.
+    assert proto.hasBody({"body": {"literal": {}}}) is True
+    assert proto.hasBody({}) is False
+
+    # Anything that is not a has<Field> still fails LOUD, naming what is missing.
+    with pytest.raises(AttributeError, match="not implemented in python/runtime"):
+        proto.getStructField  # noqa: B018 - attribute access is the assertion

@@ -1,3 +1,10 @@
+## [1.67.2](https://github.com/Ball-Lang/ball/compare/v1.67.1...v1.67.2) (2026-09-05)
+
+
+### Bug Fixes
+
+* **cpp:** resolve receiver types through erased class-typed slots, keep an inline instance creation whole, and type a call-bound local (closes [#513](https://github.com/Ball-Lang/ball/issues/513), closes [#523](https://github.com/Ball-Lang/ball/issues/523), closes [#524](https://github.com/Ball-Lang/ball/issues/524)) ([#558](https://github.com/Ball-Lang/ball/issues/558)) ([072df09](https://github.com/Ball-Lang/ball/commit/072df09620f48ed7a7412653f903bbb7af1a7b70)), closes [#512](https://github.com/Ball-Lang/ball/issues/512) [#499](https://github.com/Ball-Lang/ball/issues/499) [#514](https://github.com/Ball-Lang/ball/issues/514) [#514](https://github.com/Ball-Lang/ball/issues/514) [#172](https://github.com/Ball-Lang/ball/issues/172)
+
 ## [1.67.1](https://github.com/Ball-Lang/ball/compare/v1.67.0...v1.67.1) (2026-09-05)
 
 

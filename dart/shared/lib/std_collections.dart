@@ -217,8 +217,36 @@ Module buildStdCollectionsModule() {
 
     // Set — unordered, unique elements
     _fn('set_create', 'ListInput', '', 'Create set from list: Set.from(list)'),
-    _fn('set_add', 'SetInput', '', 'Add element: set.add(value)'),
-    _fn('set_remove', 'SetInput', '', 'Remove element: set.remove(value)'),
+    // `set_add`/`set_remove` are the ONLY base functions that declare an
+    // `outputType` (issue #545). Everything else here leaves it `''` — a
+    // deliberately unstated return shape — but these two MUTATE their receiver
+    // and are routinely used in a value position (`if (s.remove(x)) …`), and
+    // three targets used to answer three different things: the Dart engine
+    // returned the new SET from both, the Dart compiler emitted the cascade
+    // `s..add(v)` (the set) for `set_add` and `s.remove(v)` (a bool) for
+    // `set_remove`, and the TS engine returned an unconditional `true` from
+    // `set_add`. The contract is Dart-exact: mutate in place, answer `bool`.
+    //
+    // A declared `outputType` here is LOAD-BEARING, not decoration:
+    // `dart/engine/test/std_output_type_contract_test.dart` fails if a declared
+    // base function's Dart-engine handler returns something else, and refuses a
+    // declaration it has no probe for — so this field cannot outrun its guard.
+    // Conformance fixture `459_set_add_remove_bool` gates the same contract on
+    // every other engine and compiler.
+    _fn(
+      'set_add',
+      'SetInput',
+      'bool',
+      'Add element: set.add(value). Mutates the set in place; returns true '
+          'only when the element was newly inserted (Dart Set.add semantics).',
+    ),
+    _fn(
+      'set_remove',
+      'SetInput',
+      'bool',
+      'Remove element: set.remove(value). Mutates the set in place; returns '
+          'true only when the element was present (Dart Set.remove semantics).',
+    ),
     _fn(
       'set_contains',
       'SetInput',

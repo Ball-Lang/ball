@@ -3717,7 +3717,15 @@ class DartCompiler {
       'map_is_empty' => '${_e(f['map']!)}.isEmpty',
       'map_length' => '${_e(f['map']!)}.length',
       // Set operations
-      'set_add' => '${_e(f['set']!)}..add(${_e(f['value']!)})',
+      // A PLAIN call, never the cascade `s..add(v)` (issue #545): Dart's
+      // `Set.add` already mutates in place and answers `bool`, which is the one
+      // portable contract for this base function. The cascade evaluated to the
+      // SET instead, so `print(set_add(s, x))` printed `{1, 2, 3}` here while
+      // the TS engine printed a bool — and `return set_add(s, x)` from a
+      // bool-returning function was rejected outright by Dart's own front end
+      // (`return_of_invalid_type`), which is what made the encoder decline to
+      // route a `Set` receiver's `.add()` here (#488).
+      'set_add' => '${_e(f['set']!)}.add(${_e(f['value']!)})',
       'set_remove' => '${_e(f['set']!)}.remove(${_e(f['value']!)})',
       'set_contains' => '${_e(f['set']!)}.contains(${_e(f['value']!)})',
       'set_union' => '${_e(f['left']!)}.union(${_e(f['right']!)})',

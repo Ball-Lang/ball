@@ -1164,28 +1164,92 @@ describe("compiler — compileStdCall default fallback throws at compile time (#
   });
 });
 
-describe("compiler — set_* base functions are confirmed-dead codegen, now a compile-time throw (#257)", () => {
-  test("std.set_union (and its set_* siblings) throws instead of compiling to a nonexistent bare identifier", () => {
-    // Neither dart/encoder nor ts/encoder ever emits a direct
-    // `std.set_union`/etc. base-function call -- a Set method call
-    // (mySet.union(other)) routes through compileCall's generic
-    // "self"-field method dispatch onto native JS Set.prototype methods
-    // instead, so this case is never actually reached by any real encoder
-    // output. It used to compile to a call on a nonexistent bare
-    // identifier (`set_union(a, b)`, a ReferenceError if it WERE ever
-    // hit); now a clean compile-time throw instead.
-    const program: Program = {
-      name: "set_union_test",
-      entryModule: "main",
-      entryFunction: "main",
-      modules: [{ name: "main", functions: [
-        { name: "main", body: std("set_union", { left: ref("a"), right: ref("b") }) },
-      ] }],
-    };
-    assert.throws(
-      () => compile(program, { includePreamble: false }),
-      /std\.set_union is not implemented/,
+describe("compiler — the std_collections set_* family compiles to native JS Sets (#545)", () => {
+  // These used to THROW "not implemented", on the reasoning that no encoder
+  // emits a direct `std_collections.set_*` base-function call (a Set METHOD
+  // call routes through compileCall's generic "self"-field dispatch instead).
+  // "No encoder emits it" is not "no program contains it", though: conformance
+  // fixture `459_set_add_remove_bool` is a hand-built program that calls them
+  // directly, and it made the throw reachable — the TS compiler was the only
+  // one of the seven that could not compile the family at all.
+  //
+  // `set_add`/`set_remove` mutate in place and answer BOOL (issue #545):
+  // `Set.add` returns the set in JS, so it is wrapped to report whether the
+  // element was newly inserted; `Set.delete` already reports presence.
+  const compileBody = (body: Expression): string =>
+    compile(
+      {
+        name: "set_family_test",
+        entryModule: "main",
+        entryFunction: "main",
+        modules: [{ name: "main", functions: [{ name: "main", body }] }],
+      },
+      { includePreamble: false },
     );
+
+  const setCall = (fn: string, fields: Record<string, Expression>): Expression =>
+    call("std_collections", fn, fields);
+
+  test("set_add reports a fresh insert, never the set", () => {
+    const out = compileBody(setCall("set_add", { set: ref("s"), value: lit(1) }));
+    assert.match(out, /if \(__s\.has\(__v\)\) return false; __s\.add\(__v\); return true;/);
+  });
+
+  test("set_remove compiles to Set.delete, which already answers bool", () => {
+    const out = compileBody(setCall("set_remove", { set: ref("s"), value: lit(1) }));
+    assert.match(out, /s\.delete\(1\)/);
+  });
+
+  test("the read-only members compile to native Set operations", () => {
+    assert.match(compileBody(setCall("set_contains", { set: ref("s"), value: lit(1) })), /s\.has\(1\)/);
+    assert.match(compileBody(setCall("set_length", { set: ref("s") })), /s\.size/);
+    assert.match(compileBody(setCall("set_is_empty", { set: ref("s") })), /s\.size === 0/);
+    assert.match(compileBody(setCall("set_to_list", { set: ref("s") })), /\[\.\.\.s\]/);
+  });
+
+  test("the algebraic operations build a new Set", () => {
+    assert.match(compileBody(setCall("set_union", { left: ref("a"), right: ref("b") })), /new Set\(\[\.\.\.a, \.\.\.b\]\)/);
+    assert.match(compileBody(setCall("set_intersection", { left: ref("a"), right: ref("b") })), /filter\(\(__x: any\) => __b\.has\(__x\)\)/);
+    assert.match(compileBody(setCall("set_difference", { left: ref("a"), right: ref("b") })), /filter\(\(__x: any\) => !__b\.has\(__x\)\)/);
+  });
+
+  // A member handed no operand FAILS LOUD (`__setOperand`) instead of emitting
+  // `false` / `0` / `new Set()`. A set call without its operand is a malformed
+  // program, and quietly compiling it to a constant is exactly the silent
+  // degradation CLAUDE.md forbids (and that issue #55 was made of) — the caller
+  // gets a wrong ANSWER rather than an error. Nothing regresses by throwing:
+  // before #545 the whole family threw unconditionally.
+  //
+  // Every member is listed, and every operand of every member, so a new member
+  // added without its guard cannot slip through.
+  const missingOperandCases: ReadonlyArray<[string, Record<string, Expression>, string]> = [
+    ["set_add", {}, "set"],
+    ["set_add", { set: ref("s") }, "value"],
+    ["set_remove", {}, "set"],
+    ["set_remove", { set: ref("s") }, "value"],
+    ["set_contains", {}, "set"],
+    ["set_contains", { set: ref("s") }, "value"],
+    ["set_length", {}, "set"],
+    ["set_is_empty", {}, "set"],
+    ["set_to_list", {}, "set"],
+    ["set_union", {}, "left"],
+    ["set_union", { left: ref("a") }, "right"],
+    ["set_intersection", {}, "left"],
+    ["set_intersection", { left: ref("a") }, "right"],
+    ["set_difference", {}, "left"],
+    ["set_difference", { left: ref("a") }, "right"],
+  ];
+
+  test("a missing operand throws a descriptive compile-time error, never a placeholder value", () => {
+    // Positive floor: an empty table would make the loop below vacuously green.
+    assert.ok(missingOperandCases.length >= 15);
+    for (const [fn, fields, missing] of missingOperandCases) {
+      assert.throws(
+        () => compileBody(setCall(fn, fields)),
+        new RegExp(`std_collections\\.${fn} is missing its "${missing}" field`),
+        `${fn} without "${missing}" must throw, not compile to a constant`,
+      );
+    }
   });
 });
 

@@ -394,6 +394,51 @@ hand-built programs chosen to discriminate shapes the corpus never emits.
 need their own fix and their own verification (the `cpp-compiled` conformance
 leg compiles every fixture through the C++ compiler).
 
+### 5b. A base function's RETURN SHAPE is part of the contract, and is checked
+Executing a base function is not enough — a fixture that only calls
+`set_add(s, x)` for its side effect never notices that the Dart engine returned
+the new SET, the Dart and C++ compilers returned the set, and the TS engine
+returned an unconditional `true`. Three of six cells disagreed for as long as
+nobody put the result in a **value position** (issue #545). Nothing could see
+it: `outputType` was `''` on every universal std declaration, so the contract
+was not merely unchecked, it was unstated.
+
+Two gates now cover this class:
+
+* **Cross-target** — `tests/conformance/459_set_add_remove_bool` prints the
+  result of all four return-value branches (fresh insert / duplicate insert /
+  present removal / absent removal). Because it is a conformance fixture it gates
+  every engine and every compiled leg in the matrix at once. It uses a FRESH set
+  per case rather than observing the mutation, because the stronger chained form
+  fails on the C# and Rust self-hosted engines for an unrelated pre-existing
+  reason (issue #557); the in-place half is pinned per runtime instead
+  (`csharp/shared/test`, `rust/shared/src/runtime.rs`, `go/runtime`,
+  `python/compiler/tests`) and on the Dart reference engine.
+* **Declaration** — `dart/engine/test/std_output_type_contract_test.dart` reads
+  the canonical builders, and for every base function that declares a non-empty
+  `outputType` it runs the Dart reference engine and asserts the answer's
+  runtime type. A declaration with no probe FAILS (a frozen, both-ways-checked
+  carve-out list holds the pre-existing host-facing `std_time`/`std_fs`/
+  `std_convert`/`std_concurrency` declarations, and no universal
+  `std`/`std_collections` declaration may join it), so `outputType` can never be
+  decoration again.
+
+Fixture 459 also exposed a pre-existing gap the corpus had never reached: the
+**`dart-roundtrip`** leg (Ball → Dart → *encoder* → Ball' → Dart) cannot survive
+it. Re-encoding the compiled `a.add(3)` needs the receiver's TYPE to tell
+`Set.add` (bool) from `List.add` (void), and the syntax-only `encode(String)` API
+has none, so the call routes to `list_push` and compiles back to the cascade
+`a..add(3)` — the SET, not the bool. That is issue #488's receiver-type seam, not
+a #545 regression: the fixture's `engine`, `dart-compiled` and `ts-compiled` legs
+all pass. It is recorded as the single entry in the harness's
+`_knownUnroundtrippable` map — a ratchet, not a baseline: an entry that starts
+passing fails the suite, an entry naming no real `fixture:leg` fails the suite,
+and every unlisted failure fails the suite exactly as before.
+
+When a base function's result is meaningful — a predicate, a "was it there"
+answer, anything a caller would branch on — declare the `outputType`, add the
+probe, and write the fixture so the value is PRINTED, not discarded.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -509,8 +554,9 @@ could not parse a summary at all).
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
+| **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
-| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
+| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |

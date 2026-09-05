@@ -949,7 +949,13 @@ export function createEngineSetup(mod: EngineModule) {
     _r('set_length', (i: any) => { const m = _m(i); const s = m['set'] ?? m['collection'] ?? new Set(); return s instanceof Set ? s.size : (Array.isArray(s) ? new Set(s).size : 0); });
     _r('set_from', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? m['iterable'] ?? []; return new Set(Array.isArray(l) ? l : []); });
     _r('set_create', (i: any) => { const m = _m(i); return new Set(Array.isArray(m['elements'] ?? m['values'] ?? []) ? (m['elements'] ?? m['values'] ?? []) : []); });
-    _r('set_add', (i: any) => { const m = _m(i); const s = m['set'] ?? m['collection']; const v = m['value'] ?? m['element']; if (s instanceof Set) { s.add(v); return true; } return false; });
+    // `true` ONLY on a fresh insert (issue #545). The old unconditional `true`
+    // made `set_add` on an element already present answer differently here than
+    // on every other engine — Dart's `Set.add` reports whether the element was
+    // newly inserted, and that is the one portable contract (conformance
+    // fixture 459_set_add_remove_bool). `set_remove`'s `Set.delete` already
+    // reports presence correctly.
+    _r('set_add', (i: any) => { const m = _m(i); const s = m['set'] ?? m['collection']; const v = m['value'] ?? m['element']; if (s instanceof Set) { if (s.has(v)) return false; s.add(v); return true; } return false; });
     _r('set_remove', (i: any) => { const m = _m(i); const s = m['set'] ?? m['collection']; const v = m['value'] ?? m['element']; return s instanceof Set ? s.delete(v) : false; });
     _r('set_add_all', (i: any) => { const m = _m(i); const s = m['set'] ?? m['collection']; const other = m['other'] ?? m['elements'] ?? []; if (s instanceof Set) { const items = Array.isArray(other) ? other : (other instanceof Set ? [...other] : []); for (const item of items) s.add(item); } return null; });
     _r('union', (i: any) => { const m = _m(i); const self = m['self'] ?? m['set'] ?? new Set(); const other = m['arg0'] ?? m['other'] ?? new Set(); const sA = self instanceof Set ? self : new Set(Array.isArray(self) ? self : []); const sB = other instanceof Set ? other : new Set(Array.isArray(other) ? other : []); return new Set([...sA, ...sB]); });

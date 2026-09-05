@@ -645,11 +645,13 @@ void main() {
       });
 
       test('Set.first / last / single', () async {
+        // Built with set_create, not set_add: since #545 `set_add` answers a
+        // bool (it mutates in place), so it can no longer stand in for a
+        // set-valued expression.
         final s = stdCall(
-          'set_add',
+          'set_create',
           msg([
-            field('set', stdCall('set_create', msg([]))),
-            field('value', literal(7)),
+            field('elements', listLit([literal(7)])),
           ]),
         );
         expect(await evalToString(fieldAcc(s, 'first')), '7');

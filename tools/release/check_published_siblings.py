@@ -282,6 +282,16 @@ def self_test() -> int:
         "0.3.0+6 > 0.3.0+3 > 0.3.0",
     )
 
+    # Positive floor: pointed at a tree with no dart/ packages, the live check
+    # must fail rather than report a vacuous success.
+    empty_root = os.path.join(tmp, "empty")
+    os.makedirs(empty_root, exist_ok=True)
+    check(
+        "refuses to pass vacuously when the tree declares no publishable packages",
+        main([empty_root, lock, "ball_compiler", "0.4.0"]) == 1,
+        "expected exit 1 from a root with no dart/ packages",
+    )
+
     passed = sum(1 for _, condition, _ in results if condition)
     failed = len(results) - passed
     for label, condition, detail in results:
@@ -289,7 +299,7 @@ def self_test() -> int:
         if not condition and detail:
             print(f"  {detail}")
     total = len(results)
-    minimum = 10
+    minimum = 11
     if total < minimum:
         print(
             f"::error::published-sibling guard self-test ran {total} cases, "
@@ -310,6 +320,15 @@ def main(argv: list[str]) -> int:
         )
         return 2
     root, lock_path, pkg, version = argv
+    # Positive floor: an empty declared set (wrong root, a checkout that never
+    # happened) would make every comparison below vacuous and report success.
+    declared = declared_versions(root)
+    if not declared:
+        print(
+            f"::error::found no publishable Dart packages under {root}/dart — "
+            "this check would pass vacuously, so it fails instead",
+        )
+        return 1
     checked, problems = stale_siblings(root, lock_path, pkg, version)
     print(f"checked {checked} Ball sibling(s) in the published resolution of {pkg} {version}")
     for problem in problems:

@@ -18,6 +18,8 @@ use std::sync::LazyLock;
 mod descriptor_builders;
 pub mod runtime;
 mod std_collections_module;
+#[cfg(test)]
+mod std_dart_parity;
 mod std_io_module;
 mod std_memory_module;
 mod std_module;

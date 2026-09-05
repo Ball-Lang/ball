@@ -19,6 +19,7 @@ library;
 import 'package:analyzer/dart/analysis/features.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
+import 'package:analyzer/dart/element/type.dart' show InterfaceType;
 import 'package:ball_base/ball_base.dart' show buildStdConvertModule;
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 import 'package:ball_base/gen/google/protobuf/descriptor.pb.dart' as google;
@@ -3932,9 +3933,16 @@ class DartEncoder {
       // then emitted as the literal placeholder `/* invalid split() */`).
       //
       // A mismatch falls through to the generic user-method-call encoding
-      // below. This does NOT fix receiver-TYPE mismatches that still satisfy
-      // the arity (`Set.add` vs `List.add`, `Map.toList` vs `List.toList`) —
-      // those need the resolver-backed encoder issue #488 proposes.
+      // below.
+      //
+      // The arity window alone does NOT separate receiver-TYPE collisions that
+      // still satisfy it. Since #488 slice 1 the encoder ALSO consults the
+      // receiver's static type when one is available (see `_receiverIsSet`
+      // below and `PackageEncoder.prepareStaticTypes()`), which closes the
+      // `Set.add` vs `List.add` family. Still open, and still needing the same
+      // seam extended: `String.contains` vs `Iterable.contains`,
+      // `Map…toList` vs `List.toList`, and nullable-receiver `!`/`?.`/`??`
+      // preservation.
       const collectionRoutes = <String, (String, String, String, int, int)>{
         // Names MUST match the Dart engine's _buildStdDispatch keys.
         'add': ('std_collections', 'list_push', 'list', 1, 1),
@@ -3991,12 +3999,40 @@ class DartEncoder {
       // Arity gate: compare the PRE-RENAME argument count against the route's
       // window. Outside it, `route` stays null and the generic
       // user-method-call fallback below takes over.
-      final route =
+      var route =
           (candidate != null &&
               args.length >= candidate.$4 &&
               args.length <= candidate.$5)
           ? candidate
           : null;
+      // Receiver-TYPE gate (issue #488). Every `'list'`-flavored route above
+      // models a `List` method; on a `Set` receiver the modelling is wrong and
+      // the compiled Dart is rejected by Dart's own front end — `Set.add`
+      // returns `bool`, but `list_push` compiles to the cascade `s..add(x)`,
+      // whose value is the Set (`return_of_invalid_type`).
+      //
+      // Declining the route hands the call to the generic method-call encoding
+      // below, which re-emits the source's own `s.add(x)` verbatim. That is
+      // strictly better than re-routing to `std_collections.set_add`: set_add
+      // is value-flavored on Dart (the Dart engine returns the NEW SET and the
+      // Dart compiler emits `s..add(v)`) yet bool-flavored on the TS engine, so
+      // it would reproduce the very cascade this fixes AND import a
+      // cross-target divergence — tracked separately as issue #545. Do not
+      // route here until that is settled.
+      //
+      // The Dart engine's generic method dispatch already
+      // implements `Set.add`/`remove`/… with exact Dart semantics
+      // (`engine_control_flow.dart`'s set block returns `true` only on a fresh
+      // insert), so the declined form stays executable on the engine too.
+      //
+      // Only fires when the receiver's static type is actually KNOWN. The
+      // syntax-only `encode(String)` / `encodeModule(String, …)` APIs parse
+      // with `parseString`, whose AST leaves `staticType` null, so their
+      // behavior is bit-for-bit unchanged; `PackageEncoder.prepareStaticTypes()`
+      // is the opt-in that supplies a resolved AST.
+      if (route != null && route.$3 == 'list' && _receiverIsSet(realTarget)) {
+        route = null;
+      }
       if (route != null) {
         final (module, fnName, selfField, _, _) = route;
         _usedBaseFunctions.add(fnName);
@@ -4128,6 +4164,23 @@ class DartEncoder {
     _setCallInput(call, args);
     return Expression()..call = call;
     // coverage:ignore-end
+  }
+
+  /// Whether [target]'s RESOLVED static type is a `dart:core` `Set` — the type
+  /// itself or any subtype (`LinkedHashSet`, `HashSet`, `SplayTreeSet`,
+  /// `UnmodifiableSetView`, a user class that `implements Set<T>`, …).
+  ///
+  /// Returns `false` whenever the type is simply unknown: an unresolved AST
+  /// (everything `parseString` produces), `dynamic`, or a type the analyzer
+  /// could not complete. That default is what makes the receiver-type gate a
+  /// pure refinement — with no resolution available the encoder behaves
+  /// exactly as it always has (issue #488).
+  static bool _receiverIsSet(ast.Expression? target) {
+    final type = target?.staticType;
+    if (type is! InterfaceType) return false;
+    bool isCoreSet(InterfaceType t) =>
+        t.element.name == 'Set' && t.element.library.isDartCore;
+    return isCoreSet(type) || type.allSupertypes.any(isCoreSet);
   }
 
   /// Whether [name] syntactically looks like a type/constructor name rather

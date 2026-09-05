@@ -117,6 +117,15 @@ Module buildStdModule() {
       ]),
 
       // --- Math input types ---
+      _type('CompareToInput', [_exprField('value', 1), _exprField('other', 2)]),
+      // Shared by to_string_as_fixed / to_string_as_exponential (both take
+      // `digits`) and to_string_as_precision (`precision`), mirroring how
+      // ListInput/MapInput serve a family of related operations.
+      _type('NumFormatInput', [
+        _exprField('value', 1),
+        _exprField('digits', 2),
+        _exprField('precision', 3),
+      ]),
       _type('MathClampInput', [
         _exprField('value', 1),
         _exprField('min', 2),
@@ -206,6 +215,32 @@ Module buildStdModule() {
       'UnaryInput',
       '',
       'Parse double from string: double.parse(value)',
+    ),
+    _fn('to_double', 'UnaryInput', '', 'To double: value.toDouble()'),
+    _fn('to_int', 'UnaryInput', '', 'To int: value.toInt()'),
+    _fn(
+      'compare_to',
+      'CompareToInput',
+      '',
+      'Three-way compare: value.compareTo(other)',
+    ),
+    _fn(
+      'to_string_as_fixed',
+      'NumFormatInput',
+      '',
+      'Fixed-point string: value.toStringAsFixed(digits)',
+    ),
+    _fn(
+      'to_string_as_exponential',
+      'NumFormatInput',
+      '',
+      'Exponential string: value.toStringAsExponential([digits])',
+    ),
+    _fn(
+      'to_string_as_precision',
+      'NumFormatInput',
+      '',
+      'Precision string: value.toStringAsPrecision(precision)',
     ),
 
     // --- Null safety ---
@@ -352,6 +387,14 @@ Module buildStdModule() {
       'IndexInput',
       '',
       'Char code at index: target.codeUnitAt(index)',
+    ),
+    // Dart-flavoured alias of string_char_code_at (same engine handler); the
+    // encoder routes `String.codeUnitAt(i)` here.
+    _fn(
+      'string_code_unit_at',
+      'IndexInput',
+      '',
+      'Code unit at index: target.codeUnitAt(index)',
     ),
     _fn(
       'string_from_char_code',

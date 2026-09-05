@@ -10,10 +10,10 @@
     "package:ball_base buildStdTimeModule()",
     "package:ball_base buildStdConcurrencyModule()"
   ],
-  "totalFunctions": 258,
+  "totalFunctions": 271,
   "functionsByModule": {
-    "std": 120,
-    "std_collections": 53,
+    "std": 127,
+    "std_collections": 59,
     "std_concurrency": 9,
     "std_convert": 6,
     "std_fs": 10,
@@ -22,9 +22,9 @@
     "std_time": 12
   },
   "summary": {
-    "encoderEmittable": 108,
-    "coveredByFixture": 114,
-    "engineImplementedDart": 220,
+    "encoderEmittable": 121,
+    "coveredByFixture": 125,
+    "engineImplementedDart": 233,
     "carvedOut": 0
   },
   "functions": [
@@ -422,6 +422,18 @@
         "400_switch_continue_label",
         "442_switch_goto_fallthrough_guard_or_pattern",
         "48_break_continue"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "compare_to",
+      "inputType": "CompareToInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "122_list_sort_comparator",
+        "261_conversion_and_ops"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2537,6 +2549,20 @@
     },
     {
       "module": "std",
+      "name": "string_code_unit_at",
+      "inputType": "IndexInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "151_recursive_descent_parser",
+        "249_string_control_char_edges",
+        "255_string_surrogate_astral"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
       "name": "string_concat",
       "inputType": "BinaryInput",
       "encoderEmittable": false,
@@ -2947,6 +2973,35 @@
     },
     {
       "module": "std",
+      "name": "to_double",
+      "inputType": "UnaryInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "216_int_double_truncation",
+        "259_math_functions",
+        "320_num_methods_on_double_local",
+        "99_type_conversion"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "to_int",
+      "inputType": "UnaryInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "216_int_double_truncation",
+        "259_math_functions",
+        "320_num_methods_on_double_local",
+        "416_user_method_name_arity_collision",
+        "99_type_conversion"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
       "name": "to_string",
       "inputType": "UnaryInput",
       "encoderEmittable": true,
@@ -3142,6 +3197,39 @@
     },
     {
       "module": "std",
+      "name": "to_string_as_exponential",
+      "inputType": "NumFormatInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "357_num_exponential_precision"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "to_string_as_fixed",
+      "inputType": "NumFormatInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "316_to_string_as_fixed"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "to_string_as_precision",
+      "inputType": "NumFormatInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "357_num_exponential_precision"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
       "name": "try",
       "inputType": "TryInput",
       "encoderEmittable": true,
@@ -3271,6 +3359,17 @@
     },
     {
       "module": "std_collections",
+      "name": "list_clear",
+      "inputType": "ListInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "111_cascade_operator"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_collections",
       "name": "list_concat",
       "inputType": "ListInput",
       "encoderEmittable": true,
@@ -3345,6 +3444,20 @@
     },
     {
       "module": "std_collections",
+      "name": "list_foreach",
+      "inputType": "ListCallbackInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "116_map_iteration",
+        "119_nested_maps",
+        "121_map_from_entries",
+        "205_map_ordering"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_collections",
       "name": "list_get",
       "inputType": "ListInput",
       "encoderEmittable": false,
@@ -3383,6 +3496,21 @@
       "inputType": "ListInput",
       "encoderEmittable": false,
       "coveredByFixtures": [],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_collections",
+      "name": "list_join",
+      "inputType": "StringJoinInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "111_cascade_operator",
+        "205_map_ordering",
+        "209_generator_filtered_state",
+        "400_switch_continue_label",
+        "442_switch_goto_fallthrough_guard_or_pattern"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3578,6 +3706,28 @@
     },
     {
       "module": "std_collections",
+      "name": "list_to_list",
+      "inputType": "ListInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "118_set_operations",
+        "124_frequency_counter",
+        "125_group_by",
+        "163_generator_async",
+        "310_set_map_comprehension",
+        "319_string_runes",
+        "350_set_value",
+        "384_list_filter_where",
+        "387_list_reverse_getter",
+        "395_map_keys_values_fail_loud",
+        "397_map_values",
+        "416_user_method_name_arity_collision"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_collections",
       "name": "list_zip",
       "inputType": "ListInput",
       "encoderEmittable": false,
@@ -3603,6 +3753,15 @@
         "78_map_operations",
         "95_fibonacci_memo"
       ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_collections",
+      "name": "map_contains_value",
+      "inputType": "MapInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3692,6 +3851,15 @@
       "name": "map_merge",
       "inputType": "MapInput",
       "encoderEmittable": false,
+      "coveredByFixtures": [],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_collections",
+      "name": "map_put_if_absent",
+      "inputType": "MapInput",
+      "encoderEmittable": true,
       "coveredByFixtures": [],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -4776,7 +4944,10 @@
       "timestamp_ms",
       "year"
     ],
-    "emittableButUncoveredByFixture": [],
+    "emittableButUncoveredByFixture": [
+      "map_contains_value",
+      "map_put_if_absent"
+    ],
     "notEngineImplementedDart": [
       "address_of",
       "deref",

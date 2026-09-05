@@ -161,6 +161,20 @@ fn type_defs() -> Vec<TypeDefinition> {
         ),
         // --- Math input types ---
         type_def(
+            "CompareToInput",
+            vec![expr_field("value", 1), expr_field("other", 2)],
+        ),
+        // Shared by to_string_as_fixed / to_string_as_exponential (both take
+        // `digits`) and to_string_as_precision (`precision`).
+        type_def(
+            "NumFormatInput",
+            vec![
+                expr_field("value", 1),
+                expr_field("digits", 2),
+                expr_field("precision", 3),
+            ],
+        ),
+        type_def(
             "MathClampInput",
             vec![
                 expr_field("value", 1),
@@ -304,6 +318,32 @@ fn functions() -> Vec<FunctionDefinition> {
             "UnaryInput",
             "",
             "Parse double from string: double.parse(value)",
+        ),
+        base_fn("to_double", "UnaryInput", "", "To double: value.toDouble()"),
+        base_fn("to_int", "UnaryInput", "", "To int: value.toInt()"),
+        base_fn(
+            "compare_to",
+            "CompareToInput",
+            "",
+            "Three-way compare: value.compareTo(other)",
+        ),
+        base_fn(
+            "to_string_as_fixed",
+            "NumFormatInput",
+            "",
+            "Fixed-point string: value.toStringAsFixed(digits)",
+        ),
+        base_fn(
+            "to_string_as_exponential",
+            "NumFormatInput",
+            "",
+            "Exponential string: value.toStringAsExponential([digits])",
+        ),
+        base_fn(
+            "to_string_as_precision",
+            "NumFormatInput",
+            "",
+            "Precision string: value.toStringAsPrecision(precision)",
         ),
         // --- Null safety ---
         base_fn(
@@ -495,6 +535,13 @@ fn functions() -> Vec<FunctionDefinition> {
             "",
             "Char code at index: target.codeUnitAt(index)",
         ),
+        // Dart-flavoured alias of string_char_code_at (same engine handler).
+        base_fn(
+            "string_code_unit_at",
+            "IndexInput",
+            "",
+            "Code unit at index: target.codeUnitAt(index)",
+        ),
         base_fn(
             "string_from_char_code",
             "UnaryInput",
@@ -678,11 +725,14 @@ mod tests {
     }
 
     #[test]
-    fn function_count_matches_std_json() {
-        // Canonical inventory: `dart/shared/std.json`, regenerated from
-        // `dart/shared/lib/std.dart` via `dart run bin/gen_std.dart`. Bump this
-        // in lockstep with that file: 120 since `type_of` landed (#489).
+    fn function_names_match_dart_source() {
+        // Canonical inventory: `dart/shared/lib/std.dart` (the same builder
+        // `dart run bin/gen_std.dart` turns into `dart/shared/std.json`). Read
+        // name-for-name rather than asserted as a bare count — a hardcoded
+        // number cannot see the Dart side moving, which is exactly how this
+        // crate silently fell behind by seven functions before #505.
         let module = build_std_module();
-        assert_eq!(module.functions.len(), 120);
+        let names: Vec<String> = module.functions.iter().map(|f| f.name.clone()).collect();
+        crate::std_dart_parity::assert_matches_dart_source("std", &names);
     }
 }

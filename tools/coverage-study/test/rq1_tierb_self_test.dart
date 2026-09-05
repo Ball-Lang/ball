@@ -16,12 +16,22 @@
 ///  2. A file whose compiled-back Dart still passes the package's suite is
 ///     scored `clean` — the harness cannot pass by calling everything dirty.
 ///  3. **The load-bearing one.** A file carrying the #488 shape — a
-///     `Set<T>.add(x)` whose `bool` result is returned — is scored
-///     `behavioral-drift`, *while Tier A scores the very same source `clean`*.
-///     Both verdicts are asserted here, side by side, because the pair is the
-///     entire justification for Tier B existing: the construct parses, keeps
-///     every declaration and reaches the stage-5 fixpoint, and only the
-///     package's own tests can see that `bool` became `Set<String>`.
+///     `Set<T>.add(x)` whose `bool` result is returned — is measured through
+///     the RECEIVER-TYPE-AWARE seam and scored `clean`, *while the
+///     resolution-free `compileBack` still emits the broken cascade for the
+///     very same source*. Both are asserted here, side by side, because the
+///     pair is what proves the harness is wired to the code path under test.
+///
+///     This assertion INVERTED in #488 slice 2, and the inversion is the
+///     point. Tier B originally called `DartEncoder().encode(source)` directly,
+///     whose `parseString` AST leaves every `staticType` null — so every
+///     receiver-type-aware branch in the encoder was structurally unreachable
+///     from here and `registry.dart` scored `behavioral-drift` no matter what
+///     the encoder did. Slice 1's fix for exactly this shape had already landed
+///     on `main` and Tier B still reported the defect. The harness now runs one
+///     `PackageEncoder.prepareStaticTypes()` + `encode()` per package, so the
+///     fix is visible and the file is clean. A regression that un-wires the
+///     seam turns this assertion red again.
 ///  4. A package whose UNMODIFIED suite does not pass 100% is reported
 ///     `baseline-unstable` and excluded from the denominator — never silently
 ///     defaulted to clean or dirty, which is how a flaky third-party suite
@@ -176,6 +186,20 @@ Future<void> main() async {
           'reason="${tierAVerdict.reason}"',
     );
 
+    // ── The seam Tier B measures through ────────────────────────────────────
+    // The resolution-free path is NOT going away: it is still what a checkout
+    // with no `.dart_tool/package_config.json` falls back to, and it is exactly
+    // what `dart/self_host/engine.ball.json` is generated with. Pin its
+    // behaviour so a future change cannot quietly make the two paths identical
+    // and leave this file asserting nothing.
+    final syntaxOnly = compileBack(_registrySource) ?? '';
+    check(
+      'the resolution-free compileBack still emits the #488 cascade (the '
+          'path a pub-get-less checkout falls back to is unchanged)',
+      syntaxOnly.contains('seen..add(name)'),
+      'compiled output was: $syntaxOnly',
+    );
+
     // ── Per-file substitution ───────────────────────────────────────────────
     final digestsBefore = _digests(libRoot);
     final perFile = await studyPackagePerFile('synthetic', tempDir);
@@ -197,14 +221,31 @@ Future<void> main() async {
         .where((f) => f.file == 'registry.dart')
         .toList();
     check(
-      'THE LOAD-BEARING ONE: the #488-shaped file Tier A called clean is '
-      'scored behavioral-drift by Tier B',
-      registry.length == 1 &&
-          registry.single.scored &&
-          registry.single.tag == 'behavioral-drift',
+      'THE LOAD-BEARING ONE: the #488-shaped file is measured through the '
+      'receiver-type-aware seam and scored clean',
+      registry.length == 1 && registry.single.scored && registry.single.clean,
       registry.isEmpty
           ? 'not reported'
           : 'reason was "${registry.single.reason}"',
+    );
+
+    // The verdict above could in principle go clean for the wrong reason (a
+    // fallback that happened to work), so assert the seam itself produced the
+    // receiver-type-aware text. `pubGet` has run by now, which is what
+    // `prepareStaticTypes()` needs.
+    final seam = await preparePackageCompileBack(tempDir);
+    check(
+      'the per-package receiver-type-aware context is actually built (a silent '
+      'fallback to the resolution-free path would score by luck)',
+      seam != null && seam.length >= 1,
+      seam == null ? 'no context' : 'files=${seam.length}',
+    );
+    final seamRegistry = seam?['lib/registry.dart'] ?? '';
+    check(
+      'and it compiles Set<T>.add(x) as a plain call, not the cascade',
+      seamRegistry.contains('return seen.add(name);') &&
+          !seamRegistry.contains('seen..add(name)'),
+      'compiled output was: $seamRegistry',
     );
 
     final facade = perFile.files.where((f) => f.file == 'facade.dart').toList();
@@ -257,8 +298,8 @@ Future<void> main() async {
       'status="${whole.status}" files=${whole.files.length}',
     );
     check(
-      'a package containing the #488 shape is NOT clean whole-package',
-      whole.files.length == 1 && whole.files.single.tag == 'behavioral-drift',
+      'the whole package survives simultaneous substitution through the seam',
+      whole.files.length == 1 && whole.files.single.clean,
       whole.files.isEmpty
           ? 'not reported'
           : 'reason was "${whole.files.single.reason}"',

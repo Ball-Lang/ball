@@ -6,8 +6,8 @@ paths:
 # Python-Specific Instructions
 
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
-`ball` CLI (`run`/`compile`/`encode`/`check`) are all in place and tested (the self-hosted cli-core
-verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported — like Go). The
+`ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
+`info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
 self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 343 passed,
 0 failed, 343 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
@@ -70,12 +70,16 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   driving the generated, gitignored `ball_engine/compiled_engine.py`. `ball_engine/regen.py`
   regenerates it; `conformance/runner.py` is the whole-corpus sweep. See `python/engine/AGENTS.md`.
 - `python/cli` (package `ball_cli`, `python -m ball_cli` / `ball`) — the `ball` CLI:
-  `run`/`compile`/`encode`/`check` over engine/compiler/encoder (the Python sibling of
-  `rust/cli`/`csharp/cli`/`go/cli`; no package-registry commands, no `audit`). All logic is in
-  `ball_cli.run` so tests exercise every verb in-process. `run` needs the gitignored
-  `compiled_engine.py` — an honest exit-1 + regenerate hint when absent, never a silent success.
-  `ball_cli/__main__.py` forces UTF-8 stdout/stderr so a cp1252 Windows console does not raise
-  `UnicodeEncodeError` on non-ASCII `run` output. See `python/cli/AGENTS.md`.
+  `run`/`compile`/`encode`/`check` over engine/compiler/encoder plus the self-hosted cli-core verbs
+  `info`/`validate`/`tree`/`version` (#570) (the Python sibling of `rust/cli`/`csharp/cli`/`go/cli`;
+  no package-registry commands, no `audit`). All logic is in `ball_cli.run` so tests exercise every
+  verb in-process. `run` needs the gitignored `compiled_engine.py` — an honest exit-1 + regenerate
+  hint when absent, never a silent success. The cli-core verbs resolve the same way through
+  `ball_cli/cli_core.py`: the generated `compiled_cli.py`, else `bootstrap_clicore.load_cli_core()`
+  (compile-on-first-use into the `clicore` cache subdirectory), else the same honest exit-1 — Python
+  has no build tag, so AVAILABILITY is the gate. `ball_cli/__main__.py` forces UTF-8 stdout/stderr
+  so a cp1252 Windows console does not raise `UnicodeEncodeError` on non-ASCII `run` output. See
+  `python/cli/AGENTS.md`.
 
 ## Key Patterns
 
@@ -185,8 +189,15 @@ python -m conformance.runner                             # prints the CI-parseab
   wheel, install it into a venv OUTSIDE the repo with no `PYTHONPATH`, and run `--version` / `check`
   / `compile` / `encode` / `run`, comparing `run`'s stdout to a conformance golden as BYTES. An
   in-tree venv would let `ball_cli.paths` find the checkout and mask a packaging defect.
-- `ball --version` is a FLAG, not a `version` verb: `ball version <program>` is the self-hosted
-  cli-core report in the sibling CLIs, still an unported follow-up here.
+- `ball --version` is a FLAG *and* `ball version` is a VERB, both on purpose (#570) — the same
+  split Rust has (clap's built-in `--version` alongside a `version` subcommand). The flag prints the
+  installed toolchain banner; the verb prints the PORTABLE `ball <version>` line `cli_core`
+  computes. The flag is matched in `cli.py` before the subcommand table, so they never collide.
+- The wheel ships the cli-core's Ball SOURCE too (`ball_cli/_clicore/cli_core.ball.json.gz`, from
+  `python/cli/tool/bundle_cli_core.py`), never the generated `compiled_cli.py`;
+  `ball_cli/bootstrap_clicore.py` compiles it into the `clicore` subdirectory of the shared cache
+  root on first use. `python/setup.py`'s `build_py` filter excludes BOTH generated modules, and
+  `wheel_smoke.py` asserts each artifact carries the source and not the generated module.
 - Release: `.github/workflows/publish-pypi.yml`, tag-gated on `python-pypi/vX.Y.Z`, PyPI Trusted
   Publishing (OIDC, no token fallback). See `docs/RELEASE.md` and `python/AGENTS.md § Publishing`.
 

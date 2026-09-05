@@ -6,8 +6,9 @@ paths:
 # Go-Specific Instructions
 
 Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the `ball`
-CLI (`run`/`compile`/`encode`/`check`, #437) are all in place and tested (the self-hosted cli-core
-verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported). The
+CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
+`info`/`validate`/`tree`/`version` behind the off-by-default `clicore` build tag, #570) are all in
+place and tested. The
 self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 343 passed,
 0 failed, 343 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
@@ -111,12 +112,19 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `compiled/compiled_engine.go`. `cmd/regen` regenerates it; `conformance/` is the whole-corpus
   sweep. See `go/engine/AGENTS.md`.
 - `go/cli` (package `cli`, `cmd/ball`) — the `ball` CLI (#437): `run`/`compile`/`encode`/`check`
-  over engine/compiler/encoder (the Go sibling of `rust/cli`/`csharp/cli`; no package-registry
-  commands, no `audit`). All logic is in package `cli` (`cli.Run`) so tests exercise every verb
-  in-process. `run` inherits the `selfhost` build tag through Go's tag propagation — a default
-  build compiles and returns `ErrSelfHostPending` (exit 1) at runtime, never a silent success;
-  `-tags selfhost` (after regenerating the compiled engine) executes for real. Exit-code contract
-  mirrors `rust/cli` (0 ok / 1 runtime / 2 invalid-or-usage / 3 I/O). See `go/cli/AGENTS.md`.
+  over engine/compiler/encoder plus the self-hosted cli-core verbs
+  `info`/`validate`/`tree`/`version` (#570) (the Go sibling of `rust/cli`/`csharp/cli`; no
+  package-registry commands, no `audit`). All logic is in package `cli` (`cli.Run`) so tests
+  exercise every verb in-process. `run` inherits the `selfhost` build tag through Go's tag
+  propagation — a default build compiles and returns `ErrSelfHostPending` (exit 1) at runtime, never
+  a silent success; `-tags selfhost` (after regenerating the compiled engine) executes for real.
+  The cli-core verbs sit behind their OWN `clicore` tag (`cmd/regen` -> the gitignored
+  `compiled/compiled_cli.go`), deliberately independent of `selfhost` since they never touch the
+  interpreter — the Go analog of Rust's `cli_core` feature and C#'s `-p:CliCore=true`; both tags
+  combine (`go build -tags "clicore selfhost"`). They are dispatched and listed in `--help` in EVERY
+  build (so `tools/check_cli_verb_parity.py`'s answer never depends on how the binary was built) and
+  fail loud at runtime without the artifact. Exit-code contract mirrors `rust/cli` (0 ok /
+  1 runtime / 2 invalid-or-usage / 3 I/O). See `go/cli/AGENTS.md`.
 
 ## Key Patterns
 

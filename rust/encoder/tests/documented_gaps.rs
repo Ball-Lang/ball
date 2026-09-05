@@ -26,13 +26,21 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. Three are flipped today: receiver-less associated functions
-//! and cross-file call targets (issue #491, slice 3), and non-`Fn` items
-//! inside an `impl` block (issue #491, slice 5). The deeper proofs for all
-//! three live in `rust/encoder/tests/static_methods.rs`,
-//! `rust/encoder/tests/cross_module_calls.rs` and
-//! `rust/encoder/tests/mixed_impl_items.rs`; the flipped tests here remain
-//! the goalposts that keep this file's gap list honest.
+//! unverified. Five are flipped today: receiver-less associated functions and
+//! cross-file call targets (issue #491's associated-fn slice), non-`Fn` items
+//! inside an `impl` block, and tuple + unit structs. The deeper proofs for all
+//! five live in `rust/encoder/tests/static_methods.rs`,
+//! `rust/encoder/tests/cross_module_calls.rs`,
+//! `rust/encoder/tests/mixed_impl_items.rs` and
+//! `rust/encoder/tests/tuple_and_unit_structs.rs`; the flipped tests here
+//! remain the goalposts that keep this file's gap list honest.
+//!
+//! **Slice numbering is not used here on purpose.** #491's issue body numbers
+//! its slices one way and the PRs that landed self-labelled *different* work
+//! with the same ordinals (what the issue calls "slice 5" — tuple/unit structs
+//! — merged long after a PR titled "slice 5" that closed non-`Fn` impl items,
+//! a gap found organically and never in the issue's list). Naming each gap by
+//! its content, not its ordinal, is what keeps this file readable.
 //!
 //! ## Deliberately NOT pinned here
 //!
@@ -58,25 +66,45 @@ fn encode(source: &str) {
     let _ = ball_lang_encoder::encode(source);
 }
 
-// ── types.rs: struct shapes (slice 5) ────────────────────────────────────────
+// ── types.rs: struct shapes ──────────────────────────────────────────────────
 
-/// 15 of 196 study files. `types.rs`'s struct encoding is named-fields-only.
+/// **CLOSED** by issue #491's tuple-and-unit-struct slice — 14 of the 110
+/// scored files in the live Tier A funnel, the largest declaration-shape
+/// bucket. A tuple struct now declares its elements under their positional
+/// index (`"0"`, `"1"` — the very names `member_name` has always produced for
+/// a `p.0` *read*), and `Pair(1, 2)` encodes as a `message_creation` rather
+/// than as a call to a nonexistent function. Flipped from `#[should_panic]`
+/// to a positive assertion in the PR that closed it, per this file's own doc
+/// comment; the encode → compile → run proof lives in
+/// `rust/encoder/tests/tuple_and_unit_structs.rs`.
 #[test]
-#[should_panic(expected = "only a struct with named fields is supported")]
-fn tuple_struct_is_a_documented_gap() {
+fn tuple_struct_encodes() {
     encode("struct Pair(i32, i32);\nfn main() { let _p = Pair(1, 2); }");
 }
 
-/// The same panic site, reached by a unit struct.
+/// The same call site, reached by a unit struct — zero declared fields, and a
+/// bare `Marker` used as a *value* encodes as an empty `message_creation`
+/// instead of falling through to a reference to a variable nobody declared.
 #[test]
-#[should_panic(expected = "only a struct with named fields is supported")]
-fn unit_struct_is_a_documented_gap() {
+fn unit_struct_encodes() {
     encode("struct Marker;\nfn main() { let _m = Marker; }");
 }
 
-// ── types.rs: enum shapes (slice 6) ──────────────────────────────────────────
+// ── types.rs: enum shapes ────────────────────────────────────────────────────
 
-/// 10 of 196 study files. `types.rs`'s enum encoding is fieldless-variants-only.
+/// 5 of the 110 scored Tier A files. `types.rs`'s enum encoding is
+/// fieldless-variants-only, and closing it is deliberately NOT bundled with
+/// the tuple/unit-struct slice above: a Rust sum type needs BOTH an ADT
+/// representation decision for construction (Ball's `TypeDefinition` has no
+/// variant-with-payload shape; the nearest neighbour is a `superclass`-per-
+/// variant class hierarchy, which no encoder or compiler precedent uses yet)
+/// AND new `match`-arm support for type-tag patterns with field binding —
+/// `control_flow.rs::encode_match` has exactly two arms today
+/// (`is_option_result_pattern` and `encode_literal_switch_match`), so matching
+/// a user enum's variant name panics even in the *fieldless* case. Unlike the
+/// receiver-less-associated-fn slice, which merely mapped syntax onto issue
+/// #288's already-shipped `is_static` shape, this one has no compiler-side
+/// precedent to reuse.
 #[test]
 #[should_panic(expected = "an enum variant carrying data is not supported")]
 fn data_carrying_enum_variant_is_a_documented_gap() {

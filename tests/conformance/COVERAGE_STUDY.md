@@ -253,9 +253,14 @@ after measuring.
 Read these as a map of where each pipeline stops on real code, not as a grade:
 
 * **Rust and Go stop at stage 1.** Every scored file is an `encode-error`; the
-  encoders' documented gaps (item-level `const`/`static`/`type`, tuple structs,
-  methods with receivers, top-level `var`/`type` declarations) are present in
-  essentially every real library file.
+  encoders' documented gaps (item-level `const`/`static`/`type`, unmapped
+  macros like Rust's `write!`, methods with receivers, top-level `var`/`type`
+  declarations) are present in essentially every real library file. Rust's
+  tuple/unit-struct gap closed under #491 without moving this table's Rust row
+  by a single file: all 14 files it had first-blocked simply landed on their
+  *next* independent gap. **Expect that of any single closed category here** —
+  a real crate file stacks several, and this instrument reports only the first
+  one it hits.
 * **C# gets furthest.** 74 of 472 files encode and 58 survive a re-encode, and
   the wall is stage 4 — `declaration-drift`, i.e. the round trip keeps the file
   parseable but loses declarations.

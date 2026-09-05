@@ -24,12 +24,16 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest first baseline: **0/110 clean, 0 files even encoded** (5 pinned crates,
-`tools/coverage-study/packages/rust.json`). Every scored file is an
-`encode-error`: the encoder's documented gaps (item-level `const`/`static`/
-`type`, tuple structs, methods declared in another file) are present in
-essentially every real crate file. That is the honest number, not a
-cherry-picked one — do not "improve" it by changing the pin list.
+Honest baseline, **still 0/110 clean, 0 files even encoded** (5 pinned crates,
+`tools/coverage-study/packages/rust.json`) after every #491 slice merged so far.
+Every scored file is an `encode-error`: the encoder's documented gaps
+(item-level `const`/`static`/`type`, `write!` and other unmapped macros,
+methods declared in another file) are present in essentially every real crate
+file, and a file that clears one gap lands on the next. That is the honest
+number, not a cherry-picked one — do not "improve" it by changing the pin list,
+and **do not expect a closed gap category to move it** (see "Tuple + unit
+structs" below for the measured before/after histogram that proves it does
+not).
 
 `cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
 every PR** in ci.yml's `rust` job. The RUN is the report-only `rust-tier-a` job
@@ -166,8 +170,8 @@ instructions.
   like the Dart encoder's cascade/null-aware-access/spread expansion. This is invariant, not
   optional — see `ball-lang-encoder`'s module doc comment (`rust/encoder/src/lib.rs`).
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
-  (documented gaps: multi-parameter lambdas, receiver-less associated functions, data-carrying
-  enum variants, tuple/unit structs, etc.) — read those module doc comments before assuming a
+  (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
+  unmapped macros, etc.) — read those module doc comments before assuming a
   construct is unsupported by accident vs. by design.
 
 ### Real-code coverage study (issue #491)
@@ -181,10 +185,10 @@ are all single-file `fn main` programs (the shared conformance corpus is single-
 construction).
 
 `rust/encoder/tests/documented_gaps.rs` closes that observation gap: one `#[should_panic]`
-characterization test per gap category (tuple/unit structs, data-carrying enum variants,
-receiver-less associated functions in `impl` and `trait` blocks, cross-file call targets,
-item-level `const`/`static`/`type`, an `impl` whose **self type** is not a plain named type,
-unmapped macro invocations), each pinning the shortest stable
+characterization test per gap category (data-carrying enum variants, receiver-less associated
+functions in `impl` and `trait` blocks, cross-file call targets, tuple/unit structs, non-`Fn`
+`impl` items, item-level `const`/`static`/`type`, an `impl` whose **self type** is not a plain
+named type, unmapped macro invocations), each pinning the shortest stable
 substring of today's panic. It runs on the required `Rust` CI check via `cargo test --workspace`.
 **Keep it in sync with the module doc comments** — when a slice closes a gap, flip that test from
 `#[should_panic]` to a real "encodes and round-trips" assertion in the same PR, so the module-doc
@@ -272,6 +276,80 @@ one: an `impl` whose SELF TYPE is not a plain named type (`impl<I> Trait for (I:
 self type" panic. Ball's class model keys members on an owner's short *name*, so a tuple/GAT self
 type has no owner to register them under — that needs a representation decision, not a tolerance
 tweak, and now has its own `documented_gaps.rs` pin.
+
+#### Tuple + unit structs (#491)
+
+`types.rs::encode_item_struct` used to `panic!` the instant `item.fields` was anything but
+`syn::Fields::Named`. All three shapes now produce the same class-shaped `TypeDefinition`; only
+the field *names* differ — a named field keeps its identifier, a tuple element is declared under
+its **positional index rendered as a decimal string** (`"0"`, `"1"`), and a unit struct declares
+zero fields (an empty `DescriptorProto`, not a missing one).
+
+That `"0"`/`"1"` spelling is load-bearing, not cosmetic: `types.rs::member_name` has always turned
+a `syn::Member::Unnamed` *read* (`p.0`) into exactly that string, so declaration and read agree
+with no translation table, and `ball-lang-compiler` treats a field name as an opaque map key
+(`is_positional_arg_name` matches only `arg<digits>`, so a bare `"0"` is inserted verbatim). The
+read side needed **no change at all** — `lib.rs::encode_field` and `member_name` were already
+correct, and are now pinned by a test rather than re-derived.
+
+**Declaration alone would have been a regression, not a fix**, so two `lib.rs` call sites landed in
+the same PR. `Pair(3, 4)` is syntactically identical to a same-file function call, so `encode_call`
+intercepts a known tuple-struct name *before* its `encode_user_call` branch and emits a
+`message_creation`; `Marker` used as a value is syntactically identical to a variable read, so
+`encode_path_expr` intercepts a known unit-struct name *before* its `reference(name)` fallback
+(and *after* `is_current_multi_param`, so a same-named fn/closure parameter still wins — this
+crate's established syntactic, name-only bias, deliberately not widened). Without those two, the
+encoder would have traded a loud encode-time panic for a program that fails to build downstream.
+Both sets are populated by the existing pre-pass in `encode_main_module`, because a use may
+textually precede its declaration.
+
+Proof: `rust/encoder/tests/tuple_and_unit_structs.rs` (encode → compile → `cargo build` → run,
+asserting `7` and `42`); the two `documented_gaps.rs` pins are flipped to positive assertions in
+the same PR.
+
+**Measured, and do not let a reader infer otherwise: the Tier A aggregate does NOT move.** Before
+and after, on the same 5 pinned crates and the same 110 scored files:
+`Results: 0 passed, 110 failed, 110 total`, `1 encoded: 0/110`. The first-blocker histogram is
+what changed, and it is exactly conserved:
+
+| first-blocker category | before | after |
+|---|---|---|
+| `only a struct with named fields is supported` (this slice) | **14** | **0** |
+| `unsupported macro invocation` (chiefly `write!`) | 2 | **9** |
+| `unsupported Rust expression kind` | 4 | 7 |
+| `unsupported top-level item` | 10 | 12 |
+| `unsupported path expression` | 11 | 12 |
+| `unsupported match pattern` | 0 | 1 |
+| every other category (call target 30, method call 16, `impl` self type 8, data-carrying enum 5, …) | unchanged | unchanged |
+
+All 14 files hit a **second, independent** documented gap immediately afterward — 7 of them
+`write!`, which `methods.rs::encode_macro` does not map (only `println!`/`format!`/`vec!` are).
+**`write!` is therefore the measured next-highest-yield target**, alongside the already-known
+cross-file method-call bucket; recording it here so the next slice does not have to re-derive it.
+A closed category is a real win on its own terms — it is simply not an aggregate one, and the PR
+that closes one must not imply that it is.
+
+#### Data-carrying enum variants are deliberately NOT bundled with the above
+
+They look like the same "declaration shape" bucket and are not. `Point::new` was encoder-only work
+because the *compiler* already had #288's `is_static` shape to map onto; a Rust sum type has no
+such precedent. Closing it needs **both** an ADT representation decision for construction (Ball's
+`TypeDefinition` has no variant-with-payload shape; the nearest neighbour is a `superclass`-per-
+variant hierarchy — `type_emit.rs::superclass_of` exists, but nothing uses it this way) **and** new
+`match`-arm support for type-tag patterns with field binding: `control_flow.rs::encode_match` has
+exactly two arms today (`is_option_result_pattern`, `encode_literal_switch_match`), so matching a
+user enum's variant name panics even in the *fieldless* case. Five first-blocked Tier A files, and
+per the table above the aggregate would not move either. `data_carrying_enum_variant_is_a_documented_gap`
+stays `#[should_panic]`, with this reasoning recorded in its doc comment.
+
+#### A note on "slice N" labels
+
+#491's issue body numbers its slices one way and the PRs that landed self-labelled *different*
+work with the same ordinals — what the issue calls "slice 5" (tuple/unit structs) merged long
+after a PR titled "slice 5" that closed non-`Fn` impl items, a gap discovered organically and
+never in the issue's list. The headings in this file preserve the labels their PRs actually used;
+**name a gap by its content from here on** (`tuple_and_unit_structs`, `data_carrying_enums`,
+`method_call_cross_file`), not by an ordinal that no longer identifies anything.
 
 #### `.fuse()` / `.is_empty()` (#491 slice 6)
 

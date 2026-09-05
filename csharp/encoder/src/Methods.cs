@@ -392,6 +392,29 @@ internal sealed partial class Encoder
     {
         var memberName = member.Name.Identifier.Text;
 
+        // `Color.Green` — a member access whose receiver names an enum THIS FILE declares
+        // (issue #492, slice C). Encoded as `field_access(reference("Color"), "Green")`, the
+        // same tree `rust/encoder/src/types.rs` emits for `Color::Green` and the Dart reference
+        // encoder for `Color.green`; `csharp/compiler/src/CSharpCompiler.cs::CompileReference`
+        // resolves the bare `Color` to the enum-namespace static `TypeEmit.CompileEnum` emits.
+        // Handled BEFORE EncodePropertyAccess so a member named `Count`/`Length`/`Keys`/
+        // `Values` is not silently rewritten into a `std.length`/`std_collections` call.
+        if (member.Expression is IdentifierNameSyntax enumId &&
+            EnumMembers.TryGetValue(enumId.Identifier.Text, out var enumMembers) &&
+            !IsKnownLocal(enumId.Identifier.Text) &&
+            !IsKnownField(enumId.Identifier.Text))
+        {
+            var enumShort = enumId.Identifier.Text;
+            if (!enumMembers.Contains(memberName))
+            {
+                throw new EncoderException(
+                    $"ball-encoder: `{enumShort}.{memberName}` is not a declared member of enum " +
+                    $"`{enumShort}` (declared: {string.Join(", ", enumMembers)})");
+            }
+
+            return Builders.FieldAccessExpr(Builders.ReferenceExpr(enumShort), memberName);
+        }
+
         if (member.Expression is IdentifierNameSyntax typeId &&
             ClassNames.ContainsKey(typeId.Identifier.Text) &&
             !IsKnownLocal(typeId.Identifier.Text) &&

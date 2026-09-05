@@ -517,14 +517,61 @@ declaration) is assumed to be a BCL exception and becomes an anonymous `{Message
 
 ### Documented gaps (fail loud, never silently dropped)
 
-Target-typed `new(...)` (no semantic model to resolve the implied type); `enum` declarations;
-`goto`/switch pattern-matching labels/catch exception filters; chained `?.` beyond one level;
-local functions; sized array allocation without an initializer; interpolation alignment/format
-specifiers (`{x,5:F2}`); a constructor body doing anything but `field = param;`/`field = literal;`;
-same-arity constructor overloads; a namespace-qualified static receiver deeper than `System.X`
+Target-typed `new(...)` (no semantic model to resolve the implied type); an `enum` member whose
+discriminant is a **computed** constant expression (`Read = 1 << 0`, `All = Read | Write`) — a
+syntax-only encoder has no constant evaluator, so only an integer literal (optionally negated) is
+accepted, the narrowed remainder of what used to be a blanket "`enum` declarations" gap (closed by
+#492 slice C, below); `goto`/switch pattern-matching labels/catch exception filters; chained `?.`
+beyond one level; local functions; sized array allocation without an initializer; interpolation
+alignment/format specifiers (`{x,5:F2}`); a constructor body doing anything but
+`field = param;`/`field = literal;`; **`: base(...)` constructor chaining** (`: this(...)` is
+supported since #492 slice D — see below); same-arity constructor overloads; a
+namespace-qualified static receiver deeper than `System.X`
 (`System.Text.Encoding.GetEncoding(...)`). A few method names are inherently ambiguous without a
 semantic model and bias toward one route (documented in `Methods.cs`'s module doc comment):
 `.Contains`/`.IndexOf` → string ops; `.Remove` → `map_delete`.
+
+#### `enum` declarations (issue #492, slice C)
+
+An `enum` encodes to an `EnumDescriptorProto` in `Module.Enums[]` named `main:<ShortName>`, plus a
+companion **descriptor-less** `TypeDefinition` of the same name carrying `metadata.kind = "enum"`
+and a cosmetic `values` list; a member reference `Color.Green` encodes as
+`field_access(reference("Color"), "Green")`. **None of that shape is new** — it is exactly what
+`rust/encoder/src/types.rs` emits for `Color::Green` and what
+`csharp/compiler/src/TypeEmit.cs`'s `CompileEnum` (plus `CSharpCompiler.CompileReference`'s
+`_enumStaticsByShortName` lookup) has always consumed. The encoder's own `enums` list existed and
+was already `AddRange`d into the module; it was simply never populated, because
+`EncodeMainModule` threw on the first `EnumDeclarationSyntax` it saw. Keep the two encoders'
+convention identical: a divergence here would surface only much later, as a round-trip mismatch.
+
+Member numbering follows **C#**, not position: an explicit `= N` takes N and every member after it
+continues from N + 1, so `{ Red, Green = 5, Blue }` is 0/5/6. `Encoder.EnumMembers`
+(collected in `CollectDeclarations`, deliberately separate from `ClassNames`) makes a
+`Color.Green` receiver distinguishable from a class's static-field access and from an unresolved
+cross-file receiver — and lets `Color.Grene` fail loud instead of encoding a dangling field access.
+That branch runs BEFORE `EncodePropertyAccess`, so a member named `Count`/`Length`/`Keys`/`Values`
+is not silently rewritten into a `std.length`/`std_collections` call. Pinned by
+`encoder/test/EnumDeclarationTests.cs`, whose `EnumValueReferenceEncodesCompilesAndRuns` runs the
+encoded program back through `CSharpCompiler` and executes it.
+
+#### `: this(...)` constructor chaining (issue #492, slice D)
+
+Slice B's `CtorShape` collection threw unconditionally on any `ctor.Initializer`, which made
+`Point(int x) : this(x, 0)` its own bucket (19 of the 63 ctor-chain encode errors; `: base(...)`
+is the other 44). `CollectDeclarations` now collects `CtorDraft`s in a first pass and resolves
+chains in a **second** one, because C# permits a chain that points forward *or* backward
+textually — a single textual pass would resolve only backward chains and silently mis-shape
+forward ones. A chaining constructor's shape is the target's assignments re-sourced through the
+initializer's own arguments (each constrained to the same param-reference-or-literal shapes a
+plain constructor body already accepts), then the chaining constructor's own body assignments.
+Resolution is recursive with an in-progress guard, so a cycle fails loud.
+
+`: base(...)` **keeps throwing**, with a message that now names this-vs-base: resolving it needs
+the superclass's own `CtorShapes` and field list, and routing it through the same-class path would
+silently build a message from the wrong class's fields. Construction bugs here are SILENT — the
+encoder never fails loud on a wrong field mapping — so `encoder/test/ConstructorChainingTests.cs`
+proves both chain directions by compiling the encoded program back and RUNNING it, and pins the
+`base(...)` throw as a regression guard.
 
 **Bodyless members are the one shape that is OMITTED rather than thrown on** (issue #492 slice A):
 an interface method or an `abstract`/`partial`/`extern` declaration is a signature with nothing to
@@ -546,14 +593,23 @@ the same file still encodes and dispatches.
 this sweep is that measurement committed, one hand-authored fixture per taxonomy bucket — (a) a
 namespaced class library with no `Main`, (b) an interface with a method, (c) a class with two
 constructors, (d) a call into a type declared in a sibling file, (e) a lambda/`PredefinedType`-heavy
-expression, (f) target-typed `new()`, (g) an abstract method with no body. Hand-authored on
+expression, (f) target-typed `new()`, (g) an abstract method with no body, (h) an `enum`
+declaration with a use site. Hand-authored on
 purpose: no network fetch and no third-party licensing (vendoring real packages is #493's scope).
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slices A and B: **`Results: 4 passed, 3 failed, 7 total`** (slice 1's was
-`0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`). Buckets (b), (c) and (g) closed together;
-(d) cross-file, (e) the expression long tail and (f) target-typed `new()` remain open.
+Baseline after slices A, B and C: **`Results: 5 passed, 3 failed, 8 total`** (slice 1's was
+`0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`).
+Buckets (b), (c) and (g) closed together, then (h); (d) cross-file, (e) the expression long tail
+and (f) target-typed `new()` remain open.
+
+**The taxonomy is fixed only until a measurement says otherwise.** Rows (a)-(g) were transcribed
+once from #492's original manual study and cannot grow on their own — which is exactly how the
+`enum` bucket became the largest live failure mode invisibly, after slices A/B/2 closed buckets a,
+b, c and g. Row (h) was added by slice C from a fresh Tier A measurement (66 of 398 encode errors,
+100% of them enums). When a later measurement shows a new dominant shape, add its row the same
+way rather than assuming this table still describes reality.
 The **global** passed count is printed, never asserted on —
 asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets
 remain open, and asserting `N == 0` would block the very slices that fix them. What it *does*
@@ -593,8 +649,10 @@ reaches `EncodeTypeDeclaration` — where, before slice A, it failed at `Types.c
 interface fixture **must** carry a method; that remains true, and since slice A the fixture's
 value is that it proves the member is OMITTED rather than mis-encoded.) A `delegate` is not a
 `BaseTypeDeclarationSyntax` at all and hits the
-earlier "unsupported top-level declaration" throw. Only `enum` actually reaches the
-"unsupported type declaration kind" site.
+earlier "unsupported top-level declaration" throw. Only `enum` ever reached the
+"unsupported type declaration kind" site — and since slice C it is handled before that throw, so
+the throw is now an exhaustiveness guard against a future Roslyn declaration kind rather than a
+reachable path.
 
 ### Library mode — `EncodeLibrary` / `ball encode --library` (issue #492, slice 2)
 

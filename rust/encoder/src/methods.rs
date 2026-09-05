@@ -9,12 +9,59 @@
 //! **No `rust_std` module**: every arm below routes through `std`/
 //! `std_collections` base-function calls — there is no Rust-specific
 //! runtime hook anywhere in this file.
+//!
+//! ## Permanent carve-outs (issue #491, slice 6)
+//!
+//! The catch-all panic at the bottom of [`Encoder::encode_method_call`] is a
+//! deliberate boundary, not an unbounded TODO bucket. These methods are named
+//! here as **permanent** carve-outs — a syntactic (no semantic-model) encoder
+//! cannot encode them correctly, so nothing should "just add one more arm":
+//!
+//! - `.next()` — needs stateful-iterator semantics (a cursor that advances,
+//!   and an `Option` distinguishing exhaustion from a real `None` element).
+//!   Ball's collections are values, not stateful iterators.
+//! - `.unwrap_or_default()` — needs the receiver's `Default` impl, which is a
+//!   type-specific value no syntax tree carries (`0`? `""`? `vec![]`? a
+//!   user struct's own `Default`?).
+//! - `.spilled()` (`SmallVec`), `.iter_names()` (`bitflags`) — type-specific
+//!   behaviour of a foreign type, with no universal `std` equivalent at all.
+//! - `.serialize_seq()`, `.is_human_readable()` (serde) — trait-object
+//!   dispatch against a caller-supplied `Serializer`; there is no receiver
+//!   value to encode against.
+//! - `.ok_or()` — maps `Option` → `Result` with a caller-supplied error, and
+//!   Ball's unified outcome shape (`lib.rs::option_result_message`) has no
+//!   distinct error channel to map onto.
+//! - `.value()`, `.multiunzip()` — resolvable only once the receiver's
+//!   concrete type is known (which `.value()` it is depends entirely on the
+//!   trait in scope).
+//!
+//! `.fuse()` and `.is_empty()` used to sit in that same bucket and were
+//! closed by slice 6 precisely because neither needs type information: see
+//! their arms below and `rust/encoder/tests/method_sugar.rs`.
+//!
+//! ## Shadowing: a same-file user method wins over the two new arms
+//!
+//! Every built-in arm above is matched on the method's NAME alone, so a
+//! user-declared `fn len(&self)` is encoded as `std.length` rather than as its
+//! own method — an inherent, pre-existing bias of a syntactic encoder with no
+//! type information, mirroring the `_looksLikeTypeName` caveat documented in
+//! `.claude/rules/dart.md`.
+//!
+//! Slice 6 deliberately does **not** widen that bias: `.fuse()` and
+//! `.is_empty()` each carry a `!self.method_params.contains_key(..)` guard, so
+//! an `impl` block in this very file declaring `fn is_empty(&self)` still
+//! dispatches to the user's method. A `Vec`-backed struct's own `is_empty`
+//! lowered to `std.length(struct) == 0` would be silently wrong output — the
+//! one failure mode this crate's fail-loud posture exists to prevent — and
+//! adding a new instance of a known hazard is not justified by consistency
+//! with the older arms. Pinned by
+//! `method_sugar.rs::user_declared_is_empty_wins_over_the_builtin_arm`.
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::{Expression, FunctionCall};
 
 use crate::{
-    Encoder, args_message, collections_call, field_access, if_call, let_stmt, list_literal,
-    named_message, reference, std_call, string_literal,
+    Encoder, args_message, collections_call, field_access, if_call, int_literal, let_stmt,
+    list_literal, named_message, reference, std_call, string_literal,
 };
 
 impl Encoder {
@@ -29,9 +76,34 @@ impl Encoder {
                 self.encode_expr(&e.receiver)
             }
 
+            // `.fuse()` is the same identity passthrough (issue #491, slice 6):
+            // a Ball `List` has no "already exhausted" state for a fused
+            // iterator to preserve. Unlike the arm above, it DEFERS to a
+            // same-file user method of that name — see this file's module doc
+            // comment, "Shadowing".
+            "fuse" if e.args.is_empty() && !self.method_params.contains_key("fuse") => {
+                self.encode_expr(&e.receiver)
+            }
+
             // ── String / universal conversions ──
             "to_string" if e.args.is_empty() => self.un_std("to_string", &e.receiver),
             "len" if e.args.is_empty() => self.un_std("length", &e.receiver),
+            // `.is_empty()` reuses the very same universal `std.length`
+            // dispatch `.len()` routes through, so it stays correct whether
+            // the receiver turns out to be a `String` or a `List` at runtime
+            // — no new base function, no type inference (issue #491, slice 6).
+            // DEFERS to a same-file user method of that name — see this file's
+            // module doc comment, "Shadowing".
+            "is_empty" if e.args.is_empty() && !self.method_params.contains_key("is_empty") => {
+                let length = self.un_std("length", &e.receiver);
+                std_call(
+                    "equals",
+                    Some(args_message(vec![
+                        ("left", length),
+                        ("right", int_literal(0)),
+                    ])),
+                )
+            }
             "trim" if e.args.is_empty() => self.un_std("string_trim", &e.receiver),
             "trim_start" if e.args.is_empty() => self.un_std("string_trim_start", &e.receiver),
             "trim_end" if e.args.is_empty() => self.un_std("string_trim_end", &e.receiver),

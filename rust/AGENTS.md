@@ -183,7 +183,8 @@ construction).
 `rust/encoder/tests/documented_gaps.rs` closes that observation gap: one `#[should_panic]`
 characterization test per gap category (tuple/unit structs, data-carrying enum variants,
 receiver-less associated functions in `impl` and `trait` blocks, cross-file call targets,
-item-level `const`/`static`/`type`, unmapped macro invocations), each pinning the shortest stable
+item-level `const`/`static`/`type`, an `impl` whose **self type** is not a plain named type,
+unmapped macro invocations), each pinning the shortest stable
 substring of today's panic. It runs on the required `Rust` CI check via `cargo test --workspace`.
 **Keep it in sync with the module doc comments** — when a slice closes a gap, flip that test from
 `#[should_panic]` to a real "encodes and round-trips" assertion in the same PR, so the module-doc
@@ -248,6 +249,57 @@ Two more buckets closed, both encoder-side only (no compiler, proto or self-host
 
   The C# encoder's own cross-file bucket (#492, bucket d) is still open; when it lands it should
   mirror this "emit an unresolved `ModuleImport` rather than fail" decision.
+
+#### Non-`Fn` items inside an `impl` block (#491 slice 5)
+
+`types.rs::encode_item_impl` used to `panic!` the instant its `for impl_item in &item.items` loop
+reached anything that was not an `ImplItem::Fn` — so ONE associated `const` or `type` aborted the
+whole file even when every method beside it encoded perfectly. It now **skips** the non-`Fn` item
+and keeps going, exactly as the sibling pre-pass over the same syntax
+(`types.rs::collect_impl_method_params`, an `if let … { … }` with no `else`) always did: this
+slice makes two passes over one syntax tree agree, rather than inventing new tolerance.
+
+Skipping cannot silently change what a program computes — a real *reference* to the dropped item
+(`Self::CAP`) still fails loud on its own, at `lib.rs`'s "unsupported path expression" panic.
+Proof: `rust/encoder/tests/mixed_impl_items.rs` encodes a mixed `impl`, compiles it through
+`ball-lang-compiler`, `cargo build`s it and asserts the program prints `7`; the
+`documented_gaps.rs` pin is flipped to a positive assertion in the same PR.
+
+**Worth 14 of the 110 scored Tier A files** (e.g. `itertools/array_impl.rs`) — not the 22 an
+earlier count claimed. That number conflated this bucket with a **separate, still-open** 8-file
+one: an `impl` whose SELF TYPE is not a plain named type (`impl<I> Trait for (I::Item,)`, e.g.
+`itertools/adaptors/mod.rs`), which fails at `types.rs::type_short_name`'s "unsupported `impl`
+self type" panic. Ball's class model keys members on an owner's short *name*, so a tuple/GAT self
+type has no owner to register them under — that needs a representation decision, not a tolerance
+tweak, and now has its own `documented_gaps.rs` pin.
+
+#### `.fuse()` / `.is_empty()` (#491 slice 6)
+
+Two more arms in `methods.rs::encode_method_call`, chosen because they are the only members of
+that file's catch-all bucket resolvable **without type information**:
+
+- `.fuse()` joins the existing identity-passthrough arm beside `.iter()`/`.by_ref()` — a Ball
+  `List` has no "already exhausted" state for a fused iterator to preserve.
+- `.is_empty()` lowers to `std.equals(std.length(receiver), 0)`, reusing the very same universal
+  `std.length` dispatch `.len()` already routes through, so it stays correct whether the receiver
+  is a `String` or a `Vec` at run time — no new base function, no type inference.
+
+Proof: `rust/encoder/tests/method_sugar.rs` (encode → compile → `cargo build` → run, asserts `13`).
+
+**Both new arms defer to a same-file user method of that name**, unlike every older arm in the
+file. Matching on the name alone is an inherent bias of a syntactic encoder — a user's
+`fn len(&self)` has always encoded as `std.length` — but a `Vec`-backed struct's own `is_empty`
+lowered to `std.length(struct) == 0` would be *silently wrong output*, the one failure mode this
+crate's fail-loud posture exists to prevent, so slice 6 does not widen that bias. Pinned by
+`method_sugar.rs::user_declared_is_empty_wins_over_the_builtin_arm`.
+
+**The rest of that bucket is a PERMANENT carve-out, listed by name** in `methods.rs`'s module doc
+comment so it stops being an unbounded TODO: `.next()` (stateful-iterator semantics Ball does not
+have), `.unwrap_or_default()` (needs the receiver's `Default` impl), `.spilled()` (SmallVec),
+`.iter_names()` (bitflags), `.serialize_seq()` / `.is_human_readable()` (serde trait-object
+dispatch), `.ok_or()` (Ball's unified outcome shape has no distinct error channel), `.value()` and
+`.multiunzip()` (resolvable only with the receiver's concrete type). Do not add an arm for any of
+them without a type model — a guess here produces silently wrong output, not a loud failure.
 
 #### Library mode — `encode_library` / `ball encode --lib` (#491 slice 2)
 

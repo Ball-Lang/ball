@@ -115,13 +115,36 @@ cargo fmt --check && cargo clippy --workspace
   input; 1 param → kept as a plain `reference(name)` driven by `metadata.params` (compiler's
   `param_alias_prologue` turns it into a real local binding); 2+ params → packed into one
   anonymous `MessageCreation`, each param read via `field_access(reference("input"), name)`.
-- Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs`): tuple/unit structs,
+- Documented gaps (see `rust/encoder/src/lib.rs` / `types.rs` / `methods.rs`): tuple/unit structs,
   data-carrying enum variants, signature-only **trait** associated functions, a
-  `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic —
-  24/196 files, the largest remaining bucket), item-level `const`/`static`/`type`, unmapped
-  macros. Each is pinned by a `#[should_panic]` characterization test in
-  `rust/encoder/tests/documented_gaps.rs` (#491 slice 1) — flip it to a positive assertion in the
-  same PR that closes the gap. Two were flipped that way by #491 slice 3 (below).
+  `receiver.method(args)` whose method is declared in another file (`methods.rs`' own panic — the
+  largest remaining bucket), an `impl` whose **self type** is not a plain named type
+  (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
+  files), item-level `const`/`static`/`type`, unmapped macros. Each is pinned by a
+  `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs` (#491 slice
+  1) — flip it to a positive assertion in the same PR that closes the gap. Three are flipped that
+  way today: #491 slice 3's two (below) and slice 5's non-`Fn` impl item.
+- **Non-`Fn` items inside an `impl` block are SKIPPED, not thrown on (#491 slice 5).** An
+  associated `const`/`type` (or an item-position macro) beside real methods no longer aborts the
+  whole file — `types.rs::encode_item_impl` skips it and keeps encoding the block's methods, the
+  same tolerance the sibling pre-pass `collect_impl_method_params` always had. Safe because a real
+  *reference* to the dropped item (`Self::CAP`) still fails loud at `lib.rs`'s "unsupported path
+  expression" panic. Proof: `rust/encoder/tests/mixed_impl_items.rs` (encode → compile →
+  `cargo build` → run). This is a DIFFERENT gap from the still-open `impl` self-type one above;
+  do not conflate their file counts.
+- **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`
+  is an identity passthrough (a Ball `List` has no exhausted state); `.is_empty()` lowers to
+  `std.equals(std.length(receiver), 0)`, reusing `.len()`'s own universal dispatch, so it needs no
+  type inference. Everything else in `methods.rs`' catch-all bucket is a **permanent** carve-out
+  named in that file's module doc comment — `.next()`, `.unwrap_or_default()`, `.spilled()`,
+  `.iter_names()`, `.serialize_seq()`, `.is_human_readable()`, `.ok_or()`, `.value()`,
+  `.multiunzip()`. Each needs stateful-iterator semantics Ball lacks, or a type-specific default
+  no syntactic encoder can supply; guessing produces silently wrong output, not a loud failure.
+  **Both new arms defer to a same-file user method of that name** (a `!method_params.contains_key`
+  guard) — unlike every older arm, which matches on the name alone. That older bias is inherent to
+  a syntactic encoder (a user's `fn len(&self)` has always become `std.length`), but a `Vec`-backed
+  struct's own `is_empty` lowered to `std.length(struct) == 0` would be silently wrong output, so
+  slice 6 deliberately does not widen it.
 - **Receiver-less associated functions + cross-file calls (#491 slice 3).**
   `impl Point { fn new(x, y) … }` now encodes as a `metadata.is_static` class member (the shape
   `type_emit.rs::method_prologue` has supported since #288), and `Point::new(3, 4)` emits

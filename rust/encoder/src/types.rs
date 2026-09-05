@@ -34,6 +34,30 @@
 //! would produce a program that fails to build rather than a working one.
 //! Closing it needs compiler-side work that has no #288-style precedent yet.
 //!
+//! ## Non-`Fn` items inside an `impl` block — skipped since #491 (slice 5)
+//!
+//! An associated `const`, an associated `type`, or an item-position macro
+//! inside an `impl` block declares nothing Ball models, so `encode_item_impl`
+//! **skips** it and keeps encoding the block's remaining methods. Before this
+//! slice it panicked instead, so one associated const aborted the whole file
+//! even when every method beside it encoded perfectly (14 of the 110 scored
+//! files in the live Tier A funnel, e.g. `itertools/array_impl.rs`). The
+//! pre-pass over the very same syntax, `collect_impl_method_params`, had
+//! always skipped them silently — the two passes now agree.
+//!
+//! Skipping cannot silently change what a program computes: any real
+//! *reference* to the dropped item (`Self::CAP`) still fails loud on its own
+//! at `lib.rs`'s "unsupported path expression" panic. Proof lives in
+//! `rust/encoder/tests/mixed_impl_items.rs`, which encodes, compiles and runs
+//! a mixed block.
+//!
+//! Still a documented gap, deliberately: an `impl` whose **self type** is not
+//! a plain named type (`impl<I> Trait for (I::Item,)`) — see
+//! `type_short_name`'s "unsupported `impl` self type" panic. Ball's class
+//! model keys members on an owner's short *name*, so a tuple/GAT self type
+//! has no owner to register them under; that needs a representation decision,
+//! not a tolerance tweak.
+//!
 //! ## Why a method mutating its own field is out of scope
 //!
 //! `method_prologue` extracts `self_` via `input.clone()`'s `"self"` field —
@@ -366,11 +390,17 @@ impl Encoder {
 
         let mut members = Vec::new();
         for impl_item in &item.items {
+            // A non-`Fn` impl item (an associated `const`, `type` or
+            // item-position macro) declares nothing Ball models, so it is
+            // SKIPPED rather than aborting the whole block (issue #491,
+            // slice 5) — the same tolerance `collect_impl_method_params`, the
+            // pre-pass over this very syntax, has always had. Skipping is
+            // safe because it cannot silently change what a program computes:
+            // any real *reference* to the dropped item (`Self::CAP`) still
+            // fails loud on its own, at `lib.rs`'s "unsupported path
+            // expression" panic.
             let syn::ImplItem::Fn(impl_fn) = impl_item else {
-                panic!(
-                    "ball-lang-encoder: only methods are supported inside an `impl` block \
-                     (associated consts/types are a documented gap): `impl {owner_short}`"
-                );
+                continue;
             };
             let is_static = !has_self_receiver(&impl_fn.sig);
             let method_short = impl_fn.sig.ident.to_string();

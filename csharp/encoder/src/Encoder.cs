@@ -32,6 +32,21 @@ internal readonly record struct CtorAssignment(string Field, int ParamIndex, Exp
 internal sealed record CtorShape(List<string> ParamNames, List<CtorAssignment> Assignments);
 
 /// <summary>
+/// One declared constructor as collected in the FIRST pass, before <c>: this(...)</c> chains are
+/// resolved: its parameter names, the fields its own body assigns, and — for a chaining
+/// constructor — the initializer's argument list.
+///
+/// <para>Chains cannot be resolved as they are read: C# lets a constructor delegate to a sibling
+/// declared either BEFORE or AFTER it, so a single textual pass would resolve only backward
+/// chains and silently mis-shape forward ones. See
+/// <see cref="Encoder.ResolveConstructorChains"/>.</para>
+/// </summary>
+internal sealed record CtorDraft(
+    List<string> ParamNames,
+    List<CtorAssignment> OwnAssignments,
+    ArgumentListSyntax? ThisChainArgs);
+
+/// <summary>
 /// Mutable state + core expression dispatch for one C# source file being encoded. Split
 /// across partial-class files by concern, mirroring <c>rust/encoder/src</c>'s module split:
 /// this file (pre-pass + literals/references/operators/assignment/ternary), <c>Statements.cs</c>
@@ -56,6 +71,16 @@ internal sealed partial class Encoder
     /// construction then requires an object initializer). See <see cref="CtorShape"/> and
     /// <c>Types.cs</c>'s "Construction is field-mapping only" section.</summary>
     internal readonly Dictionary<string, List<CtorShape>> CtorShapes = new();
+
+    /// <summary>Every declared <c>enum</c>'s short name → its declared member names, in
+    /// declaration order (issue #492, slice C). Kept SEPARATE from <see cref="ClassNames"/> so a
+    /// <c>Color.Green</c>-shaped member access is distinguishable from both a class's static
+    /// field access and an unresolved cross-file receiver, and carrying the members (not just
+    /// the name) so a typo — <c>Color.Grene</c> — fails loud rather than encoding a field access
+    /// nothing will ever resolve. The module-qualified name is not stored: it is
+    /// <see cref="QualifiedTypeName"/> of the key, and a member reference encodes against the
+    /// SHORT name (<c>field_access(reference("Color"), "Green")</c>).</summary>
+    internal readonly Dictionary<string, List<string>> EnumMembers = new();
 
     /// <summary>(owner short, method short) → the method's own declared (non-<c>this</c>)
     /// parameter names, in order — consulted at an instance-method **call site** so a 2+-arg
@@ -139,11 +164,18 @@ internal sealed partial class Encoder
             ClassNames[shortName] = QualifiedTypeName(shortName);
         }
 
+        foreach (var decl in typeDecls.OfType<EnumDeclarationSyntax>())
+        {
+            EnumMembers[decl.Identifier.Text] = decl.Members.Select(m => m.Identifier.Text).ToList();
+        }
+
+        var drafts = new Dictionary<string, List<CtorDraft>>(StringComparer.Ordinal);
+
         foreach (var decl in typeDecls.OfType<TypeDeclarationSyntax>())
         {
             var shortName = decl.Identifier.Text;
             var fieldNames = new List<string>();
-            var ctorShapes = new List<CtorShape>();
+            var ctorShapes = new List<CtorDraft>();
 
             // C# 12 primary constructor (`class Point(int x, int y);` / the long-standing
             // positional-record shorthand `record Point(int X, int Y);`) — its parameters
@@ -153,9 +185,10 @@ internal sealed partial class Encoder
             {
                 var primaryParams = decl.ParameterList.Parameters.Select(p => p.Identifier.Text).ToList();
                 fieldNames.AddRange(primaryParams);
-                ctorShapes.Add(new CtorShape(
+                ctorShapes.Add(new CtorDraft(
                     primaryParams,
-                    primaryParams.Select((name, i) => new CtorAssignment(name, i, null)).ToList()));
+                    primaryParams.Select((name, i) => new CtorAssignment(name, i, null)).ToList(),
+                    ThisChainArgs: null));
             }
 
             foreach (var member in decl.Members)
@@ -173,7 +206,7 @@ internal sealed partial class Encoder
                         fieldNames.Add(prop.Identifier.Text);
                         break;
                     case ConstructorDeclarationSyntax ctor when !ctor.Modifiers.Any(SyntaxKind.StaticKeyword):
-                        ctorShapes.Add(CollectCtorShape(shortName, ctor));
+                        ctorShapes.Add(CollectCtorDraft(shortName, ctor));
                         break;
                     case MethodDeclarationSyntax method:
                         var methodName = method.Identifier.Text;
@@ -214,7 +247,113 @@ internal sealed partial class Encoder
                     "overloads (see Types.cs's module doc comment)");
             }
 
-            CtorShapes[shortName] = ctorShapes;
+            drafts[shortName] = ctorShapes;
+        }
+
+        // SECOND pass: resolve `: this(...)` chains now that every sibling's shape is known.
+        // C# permits a forward chain (the delegating constructor declared BEFORE its target),
+        // so this cannot be folded into the loop above without silently mis-shaping one of the
+        // two directions (issue #492, slice D).
+        foreach (var (shortName, ctorDrafts) in drafts)
+        {
+            CtorShapes[shortName] = ResolveConstructorChains(shortName, ctorDrafts);
+        }
+    }
+
+    /// <summary>
+    /// Turn one class's <see cref="CtorDraft"/>s into finished <see cref="CtorShape"/>s,
+    /// flattening every <c>: this(...)</c> chain (issue #492, slice D).
+    ///
+    /// <para>A chaining constructor's shape is the TARGET's assignments re-sourced through the
+    /// initializer's own arguments, followed by the chaining constructor's own body
+    /// assignments. Each of the target's assignments is either a literal (kept as written) or a
+    /// reference to the target's parameter <c>i</c> — which the initializer supplies as its
+    /// <c>i</c>'th argument, itself constrained to exactly the two shapes a plain constructor
+    /// body already accepts: a bare reference to one of the CALLING constructor's parameters,
+    /// or a literal.</para>
+    ///
+    /// <para>Resolution is recursive (a chain may target another chaining constructor) with an
+    /// in-progress guard, so a cycle fails loud instead of overflowing the stack.</para>
+    /// </summary>
+    private static List<CtorShape> ResolveConstructorChains(string shortName, List<CtorDraft> drafts)
+    {
+        var resolved = new CtorShape?[drafts.Count];
+        var inProgress = new bool[drafts.Count];
+
+        for (var i = 0; i < drafts.Count; i++)
+        {
+            Resolve(i);
+        }
+
+        return resolved.Select(shape => shape!).ToList();
+
+        CtorShape Resolve(int index)
+        {
+            if (resolved[index] is { } already)
+            {
+                return already;
+            }
+
+            var draft = drafts[index];
+            if (draft.ThisChainArgs is null)
+            {
+                return resolved[index] = new CtorShape(draft.ParamNames, draft.OwnAssignments);
+            }
+
+            if (inProgress[index])
+            {
+                throw new EncoderException(
+                    $"ball-encoder: constructor of `{shortName}` takes part in a cyclic " +
+                    $"`this{draft.ThisChainArgs}` constructor chain");
+            }
+
+            inProgress[index] = true;
+            var args = draft.ThisChainArgs.Arguments;
+            var targetIndex = drafts.FindIndex(
+                candidate => !ReferenceEquals(candidate, draft) && candidate.ParamNames.Count == args.Count);
+            if (targetIndex < 0)
+            {
+                throw new EncoderException(
+                    $"ball-encoder: constructor of `{shortName}` chains to " +
+                    $"`this{draft.ThisChainArgs}`, but no sibling constructor takes " +
+                    $"{args.Count} argument(s)");
+            }
+
+            var target = Resolve(targetIndex);
+            var assignments = new List<CtorAssignment>();
+            foreach (var (field, paramIndex, literal) in target.Assignments)
+            {
+                if (paramIndex < 0)
+                {
+                    // The target writes a constant for this field — the chain cannot change it.
+                    assignments.Add(new CtorAssignment(field, -1, literal));
+                    continue;
+                }
+
+                var argument = args[paramIndex].Expression;
+                switch (argument)
+                {
+                    case IdentifierNameSyntax id when draft.ParamNames.IndexOf(id.Identifier.Text) >= 0:
+                        assignments.Add(new CtorAssignment(field, draft.ParamNames.IndexOf(id.Identifier.Text), null));
+                        break;
+                    case LiteralExpressionSyntax constant:
+                        assignments.Add(new CtorAssignment(field, -1, constant));
+                        break;
+                    default:
+                        throw new EncoderException(
+                            $"ball-encoder: constructor of `{shortName}` passes `{argument}` to " +
+                            $"`this{draft.ThisChainArgs}` — only a reference to one of this " +
+                            "constructor's own parameters, or a literal, is supported " +
+                            "(construction encodes as a plain message_creation, so a chain is " +
+                            "resolved syntactically, never interpreted)");
+                }
+            }
+
+            // The chaining constructor's own body runs AFTER the delegated one, so its
+            // assignments come last and win on any field both write.
+            assignments.AddRange(draft.OwnAssignments);
+            inProgress[index] = false;
+            return resolved[index] = new CtorShape(draft.ParamNames, assignments);
         }
     }
 
@@ -226,22 +365,35 @@ internal sealed partial class Encoder
     /// right-hand side naming one of this constructor's own parameters.</item>
     /// <item><c>field = &lt;int|double|bool|string|null literal&gt;;</c> — a constant default.</item>
     /// </list>
-    /// Anything else (a computed expression, a method call, <c>this(...)</c>/<c>base(...)</c>
-    /// chaining, <c>x ?? throw ...</c>) throws, naming the class and the offending statement.
-    /// Kept deliberately NARROW and documented rather than clever, consistent with the rest of
-    /// this encoder's fail-loud posture — and strictly better than the previous behaviour,
-    /// which ignored the body entirely and therefore dropped such assignments in silence.
+    /// Anything else (a computed expression, a method call, <c>x ?? throw ...</c>) throws,
+    /// naming the class and the offending statement. Kept deliberately NARROW and documented
+    /// rather than clever, consistent with the rest of this encoder's fail-loud posture — and
+    /// strictly better than the previous behaviour, which ignored the body entirely and
+    /// therefore dropped such assignments in silence.
+    ///
+    /// <para>A <c>: this(...)</c> initializer is CARRIED, not resolved here — see
+    /// <see cref="CtorDraft"/> and <see cref="ResolveConstructorChains"/>. A
+    /// <c>: base(...)</c> initializer still throws: resolving it needs the SUPERCLASS's own
+    /// constructor shapes and field list, a materially bigger scope decision, and routing it
+    /// through the same-class path would silently build a message from the wrong class's
+    /// fields.</para>
     /// </summary>
-    private static CtorShape CollectCtorShape(string shortName, ConstructorDeclarationSyntax ctor)
+    private static CtorDraft CollectCtorDraft(string shortName, ConstructorDeclarationSyntax ctor)
     {
         var paramNames = ctor.ParameterList.Parameters.Select(p => p.Identifier.Text).ToList();
 
-        if (ctor.Initializer is not null)
+        ArgumentListSyntax? thisChainArgs = null;
+        if (ctor.Initializer is { } initializer)
         {
-            throw new EncoderException(
-                $"ball-encoder: constructor of `{shortName}` chains to another constructor " +
-                $"(`{ctor.Initializer}`) — only `field = param;`/`field = literal;` assignment " +
-                "bodies are supported (construction encodes as a plain message_creation)");
+            if (!initializer.ThisOrBaseKeyword.IsKind(SyntaxKind.ThisKeyword))
+            {
+                throw new EncoderException(
+                    $"ball-encoder: constructor of `{shortName}` chains to a BASE constructor " +
+                    $"(`{initializer}`) — only same-class `: this(...)` chaining is supported " +
+                    "(a base chain needs the superclass's own constructor shapes and fields)");
+            }
+
+            thisChainArgs = initializer.ArgumentList;
         }
 
         var assignments = new List<CtorAssignment>();
@@ -288,7 +440,7 @@ internal sealed partial class Encoder
             }
         }
 
-        return new CtorShape(paramNames, assignments);
+        return new CtorDraft(paramNames, assignments, thisChainArgs);
     }
 
     private static EncoderException NonTrivialCtorBody(string shortName, StatementSyntax statement) =>

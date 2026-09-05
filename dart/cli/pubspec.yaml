@@ -22,7 +22,7 @@ executables:
     ball
 
 dependencies:
-  ball_base: ^0.3.0+3
+  ball_base: ^0.4.0
   ball_compiler: ^0.3.0+6
   ball_encoder: ^0.3.2
   ball_engine: ^0.3.0+6

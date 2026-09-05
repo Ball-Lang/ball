@@ -26,8 +26,8 @@ following shipped past 18 green required checks on the same day:
 
 ## Tier A — structural round-trip over pinned packages
 
-Tier A exists for five languages. The Dart harness is the reference; the four
-ports mirror its five stages exactly (see "The four ports" below).
+Tier A exists for six languages. The Dart harness is the reference; the five
+ports mirror its five stages exactly (see "The five ports" below).
 
 ### Dart — `tools/coverage-study/rq1_study.dart`
 
@@ -67,8 +67,7 @@ Funnel (scored files that survived each stage):
 
 It is derived from each file's taxonomy tag, and an **unrecognised tag is an
 error, not a default** — a new failure mode cannot be quietly folded into the
-wrong row. The funnel is load-bearing for the four ports, whose clean number is
-0%: without it, "the encoder rejected every file outright" (Rust, Go) and "58
+wrong row. The funnel is load-bearing for the ports, four of which score 0% clean: without it, "the encoder rejected every file outright" (Rust, Go) and "58
 of 472 files reached the declaration diff" (C#) are the same 0%.
 
 ### Two load-bearing settings — do not "simplify" these away

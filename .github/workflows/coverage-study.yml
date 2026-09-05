@@ -62,13 +62,13 @@ jobs:
       # Shallow-clone each pin at its recorded commit. A pin that cannot be
       # fetched is reported as "unreachable" by the harness and is NOT scored -
       # a network hiccup must never read as an encoder regression. Shared with
-      # the four Tier A ports below (issue #493).
+      # the five Tier A ports below (issue #493).
       - name: Clone pinned packages
         run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/dart.json "$RUNNER_TEMP/checkouts"
 
       # The positive floor (a run that scored nothing is a harness/checkout
       # failure, never a 0% result) and the step summary live in
-      # tools/coverage-study/summarize.sh, shared with the four ports below.
+      # tools/coverage-study/summarize.sh, shared with the five ports below.
       - name: Run Tier A
         id: tier_a
         run: |

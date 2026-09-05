@@ -1,3 +1,10 @@
+## [1.68.6](https://github.com/Ball-Lang/ball/compare/v1.68.5...v1.68.6) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ts:** a named constructor must construct a real instance and seed every declared field default (closes [#564](https://github.com/Ball-Lang/ball/issues/564)) ([#571](https://github.com/Ball-Lang/ball/issues/571)) ([d9881b9](https://github.com/Ball-Lang/ball/commit/d9881b94c414306ceef0e377a8a2156e74b3e029)), closes [#563](https://github.com/Ball-Lang/ball/issues/563) [#563](https://github.com/Ball-Lang/ball/issues/563)
+
 ## [1.68.5](https://github.com/Ball-Lang/ball/compare/v1.68.4...v1.68.5) (2026-09-05)
 
 

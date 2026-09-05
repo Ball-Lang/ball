@@ -5448,55 +5448,49 @@ function __isUnknownFnError(e: any): boolean {
       // `set_add`/`set_remove` mutate in place and answer BOOL (issue #545) —
       // `Set.add` returns the set in JS, so it is wrapped; `Set.delete` already
       // reports presence.
+      //
+      // A member whose operand field is MISSING throws (`__setOperand`) rather
+      // than emitting a placeholder like `false` / `0` / `new Set()`: a
+      // `std_collections` set call without its operand is a malformed program,
+      // and quietly compiling it to a constant is precisely the silent
+      // degradation that hid issue #55. Nothing regresses by throwing — until
+      // #545 this whole family threw unconditionally, so any input that reaches
+      // the throw was rejected by the old code too.
       case "set_add": {
-        const set = f.get("set") ?? f.get("collection");
-        const value = f.get("value") ?? f.get("element");
-        if (set && value) {
-          return `(() => { const __s = ${this.expr(set)}; const __v = ${this.expr(value)}; if (__s.has(__v)) return false; __s.add(__v); return true; })()`;
-        }
-        return "false";
+        const set = __setOperand(fn, "set", f.get("set") ?? f.get("collection"));
+        const value = __setOperand(fn, "value", f.get("value") ?? f.get("element"));
+        return `(() => { const __s = ${this.expr(set)}; const __v = ${this.expr(value)}; if (__s.has(__v)) return false; __s.add(__v); return true; })()`;
       }
       case "set_remove": {
-        const set = f.get("set") ?? f.get("collection");
-        const value = f.get("value") ?? f.get("element");
-        if (set && value) return `${this.expr(set)}.delete(${this.expr(value)})`;
-        return "false";
+        const set = __setOperand(fn, "set", f.get("set") ?? f.get("collection"));
+        const value = __setOperand(fn, "value", f.get("value") ?? f.get("element"));
+        return `${this.expr(set)}.delete(${this.expr(value)})`;
       }
       case "set_contains": {
-        const set = f.get("set") ?? f.get("collection");
-        const value = f.get("value") ?? f.get("element");
-        if (set && value) return `${this.expr(set)}.has(${this.expr(value)})`;
-        return "false";
+        const set = __setOperand(fn, "set", f.get("set") ?? f.get("collection"));
+        const value = __setOperand(fn, "value", f.get("value") ?? f.get("element"));
+        return `${this.expr(set)}.has(${this.expr(value)})`;
       }
-      case "set_length": {
-        const set = f.get("set") ?? f.get("collection");
-        return set ? `${this.expr(set)}.size` : "0";
-      }
-      case "set_is_empty": {
-        const set = f.get("set") ?? f.get("collection");
-        return set ? `(${this.expr(set)}.size === 0)` : "true";
-      }
-      case "set_to_list": {
-        const set = f.get("set") ?? f.get("collection");
-        return set ? `[...${this.expr(set)}]` : "[]";
-      }
+      case "set_length":
+        return `${this.expr(__setOperand(fn, "set", f.get("set") ?? f.get("collection")))}.size`;
+      case "set_is_empty":
+        return `(${this.expr(__setOperand(fn, "set", f.get("set") ?? f.get("collection")))}.size === 0)`;
+      case "set_to_list":
+        return `[...${this.expr(__setOperand(fn, "set", f.get("set") ?? f.get("collection")))}]`;
       case "set_union": {
-        const l = f.get("left") ?? f.get("set");
-        const r = f.get("right") ?? f.get("other");
-        if (l && r) return `new Set([...${this.expr(l)}, ...${this.expr(r)}])`;
-        return "new Set()";
+        const l = __setOperand(fn, "left", f.get("left") ?? f.get("set"));
+        const r = __setOperand(fn, "right", f.get("right") ?? f.get("other"));
+        return `new Set([...${this.expr(l)}, ...${this.expr(r)}])`;
       }
       case "set_intersection": {
-        const l = f.get("left") ?? f.get("set");
-        const r = f.get("right") ?? f.get("other");
-        if (l && r) return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => __b.has(__x))); })()`;
-        return "new Set()";
+        const l = __setOperand(fn, "left", f.get("left") ?? f.get("set"));
+        const r = __setOperand(fn, "right", f.get("right") ?? f.get("other"));
+        return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => __b.has(__x))); })()`;
       }
       case "set_difference": {
-        const l = f.get("left") ?? f.get("set");
-        const r = f.get("right") ?? f.get("other");
-        if (l && r) return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => !__b.has(__x))); })()`;
-        return "new Set()";
+        const l = __setOperand(fn, "left", f.get("left") ?? f.get("set"));
+        const r = __setOperand(fn, "right", f.get("right") ?? f.get("other"));
+        return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => !__b.has(__x))); })()`;
       }
       // I/O
       case "print_error": {
@@ -6365,6 +6359,29 @@ function fieldMap(fields: FieldValuePair[]): Map<string, Expression> {
   const m = new FieldMap();
   for (const f of fields) m.set(f.name, f.value);
   return m;
+}
+
+/**
+ * Assert that a `std_collections` set operation was handed the operand it needs.
+ *
+ * The set family (issue #545) FAILS LOUD on a missing field rather than
+ * emitting a placeholder (`false` / `0` / `new Set()`). A set call without its
+ * operand is a malformed program, and compiling it to a constant is the silent
+ * degradation CLAUDE.md forbids and issue #55 was made of. Throwing costs
+ * nothing in compatibility: before #545 every member of the family threw
+ * unconditionally, so anything that reaches here was already rejected.
+ */
+function __setOperand(
+  fn: string,
+  field: string,
+  value: Expression | undefined,
+): Expression {
+  if (value === undefined) {
+    throw new Error(
+      `TS compiler: std_collections.${fn} is missing its "${field}" field`,
+    );
+  }
+  return value;
 }
 
 function memberShortName(qualified: string): string {

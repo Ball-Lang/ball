@@ -1212,6 +1212,45 @@ describe("compiler — the std_collections set_* family compiles to native JS Se
     assert.match(compileBody(setCall("set_intersection", { left: ref("a"), right: ref("b") })), /filter\(\(__x: any\) => __b\.has\(__x\)\)/);
     assert.match(compileBody(setCall("set_difference", { left: ref("a"), right: ref("b") })), /filter\(\(__x: any\) => !__b\.has\(__x\)\)/);
   });
+
+  // A member handed no operand FAILS LOUD (`__setOperand`) instead of emitting
+  // `false` / `0` / `new Set()`. A set call without its operand is a malformed
+  // program, and quietly compiling it to a constant is exactly the silent
+  // degradation CLAUDE.md forbids (and that issue #55 was made of) — the caller
+  // gets a wrong ANSWER rather than an error. Nothing regresses by throwing:
+  // before #545 the whole family threw unconditionally.
+  //
+  // Every member is listed, and every operand of every member, so a new member
+  // added without its guard cannot slip through.
+  const missingOperandCases: ReadonlyArray<[string, Record<string, Expression>, string]> = [
+    ["set_add", {}, "set"],
+    ["set_add", { set: ref("s") }, "value"],
+    ["set_remove", {}, "set"],
+    ["set_remove", { set: ref("s") }, "value"],
+    ["set_contains", {}, "set"],
+    ["set_contains", { set: ref("s") }, "value"],
+    ["set_length", {}, "set"],
+    ["set_is_empty", {}, "set"],
+    ["set_to_list", {}, "set"],
+    ["set_union", {}, "left"],
+    ["set_union", { left: ref("a") }, "right"],
+    ["set_intersection", {}, "left"],
+    ["set_intersection", { left: ref("a") }, "right"],
+    ["set_difference", {}, "left"],
+    ["set_difference", { left: ref("a") }, "right"],
+  ];
+
+  test("a missing operand throws a descriptive compile-time error, never a placeholder value", () => {
+    // Positive floor: an empty table would make the loop below vacuously green.
+    assert.ok(missingOperandCases.length >= 15);
+    for (const [fn, fields, missing] of missingOperandCases) {
+      assert.throws(
+        () => compileBody(setCall(fn, fields)),
+        new RegExp(`std_collections\\.${fn} is missing its "${missing}" field`),
+        `${fn} without "${missing}" must throw, not compile to a constant`,
+      );
+    }
+  });
 });
 
 describe("compiler — null_aware_call/index/access throw at compile time on a missing field (#257)", () => {

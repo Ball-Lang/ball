@@ -36,6 +36,16 @@
 // semantic content or emitting a placeholder the caller might mistake for a
 // faithful encoding. The (partial) Program it returns alongside the error must
 // not be used.
+//
+// # Program mode vs. library mode
+//
+// [Encode] is program mode: it requires a `func main()` entry point, because a
+// runnable Ball Program needs one. [EncodeLibrary] is library mode (issue
+// #537): the same walk, minus that requirement, for the entry-point-less files
+// every real Go library is made of. A library-mode Program carries an empty
+// `entry_function` and is deliberately not runnable — never paper over that by
+// synthesising a fake entry function. Mirrors the Rust encoder's
+// `encode`/`encode_library` and the C# encoder's `Encode`/`EncodeLibrary`.
 package encoder
 
 import (
@@ -68,11 +78,59 @@ type Encoder struct {
 // the source fails to parse or contains a construct outside the encoder's
 // supported surface (fail-loud) — the accompanying Program is then incomplete
 // and must be discarded.
+//
+// Source with no entry point — a library file — is encoded by [EncodeLibrary]
+// instead (`ball encode -lib`).
 func Encode(source string) (*ballv1.Program, error) {
+	enc, funcs, hasMain, err := encodeFile(source)
+	if err != nil {
+		return nil, err
+	}
+	if !hasMain {
+		enc.fail("a Ball Program requires a `func main()` entry point")
+	}
+	return enc.result(funcs, "main")
+}
+
+// EncodeLibrary encodes a Go **library** file — the same encoding as [Encode],
+// minus the `func main()` requirement (issue #537). Real library files have no
+// entry point, so [Encode] rejects every one of them; this is the opt-in that
+// accepts them (`ball encode -lib`).
+//
+// Every top-level function is encoded regardless of reachability (that is
+// already true of [Encode]); Go's export rule is name capitalization, so the
+// exported surface round-trips in the function names themselves with nothing
+// extra to record.
+//
+// # Deliberately non-runnable
+//
+// The returned Program carries `entry_module = "main"` — which
+// `go/compiler`'s CompileLibrary needs, since that is the module whose
+// functions it emits at package scope — but an **empty `entry_function`**.
+// `Program.entry_function` is an unconstrained proto3 string
+// (`proto/ball/v1/ball.proto`), so an empty one is structurally legal and
+// deliberately not runnable: `ball check` reports "missing entry_function" and
+// `ball run` has nothing to call. That is the documented boundary, mirroring
+// the Rust encoder's `encode_library` and the C# encoder's `EncodeLibrary`
+// exactly — never paper over it by synthesising a fake entry function.
+func EncodeLibrary(source string) (*ballv1.Program, error) {
+	enc, funcs, _, err := encodeFile(source)
+	if err != nil {
+		return nil, err
+	}
+	return enc.result(funcs, "")
+}
+
+// encodeFile runs the whole Go → Ball walk over source and reports whether the
+// file declared a `func main()`. Shared by [Encode] and [EncodeLibrary]: the
+// walk is identical, and the entry-point requirement is the caller's business.
+// A parse failure is returned as an error (no Encoder to report against);
+// unsupported constructs accumulate on the returned Encoder instead.
+func encodeFile(source string) (*Encoder, []*ballv1.FunctionDefinition, bool, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "source.go", source, parser.SkipObjectResolution)
 	if err != nil {
-		return nil, fmt.Errorf("parse go source: %w", err)
+		return nil, nil, false, fmt.Errorf("parse go source: %w", err)
 	}
 
 	enc := &Encoder{fnParams: map[string][]string{}}
@@ -110,22 +168,28 @@ func Encode(source string) (*ballv1.Program, error) {
 			enc.fail("unsupported top-level declaration %T", d)
 		}
 	}
-	if !hasMain {
-		enc.fail("a Ball Program requires a `func main()` entry point")
-	}
+	return enc, funcs, hasMain, nil
+}
 
-	prog := enc.buildProgram(funcs)
-	if len(enc.errs) > 0 {
+// result wraps the encoded functions in a Program with the given entry
+// function, surfacing any accumulated fail-loud errors alongside the (then
+// incomplete) Program.
+func (e *Encoder) result(funcs []*ballv1.FunctionDefinition, entryFunction string) (*ballv1.Program, error) {
+	prog := assembleProgram(funcs, entryFunction)
+	if len(e.errs) > 0 {
 		return prog, fmt.Errorf("go→ball: %d unsupported construct(s):\n  - %s",
-			len(enc.errs), strings.Join(enc.errs, "\n  - "))
+			len(e.errs), strings.Join(e.errs, "\n  - "))
 	}
 	return prog, nil
 }
 
-// buildProgram assembles the final Program: a `main` module holding the encoded
-// user functions, preceded by base modules (`std` always, plus any others such
-// as `std_collections`) declaring exactly the base functions the program calls.
-func (e *Encoder) buildProgram(funcs []*ballv1.FunctionDefinition) *ballv1.Program {
+// assembleProgram assembles the final Program: a `main` module holding the
+// encoded user functions, preceded by base modules (`std` always, plus any
+// others such as `std_collections`) declaring exactly the base functions the
+// program calls. Shared by [Encode] and [EncodeLibrary]; entryFunction is the
+// *only* difference between the two (`"main"` vs. `""` — see [EncodeLibrary]'s
+// "Deliberately non-runnable").
+func assembleProgram(funcs []*ballv1.FunctionDefinition, entryFunction string) *ballv1.Program {
 	used := map[string]map[string]bool{}
 	for _, f := range funcs {
 		collectUsed(f.GetBody(), used)
@@ -162,7 +226,7 @@ func (e *Encoder) buildProgram(funcs []*ballv1.FunctionDefinition) *ballv1.Progr
 		Version:       "1.0.0",
 		Modules:       modules,
 		EntryModule:   "main",
-		EntryFunction: "main",
+		EntryFunction: entryFunction,
 	}
 }
 

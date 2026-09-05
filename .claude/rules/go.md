@@ -47,6 +47,13 @@ build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance
   `go install github.com/ball-lang/ball/go/cli/cmd/ball@v0.1.0` into a clean GOPATH/GOMODCACHE and
   executes the installed binary. Run it locally after touching any `go.mod`/`go.work`; it needs
   `go` + `python3` and no network beyond the public proxy for `google.golang.org/protobuf`.
+- **Both legs use a FRESH `GOMODCACHE`** — do not "simplify" that away. The intra-repo modules
+  always resolve at the same version string (`v0.1.0` names a tag, not a commit), so a warm module
+  cache holding `go/<m>@v0.1.0` from an earlier run serves the OLD content and the sweep measures
+  stale code: a false red when the tree just gained an API the cached copy lacks, and — the
+  dangerous direction — a false green when a change breaks external resolution but the cached copy
+  still builds. `actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the committed
+  `go.sum` files, so this bit CI as well as local runs (found while landing #537).
 - **Bumping the module version is one edit in two files, and the smoke asserts they agree.**
   `build_local_proxy.py` (which `smoke.sh` runs first) refuses unless every intra-repo `require`
   names the same version, no `go.mod` carries a `replace`, and `go/go.work`'s versioned pins name
@@ -128,6 +135,14 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   expressions. **One input, one output** (invariant #1): a 0-param func takes no input; a 1-param
   func keeps its parameter name; a 2+-param call packs args into one anonymous message keyed by the
   callee's real parameter names (read back by the compiler's `paramPrologue`).
+- **Library mode (`EncodeLibrary`, issue #537)** — the same walk minus the `func main()`
+  requirement, for the entry-point-less files every real Go library is made of; reached from the
+  CLI as `ball encode -lib`. Both entry points delegate to the shared private
+  `assembleProgram(funcs, entryFunction)`, and `entryFunction` (`"main"` vs. `""`) is the ONLY
+  difference, so `Encode`'s output is unchanged. A library-mode `Program` keeps
+  `entry_module = "main"` but has an EMPTY `entry_function` and is **deliberately non-runnable**:
+  `ball check` reports "missing entry_function". Never paper over that by synthesising a fake
+  entry function (the same doctrine `rust/encoder` and `csharp/encoder` state).
 - Compound assignment / `++` / `--` desugar to `assign(target, <op>(target, …))` because the Go
   compiler's `std.assign` is a plain store.
 - **Fail-loud:** an unsupported construct records an error and `Encode` returns non-nil, never a
@@ -190,11 +205,12 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   directly** (never `go/encoder`'s own walk) and checks a second-generation
   fixpoint. Honest first baseline **0/21 clean, 0 files even encoded**: every real
   library file trips the documented top-level `type`/`const`/`var` and
-  method-with-receiver gaps. Because `go/encoder` has **no library mode** (unlike
-  Rust's `encode_library` / C#'s `EncodeLibrary`), the harness appends an empty
-  `func main() {}` before encoding when a file has none, and excludes it (and any
-  real `main`, which `CompileLibrary` renames to `ball_main`) from the inventory —
-  a disclosed accommodation, pinned by its own test. `go test ./...` there IS gated
+  method-with-receiver gaps. Since #537 the harness carries **no accommodation**:
+  it dispatches to `encoder.EncodeLibrary` for an entry-point-less file and
+  `encoder.Encode` otherwise, so nothing is synthesized (the empty
+  `func main() {}` it used to append is gone). A real `main` is still excluded
+  from the inventory, for the separate reason that `CompileLibrary` renames it to
+  `ball_main`. `go test ./...` there IS gated
   on every PR in the `go` job; the RUN is the report-only `go-tier-a` job in
   `coverage-study.yml`, which has **no `pull_request:` trigger**. Methodology:
   `tests/conformance/COVERAGE_STUDY.md`.

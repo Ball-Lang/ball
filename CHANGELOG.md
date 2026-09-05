@@ -1,3 +1,10 @@
+# [1.65.0](https://github.com/Ball-Lang/ball/compare/v1.64.0...v1.65.0) (2026-09-05)
+
+
+### Features
+
+* **go:** add EncodeLibrary and ball encode -lib for entry-point-less files ([#548](https://github.com/Ball-Lang/ball/issues/548)) ([c305978](https://github.com/Ball-Lang/ball/commit/c30597834ca9bf0a3f712d989bd8217101e2b99c)), closes [#507](https://github.com/Ball-Lang/ball/issues/507) [#493](https://github.com/Ball-Lang/ball/issues/493) [#535](https://github.com/Ball-Lang/ball/issues/535) [#537](https://github.com/Ball-Lang/ball/issues/537) [pre-#537](https://github.com/pre-/issues/537)
+
 # [1.64.0](https://github.com/Ball-Lang/ball/compare/v1.63.1...v1.64.0) (2026-09-03)
 
 

@@ -17,15 +17,17 @@ It runs pinned third-party modules through `encoder.Encode` →
 using **`go/parser` + `go/ast` directly** — never `go/encoder`'s own walk — and
 checks a second-generation fixpoint.
 
-**The one accommodation:** `go/encoder` has no library mode (contrast Rust's
-`encode_library` and C#'s `EncodeLibrary`), so `Encode` fails loud on every
-entry-point-less file — which is every real library file. Scoring all of them as
-one blanket `encode-error` would measure the missing library mode, not construct
-coverage, so the harness appends an empty `func main() {}` before encoding when
-a file declares none, and excludes it — and any real `func main`, which
-`CompileLibrary` renames to `ball_main` — from the declaration inventory.
-`TestSyntheticEntryPointIsAddedOnlyWhenMissing` pins both halves. Adding a
-library mode to `go/encoder` would remove the need for it.
+**No accommodations (since #537).** `go/encoder` now has a real library mode —
+`EncodeLibrary`, the sibling of Rust's `encode_library` and C#'s
+`EncodeLibrary` — so the harness dispatches on the parsed file: `EncodeLibrary`
+for an entry-point-less file (which is every real library file), `Encode` when
+it declares a `func main`. Nothing is synthesized.
+`TestEntryPointLessFilesAreEncodedThroughLibraryMode` pins that. Until #537
+landed, the harness had to append an empty `func main() {}` before encoding —
+a disclosed accommodation that measured the missing library mode rather than
+construct coverage; it is gone. (A real `func main` is still excluded from the
+declaration inventory, for the separate reason that `CompileLibrary` renames it
+to `ball_main`.)
 
 Honest first baseline: **0/21 clean, 0 files even encoded** (5 pinned modules,
 `tools/coverage-study/packages/go.json`) — every real file trips the documented
@@ -49,7 +51,7 @@ is wired — the `go` job in `.github/workflows/ci.yml` plus the `go-engine` row
 | `runtime/` | `github.com/ball-lang/ball/go/runtime` | Package `ballrt`: the runtime value model (`Value`/`List`/ordered `Map`/`Set`/`Function`/`Message`) + base-op helpers (`Add`, `Truthy`, `ToStr`, …) + flow signals (`Return`/`Break`/`Continue`/`Throw`/`Rethrow` via panic/recover) + the `ball_proto` access patterns, Dart-SDK method surface (`CallMethod`), `std_collections`/`std_convert`, and the is/as class-hierarchy registry the self-hosted engine calls. **Zero external dependencies** (Go stdlib only) so compiled programs build and run offline via a local `replace`. |
 | `shared/` | `github.com/ball-lang/ball/go/shared` | Generated Go protobuf bindings (package `ballv1`, under `gen/`) — NEVER hand-edit; regenerate with `buf generate`. Requires `google.golang.org/protobuf`. |
 | `compiler/` | `github.com/ball-lang/ball/go/compiler` | Ball → Go compiler (string emission, mirroring `rust/compiler` / `csharp/compiler`). Two modes: `Compile` (runnable `package main`) and `CompileLibrary` (a named library package — class members as flat funcs, dispatchers, constructors, oneof discriminators — for the self-hosted engine). `cmd/ballgoc` is a thin front-end. |
-| `encoder/` | `github.com/ball-lang/ball/go/encoder` | Go → Ball encoder: `go/parser` + `go/ast` walk emitting a Ball `Program`. Every construct routes through the universal `std` base module — **no `go_std`** (the Rust encoder's "no rust_std" invariant). `cmd/ballgoenc` is a thin front-end. Test-only dependency on `compiler` for the round-trip proof. |
+| `encoder/` | `github.com/ball-lang/ball/go/encoder` | Go → Ball encoder: `go/parser` + `go/ast` walk emitting a Ball `Program`. `Encode` (requires `func main()`) and `EncodeLibrary` (#537, entry-point-less library files) share one walk. Every construct routes through the universal `std` base module — **no `go_std`** (the Rust encoder's "no rust_std" invariant). `cmd/ballgoenc` is a thin front-end. Test-only dependency on `compiler` for the round-trip proof. |
 | `engine/` | `github.com/ball-lang/ball/go/engine` | Self-hosted engine (Phase 4): compiles `dart/self_host/engine.ball.json` through `go/compiler` into the gitignored, `selfhost`-tagged `compiled/compiled_engine.go`, driven by a native wrapper (loader + `ball_proto` view). See `go/engine/AGENTS.md`. |
 | `cli/` | `github.com/ball-lang/ball/go/cli` | The `ball` CLI (Phase 5): `run`/`compile`/`encode`/`check` over engine/compiler/encoder (`cmd/ball` is the binary). `run` executes via the self-hosted engine, inheriting the `selfhost` build tag through Go's tag propagation (a default build reports a clear rebuild-with-selfhost error). See `go/cli/AGENTS.md`. |
 
@@ -87,6 +89,14 @@ and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
 GOPATH and runs the binary. Off the *public* proxy this resolves only once the
 six `go/<module>/v0.1.0` tags are pushed on one commit.
 
+**Both legs run against a fresh `GOMODCACHE`** — leg 1 gained one while landing
+#537. `v0.1.0` names a tag, not a commit, so a warm module cache already holding
+`go/<m>@v0.1.0` serves that older content and the sweep measures stale code: a
+false red when the tree just gained an API the cached copy lacks, and a false
+green when a change breaks external resolution but the cached copy still builds.
+`actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the
+committed `go.sum` files, so this affected CI too. Do not remove it.
+
 Before it builds anything, the script asserts the version story is internally
 consistent: every intra-repo `require` names the same version, no `go.mod` has a
 `replace`, and `go/go.work`'s versioned pins name that same version and cover
@@ -117,6 +127,21 @@ later as `unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step.
 - The round-trip test (`go/encoder/roundtrip_test.go`) is the proof: Go →
   Ball → (compile with `go/compiler` + `go run`) is asserted equal to running the
   original Go natively, for the `testdata/*.go` sources.
+- **Library mode: `EncodeLibrary(source string) (*ballv1.Program, error)`**
+  (issue #537) — the same walk as `Encode`, minus the `func main()` requirement,
+  for the entry-point-less files every real Go library is made of. Both delegate
+  to the shared private `assembleProgram(funcs, entryFunction)`; `entryFunction`
+  (`"main"` vs. `""`) is the ONLY difference between them, so `Encode`'s output
+  is byte-for-byte what it always was. Reached from the CLI as
+  `ball encode -lib`, and from `tools/coverage-study/go`. Mirrors Rust's
+  `encode_library` and C#'s `EncodeLibrary`.
+  **Deliberately non-runnable:** a library-mode `Program` carries
+  `entry_module = "main"` (the module `CompileLibrary` emits) but an EMPTY
+  `entry_function`, so `ball check` reports "missing entry_function" and `ball
+  run` has nothing to call. That is the documented boundary — nobody should
+  later "fix" it by synthesising a fake entry function. `go/encoder/
+  library_mode_test.go` pins it, round-tripping the encoded library through
+  `CompileLibrary` and `go build`ing the result as a real library package.
 
 ## Compiler design (see `go/compiler/compiler.go` doc comment)
 - Every Ball expression compiles to a Go expression evaluating to `ballrt.Value`

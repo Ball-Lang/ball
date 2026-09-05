@@ -30,17 +30,40 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	ballv1 "github.com/ball-lang/ball/go/shared/gen/ball/v1"
 )
 
-// mustWithEntry parses source and applies the harness's entry-point
-// accommodation to it.
-func mustWithEntry(t *testing.T, source string) string {
+// mustEncodeForStudy parses source and encodes it exactly the way the harness
+// does — library mode for an entry-point-less file, program mode otherwise.
+func mustEncodeForStudy(t *testing.T, source string) *ballv1.Program {
 	t.Helper()
 	file, err := parser.ParseFile(token.NewFileSet(), "source.go", source, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	return withEntry(file, source)
+	prog, err := encodeSource(file, source)
+	if err != nil {
+		t.Fatalf("encodeSource: %v", err)
+	}
+	return prog
+}
+
+// encodedFunctionNames lists the functions the encoded `main` module carries.
+func encodedFunctionNames(t *testing.T, prog *ballv1.Program) []string {
+	t.Helper()
+	for _, m := range prog.GetModules() {
+		if m.GetName() != "main" {
+			continue
+		}
+		var names []string
+		for _, f := range m.GetFunctions() {
+			names = append(names, f.GetName())
+		}
+		return names
+	}
+	t.Fatal("the encoded program has no `main` module")
+	return nil
 }
 
 // helper.go — a plain helper library: no `func main`, nothing exotic. Exactly
@@ -231,23 +254,40 @@ func main() {}
 	}
 }
 
-// The synthesized entry point is appended only when the file has none, and it
-// is never counted as a declaration — otherwise the harness would be measuring
-// its own accommodation.
-func TestSyntheticEntryPointIsAddedOnlyWhenMissing(t *testing.T) {
-	withMain := "package demo\n\nfunc main() {}\n"
-	if got := mustWithEntry(t, withMain); got != withMain {
-		t.Fatalf("a file that already declares main must not be touched, got:\n%s", got)
+// An entry-point-less file — every real library file — is encoded through the
+// encoder's REAL library mode (issue #537), never through a synthesized entry
+// point. This replaces TestSyntheticEntryPointIsAddedOnlyWhenMissing, which
+// pinned the `withEntry` accommodation this harness carried while go/encoder
+// had no library mode: the harness must measure the encoder, never its own
+// invention.
+func TestEntryPointLessFilesAreEncodedThroughLibraryMode(t *testing.T) {
+	prog := mustEncodeForStudy(t, helperSource)
+	if got := prog.GetEntryFunction(); got != "" {
+		t.Errorf("entry_function = %q, want \"\" — a library file must encode through "+
+			"EncodeLibrary, not a synthesized entry point", got)
 	}
-	got := mustWithEntry(t, helperSource)
-	if got == helperSource {
-		t.Fatal("an entry-point-less file must get a synthesized `func main()` for encoding")
+	if got := prog.GetEntryModule(); got != "main" {
+		t.Errorf("entry_module = %q, want \"main\"", got)
 	}
-	inv, err := DeclarationInventory(got)
+	names := encodedFunctionNames(t, prog)
+	if len(names) != 1 || names[0] != "twice" {
+		t.Fatalf("encoded functions = %v, want [twice] — nothing may be synthesized", names)
+	}
+
+	// A file that DOES declare an entry point still goes through the default
+	// program-mode Encode, so the harness is not silently library-mode-ing
+	// everything.
+	withMain := mustEncodeForStudy(t, "package demo\n\nfunc main() {}\n")
+	if got := withMain.GetEntryFunction(); got != "main" {
+		t.Errorf("entry_function = %q for a file with `func main`, want \"main\"", got)
+	}
+
+	// And the funnel agrees: the mainless file gets PAST stage 1 (encoded).
+	stage, err := StageReached(StudyFile("synthetic", "helper.go", helperSource).Reason)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inv["func main"] {
-		t.Fatal("the synthesized entry point leaked into the declaration inventory")
+	if stage < 1 {
+		t.Fatalf("an entry-point-less file only reached stage %d — library-mode encoding failed", stage)
 	}
 }

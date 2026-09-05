@@ -72,6 +72,32 @@ name: Release Dart packages (pub.dev)
 # recomputes the runtime graph from the pubspecs and fails if this list is not a
 # valid deps-first order of it, or if it does not name exactly the publishable
 # packages. Do not reorder it by hand without re-running that guard.
+#
+# LOCKSTEP (#566). Ordering alone is not enough. Each release's prepareCmd
+# sweeps EVERY workspace member's sibling pins, and @semantic-release/git
+# commits them — including the pins of packages that have no releasable commits
+# of their own. Those packages are never published, so pub.dev keeps serving
+# their OLD pubspec, and the published graph splits:
+#
+#   ball_base     0.4.0    published
+#   ball_resolver 0.3.0+3  NOT released, still pinning ball_base ^0.3.0+3
+#   -> Because ball_resolver >=0.3.0+3 depends on ball_base ^0.3.0+3 and
+#      ball_engine >=0.4.0 depends on ball_base ^0.4.0, version solving failed.
+#
+# That is exactly what the first live run (33953248977) shipped. Every
+# pre-publish gate the lane had validates the REPO workspace, where a
+# re-pinned-but-unreleased package looks perfectly healthy.
+#
+# So the loop below asks `tools/release/lockstep_plan.mjs --decide` before each
+# package: if that package's PUBLISHED pubspec pins a sibling at a version this
+# run will move out from under it, the planner returns `patch` and the loop
+# passes it through as SR_FORCE_RELEASE, which
+# `tools/release/only-package-commits.mjs` promotes into a release. The rule is
+# deliberately narrow — a pin merely rewritten, but still satisfiable, does NOT
+# force a release — because the broad version ("any chore(release) commit
+# touching my paths is a patch trigger") is self-sustaining and would republish
+# all nine packages on every run forever. Because the order is deps-first, one
+# forward pass is a fixpoint.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -103,9 +129,17 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          # Always release from the tip of main, never from whatever ref the
-          # dispatch happened to name.
-          ref: main
+          # A REAL release always runs from the tip of main, never from whatever
+          # ref the dispatch happened to name.
+          #
+          # A DRY RUN checks out the dispatched ref instead, and it must: a
+          # rehearsal that always runs main's tree cannot rehearse a change to
+          # the release lane itself, which is why #566 shipped unrehearsed — the
+          # only way to exercise it was to merge it. A dry run creates no
+          # commits, tags, releases or publishes (semantic-release skips
+          # prepare, publish, addChannel, success and fail), so there is nothing
+          # for the branch choice to damage.
+          ref: ${{ inputs.dry_run && github.ref || 'main' }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -135,16 +169,41 @@ jobs:
       - name: Install release toolchain
         run: cd tools/release && npm ci
 
+      # The lockstep baseline: what pub.dev serves RIGHT NOW, before this run
+      # touches anything. Every "does this package have to release too?"
+      # decision below is measured against this snapshot plus the versions this
+      # run has already decided — never against the repo tree, which the sweep
+      # keeps consistent whether or not the packages in it were published.
+      - name: Snapshot the live pub.dev graph (lockstep baseline, #566)
+        env:
+          SR_LOCKSTEP_PUBLISHED: ${{ runner.temp }}/pubdev-published.json
+        run: node tools/release/lockstep_plan.mjs --fetch-published
+
       - name: Run semantic-release per package (sequential)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.dry_run }}
+          # Read by lockstep_plan.mjs --decide (this step) and --record (each
+          # config's verifyReleaseCmd, which semantic-release runs in --dry-run
+          # mode too — so a rehearsal produces the same plan as a real run).
+          SR_LOCKSTEP_PUBLISHED: ${{ runner.temp }}/pubdev-published.json
+          SR_LOCKSTEP_STATE: ${{ runner.temp }}/pubdev-lockstep-state.json
         run: |
           set -euo pipefail
           FLAG=""
-          if [ "${DRY_RUN}" = "true" ]; then FLAG="--dry-run"; fi
+          if [ "${DRY_RUN}" = "true" ]; then
+            # `branches: ["main"]` in every config, and semantic-release reads
+            # the CURRENT branch from the CI environment (GITHUB_REF), not from
+            # git — so on a rehearsal branch it would stop at "configured to
+            # only publish from main" and compute nothing. --branches makes the
+            # dispatched branch a release branch FOR THE REHEARSAL ONLY. A real
+            # run never gets this flag, and a dry run publishes nothing whatever
+            # branch it is on.
+            FLAG="--dry-run --branches ${GITHUB_REF_NAME}"
+          fi
           SR="tools/release/node_modules/semantic-release/bin/semantic-release.js"
+          echo '{}' > "$SR_LOCKSTEP_STATE"
 
           # A topological order of the runtime dependency graph, deps first.
           # Gated by tools/release/check_pubspec_workspace_consistency.mjs — see
@@ -170,9 +229,20 @@ jobs:
             # would win. The copy is in no @semantic-release/git `assets` list,
             # so it is never committed.
             cp ".github/release/${cfg}.releaserc.json" ".releaserc.json"
-            node "$SR" $FLAG
+
+            # Lockstep (#566): `patch` when this package's PUBLISHED pubspec
+            # pins a sibling at a version this run moves out from under it,
+            # empty otherwise. The reason is printed on stderr either way, so
+            # the run log always says why a package did or did not release.
+            FORCE="$(node tools/release/lockstep_plan.mjs --decide --package="$cfg")"
+
+            SR_FORCE_RELEASE="$FORCE" node "$SR" $FLAG
             echo "::endgroup::"
           done
+
+          echo "::group::lockstep plan for this run"
+          cat "$SR_LOCKSTEP_STATE"
+          echo "::endgroup::"
 
       # ── The release loop just rewrote every pubspec in the workspace: each
       #    package's own `version:`, and every sibling's constraint on it. Those

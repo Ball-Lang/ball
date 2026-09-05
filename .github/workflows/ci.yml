@@ -230,6 +230,19 @@ jobs:
       - name: Published-sibling freshness classifier self-test (#551)
         run: python3 tools/release/check_published_siblings.py --self-test
 
+      # #566: the workspace guards above validate the REPO, and the classifier
+      # above validates a tarball AFTER it is uploaded. Neither can see the
+      # failure that actually shipped — a package the release sweep re-pinned
+      # but never published, so pub.dev keeps serving its old pubspec and the
+      # published graph becomes unsolvable. This planner is the oracle for that,
+      # moved BEFORE the upload: it simulates a whole run against live pub.dev
+      # state and decides which re-pinned siblings must release in lockstep.
+      # Offline and deterministic — the network leg (--fetch-published) belongs
+      # to the release job; these cases drive the simulation on fixtures,
+      # including the live nine-package graph the first run left broken.
+      - name: pub.dev lockstep release planner self-test (#566)
+        run: node tools/release/lockstep_plan.mjs --self-test
+
       # release-cpp.yml is tag-dispatched, so its build matrix is never
       # exercised by a PR — a dropped leg, an `x64` target pointed at an
       # Apple-Silicon runner, or a target table in docs/RELEASE.md left behind

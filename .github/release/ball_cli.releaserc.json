@@ -5,6 +5,7 @@
     ["./tools/release/only-package-commits.mjs", { "paths": ["dart/cli"] }],
     ["@semantic-release/changelog", { "changelogFile": "dart/cli/CHANGELOG.md" }],
     ["@semantic-release/exec", {
+      "verifyReleaseCmd": "node tools/release/lockstep_plan.mjs --record --package=ball_cli --version=${nextRelease.version} --type=${nextRelease.type}",
       "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/cli/pubspec.yaml --version=${nextRelease.version} && node tools/release/sync_pubspec_deps.mjs --workspace-root=. && cd dart/cli && dart run tool/gen_version.dart",
       "publishCmd": "gh workflow run release-publish.yml --ref ball_cli-v${nextRelease.version}"
     }],

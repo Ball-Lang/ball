@@ -63,10 +63,16 @@ rolling PR and no human step (issue #551).
 push to main
   └► release.yml → semantic-release (as in the npm lane above)
        └► gh workflow run pubdev-release.yml --ref main    ← EXPLICIT dispatch
-            └► pubdev-release.yml: for each of the nine packages, IN ORDER,
+            └► pubdev-release.yml
+                 ├─ lockstep_plan.mjs --fetch-published → the LIVE pub.dev graph
+                 └─ for each of the nine packages, IN ORDER,
                  semantic-release with .github/release/<pkg>.releaserc.json
                    ├─ only-package-commits.mjs: only commits touching
                    │  dart/<pkg>/ count toward this package's version
+                   │  …unless SR_FORCE_RELEASE says otherwise (lockstep, below)
+                   ├─ verifyReleaseCmd
+                   │    └─ lockstep_plan.mjs --record → this run's decisions,
+                   │       so the packages that follow can see them
                    ├─ prepareCmd
                    │    ├─ set_manifest_version.mjs  → dart/<pkg>/pubspec.yaml
                    │    ├─ sync_pubspec_deps.mjs     → re-pin sibling ranges in
@@ -86,6 +92,7 @@ push to main
                                      Ball sibling against the tag's own tree,
                                      and for ball_cli `dart pub global activate`
                                      + run it
+                      (before each: lockstep_plan.mjs --decide → SR_FORCE_RELEASE)
             └► (after the loop) check_pubspec_workspace_consistency.mjs
                + `dart pub get` — prove main still resolves
 ```
@@ -125,6 +132,56 @@ So each config runs `sync_pubspec_deps.mjs --workspace-root=.` and commits
 `ball_cli 0.4.0` still requiring `ball_base ^0.3.0+3` — resolvable, green, and
 semantically wrong (a caret on a `0.x` version pins the minor, so `^0.3.0+3`
 never admits `0.4.0`).
+
+**Why a re-pinned sibling must release in the SAME run (lockstep, issue #566).**
+The sweep rewrites every member's pins in the **repo**. A member with no
+releasable commits of its own is swept too — and then not published, because
+`only-package-commits.mjs` correctly finds nothing to release for it. pub.dev
+therefore keeps serving that package's **old** pubspec while every package that
+*did* publish moved on, and the published graph splits in half. The first live
+run (33953248977, 2026-09-05) did exactly this: it published seven packages on
+the 0.4.0 line and skipped `ball_resolver` and `ball_rpc`, leaving
+
+```
+Because ball_resolver >=0.3.0+3 depends on ball_base ^0.3.0+3 and
+  ball_engine >=0.4.0 depends on ball_base ^0.4.0,
+  ball_resolver >=0.3.0+3 is incompatible with ball_engine >=0.4.0.
+```
+
+so that an outside `dart pub get` on `ball_cli: ^0.4.0` failed outright. Nothing
+in the repo was wrong — `check_pubspec_workspace_consistency.mjs` and
+`dart pub get` on main were both green, because the sweep had made the *tree*
+consistent. The split existed only in the registry.
+
+The lane therefore plans against **pub.dev state**, not the tree:
+
+* Before the loop, `lockstep_plan.mjs --fetch-published` snapshots what pub.dev
+  serves right now — every publishable package's latest version and its
+  runtime `dependencies:`.
+* Before each package, `lockstep_plan.mjs --decide --package=<pkg>` asks one
+  question: does that package's **published** pubspec pin a workspace sibling at
+  a version this run moves out from under it? If yes it prints `patch`, the loop
+  passes it in as `SR_FORCE_RELEASE`, and `only-package-commits.mjs` promotes
+  its no-release verdict to that level. A real analyzer verdict always wins.
+* Each config's `verifyReleaseCmd` records what semantic-release decided
+  (`lockstep_plan.mjs --record`), so the next package's `--decide` sees it.
+  `verifyRelease` is one of the four lifecycle steps semantic-release also runs
+  under `--dry-run` (`prepare`, `publish`, `addChannel`, `success` and `fail`
+  are the ones it skips), which is what makes `dry_run=true` a faithful
+  rehearsal of the plan rather than a guess.
+
+The rule is deliberately **narrow**: a pin that was merely *rewritten* but is
+still satisfiable does not force a release. `ball_cli 0.4.0` pinning
+`ball_resolver ^0.3.0+3` still admits a `ball_resolver 0.3.1`, so republishing
+it would be noise. The broad alternative — "any `chore(release):` commit
+touching my paths is a patch trigger" — is self-sustaining: every run's sweep
+commits touch every pubspec that pins a bumped sibling, so every run would
+republish all nine packages forever, including runs where nothing under `dart/`
+changed. Because the loop is deps-first, one forward pass is a fixpoint, and
+re-planning the world a run produced releases nothing.
+
+`node tools/release/lockstep_plan.mjs --self-test` (ci.yml, every PR) drives the
+whole simulation on fixtures, including the live nine-package graph above.
 
 **Why the release ORDER is load-bearing, and how it is gated.** Because each
 release commits the whole workspace's pubspecs, a package released *before* one
@@ -402,6 +459,20 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   `sync_pubspec_deps.mjs` in that package's prepare log and the `PACKAGES` order
   in `pubdev-release.yml`. Fix forward and cut a new patch — pub.dev versions are
   immutable.
+- **`verify-published` red for several packages at once, all failing to resolve
+  one sibling that is still on its OLD version:** a package the sweep re-pinned
+  was never released, so pub.dev serves its old pubspec (issue #566 —
+  `ball_resolver 0.3.0+3` requiring `ball_base ^0.3.0+3` while ball_base is live
+  at `0.4.0`). The repo is fine and every static guard is green; the split is
+  registry-side only. Confirm with
+  `node tools/release/lockstep_plan.mjs --fetch-published --out=/tmp/pubdev.json`
+  and read the versions, then rehearse the repair with
+  `gh workflow run pubdev-release.yml --ref main -f dry_run=true` — the packages
+  it reports as releasing with no releasable commits are the ones the lockstep
+  planner is repairing. Fix forward by dispatching the workflow for real; never
+  revert, pub.dev versions are immutable. If the dry run reports *nothing*, the
+  lockstep wiring itself regressed — check
+  `bash tools/release/check_pubdev_release_wiring.sh`.
 - **`Verify the workspace still resolves after the release` red:** one or more
   member pubspecs were left pinned to a version the workspace no longer
   contains, so `dart pub get` fails on main. The output names each offender.
@@ -423,9 +494,10 @@ another.
 | Guard | Runs | Catches | Blind to |
 |---|---|---|---|
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
-| `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing | whether a release was actually cut — it is entirely static |
+| `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, and the lockstep wiring (#566) going missing | whether a release was actually cut — it is entirely static |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
+| `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |
 | `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version. Plus, via `check_published_siblings.py`, an upload that resolves *cleanly* and is still wrong: a Ball sibling resolved older than the release tag's tree declares | anything about packages this run did not publish |
 
 The 30-day staleness bound is a judgement call, not a release cadence: it says

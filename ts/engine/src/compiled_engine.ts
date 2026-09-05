@@ -2505,6 +2505,7 @@ export class BallEngine {
         }
       }
     }
+    this._initFieldDefaults(typeName, instance);
     this._applyConstructorInitializers(func, instance, resolvedParams);
     let typeDef = this._findTypeDef(typeName);
     if (!__ball_eq(typeDef, null)) {
@@ -3391,6 +3392,17 @@ export class BallEngine {
             })();
             return this._unwrapFuture(await this._callFunction(modPart2, staticFunc, staticInput));
           }
+          if (__ball_eq(call.function, 'new')) {
+            let ctorFields = _ballUserMap();
+            for (const e of inputMap.entries) {
+              if (__ball_eq(e.key, 'self')) {
+                continue;
+              }
+              ctorFields[e.key] = e.value;
+            }
+            ctorFields['__type__'] = qualifiedName;
+            return ctorFields.cast();
+          }
         }
         let typeName = __ball_index(selfMap, '__type__');
         if (((!__ball_eq(typeName, null) && !__ball_eq(typeName, '__builtin_class__')) && !__ball_eq(typeName, '__class__'))) {
@@ -3758,6 +3770,9 @@ export class BallEngine {
       }));
       let typeExists = (__ball_map_has(this._types, 'map_contains_key', name) || __ball_map_has(this._types, 'map_contains_key', qualifiedName));
       if ((typeExists && (hasCtor || hasStaticMethods))) {
+        return { ['__class_ref__']: name, ['__type__']: '__class__' };
+      }
+      if (_builtinExceptionNames.includes(name)) {
         return { ['__class_ref__']: name, ['__type__']: '__class__' };
       }
     }
@@ -10412,6 +10427,7 @@ export class StdModuleHandler extends BallModuleHandler {
 let _kBallSetTag = (() => { return '__ball_set__'; })();
 let _sentinel = (() => { return { '__type': 'main:Object' }; })();
 let _builtinTypeNames = (() => { return new Set(['int', 'double', 'num', 'String', 'bool', 'List', 'Map', 'Set', 'Null', 'void', 'Object', 'dynamic', 'Function', 'Future', 'Stream', 'Iterable', 'Iterator', 'Type', 'Symbol', 'Never']); })();
+let _builtinExceptionNames = (() => { return new Set(['Exception', 'Error', 'FormatException', 'RangeError', 'ArgumentError', 'StateError', 'UnsupportedError', 'UnimplementedError', 'TypeError', 'NoSuchMethodError', 'OutOfMemoryError', 'StackOverflowError', 'IntegerDivisionByZeroException', 'ConcurrentModificationError', 'IndexError', 'IOException', 'FileSystemException', 'HttpException', 'SocketException']); })();
 let _ballPointerBytes = (() => { return 8; })();
 let _ballStringCodeUnitBytes = (() => { return 2; })();
 let _ballMapEntryBytes = (() => { return __ball_mul(_ballPointerBytes, 2); })();

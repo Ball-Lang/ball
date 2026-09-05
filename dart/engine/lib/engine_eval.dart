@@ -249,6 +249,22 @@ extension BallEngineEval on BallEngine {
               await _callFunction(modPart2, staticFunc, staticInput),
             );
           }
+          // Constructor tear-off on a class with NO registered constructor —
+          // i.e. a built-in exception such as `FormatException.new('bad
+          // input')`. Build the same generic instance the typeDef-less
+          // `messageCreation` fallback produces for the ordinary
+          // `FormatException('bad input')` form, so the two spellings are
+          // indistinguishable downstream (std.throw's arg0 -> message rename
+          // consumes exactly this shape).
+          if (call.function == 'new') {
+            final ctorFields = _ballUserMap();
+            for (final e in inputMap.entries) {
+              if (e.key == 'self') continue;
+              ctorFields[e.key] = e.value;
+            }
+            ctorFields['__type__'] = qualifiedName;
+            return BallMap(ctorFields.cast<String, Object?>());
+          }
         }
 
         final typeName = selfMap['__type__'] as String?;
@@ -731,6 +747,18 @@ extension BallEngineEval on BallEngine {
       final typeExists =
           _types.containsKey(name) || _types.containsKey(qualifiedName);
       if (typeExists && (hasCtor || hasStaticMethods)) {
+        return BallMap({'__class_ref__': name, '__type__': '__class__'});
+      }
+      // A BUILT-IN exception class torn off as a receiver
+      // (`FormatException.new('bad input')`). Such a name has no
+      // TypeDefinition, no registered constructor and no static method, so the
+      // test above can never accept it and resolution fell through to
+      // `scope.lookup(name)` — `Undefined variable: "FormatException"` (#531).
+      // The set is EXPLICITLY enumerated, mirroring the C++ compiler's
+      // `is_builtin_exception_name`: promoting *any* unbound upper-case
+      // identifier to a class reference would silently swallow a genuine typo,
+      // which is exactly the fail-loud rule this engine is built on.
+      if (_builtinExceptionNames.contains(name)) {
         return BallMap({'__class_ref__': name, '__type__': '__class__'});
       }
     }

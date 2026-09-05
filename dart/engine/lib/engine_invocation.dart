@@ -516,6 +516,15 @@ extension BallEngineInvocation on BallEngine {
       }
     }
 
+    // Apply the CLASS's own inline field initializers (`int n = 0;`) for every
+    // field neither an argument nor a `this.`-param supplied. The
+    // messageCreation construction path has always done this; this one never
+    // did, so a body-less constructor reached through a tear-off
+    // (`Counter.new()`) produced an instance with the field missing entirely —
+    // `Undefined variable: "n"` the first time a method touched it, while the
+    // ordinary `Counter()` spelling worked (#531).
+    _initFieldDefaults(typeName, instance);
+
     // Process field initializers from constructor metadata.
     _applyConstructorInitializers(func, instance, resolvedParams);
 

@@ -1,3 +1,10 @@
+## [0.4.1](https://github.com/Ball-Lang/ball/compare/ball_compiler-v0.4.0...ball_compiler-v0.4.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **std:** one bool contract for set_add/set_remove across all targets + declared-outputType gate ([#545](https://github.com/Ball-Lang/ball/issues/545)) ([#562](https://github.com/Ball-Lang/ball/issues/562)) ([d902ab1](https://github.com/Ball-Lang/ball/commit/d902ab19711c220244d18300a578386e213dc7e3)), closes [#488](https://github.com/Ball-Lang/ball/issues/488)
+
 # [0.4.0](https://github.com/Ball-Lang/ball/compare/ball_compiler-v0.3.0...ball_compiler-v0.4.0) (2026-09-05)
 
 

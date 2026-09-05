@@ -221,6 +221,56 @@ void main() {
 ''',
     expected: '5\n0',
   ),
+  // `indexOf(needle, start)` — issue #488. `std_collections.list_index_of`
+  // declares no start operand, so the encoder declines the route for the
+  // two-argument form and the generic method dispatch has to implement the
+  // offset itself. Before the fix BOTH halves were wrong at once: the encoder
+  // collided the two arguments onto one `value` field (the needle was dropped
+  // and the START INDEX took its place), and the engine's generic `indexOf`
+  // arms ignored `arg1` outright. A `dart run` comparison is the only thing
+  // that sees both.
+  (
+    name: 'index_of_with_start',
+    source: '''
+void main() {
+  var xs = [1, 2, 3, 2, 1];
+  print(xs.indexOf(2, 2).toString());
+  print(xs.indexOf(2).toString());
+  print(xs.indexOf(9, 1).toString());
+  var s = 'abcabc';
+  print(s.indexOf('b', 2).toString());
+  print(s.indexOf('b').toString());
+  print(s.indexOf('z', 1).toString());
+}
+''',
+    expected: '3\n1\n-1\n4\n1\n-1',
+  ),
+  // The rest of the dropped-optional-operand family (#488). Each of these
+  // routes had an arity window one argument WIDER than the std function it
+  // stands for, and the compiler emitted exactly the operands the function
+  // declares — so the offset vanished with no diagnostic anywhere.
+  // `startsWith` is the measured one: `path/lib/src/style/url.dart`'s
+  // `path.startsWith('//', i + 1)` became `path.startsWith('//')`, and
+  // `rootLength` then skipped three characters it should not have, failing 32
+  // of `path`'s own tests.
+  (
+    name: 'optional_start_offsets',
+    source: '''
+void main() {
+  var s = 'abcabc';
+  print(s.startsWith('bc', 1).toString());
+  print(s.startsWith('bc', 4).toString());
+  print(s.startsWith('bc').toString());
+  print(s.lastIndexOf('bc', 2).toString());
+  print(s.lastIndexOf('bc').toString());
+  print(s.replaceFirst('bc', 'X', 2));
+  print(s.replaceFirst('bc', 'X'));
+  var xs = [1, 2, 3, 2, 1];
+  print(xs.lastIndexOf(2, 2).toString());
+}
+''',
+    expected: 'true\ntrue\nfalse\n1\n4\nabcaX\naXabc\n1',
+  ),
 ];
 
 String _norm(String s) =>

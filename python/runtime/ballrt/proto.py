@@ -11,9 +11,26 @@ present (non-null) variant key in declaration order, or ``"notSet"``; a presence
 check follows the proto3 rule that an absent key / explicit null / empty string /
 empty list/map all read as not-present (but a numeric 0 / bool false do not).
 
-The self-hosted engine reaches exactly these 17 (5 discriminators + 12 presence
-checks); the wider ball_proto surface (getField/getStructField/…) is not part of
-the compiled engine program, so it is intentionally not implemented here.
+The five discriminators are enumerated (each needs its own variant list, which is
+not derivable from the function name). Presence checks are NOT enumerated: any
+``ball_proto`` presence check the encoder can emit — ``hasBody``, ``hasHttp``,
+``hasFieldAccess``, … — is served by the module-level ``__getattr__`` below,
+which derives the field name from the function name and caches the result. The
+twelve the self-hosted ENGINE reaches are still defined explicitly, purely as the
+zero-indirection fast path for the hottest calls.
+
+Enumerating them was a latent bug (issue #570): ``python/compiler`` emits
+``ballrt.proto.<fn>(obj)`` for whatever ``ball_proto`` function a program calls,
+so the first Ball program to need a thirteenth — ``cli_core``'s ``treeReport``,
+which calls ``hasHttp``/``hasFile``/``hasGit``/``hasRegistry``/``hasInline`` —
+died with ``AttributeError: module 'ballrt.proto' has no attribute 'hasHttp'``.
+Go never had the bug because ``go/compiler`` emits a generic
+``ballrt.HasField(obj, "http")``.
+
+The wider ball_proto surface (``getField``/``getStructField``/…) is still not
+implemented here: no compiled Ball program in this repo reaches it, and an
+unknown name fails loud with an ``AttributeError`` naming what is missing rather
+than silently answering.
 """
 
 from __future__ import annotations
@@ -116,3 +133,36 @@ def hasStringValue(obj):
 
 def hasStructValue(obj):
     return _has(obj, "structValue")
+
+
+# ── Generic presence checks ──────────────────────────────────────────────────
+
+def __getattr__(name):
+    """Serve any ``has<Field>`` presence check not defined explicitly above.
+
+    ``hasHttp`` -> ``_has(obj, "http")``, ``hasFieldAccess`` -> ``_has(obj,
+    "fieldAccess")``: the proto3 jsonName is the suffix with its first letter
+    lowered, which is exactly how ball_proto names these functions
+    (``dart/shared/lib/ball_proto.dart``).
+
+    The generated function is cached into the module globals, so a hot call site
+    pays this lookup once and then resolves as fast as an explicit def. Anything
+    that is not a ``has<Field>`` raises ``AttributeError`` naming the missing
+    function — a compiled program reaching an unimplemented ball_proto function
+    must fail loud, never read as "absent".
+    """
+    if name.startswith("has") and len(name) > 3 and name[3].isupper():
+        field = name[3].lower() + name[4:]
+
+        def presence(obj, _field=field):
+            return _has(obj, _field)
+
+        presence.__name__ = name
+        presence.__qualname__ = name
+        presence.__doc__ = f'ball_proto presence check for the "{field}" field.'
+        globals()[name] = presence
+        return presence
+    raise AttributeError(
+        f"module {__name__!r} has no attribute {name!r}: the ball_proto access pattern "
+        f"{name!r} is not implemented in python/runtime (see ballrt/proto.py)"
+    )

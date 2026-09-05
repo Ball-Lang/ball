@@ -540,14 +540,39 @@ internal sealed partial class Encoder
                 return EncodeSimpleLambda(simpleLambda);
             case ThrowExpressionSyntax throwExpr:
                 return Builders.StdCall("throw", Builders.ArgsMessage(("value", EncodeExpr(throwExpr.Expression))));
-            case DefaultExpressionSyntax:
-                return Builders.NullLiteral();
+            case DefaultExpressionSyntax defaultExpr:
+                return EncodeDefaultOf(defaultExpr.Type);
             default:
                 throw new EncoderException(
                     $"ball-encoder: unsupported C# expression kind `{expr.Kind()}` " +
                     $"(deferred — see the module doc comment for issue #382's scope): `{expr}`");
         }
     }
+
+    /// <summary>
+    /// <c>default(T)</c> — the zero value of the named type.
+    ///
+    /// <para>A predefined (keyword) VALUE type has a zero that is emphatically
+    /// not null: <c>default(int)</c> is <c>0</c>, <c>default(bool)</c> is
+    /// <c>false</c>. Encoding those as a null literal (which this arm did
+    /// unconditionally before) is a silent-wrong-output bug in the exact shape
+    /// #492 slice B had to fix once for constructors — the program encodes,
+    /// compiles and runs, and prints <c>null</c> where C# prints <c>0</c>.
+    /// Everything else — a reference type, a generic parameter, a user struct,
+    /// <c>char</c>/<c>decimal</c> (no Ball counterpart) — keeps the null the
+    /// syntax-only encoder can honestly claim.</para>
+    /// </summary>
+    private static Expression EncodeDefaultOf(TypeSyntax type) =>
+        type is PredefinedTypeSyntax predefined
+            ? predefined.Keyword.Text switch
+            {
+                "int" or "long" or "short" or "sbyte" or "byte" or "uint" or "ulong" or "ushort" =>
+                    Builders.IntLiteral(0),
+                "double" or "float" => Builders.DoubleLiteral(0),
+                "bool" => Builders.BoolLiteral(false),
+                _ => Builders.NullLiteral(),
+            }
+            : Builders.NullLiteral();
 
     // ── literals ─────────────────────────────────────────────
 

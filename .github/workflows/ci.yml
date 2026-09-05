@@ -300,6 +300,96 @@ jobs:
           bash cpp/test/check_e2e_fixture_list.sh
 
   # ──────────────────────────────────────────────────
+  # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
+  # ──────────────────────────────────────────────────
+  # Every registry ships a `ball`, and #361's definition of done is that they
+  # all expose the SAME verbs. Nothing asserted it: each language's CLI suite
+  # covers the verbs THAT language implements, so a CLI which never had a verb
+  # never failed anything — which is exactly how go/cli and python/cli shipped
+  # without info/validate/tree/version for a whole release cycle with every
+  # other gate green.
+  #
+  # Deliberately NOT gated on `needs: changes`: a verb-set divergence is created
+  # by editing ONE CLI, and a path filter would run this only for that CLI's own
+  # stack — the drift would then land green. The `proto` job above is the file's
+  # existing precedent for an always-on job.
+  #
+  # Toolchain cost is why this job covers dart/ts/go/python: all four expose
+  # `--help` for the price of a checkout plus a cheap setup (the TS CLI's help
+  # path needs no npm install at all — it is type-only at the top level). Rust
+  # and C# are checked by the SAME script inside their own jobs, which already
+  # build their CLI, so no toolchain is set up twice. The C++ CLI is not wired:
+  # its binary costs the full CMake build (see the cpp job's runtime), and
+  # tools/cli_verbs.json therefore does not declare it — an undeclared CLI is
+  # simply not checked, never silently accepted.
+  cli-verb-parity:
+    name: CLI Verb Parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: |
+            go/cli/go.sum
+            go/compiler/go.sum
+            go/encoder/go.sum
+            go/engine/go.sum
+            go/shared/go.sum
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Bootstrap Dart workspace
+        uses: ./.github/actions/dart-pub-get
+
+      # Prove the instrument before trusting its number — the same discipline
+      # the Tier A coverage-study harness self-tests enforce in the go/python/
+      # rust/csharp jobs. This asserts the gate goes RED on exactly the defect
+      # #570 fixed (a CLI carrying only run/compile/encode/check), on an
+      # undeclared extra verb, and on a stale carve-out, and that each of its
+      # positive floors bites.
+      - name: Verb-parity checker self-test (#570)
+        run: python tools/test/test_check_cli_verb_parity.py
+
+      # A DEFAULT (no build tag) Go binary: the cli-core verbs must be listed in
+      # `--help` and dispatchable even without the generated compiled_cli.go, so
+      # this gate's answer never depends on how the binary was built. The verbs
+      # themselves then fail loud at RUNTIME (exit 1 + regenerate hint), which
+      # go/cli's own default-build test asserts.
+      - name: Build the Go CLI
+        run: cd go/cli && go build -o "$RUNNER_TEMP/ball-go" ./cmd/ball
+
+      - name: Cross-CLI verb-set parity (#570)
+        run: |
+          set -euo pipefail
+          python tools/check_cli_verb_parity.py \
+            --cli "dart=dart run dart/cli/bin/ball.dart" \
+            --cli "ts=node --experimental-strip-types --disable-warning=ExperimentalWarning src/index.ts" \
+            --cwd "ts:ts/cli" \
+            --cli "go=$RUNNER_TEMP/ball-go" \
+            --cli "python=python -m ball_cli" \
+            --cwd "python:python/cli" \
+            --min-clis 4 | tee "$RUNNER_TEMP/verb-parity.log"
+          {
+            echo "Cross-CLI verb-set parity (#570):"
+            echo '```'
+            cat "$RUNNER_TEMP/verb-parity.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────
   # Dart — analyze, format, all test suites
   # ──────────────────────────────────────────────────
   dart:
@@ -1444,6 +1534,19 @@ jobs:
       - name: Test
         run: cd rust && cargo test --workspace
 
+      # ── Cross-CLI verb-set parity (issue #570) ──
+      # The same tools/check_cli_verb_parity.py the always-on `CLI Verb Parity`
+      # job runs, invoked here because this job has already built ball-lang-cli
+      # — checking Rust's verb set costs one `--help` rather than a second Rust
+      # toolchain. `--help` needs no feature flags: clap declares every
+      # subcommand unconditionally, and the `cli_core`-gated verbs degrade at
+      # RUNTIME (rust/cli/src/commands/info.rs), not at declaration time.
+      - name: Cross-CLI verb-set parity (#570)
+        run: |
+          set -euo pipefail
+          python3 tools/check_cli_verb_parity.py \
+            --cli "rust=cargo run -q --manifest-path rust/Cargo.toml -p ball-lang-cli --"
+
       # rustfmt walks every `mod` declaration unconditionally — unlike
       # rustc/clippy it does NOT respect the `#[cfg(feature = "self_host")]`/
       # `#[cfg(feature = "cli_core")]` gates on `pub mod compiled_engine;`
@@ -1573,6 +1676,19 @@ jobs:
 
       - name: Format check
         run: dotnet format csharp/Ball.slnx --verify-no-changes
+
+      # ── Cross-CLI verb-set parity (issue #570) ──
+      # The same tools/check_cli_verb_parity.py the always-on `CLI Verb Parity`
+      # job runs, invoked here because this job has already built Ball.Cli —
+      # checking C#'s verb set costs one `--help` rather than a second .NET SDK
+      # setup. `--help` needs no MSBuild properties: System.CommandLine declares
+      # every subcommand unconditionally, and the CliCore-gated verbs degrade at
+      # RUNTIME, not at declaration time.
+      - name: Cross-CLI verb-set parity (#570)
+        run: |
+          set -euo pipefail
+          python3 tools/check_cli_verb_parity.py \
+            --cli "csharp=dotnet run --project csharp/cli/Ball.Cli.csproj --no-build --"
 
       # ── Tier A coverage-study harness self-test (issue #493) ──
       # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
@@ -1791,6 +1907,55 @@ jobs:
           cd dart && dart run compiler/tool/gen_engine_json.dart
           cd ../go/engine && go run ./cmd/regen
 
+      # ── Self-hosted CLI core: regenerate + parity-gate (issue #570) ──
+      # The portable verbs info/validate/tree/version compute their report text
+      # from dart/shared/lib/cli_core.dart, compiled through go/compiler into the
+      # gitignored go/cli/compiled/compiled_cli.go. gen_cli_json.dart writes
+      # dart/self_host/cli.ball.{json,pb} (a DIFFERENT artifact from the engine's
+      # engine.ball.json above — cli-core is its own Ball program); cmd/regen
+      # compiles it.
+      #
+      # The `clicore` build tag is deliberately independent of `selfhost`: these
+      # verbs never touch the interpreter, so they must not require the engine
+      # artifact. Mirrors Rust's `cli_core` Cargo feature and C#'s
+      # -p:CliCore=true. The DEFAULT build's half of the contract (the verbs
+      # exist, are listed in --help, and fail loud with a regenerate hint) is
+      # already covered by the untagged `Test` step above.
+      - name: Regenerate self-hosted CLI core (#570)
+        run: |
+          cd dart && dart run compiler/tool/gen_cli_json.dart
+          cd ../go/cli && go run ./cmd/regen
+
+      # Golden-parity gate: the built CLI's info/validate/tree stdout must be
+      # byte-identical to the Dart CLI's, over the shared five-fixture golden set
+      # in tests/cli_core_goldens/. Positive floor on the count of top-level
+      # tests that actually PASSED, so a build that silently ran nothing (a bad
+      # tag, an empty package) cannot read as green — `-v` is what makes those
+      # `--- PASS:` lines exist, and `-count=1` defeats the test cache.
+      - name: "cli-core parity gate (-tags clicore)"
+        run: |
+          set -euo pipefail
+          cd go/cli
+          go build -tags clicore ./...
+          go vet -tags clicore ./...
+          set +e
+          output=$(go test -count=1 -tags clicore -v ./... 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          passed=$(printf '%s\n' "$output" | grep -c '^--- PASS' || true)
+          failed=$(printf '%s\n' "$output" | grep -c '^--- FAIL' || true)
+          echo "=== Go cli-core parity ==="
+          echo "top-level tests: ${passed} passed, ${failed} failed"
+          case "$passed$failed" in
+            *[!0-9]*|"") echo "::error::could not parse the cli-core test counts"; exit 1 ;;
+          esac
+          if [ "$exit_code" != "0" ] || [ "$failed" -ne 0 ] || [ "$passed" -lt 5 ]; then
+            echo "::error::Go cli-core parity gate did not pass (expected >= 5 passing tests, 0 failing)"
+            exit 1
+          fi
+          echo "Go cli-core parity: ${passed} tests passed, 0 failed" >> "$GITHUB_STEP_SUMMARY"
+
       # Whole-corpus conformance sweep — drives every tests/conformance/*.ball.json
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
@@ -1893,11 +2058,14 @@ jobs:
       # ~690 KB compile.
       - name: Compile-all (syntax gate)
         run: |
-          python -m compileall -q -x 'compiled_engine\.py' \
+          python -m compileall -q -x '(compiled_engine|compiled_cli)\.py' \
             python/runtime/ballrt python/compiler/ball_compiler \
             python/encoder/ball_encoder python/engine/ball_engine \
             python/cli/ball_cli python/shared/gen \
-            python/tool python/engine/tool \
+            python/tool python/engine/tool python/cli/tool \
+            tools/check_cli_verb_parity.py \
+            tools/gen_cli_core_goldens.py \
+            tools/test/test_check_cli_verb_parity.py \
             tools/coverage-study/rq1_study_py.py \
             tools/coverage-study/coverage_table.py \
             tools/coverage-study/test/rq1_study_py_self_test.py \
@@ -1965,6 +2133,54 @@ jobs:
       # compiles it into a user cache dir on first use — the generated
       # compiled_engine.py is never shipped and never committed).
       #
+      # ── Self-hosted CLI core: regenerate + parity-gate (issue #570) ──
+      # The portable verbs info/validate/tree/version compute their report text
+      # from dart/shared/lib/cli_core.dart, compiled through python/compiler into
+      # the gitignored ball_cli/compiled_cli.py. gen_cli_json.dart writes
+      # dart/self_host/cli.ball.json (a DIFFERENT artifact from the engine's
+      # engine.ball.json above — cli-core is its own Ball program).
+      #
+      # This runs AFTER the `CLI tests` step above on purpose: that step is
+      # deliberately positioned pre-regen so the CLI's honest-failure paths are
+      # exercised in the natural fresh-checkout state, and the parity gate needs
+      # the opposite. BALL_REQUIRE_CLI_CORE=1 turns "no CLI core available" from
+      # a skip (right on a fresh checkout) into a failure here, so the regen step
+      # silently not running cannot reduce this gate to a no-op — the same
+      # mechanism BALL_REQUIRE_SELFHOST_SOURCE uses below.
+      #
+      # Positive floor on the parsed pytest counts (bare integers, >= 1 passed,
+      # 0 failed), so a suite that collected nothing cannot read as green.
+      - name: Regenerate self-hosted CLI core (#570)
+        run: |
+          cd dart && dart run compiler/tool/gen_cli_json.dart
+          cd ../python/cli && python -m ball_cli.regen
+
+      - name: "cli-core parity gate (goldens vs the Dart CLI)"
+        env:
+          BALL_REQUIRE_CLI_CORE: "1"
+        run: |
+          set -euo pipefail
+          cd python/cli
+          set +e
+          output=$(python -m pytest -q tests/test_cli_core_parity.py tests/test_cli_core_bootstrap.py 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          passed=$(printf '%s\n' "$output" | grep -oE '[0-9]+ passed' | head -1 | grep -oE '[0-9]+' || true)
+          failed=$(printf '%s\n' "$output" | grep -oE '[0-9]+ failed' | head -1 | grep -oE '[0-9]+' || true)
+          passed=${passed:-0}
+          failed=${failed:-0}
+          echo "=== Python cli-core parity ==="
+          echo "${passed} passed, ${failed} failed"
+          case "$passed$failed" in
+            *[!0-9]*|"") echo "::error::could not parse the cli-core pytest counts"; exit 1 ;;
+          esac
+          if [ "$exit_code" != "0" ] || [ "$failed" -ne 0 ] || [ "$passed" -lt 1 ]; then
+            echo "::error::Python cli-core parity gate did not pass (expected >= 1 passed, 0 failed)"
+            exit 1
+          fi
+          echo "Python cli-core parity: ${passed} tests passed, 0 failed" >> "$GITHUB_STEP_SUMMARY"
+
       # BALL_REQUIRE_SELFHOST_SOURCE=1 turns "no self-host source" from a skip
       # (right on a fresh developer checkout) into a failure here, so the regen
       # step silently not running can't reduce this gate to a no-op.

@@ -36,6 +36,10 @@ from pathlib import Path
 FIXTURE = ("tests", "conformance", "100_complex_control_flow.ball.json")
 GOLDEN = ("tests", "conformance", "100_complex_control_flow.expected_output.txt")
 ENCODE_SOURCE = ("python", "encoder", "tests", "testdata", "fizzbuzz.py")
+#: The cli-core verbs' goldens, shared with the Go/Python parity gates
+#: (tests/cli_core_goldens/README.md). FIXTURE's stem names them.
+CLI_CORE_GOLDEN_DIR = ("tests", "cli_core_goldens")
+CLI_CORE_VERBS = ("info", "validate", "tree")
 
 
 def repo_root() -> Path:
@@ -89,6 +93,7 @@ def main(argv: list[str]) -> int:
             shutil.rmtree(stale)
 
     run([sys.executable, str(root / "python" / "engine" / "tool" / "bundle_selfhost.py")])
+    run([sys.executable, str(root / "python" / "cli" / "tool" / "bundle_cli_core.py")])
     # Build BOTH artifacts, because publish-pypi.yml uploads both: a wheel-only
     # check would leave the sdist (what `pip install --no-binary` uses) unverified.
     run([sys.executable, "-m", "build", str(root / "python")])
@@ -125,6 +130,18 @@ def main(argv: list[str]) -> int:
             sdist_names,
             "engine/ball_engine/compiled_engine.py",
             "engine/ball_engine/_selfhost/engine.ball.json.gz",
+        ),
+        (
+            "wheel",
+            wheel_names,
+            "ball_cli/compiled_cli.py",
+            "ball_cli/_clicore/cli_core.ball.json.gz",
+        ),
+        (
+            "sdist",
+            sdist_names,
+            "cli/ball_cli/compiled_cli.py",
+            "cli/ball_cli/_clicore/cli_core.ball.json.gz",
         ),
     ):
         if generated in names:
@@ -196,7 +213,52 @@ def main(argv: list[str]) -> int:
                 f"found {len(cached)}"
             )
         print(f"[smoke] engine cache: {cached[0]} ({cached[0].stat().st_size} bytes)")
-        print("[smoke] OK - wheel builds, installs standalone, and all five verbs work")
+
+        # The cli-core verbs (issue #570). Same bootstrap story as `run`: no
+        # compiled_cli.py is shipped, so the first one compiles the bundled Ball
+        # source into BALL_CACHE_DIR. Each report is compared to the checked-in
+        # golden as BYTES, so this proves the WHEEL's verbs are byte-identical to
+        # the Dart CLI - not merely non-empty.
+        stem = FIXTURE[-1].removesuffix(".ball.json")
+        checked = 0
+        for verb in CLI_CORE_VERBS:
+            produced = subprocess.run(
+                [str(ball), verb, str(fixture)], check=True, capture_output=True, env=env
+            ).stdout
+            golden_path = root.joinpath(*CLI_CORE_GOLDEN_DIR, f"{stem}.{verb}.txt")
+            expected_report = normalize(golden_path.read_bytes())
+            if not expected_report:
+                raise SystemExit(f"[smoke] golden {golden_path} is empty - a vacuous comparison")
+            if normalize(produced) != expected_report:
+                raise SystemExit(
+                    f"[smoke] `ball {verb}` differs from {golden_path.name}\n"
+                    f"  actual:   {normalize(produced)!r}\n"
+                    f"  expected: {expected_report!r}"
+                )
+            checked += 1
+            print(f"[smoke] ball {verb} -> matches {golden_path.name}")
+
+        version_verb = subprocess.run(
+            [str(ball), "version"], check=True, capture_output=True, env=env
+        ).stdout
+        if not normalize(version_verb).startswith("ball "):
+            raise SystemExit(f"[smoke] `ball version` printed {normalize(version_verb)!r}")
+        checked += 1
+        print(f"[smoke] ball version -> {normalize(version_verb)}")
+
+        # Positive floor: a loop that silently ran zero verbs must not pass.
+        if checked != len(CLI_CORE_VERBS) + 1 or checked < 4:
+            raise SystemExit(f"[smoke] exercised {checked} cli-core verbs, expected 4")
+
+        cached_cli = list((workdir / "cache").rglob("compiled_cli.py"))
+        if len(cached_cli) != 1:
+            raise SystemExit(
+                f"[smoke] expected one cache-compiled CLI core under {workdir / 'cache'}, "
+                f"found {len(cached_cli)}"
+            )
+        print(f"[smoke] cli-core cache: {cached_cli[0]} ({cached_cli[0].stat().st_size} bytes)")
+
+        print("[smoke] OK - wheel builds, installs standalone, and all nine verbs work")
         return 0
     finally:
         if args.keep:

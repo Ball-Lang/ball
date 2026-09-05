@@ -1,0 +1,13 @@
+# The self-hosted CLI core is a generated build artifact (see ball_cli/regen.py):
+# compiled from dart/self_host/cli.ball.json. Never committed — a fresh checkout
+# regenerates it, or compiles the Ball source on first use
+# (ball_cli/bootstrap_clicore.py).
+ball_cli/compiled_cli.py
+
+# The CLI-core Ball SOURCE bundled into the ball-lang wheel as package data
+# (python/cli/tool/bundle_cli_core.py, issue #570) — a build artifact gzipped
+# from the equally-gitignored dart/self_host/cli.ball.json.
+ball_cli/_clicore/
+
+__pycache__/
+*.pyc

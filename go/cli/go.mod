@@ -1,11 +1,18 @@
 // The `ball` CLI (epic #426 Phase 5): a single binary with the four core verbs
 // run / compile / encode / check over the Go engine, compiler, and encoder.
 //
-// Depends on go/engine (run), go/compiler (compile), go/encoder (encode), and
-// go/shared (the ballv1 proto types) plus google.golang.org/protobuf for the
-// Any/proto3-JSON (de)serialization `encode` and the loaders need. go/runtime
-// (ballrt) is pulled in transitively by engine/compiler, hence the indirect
-// requirement below.
+// Depends on go/engine (run), go/compiler (compile + the cli-core regenerator),
+// go/encoder (encode), and go/shared (the ballv1 proto types) plus
+// google.golang.org/protobuf for the Any/proto3-JSON (de)serialization `encode`
+// and the loaders need. go/runtime (ballrt) is a DIRECT dependency since issue
+// #570: the cli-core verbs pass the program's ballrt.Value view to the compiled
+// report functions.
+//
+// The cli-core verbs (info/validate/tree/version) are gated behind this module's
+// own `clicore` build tag, deliberately INDEPENDENT of `selfhost`: they never
+// touch the interpreter, so they must not require the engine artifact. Mirrors
+// Rust's `cli_core` Cargo feature and C#'s `-p:CliCore=true`; the two combine
+// freely (`go build -tags "clicore selfhost"`).
 //
 // `run` executes via the self-hosted engine, which is gated behind the
 // `selfhost` build tag (go/engine's run_selfhost.go / run_stub.go). Because Go
@@ -22,8 +29,7 @@ require (
 	github.com/ball-lang/ball/go/compiler v0.1.0
 	github.com/ball-lang/ball/go/encoder v0.1.0
 	github.com/ball-lang/ball/go/engine v0.1.0
+	github.com/ball-lang/ball/go/runtime v0.1.0
 	github.com/ball-lang/ball/go/shared v0.1.0
 	google.golang.org/protobuf v1.36.11
 )
-
-require github.com/ball-lang/ball/go/runtime v0.1.0 // indirect

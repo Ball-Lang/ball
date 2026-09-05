@@ -5,10 +5,14 @@
 // whole CLI is exercisable in-process by the tests (via Run) without spawning a
 // subprocess.
 //
-// The verb surface mirrors the Rust (rust/cli) and C# (csharp/cli) CLIs' core
-// four. The self-hosted cli-core verbs those targets added later
-// (info/validate/tree/version, compiled from dart/self_host/cli.ball.json) are a
-// deliberate follow-up, not part of Phase 5 — see go/cli/AGENTS.md.
+// The verb surface mirrors the Rust (rust/cli) and C# (csharp/cli) CLIs': the
+// core four plus the self-hosted cli-core verbs info / validate / tree / version
+// (issue #570), whose report text is computed by dart/shared/lib/cli_core.dart
+// compiled through the Ball → Go compiler, so every `ball` prints byte-identical
+// reports. Those four are gated behind the `clicore` build tag (the generated
+// go/cli/compiled/compiled_cli.go is a gitignored artifact); a default build
+// still ACCEPTS them and fails loud with a regenerate hint — see
+// cli_core_stub.go and go/cli/AGENTS.md.
 package cli
 
 import (
@@ -48,6 +52,14 @@ func Run(args []string, stdout, stderr io.Writer) (code int) {
 		return finish(cmdEncode(rest, stdout), stderr)
 	case "check":
 		return finish(cmdCheck(rest, stdout), stderr)
+	case "info":
+		return finish(cmdInfo(rest, stdout), stderr)
+	case "validate":
+		return finish(cmdValidate(rest, stdout), stderr)
+	case "tree":
+		return finish(cmdTree(rest, stdout), stderr)
+	case "version":
+		return finish(cmdVersion(rest, stdout), stderr)
 	default:
 		fmt.Fprintf(stderr, "ball: unknown command %q\n\n", cmd)
 		writeUsage(stderr)
@@ -80,6 +92,11 @@ Commands:
   encode   <source.go>           Encode a Go source file into a Ball program [-lib] [-o out] [-format json|binary]
                                  (-lib: no func main() required; the result is non-runnable)
   check    <program.ball.json>   Parse and validate a Ball program without running it [-compile]
+  info     <program.ball.json>   Print a program's structure (modules, functions, types)
+  validate <program.ball.json>   Validate a program and print the portable report
+  tree     <program.ball.json>   Print a program's module/import tree
+  version                        Print the CLI version
+                                 (info/validate/tree/version need a build with -tags clicore)
 
 Programs are read as proto3 JSON (.ball.json / .json) or binary protobuf (.bin / .pb),
 sniffed by extension.

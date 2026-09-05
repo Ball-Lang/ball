@@ -44,6 +44,20 @@ SELFHOST_BUNDLE = (
 SELFHOST_JSON = ROOT / "dart" / "self_host" / "engine.ball.json"
 SELFHOST_SOURCE_AVAILABLE = SELFHOST_BUNDLE.exists() or SELFHOST_JSON.exists()
 
+# The self-hosted CLI core (issue #570) resolves the same way: the generated
+# module when present, else the Ball SOURCE compiled on first use (the wheel's
+# bundled copy, or the checkout artifact `gen_cli_json.dart` writes). When none
+# of the three exists, the cli-core verbs can only take their honest-failure
+# path, so the golden-parity module skips itself — see its module docstring.
+COMPILED_CLI = ROOT / "python" / "cli" / "ball_cli" / "compiled_cli.py"
+CLICORE_BUNDLE = ROOT / "python" / "cli" / "ball_cli" / "_clicore" / "cli_core.ball.json.gz"
+CLICORE_JSON = ROOT / "dart" / "self_host" / "cli.ball.json"
+
+
+def cli_core_available() -> bool:
+    """True when some form of the self-hosted CLI core can be reached."""
+    return COMPILED_CLI.exists() or CLICORE_BUNDLE.exists() or CLICORE_JSON.exists()
+
 
 def run_cli(*args: str) -> tuple[str, str, int]:
     """Invoke ``ball_cli.run`` in-process, returning (stdout, stderr, exit code)."""

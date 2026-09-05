@@ -1,3 +1,11 @@
+## [0.4.1](https://github.com/Ball-Lang/ball/compare/ball_encoder-v0.4.0...ball_encoder-v0.4.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **dart:** extend the receiver-type seam to Map/String/null-aware receivers, stop four arity windows dropping an operand, and wire Tier B to the seam (advances [#488](https://github.com/Ball-Lang/ball/issues/488)) ([#577](https://github.com/Ball-Lang/ball/issues/577)) ([fba36c2](https://github.com/Ball-Lang/ball/commit/fba36c20da43e9a3c54849157aa54d807beb8bde))
+* **std:** one bool contract for set_add/set_remove across all targets + declared-outputType gate ([#545](https://github.com/Ball-Lang/ball/issues/545)) ([#562](https://github.com/Ball-Lang/ball/issues/562)) ([d902ab1](https://github.com/Ball-Lang/ball/commit/d902ab19711c220244d18300a578386e213dc7e3)), closes [#488](https://github.com/Ball-Lang/ball/issues/488)
+
 # [0.4.0](https://github.com/Ball-Lang/ball/compare/ball_encoder-v0.3.2...ball_encoder-v0.4.0) (2026-09-05)
 
 

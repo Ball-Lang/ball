@@ -402,6 +402,14 @@ public sealed partial class CSharpCompiler
         return "BallValue.Null";
     }
 
+    /// <summary>The callback/comparator of a higher-order <c>std_collections</c>
+    /// call, under whichever of the three spellings the emitting encoder chose —
+    /// the DECLARED <c>callback</c>, or the Dart encoder's generic
+    /// <c>function</c>/<c>value</c> positional keys. Same precedence as
+    /// <c>dart/compiler/lib/compiler.dart</c>'s <c>_cb()</c>.</summary>
+    private string Callback(OrderedDictionary<string, Expression> fields) =>
+        FieldAliasOrNull(fields, new[] { "callback", "function", "value" });
+
     private string Un(string helper, OrderedDictionary<string, Expression> fields) =>
         $"BallRuntime.{helper}({FieldAliasOrNull(fields, new[] { "value", "left" })})";
 
@@ -1219,12 +1227,22 @@ public sealed partial class CSharpCompiler
             "set_union" => $"BallRuntime.SetUnion({FieldOrNull(f, "left")}, {FieldOrNull(f, "right")})",
             "set_intersection" => $"BallRuntime.SetIntersection({FieldOrNull(f, "left")}, {FieldOrNull(f, "right")})",
             "set_difference" => $"BallRuntime.SetDifference({FieldOrNull(f, "left")}, {FieldOrNull(f, "right")})",
-            // Higher-order (a callback/comparator in the `value` field)
-            "list_map" => $"BallRuntime.ListMap({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
-            "list_filter" => $"BallRuntime.ListFilter({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
-            "list_all" => $"BallRuntime.ListAll({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
-            "list_any" => $"BallRuntime.ListAny({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
-            "list_sort" => $"BallRuntime.ListSort({FieldOrNull(f, "list")}, {FieldOrNull(f, "value")})",
+            // Higher-order. The callback/comparator arrives under EITHER spelling:
+            // `callback` is the name `ListCallbackInput` actually declares (see
+            // StdModuleBuilders.BuildStdCollectionsModule), and is what
+            // csharp/encoder and rust/encoder emit; `value`/`function` are the
+            // generic positional keys the Dart encoder emits. Reading only one of
+            // them made `FieldOrNull` fall back to BallValue.Null and the program
+            // die at run time with "value is not callable: Null" (or, for
+            // list_sort, silently sort in natural order, dropping the
+            // comparator). Every other target already aliases all three — Dart's
+            // `_cb()`, Rust's `callback_call`, Go's `c.arg(f, "value",
+            // "callback")`, TS and C++.
+            "list_map" => $"BallRuntime.ListMap({FieldOrNull(f, "list")}, {Callback(f)})",
+            "list_filter" => $"BallRuntime.ListFilter({FieldOrNull(f, "list")}, {Callback(f)})",
+            "list_all" => $"BallRuntime.ListAll({FieldOrNull(f, "list")}, {Callback(f)})",
+            "list_any" => $"BallRuntime.ListAny({FieldOrNull(f, "list")}, {Callback(f)})",
+            "list_sort" => $"BallRuntime.ListSort({FieldOrNull(f, "list")}, {Callback(f)})",
             "list_join" => $"BallRuntime.ListJoin({FieldOrNull(f, "list")}, {FieldOrNull(f, "separator")})",
             "list_to_list" => $"BallRuntime.ListToList({FieldOrNull(f, "list")})",
             "map_contains_value" => $"BallRuntime.MapContainsValue({FieldOrNull(f, "map")}, {FieldOrNull(f, "value")})",

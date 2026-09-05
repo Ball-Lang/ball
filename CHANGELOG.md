@@ -1,3 +1,10 @@
+## [1.68.3](https://github.com/Ball-Lang/ball/compare/v1.68.2...v1.68.3) (2026-09-05)
+
+
+### Bug Fixes
+
+* **cpp,dart:** stop emitting a duplicate default constructor and resolve constructor tear-offs (closes [#514](https://github.com/Ball-Lang/ball/issues/514), closes [#531](https://github.com/Ball-Lang/ball/issues/531)) ([#565](https://github.com/Ball-Lang/ball/issues/565)) ([e5e78a8](https://github.com/Ball-Lang/ball/commit/e5e78a8f536a6820818d8e5fcf492072c9d7f743)), closes [#172](https://github.com/Ball-Lang/ball/issues/172) [#563](https://github.com/Ball-Lang/ball/issues/563)
+
 ## [1.68.2](https://github.com/Ball-Lang/ball/compare/v1.68.1...v1.68.2) (2026-09-05)
 
 

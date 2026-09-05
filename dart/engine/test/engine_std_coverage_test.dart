@@ -1409,48 +1409,62 @@ void main() {
       ]),
     );
 
+    // `set_add`/`set_remove` mutate the receiver IN PLACE and answer `bool`
+    // (issue #545) — they do NOT return the set, so they can no longer be
+    // nested inside `set_length`. Assert the returned bool directly; the
+    // in-place mutation half is covered by conformance fixture
+    // `459_set_add_remove_bool`, which interleaves `set_length`/`set_contains`
+    // against a `let`-bound set on every engine.
     test('set_add', () async {
       expect(
         await evalPrint(
           stdCall(
-            'set_length',
+            'set_add',
             msg([
-              field(
-                'set',
-                stdCall(
-                  'set_add',
-                  msg([
-                    field('set', setOf([1, 2])),
-                    field('value', literal(3)),
-                  ]),
-                ),
-              ),
+              field('set', setOf([1, 2])),
+              field('value', literal(3)),
             ]),
           ),
         ),
-        '3',
+        'true',
+      );
+      expect(
+        await evalPrint(
+          stdCall(
+            'set_add',
+            msg([
+              field('set', setOf([1, 2])),
+              field('value', literal(2)),
+            ]),
+          ),
+        ),
+        'false',
       );
     });
     test('set_remove', () async {
       expect(
         await evalPrint(
           stdCall(
-            'set_length',
+            'set_remove',
             msg([
-              field(
-                'set',
-                stdCall(
-                  'set_remove',
-                  msg([
-                    field('set', setOf([1, 2, 3])),
-                    field('value', literal(2)),
-                  ]),
-                ),
-              ),
+              field('set', setOf([1, 2, 3])),
+              field('value', literal(2)),
             ]),
           ),
         ),
-        '2',
+        'true',
+      );
+      expect(
+        await evalPrint(
+          stdCall(
+            'set_remove',
+            msg([
+              field('set', setOf([1, 2, 3])),
+              field('value', literal(9)),
+            ]),
+          ),
+        ),
+        'false',
       );
     });
     test('set_contains', () async {

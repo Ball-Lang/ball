@@ -860,29 +860,41 @@ public static partial class BallRuntime
         return WrapSet(items);
     }
 
-    /// <summary><c>set.add(value)</c> — mutates the shared set (no-op if present); returns it.</summary>
+    /// <summary>
+    /// <c>set.add(value)</c> — mutates the shared set in place; returns
+    /// <c>true</c> only when the element was newly inserted (Dart
+    /// <c>Set.add</c> semantics, issue #545). It used to return the set itself,
+    /// which disagreed with every other target once the result reached a value
+    /// position; conformance fixture <c>459_set_add_remove_bool</c> pins it.
+    /// </summary>
     public static BallValue SetAdd(BallValue set, BallValue value)
     {
         var s = SetBacking(set);
-        if (!s.Contains(value))
+        if (s.Contains(value))
         {
-            s.Add(value);
+            return BallValue.Bool(false);
         }
 
-        return set;
+        s.Add(value);
+        return BallValue.Bool(true);
     }
 
-    /// <summary><c>set.remove(value)</c> — mutates the shared set; returns it.</summary>
+    /// <summary>
+    /// <c>set.remove(value)</c> — mutates the shared set in place; returns
+    /// <c>true</c> only when the element was actually present (Dart
+    /// <c>Set.remove</c> semantics, issue #545).
+    /// </summary>
     public static BallValue SetRemove(BallValue set, BallValue value)
     {
         var s = SetBacking(set);
         var index = s.IndexOf(value);
-        if (index >= 0)
+        if (index < 0)
         {
-            s.RemoveAt(index);
+            return BallValue.Bool(false);
         }
 
-        return set;
+        s.RemoveAt(index);
+        return BallValue.Bool(true);
     }
 
     /// <summary><c>set.contains(value)</c>.</summary>

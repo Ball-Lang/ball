@@ -1681,8 +1681,6 @@ export class BallEngine {
   constructor(program: any, stdout: any, stderr: any, stdinReader: any, envGet: any, args: any, enableProfiling: any, maxRecursionDepth: any, timeoutMs: any, maxMemoryBytes: any, maxModules: any, maxExpressionDepth: any, maxProgramSizeBytes: any, sandbox: any, moduleHandlers: any, resolver: any) {
     if (typeof stdout === 'object' && stdout !== null && !Array.isArray(stdout) && ('stdout' in stdout || 'stderr' in stdout || 'stdinReader' in stdout || 'envGet' in stdout || 'args' in stdout || 'enableProfiling' in stdout || 'maxRecursionDepth' in stdout || 'timeoutMs' in stdout || 'maxMemoryBytes' in stdout || 'maxModules' in stdout || 'maxExpressionDepth' in stdout || 'maxProgramSizeBytes' in stdout || 'sandbox' in stdout || 'moduleHandlers' in stdout || 'resolver' in stdout)) { let __n = stdout; stdout = __n.stdout; stderr = __n.stderr; stdinReader = __n.stdinReader; envGet = __n.envGet; args = __n.args; enableProfiling = __n.enableProfiling; maxRecursionDepth = __n.maxRecursionDepth; timeoutMs = __n.timeoutMs; maxMemoryBytes = __n.maxMemoryBytes; maxModules = __n.maxModules; maxExpressionDepth = __n.maxExpressionDepth; maxProgramSizeBytes = __n.maxProgramSizeBytes; sandbox = __n.sandbox; moduleHandlers = __n.moduleHandlers; resolver = __n.resolver; }
     this.program = program;
-    this.stdout = stdout;
-    this.stderr = stderr;
     this.stdinReader = stdinReader;
     this.maxRecursionDepth = maxRecursionDepth;
     this.timeoutMs = timeoutMs;
@@ -1691,7 +1689,6 @@ export class BallEngine {
     this.maxExpressionDepth = maxExpressionDepth;
     this.maxProgramSizeBytes = maxProgramSizeBytes;
     this.sandbox = sandbox;
-    this.moduleHandlers = moduleHandlers;
     this.stdout = stdout ?? print;
     this._resolver = resolver;
     this.stderr = stderr ?? ((s) => io.stderr.writeln(s));
@@ -7967,23 +7964,22 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let items = this._ballSetItems(__ball_index(m, 'set'));
         let value = __ball_index(m, 'value');
-        if (!items.includes(value)) {
-          this._trackMemoryAllocation(_ballPointerBytes);
-          return this._ballSetOf([items, value]);
+        if (items.includes(value)) {
+          return false;
         }
-        return this._ballSetOf(items);
+        this._trackMemoryAllocation(_ballPointerBytes);
+        items = (items.push(value), items);
+        return true;
       }), ['set_remove']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let items = this._ballSetItems(__ball_index(m, 'set'));
-        let value = __ball_index(m, 'value');
-        let kept = [];
-        for (const e of items) {
-          if (!__ball_eq(e, value)) {
-            kept = (kept.push(e), kept);
-          }
+        let index = items.indexOf(__ball_index(m, 'value'));
+        if (__ball_lt(index, 0)) {
+          return false;
         }
-        return this._ballSetOf(kept);
+        items.splice(index, 1)[0];
+        return true;
       }), ['set_contains']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -10352,6 +10348,10 @@ export class StdModuleHandler extends BallModuleHandler {
 
   static subset(functions: any): any {
     const __inst = Object.create(StdModuleHandler.prototype);
+    __inst._dispatch = {};
+    __inst._composedDispatch = {};
+    __inst._allowlist = null;
+    __inst._tombstones = new Set();
     __inst._allowlist = functions.toSet();
     return __inst;
   }

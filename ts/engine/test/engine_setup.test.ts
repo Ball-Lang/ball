@@ -1337,6 +1337,23 @@ describe("registerExtraStdFunctions: set_* fallback keys and branch edges", () =
     assert.equal(await h.call("set_remove", { set: "nope", value: 1 }), false);
   });
 
+  // Issue #545: `set_add` used to `return true` UNCONDITIONALLY whenever the
+  // receiver was a Set, so a duplicate insert answered `true` here while every
+  // other engine answered something else again. Dart's `Set.add` reports whether
+  // the element was NEWLY inserted, and that is the one portable contract
+  // (conformance fixture 459_set_add_remove_bool gates it end-to-end).
+  test("set_add answers false on a duplicate, true only on a fresh insert", async () => {
+    const s = new Set([1, 2]);
+    assert.equal(await h.call("set_add", { set: s, value: 3 }), true);
+    assert.equal(await h.call("set_add", { set: s, value: 3 }), false);
+    assert.equal(await h.call("set_add", { set: s, value: 1 }), false);
+    // The element still landed exactly once.
+    assert.deepEqual(s, new Set([1, 2, 3]));
+    assert.equal(await h.call("set_remove", { set: s, value: 2 }), true);
+    assert.equal(await h.call("set_remove", { set: s, value: 2 }), false);
+    assert.deepEqual(s, new Set([1, 3]));
+  });
+
   test("set_add_all: 'collection'/'elements' fallback keys, a Set 'other', and a non-Set self is a no-op", async () => {
     const s = new Set([1]);
     await h.call("set_add_all", { collection: s, elements: new Set([2, 3]) });

@@ -225,8 +225,13 @@ per package. Measured on 2026-09-05, in the same release loop:
 
 | run | package | upload (pub.dev API `published`) | resolvable |
 | --- | --- | --- | --- |
-| [33957929283](https://github.com/Ball-Lang/ball/actions/runs/33957929283) | `ball_rpc 0.3.1` | 09:25:56Z | within ~25 s — verify job green at 09:26:21Z |
+| [33957929283](https://github.com/Ball-Lang/ball/actions/runs/33957929283) | `ball_rpc 0.3.1` | 09:25:41.414Z | within ~40 s — verify job green at 09:26:21Z |
 | [33957914166](https://github.com/Ball-Lang/ball/actions/runs/33957914166) | `ball_resolver 0.3.1` | 09:25:24.195Z | **still not resolvable at 09:27:35Z (>131 s)** — the job's whole 6 × 20 s budget, so it went red on a correct release |
+
+(Both `published` values are the pub.dev API's own, read back with `curl -s
+https://pub.dev/api/packages/<pkg>`; `09:25:56Z` was run 33957929283's *Publish
+job* finishing, not the upload. The API lists a version at upload time, ahead of
+the resolver — which is exactly what makes it a usable oracle below.)
 
 So both read-back steps (the API poll and the consumer resolution) now run
 `tools/release/resolve_published.py`, which polls for **15 minutes at 30 s**
@@ -240,8 +245,19 @@ text and does not wait blindly:
 | solver output | verdict | behaviour |
 | --- | --- | --- |
 | `<pkg> <version> which doesn't match any versions` — the package this run published | still propagating | keep polling to the budget |
-| the same sentence naming a **sibling** pin (`ball_cli` requiring `ball_resolver ^0.4.0`, the #566 shape) | permanent conflict | **fail on the first attempt**, with the verbatim solver output |
+| the same sentence naming a **sibling at an exact version pub.dev's API already lists** (`ball_base 0.4.0`, uploaded seconds earlier in the same lockstep sweep — #574) | still propagating | keep polling on the same budget, re-asking `https://pub.dev/api/packages/<sibling>` on every attempt |
+| the same sentence naming a sibling version that API does **not** list, or a **range** nothing satisfies (`ball_cli` requiring `ball_resolver ^0.4.0`, the #566 shape) | permanent conflict | **fail on the first attempt**, with the verbatim solver output |
+| `<a> … is incompatible with <b>` — two packages pub.dev already serves whose pins cannot both hold (the text #566 itself printed) | permanent conflict | **fail on the first attempt**, with the verbatim solver output |
 | anything else (SDK constraint, network error, unrecognised) | not classified | fail immediately, with the verbatim output |
+
+The sibling question is settled by the API, not by guessing, because the API
+lists a version **at upload time** while the resolver index is what lags (the
+table above: `ball_rpc 0.3.1` was on the API at 09:25:41.414Z and resolvable ~40 s
+later). So "the API has never heard of this version" is real evidence that no
+upload is in flight — while a lookup that *fails* (HTTP error, unreadable body)
+is **unknown**, and unknown keeps polling on the bounded budget. Only a definite
+negative is allowed to call a conflict permanent (#574); the verdict is
+re-derived from scratch on every attempt, never cached.
 
 A false red here is not free: `verify-published` is the check that caught #566
 for real, and a gate that reds correct releases is a gate people learn to ignore.
@@ -485,9 +501,13 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
 - **`verify-published` red but `publish` green:** the upload happened and the
   package is not usable, or is usable and stale. Read the verdict the read-back
   printed first (#568): it polls for 15 minutes while pub.dev's index is still
-  catching up with the upload, and only reports a failure once that budget is
-  spent — so a red here is no longer "pub.dev was slow". A sibling-pin conflict
-  fails on the first attempt instead, with the solver's own text. Either a sibling constraint no
+  catching up with the upload — the package's own, or a sibling published seconds
+  earlier in the same lockstep sweep, which it re-checks against
+  `https://pub.dev/api/packages/<sibling>` every attempt (#574) — and only
+  reports a failure once that budget is spent, so a red here is no longer
+  "pub.dev was slow". A sibling version that API has never listed, a range
+  nothing satisfies, or an `is incompatible with` pair fails on the first
+  attempt instead, with the solver's own text. Either a sibling constraint no
   published version satisfies / a dependency whose own publish failed (the
   resolution step), or a constraint that resolves an *older* sibling than the
   release tag's tree declares (the `check_published_siblings.py` step — the
@@ -541,7 +561,7 @@ another.
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
 | `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |
 | `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version. Plus, via `check_published_siblings.py`, an upload that resolves *cleanly* and is still wrong: a Ball sibling resolved older than the release tag's tree declares | anything about packages this run did not publish |
-| `tools/release/resolve_published.py` | every PR (`--self-test`, `Proto Checks`) + both read-back steps of every publish | the read-back **misreading its own failure**: giving up while pub.dev is still indexing the upload (#568, a red verify job on a correct release), or sitting out a 15-minute budget on a permanent sibling-pin conflict instead of reporting it at once | whether the package is semantically right — that is `check_published_siblings.py`'s job |
+| `tools/release/resolve_published.py` | every PR (`--self-test`, `Proto Checks`) + both read-back steps of every publish | the read-back **misreading its own failure**: giving up while pub.dev is still indexing the upload — the package's own (#568) or a lockstep sibling's (#574), both a red verify job on a correct release — or sitting out a 15-minute budget on a permanent sibling-pin conflict instead of reporting it at once | whether the package is semantically right — that is `check_published_siblings.py`'s job |
 
 The 30-day staleness bound is a judgement call, not a release cadence: it says
 "if this package's code has been moving for over a month and pub.dev has not,

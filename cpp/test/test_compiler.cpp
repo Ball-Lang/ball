@@ -1292,16 +1292,31 @@ TEST(compile_set_create_std_collections_wraps_in_ball_make_set) {
     ASSERT_CONTAINS(out, "ball_make_set(BallList{})");
 }
 
-// set_add must dedup-insert via BallDyn::push_back (which itself performs the
-// scan-and-skip-duplicates, issue #174) rather than the compiler re-emitting
-// its own manual duplicate scan inline.
-TEST(compile_set_add_routes_through_dedup_push_back) {
+// set_add inserts via BallDyn::push_back (which itself performs the
+// scan-and-skip-duplicates, issue #174) and answers a BOOL — true only when the
+// element was newly inserted (Dart Set.add semantics, issue #545). It used to
+// return `v` (the set), which disagreed with every engine once the result
+// reached a value position; conformance fixture 459_set_add_remove_bool is the
+// executable half of this guard.
+TEST(compile_set_add_returns_bool_and_pushes_back) {
     auto prog = build_program(print_call(
         call("std_collections", "set_add", make_msg("", {
             {"set", ref("s")}, {"value", lit_int(4)}
         }))));
     auto out = compile_program(prog);
-    ASSERT_CONTAINS(out, "v.push_back(e); return v;");
+    ASSERT_CONTAINS(out, "v.push_back(e); return BallDyn(true);");
+    ASSERT_CONTAINS(out, "return BallDyn(false);");
+}
+
+// set_remove answers a BOOL too — true only when the element was actually
+// present (issue #545) — rather than returning the receiver.
+TEST(compile_set_remove_returns_bool) {
+    auto prog = build_program(print_call(
+        call("std_collections", "set_remove", make_msg("", {
+            {"set", ref("s")}, {"value", lit_int(4)}
+        }))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "return BallDyn(l->size()!=before);");
 }
 
 // set_remove must fall back to the portable set's backing list

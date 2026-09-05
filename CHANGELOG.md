@@ -1,3 +1,24 @@
+## [1.68.7](https://github.com/Ball-Lang/ball/compare/v1.68.6...v1.68.7) (2026-09-05)
+
+
+### Bug Fixes
+
+* **release:** treat a published-but-unindexed sibling as still propagating in verify-published (closes [#574](https://github.com/Ball-Lang/ball/issues/574)) ([#576](https://github.com/Ball-Lang/ball/issues/576)) ([db15c99](https://github.com/Ball-Lang/ball/commit/db15c99658edc55e331df7da5ece9531259c9583)), closes [#572](https://github.com/Ball-Lang/ball/issues/572) [#566](https://github.com/Ball-Lang/ball/issues/566)
+
+## [1.68.6](https://github.com/Ball-Lang/ball/compare/v1.68.5...v1.68.6) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ts:** a named constructor must construct a real instance and seed every declared field default (closes [#564](https://github.com/Ball-Lang/ball/issues/564)) ([#571](https://github.com/Ball-Lang/ball/issues/571)) ([d9881b9](https://github.com/Ball-Lang/ball/commit/d9881b94c414306ceef0e377a8a2156e74b3e029)), closes [#563](https://github.com/Ball-Lang/ball/issues/563) [#563](https://github.com/Ball-Lang/ball/issues/563)
+
+## [1.68.5](https://github.com/Ball-Lang/ball/compare/v1.68.4...v1.68.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* **release:** keep verify-published polling while pub.dev indexes the package, fail fast only on a sibling conflict (closes [#568](https://github.com/Ball-Lang/ball/issues/568)) ([#572](https://github.com/Ball-Lang/ball/issues/572)) ([5765189](https://github.com/Ball-Lang/ball/commit/576518986a9d717b2a6ae3c170cdf89f7e42c919)), closes [#566](https://github.com/Ball-Lang/ball/issues/566) [#566](https://github.com/Ball-Lang/ball/issues/566) [#566-shaped](https://github.com/Ball-Lang/ball/issues/566-shaped)
+
 ## [1.68.4](https://github.com/Ball-Lang/ball/compare/v1.68.3...v1.68.4) (2026-09-05)
 
 

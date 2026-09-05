@@ -12678,20 +12678,32 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     // work unmodified; only construction and the result of an operation need
     // to route through ball_make_set to stay properly tagged.
     if (fn == "set_create") return "ball_make_set(BallList{})";
+    // set_add / set_remove answer a BOOL, never the set (issue #545): they
+    // mutate the receiver in place and report whether the element was newly
+    // inserted / was actually present, exactly like Dart's Set.add/Set.remove.
+    // Taking the receiver BY VALUE is still correct — a direct-compiled set is
+    // `{"__ball_set__": BallListRef}` (a shared_ptr), so the copy shares the
+    // backing list and the caller observes the mutation. Conformance fixture
+    // 459_set_add_remove_bool pins both halves (return value AND mutation).
     if (fn == "set_add") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
-        // push_back() already dedups when the receiver is a portable set.
-        return "[](BallDyn v, BallDyn e) -> BallDyn { v.push_back(e); return v; }(" +
-               set + "," + val + ")";
+        return "[](BallDyn v, const BallDyn& e) -> BallDyn {"
+               "const BallList* l=v._setBackingList(); if(!l) l=v._listPtr();"
+               "if(!l) return BallDyn(false);"
+               "for(const auto& x : *l){ if(BallDyn(x)==e) return BallDyn(false); }"
+               "v.push_back(e); return BallDyn(true);}(" + set + "," + val + ")";
     }
     if (fn == "set_remove") {
         auto set = get_message_field(call, "set");
         auto val = get_message_field(call, "value");
         return "[](BallDyn v, const BallDyn& e) -> BallDyn {"
                "BallList* l=v._listPtr(); if(!l) l=v._setBackingList();"
-               "if(l){l->erase(std::remove_if(l->begin(),l->end(),"
-               "[&](const std::any& x){return BallDyn(x)==e;}),l->end());}return v;}(" + set + "," + val + ")";
+               "if(!l) return BallDyn(false);"
+               "size_t before=l->size();"
+               "l->erase(std::remove_if(l->begin(),l->end(),"
+               "[&](const std::any& x){return BallDyn(x)==e;}),l->end());"
+               "return BallDyn(l->size()!=before);}(" + set + "," + val + ")";
     }
     if (fn == "set_contains") {
         auto set = get_message_field(call, "set");

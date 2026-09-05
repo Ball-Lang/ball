@@ -532,4 +532,35 @@ public class BallRuntimeTests
         var s = Assert.IsType<BallString>(trace);
         Assert.NotEqual(string.Empty, s.Value);
     }
+
+    // ── the ONE bool contract for set_add / set_remove (issue #545) ────────
+    //
+    // Both mutate the receiver set IN PLACE and return a bool — true only when
+    // the element was newly inserted / was actually present — exactly like
+    // Dart's own Set.add / Set.remove. Before #545 both returned the set
+    // itself, so a compiled C# program that put the result in a value position
+    // computed something different from every other target. Conformance fixture
+    // 459_set_add_remove_bool is the cross-target half of this guard; this is
+    // the C# half, because no CI leg compiles a conformance fixture to C#.
+
+    [Fact]
+    public void SetAddAndRemoveReturnBoolAndMutateInPlace()
+    {
+        var set = BallRuntime.SetCreate(new BallList(new BallValue[]
+        {
+            BallValue.Int(1), BallValue.Int(2),
+        }));
+
+        Assert.Equal(BallValue.Bool(true), BallRuntime.SetAdd(set, BallValue.Int(3)));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.SetAdd(set, BallValue.Int(3)));
+        // The insert landed on the SHARED set, exactly once — a functional
+        // (copying) implementation would leave this at 2.
+        Assert.Equal(BallValue.Int(3), BallRuntime.SetLength(set));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.SetContains(set, BallValue.Int(3)));
+
+        Assert.Equal(BallValue.Bool(true), BallRuntime.SetRemove(set, BallValue.Int(2)));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.SetRemove(set, BallValue.Int(2)));
+        Assert.Equal(BallValue.Int(2), BallRuntime.SetLength(set));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.SetContains(set, BallValue.Int(2)));
+    }
 }

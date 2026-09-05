@@ -216,13 +216,19 @@ def set_create(items=None):
 
 
 def set_add(st, value):
-    st.add(value)
-    return st
+    """``set.add(value)`` — mutates in place; True only on a fresh insert.
+
+    Both this and :func:`set_remove` used to return the SET, which disagreed
+    with every other target the moment the result reached a value position
+    (issue #545). Dart's ``Set.add``/``Set.remove`` answer ``bool``, and that is
+    the one contract conformance fixture ``459_set_add_remove_bool`` pins.
+    """
+    return st.add(value)
 
 
 def set_remove(st, value):
-    st.remove(value)
-    return st
+    """``set.remove(value)`` — mutates in place; True only if it was present."""
+    return st.remove(value)
 
 
 def set_contains(st, value):

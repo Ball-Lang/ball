@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 343 passed, 0 failed, 343 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 344 passed, 0 failed, 344 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -197,7 +197,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 343 passed, 0 failed, 343 total` (the 4
+  whole corpus with Dart-identical output: `Results: 344 passed, 0 failed, 344 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -231,8 +231,9 @@ cargo fmt --check && cargo clippy --workspace
   one lands on the next. A closed gap category moves the histogram, not the
   aggregate. `cargo test -p
   ball-rq1-study` (the harness's own self-test) IS gated on every PR in the `rust`
-  job; the RUN is the report-only `rust-tier-a` job in `coverage-study.yml`, which
-  has **no `pull_request:` trigger**. Methodology:
+  job; the RUN is the `rust-tier-a` job in `coverage-study.yml`, which
+  has **no `pull_request:` trigger** (its row is floored by ratchet in that
+  workflow's `publish` job). Methodology:
   `tests/conformance/COVERAGE_STUDY.md`.
 
 - **The std module builders are a PORT of Dart's and are gated name-for-name** (#505).

@@ -318,12 +318,20 @@ checks on the same day.
 
 `tools/coverage-study/` (issue #493) is the instrument for that gap; the
 methodology, the load-bearing harness settings, the current baselines and the
-honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **report-only**
-— `coverage-study.yml` has no `pull_request:` trigger — because a floor set
-before a baseline exists either goes permanently red and gets ignored or is set
-so low it means nothing. Each harness's **own** self-test is gated on every PR
-(in that language's `ci.yml` job), so the instrument cannot silently start
-skipping the file shapes it exists to look at.
+honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **not a PR
+gate** — `coverage-study.yml` has no `pull_request:` trigger, because these
+harnesses clone and build third-party packages — but it is no longer merely
+report-only: its `publish` job floors every row against
+`tools/coverage-study/baseline.json` and fails the run on a drop. The floors are
+**ratchets at the measured numbers** (fail on a drop in the clean ratio, the
+stage-1 funnel ratio, or the scored denominator; raise the baseline on an
+improvement), not the >= 95% / >= 75% issue #493 first proposed — Dart Tier A
+measures 61% and four of six Tier A rows measure 0% clean, so an aspirational
+floor would be permanently red and therefore muted. The same job publishes the
+table in `README.md`. Each harness's **own** self-test, and the renderer/floor's,
+are gated on every PR (in that language's `ci.yml` job), so the instrument cannot
+silently start skipping the file shapes it exists to look at, nor stop flooring
+what it measures.
 
 The instrument has two tiers, and one cannot stand in for the other. **Tier A**
 is structural (encode → compile back → re-encode → declaration inventory → IR
@@ -393,6 +401,51 @@ hand-built programs chosen to discriminate shapes the corpus never emits.
 **Compilers are separate** — the Dart, TS, and C++ Ball→source compilers each
 need their own fix and their own verification (the `cpp-compiled` conformance
 leg compiles every fixture through the C++ compiler).
+
+### 5b. A base function's RETURN SHAPE is part of the contract, and is checked
+Executing a base function is not enough — a fixture that only calls
+`set_add(s, x)` for its side effect never notices that the Dart engine returned
+the new SET, the Dart and C++ compilers returned the set, and the TS engine
+returned an unconditional `true`. Three of six cells disagreed for as long as
+nobody put the result in a **value position** (issue #545). Nothing could see
+it: `outputType` was `''` on every universal std declaration, so the contract
+was not merely unchecked, it was unstated.
+
+Two gates now cover this class:
+
+* **Cross-target** — `tests/conformance/459_set_add_remove_bool` prints the
+  result of all four return-value branches (fresh insert / duplicate insert /
+  present removal / absent removal). Because it is a conformance fixture it gates
+  every engine and every compiled leg in the matrix at once. It uses a FRESH set
+  per case rather than observing the mutation, because the stronger chained form
+  fails on the C# and Rust self-hosted engines for an unrelated pre-existing
+  reason (issue #557); the in-place half is pinned per runtime instead
+  (`csharp/shared/test`, `rust/shared/src/runtime.rs`, `go/runtime`,
+  `python/compiler/tests`) and on the Dart reference engine.
+* **Declaration** — `dart/engine/test/std_output_type_contract_test.dart` reads
+  the canonical builders, and for every base function that declares a non-empty
+  `outputType` it runs the Dart reference engine and asserts the answer's
+  runtime type. A declaration with no probe FAILS (a frozen, both-ways-checked
+  carve-out list holds the pre-existing host-facing `std_time`/`std_fs`/
+  `std_convert`/`std_concurrency` declarations, and no universal
+  `std`/`std_collections` declaration may join it), so `outputType` can never be
+  decoration again.
+
+Fixture 459 also exposed a pre-existing gap the corpus had never reached: the
+**`dart-roundtrip`** leg (Ball → Dart → *encoder* → Ball' → Dart) cannot survive
+it. Re-encoding the compiled `a.add(3)` needs the receiver's TYPE to tell
+`Set.add` (bool) from `List.add` (void), and the syntax-only `encode(String)` API
+has none, so the call routes to `list_push` and compiles back to the cascade
+`a..add(3)` — the SET, not the bool. That is issue #488's receiver-type seam, not
+a #545 regression: the fixture's `engine`, `dart-compiled` and `ts-compiled` legs
+all pass. It is recorded as the single entry in the harness's
+`_knownUnroundtrippable` map — a ratchet, not a baseline: an entry that starts
+passing fails the suite, an entry naming no real `fixture:leg` fails the suite,
+and every unlisted failure fails the suite exactly as before.
+
+When a base function's result is meaningful — a predicate, a "was it there"
+answer, anything a caller would branch on — declare the `outputType`, add the
+probe, and write the fixture so the value is PRINTED, not discarded.
 
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
@@ -509,8 +562,9 @@ could not parse a summary at all).
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
+| **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
-| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`) | `slow-conformance.yml`, weekly + manual only |
+| Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
@@ -521,8 +575,10 @@ could not parse a summary at all).
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
-| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python | `coverage-study.yml`'s `dart-tier-a` / `rust-tier-a` / `csharp-tier-a` / `go-tier-a` / `python-tier-a` jobs | weekly + manual — **report-only, NOT a PR gate** (issue #493). The one failure mode is a run that scored < 1 file: a harness/checkout failure, never a 0% result |
-| Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python) | every PR (the matching language job) |
+| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result |
+| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, and regenerates the README table, committing both to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
+| Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
+| The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
 | Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |

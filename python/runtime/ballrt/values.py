@@ -25,9 +25,17 @@ class BallSet:
                 self.add(it)
 
     def add(self, value):
-        if not self.contains(value):
-            self._items.append(value)
-        return value
+        """Insert ``value``, reporting whether it was NEWLY inserted.
+
+        Dart's ``Set.add`` returns ``bool``, and ``remove`` below already does;
+        this used to return the element, so ``s.add(x)`` in a value position
+        (dispatched through ``methods._add``) answered differently in Python
+        than on every other target — the method-form half of issue #545.
+        """
+        if self.contains(value):
+            return False
+        self._items.append(value)
+        return True
 
     def remove(self, value):
         for i, it in enumerate(self._items):

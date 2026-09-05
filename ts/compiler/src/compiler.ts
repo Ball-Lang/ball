@@ -2702,9 +2702,18 @@ function __isUnknownFnError(e: any): boolean {
           ctors.push(this.buildCtor(fn, mMeta, fieldNames, hasExtends));
         } else {
           // Named constructors are static factory methods that return a new
-          // instance. Build them by creating an instance from initializers.
+          // instance. The class's own (non-static) field declarations go with
+          // them: the instance is built with `Object.create`, which runs no
+          // field initializer, so the builder has to seed each default itself
+          // (#564).
           methods.push(
-            this.buildNamedCtor(fn, mMeta, fieldNames, tsName),
+            this.buildNamedCtor(
+              fn,
+              mMeta,
+              fieldNames,
+              tsName,
+              properties.filter((p) => !p.isStatic),
+            ),
           );
         }
       } else if (mMeta["is_getter"] === true) {
@@ -2851,8 +2860,15 @@ function __isUnknownFnError(e: any): boolean {
         }
       }
     } else {
+      // ONLY a `this.`-formal writes a constructor parameter into the field of
+      // the same name. A plain parameter that merely happens to share a
+      // field's name is an ordinary local and must never clobber that field's
+      // initializer — `class Foo { int x = 5; Foo(int x) { print(x); } }`
+      // leaves `x` at 5 in Dart (#539/#564, conformance 453). The old
+      // `|| classFields.has(p.name)` disjunct is the byte-identical defect the
+      // Dart engine carried until #563.
       for (const p of rawParams) {
-        if (p.isThis || classFields.has(p.name)) {
+        if (p.isThis) {
           prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
         }
       }
@@ -2921,54 +2937,63 @@ function __isUnknownFnError(e: any): boolean {
 
   /**
    * Builds a named constructor as a static factory method.
-   * Named constructors (e.g., Point.origin, Point.fromList) create instances
-   * from field initializers in metadata.
+   *
+   * Every named constructor that is not a Dart `factory` CONSTRUCTS a real
+   * instance — whether it carries an initializer list (`Point.origin() : x =
+   * 0`), `this.`-formals (`Box.of(this.value)`), a plain body
+   * (`Bar.named(int x) { print(x); }`), or any combination. The instance comes
+   * from `Object.create(C.prototype)` so no user constructor runs, which means
+   * the class's inline field initializers do not run either: every declared
+   * field is seeded with its own default FIRST (Dart's ordering — inline field
+   * initializers, then the initializer list, then the body), and only then do
+   * the constructor-specific writes land on top (#564).
+   *
+   * A `factory` named constructor is the one exception: by definition it
+   * returns some other object, so its body runs as the static method's own
+   * statements and its value is the method's result.
    */
   private buildNamedCtor(
     fn: FunctionDef,
     meta: Struct,
     classFields: Set<string>,
     className: string,
+    classProperties: Array<{
+      name: string;
+      type: string;
+      rawDartType: string;
+      dartInitializer?: string;
+    }> = [],
   ) {
     const params = extractParams(fn);
     const ctorParams = extractCtorParams(meta);
     const initializers = Array.isArray(meta["initializers"]) ? meta["initializers"] as any[] : [];
     // Build the body: resolve field initializers and create a new instance.
     const bodyParts: string[] = [];
-    const ctorArgs: string[] = [];
-    // Extract field initializers to build constructor arguments
-    for (const init of initializers) {
-      if (init?.kind === "field" && typeof init.name === "string") {
-        const valueStr = typeof init.value === "string" ? init.value : "null";
-        // Resolve the value: could be a param reference, literal, or expression
-        let resolvedValue: string;
-        if (params.includes(valueStr)) {
-          resolvedValue = sanitize(valueStr);
-        } else if (/^-?\d+(\.\d+)?$/.test(valueStr)) {
-          // Numeric literal — wrap in BallDouble if it has a decimal point
-          resolvedValue = valueStr.includes(".") ? `new BallDouble(${valueStr})` : valueStr;
-        } else if (valueStr.startsWith("'") || valueStr.startsWith('"')) {
-          resolvedValue = valueStr;
-        } else {
-          // Try to parse indexed access like "coords[0]"
-          const idxMatch = /^(\w+)\[(\d+)\]$/.exec(valueStr);
-          if (idxMatch && params.includes(idxMatch[1])) {
-            resolvedValue = `${sanitize(idxMatch[1])}[${idxMatch[2]}]`;
-          } else {
-            resolvedValue = valueStr;
-          }
-        }
-        ctorArgs.push(resolvedValue);
-      }
-    }
-    // Also check for is_this params — they pass directly to the constructor
+    // Does the ctor have any field write of its own? Only WHETHER matters
+    // here; each value is resolved where the assignment is emitted, by
+    // `resolveInitializerValue`. (A `this.`-formal counts only when there is
+    // no initializer list at all, preserving the historical branch selection
+    // for the `Foo.named(this.x) : super(...)` shape, which still falls
+    // through to `return new Foo()`.)
     const thisParams = ctorParams.filter(p => p.isThis);
-    if (ctorArgs.length === 0 && initializers.length === 0 && thisParams.length > 0) {
-      for (const p of thisParams) {
-        ctorArgs.push(sanitize(p.name));
-      }
-    }
-    if (ctorArgs.length > 0 || (initializers.length > 0 && ctorArgs.length > 0)) {
+    const hasFieldInitializers = initializers.some(
+      (i: any) => i?.kind === "field" && typeof i.name === "string",
+    );
+    const hasCtorFieldWrites =
+      hasFieldInitializers || (initializers.length === 0 && thisParams.length > 0);
+    // A Dart `factory` returns some other object, so it is the ONE named
+    // constructor that must not synthesize an instance of its own class.
+    const isFactory = meta["is_factory"] === true;
+    // Everything else constructs: an initializer list / `this.`-formal, or a
+    // plain body, or both. A body-only named constructor
+    // (`Bar.named(int x) { print(x); }`) used to fall through to the
+    // run-the-body-as-a-static-method branch below, so it created no instance
+    // at all — `this` inside it was the CLASS and the method returned the
+    // body's value, i.e. `undefined` for a `print` (#564, conformance
+    // 453/454).
+    const constructsInstance =
+      hasCtorFieldWrites || (fn.body !== undefined && !isFactory);
+    if (constructsInstance) {
       // Use Object.create to avoid calling the constructor (which might be a factory).
       // This directly instantiates with fields set.
       const assignments = initializers
@@ -2978,15 +3003,27 @@ function __isUnknownFnError(e: any): boolean {
       const thisAssignments = thisParams.map(p => `__inst.${p.name} = ${sanitize(p.name)};`);
       const allAssignments = [...assignments, ...thisAssignments];
       bodyParts.push(`const __inst = Object.create(${className}.prototype);`);
+      // `Object.create` deliberately runs no constructor — which also means it
+      // runs none of the class's inline field initializers. Seed every
+      // declared field with the SAME default the class declaration emits,
+      // before any constructor-specific write, exactly as Dart orders them
+      // (inline initializers, then the initializer list, then the body).
+      // Without this a field the named constructor never mentions stayed
+      // `undefined` forever (#564: `Init.viaList`'s `w`, `Baz.bare`'s `v`).
+      for (const p of classProperties) {
+        const def = dartInitializerToTs(p.dartInitializer, p.type, p.rawDartType);
+        if (def !== undefined) bodyParts.push(`__inst.${p.name} = ${def};`);
+      }
       for (const a of allAssignments) bodyParts.push(a);
-      // A named constructor may have BOTH an initializer list / `this.`-params
-      // AND a body (`Countdown.pair(int s) : value = s { tail = …; }`, or
-      // `Countdown.from(this.value) { … }`). Dart runs the list first, then the
-      // body; the body used to be dropped entirely by this branch, so every
-      // field the body set stayed unset (conformance 436/438). `.call(__inst)`
-      // — a real `function`, not an arrow — gives the compiled body the
-      // instance as `this`, so its `this.<field>` writes land on `__inst`,
-      // while the constructor's parameters stay in scope by closure.
+      // A named constructor may have an initializer list / `this.`-params, a
+      // body, or both (`Countdown.pair(int s) : value = s { tail = …; }`,
+      // `Countdown.from(this.value) { … }`, `Bar.named(int x) { print(x); }`).
+      // Dart runs the list first, then the body; the body used to be dropped
+      // entirely by this branch, so every field the body set stayed unset
+      // (conformance 436/438). `.call(__inst)` — a real `function`, not an
+      // arrow — gives the compiled body the instance as `this`, so its
+      // `this.<field>` writes land on `__inst`, while the constructor's
+      // parameters stay in scope by closure.
       if (fn.body) {
         const captured = this.withMethodContext(
           new Set(params),
@@ -3002,7 +3039,10 @@ function __isUnknownFnError(e: any): boolean {
       }
       bodyParts.push(`return __inst;`);
     } else if (fn.body) {
-      // Has an actual body — use it
+      // A `factory` named constructor: its body IS the method — whatever it
+      // evaluates to is what the caller gets, and no instance of this class is
+      // synthesized. This is the only body-bearing shape that reaches here
+      // (every non-factory body constructs, above).
       const captured = this.withMethodContext(
         new Set(params),
         classFields,
@@ -3013,6 +3053,8 @@ function __isUnknownFnError(e: any): boolean {
       );
       bodyParts.push(captured);
     } else {
+      // Nothing to run and nothing to assign: let the real constructor build
+      // it (which runs the class's inline field initializers itself).
       bodyParts.push(`return new ${className}();`);
     }
     return {
@@ -5467,20 +5509,65 @@ function __isUnknownFnError(e: any): boolean {
         if (list) return `${this.expr(list)}.join('')`;
         return "''";
       }
-      // Neither encoder ever emits these as a direct `std.<fn>` base-
-      // function call — a Set method call (mySet.union(other), etc.)
-      // routes through compileCall's generic "self"-field method dispatch
-      // onto native JS Set.prototype methods instead, so this case is
-      // never actually reached. The old fallback compiled it to a call on
-      // a nonexistent bare identifier (a confusing runtime ReferenceError
-      // if it WERE ever hit); fail loud at compile time instead, matching
-      // the policy above (#257).
-      case "set_add": case "set_remove": case "set_contains":
-      case "set_union": case "set_intersection": case "set_difference":
-      case "set_length": case "set_is_empty": case "set_to_list":
-        throw new Error(
-          `TS compiler: std.${fn} is not implemented (compileStdCall) — Set method calls should route through native JS Set methods, not this base function`,
-        );
+      // The `std_collections` set family, on native JS `Set`s — the same value
+      // `set_create` above compiles to (`new Set([...])`).
+      //
+      // These used to throw "not implemented", on the reasoning that neither
+      // encoder emits a direct `std_collections.set_*` call (a Set METHOD call
+      // routes through compileCall's generic "self"-field dispatch instead). But
+      // "no encoder emits it" is not "no program contains it": a hand-authored
+      // or tool-generated Ball program can, and every other compiler in the repo
+      // (Dart/C++/Rust/C#/Go/Python) implements the family. Conformance fixture
+      // 459_set_add_remove_bool is exactly such a program, and it made this
+      // throw reachable — so implement the family rather than carve it out.
+      //
+      // `set_add`/`set_remove` mutate in place and answer BOOL (issue #545) —
+      // `Set.add` returns the set in JS, so it is wrapped; `Set.delete` already
+      // reports presence.
+      //
+      // A member whose operand field is MISSING throws (`__setOperand`) rather
+      // than emitting a placeholder like `false` / `0` / `new Set()`: a
+      // `std_collections` set call without its operand is a malformed program,
+      // and quietly compiling it to a constant is precisely the silent
+      // degradation that hid issue #55. Nothing regresses by throwing — until
+      // #545 this whole family threw unconditionally, so any input that reaches
+      // the throw was rejected by the old code too.
+      case "set_add": {
+        const set = __setOperand(fn, "set", f.get("set") ?? f.get("collection"));
+        const value = __setOperand(fn, "value", f.get("value") ?? f.get("element"));
+        return `(() => { const __s = ${this.expr(set)}; const __v = ${this.expr(value)}; if (__s.has(__v)) return false; __s.add(__v); return true; })()`;
+      }
+      case "set_remove": {
+        const set = __setOperand(fn, "set", f.get("set") ?? f.get("collection"));
+        const value = __setOperand(fn, "value", f.get("value") ?? f.get("element"));
+        return `${this.expr(set)}.delete(${this.expr(value)})`;
+      }
+      case "set_contains": {
+        const set = __setOperand(fn, "set", f.get("set") ?? f.get("collection"));
+        const value = __setOperand(fn, "value", f.get("value") ?? f.get("element"));
+        return `${this.expr(set)}.has(${this.expr(value)})`;
+      }
+      case "set_length":
+        return `${this.expr(__setOperand(fn, "set", f.get("set") ?? f.get("collection")))}.size`;
+      case "set_is_empty":
+        return `(${this.expr(__setOperand(fn, "set", f.get("set") ?? f.get("collection")))}.size === 0)`;
+      case "set_to_list":
+        return `[...${this.expr(__setOperand(fn, "set", f.get("set") ?? f.get("collection")))}]`;
+      case "set_union": {
+        const l = __setOperand(fn, "left", f.get("left") ?? f.get("set"));
+        const r = __setOperand(fn, "right", f.get("right") ?? f.get("other"));
+        return `new Set([...${this.expr(l)}, ...${this.expr(r)}])`;
+      }
+      case "set_intersection": {
+        const l = __setOperand(fn, "left", f.get("left") ?? f.get("set"));
+        const r = __setOperand(fn, "right", f.get("right") ?? f.get("other"));
+        return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => __b.has(__x))); })()`;
+      }
+      case "set_difference": {
+        const l = __setOperand(fn, "left", f.get("left") ?? f.get("set"));
+        const r = __setOperand(fn, "right", f.get("right") ?? f.get("other"));
+        return `(() => { const __b = ${this.expr(r)}; return new Set([...${this.expr(l)}].filter((__x: any) => !__b.has(__x))); })()`;
+      }
       // I/O
       case "print_error": {
         const msg = f.get("message") ?? f.get("value");
@@ -6356,6 +6443,29 @@ function fieldMap(fields: FieldValuePair[]): Map<string, Expression> {
   const m = new FieldMap();
   for (const f of fields) m.set(f.name, f.value);
   return m;
+}
+
+/**
+ * Assert that a `std_collections` set operation was handed the operand it needs.
+ *
+ * The set family (issue #545) FAILS LOUD on a missing field rather than
+ * emitting a placeholder (`false` / `0` / `new Set()`). A set call without its
+ * operand is a malformed program, and compiling it to a constant is the silent
+ * degradation CLAUDE.md forbids and issue #55 was made of. Throwing costs
+ * nothing in compatibility: before #545 every member of the family threw
+ * unconditionally, so anything that reaches here was already rejected.
+ */
+function __setOperand(
+  fn: string,
+  field: string,
+  value: Expression | undefined,
+): Expression {
+  if (value === undefined) {
+    throw new Error(
+      `TS compiler: std_collections.${fn} is missing its "${field}" field`,
+    );
+  }
+  return value;
 }
 
 function memberShortName(qualified: string): string {

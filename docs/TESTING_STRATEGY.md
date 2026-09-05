@@ -324,6 +324,17 @@ so low it means nothing. Each harness's **own** self-test is gated on every PR
 (in that language's `ci.yml` job), so the instrument cannot silently start
 skipping the file shapes it exists to look at.
 
+The instrument has two tiers, and one cannot stand in for the other. **Tier A**
+is structural (encode → compile back → re-encode → declaration inventory → IR
+fixpoint) and exists for all six languages; by design it scores a construct
+`clean` when it round-trips syntactically but changes what the program computes.
+**Tier B** (Dart today) is behavioural: it substitutes a library file with the
+pipeline's own compiled-back version and runs *that package's own* `dart test`.
+The gap between them is not hypothetical — #488's `return set.add(x)` lowers to
+the cascade `return set..add(x)`, which parses, keeps every declaration and
+reaches the fixpoint, so Tier A scored it clean across two full baselines while
+the issue sat open.
+
 Tier A now exists for **all six** languages: Dart (`rq1_study.dart`), Rust
 (`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
 (`tools/coverage-study/go`), Python (`rq1_study_py.py`) and TypeScript

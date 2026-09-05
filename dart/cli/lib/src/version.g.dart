@@ -6,4 +6,4 @@
 //
 // Regenerate:  cd dart/cli && dart run tool/gen_version.dart
 // CI drift guard: dart run tool/gen_version.dart --check
-const ballCliVersion = '0.3.0+6';
+const ballCliVersion = '0.4.0';

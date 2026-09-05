@@ -134,7 +134,11 @@
 #          initialization — the emitted `Holder(auto b) : seen(b)` initializes
 #          the sole field FROM the class-typed parameter
 # 444_inline_constructed_call_argument, the neighbouring #523 fixture, PASSES;
-# these two are a different defect, not a regression of it. Delete both lines
-# when #561 lands.
+# these two are a different defect, not a regression of it. They are carved out
+# in cpp/test/full_e2e.sh's CPP_COMPILE_CARVEOUTS too, against the same issue.
+# 455_ctor_field_writes_that_survive — the positive half of the same test design
+# — PASSES this leg and IS listed in e2e_fixture_list.h, so the change that
+# added all three still proves something here. Delete both lines when #561
+# lands.
 453_ctor_param_shadows_field
 454_inline_instance_argument_name_collision

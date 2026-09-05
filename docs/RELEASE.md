@@ -132,6 +132,30 @@ lines; the next release commit publishes it. `tools/go-module-proxy/smoke.sh`
 github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
 proxy before any tag exists.
 
+## GitHub Releases lane (C++ `ball` binaries + the vcpkg sidecar)
+
+`release-cpp.yml` runs on every published GitHub Release and attaches, per tag:
+`ball-vX.Y.Z-linux-x64.tar.gz` and `ball-vX.Y.Z-macos-arm64.tar.gz` (each with a
+`.sha256`), a combined `SHA256SUMS.txt`, and — from the `linux-x64` leg only,
+since the content is platform-independent and two legs must not race
+`--clobber` on one filename — `ball-selfhost-cpp-src-vX.Y.Z.tar.gz`: the
+Dart-pre-generated `cli_rt.h` + `engine_rt.cpp` that give a Dart-free build the
+self-hosted `run`/`info`/`validate`/`tree` verbs. Like the Go lane there is no
+registry account; the Release *is* the distribution.
+
+**vcpkg is a downstream consumer of that lane, not a lane of its own.**
+`tools/vcpkg-port/ports/ball-lang/` pins exactly ONE tag: `version-semver`
+drives both `vcpkg_from_github`'s `REF "v${VERSION}"` and the sidecar's
+`releases/download/v${VERSION}/...` URL, and each download carries the SHA512
+of that tag's artifact. Refreshing the port to a newer release is therefore a
+deliberate PR *here* (bump `version-semver`, recompute both SHA512s, re-prove
+`vcpkg install` against the real release) followed by a separate,
+maintainer-only PR to a `microsoft/vcpkg` fork — never something cutting a
+release does automatically, and never something that lands unpinned.
+`tools/vcpkg-port/test/test_selfhost_asset_wiring.sh` (always-run CI) fails if
+either hash is the `SHA512 0` placeholder or if the version the portfile names
+disagrees with the manifest. See `tools/vcpkg-port/README.md`.
+
 ## Failure recovery
 
 - **publish-npm failed mid-run:** nothing published (all publishes run after

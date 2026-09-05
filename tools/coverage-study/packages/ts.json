@@ -1,0 +1,81 @@
+{
+  "_comment": [
+    "Pinned third-party TypeScript packages for the Tier A coverage study",
+    "(#493, TypeScript port #536). Hermeticity here means SOURCE hermeticity —",
+    "the harness only parses, encodes, compiles and re-encodes these files, it",
+    "never installs or runs them — so the bar is: hand-written TypeScript (no",
+    "generated or transpiled sources, no .d.ts-only packages, which declare",
+    "types and no runtime declarations at all), permissively licensed (every",
+    "pin below is MIT; unjs/consola and unjs/pathe carry a plain MIT LICENSE",
+    "file that GitHub's classifier reports as NOASSERTION), zero runtime",
+    "dependencies in the studied subtree, and small enough to shallow-clone.",
+    "Each `ref` is a commit SHA resolved from the repo's default branch on",
+    "2026-09-05 via the GitHub API, so a Tier A number is reproducible; bump it",
+    "deliberately, never to chase a number. `lib` is the subtree that is",
+    "actually studied; the harness additionally skips *.spec.ts, *.test.ts,",
+    "*.bench.ts and *.d.ts inside it. An unreachable pin is reported separately",
+    "and is NOT scored as a failure."
+  ],
+  "packages": [
+    {
+      "name": "defu",
+      "repo": "https://github.com/unjs/defu",
+      "ref": "82632b66f5914e9946edce300e10633a3d5c0cb7",
+      "lib": "src"
+    },
+    {
+      "name": "destr",
+      "repo": "https://github.com/unjs/destr",
+      "ref": "541b6f9aeada9fc30de9c5a7e086dbfc1c6fcdc7",
+      "lib": "src"
+    },
+    {
+      "name": "scule",
+      "repo": "https://github.com/unjs/scule",
+      "ref": "5bc68048caad7c0e7de35842c83a510e8e1a7c4f",
+      "lib": "src"
+    },
+    {
+      "name": "ufo",
+      "repo": "https://github.com/unjs/ufo",
+      "ref": "f06c800d0c59f2a4a1b9ba65eb6cb61a84419be6",
+      "lib": "src"
+    },
+    {
+      "name": "pathe",
+      "repo": "https://github.com/unjs/pathe",
+      "ref": "bc7477a01f0bd60ada017add8142c9f9d69ccdc5",
+      "lib": "src"
+    },
+    {
+      "name": "hookable",
+      "repo": "https://github.com/unjs/hookable",
+      "ref": "b77477c027039362ee0ec4f39b8998c4f1b21707",
+      "lib": "src"
+    },
+    {
+      "name": "ohash",
+      "repo": "https://github.com/unjs/ohash",
+      "ref": "764b0a3203308956ef07597612af5ad59f36c791",
+      "lib": "src"
+    },
+    {
+      "name": "consola",
+      "repo": "https://github.com/unjs/consola",
+      "ref": "c47faac1738b7383971c6c20b5a34ffa15e7cc3b",
+      "lib": "src"
+    },
+    {
+      "name": "change-case",
+      "repo": "https://github.com/blakeembrey/change-case",
+      "ref": "9d5505c7e807544a18d98052802985069ac190d0",
+      "lib": "packages/change-case/src"
+    },
+    {
+      "name": "path-to-regexp",
+      "repo": "https://github.com/pillarjs/path-to-regexp",
+      "ref": "8877f41873e37a30258d3935feaf1d2679321735",
+      "lib": "src"
+    }
+  ]
+}

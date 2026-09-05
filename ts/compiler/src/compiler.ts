@@ -34,6 +34,14 @@ export interface CompileOptions {
   fileName?: string;
 }
 
+/** Options for {@link BallCompiler.compileLibrary}. */
+export interface CompileLibraryOptions {
+  /** Include the runtime preamble at the top of the output. Default true. */
+  includePreamble?: boolean;
+  /** Output file path hint (affects ts-morph's internal resolution). */
+  fileName?: string;
+}
+
 interface CtorParam {
   name: string;
   isThis: boolean;
@@ -164,162 +172,7 @@ export class BallCompiler {
       );
     }
 
-    // Collect ALL non-base modules (entry + user library modules).
-    const userModules: Module[] = [];
-    let usesStdMemory = false;
-    for (const mod of this.program.modules ?? []) {
-      const fns = mod.functions ?? [];
-      const allBase = fns.length > 0 && fns.every((f: FunctionDef) => f.isBase);
-      if (allBase) {
-        if (mod.name === "std_memory") usesStdMemory = true;
-        continue;
-      }
-      userModules.push(mod);
-    }
-
-    // ── Linear memory runtime preamble ──
-    // If the program imports `std_memory` (linear memory simulation), inject
-    // the runtime variables backing the `ByteData`/`Endian` shims already
-    // defined in the (always-included) runtime preamble. Mirrors the Dart
-    // compiler's conditional injection (dart/compiler/lib/compiler.dart,
-    // "Linear memory runtime preamble") — only emitted when actually used.
-    if (usesStdMemory) {
-      sf.addStatements(
-        "// Ball linear memory runtime\n" +
-        "const _ballMemory = new ByteData(65536);\n" +
-        "let _ballHeapPtr = 0;\n" +
-        "const _ballStackFrames: number[] = [];\n" +
-        "let _ballStackPtr = 65536;\n",
-      );
-    }
-
-    // Seed the function-name + typeDef lookup tables from ALL user modules.
-    this.allFunctionNames = new Set(
-      userModules.flatMap((m) => (m.functions ?? []).map((f: FunctionDef) => f.name)),
-    );
-    this.asyncFnNames = new Set(
-      userModules.flatMap((m) =>
-        (m.functions ?? [])
-          .filter((f: FunctionDef) => f.metadata?.["is_async"] === true)
-          .map((f: FunctionDef) => f.name),
-      ),
-    );
-    this.typeDefByName = new Map(
-      userModules.flatMap((m) =>
-        (m.typeDefs ?? []).map((td) => [td.name, td] as [string, TypeDefinition]),
-      ),
-    );
-
-    // Group functions by their enclosing class (if any) — matches the
-    // `<typeDef.name>.<member>` naming convention from the encoder.
-    const classMembers = new Map<string, FunctionDef[]>();
-    const freeFunctions: FunctionDef[] = [];
-    for (const mod of userModules) {
-      for (const fn of mod.functions ?? []) {
-        if (fn.isBase) continue;
-        if (fn.name === this.program.entryFunction) continue;
-        const enclosing = this.enclosingTypeName(fn.name);
-        if (enclosing) {
-          const list = classMembers.get(enclosing) ?? [];
-          list.push(fn);
-          classMembers.set(enclosing, list);
-        } else {
-          freeFunctions.push(fn);
-        }
-      }
-    }
-
-    // Typedefs → TsTypeAlias (from all user modules).
-    for (const mod of userModules) {
-      for (const ta of mod.typeAliases ?? []) {
-        sf.addTypeAlias({
-          name: ta.name,
-          type: this.dartTypeToTs(ta.targetType),
-          isExported: true,
-        });
-      }
-    }
-
-    // Classes.
-    // BallObject / BallMap / BallList are runtime container types supplied by
-    // the preamble (a Ball instance is a plain-object-like BallObject, a map a
-    // plain object, a list a plain array). Skip emitting their class bodies —
-    // the encoder's versions reference the inherited `entries` field via bare
-    // identifiers and take named ctor args the emitter can't reproduce; the
-    // hand-written preamble versions are the source of truth.
-    const _runtimeContainerTypes = new Set(["BallObject", "BallMap", "BallList"]);
-    const allTypeDefs = userModules.flatMap((m) => m.typeDefs ?? []);
-    for (const td of allTypeDefs) {
-      if (_runtimeContainerTypes.has(classTsName(td.name))) continue;
-      // Collect members for this class, including mixin members.
-      let members = [...(classMembers.get(td.name) ?? [])];
-      const tdMeta: Struct = td.metadata ?? {};
-      const mixins = Array.isArray(tdMeta["mixins"]) ? tdMeta["mixins"] as string[] : [];
-      if (mixins.length > 0) {
-        // Collect the set of method short names already defined on this class
-        const ownShortNames = new Set(members.map((m) => memberShortName(m.name)));
-        for (const mixinName of mixins) {
-          // Find the mixin typeDef name — try both plain and module-qualified
-          let mixinTdName: string | undefined;
-          for (const [tdName] of this.typeDefByName) {
-            if (classTsName(tdName) === mixinName || tdName === mixinName || tdName.endsWith(":" + mixinName)) {
-              mixinTdName = tdName;
-              break;
-            }
-          }
-          if (!mixinTdName) continue;
-          const mixinMembers = classMembers.get(mixinTdName) ?? [];
-          for (const mm of mixinMembers) {
-            const shortName = memberShortName(mm.name);
-            // Only include mixin methods not already defined on this class
-            if (!ownShortNames.has(shortName)) {
-              members.push(mm);
-              ownShortNames.add(shortName);
-            }
-          }
-        }
-      }
-      this.emitClass(sf, td, members);
-    }
-
-    // Enums declared in Module.enums[] (google.protobuf.EnumDescriptorProto,
-    // proto3 JSON: `{name, value: [{name, number}]}`). Both encoders emit
-    // enum declarations here (the Dart encoder with module-qualified names
-    // like "main:Color"); dropping them left `Color.red` references dangling
-    // in the compiled output (#120).
-    const emittedTypeNames = new Set(allTypeDefs.map((td) => classTsName(td.name)));
-    for (const mod of userModules) {
-      for (const en of mod.enums ?? []) {
-        const tsName = classTsName(en.name);
-        // A typeDef of the same name already produced a class declaration.
-        if (emittedTypeNames.has(tsName)) continue;
-        emittedTypeNames.add(tsName);
-        const entries = (en.value ?? []).map((v, i) => ({
-          name: v.name,
-          index: typeof v.number === "number" ? v.number : i,
-        }));
-        this.emitEnumClass(sf, tsName, entries);
-      }
-    }
-
-    // Top-level variables (kind == 'top_level_variable') emit as
-    // `const <name> = <body>;` before free functions.
-    for (const fn of freeFunctions.filter(
-      (f) => (f.metadata as any)?.kind === "top_level_variable",
-    )) {
-      const name = sanitize(fn.name);
-      const body = fn.body ? this.captureInto(() => {
-        this.writeln(`return ${this.expr(fn.body!)};`);
-      }) : "undefined";
-      sf.addStatements(`let ${name} = (() => { ${body} })();`);
-    }
-
-    // Free top-level functions (exclude top-level variables).
-    for (const fn of freeFunctions.filter(
-      (f) => (f.metadata as any)?.kind !== "top_level_variable",
-    )) {
-      this.emitFreeFunction(sf, fn);
-    }
+    this.emitDeclarations(sf, false);
 
     // Entry function as `main()` + immediate call.
     const entryFn = entryMod.functions.find(
@@ -2350,13 +2203,249 @@ function __isUnknownFnError(e: any): boolean {
     return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
   }
 
+  /**
+   * Compile the whole Program to a TypeScript LIBRARY — no assumed entry
+   * point, no synthesized invocation, every top-level declaration exported.
+   *
+   * The TS sibling of `rust/compiler`'s `compile_library`, `go/compiler`'s
+   * `CompileLibrary`, `python/compiler`'s `compile_library`, C#'s
+   * entry-optional `Compile` and Dart's `DartCompiler.compileModule`. Use it
+   * for code that was never written to be run as a program — the third-party
+   * library files the coverage study measures (issue #536), or any Ball
+   * Program consumed as a module.
+   *
+   * Three things it deliberately does differently from `compile()`:
+   *
+   * 1. It NEVER looks up `program.entryFunction`. `@ball-lang/encoder`
+   *    defaults that field to `"main"` for every file it encodes, so
+   *    `compile()` appends a zero-arg `main();` to any library that merely
+   *    happens to declare `main(argv: string[])` — a wrong-arity call that
+   *    throws at run time. Here such a declaration is an ordinary function.
+   * 2. It does not require an entry module to exist. "No entry" is the normal
+   *    case for a library, not an error, so every non-base module present is
+   *    compiled.
+   * 3. It exports STRUCTURALLY, through ts-morph's `isExported`, never by
+   *    rewriting the formatted output text afterwards the way `compileModule`
+   *    does. A regex matched against emitted source rots silently the moment
+   *    the emitter's formatting shifts (see the #489/#499 note further down
+   *    this file for a pass that did exactly that).
+   *
+   * It also emits none of `compile()`'s engine-specific post-processing — not
+   * the `__isUnknownFnError` helper, not the `_evalCall`/`_Scope` patches.
+   * Those exist to repair the ONE self-hosted engine `compile()` produces; a
+   * library compile of somebody else's code must not gain declarations its
+   * source never had, or a round-trip can never reach a fixpoint.
+   */
+  compileLibrary(options: CompileLibraryOptions = {}): string {
+    const { includePreamble = true, fileName = "library.ts" } = options;
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: { target: 99 /* ESNext */ },
+    });
+    const sf = project.createSourceFile(fileName, "", { overwrite: true });
+
+    this.emitDeclarations(sf, true);
+
+    sf.formatText({ indentSize: 2, convertTabsToSpaces: true });
+    const body = sf.getFullText();
+    return includePreamble ? TS_RUNTIME_PREAMBLE + "\n" + body : body;
+  }
+
   // ───────────────────────── Declarations ────────────────────────────
+
+  /**
+   * Emit every declaration of the program's non-base modules into `sf`.
+   *
+   * Shared verbatim by `compile()` (whole-program, `library = false`) and
+   * `compileLibrary()` (`library = true`). The two differ in exactly two
+   * places, both threaded through `library`:
+   *
+   *  - the entry function is skipped here in program mode (`compile()`
+   *    emits it last, renamed to `main`, followed by its invocation) but is
+   *    an ordinary declaration in library mode;
+   *  - top-level functions and variables carry `export` in library mode.
+   *    Classes, enum classes and type aliases are already exported in both.
+   *
+   * Everything else — module collection, the linear-memory preamble, the
+   * name/typeDef lookup tables, class/mixin grouping, typedefs, enums,
+   * top-level variables and free functions — is ONE implementation, so a
+   * fix to either caller lands in both.
+   */
+  private emitDeclarations(
+    sf: ReturnType<Project["createSourceFile"]>,
+    library: boolean,
+  ): void {
+    // Collect ALL non-base modules (entry + user library modules).
+    const userModules: Module[] = [];
+    let usesStdMemory = false;
+    for (const mod of this.program.modules ?? []) {
+      const fns = mod.functions ?? [];
+      const allBase = fns.length > 0 && fns.every((f: FunctionDef) => f.isBase);
+      if (allBase) {
+        if (mod.name === "std_memory") usesStdMemory = true;
+        continue;
+      }
+      userModules.push(mod);
+    }
+
+    // ── Linear memory runtime preamble ──
+    // If the program imports `std_memory` (linear memory simulation), inject
+    // the runtime variables backing the `ByteData`/`Endian` shims already
+    // defined in the (always-included) runtime preamble. Mirrors the Dart
+    // compiler's conditional injection (dart/compiler/lib/compiler.dart,
+    // "Linear memory runtime preamble") — only emitted when actually used.
+    if (usesStdMemory) {
+      sf.addStatements(
+        "// Ball linear memory runtime\n" +
+        "const _ballMemory = new ByteData(65536);\n" +
+        "let _ballHeapPtr = 0;\n" +
+        "const _ballStackFrames: number[] = [];\n" +
+        "let _ballStackPtr = 65536;\n",
+      );
+    }
+
+    // Seed the function-name + typeDef lookup tables from ALL user modules.
+    this.allFunctionNames = new Set(
+      userModules.flatMap((m) => (m.functions ?? []).map((f: FunctionDef) => f.name)),
+    );
+    this.asyncFnNames = new Set(
+      userModules.flatMap((m) =>
+        (m.functions ?? [])
+          .filter((f: FunctionDef) => f.metadata?.["is_async"] === true)
+          .map((f: FunctionDef) => f.name),
+      ),
+    );
+    this.typeDefByName = new Map(
+      userModules.flatMap((m) =>
+        (m.typeDefs ?? []).map((td) => [td.name, td] as [string, TypeDefinition]),
+      ),
+    );
+
+    // Group functions by their enclosing class (if any) — matches the
+    // `<typeDef.name>.<member>` naming convention from the encoder.
+    const classMembers = new Map<string, FunctionDef[]>();
+    const freeFunctions: FunctionDef[] = [];
+    for (const mod of userModules) {
+      for (const fn of mod.functions ?? []) {
+        if (fn.isBase) continue;
+        // In library mode the entry function is NOT special: a top-level
+        // declaration that merely SHARES program.entryFunction's name (the
+        // ts/encoder default is literally "main") compiles as an ordinary
+        // function, and nothing invokes it.
+        if (!library && fn.name === this.program.entryFunction) continue;
+        const enclosing = this.enclosingTypeName(fn.name);
+        if (enclosing) {
+          const list = classMembers.get(enclosing) ?? [];
+          list.push(fn);
+          classMembers.set(enclosing, list);
+        } else {
+          freeFunctions.push(fn);
+        }
+      }
+    }
+
+    // Typedefs → TsTypeAlias (from all user modules).
+    for (const mod of userModules) {
+      for (const ta of mod.typeAliases ?? []) {
+        sf.addTypeAlias({
+          name: ta.name,
+          type: this.dartTypeToTs(ta.targetType),
+          isExported: true,
+        });
+      }
+    }
+
+    // Classes.
+    // BallObject / BallMap / BallList are runtime container types supplied by
+    // the preamble (a Ball instance is a plain-object-like BallObject, a map a
+    // plain object, a list a plain array). Skip emitting their class bodies —
+    // the encoder's versions reference the inherited `entries` field via bare
+    // identifiers and take named ctor args the emitter can't reproduce; the
+    // hand-written preamble versions are the source of truth.
+    const _runtimeContainerTypes = new Set(["BallObject", "BallMap", "BallList"]);
+    const allTypeDefs = userModules.flatMap((m) => m.typeDefs ?? []);
+    for (const td of allTypeDefs) {
+      if (_runtimeContainerTypes.has(classTsName(td.name))) continue;
+      // Collect members for this class, including mixin members.
+      let members = [...(classMembers.get(td.name) ?? [])];
+      const tdMeta: Struct = td.metadata ?? {};
+      const mixins = Array.isArray(tdMeta["mixins"]) ? tdMeta["mixins"] as string[] : [];
+      if (mixins.length > 0) {
+        // Collect the set of method short names already defined on this class
+        const ownShortNames = new Set(members.map((m) => memberShortName(m.name)));
+        for (const mixinName of mixins) {
+          // Find the mixin typeDef name — try both plain and module-qualified
+          let mixinTdName: string | undefined;
+          for (const [tdName] of this.typeDefByName) {
+            if (classTsName(tdName) === mixinName || tdName === mixinName || tdName.endsWith(":" + mixinName)) {
+              mixinTdName = tdName;
+              break;
+            }
+          }
+          if (!mixinTdName) continue;
+          const mixinMembers = classMembers.get(mixinTdName) ?? [];
+          for (const mm of mixinMembers) {
+            const shortName = memberShortName(mm.name);
+            // Only include mixin methods not already defined on this class
+            if (!ownShortNames.has(shortName)) {
+              members.push(mm);
+              ownShortNames.add(shortName);
+            }
+          }
+        }
+      }
+      this.emitClass(sf, td, members);
+    }
+
+    // Enums declared in Module.enums[] (google.protobuf.EnumDescriptorProto,
+    // proto3 JSON: `{name, value: [{name, number}]}`). Both encoders emit
+    // enum declarations here (the Dart encoder with module-qualified names
+    // like "main:Color"); dropping them left `Color.red` references dangling
+    // in the compiled output (#120).
+    const emittedTypeNames = new Set(allTypeDefs.map((td) => classTsName(td.name)));
+    for (const mod of userModules) {
+      for (const en of mod.enums ?? []) {
+        const tsName = classTsName(en.name);
+        // A typeDef of the same name already produced a class declaration.
+        if (emittedTypeNames.has(tsName)) continue;
+        emittedTypeNames.add(tsName);
+        const entries = (en.value ?? []).map((v, i) => ({
+          name: v.name,
+          index: typeof v.number === "number" ? v.number : i,
+        }));
+        this.emitEnumClass(sf, tsName, entries);
+      }
+    }
+
+    // Top-level variables (kind == 'top_level_variable') emit as
+    // `const <name> = <body>;` before free functions.
+    for (const fn of freeFunctions.filter(
+      (f) => (f.metadata as any)?.kind === "top_level_variable",
+    )) {
+      const name = sanitize(fn.name);
+      const body = fn.body ? this.captureInto(() => {
+        this.writeln(`return ${this.expr(fn.body!)};`);
+      }) : "undefined";
+      sf.addStatements(
+        `${library ? "export " : ""}let ${name} = (() => { ${body} })();`,
+      );
+    }
+
+    // Free top-level functions (exclude top-level variables).
+    for (const fn of freeFunctions.filter(
+      (f) => (f.metadata as any)?.kind !== "top_level_variable",
+    )) {
+      this.emitFreeFunction(sf, fn, undefined, undefined, library);
+    }
+  }
 
   private emitFreeFunction(
     sf: ReturnType<Project["createSourceFile"]>,
     fn: FunctionDef,
     forceName?: string,
     forceAsync?: boolean,
+    /** Emit `export function …` (library mode). Default false. */
+    isExported = false,
   ): void {
     const params = extractParams(fn);
     const name = forceName ?? sanitize(fn.name);
@@ -2381,6 +2470,7 @@ function __isUnknownFnError(e: any): boolean {
       sf.addFunction({
         kind: StructureKind.Function,
         name,
+        isExported,
         isAsync: false,
         isGenerator: false,
         parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
@@ -2391,6 +2481,7 @@ function __isUnknownFnError(e: any): boolean {
       sf.addFunction({
         kind: StructureKind.Function,
         name,
+        isExported,
         isAsync: isAsync && !isGenerator,
         isGenerator,
         parameters: params.map((p) => ({ name: sanitize(p), type: "any" })),
@@ -7020,6 +7111,20 @@ function sanitize(name: string): string {
 /** Convenience: compile a Program directly. */
 export function compile(program: Program, options?: CompileOptions): string {
   return new BallCompiler(program).compile(options);
+}
+
+/**
+ * Convenience: compile a Program as a LIBRARY — no assumed entry point, no
+ * synthesized invocation, every top-level declaration exported.
+ *
+ * See {@link BallCompiler.compileLibrary} for why this is a separate primitive
+ * rather than a flag on `compile()`.
+ */
+export function compileLibrary(
+  program: Program,
+  options?: CompileLibraryOptions,
+): string {
+  return new BallCompiler(program).compileLibrary(options);
 }
 
 // ══════════════════════════════════════════════════���═════════════════════════

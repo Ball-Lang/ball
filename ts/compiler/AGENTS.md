@@ -11,7 +11,7 @@ Ball → TypeScript compiler. Consumes a `Program` (proto3-JSON object) and emit
 | File | Description |
 |------|-------------|
 | `src/compiler.ts` | `BallCompiler` class — walks the expression tree and emits TS. |
-| `src/index.ts` | Public exports: `compile(program, opts?) → string`, `compileModule`, `BallCompiler`, `CompileOptions`. |
+| `src/index.ts` | Public exports: `compile(program, opts?) → string`, `compileLibrary`, `compileModule`, `BallCompiler`, `CompileOptions`. |
 | `src/preamble.ts` | `TS_RUNTIME_PREAMBLE` — Dart-flavored polyfills installed on `Object.prototype` (e.g. `whichExpr()`, `hasBody()`) so compiled Dart-origin code can call proto-style methods on plain JSON objects. The `ball_proto` module's `hasX()` proto-accessor free functions (e.g. `hasBody`/`hasMetadata`/`hasHttp`/`hasFile`/`hasGit`/`hasRegistry`/`hasInline`) are a **hand-curated, fixed list** here — NOT derived from whatever `ball_proto` functions a given compiled Program actually declares. Adding a *new* `hasX()`/`whichX()` call site anywhere in a compiled-to-TS Ball source (e.g. issue #364's `cli_core.dart` calling `ModuleImport.hasHttp()`/etc. for the first time) needs its stub added here too, or it throws `ReferenceError: hasX is not defined` at runtime — this is exactly the gap issue #364 found and fixed for the `ModuleImport.source` oneof. |
 | `src/types.ts` | Local TypeScript type aliases for the Ball proto3-JSON tree (used internally; not protobuf-es `Message` objects). |
 | `bin/ball-ts-compile.mjs` | CLI shim (`ball-ts-compile`) called by the Dart compiler runner. |

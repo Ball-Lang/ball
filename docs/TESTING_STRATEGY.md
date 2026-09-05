@@ -320,23 +320,25 @@ so low it means nothing. Each harness's **own** self-test is gated on every PR
 (in that language's `ci.yml` job), so the instrument cannot silently start
 skipping the file shapes it exists to look at.
 
-Tier A now exists for **five** languages: Dart (`rq1_study.dart`), Rust
+Tier A now exists for **all six** languages: Dart (`rq1_study.dart`), Rust
 (`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
-(`tools/coverage-study/go`) and Python (`rq1_study_py.py`). TypeScript is
-deliberately deferred — `ts/compiler`'s `compileModule` takes a single Module
-*facade* built for the `ball_protobuf` inline-embedding case, not one module of
-a loaded multi-module `Program`, so a TS port needs a genuinely new compiler
-primitive rather than a wrapper around the facade.
+(`tools/coverage-study/go`), Python (`rq1_study_py.py`) and TypeScript
+(`rq1_study_ts.mts`). TypeScript was last because it was genuinely blocked:
+`ts/compiler`'s `compileModule` takes a single Module *facade* built for the
+`ball_protobuf` inline-embedding case, and `compile` appends a zero-arg `main();`
+to any declaration sharing the encoder's default entry name, so the port needed a
+genuinely new library-mode primitive first (`compileLibrary`, issue #536).
 
 Each port also prints a per-stage **funnel** beside the clean percentage,
-because for the four ports the clean number is 0% and the information is
+because for four of the five ports the clean number is 0% and the information is
 entirely in *where* files stop: the Rust/C#/Go/Python compilers emit
 runtime-call-shaped source their syntactic encoders were never built to read
 back, so stage 3 (re-encode) is a wall — the same wall the `*-roundtrip` rows
 already report as an honest 0/32x on the project's own corpus. A bare 0% would
 hide the difference between "the encoder rejected the file outright" (Rust, Go:
 0 files even encode) and "58 of 472 files got all the way to the declaration
-diff" (C#).
+diff" (C#). TypeScript is the one port with a non-zero first number (4/48), and
+its failures are spread across every stage rather than piled on one.
 
 
 ### 3. Fail loud, never degrade silently

@@ -1277,6 +1277,20 @@ jobs:
       - name: Test @ball-lang/encoder (coverage-gated)
         run: cd ts/encoder && npm run coverage
 
+      # ── Tier A coverage-study harness self-test (issue #493) ──
+      # tools/coverage-study measures OTHER PEOPLE'S code, so prove the harness
+      # first. The Tier A RUN itself is report-only (coverage-study.yml has no
+      # pull_request: trigger, per the project's measure-before-gating rule);
+      # this step gates only the harness's own correctness, so a measuring
+      # instrument cannot silently start SKIPPING the entry-point-less library
+      # files it exists to look at and then report a flattering number over what
+      # is left. Mirrors the dart/rust/csharp/go/python jobs' identical step.
+      # Runs AFTER both npm ci steps above: the harness imports @ball-lang/encoder
+      # and @ball-lang/compiler straight from source and has no node_modules of
+      # its own.
+      - name: "Tier A coverage-study harness self-test (issue #493)"
+        run: node --experimental-strip-types tools/coverage-study/test/rq1_study_ts_self_test.mts
+
   # ──────────────────────────────────────────────────
   # Rust — build + test + fmt + clippy
   # ──────────────────────────────────────────────────

@@ -26,8 +26,8 @@ following shipped past 18 green required checks on the same day:
 
 ## Tier A — structural round-trip over pinned packages
 
-Tier A exists for five languages. The Dart harness is the reference; the four
-ports mirror its five stages exactly (see "The four ports" below).
+Tier A exists for six languages. The Dart harness is the reference; the five
+ports mirror its five stages exactly (see "The five ports" below).
 
 ### Dart — `tools/coverage-study/rq1_study.dart`
 
@@ -67,8 +67,7 @@ Funnel (scored files that survived each stage):
 
 It is derived from each file's taxonomy tag, and an **unrecognised tag is an
 error, not a default** — a new failure mode cannot be quietly folded into the
-wrong row. The funnel is load-bearing for the four ports, whose clean number is
-0%: without it, "the encoder rejected every file outright" (Rust, Go) and "58
+wrong row. The funnel is load-bearing for the ports, four of which score 0% clean: without it, "the encoder rejected every file outright" (Rust, Go) and "58
 of 472 files reached the declaration diff" (C#) are the same 0%.
 
 ### Two load-bearing settings — do not "simplify" these away
@@ -118,7 +117,7 @@ named local (`int twice(int input) { int value = input; … }`), so almost nothi
 is IR-identical across the *first* pass. That is why stage 5 compares
 generations 2 and 3 instead.
 
-## The four ports — Rust, C#, Go, Python
+## The five ports — Rust, C#, Go, Python, TypeScript
 
 | Language | Harness | Stage 1 (encode) | Stage 2 (compile back) | Inventory parser |
 | --- | --- | --- | --- | --- |
@@ -127,30 +126,46 @@ generations 2 and 3 instead.
 | C# | `csharp/coverage-study` | `CSharpEncoder.EncodeLibrary` | `CSharpCompiler.Compile` | Roslyn `CSharpSyntaxWalker` |
 | Go | `tools/coverage-study/go` | `encoder.EncodeLibrary` / `encoder.Encode` (below) | `compiler.CompileLibrary` | `go/parser` + `go/ast` |
 | Python | `tools/coverage-study/rq1_study_py.py` | `ball_encoder.encode` | `ball_compiler.compile_library` | stdlib `ast` |
+| TypeScript | `tools/coverage-study/rq1_study_ts.mts` | `@ball-lang/encoder`'s `encode` (`strictBehaviorAffecting`, below) | `@ball-lang/compiler`'s `compileLibrary` | raw TypeScript Compiler API |
 
 **Every inventory column is a parser, never that language's encoder.** The
 harness walks the source with the language's own parser so a bug in the
 encoder's bookkeeping cannot hide a lost declaration from the instrument
 measuring it.
 
-### TypeScript is deliberately NOT ported
+### TypeScript needed a new compiler primitive first (#536)
 
-`ts/compiler/src/compiler.ts`'s `compileModule(module, options?)` takes a single
-`Module` **facade** and is purpose-built for the `ball_protobuf` inline-embedding
-case: it expands `moduleImports[].inline.json` sub-modules, synthesizes a dummy
-`__ball_lib_entry__`/`__ball_lib_main__` pair, and dedups/renames functions
-across the merged sub-modules. It is **not** an analog of Dart's
-`compileModule(moduleName)` on an already-loaded multi-module `Program`, and TS
-has no "compile one module of a Program, in Program context" primitive today.
-Porting Tier A to TS needs a small genuinely-new compiler primitive; faking it
-with the facade shape would measure the facade, not the pipeline.
+TypeScript was the last port, and it was genuinely blocked rather than merely
+unstarted. Neither of `ts/compiler`'s two pre-existing entry points could be
+pointed at a real library file:
 
-### The load-bearing setting every port inherits
+* `compile(program)` looks the entry function up **by name** and unconditionally
+  appends a zero-arg `main();`. `@ball-lang/encoder` defaults `entryFunction` to
+  `"main"` for every file it encodes, so a library that happens to declare
+  `main(argv: string[])` gets a wrong-arity call appended, and `argv.length`
+  throws at run time.
+* `compileModule(module, options?)` takes a single `Module` **facade** and is
+  purpose-built for the `ball_protobuf` inline-embedding case: it expands
+  `moduleImports[].inline.json` sub-modules, synthesizes a dummy
+  `__ball_lib_entry__`/`__ball_lib_main__` pair, and strips it again with
+  non-global regexes matched against the compiler's formatted output text.
+
+`compileLibrary(program, options?)` (#536) is the missing analog of Dart's
+`compileModule(moduleName)` and of `compile_library`/`CompileLibrary` in
+Rust/Go/Python: it takes the whole already-loaded `Program`, never looks up or
+invokes `entryFunction`, does not require an entry module to exist, exports every
+top-level declaration **structurally** through ts-morph rather than by rewriting
+emitted text, and emits none of `compile()`'s engine-specific post-processing
+(which would otherwise inject declarations the source never had and make a
+fixpoint impossible). `ts/compiler/test/compile_library.test.ts` pins all of it.
+
+### The load-bearing setting every port inherits, and the one TypeScript adds
 
 The ports inherit the Dart harness's "never reach for the entry-point-requiring
 API" rule: Rust uses `encode_library`/`compile_library` (issue #491), C# uses
 `EncodeLibrary` (issue #492) with `Compile`, which already emits `Main` only
-when the entry function exists, and Python uses `compile_library`.
+when the entry function exists, Python uses `compile_library`, and TypeScript
+uses `compileLibrary` (issue #536), which had to be built first.
 
 **Go now matches them.** It used to be the one exception: `go/encoder` had no
 library mode, so `Encode` failed loud with "a Ball Program requires a `func
@@ -165,6 +180,19 @@ top-level `func main` and to `Encode` when it does, and synthesizes nothing.
 main` is still excluded from the declaration inventory on both sides, for the
 separate reason that library-mode compilation deliberately renames it to
 `ball_main`.
+
+**TypeScript adds one accommodation.** Every sibling encoder throws on a
+construct it cannot represent, so its harness gets an honest `encode-error`
+for free. `@ball-lang/encoder` does not: by default it records a warning and
+emits an "unhandled" placeholder literal, which changes what the program
+computes while still producing a `Program` the funnel would happily carry all
+the way to `clean`. The TS harness therefore encodes with the encoder's own
+`strictBehaviorAffecting: true`, which turns a behaviour-changing loss into a
+hard `EncodeError` while still tolerating the erasure-only ones
+(`TypeAliasDeclaration`, `InterfaceDeclaration`, `EmptyStatement`). Those are
+not swept under the rug either: the declaration inventory counts an erased
+`type`/`interface` as a lost declaration, so they surface at stage 4 instead.
+An encoder that failed loud by default would remove the need for the setting.
 
 ### What every port's self-test asserts, and what it deliberately does not
 
@@ -182,26 +210,36 @@ the harness cannot inherit the blind spot it exists to close:
 5. the declaration-inventory walker sees type members and actually **misses** a
    removed declaration, so stage 4 is not a rubber stamp.
 
+The TypeScript self-test adds three more, for hazards specific to this port: a
+library declaration NAMED like the entry point (`main(argv)`) is scored rather
+than crashed on or handed a synthesized invocation (#536); an unrecognised
+taxonomy tag makes the funnel throw instead of quietly scoring 0; and the
+stage-4 syntax gate rejects deliberately broken output — TypeScript's parser is
+error-tolerant, so without an explicit `getSyntacticDiagnostics` check an
+emitter producing unparseable TypeScript would sail through the whole funnel.
+
 Assertion 2 is where the ports differ from the Dart original, which asserts a
 plain file is reported **clean**. That works for Dart because its round trip is
 closed — the Dart compiler emits idiomatic Dart the Dart encoder reads back. It
-is not true for the four ports: their compilers emit runtime-call-shaped source
+is not true for the five ports: their compilers emit source shapes their
+syntactic encoders were never built to consume — runtime calls
 (`ball_lang_shared::runtime::*`, `BallRuntime.*`, `ballrt.*`, `try/except`
-wrappers) their syntactic encoders were never built to consume. There is
-therefore no source in those languages this harness can honestly call clean, and
-asserting one would mean weakening the harness until something passed.
-Assertion 2 states the strongest thing that is true today, and strengthens by
-itself the moment the round trip closes.
+wrappers) in four of them, and in TypeScript a re-emitted `const input =
+<param>;` alias that makes generation 2 differ from generation 1. There is
+therefore no source in those languages this harness can honestly *promise* stays
+clean, and asserting one would mean weakening the harness until something
+passed. Assertion 2 states the strongest thing that is true today, and
+strengthens by itself the moment the round trip closes.
 
 These self-tests validate the **harness**. They are not regression tests for
 #488/#489/#491/#492: the Tier A run is report-only, so a pipeline regression it
 measures reddens no PR.
 
-### First baselines (2026-09-03)
+### First baselines (2026-09-03; TypeScript 2026-09-05)
 
-Honest first numbers, all four ports at 0% clean. They are not cherry-picked:
-the pin lists are ordinary hermetic libraries chosen before any number was seen,
-and no pin was dropped after measuring.
+Honest first numbers. They are not cherry-picked: the pin lists are ordinary
+hermetic libraries chosen before any number was seen, and no pin was dropped
+after measuring.
 
 | Language | scored | clean | 1 encoded | 2 compiled | 3 re-encoded | 4 decls kept |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -210,6 +248,7 @@ and no pin was dropped after measuring.
 | Python | 73 | 0 (0%) | 5 | 5 | 0 | 0 |
 | Rust | 110 | 0 (0%) | 0 | 0 | 0 | 0 |
 | Go | 21 | 0 (0%) | 0 | 0 | 0 | 0 |
+| TypeScript | 48 | 4 (8%) | 29 | 28 | 21 | 16 |
 
 Read these as a map of where each pipeline stops on real code, not as a grade:
 
@@ -222,6 +261,14 @@ Read these as a map of where each pipeline stops on real code, not as a grade:
   parseable but loses declarations.
 * **Python's wall is stage 3.** Files that encode compile back fine, but the
   emitted `try/except` + `ballrt.*` shapes are outside the encoder's surface.
+* **TypeScript is the only port with a non-zero number**, and its wall is
+  spread across the whole funnel rather than piled on one stage: 19
+  `encode-error` (regex flags, `.slice`/`.indexOf` receiver ambiguity,
+  `yield`, `,`-operator), 7 `reencode-error`, 5 `declaration-drift` (every
+  `interface` is erased), 10 `fixpoint-drift` and 2 `fixpoint-error`. The
+  dominant fixpoint cause is that the compiler re-emits its own
+  `const input = <param>;` alias on each generation, so generation 2 of even a
+  one-line function differs from generation 1.
 * **Dart is the only closed round trip**, which is exactly why its number is a
   percentage worth floor-checking later and the others are a funnel worth
   watching.
@@ -256,7 +303,7 @@ dart run tools/coverage-study/rq1_study.dart \
 dart run tools/coverage-study/rq1_study.dart \
   --package myapp --source-dir path/to/lib
 
-# The four ports. `tools/coverage-study/clone_pins.sh <pins.json> <dir>` clones
+# The five ports. `tools/coverage-study/clone_pins.sh <pins.json> <dir>` clones
 # each pin at its recorded commit (what every coverage-study.yml job runs), and
 # `tools/coverage-study/summarize.sh <label> <log>` applies the positive floor.
 bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/rust.json /tmp/co
@@ -271,6 +318,12 @@ cd tools/coverage-study/go && go run ./cmd/rq1study \
 
 python3 tools/coverage-study/rq1_study_py.py \
   --pins tools/coverage-study/packages/python.json --checkouts /tmp/co
+
+# TypeScript imports @ball-lang/{encoder,compiler} straight from source, so
+# `npm ci` in ts/encoder and ts/compiler first; the harness has no deps of
+# its own.
+node --experimental-strip-types tools/coverage-study/rq1_study_ts.mts \
+  --pins tools/coverage-study/packages/ts.json --checkouts /tmp/co
 
 # Every harness also takes --package <name> --source-dir <dir> for a one-off.
 ```
@@ -287,10 +340,11 @@ harness itself failed (no summary line, or zero files scored).
 Remaining slices of #493:
 
 * Floor the Dart Tier A number once a few scheduled runs establish a baseline.
-  The four ports are at 0% and have no floor to set yet — a ratchet on 0 is
-  meaningless; watch the funnel rows instead.
-* Port Tier A to **TypeScript** — blocked on a small new compiler primitive, see
-  "TypeScript is deliberately NOT ported" above.
+  Rust, C#, Go and Python are at 0% and have no floor to set yet — a ratchet on
+  0 is meaningless; watch the funnel rows instead.
+* Floor the TypeScript Tier A number once a few scheduled runs establish a
+  baseline — it is the only port that is not at 0%, so it is the second
+  candidate for a ratchet after Dart.
 * **Tier B for Dart** (hermetic test-suite substitution) — the tier that catches
   the #488 class. Deferred out of this slice, not cancelled.
 * Publish the coverage table next to the engine-parity table in the README.

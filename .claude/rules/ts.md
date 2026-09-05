@@ -42,9 +42,32 @@ const json = toJson(ProgramSchema, program);
 ### Compiler
 
 - `compile(Program) → string` — returns TypeScript source
+- `compileLibrary(Program, opts?) → string` — the **library-mode** primitive
+  (issue #536), the TS analog of `compile_library`/`CompileLibrary` in the
+  Rust/Go/Python compilers and of Dart's `DartCompiler.compileModule`. Use it
+  for any Program that was not written to be *run*: it never looks up or invokes
+  `program.entryFunction`, never requires an entry module to exist, and emits no
+  entry invocation at all. `compile()` is unsafe for that job — it appends a
+  zero-arg `main();` to any declaration that merely shares the entry name, and
+  `@ball-lang/encoder` defaults `entryFunction` to `"main"` for **every** file it
+  encodes, so a library declaring `main(argv: string[])` gets a wrong-arity call.
+  - It exports **structurally** (`isExported` on the ts-morph structure), never
+    by rewriting the formatted output text the way `compileModule` does. Do not
+    reintroduce a regex export pass here: a text match against emitted source
+    rots silently the moment the emitter's formatting shifts (a
+    post-processing pass in this same file did exactly that — see the #489/#499
+    note in `compiler.ts`).
+  - It emits none of `compile()`'s engine-specific post-processing (the
+    `__isUnknownFnError` helper, the `_evalCall`/`_Scope` patches). Those repair
+    the ONE self-hosted engine `compile()` produces; a library compile of
+    somebody else's code must not gain declarations its source never had.
+  - `compile()` and `compileLibrary()` share ONE declaration walk,
+    `BallCompiler.emitDeclarations(sf, library)`. Fix a declaration-emission bug
+    there and both callers get it.
 - Uses `ts-morph` for structural AST building (class/function declarations)
 - Expressions/statements emitted as raw TS string into buffers
 - Post-processing via regex for OOP field binding, super chain, cascade evaluation
+  (in `compile()` only — never add such a pass to `compileLibrary()`)
 - Preamble (`preamble.ts`) installs Dart-flavored polyfills on `Object.prototype`
 - **A constructor's INITIALIZER LIST is separate from its body, and Dart runs
   both.** `buildCtor` must emit `this.<field> = <resolved>` for every

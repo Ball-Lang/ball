@@ -231,8 +231,9 @@ cargo fmt --check && cargo clippy --workspace
   one lands on the next. A closed gap category moves the histogram, not the
   aggregate. `cargo test -p
   ball-rq1-study` (the harness's own self-test) IS gated on every PR in the `rust`
-  job; the RUN is the report-only `rust-tier-a` job in `coverage-study.yml`, which
-  has **no `pull_request:` trigger**. Methodology:
+  job; the RUN is the `rust-tier-a` job in `coverage-study.yml`, which
+  has **no `pull_request:` trigger** (its row is floored by ratchet in that
+  workflow's `publish` job). Methodology:
   `tests/conformance/COVERAGE_STUDY.md`.
 
 - **The std module builders are a PORT of Dart's and are gated name-for-name** (#505).

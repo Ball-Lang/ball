@@ -1,0 +1,76 @@
+{
+  "$schema-note": "Checked-in ratchet floors for the third-party coverage study (issue #493). Read and enforced by tools/coverage-study/coverage_table.py, which .github/workflows/coverage-study.yml runs after the seven measuring jobs. A run below any row's floor fails the workflow; a run above it raises the floor here and the bot commits the raise, so a gain cannot be given back silently. Seeded from the first all-green run of the full seven-job matrix: https://github.com/Ball-Lang/ball/actions/runs/33953210701 (2026-09-05). To re-seed a row deliberately (a changed pin list changes the denominator, which is a breach by design), edit its numbers in a reviewed commit - never widen a floor to make a red run green.",
+  "seeded_from_run": "https://github.com/Ball-Lang/ball/actions/runs/33953210701",
+  "rows": [
+    {
+      "language": "Dart",
+      "tier": "Tier A",
+      "kind": "tier-a",
+      "artifact": "coverage-study-tier-a-dart/tier_a.json",
+      "scored": 106,
+      "clean": 65,
+      "encoded": 106
+    },
+    {
+      "language": "TypeScript",
+      "tier": "Tier A",
+      "kind": "tier-a",
+      "artifact": "coverage-study-tier-a-typescript/tier_a.json",
+      "scored": 48,
+      "clean": 4,
+      "encoded": 29
+    },
+    {
+      "language": "C#",
+      "tier": "Tier A",
+      "kind": "tier-a",
+      "artifact": "coverage-study-tier-a-csharp/tier_a.json",
+      "scored": 472,
+      "clean": 0,
+      "encoded": 123
+    },
+    {
+      "language": "Python",
+      "tier": "Tier A",
+      "kind": "tier-a",
+      "artifact": "coverage-study-tier-a-python/tier_a.json",
+      "scored": 73,
+      "clean": 0,
+      "encoded": 5
+    },
+    {
+      "language": "Rust",
+      "tier": "Tier A",
+      "kind": "tier-a",
+      "artifact": "coverage-study-tier-a-rust/tier_a.json",
+      "scored": 110,
+      "clean": 0,
+      "encoded": 0
+    },
+    {
+      "language": "Go",
+      "tier": "Tier A",
+      "kind": "tier-a",
+      "artifact": "coverage-study-tier-a-go/tier_a.json",
+      "scored": 21,
+      "clean": 0,
+      "encoded": 0
+    },
+    {
+      "language": "Dart",
+      "tier": "Tier B (per-file)",
+      "kind": "tier-b",
+      "artifact": "coverage-study-tier-b-dart/tier_b.json",
+      "scored": 106,
+      "clean": 93
+    },
+    {
+      "language": "Dart",
+      "tier": "Tier B (whole-package)",
+      "kind": "tier-b",
+      "artifact": "coverage-study-tier-b-dart/tier_b_all.json",
+      "scored": 5,
+      "clean": 2
+    }
+  ]
+}

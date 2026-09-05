@@ -492,8 +492,18 @@ Supporting configs:
    `docs/TESTING_STRATEGY.md`. Every one of those gates is scoped to code THIS
    REPO wrote; the third-party coverage study (`tools/coverage-study/`, weekly +
    manual `coverage-study.yml`, methodology in
-   `tests/conformance/COVERAGE_STUDY.md`) is the separate, deliberately
-   report-only instrument for real-world code. Tier A exists for all six
+   `tests/conformance/COVERAGE_STUDY.md`) is the separate instrument for
+   real-world code. It is **not a PR gate** (no `pull_request:` trigger — it
+   clones and builds third-party packages), but it is no longer report-only:
+   since #493 its `publish` job floors every row against
+   `tools/coverage-study/baseline.json` with a RATCHET (fail on a drop in the
+   clean ratio, the stage-1 funnel ratio, or the scored denominator; raise the
+   baseline on an improvement), and regenerates the published table in
+   `README.md`, committing both to main with `[skip ci]`. The floors sit at the
+   measured numbers, not at an aspiration — Dart Tier A is 61% and four rows are
+   at 0% clean, so a 95% floor would be permanently red and therefore muted.
+   `tools/coverage-study/coverage_table.py` is that renderer + floor, and its
+   self-test IS gated on every PR in `ci.yml`'s python job. Tier A exists for all six
    languages: Dart, Rust (`rust/tools/rq1-study`), C#
    (`csharp/coverage-study`), Go (`tools/coverage-study/go`), Python
    (`rq1_study_py.py`) and TypeScript (`rq1_study_ts.mts`, which needed

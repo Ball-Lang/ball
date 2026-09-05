@@ -318,12 +318,20 @@ checks on the same day.
 
 `tools/coverage-study/` (issue #493) is the instrument for that gap; the
 methodology, the load-bearing harness settings, the current baselines and the
-honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **report-only**
-— `coverage-study.yml` has no `pull_request:` trigger — because a floor set
-before a baseline exists either goes permanently red and gets ignored or is set
-so low it means nothing. Each harness's **own** self-test is gated on every PR
-(in that language's `ci.yml` job), so the instrument cannot silently start
-skipping the file shapes it exists to look at.
+honest limits are in `tests/conformance/COVERAGE_STUDY.md`. It is **not a PR
+gate** — `coverage-study.yml` has no `pull_request:` trigger, because these
+harnesses clone and build third-party packages — but it is no longer merely
+report-only: its `publish` job floors every row against
+`tools/coverage-study/baseline.json` and fails the run on a drop. The floors are
+**ratchets at the measured numbers** (fail on a drop in the clean ratio, the
+stage-1 funnel ratio, or the scored denominator; raise the baseline on an
+improvement), not the >= 95% / >= 75% issue #493 first proposed — Dart Tier A
+measures 61% and four of six Tier A rows measure 0% clean, so an aspirational
+floor would be permanently red and therefore muted. The same job publishes the
+table in `README.md`. Each harness's **own** self-test, and the renderer/floor's,
+are gated on every PR (in that language's `ci.yml` job), so the instrument cannot
+silently start skipping the file shapes it exists to look at, nor stop flooring
+what it measures.
 
 The instrument has two tiers, and one cannot stand in for the other. **Tier A**
 is structural (encode → compile back → re-encode → declaration inventory → IR
@@ -567,8 +575,10 @@ could not parse a summary at all).
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
-| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python | `coverage-study.yml`'s `dart-tier-a` / `rust-tier-a` / `csharp-tier-a` / `go-tier-a` / `python-tier-a` jobs | weekly + manual — **report-only, NOT a PR gate** (issue #493). The one failure mode is a run that scored < 1 file: a harness/checkout failure, never a 0% result |
-| Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python) | every PR (the matching language job) |
+| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result |
+| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, and regenerates the README table, committing both to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
+| Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
+| The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
 | Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |

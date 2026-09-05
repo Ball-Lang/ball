@@ -17,9 +17,9 @@ top-level-class gap). Do not "improve" that number by changing the pin list.
 
 `python tools/coverage-study/test/rq1_study_py_self_test.py` is the harness's own
 self-test and **is gated on every PR** in ci.yml's `python` job (both files are
-also in the `compileall` syntax gate). The RUN is the report-only
+also in the `compileall` syntax gate). The RUN is the
 `python-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
-trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+trigger**; its row is floored by ratchet in that workflow's `publish` job. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 ## Purpose
 The Python Ball target. A **compiler + runtime + encoder + self-hosted engine +

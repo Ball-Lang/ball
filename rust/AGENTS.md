@@ -36,9 +36,10 @@ structs" below for the measured before/after histogram that proves it does
 not).
 
 `cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
-every PR** in ci.yml's `rust` job. The RUN is the report-only `rust-tier-a` job
+every PR** in ci.yml's `rust` job. The RUN is the `rust-tier-a` job
 in `coverage-study.yml`, which has **no `pull_request:` trigger** — the row is
-absent, not green, on a PR. Methodology and the funnel's meaning:
+absent, not green, on a PR; it is floored by ratchet in that workflow's
+`publish` job. Methodology and the funnel's meaning:
 `tests/conformance/COVERAGE_STUDY.md`.
 
 ## Package Layout

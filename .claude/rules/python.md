@@ -213,8 +213,9 @@ python -m conformance.runner                             # prints the CI-parseab
   the other 68 from encoding at all). `python tools/coverage-study/test/
   rq1_study_py_self_test.py` (the harness's own self-test) IS gated on every PR in
   the `python` job, and both files are in the `compileall` syntax gate; the RUN is
-  the report-only `python-tier-a` job in `coverage-study.yml`, which has **no
-  `pull_request:` trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+  the `python-tier-a` job in `coverage-study.yml`, which has **no
+  `pull_request:` trigger** (its row is floored by ratchet in that workflow's
+  `publish` job). Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 - `python -m pytest -q` from each of `python/compiler`, `python/encoder`, `python/cli` runs the
   compiler golden-exact conformance + runtime unit tests, the encoder structural + round-trip tests,

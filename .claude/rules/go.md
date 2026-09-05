@@ -215,8 +215,9 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `func main() {}` it used to append is gone). A real `main` is still excluded
   from the inventory, for the separate reason that `CompileLibrary` renames it to
   `ball_main`. `go test ./...` there IS gated
-  on every PR in the `go` job; the RUN is the report-only `go-tier-a` job in
-  `coverage-study.yml`, which has **no `pull_request:` trigger**. Methodology:
+  on every PR in the `go` job; the RUN is the `go-tier-a` job in
+  `coverage-study.yml`, which has **no `pull_request:` trigger** (its row is
+  floored by ratchet in that workflow's `publish` job). Methodology:
   `tests/conformance/COVERAGE_STUDY.md`.
 
 - `go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...`

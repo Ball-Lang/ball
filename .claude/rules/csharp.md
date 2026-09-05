@@ -257,9 +257,9 @@ compile items so the sibling projects never double-compile each other's files.
   baseline **0/472 clean**, but the funnel is the story: 74 files encode, 73 compile
   back, 58 re-encode, and the wall is stage 4 (`declaration-drift`) — the furthest
   any port gets. `dotnet test csharp/coverage-study/test/...` (the harness's own
-  self-test) IS gated on every PR in the `csharp` job; the RUN is the report-only
+  self-test) IS gated on every PR in the `csharp` job; the RUN is the
   `csharp-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
-  trigger**. Methodology: `tests/conformance/COVERAGE_STUDY.md`.
+  trigger** (its row is floored by ratchet in that workflow's `publish` job). Methodology: `tests/conformance/COVERAGE_STUDY.md`.
 
 - `dotnet test Ball.slnx` from `csharp/` runs every default-build test project. `Ball.Engine`'s
   and `Ball.Cli`'s self-hosted/cli-core-gated test classes are feature-gated off by default, so

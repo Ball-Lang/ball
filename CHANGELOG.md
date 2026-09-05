@@ -1,3 +1,10 @@
+## [1.68.4](https://github.com/Ball-Lang/ball/compare/v1.68.3...v1.68.4) (2026-09-05)
+
+
+### Bug Fixes
+
+* **rust:** encode tuple and unit structs, including their construction (advances [#491](https://github.com/Ball-Lang/ball/issues/491)) ([#569](https://github.com/Ball-Lang/ball/issues/569)) ([7d1c165](https://github.com/Ball-Lang/ball/commit/7d1c165778b452a4bbe1f0c3dbd2cb07fb8079fb)), closes [#498](https://github.com/Ball-Lang/ball/issues/498)
+
 ## [1.68.3](https://github.com/Ball-Lang/ball/compare/v1.68.2...v1.68.3) (2026-09-05)
 
 

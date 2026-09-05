@@ -81,6 +81,18 @@ const json = toJson(ProgramSchema, program);
   catches them; conformance `436_recursive_ctor_named` /
   `438_ctor_initializer_list_with_body` pin them.
 - Base function dispatch in `_callBaseFunction()` switch
+- **`Box.new(7)` is a CONSTRUCTOR TEAR-OFF, not a static method (#531).** The
+  Dart encoder emits it as a generic self-carrying call
+  (`{function: "new", input: {self: Reference("Box"), arg0: 7}}`), NOT as the
+  `main:Box.new` Call `compileCall` special-cases up front, so it fell through
+  to the generic `<self>.<fn>(args)` form and emitted `Box.new_(7)` - `new` is
+  not a legal TS member name, and no emitted class declares it. A `new`
+  receiver that `isUserClassName()` recognises now compiles to
+  `new Box(args)`; one named in `DART_EXCEPTION_TYPES` compiles to the same
+  tagged object literal the direct `FormatException('x')` spelling produces,
+  because that is the shape the emitted typed-`catch` guards test. The
+  typeDef registry is keyed by the QUALIFIED name (`main:Box`), so a bare
+  lookup alone silently misses.
 - **Never lower a key-membership test to the bare `in` operator.** `in` walks
   the prototype chain, and the preamble patches the whole Dart-SDK method
   surface (`putIfAbsent`, `addAll`, `toList`, `firstWhere`, …) onto

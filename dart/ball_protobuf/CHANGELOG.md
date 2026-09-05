@@ -1,3 +1,8 @@
+## 0.3.1
+
+ - **FIX**(ball_protobuf): portable wire-buffer append (.add per item, not addAll) ([#18](https://github.com/ball-lang/ball/issues/18), [#25](https://github.com/ball-lang/ball/issues/25)) ([#331](https://github.com/ball-lang/ball/issues/331)). ([8fa610ce](https://github.com/ball-lang/ball/commit/8fa610ced2fafb7111716759b000bd76873cca7b))
+ - **FEAT**(cpp): [#18](https://github.com/ball-lang/ball/issues/18) stage 3 — binary-path cutover behind BALL_USE_BALL_PROTOBUF + byte-equivalence proof ([#341](https://github.com/ball-lang/ball/issues/341)). ([143219f5](https://github.com/ball-lang/ball/commit/143219f5cef1e6ed92d0bd7da1bd62644a978710))
+
 ## 0.3.0+1
 
  - **FIX**(ball_protobuf): fix facade test inline decode + gate the suite in CI ([#75](https://github.com/ball-lang/ball/issues/75)) ([#103](https://github.com/ball-lang/ball/issues/103)). ([0d5e4cca](https://github.com/ball-lang/ball/commit/0d5e4ccae164bdc2c328dfc5d419885a1da4ac14))

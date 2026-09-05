@@ -1,3 +1,12 @@
+## 0.3.1
+
+ - **FIX**(dart): arity-gate the encoder's name-only method dispatch, encode null-aware collection elements, and land the Tier A real-code coverage study (closes [#494](https://github.com/ball-lang/ball/issues/494)) ([#510](https://github.com/ball-lang/ball/issues/510)). ([64962571](https://github.com/ball-lang/ball/commit/64962571f0234df21b12c7d76275eb6a8f2ff5c8))
+ - **FIX**(compiler): per-iteration for-loop capture, typed catch, type-literal toString, goto body, const-ctor fields ([#303](https://github.com/ball-lang/ball/issues/303), [#305](https://github.com/ball-lang/ball/issues/305)) ([#320](https://github.com/ball-lang/ball/issues/320)). ([d1bdd11c](https://github.com/ball-lang/ball/commit/d1bdd11c1ec35637a667c16bce1d9fe6f10eb9c6))
+ - **FEAT**(std): add the universal std.type_of base function and stop a constructor from returning self ([#512](https://github.com/ball-lang/ball/issues/512)). ([0e06d7dc](https://github.com/ball-lang/ball/commit/0e06d7dc9d33878132290b766cbbcae2ad676272))
+ - **FEAT**(cpp): [#367](https://github.com/ball-lang/ball/issues/367) self-hosted ball audit — drop the stale auditReport skip ([#443](https://github.com/ball-lang/ball/issues/443)). ([53254eb6](https://github.com/ball-lang/ball/commit/53254eb6692a55136bb32b99152773e840855977))
+ - **FEAT**(cpp): [#367](https://github.com/ball-lang/ball/issues/367) unified `ball` CLI (engine_rt run + compile + encode + self-hosted cli-core verbs) ([#374](https://github.com/ball-lang/ball/issues/374)). ([73d7a63f](https://github.com/ball-lang/ball/commit/73d7a63fc9645b91b73242b687ef498bbd26456c))
+ - **FEAT**(cli): self-hosted cli-core (cli.ball.json) + single-sourced version ([#371](https://github.com/ball-lang/ball/issues/371)). ([514f60d4](https://github.com/ball-lang/ball/commit/514f60d4ff49c3725145d4d37d20435eabafb3fc))
+
 ## 0.3.0+6
 
  - Update a dependency to the latest release.

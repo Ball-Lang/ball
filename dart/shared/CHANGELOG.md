@@ -1,3 +1,13 @@
+## 0.3.1
+
+ - **FIX**(engine): await constructor futures inside _callFunction's try; weekly toolchain-drift CI run ([#500](https://github.com/ball-lang/ball/issues/500)). ([7910c824](https://github.com/ball-lang/ball/commit/7910c82475d835d7fd6bac25315d8b76a0822897))
+ - **FIX**(audit): [#420](https://github.com/ball-lang/ball/issues/420) base-fn shadow surfacing + engine ambiguity guard ([#434](https://github.com/ball-lang/ball/issues/434)). ([4e56897f](https://github.com/ball-lang/ball/commit/4e56897f7bf3af84edfc4e0a93da0aabffa9ef80))
+ - **FIX**(ball_protobuf): portable wire-buffer append (.add per item, not addAll) ([#18](https://github.com/ball-lang/ball/issues/18), [#25](https://github.com/ball-lang/ball/issues/25)) ([#331](https://github.com/ball-lang/ball/issues/331)). ([8fa610ce](https://github.com/ball-lang/ball/commit/8fa610ced2fafb7111716759b000bd76873cca7b))
+ - **FEAT**(std): add the universal std.type_of base function and stop a constructor from returning self ([#512](https://github.com/ball-lang/ball/issues/512)). ([0e06d7dc](https://github.com/ball-lang/ball/commit/0e06d7dc9d33878132290b766cbbcae2ad676272))
+ - **FEAT**(cli): self-host cli_core.auditReport (advances [#362](https://github.com/ball-lang/ball/issues/362)) ([#398](https://github.com/ball-lang/ball/issues/398)). ([6b824906](https://github.com/ball-lang/ball/commit/6b824906168008242cfbceb2c595a37b8204eb82))
+ - **FEAT**(cli): self-hosted cli-core (cli.ball.json) + single-sourced version ([#371](https://github.com/ball-lang/ball/issues/371)). ([514f60d4](https://github.com/ball-lang/ball/commit/514f60d4ff49c3725145d4d37d20435eabafb3fc))
+ - **FEAT**(cpp): [#18](https://github.com/ball-lang/ball/issues/18) stage 3 — binary-path cutover behind BALL_USE_BALL_PROTOBUF + byte-equivalence proof ([#341](https://github.com/ball-lang/ball/issues/341)). ([143219f5](https://github.com/ball-lang/ball/commit/143219f5cef1e6ed92d0bd7da1bd62644a978710))
+
 ## 0.3.0+3
 
  - **FIX**(shared): regenerate stale ball_protobuf.json/.bin artifact. ([c2749b63](https://github.com/ball-lang/ball/commit/c2749b63294dbe44bcf3a11af1f8d9c8e39d5a36))

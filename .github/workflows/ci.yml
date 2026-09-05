@@ -192,6 +192,12 @@ jobs:
       # semantic-release's per-package model has no workspace view for. A silent
       # no-op here publishes `ball_cli 0.4.0` still requiring `ball_base
       # ^0.3.0+3`: green, resolvable, and semantically wrong.
+      #
+      # These two use the runner image's preinstalled `node` and `python3`
+      # rather than setting up a toolchain: this job is unconditional on every
+      # PR, both self-tests are sub-second, and a setup-node/setup-python step
+      # here would cost more than the checks it enables. Neither script needs a
+      # pinned version (node: builtins and the Python stdlib only).
       - name: Pubspec sibling-constraint sync self-test (#551)
         run: node tools/release/sync_pubspec_deps.mjs --self-test
 

@@ -1,3 +1,16 @@
+# [0.4.0](https://github.com/Ball-Lang/ball/compare/ball_protobuf-v0.3.0...ball_protobuf-v0.4.0) (2026-09-05)
+
+
+### Bug Fixes
+
+* **ball_protobuf:** fix facade test inline decode + gate the suite in CI ([#75](https://github.com/Ball-Lang/ball/issues/75)) ([#103](https://github.com/Ball-Lang/ball/issues/103)) ([0d5e4cc](https://github.com/Ball-Lang/ball/commit/0d5e4ccae164bdc2c328dfc5d419885a1da4ac14)), closes [#61](https://github.com/Ball-Lang/ball/issues/61)
+* **ball_protobuf:** portable wire-buffer append (.add per item, not addAll) ([#18](https://github.com/Ball-Lang/ball/issues/18), [#25](https://github.com/Ball-Lang/ball/issues/25)) ([#331](https://github.com/Ball-Lang/ball/issues/331)) ([8fa610c](https://github.com/Ball-Lang/ball/commit/8fa610ced2fafb7111716759b000bd76873cca7b))
+
+
+### Features
+
+* **cpp:** [#18](https://github.com/Ball-Lang/ball/issues/18) stage 3 — binary-path cutover behind BALL_USE_BALL_PROTOBUF + byte-equivalence proof ([#341](https://github.com/Ball-Lang/ball/issues/341)) ([143219f](https://github.com/Ball-Lang/ball/commit/143219f5cef1e6ed92d0bd7da1bd62644a978710)), closes [addAll-throu#alias](https://github.com/addAll-throu/issues/alias) [#25](https://github.com/Ball-Lang/ball/issues/25) [addAll-throu#alias](https://github.com/addAll-throu/issues/alias) [#25](https://github.com/Ball-Lang/ball/issues/25)
+
 ## 0.3.0+1
 
  - **FIX**(ball_protobuf): fix facade test inline decode + gate the suite in CI ([#75](https://github.com/ball-lang/ball/issues/75)) ([#103](https://github.com/ball-lang/ball/issues/103)). ([0d5e4cca](https://github.com/ball-lang/ball/commit/0d5e4ccae164bdc2c328dfc5d419885a1da4ac14))

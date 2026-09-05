@@ -20,7 +20,7 @@ resolution: workspace
 
 dependencies:
   ball_base: ^0.3.0+3
-  ball_protobuf: ^0.3.0+1
+  ball_protobuf: ^0.4.0
 
 dev_dependencies:
   # ball_rpc is NOT imported by this package's library code; it is the runtime

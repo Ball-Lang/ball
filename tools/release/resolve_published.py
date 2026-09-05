@@ -17,22 +17,34 @@ failed with:
 
 The release was fine — pub.dev's *resolution* index simply had not caught up
 with the upload yet (the same package resolves cleanly now, and the sibling run
-33957929283 for `ball_rpc-v0.3.1` was resolvable within ~25 s). The 2-minute
-budget was sized for the loop's own message, "a dependency may still be
-publishing", not for the package's own index propagation, so a correct release
-went red — which trains people to ignore the one check that caught #566 for
-real.
+33957929283 for `ball_rpc-v0.3.1`, uploaded at 09:25:41.414Z, was resolvable
+within ~40 s). The 2-minute budget was sized for the loop's own message, "a
+dependency may still be publishing", not for the package's own index
+propagation, so a correct release went red — which trains people to ignore the
+one check that caught #566 for real.
 
 So the retry is no longer blind. The solver's own text says which package it
 could not satisfy:
 
   * it names THE PACKAGE UNDER VERIFICATION  -> the index is still propagating.
     Keep polling on a bounded budget (default 15 min, 30 s apart).
-  * it names a SIBLING pin (`ball_cli` requiring `ball_resolver ^0.4.0` that
-    nothing satisfies — the #566 shape)  -> a real, permanent conflict. Fail
-    immediately with the verbatim solver output; waiting cannot fix it.
+  * it names a SIBLING at an exact version pub.dev's API ALREADY LISTS
+    (`ball_base 0.4.0`, uploaded seconds earlier in the same lockstep sweep)
+    -> the very same propagation, one package downstream (#574). Keep polling on
+    the same budget, re-asking the API on every attempt.
+  * it names a SIBLING pub.dev does not serve — an exact version its API does
+    NOT list, a range nothing satisfies (`ball_resolver ^0.4.0`), or an explicit
+    `X is incompatible with Y` between two published packages (the #566 shape)
+    -> a real, permanent conflict. Fail immediately with the verbatim solver
+    output; waiting cannot fix it.
   * anything else (an SDK constraint, a network error, an unrecognised shape)
     -> fail, loudly, with the verbatim output. Never retried, never swallowed.
+
+The sibling question is answered by `GET https://pub.dev/api/packages/<sibling>`,
+which lists a version at UPLOAD time — ahead of the resolver index that is
+lagging. A lookup that cannot answer (HTTP error, unreadable body) is *unknown*,
+and unknown keeps polling: only a definite "the API has never heard of this
+version" is allowed to call a conflict permanent.
 
 The index poll (`--await-index`) is the same story one step earlier and shares
 the same budget: the API can lag an upload too, and 2 minutes was never measured
@@ -57,6 +69,8 @@ Env overrides (the workflow passes none; they exist for a recovery re-run):
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -73,7 +87,7 @@ SIBLING_CONFLICT = "sibling-conflict"
 UNCLASSIFIED = "unclassified"
 
 # 15 minutes at 30 s. The measured lag that motivated this (#568) was >131 s on
-# one package and <25 s on its sibling in the same loop, so the budget is sized
+# one package and ~40 s on its sibling in the same loop, so the budget is sized
 # an order of magnitude above the worst observation rather than just above it.
 DEFAULT_BUDGET_SECONDS = 900
 DEFAULT_INTERVAL_SECONDS = 30
@@ -92,6 +106,21 @@ _NO_MATCH = re.compile(
     rf"((?:{_CONSTRAINT_TOKEN})(?:\s+(?:{_CONSTRAINT_TOKEN}))*)\s+"
     r"which\s+doesn[’']t\s+match\s+any\s+versions"
 )
+
+# The other permanent shape the solver reports, and the one issue #566 actually
+# printed: two packages pub.dev already serves whose constraints cannot both
+# hold ("ball_resolver >=0.3.0+3 is incompatible with ball_engine >=0.4.0").
+_INCOMPATIBLE = re.compile(
+    rf"([A-Za-z_][A-Za-z0-9_]*)\s+"
+    rf"(?:{_CONSTRAINT_TOKEN})(?:\s+(?:{_CONSTRAINT_TOKEN}))*\s+"
+    r"is\s+incompatible\s+with\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)"
+)
+
+# A pin that names exactly ONE version (`0.4.0`, `0.3.0+3`) — the only shape the
+# pub.dev API can be asked a yes/no question about. `^0.4.0`, `>=0.4.0 <0.5.0`
+# and `any` name a set instead.
+_EXACT_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)*(?:[-+][0-9A-Za-z.\-]+)?")
 
 _PUBSPEC = """\
 name: ball_publish_verification
@@ -113,13 +142,61 @@ def unsatisfied_packages(output: str) -> list[tuple[str, str]]:
     return [(m[1], " ".join(m[2].split())) for m in _NO_MATCH.finditer(text)]
 
 
-def classify(output: str, package: str) -> str:
-    """Which of the three verdicts this solver output carries."""
+def incompatible_packages(output: str) -> list[tuple[str, str]]:
+    """Every `<a> <constraint> is incompatible with <b>` pair in the text."""
+    text = output.replace("\r\n", "\n").replace("\r", "\n")
+    return [(m[1], m[2]) for m in _INCOMPATIBLE.finditer(text)]
+
+
+def exact_version(constraint: str) -> str | None:
+    """The single version a solver constraint pins, or None for a range.
+
+    `0.4.0` / `0.3.0+3` name one version pub.dev either serves or does not, so
+    the API can settle whether waiting could ever help. `^0.4.0`, `>=0.4.0
+    <0.5.0` and `any` name a set, and a set nothing satisfies is not something
+    another 30 seconds of indexing can fix.
+    """
+    return constraint if _EXACT_VERSION.fullmatch(constraint) else None
+
+
+def classify(output: str, package: str, sibling_lookup=None) -> str:
+    """Which of the three verdicts this solver output carries.
+
+    `sibling_lookup(name, version)` answers "does pub.dev's API list this exact
+    sibling version?" as `True` / `False` / `None`, where `None` means the API
+    could not be read. It defaults to the live pub.dev API and is injected by
+    `--self-test`, which therefore never touches the network.
+
+    Unknown is never a licence to call a conflict permanent: the API is the only
+    evidence that separates "published seconds ago, not indexed yet" (#574) from
+    "a version that will never exist" (#566), and without it the guard keeps
+    polling on its bounded budget rather than reding a correct release.
+    """
+    lookup = _pubdev_lists_version if sibling_lookup is None else sibling_lookup
+
+    # An explicit incompatibility is permanent by construction: both sides
+    # resolved to versions pub.dev already serves, and their constraints cannot
+    # both hold. This is the text issue #566 actually printed.
+    for left, right in incompatible_packages(output):
+        if left != package or right != package:
+            return SIBLING_CONFLICT
+
     unsatisfied = unsatisfied_packages(output)
-    if any(name != package for name, _ in unsatisfied):
-        # A sibling pin nothing on pub.dev satisfies. Permanent: the fix is a
-        # new release of that sibling, not another 30 seconds of waiting.
-        return SIBLING_CONFLICT
+    for name, constraint in unsatisfied:
+        if name == package:
+            continue
+        pinned = exact_version(constraint)
+        if pinned is None:
+            # A RANGE nothing on pub.dev satisfies. No single upload can land and
+            # make it true; the fix is a new release of that sibling (#566).
+            return SIBLING_CONFLICT
+        if lookup(name, pinned) is False:
+            # pub.dev's API lists a version at UPLOAD time, ahead of its resolver
+            # index — so "the API does not have it" means it was never published.
+            return SIBLING_CONFLICT
+        # Listed, or unknown: the sibling WAS uploaded and the solver has not
+        # caught up. That is #568's lag displaced one package downstream (#574),
+        # and it is exactly what the budget exists to ride out.
     if unsatisfied:
         return STILL_PROPAGATING
     return UNCLASSIFIED
@@ -149,14 +226,20 @@ def resolve_with_budget(
     *,
     budget_seconds: int = DEFAULT_BUDGET_SECONDS,
     interval_seconds: int = DEFAULT_INTERVAL_SECONDS,
+    sibling_lookup=None,
     sleep=time.sleep,
     clock=time.monotonic,
     log=print,
 ) -> Outcome:
     """Poll `attempt_fn` until it resolves, the budget runs out, or it fails hard.
 
-    `attempt_fn()` returns `(ok, combined_output)`. Everything about time is
-    injected so the whole loop is exercised offline by `--self-test`.
+    `attempt_fn()` returns `(ok, combined_output)`. Everything about time — and
+    the pub.dev lookup `classify()` asks about a named sibling — is injected, so
+    the whole loop is exercised offline by `--self-test`.
+
+    The verdict is re-derived from scratch on every attempt, never cached: a
+    sibling the API had not answered for yet can become a definite conflict, and
+    one that is merely unindexed can start resolving, within the same budget.
     """
     started = clock()
     deadline = started + budget_seconds
@@ -169,13 +252,14 @@ def resolve_with_budget(
             log(f"{package} {version} resolved as an external consumer on attempt {attempts}")
             return Outcome(0, "resolved", attempts, clock() - started, last)
 
-        verdict = classify(last, package)
+        verdict = classify(last, package, sibling_lookup)
         if verdict == SIBLING_CONFLICT:
             log(
                 f"::error::{package} {version} does not resolve from pub.dev: a dependency "
-                "constraint names a sibling version pub.dev does not serve. This is a "
-                "permanent conflict, not index propagation — failing fast on attempt "
-                f"{attempts} instead of waiting out the budget."
+                "constraint names a sibling version pub.dev's API does not list at all, or a "
+                "range no published version satisfies. This is a permanent conflict, not index "
+                f"propagation — failing fast on attempt {attempts} instead of waiting out the "
+                "budget."
             )
             return Outcome(1, verdict, attempts, clock() - started, last)
         if verdict == UNCLASSIFIED:
@@ -197,12 +281,43 @@ def resolve_with_budget(
             return Outcome(1, STILL_PROPAGATING, attempts, clock() - started, last)
 
         wait = min(interval_seconds, remaining)
+        pending = ", ".join(f"{name} {constraint}" for name, constraint in unsatisfied_packages(last))
         log(
-            f"attempt {attempts}: pub.dev does not serve {package} {version} to the solver "
-            f"yet; its index is still propagating. Retrying in {wait:g}s "
+            f"attempt {attempts}: pub.dev does not serve {pending or f'{package} {version}'} to "
+            f"the solver yet; its index is still propagating. Retrying in {wait:g}s "
             f"({remaining:g}s of the {budget_seconds}s budget left)."
         )
         sleep(wait)
+
+
+def _index_document(body: str):
+    """The pub.dev package document, or None when the body cannot be read.
+
+    A transport failure, a truncated body and a response that is not a package
+    document are all the same thing to a caller: no answer, rather than a
+    negative one.
+    """
+    try:
+        doc = json.loads(body)
+    except Exception:  # noqa: BLE001 - any malformed body is "no answer"
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get("versions"), list):
+        return None
+    return doc
+
+
+def lists_version(body: str, version: str) -> bool | None:
+    """Tri-state membership: True listed, False definitively absent, None unknown.
+
+    The distinction is the whole of #574. pub.dev's API lists a version at upload
+    time, ahead of its resolver index, so a definite `False` is real evidence the
+    version was never published — while a `None` (the API failed to answer) must
+    never be spent as if it were one.
+    """
+    doc = _index_document(body)
+    if doc is None:
+        return None
+    return version in [v.get("version") for v in doc["versions"] if isinstance(v, dict)]
 
 
 def version_in_index(body: str, version: str) -> tuple[bool, str]:
@@ -212,13 +327,10 @@ def version_in_index(body: str, version: str) -> tuple[bool, str]:
     recovery must still verify the right thing. A malformed body is not a
     verdict — it is a reason to poll again.
     """
-    try:
-        doc = json.loads(body)
-    except Exception as exc:  # noqa: BLE001 - any malformed body is a retry
-        return False, f"could not parse the pub.dev response: {exc}"
-    if not isinstance(doc, dict):
-        return False, "the pub.dev response was not a JSON object"
-    known = [v.get("version") for v in doc.get("versions", []) if isinstance(v, dict)]
+    doc = _index_document(body)
+    if doc is None:
+        return False, f"the pub.dev response was not a readable package document (want {version})"
+    known = [v.get("version") for v in doc["versions"] if isinstance(v, dict)]
     latest = (doc.get("latest") or {}).get("version")
     return version in known, f"latest={latest} known={len(known)} looking-for={version}"
 
@@ -273,6 +385,16 @@ def _fetch_pubdev(package: str) -> str:
             return response.read().decode("utf-8", errors="replace")
     except Exception as exc:  # noqa: BLE001 - a transient failure is a retry, not a verdict
         return f"::pub.dev request failed:: {exc}"
+
+
+def _pubdev_lists_version(package: str, version: str) -> bool | None:
+    """Does pub.dev's API list this exact version? None when it cannot say.
+
+    This is the production sibling lookup `classify()` uses to tell a sibling
+    that was published seconds ago and is not indexed yet (#574) from one that
+    was never published at all (#566).
+    """
+    return lists_version(_fetch_pubdev(package), version)
 
 
 def write_consumer_pubspec(directory: str, package: str, version: str) -> str:
@@ -351,6 +473,26 @@ Because every version of ball_cli depends on ball_resolver ^0.4.0 which doesn't 
 So, because ball_publish_verification depends on ball_cli 0.4.0, version solving failed.
 """
 
+# The #574 shape, verbatim from the issue. In the deps-first lockstep sweep
+# `ball_protobuf 0.4.0` is uploaded ~15-30 s before `ball_base 0.4.0`'s own
+# verify starts, so the solver can still be blind to a sibling pub.dev's API
+# already lists. Same lag as RUN_33957914166, one package downstream.
+SIBLING_UNINDEXED = """\
+Resolving dependencies...
+Because every version of ball_base depends on ball_protobuf 0.4.0 which doesn't match any versions, ball_base 0.4.0 is forbidden.
+So, because ball_publish_verification depends on ball_base 0.4.0, version solving failed.
+"""
+
+# The text issue #566 actually printed (run 33953248977): a sibling that was
+# never republished, so two packages pub.dev serves pin incompatible ranges of a
+# third. No upload is in flight and no amount of waiting changes it.
+CONFLICT_566 = """\
+Resolving dependencies...
+Because ball_resolver >=0.3.0+3 depends on ball_base ^0.3.0+3 and ball_engine >=0.4.0 depends on ball_base ^0.4.0,
+  ball_resolver >=0.3.0+3 is incompatible with ball_engine >=0.4.0.
+So, because ball_publish_verification depends on ball_engine 0.4.0 which depends on ball_resolver ^0.3.0+3, version solving failed.
+"""
+
 SDK_FAILURE = """\
 Resolving dependencies...
 The current Dart SDK version is 3.9.0.
@@ -399,6 +541,39 @@ def _quiet(*_args, **_kwargs) -> None:
     """The loop's log sink, muted while the self-test drives it."""
 
 
+def _lookup_listing(*published: tuple[str, str]):
+    """A pub.dev lookup that knows exactly these `(package, version)` pairs."""
+    known = set(published)
+    asked: list[tuple[str, str]] = []
+
+    def lookup(name: str, version: str) -> bool:
+        asked.append((name, version))
+        return (name, version) in known
+
+    lookup.asked = asked  # type: ignore[attr-defined]
+    return lookup
+
+
+def _lookup_unavailable(name: str, version: str) -> None:
+    """pub.dev could not be read. 'Unknown' — which must never mean 'permanent'."""
+    return None
+
+
+def _lookup_then(*answers):
+    """A lookup that returns `answers` in order, so a verdict can change mid-poll."""
+    queue = list(answers)
+
+    def lookup(_name: str, _version: str):
+        return queue.pop(0) if queue else answers[-1]
+
+    return lookup
+
+
+def _lookup_forbidden(name: str, version: str):
+    """Proves a code path never reaches the network at all."""
+    raise AssertionError(f"the classifier asked pub.dev about {name} {version}; it must not")
+
+
 def self_test() -> int:
     results: list[tuple[str, bool, str]] = []
 
@@ -406,10 +581,12 @@ def self_test() -> int:
         results.append((label, condition, detail))
 
     # ── Classification. ──────────────────────────────────────────────────────
+    # Every call injects a lookup: `_lookup_forbidden` where the classifier must
+    # never reach pub.dev at all, an explicit listing where it must.
     check(
         "classifies run 33957914166's verbatim output as still propagating",
-        classify(RUN_33957914166, "ball_resolver") == STILL_PROPAGATING,
-        classify(RUN_33957914166, "ball_resolver"),
+        classify(RUN_33957914166, "ball_resolver", _lookup_forbidden) == STILL_PROPAGATING,
+        classify(RUN_33957914166, "ball_resolver", _lookup_forbidden),
     )
     check(
         "reads the package and constraint out of the solver text, not the prose",
@@ -418,29 +595,75 @@ def self_test() -> int:
     )
     check(
         "classifies a #566-shaped sibling pin conflict as a conflict",
-        classify(SIBLING_566, "ball_cli") == SIBLING_CONFLICT,
-        classify(SIBLING_566, "ball_cli"),
+        classify(SIBLING_566, "ball_cli", _lookup_listing(("ball_resolver", "0.4.0")))
+        == SIBLING_CONFLICT,
+        classify(SIBLING_566, "ball_cli", _lookup_listing(("ball_resolver", "0.4.0"))),
     )
     check(
         "classifies an SDK-constraint failure as unrecognised, never as propagation",
-        classify(SDK_FAILURE, "ball_resolver") == UNCLASSIFIED,
-        classify(SDK_FAILURE, "ball_resolver"),
+        classify(SDK_FAILURE, "ball_resolver", _lookup_forbidden) == UNCLASSIFIED,
+        classify(SDK_FAILURE, "ball_resolver", _lookup_forbidden),
     )
     check(
         "classifies a network failure as unrecognised, never as propagation",
-        classify(NETWORK_FAILURE, "ball_resolver") == UNCLASSIFIED,
-        classify(NETWORK_FAILURE, "ball_resolver"),
+        classify(NETWORK_FAILURE, "ball_resolver", _lookup_forbidden) == UNCLASSIFIED,
+        classify(NETWORK_FAILURE, "ball_resolver", _lookup_forbidden),
     )
     check(
         "does not treat pub's downgrade suggestion alone as a propagation verdict",
-        classify(SUGGESTION_ONLY, "ball_resolver") == UNCLASSIFIED,
-        classify(SUGGESTION_ONLY, "ball_resolver"),
+        classify(SUGGESTION_ONLY, "ball_resolver", _lookup_forbidden) == UNCLASSIFIED,
+        classify(SUGGESTION_ONLY, "ball_resolver", _lookup_forbidden),
     )
     crlf_curly = RUN_33957914166.replace("'", "’").replace("\n", "\r\n")
     check(
         "classifies the same output identically with CRLF and a curly apostrophe",
-        classify(crlf_curly, "ball_resolver") == STILL_PROPAGATING,
-        classify(crlf_curly, "ball_resolver"),
+        classify(crlf_curly, "ball_resolver", _lookup_forbidden) == STILL_PROPAGATING,
+        classify(crlf_curly, "ball_resolver", _lookup_forbidden),
+    )
+
+    # ── #574: a SIBLING can be propagating too. ──────────────────────────────
+    listed = _lookup_listing(("ball_protobuf", "0.4.0"))
+    check(
+        "a sibling pub.dev's API ALREADY LISTS is still propagating, not a conflict",
+        classify(SIBLING_UNINDEXED, "ball_base", listed) == STILL_PROPAGATING,
+        classify(SIBLING_UNINDEXED, "ball_base", _lookup_listing(("ball_protobuf", "0.4.0"))),
+    )
+    check(
+        "and it asked pub.dev about the SIBLING's exact version to decide that",
+        listed.asked == [("ball_protobuf", "0.4.0")],
+        repr(listed.asked),
+    )
+    check(
+        "a sibling version pub.dev's API does NOT list is a conflict — fail fast",
+        classify(SIBLING_UNINDEXED, "ball_base", _lookup_listing()) == SIBLING_CONFLICT,
+        classify(SIBLING_UNINDEXED, "ball_base", _lookup_listing()),
+    )
+    check(
+        "a pub.dev lookup that FAILS is unknown, so the guard keeps polling",
+        classify(SIBLING_UNINDEXED, "ball_base", _lookup_unavailable) == STILL_PROPAGATING,
+        classify(SIBLING_UNINDEXED, "ball_base", _lookup_unavailable),
+    )
+    check(
+        "#566's own solver text is a conflict whatever the lookup answers",
+        classify(CONFLICT_566, "ball_engine", _lookup_listing(("ball_resolver", "0.4.0")))
+        == SIBLING_CONFLICT
+        and classify(CONFLICT_566, "ball_engine", _lookup_unavailable) == SIBLING_CONFLICT
+        and classify(CONFLICT_566, "ball_engine", _lookup_listing()) == SIBLING_CONFLICT,
+        repr(incompatible_packages(CONFLICT_566)),
+    )
+    check(
+        "reads both sides of the incompatibility out of the solver text",
+        incompatible_packages(CONFLICT_566) == [("ball_resolver", "ball_engine")],
+        repr(incompatible_packages(CONFLICT_566)),
+    )
+    check(
+        "a RANGE no published version satisfies is never waited out, only exact pins are",
+        exact_version("0.4.0") == "0.4.0"
+        and exact_version("0.3.0+3") == "0.3.0+3"
+        and exact_version("^0.4.0") is None
+        and exact_version(">=0.4.0 <0.5.0") is None
+        and exact_version("any") is None,
+        repr([exact_version(c) for c in ("0.4.0", "0.3.0+3", "^0.4.0", ">=0.4.0 <0.5.0", "any")]),
     )
 
     # ── The budget loop. ─────────────────────────────────────────────────────
@@ -556,6 +779,104 @@ def self_test() -> int:
         repr(outcome),
     )
 
+    # ── #574 through the loop, on the same budget as the package's own lag. ──
+    clock = _FakeClock()
+    listed = _lookup_listing(("ball_protobuf", "0.4.0"))
+    outcome = resolve_with_budget(
+        "ball_base",
+        "0.4.0",
+        _fails_until(clock, 90, SIBLING_UNINDEXED),
+        sibling_lookup=listed,
+        sleep=clock.sleep,
+        clock=clock.monotonic,
+        log=_quiet,
+    )
+    check(
+        "a published-but-unindexed SIBLING keeps polling and resolves inside the budget",
+        outcome.code == 0 and outcome.attempts == 4 and clock.sleeps == [30, 30, 30],
+        repr((outcome, clock.sleeps)),
+    )
+    check(
+        "the sibling is re-checked against pub.dev on EVERY failing attempt, never cached",
+        listed.asked == [("ball_protobuf", "0.4.0")] * 3,
+        repr(listed.asked),
+    )
+
+    clock = _FakeClock()
+    outcome = resolve_with_budget(
+        "ball_base",
+        "0.4.0",
+        _fails_until(clock, 10**9, SIBLING_UNINDEXED),
+        sibling_lookup=_lookup_listing(),
+        sleep=clock.sleep,
+        clock=clock.monotonic,
+        log=_quiet,
+    )
+    check(
+        "a sibling version pub.dev never published still fails FAST — one attempt, no waiting",
+        outcome.code == 1
+        and outcome.verdict == SIBLING_CONFLICT
+        and outcome.attempts == 1
+        and clock.sleeps == [],
+        repr((outcome, clock.sleeps)),
+    )
+
+    clock = _FakeClock()
+    outcome = resolve_with_budget(
+        "ball_base",
+        "0.4.0",
+        _fails_until(clock, 10**9, SIBLING_UNINDEXED),
+        sibling_lookup=_lookup_unavailable,
+        sleep=clock.sleep,
+        clock=clock.monotonic,
+        log=_quiet,
+    )
+    check(
+        "an unreadable pub.dev keeps the poll going and is BOUNDED, never permanent",
+        outcome.code == 1
+        and outcome.verdict == STILL_PROPAGATING
+        and clock.now == DEFAULT_BUDGET_SECONDS,
+        repr((outcome, clock.now)),
+    )
+
+    clock = _FakeClock()
+    outcome = resolve_with_budget(
+        "ball_base",
+        "0.4.0",
+        _fails_until(clock, 10**9, SIBLING_UNINDEXED),
+        sibling_lookup=_lookup_then(None, False),
+        sleep=clock.sleep,
+        clock=clock.monotonic,
+        log=_quiet,
+    )
+    check(
+        "a sibling that turns out to be absent is reported as a conflict on that attempt",
+        outcome.code == 1
+        and outcome.verdict == SIBLING_CONFLICT
+        and outcome.attempts == 2
+        and clock.sleeps == [30],
+        repr((outcome, clock.sleeps)),
+    )
+
+    clock = _FakeClock()
+    outcome = resolve_with_budget(
+        "ball_engine",
+        "0.4.0",
+        _fails_until(clock, 10**9, CONFLICT_566),
+        sibling_lookup=_lookup_listing(("ball_resolver", "0.4.0")),
+        sleep=clock.sleep,
+        clock=clock.monotonic,
+        log=_quiet,
+    )
+    check(
+        "#566's own text fails on attempt 1 even against a lookup that lists the sibling",
+        outcome.code == 1
+        and outcome.verdict == SIBLING_CONFLICT
+        and outcome.attempts == 1
+        and clock.sleeps == [],
+        repr((outcome, clock.sleeps)),
+    )
+
     # ── The index poll that runs one step earlier, on the same budget. ───────
     index_doc = json.dumps(
         {
@@ -587,6 +908,21 @@ def self_test() -> int:
         "treats a malformed pub.dev body as 'not yet', never as a crash",
         not version_in_index("::pub.dev request failed:: timed out", "0.3.1")[0],
         "a transient fetch failure is retryable",
+    )
+    check(
+        "the sibling lookup is TRI-state: listed / definitively absent / unknown",
+        lists_version(index_doc, "0.3.1") is True
+        and lists_version(stale_doc, "0.3.1") is False
+        and lists_version("::pub.dev request failed:: timed out", "0.3.1") is None
+        and lists_version('{"name": "ball_resolver"}', "0.3.1") is None,
+        repr(
+            [
+                lists_version(index_doc, "0.3.1"),
+                lists_version(stale_doc, "0.3.1"),
+                lists_version("::pub.dev request failed:: timed out", "0.3.1"),
+                lists_version('{"name": "ball_resolver"}', "0.3.1"),
+            ]
+        ),
     )
 
     clock = _FakeClock()
@@ -688,6 +1024,53 @@ def self_test() -> int:
         repr(pubspec),
     )
 
+    # ── The CLI's own argument handling. ─────────────────────────────────────
+    # `--budget-seconds 0` must reach the configuration error rather than being
+    # replaced by the default behind the caller's back. The fetch is stubbed with
+    # a document that would succeed on the first attempt, so this stays offline
+    # AND a regression reports the wrong exit code at once instead of polling.
+    noise = io.StringIO()
+    fetch = globals()["_fetch_pubdev"]
+    globals()["_fetch_pubdev"] = lambda _package: json.dumps(
+        {"latest": {"version": "0.4.0"}, "versions": [{"version": "0.4.0"}]}
+    )
+    try:
+        with contextlib.redirect_stdout(noise):
+            zero_budget = main(
+                [
+                    "--await-index",
+                    "--package",
+                    "ball_base",
+                    "--version",
+                    "0.4.0",
+                    "--budget-seconds",
+                    "0",
+                ]
+            )
+            zero_interval = main(
+                [
+                    "--await-index",
+                    "--package",
+                    "ball_base",
+                    "--version",
+                    "0.4.0",
+                    "--interval-seconds",
+                    "0",
+                ]
+            )
+    finally:
+        globals()["_fetch_pubdev"] = fetch
+    check(
+        "an explicit --budget-seconds 0 is a configuration error, not a silent default",
+        zero_budget == 2 and zero_interval == 2,
+        f"budget->{zero_budget} interval->{zero_interval}",
+    )
+    check(
+        "and it says which flag was wrong instead of failing somewhere else",
+        "--budget-seconds" in noise.getvalue() and "budget=0s" in noise.getvalue(),
+        repr(noise.getvalue()),
+    )
+
     passed = sum(1 for _, condition, _ in results if condition)
     failed = len(results) - passed
     for label, condition, detail in results:
@@ -695,7 +1078,11 @@ def self_test() -> int:
         if not condition and detail:
             print(f"  {detail}")
     total = len(results)
-    minimum = 24
+    # Positive floor (#439/#444): an exit code plus a zero failure count cannot
+    # tell "all passed" from "nothing ran". Raised from 24 to 42 with the #574
+    # sibling-propagation cases — it tracks the case count exactly, so deleting
+    # a case is as loud as breaking one.
+    minimum = 42
     if total < minimum:
         print(
             f"::error::published-resolution guard self-test ran {total} cases, "
@@ -728,15 +1115,34 @@ def main(argv: list[str]) -> int:
     if not args.await_index and not args.dir:
         parser.error("--dir is required for the consumer resolution")
 
+    # `is not None`, not `or`: an explicit `--budget-seconds 0` is a mistake to
+    # report, not a falsy value to replace with the default behind the caller's
+    # back. The flag check runs before the SDK lookup so a bad budget is never
+    # reported as a missing `dart`.
     try:
-        budget = args.budget_seconds or _env_seconds(_BUDGET_ENV, DEFAULT_BUDGET_SECONDS)
-        interval = args.interval_seconds or _env_seconds(_INTERVAL_ENV, DEFAULT_INTERVAL_SECONDS)
-        dart = None if args.await_index else resolve_dart()
+        budget = (
+            args.budget_seconds
+            if args.budget_seconds is not None
+            else _env_seconds(_BUDGET_ENV, DEFAULT_BUDGET_SECONDS)
+        )
+        interval = (
+            args.interval_seconds
+            if args.interval_seconds is not None
+            else _env_seconds(_INTERVAL_ENV, DEFAULT_INTERVAL_SECONDS)
+        )
     except ConfigError as exc:
         print(f"::error::{exc}")
         return 2
     if budget <= 0 or interval <= 0:
-        print("::error::--budget-seconds and --interval-seconds must both be positive")
+        print(
+            "::error::--budget-seconds and --interval-seconds must both be positive; got "
+            f"budget={budget}s interval={interval}s"
+        )
+        return 2
+    try:
+        dart = None if args.await_index else resolve_dart()
+    except ConfigError as exc:
+        print(f"::error::{exc}")
         return 2
 
     if args.await_index:

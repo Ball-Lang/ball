@@ -38,11 +38,22 @@ second-generation fixpoint. `Compile` needs no special mode: it already emits
 `Main` only when the entry function exists, so an `EncodeLibrary` Program with
 an empty `EntryFunction` compiles fine.
 
-Honest first baseline: **0/472 clean** (4 pinned libraries,
+Honest baseline: **0/472 clean** (4 pinned libraries,
 `tools/coverage-study/packages/csharp.json`) — but C# gets furthest of the four
-ports, and the funnel is the story: 74 files encode, 73 compile back, 58
-re-encode, and the wall is stage 4, `declaration-drift`. Do not "improve" that
-number by changing the pin list.
+ports, and the funnel is the story: **123 files encode, 122 compile back, 58
+re-encode**, and the wall is stage 4, `declaration-drift`. Do not "improve" that
+number by changing the pin list. (Re-measured at `origin/main` @ `9ede6466` by
+#492 slice 3; the earlier "74/73/58" sentence had gone stale.)
+
+**A per-shape fix does not have to move this funnel.** Slice E (#578) and slice 3
+(this one) each closed a real, verified encoder gap and each left stage 1 at
+exactly 123 — because Tier A reports only a file's FIRST error, so a file with
+two gaps just advances to its next one. Slice 3's eight `ThrowIfNull`/
+`Debug.Assert` files all moved to a *different* first error (`SwitchExpression`,
+`IsPatternExpression`, `string.IsNullOrWhiteSpace`, `out var`, …) and the
+`unsupported method call` bucket fell 104 → 97. Measure per shape; never raise
+`tools/coverage-study/baseline.json`'s floor to a number the harness did not
+actually print.
 
 `dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj` is the
 harness's own self-test and **is gated on every PR** in ci.yml's `csharp` job.
@@ -640,22 +651,24 @@ this sweep is that measurement committed, one hand-authored fixture per taxonomy
 namespaced class library with no `Main`, (b) an interface with a method, (c) a class with two
 constructors, (d) a call into a type declared in a sibling file, (e) a lambda/`PredefinedType`-heavy
 expression, (f) target-typed `new()`, (g) an abstract method with no body, (h) an `enum`
-declaration with a use site. Hand-authored on
+declaration with a use site, (i) BCL static guard calls
+(`ArgumentNullException.ThrowIfNull`/`Debug.Assert`). Hand-authored on
 purpose: no network fetch and no third-party licensing (vendoring real packages is #493's scope).
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slices A, B, C and E: **`Results: 6 passed, 2 failed, 8 total`** (slice 1's was
+Baseline after slices A, B, C, E and 3: **`Results: 7 passed, 2 failed, 9 total`** (slice 1's was
 `0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`;
-slice C's, `5 passed, 3 failed, 8 total`).
-Buckets (b), (c) and (g) closed together, then (h), then (e); (d) cross-file and (f) target-typed
-`new()` remain open.
+slice C's, `5 passed, 3 failed, 8 total`; slice E's, `6 passed, 2 failed, 8 total`).
+Buckets (b), (c) and (g) closed together, then (h), then (e), then (i); (d) cross-file and (f)
+target-typed `new()` remain open.
 
 **The taxonomy is fixed only until a measurement says otherwise.** Rows (a)-(g) were transcribed
 once from #492's original manual study and cannot grow on their own — which is exactly how the
 `enum` bucket became the largest live failure mode invisibly, after slices A/B/2 closed buckets a,
 b, c and g. Row (h) was added by slice C from a fresh Tier A measurement (66 of 398 encode errors,
-100% of them enums). When a later measurement shows a new dominant shape, add its row the same
+100% of them enums), and row (i) by slice 3 from another (104 of 349, the `unsupported method call`
+fallback throw). When a later measurement shows a new dominant shape, add its row the same
 way rather than assuming this table still describes reality.
 The **global** passed count is printed, never asserted on —
 asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets
@@ -710,6 +723,53 @@ that run *crashed* — `BallRuntimeException: value is not callable: Null` out o
 encoder's `value` key while this encoder emits the DECLARED `callback` name (see "Compiler" →
 "Higher-order callback field aliasing"). An encode-only assertion would have declared the bucket
 closed while its output did not run.
+
+### BCL static guard calls — `ArgumentNullException.ThrowIfNull` / `Debug.Assert` (issue #492, slice 3)
+
+`EncodeMemberInvocation` knew exactly two static BCL receivers, `Console` and `Math`. Everything
+else capitalised fell past `StaticReceiverName`'s same-file-class lookup into
+`DispatchInstanceOrBuiltinMethod`, whose fallback throw (`unsupported method call `.X(...)` with N
+argument(s)`) is the LARGEST first-pass bucket in a live Tier A run — 104 of 349 encode errors,
+across **85 distinct `(name, argCount)` pairs**. That bucket is not one shape: most of it is
+cross-file user helpers (needs an `EncodeProject`-shaped public-API decision, not a slice) and
+reflection (`GetType`, `GetCustomAttributes` — unsupportable without a reflection model). The one
+sub-class routable today is a BCL receiver whose semantics already has a `std` equivalent, and on
+the measured corpus that is exactly two shapes:
+`ArgumentNullException.ThrowIfNull(x)` (7 files, the highest-count *named* shape in the bucket)
+and `Debug.Assert(cond[, msg])`.
+
+Both are "throw unless this holds" — universal **`std.assert`** (`AssertInput { condition,
+message }`), which `StdModuleBuilders` has declared, `BaseCall.CompileAssertStatement` has
+compiled and every engine has interpreted since day one, and which the C# encoder had simply never
+emitted. So this needed **no** new base function, no proto change and no cross-language work:
+`ThrowIfNull(x)` → `assert(not_equals(x, null), "<x> must not be null")`, `Debug.Assert` → a 1:1
+passthrough with the 1-arg and 2-arg overloads as separate arity arms (the `collectionRoutes`
+arity-window pattern, #494/#510).
+
+Three deliberate choices worth keeping:
+
+- The two new `switch` arms are **guarded on the same-file class table** (`DeclaresSameFileStatic`),
+  unlike `Console`/`Math`: `Debug` is a plausible name for a user's own helper class, and a class
+  this encoder is itself encoding must win over a built-in route to a type it is not.
+- The **2-argument `ThrowIfNull(value, paramName)` overload is NOT routed.** Its `paramName` is
+  spelled `nameof(x)` at every occurrence in the corpus — a shape this syntax-only encoder has no
+  model for, which would encode as an unresolvable user call to a function named `nameof`. Trading
+  a loud encode error for a program that encodes and then does not build is not an improvement.
+- `Debug.Assert` is compiled away outside a .NET `DEBUG` build; Ball has no conditional
+  compilation, so the encoded assert always runs. A documented STRENGTHENING, never a weakening.
+
+`String.IsNullOrEmpty` looked like a third candidate and was **deliberately deferred**: its only
+safe route (`or(equals(x, null), string_is_empty(x))`) would falsify the documented assumption in
+`dart/engine/lib/engine_std.dart`'s `string_is_empty` ("the encoder can never emit it for a
+non-string") and needs `or`'s short-circuit laziness verified on every target first — real work,
+for 1 measured occurrence.
+
+**What the numbers did (and did not) do.** All 8 guard-call files advanced past that error to their
+next distinct blocker (`SwitchExpression`, `IsPatternExpression`, `string.IsNullOrWhiteSpace`,
+`out var`, …), and the fallback bucket fell 104 → 97 — while stage 1 of the funnel stayed at
+**123/472**, exactly as slice E's fix also did. Tier A reports only a file's FIRST error; a correct
+per-shape fix is not obliged to move the aggregate, and `tools/coverage-study/baseline.json` must
+never be raised to a number the harness did not print.
 
 The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
 table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only

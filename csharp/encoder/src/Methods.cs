@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ball.V1;
@@ -156,6 +157,16 @@ internal sealed partial class Encoder
                     return EncodeConsoleCall(methodName, argExprs);
                 case "Math":
                     return EncodeMathCall(methodName, argExprs);
+
+                // The BCL static GUARD receivers (issue #492, bucket i). Unlike
+                // `Console`/`Math` these two are guarded on the same-file class
+                // table: `Debug` is a plausible name for a user's own helper
+                // class, and a class this encoder is itself encoding must always
+                // win over a built-in route to a type it is not.
+                case "ArgumentNullException" when !DeclaresSameFileStatic(receiverName, methodName):
+                    return EncodeArgumentNullExceptionCall(methodName, argExprs);
+                case "Debug" when !DeclaresSameFileStatic(receiverName, methodName):
+                    return EncodeDebugCall(methodName, argExprs);
             }
 
             if (ClassNames.ContainsKey(receiverName) &&
@@ -173,8 +184,8 @@ internal sealed partial class Encoder
 
     /// <summary>
     /// The short name a call's receiver denotes when that receiver is a TYPE rather than a
-    /// value — <c>Console</c>, <c>Math</c>, or a same-file class — or <c>null</c> when it is
-    /// an ordinary value expression.
+    /// value — <c>Console</c>, <c>Math</c>, <c>ArgumentNullException</c>, <c>Debug</c>, or a
+    /// same-file class — or <c>null</c> when it is an ordinary value expression.
     ///
     /// <para>Accepts both the bare spelling (<c>Console.WriteLine(...)</c>, which needs a
     /// shadowing check: a local or field of the same name always wins) and the
@@ -266,6 +277,106 @@ internal sealed partial class Encoder
         ("Min", 2) => Builders.BinaryStd("math_min", EncodeExpr(argExprs[0]), EncodeExpr(argExprs[1])),
         _ => throw new EncoderException($"ball-encoder: unsupported `Math.{methodName}(...)` (issue #382's scope)"),
     };
+
+    /// <summary>
+    /// Does the file being encoded declare its OWN static <c>receiverName.methodName</c>?
+    /// A same-file class always beats a built-in route to a BCL type of the same name.
+    /// </summary>
+    private bool DeclaresSameFileStatic(string receiverName, string methodName) =>
+        ClassNames.ContainsKey(receiverName) && StaticMethodParams.ContainsKey((receiverName, methodName));
+
+    /// <summary>
+    /// <c>ArgumentNullException.ThrowIfNull(x)</c> — the .NET 6+ null guard, and the
+    /// highest-count named shape in the <c>unsupported method call</c> bucket of a Tier A
+    /// run (issue #492, bucket i). Its semantics is "throw unless <c>x</c> is non-null",
+    /// which universal <c>std.assert</c> models exactly:
+    /// <c>assert(not_equals(x, null), "&lt;x&gt; must not be null")</c>. Nothing new is
+    /// declared — <c>assert</c> (<c>AssertInput { condition, message }</c>) and
+    /// <c>not_equals</c> have been declared by <c>StdModuleBuilders</c>, compiled by
+    /// <c>BaseCall</c> and interpreted by every engine since day one; the C# encoder had
+    /// simply never emitted them.
+    ///
+    /// <para>The fault raised at run time is a <c>BallRuntimeException</c>, not an
+    /// <c>ArgumentNullException</c>: Ball's <c>assert</c> is the single portable "fail here"
+    /// primitive and the exception TYPE is not modelled. The message names the guarded
+    /// expression so the failure still says which argument it was.</para>
+    ///
+    /// <para>The 2-argument <c>ThrowIfNull(value, paramName)</c> overload is deliberately NOT
+    /// routed. Its second argument is the exception's parameter name, spelled <c>nameof(x)</c>
+    /// at every occurrence in the measured corpus — a shape this syntax-only encoder has no
+    /// model for, which would encode as an unresolvable user call to a function named
+    /// <c>nameof</c>. Trading a loud encode error for a program that encodes and then does not
+    /// build is not an improvement, so it stays loud (see
+    /// <c>BclStaticGuardCallTests</c>).</para>
+    /// </summary>
+    private Expression EncodeArgumentNullExceptionCall(string methodName, List<ExpressionSyntax> argExprs)
+    {
+        if (methodName == "ThrowIfNull" && argExprs.Count == 1)
+        {
+            var condition = Builders.BinaryStd("not_equals", EncodeExpr(argExprs[0]), Builders.NullLiteral());
+            return Builders.StdCall(
+                "assert",
+                Builders.NamedMessage(
+                    "AssertInput",
+                    ("condition", condition),
+                    ("message", Builders.StringLiteral($"{SourceLabel(argExprs[0])} must not be null"))));
+        }
+
+        throw new EncoderException(
+            $"ball-encoder: unsupported `ArgumentNullException.{methodName}(...)` with " +
+            $"{argExprs.Count} argument(s) (only the 1-argument `ThrowIfNull(value)` guard is " +
+            "modelled, as `std.assert(std.not_equals(value, null), ...)`; the 2-argument " +
+            "`ThrowIfNull(value, paramName)` overload is deliberately not routed — its " +
+            "`paramName` is spelled `nameof(x)`, a shape this syntax-only encoder cannot " +
+            "resolve, so routing it would encode a program that then does not build)");
+    }
+
+    /// <summary>
+    /// <c>Debug.Assert(condition)</c> / <c>Debug.Assert(condition, message)</c> — a direct
+    /// 1:1 passthrough to <c>std.assert</c>, with the two arities registered as separate arms
+    /// exactly like <see cref="DispatchInstanceOrBuiltinMethod"/>'s
+    /// <c>("First", 0)</c>/<c>("First", 1)</c> pair (issue #492, bucket i; the arity-window
+    /// pattern of <c>dart/encoder</c>'s <c>collectionRoutes</c>). The 1-argument form emits no
+    /// <c>message</c> field at all, so the compiler's own <c>"assertion failed"</c> default —
+    /// the text every other target prints for a message-less assert — is what surfaces.
+    ///
+    /// <para>.NET compiles <c>Debug.Assert</c> away outside a <c>DEBUG</c> build; Ball has no
+    /// conditional compilation, so the encoded assert always runs. That is a documented
+    /// STRENGTHENING (an assertion that holds in a debug build holds in a release build),
+    /// never a weakening — the same style of approximation as <see cref="EncodeConsoleCall"/>'s
+    /// <c>Write</c>.</para>
+    /// </summary>
+    private Expression EncodeDebugCall(string methodName, List<ExpressionSyntax> argExprs)
+    {
+        if (methodName == "Assert" && argExprs.Count is 1 or 2)
+        {
+            var fields = new List<(string Name, Expression Value)>
+            {
+                ("condition", EncodeExpr(argExprs[0])),
+            };
+            if (argExprs.Count == 2)
+            {
+                fields.Add(("message", EncodeExpr(argExprs[1])));
+            }
+
+            return Builders.StdCall("assert", Builders.NamedMessage("AssertInput", fields));
+        }
+
+        throw new EncoderException(
+            $"ball-encoder: unsupported `Debug.{methodName}(...)` with {argExprs.Count} " +
+            "argument(s) (only `Assert(condition)` / `Assert(condition, message)` are modelled, " +
+            "as `std.assert`; `Debug.WriteLine` and friends are diagnostics with no `std` " +
+            "counterpart — `Console.WriteLine` is the routed print)");
+    }
+
+    /// <summary>The source text of <paramref name="expr"/>, collapsed to one line and capped,
+    /// for embedding in a generated assertion message. Cosmetic only — it never affects what
+    /// the guard evaluates.</summary>
+    private static string SourceLabel(ExpressionSyntax expr)
+    {
+        var text = string.Join(' ', expr.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return text.Length <= 60 ? text : text[..60] + "…";
+    }
 
     /// <summary>Dispatch <c>receiver.methodName(argExprs)</c> once the receiver has already
     /// been encoded — shared by a normal top-level invocation and a null-conditional access

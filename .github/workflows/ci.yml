@@ -201,6 +201,35 @@ jobs:
       - name: Pubspec sibling-constraint sync self-test (#551)
         run: node tools/release/sync_pubspec_deps.mjs --self-test
 
+      # The sweep above is the mechanism; this is the invariant it exists to
+      # hold. All ten packages under dart/ are ONE pub workspace, so every
+      # member's constraint on a sibling must match that sibling's in-tree
+      # version or `dart pub get` at the repo root fails for the whole repo —
+      # including for the private dart/self_host, which has no release config
+      # and can never re-pin itself. It also recomputes the runtime dependency
+      # graph from the pubspecs and fails if pubdev-release.yml's release loop
+      # is not a valid deps-first order of it: releasing a package before one of
+      # its dependencies publishes a tarball pinned to the dependency's OLD
+      # version, which resolves fine on pub.dev and is silently wrong.
+      #
+      # It runs against the real tree (offline, deterministic, no network), and
+      # `--self-test` drives the order checker against synthetic graphs so a
+      # checker that stopped rejecting bad orders cannot reach main either.
+      - name: Dart workspace consistency + release-order guard (#551)
+        run: |
+          node tools/release/check_pubspec_workspace_consistency.mjs --self-test
+          node tools/release/check_pubspec_workspace_consistency.mjs
+
+      # release-publish.yml's post-publish sibling check only ever runs during a
+      # real publish, so without this its classifier would first be exercised on
+      # the day it had to catch something. `ball_compiler 0.4.0` requiring
+      # `ball_encoder ^0.3.2` RESOLVES for an outside consumer (0.3.2 is still on
+      # pub.dev), so "it resolved" cannot be the assertion — the assertion is
+      # "every Ball sibling it resolved is at least the version the release tag's
+      # tree declares", and that is what these cases pin.
+      - name: Published-sibling freshness classifier self-test (#551)
+        run: python3 tools/release/check_published_siblings.py --self-test
+
       # release-cpp.yml is tag-dispatched, so its build matrix is never
       # exercised by a PR — a dropped leg, an `x64` target pointed at an
       # Apple-Silicon runner, or a target table in docs/RELEASE.md left behind

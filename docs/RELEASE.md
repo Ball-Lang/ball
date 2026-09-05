@@ -10,9 +10,12 @@ trunk, **all fully automated with no human step in any critical path**.
 > stayed green, and it still shipped nothing from 2026-07-06 to 2026-09-05,
 > because PR #272 was never merged (issue #551). A human step that stops
 > happening is invisible — the automation *around* it keeps reporting success.
-> Two guards now pin this: `tools/release/check_pubdev_release_wiring.sh` (every
-> PR — the lane's shape) and `.github/workflows/pubdev-freshness.yml` (weekly —
-> pub.dev's live state versus `main`).
+> Three guards now pin this: `tools/release/check_pubdev_release_wiring.sh`
+> (every PR — the lane's shape),
+> `tools/release/check_pubspec_workspace_consistency.mjs` (every PR, and again
+> after each release run — the workspace invariants `melos version` used to hold
+> for free) and `.github/workflows/pubdev-freshness.yml` (weekly — pub.dev's live
+> state versus `main`).
 
 ## npm lane (@ball-lang/engine, cli, compiler, encoder)
 
@@ -66,10 +69,12 @@ push to main
                    │  dart/<pkg>/ count toward this package's version
                    ├─ prepareCmd
                    │    ├─ set_manifest_version.mjs  → dart/<pkg>/pubspec.yaml
-                   │    ├─ sync_pubspec_deps.mjs     → re-pin sibling ranges
+                   │    ├─ sync_pubspec_deps.mjs     → re-pin sibling ranges in
+                   │    │                               ALL TEN member pubspecs
                    │    └─ (ball_cli only) gen_version.dart → version.g.dart
                    ├─ @semantic-release/changelog → dart/<pkg>/CHANGELOG.md
                    ├─ @semantic-release/git  → chore(release): <pkg> X.Y.Z [skip ci]
+                   │                            (commits dart/*/pubspec.yaml)
                    │                            + tag <pkg>-vX.Y.Z
                    └─ publishCmd
                         └► gh workflow run release-publish.yml --ref <pkg>-vX.Y.Z
@@ -77,8 +82,12 @@ push to main
                                   ├─ melos-action publish → pub.dev OIDC
                                   └─ verify-published (separate job): poll the
                                      pub.dev API for the version, resolve it as
-                                     an external consumer, and for ball_cli
-                                     `dart pub global activate` + run it
+                                     an external consumer, check every resolved
+                                     Ball sibling against the tag's own tree,
+                                     and for ball_cli `dart pub global activate`
+                                     + run it
+            └► (after the loop) check_pubspec_workspace_consistency.mjs
+               + `dart pub get` — prove main still resolves
 ```
 
 **Why `--ref main` and not the `vX.Y.Z` tag** the three sibling dispatches use:
@@ -91,31 +100,83 @@ own release commit — two push-triggered releasers would race main.
 **Why sequential, never a matrix:** each package's `@semantic-release/git` pushes
 its own commit to main; concurrent pushes lose to non-fast-forward rejections.
 
-**Why deps-first order is load-bearing:** `sync_pubspec_deps.mjs` re-pins each
-package's constraints on its siblings (`ball_base: ^0.3.0+3` → `^0.4.0`) by
-reading their versions **from the working tree**. `melos version` used to do this
-as part of one workspace-wide run; semantic-release's per-package model has no
-workspace view. Because `ball_base` releases and commits before `ball_cli`
-prepares, `ball_cli` picks up the current range. Without it the lane would
-publish `ball_cli 0.4.0` still requiring `ball_base ^0.3.0+3` — resolvable,
-green, and semantically wrong (a caret on a `0.x` version pins the minor, so
-`^0.3.0+3` never admits `0.4.0`). `verify-published`'s external-consumer
-resolution is the backstop that catches it if the sync ever regresses.
+**Why the sibling sweep is workspace-wide, not per-package.**
+`sync_pubspec_deps.mjs` re-pins sibling constraints (`ball_base: ^0.3.0+3` →
+`^0.4.0`) by reading each sibling's version **from the working tree**.
+`melos version` used to do this as one workspace-wide transaction;
+semantic-release's per-package model has no workspace view, so the sweep
+reconstructs it — and it must sweep **every** member of the workspace, not just
+the package being released:
+
+* All ten packages under `dart/` (the nine publishable ones plus the private
+  `ball_self_host_tests`) are members of one pub workspace, and **pub resolves a
+  workspace as a unit**. Bump `ball_base` to `0.4.0` while any member still asks
+  for `^0.3.0+3` and `dart pub get` at the repo root fails outright —
+  `Because ball_self_host_tests depends on ball_engine ^0.3.0+6 and
+  ball_workspace depends on ball_engine, version solving failed.` That breaks
+  main for every contributor, breaks the release job's own
+  `dart run tool/gen_version.dart` step, and breaks `melos bootstrap` inside
+  `release-publish.yml`.
+* `dart/self_host` can never fix itself: a private package has no release config
+  by design, so nothing would ever re-pin it.
+
+So each config runs `sync_pubspec_deps.mjs --workspace-root=.` and commits
+`dart/*/pubspec.yaml`. Without the sweep the lane would also publish
+`ball_cli 0.4.0` still requiring `ball_base ^0.3.0+3` — resolvable, green, and
+semantically wrong (a caret on a `0.x` version pins the minor, so `^0.3.0+3`
+never admits `0.4.0`).
+
+**Why the release ORDER is load-bearing, and how it is gated.** Because each
+release commits the whole workspace's pubspecs, a package released *before* one
+of its dependencies publishes a tarball still pinned to that dependency's old
+version. So `PACKAGES` in `pubdev-release.yml` is a genuine topological order of
+the **runtime** `dependencies:` graph, deps first:
+
+```
+ball_protobuf → ball_base → ball_resolver → ball_encoder → ball_engine
+             → ball_compiler → ball_rpc → ball_protobuf_gen → ball_cli
+```
+
+That order exists because this workspace's cycles
+(`ball_base`↔`ball_protobuf`, `ball_engine`↔`ball_encoder`,
+`ball_protobuf_gen`→`ball_rpc`) are **all dev-dependency edges** — the runtime
+graph is acyclic. pub never resolves a dependency's `dev_dependencies` for a
+consumer, so a dev-only edge can leave one tarball's dev pin a release behind;
+that is invisible to consumers and self-corrects on that package's next release.
+
+`tools/release/check_pubspec_workspace_consistency.mjs` (every PR) recomputes
+that graph from the pubspecs and fails if the loop is not a valid deps-first
+order of it, if it does not name exactly the publishable packages, if any member
+carries a sibling constraint the workspace cannot satisfy, or if any release
+config stopped sweeping/committing the whole workspace. The release job re-runs
+it plus `dart pub get` after the loop, so a partial release reports the damage in
+the run that caused it.
+
+**Why `verify-published` alone is not the backstop.** Resolving is necessary and
+not sufficient: `ball_compiler 0.4.0` published still requiring
+`ball_encoder ^0.3.2` resolves *cleanly* for an outside consumer, because
+`0.3.2` is still on pub.dev. So `verify-published` also runs
+`tools/release/check_published_siblings.py`, which compares the consumer's
+`pubspec.lock` against the repo tree **at the release tag**: every Ball sibling
+it resolved must be at least the version that tree declares. A sibling resolved
+*newer* is fine (publishes are dispatched asynchronously). Its classifier is
+`--self-test`ed on every PR, since the live step only runs during a real publish.
 
 **Version continuity:** the existing `<pkg>-v0.3.*` tags are the anchors, so
 there is no seeding and no reset — `ball_engine-v0.3.0+6` → `0.4.0`. The Dart
 `+N` build-number suffix is intentionally dropped going forward
 (`set_manifest_version.mjs` emits a pure `X.Y.Z`).
 
-**Ordering of the *publishes* themselves:** none, deliberately. `publishCmd`
-dispatches and returns, so the nine publish runs overlap. pub.dev resolves a
-package's caret ranges against **previously published** versions of its
-dependencies, so once both sides of a dev-dependency cycle
-(`ball_base`↔`ball_protobuf`, `ball_engine`↔`ball_encoder`) have published at
-least once — true for all nine since 2026-07-02 — steady-state releases are
-order-independent. Do not add ordering logic. The one case that needs it is a
-catch-up release for a package whose deps have *never* reached pub.dev, and that
-is manual, tiered dispatch:
+**Ordering of the *uploads* themselves:** unordered, deliberately. `publishCmd`
+dispatches `release-publish.yml` and returns, so the nine publish runs overlap
+even though the semantic-release loop that started them is strictly ordered.
+That is safe: pub.dev resolves a package's caret ranges against **previously
+published** versions of its dependencies, so once every package has published at
+least once — true for all nine since 2026-07-02 — an upload never has to wait
+for a sibling's upload. Do not add ordering logic to the *dispatch*; the release
+loop's order is what carries the dependency constraint. The one case that needs
+manual sequencing is a catch-up release for a package whose deps have *never*
+reached pub.dev, via tiered dispatch:
 
 ```sh
 gh workflow run release-publish.yml --ref <pkg>-v<version>   # deps first
@@ -139,11 +200,14 @@ required because the tag is created with `GITHUB_TOKEN`, and GitHub's recursion
 protection means a `push: tags:` trigger never fires for it.
 
 **Adding a tenth Dart package:** add `.github/release/<pkg>.releaserc.json`
-(copy any of the nine), list it in `pubdev-release.yml`'s `PACKAGES` loop in
-dependency order, and configure Automated publishing on pub.dev after its first
-manual publish. `tools/release/check_pubdev_release_wiring.sh` fails on every PR
-until the first two are done — it discovers publishable packages from
-`dart/*/pubspec.yaml`, so a package cannot silently fall outside the lane.
+(copy any of the nine), list it in `pubdev-release.yml`'s `PACKAGES` loop **after
+every package it depends on at runtime**, and configure Automated publishing on
+pub.dev after its first manual publish. Two guards fail on every PR until that
+is done, and neither has a hardcoded package list:
+`check_pubdev_release_wiring.sh` discovers publishable packages from
+`dart/*/pubspec.yaml` (so one cannot silently fall outside the lane), and
+`check_pubspec_workspace_consistency.mjs` recomputes the runtime graph (so the
+new entry cannot silently sit in the wrong place in the loop).
 
 ## PyPI lane (`ball-lang` — the whole Python toolchain in ONE wheel)
 
@@ -330,10 +394,19 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   pubdev-release.yml --ref main`; packages with no new qualifying commits
   compute "no release" and are skipped.
 - **`verify-published` red but `publish` green:** the upload happened and the
-  package is not usable. Most likely a sibling constraint no published version
-  satisfies (check `sync_pubspec_deps.mjs` ran in that package's prepare log) or
-  a dependency whose own publish failed. Fix forward and cut a new patch —
-  pub.dev versions are immutable.
+  package is not usable, or is usable and stale. Either a sibling constraint no
+  published version satisfies / a dependency whose own publish failed (the
+  resolution step), or a constraint that resolves an *older* sibling than the
+  release tag's tree declares (the `check_published_siblings.py` step — the
+  sweep did not run, or the package released ahead of its dependency). Check
+  `sync_pubspec_deps.mjs` in that package's prepare log and the `PACKAGES` order
+  in `pubdev-release.yml`. Fix forward and cut a new patch — pub.dev versions are
+  immutable.
+- **`Verify the workspace still resolves after the release` red:** one or more
+  member pubspecs were left pinned to a version the workspace no longer
+  contains, so `dart pub get` fails on main. The output names each offender.
+  Fix forward with a commit that runs `node tools/release/sync_pubspec_deps.mjs`
+  — do not revert the release commits, the tags and publishes are already out.
 - **`pubdev-freshness.yml` red:** pub.dev is behind `main`. Check
   `gh run list --workflow=pubdev-release.yml` for a failed or never-dispatched
   run. This is the alarm issue #551 did not have.
@@ -352,7 +425,8 @@ another.
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
 | `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing | whether a release was actually cut — it is entirely static |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
-| `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version | anything about packages this run did not publish |
+| `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
+| `verify-published` (in `release-publish.yml`) | every publish | an upload that is not **usable**: the version never appears on the index, an external consumer cannot resolve it (a sibling range no published version satisfies), or the published `ball` reports the wrong version. Plus, via `check_published_siblings.py`, an upload that resolves *cleanly* and is still wrong: a Ball sibling resolved older than the release tag's tree declares | anything about packages this run did not publish |
 
 The 30-day staleness bound is a judgement call, not a release cadence: it says
 "if this package's code has been moving for over a month and pub.dev has not,
@@ -410,9 +484,11 @@ One `semantic-release` config per publishable package under
   `tools/release/set_manifest_version.mjs`; `publishCmd` dispatches the existing
   OIDC publish workflow) + `@semantic-release/git` + `@semantic-release/github`.
   The Dart configs' `prepareCmd` additionally runs
-  `tools/release/sync_pubspec_deps.mjs`, which re-pins that package's caret
-  ranges on its **workspace siblings** — the one thing `melos version` did that
-  a per-package model has no view of. `ball_cli` also regenerates
+  `tools/release/sync_pubspec_deps.mjs --workspace-root=.`, which re-pins the
+  caret ranges on **workspace siblings** in *every* member pubspec (committed via
+  the `dart/*/pubspec.yaml` asset glob) — the one thing `melos version` did that
+  a per-package model has no view of, and which has to be workspace-wide because
+  pub resolves a workspace as a unit. `ball_cli` also regenerates
   `dart/cli/lib/src/version.g.dart` (issue #363) and commits it.
 - npm packages keep `@semantic-release/npm` (`npmPublish: false` — bump the
   `package.json` only; the actual publish stays in `publish-npm.yml`), exactly as

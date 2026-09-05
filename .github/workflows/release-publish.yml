@@ -165,6 +165,40 @@ jobs:
             exit 1
           fi
 
+      # ── Resolving is necessary and NOT sufficient. `ball_compiler 0.4.0`
+      #    published still requiring `ball_encoder ^0.3.2` resolves perfectly for
+      #    an outside consumer, because 0.3.2 is still on pub.dev — the step
+      #    above goes green while the registry serves a package built against
+      #    APIs its pinned dependency predates. That is the exact failure
+      #    tools/release/sync_pubspec_deps.mjs exists to prevent, and nothing
+      #    else in the lane can see it: the static guards run pre-release, and
+      #    the freshness guard compares versions and dates, which match.
+      #
+      #    So compare the resolution against the TREE AT THIS TAG, which carries
+      #    every sibling's version as of this release: each Ball sibling the
+      #    consumer resolved must be at least the version the tag declares. A
+      #    stale pin resolves an older sibling and fails here, in the same run
+      #    that published it.
+      #
+      #    The comparison lives in a script rather than inline here so it is
+      #    reviewable and PR-gated: `--self-test` drives every classification
+      #    offline from ci.yml's Proto Checks job, because this step only ever
+      #    runs during a real publish and would otherwise never be exercised
+      #    until the day it had to catch something.
+      - name: Check the published package's siblings against the tag's tree
+        env:
+          PKG: ${{ steps.tag.outputs.package }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          lock="$RUNNER_TEMP/consumer/pubspec.lock"
+          if [ ! -f "$lock" ]; then
+            echo "::error::no pubspec.lock from the resolution step — nothing to verify"
+            exit 1
+          fi
+          python3 tools/release/check_published_siblings.py \
+            "$GITHUB_WORKSPACE" "$lock" "$PKG" "$VERSION"
+
       # ball_cli is the one package meant to be INSTALLED and run, so it gets
       # the same "use the real artifact" bar publish-pypi.yml holds ball-lang to.
       # `ball --version` also proves the generated version.g.dart was

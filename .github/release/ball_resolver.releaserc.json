@@ -5,11 +5,11 @@
     ["./tools/release/only-package-commits.mjs", { "paths": ["dart/resolver"] }],
     ["@semantic-release/changelog", { "changelogFile": "dart/resolver/CHANGELOG.md" }],
     ["@semantic-release/exec", {
-      "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/resolver/pubspec.yaml --version=${nextRelease.version} && node tools/release/sync_pubspec_deps.mjs --file=dart/resolver/pubspec.yaml",
+      "prepareCmd": "node tools/release/set_manifest_version.mjs --format=pubspec --file=dart/resolver/pubspec.yaml --version=${nextRelease.version} && node tools/release/sync_pubspec_deps.mjs --workspace-root=.",
       "publishCmd": "gh workflow run release-publish.yml --ref ball_resolver-v${nextRelease.version}"
     }],
     ["@semantic-release/git", {
-      "assets": ["dart/resolver/pubspec.yaml", "dart/resolver/CHANGELOG.md"],
+      "assets": ["dart/resolver/pubspec.yaml", "dart/*/pubspec.yaml", "dart/resolver/CHANGELOG.md"],
       "message": "chore(release): ball_resolver ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
     }],
     ["@semantic-release/github", { "successComment": false }]

@@ -321,6 +321,16 @@ if [ -f "$PUBLISH" ]; then
     no "release-publish.yml reads the published version back from the pub.dev API" \
       "expected a poll of https://pub.dev/api/packages/<pkg> asserting latest.version == the tag's version"
   fi
+  # Resolving is NOT sufficient: `ball_compiler 0.4.0` requiring `ball_encoder
+  # ^0.3.2` resolves for an outside consumer because 0.3.2 is still published.
+  # The tag's own tree is the reference the resolution must be measured against.
+  if grep -qF 'check_published_siblings.py' "$PUBLISH"; then
+    ok "release-publish.yml checks the published resolution against the tag's own tree"
+  else
+    no "release-publish.yml checks the published resolution against the tag's own tree" \
+      "expected tools/release/check_published_siblings.py after the consumer resolution;" \
+      "a stale sibling constraint resolves cleanly and is invisible to every other guard"
+  fi
 else
   no "release-publish.yml exists" "the pub.dev publish backend is missing"
 fi
@@ -338,6 +348,47 @@ else
   no "ci.yml runs the pub.dev freshness guard's self-test" \
     "the freshness guard's network leg belongs on a schedule, but its comparison logic" \
     "must still be exercised on every PR — see tools/release/check_pubdev_freshness.sh --self-test"
+fi
+
+# ── 10. The workspace invariants `melos version` used to hold for free. ───
+# All ten packages under dart/ are ONE pub resolution unit; a release that
+# re-pins only the releasing package's pubspec leaves the rest asking for a
+# version the workspace no longer contains, and `dart pub get` fails for the
+# whole repo. The order the driver walks the packages matters for the same
+# reason, one level out: a package released before its dependency publishes a
+# tarball pinned to that dependency's OLD version.
+if grep -qF 'tools/release/check_pubspec_workspace_consistency.mjs' "$CI"; then
+  ok "ci.yml runs the Dart workspace consistency + release-order guard"
+else
+  no "ci.yml runs the Dart workspace consistency + release-order guard" \
+    "expected tools/release/check_pubspec_workspace_consistency.mjs in the Proto Checks job;" \
+    "without it a release can leave main unresolvable and nothing says so until someone runs pub get"
+fi
+
+if grep -qF 'tools/release/check_published_siblings.py' "$CI"; then
+  ok "ci.yml exercises the published-sibling classifier on every PR"
+else
+  no "ci.yml exercises the published-sibling classifier on every PR" \
+    "that check only runs during a real publish, so without a --self-test here its first" \
+    "exercise would be the day it had to catch something"
+fi
+
+# The workspace-wide sweep must be what the release configs actually invoke; a
+# --file= sweep is the per-package shape that leaves the other members behind.
+sweep_bad=()
+for cfg in "$CONFIGS"/*.releaserc.json; do
+  [ -f "$cfg" ] || continue
+  grep -qF 'release-publish.yml' "$cfg" || continue
+  grep -qF 'sync_pubspec_deps.mjs --workspace-root=.' "$cfg" ||
+    sweep_bad+=("$(basename "$cfg") does not run the workspace-wide sibling sweep")
+  grep -qF '"dart/*/pubspec.yaml"' "$cfg" ||
+    sweep_bad+=("$(basename "$cfg") does not commit dart/*/pubspec.yaml")
+done
+if [ "${#sweep_bad[@]}" -eq 0 ]; then
+  ok "every pub.dev release config sweeps AND commits the whole workspace's pubspecs"
+else
+  no "every pub.dev release config sweeps AND commits the whole workspace's pubspecs" \
+    "${sweep_bad[@]}"
 fi
 
 total=$((pass + fail))

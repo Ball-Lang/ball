@@ -29,8 +29,9 @@ Nine of the packages above publish to pub.dev; `dart/self_host` is `publish_to: 
 Consequences when working here:
 
 - **Never hand-edit a `version:` in `dart/*/pubspec.yaml`** — semantic-release owns it, and `tools/release/sync_pubspec_deps.mjs` owns the sibling caret ranges (`ball_base: ^0.4.0`) during a release. A hand bump desynchronises pub.dev from `main` and trips `.github/workflows/pubdev-freshness.yml`.
+- **All ten packages are ONE pub resolution unit.** If you do change a `version:`, every sibling constraint on it must move in the same commit — including `dart/self_host`'s, which has no release config of its own. Otherwise `dart pub get` at the repo root fails for the whole repo (`version solving failed`). Run `node tools/release/sync_pubspec_deps.mjs` to fix them all at once; `node tools/release/check_pubspec_workspace_consistency.mjs` is the PR gate.
 - **A version bump in `dart/cli` must regenerate `lib/src/version.g.dart`** (`dart run tool/gen_version.dart`); the release does this automatically, and ci.yml's `--check` guard fails otherwise.
-- **Adding a tenth publishable package** needs `.github/release/<pkg>.releaserc.json` plus an entry in `pubdev-release.yml`'s `PACKAGES` loop — `tools/release/check_pubdev_release_wiring.sh` fails on every PR until both exist.
+- **Adding a tenth publishable package** needs `.github/release/<pkg>.releaserc.json` plus an entry in `pubdev-release.yml`'s `PACKAGES` loop, placed **after every package it depends on at runtime** — `check_pubdev_release_wiring.sh` fails until the config exists, and `check_pubspec_workspace_consistency.mjs` fails until the loop entry is in a valid deps-first position.
 
 Full flow, ordering rationale and failure recovery: `docs/RELEASE.md`.
 

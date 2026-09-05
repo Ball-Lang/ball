@@ -53,16 +53,25 @@ name: Release Dart packages (pub.dev)
 # pub.dev matches against each package's configured `<pkg>-v{{version}}` tag
 # pattern.
 #
-# ORDERING: none, deliberately. The workspace has dev-dependency cycles
-# (ball_base↔ball_protobuf, ball_engine↔ball_encoder) that hard-fail melos's
-# topological sort, and pub.dev resolves a package's caret ranges against
-# PREVIOUSLY PUBLISHED versions of its dependencies — so once both sides of a
-# cycle have published at least once (true since 2026-07-02 for all nine),
-# steady-state releases are order-independent. The list below is still written
-# deps-first as documentation of intent, and it is the order that would matter
-# for a catch-up release of a package whose deps have never reached pub.dev.
-# Do not add ordering logic; that case needs manual tiered dispatch instead
-# (docs/RELEASE.md § Failure recovery).
+# ORDERING IS LOAD-BEARING, AND IT IS GATED. Each package's prepareCmd runs
+# `tools/release/sync_pubspec_deps.mjs`, which re-pins every workspace member's
+# constraints on its siblings to the versions currently in the tree, and each
+# release commits all ten pubspecs. So a package that releases BEFORE one of its
+# dependencies publishes a tarball still pinned to that dependency's old
+# version — resolvable, green, and semantically wrong. The list below is
+# therefore a genuine topological order, deps first.
+#
+# It can be one because the cycles in this workspace
+# (ball_base↔ball_protobuf, ball_engine↔ball_encoder, ball_protobuf_gen→ball_rpc)
+# are ALL dev-dependency edges, and pub never resolves a dependency's
+# dev_dependencies for a consumer — the RUNTIME `dependencies:` graph is acyclic.
+# A dev-only edge can leave one tarball's dev pin a release behind; that is
+# invisible to consumers and self-corrects on the package's next release.
+#
+# `tools/release/check_pubspec_workspace_consistency.mjs` (ci.yml, every PR)
+# recomputes the runtime graph from the pubspecs and fails if this list is not a
+# valid deps-first order of it, or if it does not name exactly the publishable
+# packages. Do not reorder it by hand without re-running that guard.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -137,16 +146,18 @@ jobs:
           if [ "${DRY_RUN}" = "true" ]; then FLAG="--dry-run"; fi
           SR="tools/release/node_modules/semantic-release/bin/semantic-release.js"
 
-          # Deps-first for documentation of intent; see the ORDERING note above.
+          # A topological order of the runtime dependency graph, deps first.
+          # Gated by tools/release/check_pubspec_workspace_consistency.mjs — see
+          # the ORDERING note above before touching it.
           PACKAGES="
+            ball_protobuf
             ball_base
             ball_resolver
-            ball_protobuf
-            ball_protobuf_gen
-            ball_rpc
-            ball_compiler
             ball_encoder
             ball_engine
+            ball_compiler
+            ball_rpc
+            ball_protobuf_gen
             ball_cli
           "
 
@@ -162,3 +173,21 @@ jobs:
             node "$SR" $FLAG
             echo "::endgroup::"
           done
+
+      # ── The release loop just rewrote every pubspec in the workspace: each
+      #    package's own `version:`, and every sibling's constraint on it. Those
+      #    ten files are ONE pub resolution unit, so a single member left behind
+      #    makes `dart pub get` fail for the whole repo — for the next
+      #    contributor and for CI on main — and `melos bootstrap` inside
+      #    release-publish.yml would fail on it too. Prove it here, in the run
+      #    that caused it, instead of discovering it on somebody else's PR.
+      #
+      #    Reached even when the loop failed part-way, so a partial release
+      #    still reports the workspace's true state. A failure here means the
+      #    fix is a follow-up commit re-running the sweep, not a rollback.
+      - name: Verify the workspace still resolves after the release
+        if: ${{ always() && inputs.dry_run != true }}
+        run: |
+          set -euo pipefail
+          node tools/release/check_pubspec_workspace_consistency.mjs
+          dart pub get

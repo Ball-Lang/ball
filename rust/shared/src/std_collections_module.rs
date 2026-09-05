@@ -225,6 +225,30 @@ fn functions() -> Vec<FunctionDefinition> {
             "",
             "Concat two lists: list + other",
         ),
+        base_fn(
+            "list_clear",
+            "ListInput",
+            "",
+            "Remove all elements: list.clear()",
+        ),
+        base_fn(
+            "list_to_list",
+            "ListInput",
+            "",
+            "Copy to a list: list.toList()",
+        ),
+        base_fn(
+            "list_foreach",
+            "ListCallbackInput",
+            "",
+            "Iterate: list.forEach(callback)",
+        ),
+        base_fn(
+            "list_join",
+            "StringJoinInput",
+            "",
+            "Join elements: list.join(separator)",
+        ),
         // --- Map — key/value ---
         base_fn("map_get", "MapInput", "", "Get value: map[key]"),
         base_fn("map_set", "MapInput", "", "Set value: map[key] = value"),
@@ -256,6 +280,18 @@ fn functions() -> Vec<FunctionDefinition> {
             "MapCallbackInput",
             "",
             "Filter map: Map.fromEntries(map.entries.where(callback))",
+        ),
+        base_fn(
+            "map_contains_value",
+            "MapInput",
+            "",
+            "Contains value: map.containsValue(value)",
+        ),
+        base_fn(
+            "map_put_if_absent",
+            "MapInput",
+            "",
+            "Insert if absent: map.putIfAbsent(key, () => value)",
         ),
         base_fn("map_is_empty", "MapInput", "", "Is empty: map.isEmpty"),
         base_fn("map_length", "MapInput", "", "Map size: map.length"),
@@ -329,8 +365,11 @@ mod tests {
     }
 
     #[test]
-    fn function_count_matches_std_json() {
+    fn function_names_match_dart_source() {
+        // Name-for-name against `dart/shared/lib/std_collections.dart`, not a
+        // bare count — see `std_dart_parity.rs` and issue #505.
         let module = build_std_collections_module();
-        assert_eq!(module.functions.len(), 53);
+        let names: Vec<String> = module.functions.iter().map(|f| f.name.clone()).collect();
+        crate::std_dart_parity::assert_matches_dart_source("std_collections", &names);
     }
 }

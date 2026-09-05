@@ -53,6 +53,10 @@ public static class StdModuleBuilders
             TypeDef("StringReplaceInput", ExprField("value", 1), ExprField("from", 2), ExprField("to", 3)),
             TypeDef("StringRepeatInput", ExprField("value", 1), ExprField("count", 2)),
             TypeDef("StringPadInput", ExprField("value", 1), ExprField("width", 2), ExprField("padding", 3)),
+            TypeDef("CompareToInput", ExprField("value", 1), ExprField("other", 2)),
+            // Shared by to_string_as_fixed / to_string_as_exponential (both take
+            // `digits`) and to_string_as_precision (`precision`).
+            TypeDef("NumFormatInput", ExprField("value", 1), ExprField("digits", 2), ExprField("precision", 3)),
             TypeDef("MathClampInput", ExprField("value", 1), ExprField("min", 2), ExprField("max", 3)),
         });
 
@@ -100,6 +104,12 @@ public static class StdModuleBuilders
             BaseFn("double_to_string", "UnaryInput", "", "Double to string: value.toString()"),
             BaseFn("string_to_int", "UnaryInput", "", "Parse int from string: int.parse(value)"),
             BaseFn("string_to_double", "UnaryInput", "", "Parse double from string: double.parse(value)"),
+            BaseFn("to_double", "UnaryInput", "", "To double: value.toDouble()"),
+            BaseFn("to_int", "UnaryInput", "", "To int: value.toInt()"),
+            BaseFn("compare_to", "CompareToInput", "", "Three-way compare: value.compareTo(other)"),
+            BaseFn("to_string_as_fixed", "NumFormatInput", "", "Fixed-point string: value.toStringAsFixed(digits)"),
+            BaseFn("to_string_as_exponential", "NumFormatInput", "", "Exponential string: value.toStringAsExponential([digits])"),
+            BaseFn("to_string_as_precision", "NumFormatInput", "", "Precision string: value.toStringAsPrecision(precision)"),
             // Null safety
             BaseFn("null_coalesce", "BinaryInput", "", "Null coalescing: left ?? right"),
             BaseFn("null_check", "UnaryInput", "", "Null assertion: value!"),
@@ -154,6 +164,8 @@ public static class StdModuleBuilders
             BaseFn("string_substring", "StringSubstringInput", "", "Substring: value.substring(start, end)"),
             BaseFn("string_char_at", "IndexInput", "", "Character at index: target[index]"),
             BaseFn("string_char_code_at", "IndexInput", "", "Char code at index: target.codeUnitAt(index)"),
+            // Dart-flavoured alias of string_char_code_at (same engine handler).
+            BaseFn("string_code_unit_at", "IndexInput", "", "Code unit at index: target.codeUnitAt(index)"),
             BaseFn("string_from_char_code", "UnaryInput", "", "String from char code: String.fromCharCode(value)"),
             BaseFn("string_to_upper", "UnaryInput", "", "To upper case: value.toUpperCase()"),
             BaseFn("string_to_lower", "UnaryInput", "", "To lower case: value.toLowerCase()"),
@@ -267,6 +279,10 @@ public static class StdModuleBuilders
             BaseFn("list_take", "ListInput", "", "Take N: list.take(n)"),
             BaseFn("list_drop", "ListInput", "", "Drop N: list.skip(n)"),
             BaseFn("list_concat", "ListInput", "", "Concat two lists: list + other"),
+            BaseFn("list_clear", "ListInput", "", "Remove all elements: list.clear()"),
+            BaseFn("list_to_list", "ListInput", "", "Copy to a list: list.toList()"),
+            BaseFn("list_foreach", "ListCallbackInput", "", "Iterate: list.forEach(callback)"),
+            BaseFn("list_join", "StringJoinInput", "", "Join elements: list.join(separator)"),
             // Map — key/value
             BaseFn("map_get", "MapInput", "", "Get value: map[key]"),
             BaseFn("map_set", "MapInput", "", "Set value: map[key] = value"),
@@ -279,6 +295,8 @@ public static class StdModuleBuilders
             BaseFn("map_merge", "MapInput", "", "Merge two maps: {...a, ...b}"),
             BaseFn("map_map", "MapCallbackInput", "", "Map over map: map.map(callback)"),
             BaseFn("map_filter", "MapCallbackInput", "", "Filter map: Map.fromEntries(map.entries.where(callback))"),
+            BaseFn("map_contains_value", "MapInput", "", "Contains value: map.containsValue(value)"),
+            BaseFn("map_put_if_absent", "MapInput", "", "Insert if absent: map.putIfAbsent(key, () => value)"),
             BaseFn("map_is_empty", "MapInput", "", "Is empty: map.isEmpty"),
             BaseFn("map_length", "MapInput", "", "Map size: map.length"),
             // String <-> collection bridge

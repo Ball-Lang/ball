@@ -16,9 +16,16 @@
 /// to the generic user-method-call encoding (`function: <name>`, `self` field).
 ///
 /// NOTE (scope, deliberately narrow): an arity window cannot see the RECEIVER
-/// type, so `Set.add` vs `List.add` and `Map.toList` vs `List.toList` — the
-/// majority of #488's real-world failures — are still misrouted. Those need
-/// the resolver-backed encoder #488 proposes.
+/// type. The `Set` half of that gap is now closed by #488 slice 1 — see
+/// `collection_dispatch_receiver_type_test.dart`, which drives the encoder
+/// through `PackageEncoder.prepareStaticTypes()` so `Set.add` stops being
+/// routed like `List.add`. Every test in THIS file still goes through the
+/// syntax-only `DartEncoder().encode(String)` API, where `staticType` is always
+/// null, so it keeps pinning the arity-only behavior on purpose.
+///
+/// Still open (slice 2, and still needing the same `staticType` seam extended):
+/// `String.contains` vs `Iterable.contains`, `Map…toList` vs `List.toList`, and
+/// nullable-receiver `!`/`?.`/`??` preservation.
 library;
 
 import 'dart:convert';

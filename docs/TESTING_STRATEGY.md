@@ -487,6 +487,7 @@ could not parse a summary at all).
 | Oracle = native Dart | `generate_conformance.dart` + drift check | every PR (`ball-freshness`) |
 | Reverse sourcing | `check_conformance_sources.dart` | every PR |
 | **Completeness (§2)** — Dart encoder only | `check_encoder_completeness.dart` | every PR |
+| **Routed-but-undeclared std functions (#505)** — the REVERSE of completeness: every `std`/`std_collections` function `encoder.dart`'s `collectionRoutes` table routes to must be declared by `buildStdModule()`/`buildStdCollectionsModule()` | `dart/shared/test/std_routed_declarations_test.dart` (carries a positive floor so a regex that stops matching cannot pass vacuously) | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |

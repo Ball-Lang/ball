@@ -9,9 +9,12 @@ library;
 
 import 'dart:io';
 
+import 'package:analyzer/dart/analysis/analysis_context_collection.dart';
 import 'package:analyzer/dart/analysis/features.dart';
+import 'package:analyzer/dart/analysis/results.dart';
 import 'package:analyzer/dart/analysis/utilities.dart' show parseString;
 import 'package:analyzer/dart/ast/ast.dart' as ast;
+import 'package:analyzer/file_system/physical_file_system.dart';
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
 
 import 'encoder.dart';
@@ -99,6 +102,15 @@ class PackageEncoder {
   /// `relPath → moduleName` for every discovered `.dart` file.
   late final Map<String, String> _fileToModule;
 
+  /// `relPath → resolved compilation unit`, populated by
+  /// [prepareStaticTypes]. Empty until that method is awaited (and after it,
+  /// if resolution was unavailable), which is exactly what keeps [encode]
+  /// byte-identical for every caller that does not opt in.
+  final Map<String, ast.CompilationUnit> _resolvedUnits = {};
+
+  /// Whether [prepareStaticTypes] resolved at least one file.
+  bool get hasStaticTypes => _resolvedUnits.isNotEmpty;
+
   PackageEncoder(
     this.packageDir, {
     this.includeTests = false,
@@ -114,6 +126,81 @@ class PackageEncoder {
        _currentDepth = currentDepth,
        manifest = PubspecParser.fromDirectory(packageDir) {
     _fileToModule = _buildFileMap();
+  }
+
+  // ── Static type resolution (opt-in) ─────────────────────────────────────
+
+  /// Resolves every in-package `.dart` file with the real Dart front end so a
+  /// subsequent [encode] sees a **type-resolved** AST instead of the
+  /// syntax-only one `parseString` produces.
+  ///
+  /// This is what lets [DartEncoder] dispatch collection methods by RECEIVER
+  /// TYPE rather than by method name alone (issue #488): on a resolved unit
+  /// `expression.staticType` is non-null, so `Set<String>.add(x)` can be told
+  /// apart from `List<String>.add(x)`.
+  ///
+  /// Opt-in and **fail-soft** by design:
+  ///
+  ///  * Resolution is asynchronous (the analyzer exposes no synchronous
+  ///    resolved-unit API) while [encode] is synchronous, so this is a
+  ///    separate step callers `await` before encoding rather than a flag.
+  ///  * Every failure mode — no `.dart_tool/package_config.json` (the target
+  ///    package was never `pub get`-ed), an unreadable file, an analyzer
+  ///    crash — degrades to a [warnings] entry and an unresolved encode. The
+  ///    tool has always worked on any directory containing a `pubspec.yaml`
+  ///    regardless of dependency-resolution state, and it still does.
+  ///  * Files that fail individually simply stay syntax-only; the rest of the
+  ///    package still benefits.
+  ///
+  /// Cost: the analyzer has a multi-second cold start, so callers that do not
+  /// need receiver types (Tier A structural studies, plain re-encoding) should
+  /// keep calling [encode] directly.
+  Future<void> prepareStaticTypes() async {
+    _resolvedUnits.clear();
+    final provider = PhysicalResourceProvider.INSTANCE;
+    final ctx = provider.pathContext;
+    final rootPath = ctx.normalize(packageDir.absolute.path);
+    AnalysisContextCollection collection;
+    try {
+      collection = AnalysisContextCollection(
+        includedPaths: <String>[rootPath],
+        resourceProvider: provider,
+      );
+    } on Object catch (e) {
+      warnings.add(
+        'Static type resolution unavailable for "$packageName" '
+        '($rootPath): $e. Encoding without receiver types.',
+      );
+      return;
+    }
+
+    try {
+      for (final relPath in _fileToModule.keys) {
+        final filePath = ctx.normalize(
+          ctx.join(rootPath, ctx.joinAll(relPath.split('/'))),
+        );
+        if (!File(filePath).existsSync()) continue;
+        try {
+          final session = collection.contextFor(filePath).currentSession;
+          final result = await session.getResolvedUnit(filePath);
+          if (result is ResolvedUnitResult) {
+            _resolvedUnits[relPath] = result.unit;
+          } else {
+            warnings.add(
+              'Could not resolve "$relPath" (${result.runtimeType}); '
+              'encoding it without receiver types.',
+            );
+          }
+        } on Object catch (e) {
+          warnings.add(
+            'Could not resolve "$relPath": $e; '
+            'encoding it without receiver types.',
+          );
+        }
+      }
+    } finally {
+      await collection.dispose();
+    }
   }
 
   // ── Main public method ──────────────────────────────────────────────────
@@ -152,20 +239,23 @@ class PackageEncoder {
       );
       if (!file.existsSync()) continue;
 
-      final source = file.readAsStringSync();
-      // Parse once: reused for both URI-override resolution and encoding.
-      final parseResult = parseString(
-        content: source,
-        throwIfDiagnostics: false,
-        featureSet: FeatureSet.latestLanguageVersion(),
-      );
-      final uriOverrides = _computeUriOverridesFromUnit(
-        relPath,
-        parseResult.unit,
-      );
+      // Prefer the type-RESOLVED unit when [prepareStaticTypes] supplied one
+      // (issue #488): on it `expression.staticType` is non-null, which is the
+      // only way the encoder can tell `Set.add` from `List.add`. Without it,
+      // fall back to the syntax-only `parseString` unit — the historical
+      // behavior, and still the behavior for every caller that never awaits
+      // [prepareStaticTypes].
+      final ast.CompilationUnit unit =
+          _resolvedUnits[relPath] ??
+          parseString(
+            content: file.readAsStringSync(),
+            throwIfDiagnostics: false,
+            featureSet: FeatureSet.latestLanguageVersion(),
+          ).unit;
+      final uriOverrides = _computeUriOverridesFromUnit(relPath, unit);
 
       final (:module, :importStubs) = encoder.encodeModuleFromUnit(
-        parseResult.unit,
+        unit,
         moduleName: moduleName,
         uriToModuleOverrides: uriOverrides,
       );

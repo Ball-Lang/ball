@@ -150,6 +150,20 @@ Module buildStdCollectionsModule() {
     _fn('list_take', 'ListInput', '', 'Take N: list.take(n)'),
     _fn('list_drop', 'ListInput', '', 'Drop N: list.skip(n)'),
     _fn('list_concat', 'ListInput', '', 'Concat two lists: list + other'),
+    _fn('list_clear', 'ListInput', '', 'Remove all elements: list.clear()'),
+    _fn('list_to_list', 'ListInput', '', 'Copy to a list: list.toList()'),
+    _fn(
+      'list_foreach',
+      'ListCallbackInput',
+      '',
+      'Iterate: list.forEach(callback)',
+    ),
+    _fn(
+      'list_join',
+      'StringJoinInput',
+      '',
+      'Join elements: list.join(separator)',
+    ),
 
     // Map — key/value
     _fn('map_get', 'MapInput', '', 'Get value: map[key]'),
@@ -177,6 +191,18 @@ Module buildStdCollectionsModule() {
       'MapCallbackInput',
       '',
       'Filter map: Map.fromEntries(map.entries.where(callback))',
+    ),
+    _fn(
+      'map_contains_value',
+      'MapInput',
+      '',
+      'Contains value: map.containsValue(value)',
+    ),
+    _fn(
+      'map_put_if_absent',
+      'MapInput',
+      '',
+      'Insert if absent: map.putIfAbsent(key, () => value)',
     ),
     _fn('map_is_empty', 'MapInput', '', 'Is empty: map.isEmpty'),
     _fn('map_length', 'MapInput', '', 'Map size: map.length'),

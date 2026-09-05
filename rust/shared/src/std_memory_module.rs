@@ -338,8 +338,11 @@ mod tests {
     }
 
     #[test]
-    fn function_count_matches_std_json() {
+    fn function_names_match_dart_source() {
+        // Name-for-name against `dart/shared/lib/std_memory.dart`, not a bare
+        // count — see `std_dart_parity.rs` and issue #505.
         let module = build_std_memory_module();
-        assert_eq!(module.functions.len(), 38);
+        let names: Vec<String> = module.functions.iter().map(|f| f.name.clone()).collect();
+        crate::std_dart_parity::assert_matches_dart_source("std_memory", &names);
     }
 }

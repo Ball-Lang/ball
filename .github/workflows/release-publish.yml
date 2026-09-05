@@ -66,7 +66,10 @@ jobs:
     name: Verify the published package from pub.dev
     needs: publish
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Two 15-minute propagation budgets (index, then resolution) plus the CLI
+    # install, with headroom — a job timeout shorter than the budgets it
+    # contains would re-create the #568 false failure one level up.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -90,80 +93,41 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Verifying $pkg $version"
 
-      # pub.dev's index can lag an upload by seconds; retry rather than flake,
-      # but never loop forever and never swallow a real failure. Membership in
-      # `versions[]` rather than `latest.version ==` so re-running an older
-      # tag for failure recovery still verifies the right thing.
+      # pub.dev's index lags an upload; poll rather than flake, but never loop
+      # forever and never swallow a real failure. Membership in `versions[]`
+      # rather than `latest.version ==` so re-running an older tag for failure
+      # recovery still verifies the right thing. Budget and classification live
+      # in the script (#568), which is `--self-test`ed on every PR.
       - name: Wait for the version to appear on pub.dev
         env:
           PKG: ${{ steps.tag.outputs.package }}
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/has_version.py" <<'PY'
-          import json
-          import os
-          import sys
-
-          want = os.environ["VERSION"]
-          try:
-              doc = json.load(sys.stdin)
-          except Exception as exc:  # noqa: BLE001 - any malformed body is a retry
-              print(f"could not parse the pub.dev response: {exc}")
-              sys.exit(1)
-          known = [v.get("version") for v in doc.get("versions", [])]
-          latest = (doc.get("latest") or {}).get("version")
-          print(f"latest={latest} known={len(known)} looking-for={want}")
-          sys.exit(0 if want in known else 1)
-          PY
-          for attempt in 1 2 3 4 5 6; do
-            if curl -sS --max-time 30 "https://pub.dev/api/packages/$PKG" | python3 "$RUNNER_TEMP/has_version.py"; then
-              echo "$PKG $VERSION is on pub.dev"
-              found=1
-              break
-            fi
-            echo "attempt $attempt: $PKG $VERSION not on pub.dev yet; the index may still be propagating"
-            sleep 20
-          done
-          if [ "${found:-0}" != "1" ]; then
-            echo "::error::$PKG $VERSION never appeared on https://pub.dev/api/packages/$PKG"
-            exit 1
-          fi
+          python3 tools/release/resolve_published.py \
+            --await-index --package "$PKG" --version "$VERSION"
 
       # Resolve it the way a consumer outside this repo would: a scratch package
       # with no workspace, no path overrides, no pubspec_overrides.yaml, pinned
       # to the exact published version. This is what catches a sibling
       # dependency range that no published version satisfies — the failure mode
       # tools/release/sync_pubspec_deps.mjs exists to prevent.
+      #
+      # The retry is CLASSIFIED, not blind (#568). "ball_resolver 0.3.1 which
+      # doesn't match any versions" — the package this job just published —
+      # means pub.dev's resolution index has not caught up yet, so it keeps
+      # polling on a 15-minute budget; the old fixed 6 x 20 s loop gave up 131 s
+      # after the upload and failed a perfectly good release (run 33957914166).
+      # A conflict naming a SIBLING pin is permanent and fails on the first
+      # attempt with the solver's own text, because waiting cannot fix it.
       - name: Resolve the published package as an external consumer
         env:
           PKG: ${{ steps.tag.outputs.package }}
           VERSION: ${{ steps.tag.outputs.version }}
         run: |
           set -euo pipefail
-          dir="$RUNNER_TEMP/consumer"
-          mkdir -p "$dir"
-          cat > "$dir/pubspec.yaml" <<EOF
-          name: ball_publish_verification
-          publish_to: none
-          environment:
-            sdk: ^3.9.0
-          dependencies:
-            $PKG: $VERSION
-          EOF
-          cat "$dir/pubspec.yaml"
-          for attempt in 1 2 3 4 5 6; do
-            if (cd "$dir" && dart pub get); then
-              resolved=1
-              break
-            fi
-            echo "attempt $attempt: resolution failed; a dependency may still be publishing"
-            sleep 20
-          done
-          if [ "${resolved:-0}" != "1" ]; then
-            echo "::error::$PKG $VERSION does not resolve from pub.dev for an external consumer"
-            exit 1
-          fi
+          python3 tools/release/resolve_published.py \
+            --package "$PKG" --version "$VERSION" --dir "$RUNNER_TEMP/consumer"
 
       # ── Resolving is necessary and NOT sufficient. `ball_compiler 0.4.0`
       #    published still requiring `ball_encoder ^0.3.2` resolves perfectly for

@@ -1,3 +1,10 @@
+## [1.68.5](https://github.com/Ball-Lang/ball/compare/v1.68.4...v1.68.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* **release:** keep verify-published polling while pub.dev indexes the package, fail fast only on a sibling conflict (closes [#568](https://github.com/Ball-Lang/ball/issues/568)) ([#572](https://github.com/Ball-Lang/ball/issues/572)) ([5765189](https://github.com/Ball-Lang/ball/commit/576518986a9d717b2a6ae3c170cdf89f7e42c919)), closes [#566](https://github.com/Ball-Lang/ball/issues/566) [#566](https://github.com/Ball-Lang/ball/issues/566) [#566-shaped](https://github.com/Ball-Lang/ball/issues/566-shaped)
+
 ## [1.68.4](https://github.com/Ball-Lang/ball/compare/v1.68.3...v1.68.4) (2026-09-05)
 
 

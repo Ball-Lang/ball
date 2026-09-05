@@ -8,8 +8,8 @@ paths:
 Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the `ball`
 CLI (`run`/`compile`/`encode`/`check`, #437) are all in place and tested (the self-hosted cli-core
 verbs `info`/`validate`/`tree`/`version` are a deliberate follow-up, not yet ported). The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 338 passed,
-0 failed, 338 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 340 passed,
+0 failed, 340 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance sweep — and the
 `go-engine` row in `conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.

@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 338 passed, 0
-failed, 338 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 340 passed, 0
+failed, 340 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical

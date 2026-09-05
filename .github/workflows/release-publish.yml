@@ -1,9 +1,23 @@
 name: Publish Dart package
 
 # Publishes a single Dart package to pub.dev via OIDC trusted publishing.
-# Triggered by release-tag.yml via `gh workflow run --ref <tag>` where
-# <tag> is of the form `<package_name>-v<version>` (e.g. ball_base-v0.1.0).
-# Can also be triggered manually with workflow_dispatch.
+# Dispatched by `pubdev-release.yml` — specifically by each package's
+# `@semantic-release/exec` publishCmd, `gh workflow run release-publish.yml
+# --ref <package_name>-v<version>` — where the ref is the `<pkg>-v<version>` tag
+# semantic-release just created (e.g. ball_base-v0.4.0). Can also be triggered
+# by hand with the same shape, which is the documented failure-recovery path.
+#
+# The `push: tags:` trigger below is for a tag pushed by a human. It does NOT
+# fire for the release lane's own tags: those are created with GITHUB_TOKEN, and
+# GitHub's recursion protection suppresses workflow triggers for events created
+# with it — hence the explicit dispatch above (the same reason release.yml
+# dispatches publish-npm.yml / release-cpp.yml / tag-go-modules.yml).
+#
+# pub.dev accepts that dispatched-at-a-tag-ref shape: it matches the OIDC
+# token's `ref` claim against each package's configured `<pkg>-v{{version}}` tag
+# pattern, and every real publish this repo has ever done arrived this way
+# (e.g. runs 28782924129-28782934612 on 2026-07-06 published ball_cli,
+# ball_compiler and ball_engine at 0.3.0+6).
 
 on:
   workflow_dispatch:
@@ -39,3 +53,171 @@ jobs:
       - uses: bluefireteam/melos-action@2982f8e4fc92440a219490009d6d05195cb1a6a5 # v3
         with:
           publish: true
+
+  # ── The round trip the pub.dev lane never had: read the package back OUT of
+  #    the real index and resolve it as a consumer would. Uploading is not the
+  #    same as being installable — a stale sibling constraint (`ball_cli 0.4.0`
+  #    still requiring `ball_base ^0.3.0+3`), a package whose dependency never
+  #    published, or a `melos publish` that silently skipped only shows up here.
+  #    Mirrors publish-pypi.yml's job of the same name; separate job so it
+  #    starts from a clean machine with no build tree and no workspace
+  #    resolution to hide behind.
+  verify-published:
+    name: Verify the published package from pub.dev
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+
+      # refs/tags/<package>-v<version>. Package names are snake_case and never
+      # contain `-`, so the FIRST `-v` is the separator; a version may carry
+      # Dart build metadata (`0.3.0+6`), which must survive intact.
+      - name: Derive package and version from the tag
+        id: tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          pkg="${tag%%-v*}"
+          version="${tag#"$pkg"-v}"
+          if [ -z "$pkg" ] || [ -z "$version" ] || [ "$pkg" = "$tag" ]; then
+            echo "::error::ref '$GITHUB_REF' is not a <package>-v<version> tag"
+            exit 1
+          fi
+          echo "package=$pkg" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Verifying $pkg $version"
+
+      # pub.dev's index can lag an upload by seconds; retry rather than flake,
+      # but never loop forever and never swallow a real failure. Membership in
+      # `versions[]` rather than `latest.version ==` so re-running an older
+      # tag for failure recovery still verifies the right thing.
+      - name: Wait for the version to appear on pub.dev
+        env:
+          PKG: ${{ steps.tag.outputs.package }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/has_version.py" <<'PY'
+          import json
+          import os
+          import sys
+
+          want = os.environ["VERSION"]
+          try:
+              doc = json.load(sys.stdin)
+          except Exception as exc:  # noqa: BLE001 - any malformed body is a retry
+              print(f"could not parse the pub.dev response: {exc}")
+              sys.exit(1)
+          known = [v.get("version") for v in doc.get("versions", [])]
+          latest = (doc.get("latest") or {}).get("version")
+          print(f"latest={latest} known={len(known)} looking-for={want}")
+          sys.exit(0 if want in known else 1)
+          PY
+          for attempt in 1 2 3 4 5 6; do
+            if curl -sS --max-time 30 "https://pub.dev/api/packages/$PKG" | python3 "$RUNNER_TEMP/has_version.py"; then
+              echo "$PKG $VERSION is on pub.dev"
+              found=1
+              break
+            fi
+            echo "attempt $attempt: $PKG $VERSION not on pub.dev yet; the index may still be propagating"
+            sleep 20
+          done
+          if [ "${found:-0}" != "1" ]; then
+            echo "::error::$PKG $VERSION never appeared on https://pub.dev/api/packages/$PKG"
+            exit 1
+          fi
+
+      # Resolve it the way a consumer outside this repo would: a scratch package
+      # with no workspace, no path overrides, no pubspec_overrides.yaml, pinned
+      # to the exact published version. This is what catches a sibling
+      # dependency range that no published version satisfies — the failure mode
+      # tools/release/sync_pubspec_deps.mjs exists to prevent.
+      - name: Resolve the published package as an external consumer
+        env:
+          PKG: ${{ steps.tag.outputs.package }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/consumer"
+          mkdir -p "$dir"
+          cat > "$dir/pubspec.yaml" <<EOF
+          name: ball_publish_verification
+          publish_to: none
+          environment:
+            sdk: ^3.9.0
+          dependencies:
+            $PKG: $VERSION
+          EOF
+          cat "$dir/pubspec.yaml"
+          for attempt in 1 2 3 4 5 6; do
+            if (cd "$dir" && dart pub get); then
+              resolved=1
+              break
+            fi
+            echo "attempt $attempt: resolution failed; a dependency may still be publishing"
+            sleep 20
+          done
+          if [ "${resolved:-0}" != "1" ]; then
+            echo "::error::$PKG $VERSION does not resolve from pub.dev for an external consumer"
+            exit 1
+          fi
+
+      # ── Resolving is necessary and NOT sufficient. `ball_compiler 0.4.0`
+      #    published still requiring `ball_encoder ^0.3.2` resolves perfectly for
+      #    an outside consumer, because 0.3.2 is still on pub.dev — the step
+      #    above goes green while the registry serves a package built against
+      #    APIs its pinned dependency predates. That is the exact failure
+      #    tools/release/sync_pubspec_deps.mjs exists to prevent, and nothing
+      #    else in the lane can see it: the static guards run pre-release, and
+      #    the freshness guard compares versions and dates, which match.
+      #
+      #    So compare the resolution against the TREE AT THIS TAG, which carries
+      #    every sibling's version as of this release: each Ball sibling the
+      #    consumer resolved must be at least the version the tag declares. A
+      #    stale pin resolves an older sibling and fails here, in the same run
+      #    that published it.
+      #
+      #    The comparison lives in a script rather than inline here so it is
+      #    reviewable and PR-gated: `--self-test` drives every classification
+      #    offline from ci.yml's Proto Checks job, because this step only ever
+      #    runs during a real publish and would otherwise never be exercised
+      #    until the day it had to catch something.
+      - name: Check the published package's siblings against the tag's tree
+        env:
+          PKG: ${{ steps.tag.outputs.package }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          lock="$RUNNER_TEMP/consumer/pubspec.lock"
+          if [ ! -f "$lock" ]; then
+            echo "::error::no pubspec.lock from the resolution step — nothing to verify"
+            exit 1
+          fi
+          python3 tools/release/check_published_siblings.py \
+            "$GITHUB_WORKSPACE" "$lock" "$PKG" "$VERSION"
+
+      # ball_cli is the one package meant to be INSTALLED and run, so it gets
+      # the same "use the real artifact" bar publish-pypi.yml holds ball-lang to.
+      # `ball --version` also proves the generated version.g.dart was
+      # regenerated by the release (issue #363): a release that bumped the
+      # pubspec without it would report the previous version here.
+      - name: Install and run the published ball CLI
+        if: steps.tag.outputs.package == 'ball_cli'
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Activate from OUTSIDE the checkout so nothing can resolve against
+          # the in-repo workspace instead of the published archive.
+          (cd "$RUNNER_TEMP" && dart pub global activate ball_cli "$VERSION")
+          export PATH="$PATH:$HOME/.pub-cache/bin"
+          out="$(ball --version)"
+          echo "$out"
+          echo "$out" | grep -qF "$VERSION" || {
+            echo "::error::published ball reports '$out', expected version $VERSION"
+            exit 1
+          }
+          ball check tests/conformance/100_complex_control_flow.ball.json

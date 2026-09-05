@@ -69,7 +69,7 @@ Compiler + runtime + encoder + self-hosted engine + CLI, Python >= 3.11. The
 **compiler** passes **52 tests**, the **encoder 42**, and the **CLI** drives all
 four verbs in-process (`run`/`compile`/`encode`/`check`). The **self-hosted
 engine** runs the whole conformance corpus at **Dart parity**:
-`Results: 339 passed, 0 failed, 339 total (4 skipped carve-outs)` — Dart-identical
+`Results: 342 passed, 0 failed, 342 total (4 skipped carve-outs)` — Dart-identical
 output (the 4 skipped are the golden-less resource-limit/sandbox carve-outs the
 Rust/C#/Go runners also skip). Every non-passing input fails loud
 (`CompileError`/`EncodeError` or a runtime raise) — no silent-wrong output. Verify

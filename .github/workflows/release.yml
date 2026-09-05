@@ -152,3 +152,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh workflow run tag-go-modules.yml --ref "v${{ steps.semrel.outputs.released_version }}"
+
+      # The nine Dart packages release on their OWN per-package version lines
+      # (`<pkg>-vX.Y.Z`), so this dispatch carries no repo version — each
+      # package's semantic-release config computes its own from its own tag.
+      # It is guarded on released_version purely as a "did this push contain
+      # anything releasable" signal: the root config analyses every commit, so
+      # a feat/fix touching dart/ always cuts a repo release too, and a push
+      # that cuts none has nothing for the Dart lane either.
+      #
+      # `--ref main`, not the vX.Y.Z tag the three dispatches above use: those
+      # build a released tree, this one RUNS semantic-release, whose
+      # @semantic-release/git step pushes commits and tags to a BRANCH. It runs
+      # after this step so it never races this job's own push to main.
+      #
+      # This replaced the Melos rolling-release-PR lane, whose one human step
+      # (squash-merging that PR) stopped happening for two months while every
+      # automated part of it stayed green (#551).
+      - name: Dispatch the pub.dev per-package release
+        if: steps.semrel.outputs.released_version != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run pubdev-release.yml --ref main

@@ -9464,7 +9464,14 @@ void _inheritanceTests() {
       List<String> extraStdFunctions = const [],
       List<Map<String, dynamic>> extraFields = const [],
     }) {
-      // Constructor: ClassName.new — builds {__type__: className, x: input.x, y: input.y}
+      // Constructor: ClassName.new — the `this.`-formals `this.x`/`this.y`, so
+      // both parameters carry `is_this` exactly as the Dart encoder emits them
+      // (see any generated fixture, e.g. 101_simple_class.ball.json). They used
+      // to be declared WITHOUT it and the fields were populated only by the
+      // engine's permissive "a parameter named like a field writes through"
+      // heuristic, removed in #539. The body below is inert either way: a
+      // non-factory constructor's body value is discarded and `self` returned
+      // (see _callFunction), so nothing but `is_this` ever set these fields.
       final ctorFunc = <String, dynamic>{
         'name': '$className.new',
         'inputType': '${className}Input',
@@ -9472,8 +9479,8 @@ void _inheritanceTests() {
         'metadata': {
           'kind': 'constructor',
           'params': [
-            {'name': 'x'},
-            {'name': 'y'},
+            {'name': 'x', 'is_this': true},
+            {'name': 'y', 'is_this': true},
           ],
         },
         'body': msg([

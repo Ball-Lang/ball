@@ -89,20 +89,45 @@ extension BallEngineInvocation on BallEngine {
                 (func.hasMetadata() ? _extractParams(func.metadata) : const []))
           : (func.hasMetadata() ? _extractParams(func.metadata) : const []);
       final inputMap = _asMap(input);
+      // A constructed user-class instance is a map too, so binding by NAME
+      // first destructured an INLINE-constructed argument into a same-named
+      // parameter slot — `firstOfPair(Pair(8, 9))` bound `a` to the field 8
+      // instead of to the Pair (#555). Only an argument bag may be
+      // destructured.
+      final inputIsInstance = inputMap != null && _isInstanceValue(inputMap);
+      // Which parameters actually received a binding. A parameter SHADOWS a
+      // same-named field of `self` inside the body (Dart scoping), so the
+      // self-field binding below must not overwrite one of these. Before #539
+      // the field itself carried the argument's value, so the two agreed and
+      // the shadowing bug was invisible.
+      //
+      // A LIST, not a `Set`: this file is compiled into every self-hosted
+      // engine, and the Dart encoder routes `.add()` on a set-typed local to
+      // `std_collections.list_push` (it tracks the set LITERAL but not the
+      // variable's type), which then calls `append` on the Python target's
+      // BallSet and dies. A parameter list is at most a handful of names, so
+      // linear `contains` costs nothing.
+      final boundParams = <String>[];
       if (params.isNotEmpty) {
         if (params.length == 1 &&
             !(inputMap != null && inputMap.containsKey('self'))) {
           // Single parameter — bind the input directly (but not for instance
           // methods where `self` is mixed in; those use the map extraction path).
           // If input is a map with positional args (arg0), extract the value.
-          if (inputMap != null && inputMap.containsKey(params[0])) {
+          if (inputMap != null &&
+              !inputIsInstance &&
+              inputMap.containsKey(params[0])) {
             scope.bind(params[0], inputMap[params[0]]);
+            boundParams.add(params[0]);
           } else if (inputMap != null &&
+              !inputIsInstance &&
               inputMap.containsKey('arg0') &&
               !inputMap.containsKey(params[0])) {
             scope.bind(params[0], inputMap['arg0']);
+            boundParams.add(params[0]);
           } else {
             scope.bind(params[0], input);
+            boundParams.add(params[0]);
           }
         } else if (inputMap != null) {
           // Multiple parameters — named args or positional arg0/arg1.
@@ -110,8 +135,10 @@ extension BallEngineInvocation on BallEngine {
             final p = params[i];
             if (inputMap.containsKey(p)) {
               scope.bind(p, inputMap[p]);
+              boundParams.add(p);
             } else if (inputMap.containsKey('arg$i')) {
               scope.bind(p, inputMap['arg$i']);
+              boundParams.add(p);
             } else if (i == 0 &&
                 params.length == 1 &&
                 inputMap.containsKey('value') &&
@@ -124,12 +151,14 @@ extension BallEngineInvocation on BallEngine {
               // worse, resolves `input` to the whole {self, value} envelope
               // and silently assigns the instance map to the field (#95).
               scope.bind(p, inputMap['value']);
+              boundParams.add(p);
             }
           }
         } else if (input is List) {
           // Positional args as list.
           for (var i = 0; i < params.length && i < input.length; i++) {
             scope.bind(params[i], input[i]);
+            boundParams.add(params[i]);
           }
         }
       }
@@ -142,9 +171,11 @@ extension BallEngineInvocation on BallEngine {
         scope.bind('self', self);
         final selfMap = _asMap(self);
         if (selfMap != null) {
-          // Bind direct fields.
+          // Bind direct fields — but never over a parameter of the same name,
+          // which shadows the field for the whole body.
           for (final entry in selfMap.entries) {
-            if (!entry.key.startsWith('__')) {
+            if (!entry.key.startsWith('__') &&
+                !boundParams.contains(entry.key)) {
               scope.bind(entry.key, entry.value);
             }
           }
@@ -299,13 +330,16 @@ extension BallEngineInvocation on BallEngine {
     final typeDef = _findTypeDef(typeName);
     if (typeDef == null) return null;
 
-    final inputMap = _asMap(input) ?? <String, Object?>{'arg0': input};
+    // A constructed user-class instance is a map, so an INLINE-constructed
+    // argument (`Wrapper.around(Pair(8, 9))`) would otherwise be read as this
+    // constructor's own argument bag and destructured field-by-field into the
+    // parameter slots (#555). Treat it as the single positional argument it is.
+    final rawInputMap = _asMap(input);
+    final inputMap = (rawInputMap == null || _isInstanceValue(rawInputMap))
+        ? <String, Object?>{'arg0': input}
+        : rawInputMap;
     final instanceFields = <String, Object?>{};
-    for (final fieldName in typeDef.fieldNames) {
-      instanceFields[fieldName] = null;
-    }
 
-    final allFieldNames = _collectAllFieldNames(typeName);
     final params = func.hasMetadata()
         ? _extractParams(func.metadata)
         : const <String>[];
@@ -329,15 +363,33 @@ extension BallEngineInvocation on BallEngine {
       }
       resolvedParams[param] = value;
 
+      // ONLY a `this.`-formal writes its argument into the field of the same
+      // name (#539) — the named-constructor twin of the identical defect in
+      // engine_eval.dart's `messageCreation` path. A plain parameter sharing a
+      // field's name is an ordinary local, and the
+      // `params.length == 1 && allFieldNames.length == 1` fallback that used
+      // to follow was the same defect with a wider blast radius: it wrote the
+      // sole argument into the sole field of ANY single-field class, colliding
+      // names or not.
       final isThis = i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
-      if (isThis || allFieldNames.contains(param)) {
+      if (isThis) {
         instanceFields[param] = value;
-      } else if (params.length == 1 && allFieldNames.length == 1) {
-        instanceFields[allFieldNames.first] = value;
       }
     }
 
+    // Apply this type's own inline field initializers (`int y = 7;`) for every
+    // field the constructor did not write, THEN seed whatever is still absent
+    // with null so field access returns null instead of throwing. Pre-seeding
+    // every declared field first (as this path used to) makes
+    // _initFieldDefaults a no-op — it skips fields already present — so a named
+    // constructor left every initialized field null, exactly the defect
+    // engine_eval.dart's messageCreation path already fixed.
     _initFieldDefaults(typeName, instanceFields);
+    for (final fieldName in typeDef.fieldNames) {
+      if (!instanceFields.containsKey(fieldName)) {
+        instanceFields[fieldName] = null;
+      }
+    }
 
     // Dart runs a constructor's initializer list (`Countdown.pair(int s) :
     // value = s { … }`) BEFORE its body, and a constructor may have both. This
@@ -478,8 +530,15 @@ extension BallEngineInvocation on BallEngine {
     // Build a map of resolved param values for use in super() calls, etc.
     final resolvedParams = <String, Object?>{};
 
-    // Map input arguments to field names.
-    final inputMap = _asMap(input);
+    // Map input arguments to field names. An INLINE-constructed user-class
+    // argument is a map whose keys are that class's FIELDS, so reading it as
+    // this constructor's argument bag both mis-binds a same-named parameter
+    // and copies the foreign class's fields onto the instance (#555). Treat it
+    // as the single positional argument it is.
+    final rawInputMap = _asMap(input);
+    final inputMap = (rawInputMap != null && _isInstanceValue(rawInputMap))
+        ? <String, Object?>{'arg0': input}
+        : rawInputMap;
     if (inputMap != null) {
       for (var i = 0; i < params.length; i++) {
         final p = params[i];
@@ -521,6 +580,14 @@ extension BallEngineInvocation on BallEngine {
 
     // Process super constructor initializers.
     final typeDef = _findTypeDef(typeName);
+    // A body-less NAMED constructor reaches this path, and nothing here ever
+    // applied the class's own inline field initializers (`int v = 7;`) — so
+    // `Baz.bare(this.w)` produced an instance with no `v` at all and reading it
+    // threw `Field "v" not found` instead of yielding 7. The constructor's
+    // initializer list still wins (applied just above), matching Dart's
+    // ordering, and only fields still absent are filled. Inherited values are
+    // merged below and are left to that path.
+    _initFieldDefaults(typeName, instance);
     if (typeDef != null) {
       final superclass = _getMetaString(typeDef, 'superclass');
       if (superclass != null && superclass.isNotEmpty) {

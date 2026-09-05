@@ -1,0 +1,66 @@
+name: pub.dev freshness
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The gate that would have caught #551.
+#
+# Every other release guard in this repo asserts REACHABILITY — that a channel's
+# trigger chain can fire (tools/release/check_release_dispatch_wiring.sh), or
+# that the pub.dev lane is shaped so it fires with no human in the path
+# (tools/release/check_pubdev_release_wiring.sh). None of them can see a
+# perfectly-wired, perfectly-green lane that has simply stopped shipping. That
+# is exactly what happened: the rolling release PR went unmerged from 2026-07-07
+# to 2026-09-05 while `release-prepare.yml` refreshed it on every push and
+# reported success each time, and pub.dev stayed on July's packages.
+#
+# So this compares the REGISTRY's live state to the repo: for every publishable
+# Dart package, pub.dev's version must equal main's, and pub.dev must not be
+# more than MAX_STALE_DAYS behind the newest commit touching that package.
+#
+# WHY SCHEDULED AND NOT PR-GATED: pub.dev does not change between two pushes of
+# the same PR, and a per-PR dependency on an external API would redden unrelated
+# work on a registry hiccup — the same reasoning that keeps ci.yml's one
+# network-touching Dart test behind `--exclude-tags network`. The comparison
+# logic itself IS PR-gated: ci.yml's `Proto Checks` job runs
+# `check_pubdev_freshness.sh --self-test` on every PR, so a guard that quietly
+# stopped comparing anything cannot reach main.
+#
+# EXPECTED STATE AFTER #551 MERGES: this workflow stays RED until the first
+# automated per-package release actually publishes (pub.dev is ~60 days behind
+# as of 2026-09-05, which is the point). Its first green run is the proof the
+# fix worked.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  schedule:
+    - cron: "0 7 * * 1" # Weekly, Monday 07:00 UTC (after ci.yml's 05:00 canary)
+  workflow_dispatch:
+    inputs:
+      max_stale_days:
+        description: "How far pub.dev may lag the newest commit touching a package, in days."
+        type: string
+        default: "30"
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    name: pub.dev vs main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The staleness leg reads `git log` per package directory, so it needs
+          # real history, not a shallow clone.
+          fetch-depth: 0
+
+      # Proves the classifier still classifies before trusting a live verdict:
+      # a clean network run and a broken comparison look identical otherwise.
+      - name: Self-test the freshness classifier
+        run: bash tools/release/check_pubdev_freshness.sh --self-test
+
+      - name: Compare pub.dev against main
+        env:
+          MAX_STALE_DAYS: ${{ inputs.max_stale_days || '30' }}
+        run: bash tools/release/check_pubdev_freshness.sh

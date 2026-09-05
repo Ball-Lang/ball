@@ -10,7 +10,7 @@ driven by a thin native wrapper.
 
 ## Status: complete, at Dart parity
 
-`Results: 339 passed, 0 failed, 339 total (4 skipped carve-outs)` — the whole
+`Results: 342 passed, 0 failed, 342 total (4 skipped carve-outs)` — the whole
 `tests/conformance` corpus, Dart-identical output. The 4 skipped fixtures are the
 same golden-less resource-limit / sandbox carve-outs the Rust/C#/Go runners skip
 (`196_timeout`, `197_memory_limit`, `201_input_validation`, `202_sandbox_mode`).

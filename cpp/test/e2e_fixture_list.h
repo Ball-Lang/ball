@@ -316,6 +316,7 @@ inline const std::vector<std::string>& program_names() {
         "443_nullable_field_chain_member_read",
         "444_inline_constructed_call_argument",
         "445_let_bound_to_call_returning_class",
+        "455_ctor_field_writes_that_survive",
         "459_set_add_remove_bool",
     };
     return names;

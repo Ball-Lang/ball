@@ -1462,7 +1462,6 @@ extension BallEngineEval on BallEngine {
         }
 
         final instanceFields = <String, Object?>{};
-        final allFieldNames = _collectAllFieldNames(msg.typeName);
 
         // Explicit messageCreation fields (named/positional args) take
         // precedence over inline field initializers.
@@ -1505,12 +1504,21 @@ extension BallEngineEval on BallEngine {
             }
             resolvedParams[param] = value;
 
+            // ONLY a `this.`-formal writes its argument into the field of the
+            // same name (#539). A plain parameter that merely happens to share
+            // a field's name is an ordinary local, and writing it through
+            // silently clobbered that field's own initializer. The former
+            // `allFieldNames.contains(param)` disjunct did exactly that, and
+            // the `params.length == 1 && allFieldNames.length == 1` fallback
+            // that followed it was the same defect with a WIDER blast radius:
+            // it wrote the sole argument into the sole field of ANY
+            // single-field class, colliding names or not. Fields a
+            // constructor really does set are reached through its body, its
+            // initializer list, or an explicit `this.`-formal.
             final isThis =
                 i < paramsMeta.length && paramsMeta[i]['is_this'] == true;
-            if (isThis || allFieldNames.contains(param)) {
+            if (isThis) {
               instanceFields[param] = value;
-            } else if (params.length == 1 && allFieldNames.length == 1) {
-              instanceFields[allFieldNames.first] = value;
             }
           }
         }
@@ -1858,27 +1866,25 @@ extension BallEngineEval on BallEngine {
     return null;
   }
 
-  List<String> _collectAllFieldNames(String typeName) {
-    final names = <String>[];
-    final typeDef = _findTypeDef(typeName);
-    if (typeDef == null) return names;
-
-    final colonIdx = typeName.indexOf(':');
-    final modPart = colonIdx >= 0
-        ? typeName.substring(0, colonIdx)
-        : _currentModule;
-    final superclass = typeDef.superclass;
-    if (superclass != null && superclass.isNotEmpty) {
-      final qualifiedSuper = superclass.contains(':')
-          ? superclass
-          : '$modPart:$superclass';
-      names.addAll(_collectAllFieldNames(qualifiedSuper));
-    }
-
-    for (final fieldName in typeDef.fieldNames) {
-      if (!names.contains(fieldName)) names.add(fieldName);
-    }
-    return names;
+  /// Whether [map] is a constructed user-class INSTANCE rather than a call's
+  /// argument bag.
+  ///
+  /// Both are maps, and a call binds a single parameter by NAME first, so
+  /// without this test an instance whose class declares a field named like the
+  /// callee's parameter was destructured into that parameter slot — the
+  /// parameter received the FIELD's value instead of the object (#555).
+  ///
+  /// An instance is distinguishable: it carries `__type__` naming a class that
+  /// has a `TypeDefinition` (or, for a typeDef-less class, the `__fields__`
+  /// bookkeeping key a [BallObject] always exposes). An argument bag either has
+  /// no `__type__` at all or — when the encoder emitted the call itself as a
+  /// `messageCreation` — carries a FUNCTION name, which never has a
+  /// `TypeDefinition`.
+  bool _isInstanceValue(Map<String, Object?> map) {
+    final typeName = map['__type__'];
+    if (typeName is! String || typeName.isEmpty) return false;
+    if (map.containsKey('__fields__')) return true;
+    return _findTypeDef(typeName) != null;
   }
 
   /// Build a `__super__` object for the given superclass name.

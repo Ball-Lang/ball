@@ -321,6 +321,19 @@ jobs:
       - name: Coverage-study harness self-test (#493)
         run: dart run tools/coverage-study/test/rq1_study_self_test.dart
 
+      # Tier B is the behavioural half of the same study (#493): it swaps a
+      # library file for the pipeline's own compiled-back version and runs THAT
+      # PACKAGE'S OWN `dart test`. Its self-test is gated here for the same
+      # reason Tier A's is — the study it drives is report-only, the instrument
+      # is not. Two assertions carry the gate: the #488 shape
+      # (`return set.add(x)`) is scored `behavioral-drift` while Tier A scores
+      # the very same source `clean`, which is the entire justification for the
+      # tier existing; and every substituted file is restored BYTE-FOR-BYTE
+      # (SHA-256), because a harness that leaves a checkout dirty compounds
+      # substitutions and silently corrupts every later verdict.
+      - name: Coverage-study Tier B harness self-test (#493)
+        run: dart run tools/coverage-study/test/rq1_tierb_self_test.dart
+
   # ──────────────────────────────────────────────────
   # Ball artifact freshness — every committed Ball artifact must be GENERATED
   # from its Dart source, never hand-edited. Regenerate the deterministic shared

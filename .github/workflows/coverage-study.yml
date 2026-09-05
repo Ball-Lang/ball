@@ -1,4 +1,5 @@
-# Third-party coverage study — Tier A (issue #493, slice 1).
+# Third-party coverage study — Tier A (every language) and Tier B (Dart),
+# issue #493.
 #
 # WHY THIS EXISTS: every gate the project has is scoped to code the project
 # itself wrote. `check_encoder_completeness.dart` asserts that each std base
@@ -18,9 +19,14 @@
 # is reported and the job exits 0.
 #
 # The ONE thing that does fail here is a broken harness: a run that scored zero
-# files is a checkout/harness failure, not a 0% result, and the harness's own
-# self-test (which proves it does not silently skip `main`-less library files)
-# runs as a gated step in ci.yml's Dart job.
+# files is a checkout/harness failure, not a 0% result, and each harness's own
+# self-test runs as a gated step in its language's ci.yml job (Tier A's proves
+# it does not silently skip `main`-less library files; Tier B's proves it scores
+# the #488 shape as drift where Tier A calls it clean, and restores every
+# substituted file byte-for-byte).
+#
+# Tier A is structural and Tier B is behavioural — see the `dart-tier-b` job's
+# own header for why one cannot stand in for the other.
 #
 # See tests/conformance/COVERAGE_STUDY.md for the methodology and the two
 # load-bearing harness settings.
@@ -85,6 +91,127 @@ jobs:
         with:
           name: coverage-study-tier-a-dart
           path: ${{ runner.temp }}/tier_a.json
+          if-no-files-found: warn
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Tier B (Dart) — BEHAVIOURAL substitution (issue #493).
+  #
+  # Tier A is structural: encode → compile back → re-encode → declaration
+  # inventory → IR fixpoint. By its own documented design it cannot see a
+  # construct that round-trips syntactically clean but changes what the program
+  # computes — #488 (`return set.add(x)` lowered to the cascade
+  # `return set..add(x)`) parses, keeps every declaration and reaches the
+  # fixpoint, so Tier A scored it clean across two full baselines while the
+  # issue sat open.
+  #
+  # Tier B is the instrument that sees it: swap a library file for the
+  # pipeline's own compiled-back version and run THAT PACKAGE'S OWN `dart test`.
+  # Both modes run here — per-file isolation (one substitution at a time, the
+  # file restored before the next) and whole-package (every eligible file at
+  # once, one verdict). They answer different questions and are meant to be read
+  # together.
+  #
+  # LIKE EVERY JOB IN THIS FILE, THIS IS NOT A GATE and never will be: the
+  # workflow has no `pull_request:` trigger, so a regression Tier B finds does
+  # not block the PR that caused it. The only failure here is a broken harness —
+  # summarize.sh's positive floor (a run that scored zero files is a checkout
+  # failure, never a 0% result). NO quality floor is set until several scheduled
+  # runs establish the variance; #488's own ad-hoc prototype measured 88/106
+  # files and 1/5 packages, which is a sanity check, not a committed number.
+  # The harness's own self-test IS gated, on every PR, in ci.yml's Dart job.
+  #
+  # `--jobs 4` parallelizes across PACKAGES (independent checkouts) — never
+  # across files of one package, since two substitutions would share a working
+  # tree. `--test-timeout` bounds every `dart test`; a hang is reported as the
+  # non-scoring `test-timeout`, never as drift.
+  # ────────────────────────────────────────────────────────────────────────
+
+  dart-tier-b:
+    name: Tier B (Dart)
+    runs-on: ubuntu-latest
+    # Per-file substitution runs one full `dart test` per compiled-back file
+    # (~106 across the five pins) plus two baseline runs per package, so this is
+    # the longest job in the file by construction.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        run: dart pub get
+
+      # The harness measures other people's code, so prove the harness first.
+      # This is the same self-test ci.yml's Dart job gates on every PR.
+      - name: Harness self-test
+        run: dart run tools/coverage-study/test/rq1_tierb_self_test.dart
+
+      # The same five hermetic pins Tier A uses, at the same recorded commits.
+      - name: Clone pinned packages
+        run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/dart.json "$RUNNER_TEMP/checkouts"
+
+      - name: Run Tier B (per-file isolation)
+        run: |
+          set -euo pipefail
+          dart run tools/coverage-study/rq1_tierb.dart \
+            --pins tools/coverage-study/packages/dart.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --jobs 4 \
+            --test-timeout 600 \
+            --json "$RUNNER_TEMP/tier_b.json" | tee "$RUNNER_TEMP/tier_b.log"
+          bash tools/coverage-study/summarize.sh Dart "$RUNNER_TEMP/tier_b.log" "Tier B"
+
+      # A checkout left dirty by the per-file run would compound every verdict
+      # of the whole-package run that follows. The harness already verifies each
+      # restore by SHA-256 and throws on a mismatch; this asserts the same
+      # property from OUTSIDE the harness, against git, before the second mode
+      # reuses the same trees.
+      #
+      # `--untracked-files=no` is deliberate: substitution only ever rewrites
+      # TRACKED files, while `dart pub get` leaves `.dart_tool/` and (for a
+      # package whose .gitignore does not cover it) `pubspec.lock` behind. Those
+      # are the harness doing its job, not a failed restore, and counting them
+      # would make this assertion red for a reason that has nothing to do with
+      # restoration. Every dirty checkout is printed before the step exits, so a
+      # failure names the files rather than only the fact of one.
+      - name: Assert every checkout was restored
+        run: |
+          set -euo pipefail
+          dirty=0
+          for dir in "$RUNNER_TEMP"/checkouts/*/; do
+            status="$(git -C "$dir" status --porcelain --untracked-files=no)"
+            if [ -n "$status" ]; then
+              echo "::error::$dir has modified tracked files after the per-file run — Tier B did not restore it"
+              printf '%s\n' "$status"
+              dirty=1
+            fi
+          done
+          if [ "$dirty" -ne 0 ]; then
+            exit 1
+          fi
+          echo "every checkout is byte-identical to its pinned commit"
+
+      - name: Run Tier B (whole-package)
+        run: |
+          set -euo pipefail
+          dart run tools/coverage-study/rq1_tierb_all.dart \
+            --pins tools/coverage-study/packages/dart.json \
+            --checkouts "$RUNNER_TEMP/checkouts" \
+            --jobs 4 \
+            --test-timeout 600 \
+            --json "$RUNNER_TEMP/tier_b_all.json" | tee "$RUNNER_TEMP/tier_b_all.log"
+          bash tools/coverage-study/summarize.sh Dart "$RUNNER_TEMP/tier_b_all.log" "Tier B (whole-package)"
+
+      - name: Upload Tier B reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-study-tier-b-dart
+          path: |
+            ${{ runner.temp }}/tier_b.json
+            ${{ runner.temp }}/tier_b_all.json
           if-no-files-found: warn
 
   # ────────────────────────────────────────────────────────────────────────

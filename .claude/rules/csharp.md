@@ -171,9 +171,10 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
   (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 5 passed, 3 failed, 8 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  `Results: 6 passed, 2 failed, 8 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
   `1 passed, 6 failed`; slices A/B closed buckets b, c and g; slice C added and closed bucket
-  (h), `enum` declarations — the taxonomy grows only when a fresh measurement says so, which is
+  (h), `enum` declarations; slice C's line was `5 passed, 3 failed, 8 total`; slice E closed
+  bucket (e) — the taxonomy grows only when a fresh measurement says so, which is
   how the enum bucket stayed invisible until it was the largest). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
@@ -185,6 +186,25 @@ compile items so the sibling projects never double-compile each other's files.
   Note the corrected throw-site taxonomy in `csharp/AGENTS.md`: an interface reaches
   `EncodeTypeDeclaration`, never the "unsupported type declaration kind" site, so an
   interface fixture must carry a method.
+  Bucket (e) (slice E) is the second worked instance of that rule: its fixture carries **two**
+  independent gaps (a `PredefinedTypeSyntax` receiver, `int.Parse`, and the 0-arg `.Count()`
+  METHOD spelling of the `.Count` property) and both had to be fixed for it to flip unmodified.
+- **`PredefinedType` static receivers** (#492 slice E): `EncodeMemberInvocation` intercepts a
+  `PredefinedTypeSyntax` receiver BEFORE `StaticReceiverName` and routes it through
+  `EncodePredefinedTypeStaticCall` — `int`/`long`.`Parse` → `std.string_to_int`,
+  `double`/`float`.`Parse` → `std.string_to_double` (the only two conversions `StdModuleBuilders`
+  declares; `float` widening to a double is a documented approximation). Anything else on a
+  keyword type throws loud NAMING the receiver. `TryParse` is deliberately not routed — dropping
+  its out-parameter failure branch would compile, run, and be silently wrong.
+- **`default(T)` is the type's zero, not always null.** The `DefaultExpressionSyntax` arm used to
+  encode every `default(T)` as a null literal, so `default(int)` printed `null` where C# prints
+  `0` — silent wrong output. A predefined value-type keyword now yields its real zero
+  (`int`/`long`/… → `0`, `double`/`float` → `0.0`, `bool` → `false`); a reference type, a generic
+  parameter, or a keyword Ball has no counterpart for (`char`, `decimal`) keeps the honest null.
+- **Round-trip proof, not encode-only.** A bucket flip is proven by compiling the ENCODED fixture
+  back to C# and RUNNING it (`encoder/test/PredefinedTypeCallTests.cs` asserts exactly `43\n`).
+  That is what caught the compiler's callback-field bug below — an encode-only assertion would
+  have declared bucket (e) closed while its output crashed at run time.
 
 ### Engine
 

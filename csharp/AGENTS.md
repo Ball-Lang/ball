@@ -437,6 +437,27 @@ AccessorEdgeCaseTests.cs` hand-builds both IR shapes directly (plus the two regr
 a subclass that legitimately *inherits* an accessor, and an unrelated type whose plain field
 merely shares the name).
 
+### Higher-order callback field aliasing (`BaseCall.Callback`)
+
+`std_collections`'s `ListCallbackInput` declares its second field as **`callback`**
+(`StdModuleBuilders.BuildStdCollectionsModule`), but the Dart encoder emits its generic positional
+key `value` instead, and hand-authored/older trees use `function`. Every reference target already
+accepts all three — Dart's `_cb()` (`callback ?? function ?? value`), Rust's `callback_call`, Go's
+`c.arg(f, "value", "callback")`, TS and C++. C# read **only** `value` for
+`list_map`/`list_filter`/`list_all`/`list_any`/`list_sort`, and `FieldOrNull` falls back to
+`BallValue.Null` on a miss — so a program carrying the declared `callback` key compiled clean and
+then died at run time with `ball runtime: value is not callable: Null`, or, for `list_sort`,
+silently sorted in natural order with the comparator dropped.
+
+That is precisely the C# **encoder**'s output (`encoder/src/Methods.cs` emits the declared
+`callback` name), so the two halves of the C# pipeline could not execute a single LINQ
+`.Select`/`.Where`/`.Any`/`.All`/`.Sort` end to end. Nothing caught it because every hand-built
+compiled-and-run test used the Dart spelling, the encoder's own tests assert proto SHAPE only, and
+no CI leg compiles+runs C#-encoder output. `BaseCall.Callback` now aliases
+`callback` → `function` → `value` (Dart's precedence); `compiler/test/CallbackFieldAliasTests.cs`
+runs both spellings of all five functions, with `list_sort` asserting a DESCENDING comparator so
+the silent-wrong-output half is observable too.
+
 ### Formatting
 
 The emitter emits structurally-correct but minimally-indented C#; run `dotnet format whitespace`
@@ -616,10 +637,11 @@ purpose: no network fetch and no third-party licensing (vendoring real packages 
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slices A, B and C: **`Results: 5 passed, 3 failed, 8 total`** (slice 1's was
-`0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`).
-Buckets (b), (c) and (g) closed together, then (h); (d) cross-file, (e) the expression long tail
-and (f) target-typed `new()` remain open.
+Baseline after slices A, B, C and E: **`Results: 6 passed, 2 failed, 8 total`** (slice 1's was
+`0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`;
+slice C's, `5 passed, 3 failed, 8 total`).
+Buckets (b), (c) and (g) closed together, then (h), then (e); (d) cross-file and (f) target-typed
+`new()` remain open.
 
 **The taxonomy is fixed only until a measurement says otherwise.** Rows (a)-(g) were transcribed
 once from #492's original manual study and cannot grow on their own — which is exactly how the
@@ -649,7 +671,37 @@ namespace-qualified one fell through to `DispatchInstanceOrBuiltinMethod` and th
 own gap alone would have left them red on that unrelated one. `Encoder.StaticReceiverName`
 (`Methods.cs`) fixes it properly, so both buckets flip on their **unmodified committed fixtures**;
 `encoder/test/QualifiedBclReceiverTests.cs` pins it, including that a deeper namespace still fails
-loud and that a local named `Console` still shadows the BCL static.
+loud and that a local named `Console` still shadows the BCL static. Bucket (e) (slice E) is the
+second instance of the same rule: its fixture carries **two** independent gaps and needed both
+fixed — see the next subsection.
+
+### `PredefinedType` static receivers + the 0-arg `.Count()` (issue #492, slice E)
+
+`int.Parse("41")`'s receiver is a Roslyn `PredefinedTypeSyntax` (a keyword-type node), never an
+`IdentifierNameSyntax`, so `StaticReceiverName` returned `null` for it and `EncodeMemberInvocation`
+fell through to encoding `int` as an ordinary expression — `unsupported C# expression kind
+`PredefinedType``, the single largest *specific* first-pass signature in the live Tier A funnel.
+`EncodeMemberInvocation` now intercepts a `PredefinedTypeSyntax` receiver **before**
+`StaticReceiverName` and routes it through `EncodePredefinedTypeStaticCall`: `int`/`long`.`Parse`
+→ `std.string_to_int`, `double`/`float`.`Parse` → `std.string_to_double` (the only two conversions
+`StdModuleBuilders` declares; `float` widening to a double is a deliberate, documented
+approximation — Ball has no 32-bit float). Anything else on a keyword type is a loud throw that
+NAMES the receiver, which is why the interception sits there rather than as an extra
+`StaticReceiverName` arm. `TryParse` is deliberately **not** routed: dropping its out-parameter
+failure branch would compile, run, and be silently wrong.
+
+Bucket (e)'s committed fixture also ends in `doubled.Count()` — the LINQ **method** spelling of the
+**property** `.Count` `EncodePropertyAccess` had always mapped to `std.length`. That needed its own
+`("Count", 0)` case in `DispatchInstanceOrBuiltinMethod`; the two spellings are asserted equal in
+`encoder/test/PredefinedTypeCallTests.cs` so a future edit cannot diverge them.
+
+**The end-to-end proof is what made this honest.** `PredefinedTypeCallTests` compiles the ENCODED
+fixture back to C# and runs it, asserting exactly `43\n`. With only the two dispatch arms in place
+that run *crashed* — `BallRuntimeException: value is not callable: Null` out of `BallStd.ListFilter`
+— because `csharp/compiler/src/BaseCall.cs` read a higher-order call's callback only under the Dart
+encoder's `value` key while this encoder emits the DECLARED `callback` name (see "Compiler" →
+"Higher-order callback field aliasing"). An encode-only assertion would have declared the bucket
+closed while its output did not run.
 
 The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
 table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
@@ -692,9 +744,13 @@ makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must s
 build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
 attached.
 
-Still open on #492 after slices A and B: **cross-file symbol resolution** (bucket d), the
-**expression-kind long tail** (bucket e — `PredefinedType` static receivers such as `int.Parse`,
-0-arg `.Count()`), and **target-typed `new()`** (bucket f). Bucket d needs a public-API decision
+Still open on #492 after slices A, B, C, D and E: **cross-file symbol resolution** (bucket d) and
+**target-typed `new()`** (bucket f). A fresh Tier A categorisation taken for slice E also surfaced
+three expression kinds that are **not in the taxonomy at all** and are together comparable in size
+to what bucket (e) was — `IsPatternExpression` (pattern matching), `DeclarationExpression`
+(`out var`), and `SwitchExpression` — plus `DelegateDeclaration` at the top-level-declaration
+throw. Add rows for them the same way row (h) was added, from a measurement, rather than assuming
+the current table still describes reality. Bucket d needs a public-API decision
 (an `EncodeProject` over several files) rather than a slice; when it is taken it should mirror the
 Rust encoder's #491 slice-3 decision — emit an **unresolved, source-less `ModuleImport`** naming
 the callee's module rather than failing, which `ball check` accepts as structurally valid and

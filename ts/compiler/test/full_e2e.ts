@@ -53,20 +53,7 @@ import { unwrapBallFile } from "./ball_file.ts";
  * compiler supports it -- a fixture that starts passing while still listed
  * here fails the leg (see the "stale carve-out" check below).
  */
-const CARVE_OUTS: Record<string, number> = {
-  // #564 — a NAMED constructor with a body compiles to a plain `static` method
-  // that never constructs an instance: it runs the body against the CLASS
-  // (`static around(a) { return (this.got = a.b); }`) and returns whatever the
-  // body evaluated to, so `Bar.named(9)` is `undefined`. The initializer-list
-  // form does construct, via `Object.create(C.prototype)`, but that bypasses
-  // the class's inline field initializers, so a field the constructor does not
-  // set comes back `undefined`. Both fixtures pass on the Dart reference engine
-  // and on all six self-hosted engines — only this direct Ball → TS compiled
-  // leg fails. 455_ctor_field_writes_that_survive, the positive half of the
-  // same #539 test design, uses unnamed constructors only and PASSES here.
-  "453_ctor_param_shadows_field": 564,
-  "454_inline_instance_argument_name_collision": 564,
-};
+const CARVE_OUTS: Record<string, number> = {};
 
 function findRepoRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));

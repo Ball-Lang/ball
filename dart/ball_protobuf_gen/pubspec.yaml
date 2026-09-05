@@ -19,7 +19,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base: ^0.4.0
+  ball_base: ^0.4.1
   ball_protobuf: ^0.4.0
 
 dev_dependencies:

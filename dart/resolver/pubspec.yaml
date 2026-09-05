@@ -18,7 +18,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  ball_base: ^0.4.0
+  ball_base: ^0.4.1
   http: ^1.2.0
   archive: ^4.0.0
   crypto: ^3.0.0

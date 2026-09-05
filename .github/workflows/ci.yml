@@ -663,6 +663,31 @@ jobs:
           fi
           echo "Compiled TS self-hosted engine is up to date."
 
+      # ts/cli/src/compiled_cli.ts is the OTHER committed compiled artifact: the
+      # self-hosted cli-core verbs (`info`/`validate`/`tree`/`version`/`audit`,
+      # #364/#362) compiled from dart/self_host/cli.ball.json, which is itself
+      # encoded from dart/shared/lib/cli_core.dart. The Rust/C#/Go/Python CLI
+      # cores are all gitignored and rebuilt inside their own jobs, so — exactly
+      # like compiled_engine.ts above — this is the only compiled CLI core that
+      # can go stale in git, and until #580 nothing diffed it. It HAD drifted at
+      # main: the `__ball_type_of` preamble helper added by #489 was missing,
+      # invisible because the helper has no call site in the compiled CLI yet
+      # and because ts/cli/test/cli_core_parity.test.ts gates BEHAVIOUR, not
+      # artifact freshness. Same regenerate-and-diff contract, same job, same
+      # recipe CLAUDE.md documents ("Regenerate compiled TS CLI core").
+      - name: Regenerate the compiled TS CLI core
+        run: |
+          ( cd dart        && dart run compiler/tool/gen_cli_json.dart )
+          ( cd ts/compiler && node --experimental-strip-types tool/regen_compiled_cli.mjs )
+
+      - name: Assert compiled TS CLI core is up to date
+        run: |
+          if ! git diff --exit-code -- ts/cli/src/compiled_cli.ts; then
+            echo "::error::ts/cli/src/compiled_cli.ts is stale. Regenerate it with 'cd dart && dart run compiler/tool/gen_cli_json.dart' then 'cd ts/compiler && node --experimental-strip-types tool/regen_compiled_cli.mjs' and commit — this file is generated (see CLAUDE.md 'Regenerate compiled TS CLI core'), never hand-edited."
+            exit 1
+          fi
+          echo "Compiled TS CLI core is up to date."
+
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
   # (dart/ball_protobuf_gen) + the transport runtime (dart/ball_rpc).
@@ -1445,6 +1470,12 @@ jobs:
       # `ball-freshness` carries the identical `if:` condition as this job
       # (dart || ts || infra) and is a required check, so nothing is lost by not
       # repeating a second full regeneration pass here.
+      #
+      # The same is true of the second committed compiled artifact,
+      # ts/cli/src/compiled_cli.ts (the self-hosted cli-core verbs): its
+      # regenerate-and-diff also lives ONCE, in `ball-freshness` ("Regenerate
+      # the compiled TS CLI core" + "Assert compiled TS CLI core is up to
+      # date", #580). ts/cli's own suite above consumes it as a committed INPUT.
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only. The full
       # ~350-fixture full_e2e.ts sweep (Ball IR -> native TS -> node, diffed

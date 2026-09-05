@@ -238,6 +238,7 @@ const json = toJson(ProgramSchema, program);
 
 - `ts/shared/gen/` — Protobuf-es generated types
 - `ts/engine/src/compiled_engine.ts` — Self-hosted engine compiled from Ball
+- `ts/cli/src/compiled_cli.ts` — Self-hosted cli-core verbs compiled from Ball
 
 To regenerate the compiled engine. Note `engine.ball.json` is a self-describing
 `google.protobuf.Any` envelope (`{"@type":"…/ball.v1.Program", …}`), so the
@@ -254,6 +255,23 @@ in `ball-freshness` beside the std.json / ball_protobuf freshness gates (same
 ```bash
 cd dart && dart run compiler/tool/gen_engine_json.dart
 cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs
+```
+
+`ts/cli/src/compiled_cli.ts` (the self-hosted `info`/`validate`/`tree`/`version`/
+`audit` verbs, compiled from `dart/self_host/cli.ball.json`) is the SECOND and
+last committed compiled artifact, and it is gated the same way.
+**This is CI-enforced (#580):** the same `ball-freshness` job runs the recipe
+below and then `git diff --exit-code -- ts/cli/src/compiled_cli.ts`. It had
+already drifted at main before the gate existed (the `__ball_type_of` preamble
+helper from #489 was missing) — `ts/cli/test/cli_core_parity.test.ts` gates
+behaviour, not artifact freshness, so a no-behaviour-change drift was invisible.
+`regen_compiled_cli.mjs` is `regen_compiled_engine.mjs` plus an export-rewrite
+pass (`cli_core.dart` is a free-function library, so its compiled top-level
+declarations need `export` added; `compile()`'s own export logic only covers
+top-level classes):
+```bash
+cd dart && dart run compiler/tool/gen_cli_json.dart
+cd ts/compiler && node --experimental-strip-types tool/regen_compiled_cli.mjs
 ```
 
 ## Testing

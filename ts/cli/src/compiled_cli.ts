@@ -1474,6 +1474,36 @@ export function __ball_is_type(value: any, typeStr: string): boolean {
   }
 }
 
+// std.type_of (#489) - the string form of the very discrimination
+// __ball_is_type performs, i.e. the canonical BASE type name with generic
+// type arguments dropped and any module prefix stripped. Bare JS typeof
+// cannot be used: typeof [] is 'object', not 'list', and it cannot tell an
+// int from a double. Must agree with the Dart reference engine's _typeNameOf.
+export function __ball_type_of(value: any): string {
+  if (value == null) return 'Null';
+  if (typeof value === 'boolean') return 'bool';
+  if (value instanceof BallDouble) return 'double';
+  if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'double';
+  if (typeof value === 'string') return 'String';
+  if (Array.isArray(value)) return 'List';
+  if (value instanceof Set) return 'Set';
+  if (typeof value === 'function') return 'Function';
+  if (typeof value === 'object') {
+    const tag = value.__type__;
+    if (typeof tag === 'string' && tag.length > 0) {
+      const colon = tag.indexOf(':');
+      return colon >= 0 ? tag.slice(colon + 1) : tag;
+    }
+    // A compiled user class is a real TS class; a Dart Map is a plain object.
+    const ctor = value.constructor?.name;
+    if (typeof ctor === 'string' && ctor.length > 0 && ctor !== 'Object') {
+      return ctor;
+    }
+    return 'Map';
+  }
+  return typeof value;
+}
+
 // Minimal DateTime / Duration / Future polyfills used by std_time and
 // the round-tripped engine's sleep_ms helper. Wide enough for the
 // conformance suite, narrow enough to stay out of users' way.

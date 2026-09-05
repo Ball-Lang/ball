@@ -23,10 +23,15 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Ball-Lang/ball
     REF "v${VERSION}"
-    SHA512 0 # PLACEHOLDER. `vcpkg install ball-lang --overlay-ports=<this dir's
-             # parent>` against the real tag fails with "the expected SHA512
-             # was all zeros, please change the expected SHA512 to: <hash>" —
-             # paste that hash here before submitting (see ../README.md).
+    # SHA512 of https://github.com/Ball-Lang/ball/archive/v1.64.0.tar.gz,
+    # obtained the way vcpkg's packaging tutorial prescribes: run the install
+    # once with `SHA512 0` and paste the hash from its "the expected SHA512 was
+    # all zeros, please change the expected SHA512 to: <hash>" error. Verified
+    # three ways (that message, `sha512sum` of vcpkg's own downloads/ copy, and
+    # `sha512sum` of an independent `curl` of the same URL).
+    # ON A VERSION BUMP this MUST be recomputed together with `version-semver`
+    # in vcpkg.json and the sidecar SHA512 below — all three name one tag.
+    SHA512 0622de99d53d923b5e41e091edca3bc7e24ab13ead3db1a557540f2cf70c75a415a3544c2dd44da5813a0540868c756dd604e46d68eb08353b5d9b16a63fca28
     HEAD_REF main
 )
 
@@ -69,9 +74,10 @@ if(BALL_WITH_SELFHOST)
         BALL_SELFHOST_ARCHIVE
         URLS "https://github.com/Ball-Lang/ball/releases/download/v${VERSION}/ball-selfhost-cpp-src-v${VERSION}.tar.gz"
         FILENAME "ball-selfhost-cpp-src-v${VERSION}.tar.gz"
-        SHA512 0 # PLACEHOLDER — same fill-in-at-submission-time flow as the
-                 # source SHA512 above, and likewise only computable once a real
-                 # tagged release actually carries this asset (../README.md).
+        # SHA512 of the v1.64.0 release asset, cross-checked against the
+        # `ball-selfhost-cpp-src-v1.64.0.tar.gz.sha256` (and `SHA256SUMS.txt`)
+        # that release-cpp.yml publishes beside it. Recompute on a version bump.
+        SHA512 ee24364ebe55545b65384960e04ae5ebb7593133a4c6d65ba6fdccfc0c80e3ddee0ac776d00e7891cf499f26353fb670497e7e2e533fc17b56c188730c523f96
     )
     # NO_REMOVE_ONE_LEVEL: the asset is a flat archive of the two generated
     # sources, deliberately with no wrapping directory, so the file names it

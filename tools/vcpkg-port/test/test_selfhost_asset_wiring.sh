@@ -177,9 +177,13 @@ fi
 
 # ── 4. The release asset name and the portfile's FILENAME cannot drift. ────
 # Normalized to <VER>: release-cpp.yml interpolates the tag (`vX.Y.Z`), the
-# portfile interpolates vcpkg's `${VERSION}` (`X.Y.Z`, no leading `v`).
+# portfile interpolates vcpkg's `${VERSION}` (`X.Y.Z`, no leading `v`), and the
+# portfile's SHA512 provenance comments spell one concrete `vX.Y.Z` outright
+# (case 10 is what holds that literal to the manifest's version). All three are
+# the same version slot, so all three collapse to <VER> before comparing — this
+# case is about the asset NAME, not about which tag is pinned.
 norm_asset() {
-  sed -e 's/\${tag}/<VER>/g' -e 's/v\${VERSION}/<VER>/g'
+  sed -e 's/\${tag}/<VER>/g' -e 's/v\${VERSION}/<VER>/g'     -e 's/v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*/<VER>/g'
 }
 port_asset="$(grep -oE 'ball-selfhost-cpp-src-[^"[:space:]]*\.tar\.gz' "$PORTFILE" | norm_asset | sort -u)"
 rel_asset="$(grep -oE 'ball-selfhost-cpp-src-[^"[:space:]]*\.tar\.gz' "$RELEASE_WORKFLOW" | norm_asset | sort -u)"
@@ -311,6 +315,70 @@ if grep -q 'tools/vcpkg-port/test/test_selfhost_asset_wiring.sh' "$CI_WORKFLOW";
   ok "ci.yml runs this test"
 else
   no "ci.yml runs this test" "a guard nothing invokes is not a guard"
+fi
+
+# ── 10. Both SHA512s are real, and pinned to ONE tag. ─────────────────────
+# The port shipped `SHA512 0` in both download blocks from the day it was
+# written — vcpkg's own placeholder, and its tell that nothing had ever
+# resolved the recipe against a real tag. `vcpkg install` fails loudly on an
+# all-zeros hash ("failing download because the expected SHA512 was all
+# zeros"), so this cannot ship broken to a consumer — but it CAN silently ship
+# to microsoft/vcpkg in a submission PR, where the first person to notice is a
+# vcpkg maintainer. This gate is what makes a re-placeholdered (or
+# half-refreshed) port a red CI run here instead.
+#
+# The version coupling is the subtler half: `vcpkg.json`'s `version-semver`
+# drives BOTH downloads (`REF "v${VERSION}"` and the sidecar's
+# `.../download/v${VERSION}/...`), so bumping it without recomputing both
+# hashes yields a port that fails for every consumer. Every literal `vX.Y.Z`
+# written in portfile.cmake — the provenance comments beside each hash — must
+# therefore name exactly the version the manifest pins.
+PORT_VERSION="$("$PY" - "$MANIFEST" <<'PYEOF'
+import json, sys
+print(json.load(open(sys.argv[1], encoding="utf-8")).get("version-semver", ""))
+PYEOF
+)"
+if printf '%s' "$PORT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  ok "vcpkg.json pins a concrete version-semver ($PORT_VERSION)"
+else
+  no "vcpkg.json pins a concrete version-semver" "got: ${PORT_VERSION:-<none>}"
+fi
+
+# Anchored to an argument line, so the word SHA512 inside the provenance
+# comments (which all begin with `#`) is never mistaken for a value.
+SHA_VALUES="$(grep -oE '^[[:space:]]*SHA512[[:space:]]+[^[:space:]]+' "$PORTFILE" | awk '{print $2}')"
+n="$(printf '%s\n' "$SHA_VALUES" | grep -c . || true)"
+if [ "${n:-0}" -eq 2 ]; then
+  ok "portfile declares exactly 2 SHA512 arguments (source tarball + sidecar)"
+else
+  no "portfile declares exactly 2 SHA512 arguments (source tarball + sidecar)" \
+    "found ${n:-0}"
+fi
+
+bad=""
+while IFS= read -r v; do
+  [ -n "$v" ] || continue
+  printf '%s' "$v" | grep -qE '^[0-9a-f]{128}$' || bad="$bad $v"
+done <<EOF
+$SHA_VALUES
+EOF
+if [ -z "$bad" ] && [ "${n:-0}" -eq 2 ]; then
+  ok "every SHA512 is a real 128-hex digest, not the \`0\` placeholder"
+else
+  no "every SHA512 is a real 128-hex digest, not the \`0\` placeholder" \
+    "offending value(s):${bad:- <none, but the count was ${n:-0}>}" \
+    "recompute with: vcpkg install ball-lang --overlay-ports=tools/vcpkg-port/ports" \
+    "and paste the hash vcpkg's all-zeros error prints (see ../README.md step 5)."
+fi
+
+vers="$(grep -oE '\bv[0-9]+\.[0-9]+\.[0-9]+\b' "$PORTFILE" | sort -u | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
+if [ "$vers" = "v$PORT_VERSION" ]; then
+  ok "every literal version in portfile.cmake is v$PORT_VERSION (matches the manifest)"
+else
+  no "every literal version in portfile.cmake matches vcpkg.json's version-semver" \
+    "manifest:  v$PORT_VERSION" \
+    "portfile:  ${vers:-<none>}" \
+    "a version bump must recompute BOTH SHA512s — they are hashes of that tag's artifacts."
 fi
 
 total=$((pass + fail))

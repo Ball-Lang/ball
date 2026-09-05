@@ -224,6 +224,21 @@ from a branch. Use it whenever you change the matrix, add a platform, or touch
 the build steps — it is the only way to find out that a leg works before a
 release depends on it.
 
+### vcpkg consumes this lane; it is not a lane of its own
+
+`tools/vcpkg-port/ports/ball-lang/` pins exactly ONE tag: `version-semver`
+drives both `vcpkg_from_github`'s `REF "v${VERSION}"` and the sidecar asset's
+`releases/download/v${VERSION}/...` URL, and each download carries the SHA512
+of *that tag's* artifact. So refreshing the port to a newer release is a
+deliberate PR **here** — bump `version-semver`, recompute both SHA512s,
+re-prove `vcpkg install` against the real release — followed by a separate,
+maintainer-only PR to a `microsoft/vcpkg` fork. Cutting a release never moves
+the port, and the port never lands unpinned:
+`tools/vcpkg-port/test/test_selfhost_asset_wiring.sh` (always-run in `Proto
+Checks`) fails if either hash is the `SHA512 0` placeholder or if the version
+the portfile names disagrees with the manifest. The port was first installed
+from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
+
 [gh-runners]: https://docs.github.com/en/actions/reference/runners/github-hosted-runners
 [rimg-13045]: https://github.com/actions/runner-images/issues/13045
 

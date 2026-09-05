@@ -6445,7 +6445,35 @@ export class BallEngine {
           return self.includes(arg0);
         }
         else if ((__sw === 'indexOf')) {
-          return self.indexOf(arg0);
+          let indexFrom = __ball_index(args, 'arg1');
+          if (__ball_eq(indexFrom, null)) {
+            return self.indexOf(arg0);
+          }
+          let scan = this._toInt(indexFrom);
+          if (__ball_lt(scan, 0)) {
+            scan = 0;
+          }
+          while (__ball_lt(scan, self.length)) {
+            if (__ball_eq(__ball_index(self, scan), arg0)) {
+              return scan;
+            }
+            (scan++);
+          }
+          return __ball_negate(1);
+        }
+        else if ((__sw === 'lastIndexOf')) {
+          let lastFrom = __ball_index(args, 'arg1');
+          let lastScan = (__ball_eq(lastFrom, null) ? __ball_sub(self.length, 1) : this._toInt(lastFrom));
+          if (__ball_ge(lastScan, self.length)) {
+            lastScan = __ball_sub(self.length, 1);
+          }
+          while (__ball_ge(lastScan, 0)) {
+            if (__ball_eq(__ball_index(self, lastScan), arg0)) {
+              return lastScan;
+            }
+            (lastScan--);
+          }
+          return __ball_negate(1);
         }
         else if ((__sw === 'join')) {
           let joinParts = [];
@@ -6795,7 +6823,19 @@ export class BallEngine {
           return self.substring(this._toInt(arg0), (!__ball_eq(end, null) ? this._toInt(end) : null));
         }
         else if ((__sw === 'indexOf')) {
-          return self.indexOf(__ball_to_string(arg0));
+          let strFrom = __ball_index(args, 'arg1');
+          if (__ball_eq(strFrom, null)) {
+            return self.indexOf(__ball_to_string(arg0));
+          }
+          let strScan = this._toInt(strFrom);
+          if (__ball_lt(strScan, 0)) {
+            strScan = 0;
+          }
+          if (__ball_gt(strScan, self.length)) {
+            return __ball_negate(1);
+          }
+          let strHit = self.substring(strScan).indexOf(__ball_to_string(arg0));
+          return (__ball_lt(strHit, 0) ? __ball_negate(1) : __ball_add(strHit, strScan));
         }
         else if ((__sw === 'split')) {
           return self.split(__ball_to_string(arg0));
@@ -6813,7 +6853,51 @@ export class BallEngine {
           return self.split(__ball_to_string(arg0)).join(__ball_to_string((__ball_index(args, 'arg1') ?? '')));
         }
         else if ((__sw === 'startsWith')) {
-          return self.startsWith(__ball_to_string(arg0));
+          let swFrom = __ball_index(args, 'arg1');
+          if (__ball_eq(swFrom, null)) {
+            return self.startsWith(__ball_to_string(arg0));
+          }
+          let swAt = this._toInt(swFrom);
+          if (__ball_lt(swAt, 0)) {
+            swAt = 0;
+          }
+          if (__ball_gt(swAt, self.length)) {
+            return false;
+          }
+          return self.substring(swAt).startsWith(__ball_to_string(arg0));
+        }
+        else if ((__sw === 'lastIndexOf')) {
+          let liNeedle = __ball_to_string(arg0);
+          let liStart = __ball_index(args, 'arg1');
+          if (__ball_eq(liStart, null)) {
+            return self.lastIndexOf(liNeedle);
+          }
+          let liAt = this._toInt(liStart);
+          if (__ball_lt(liAt, 0)) {
+            return __ball_negate(1);
+          }
+          let liEnd = __ball_add(liAt, liNeedle.length);
+          if (__ball_gt(liEnd, self.length)) {
+            liEnd = self.length;
+          }
+          return self.substring(0, liEnd).lastIndexOf(liNeedle);
+        }
+        else if ((__sw === 'replaceFirst')) {
+          let rfTo = __ball_to_string((__ball_index(args, 'arg1') ?? ''));
+          let rfStart = __ball_index(args, 'arg2');
+          if (__ball_eq(rfStart, null)) {
+            return self.replace(__ball_to_string(arg0), rfTo);
+          }
+          let rfAt = this._toInt(rfStart);
+          if (__ball_lt(rfAt, 0)) {
+            rfAt = 0;
+          }
+          if (__ball_gt(rfAt, self.length)) {
+            return self;
+          }
+          let rfHead = self.substring(0, rfAt);
+          let rfTail = self.substring(rfAt).replace(__ball_to_string(arg0), rfTo);
+          return __ball_add(rfHead, rfTail);
         }
         else if ((__sw === 'endsWith')) {
           return self.endsWith(__ball_to_string(arg0));

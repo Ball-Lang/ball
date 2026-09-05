@@ -2702,9 +2702,18 @@ function __isUnknownFnError(e: any): boolean {
           ctors.push(this.buildCtor(fn, mMeta, fieldNames, hasExtends));
         } else {
           // Named constructors are static factory methods that return a new
-          // instance. Build them by creating an instance from initializers.
+          // instance. The class's own (non-static) field declarations go with
+          // them: the instance is built with `Object.create`, which runs no
+          // field initializer, so the builder has to seed each default itself
+          // (#564).
           methods.push(
-            this.buildNamedCtor(fn, mMeta, fieldNames, tsName),
+            this.buildNamedCtor(
+              fn,
+              mMeta,
+              fieldNames,
+              tsName,
+              properties.filter((p) => !p.isStatic),
+            ),
           );
         }
       } else if (mMeta["is_getter"] === true) {
@@ -2851,8 +2860,15 @@ function __isUnknownFnError(e: any): boolean {
         }
       }
     } else {
+      // ONLY a `this.`-formal writes a constructor parameter into the field of
+      // the same name. A plain parameter that merely happens to share a
+      // field's name is an ordinary local and must never clobber that field's
+      // initializer — `class Foo { int x = 5; Foo(int x) { print(x); } }`
+      // leaves `x` at 5 in Dart (#539/#564, conformance 453). The old
+      // `|| classFields.has(p.name)` disjunct is the byte-identical defect the
+      // Dart engine carried until #563.
       for (const p of rawParams) {
-        if (p.isThis || classFields.has(p.name)) {
+        if (p.isThis) {
           prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
         }
       }
@@ -2921,54 +2937,63 @@ function __isUnknownFnError(e: any): boolean {
 
   /**
    * Builds a named constructor as a static factory method.
-   * Named constructors (e.g., Point.origin, Point.fromList) create instances
-   * from field initializers in metadata.
+   *
+   * Every named constructor that is not a Dart `factory` CONSTRUCTS a real
+   * instance — whether it carries an initializer list (`Point.origin() : x =
+   * 0`), `this.`-formals (`Box.of(this.value)`), a plain body
+   * (`Bar.named(int x) { print(x); }`), or any combination. The instance comes
+   * from `Object.create(C.prototype)` so no user constructor runs, which means
+   * the class's inline field initializers do not run either: every declared
+   * field is seeded with its own default FIRST (Dart's ordering — inline field
+   * initializers, then the initializer list, then the body), and only then do
+   * the constructor-specific writes land on top (#564).
+   *
+   * A `factory` named constructor is the one exception: by definition it
+   * returns some other object, so its body runs as the static method's own
+   * statements and its value is the method's result.
    */
   private buildNamedCtor(
     fn: FunctionDef,
     meta: Struct,
     classFields: Set<string>,
     className: string,
+    classProperties: Array<{
+      name: string;
+      type: string;
+      rawDartType: string;
+      dartInitializer?: string;
+    }> = [],
   ) {
     const params = extractParams(fn);
     const ctorParams = extractCtorParams(meta);
     const initializers = Array.isArray(meta["initializers"]) ? meta["initializers"] as any[] : [];
     // Build the body: resolve field initializers and create a new instance.
     const bodyParts: string[] = [];
-    const ctorArgs: string[] = [];
-    // Extract field initializers to build constructor arguments
-    for (const init of initializers) {
-      if (init?.kind === "field" && typeof init.name === "string") {
-        const valueStr = typeof init.value === "string" ? init.value : "null";
-        // Resolve the value: could be a param reference, literal, or expression
-        let resolvedValue: string;
-        if (params.includes(valueStr)) {
-          resolvedValue = sanitize(valueStr);
-        } else if (/^-?\d+(\.\d+)?$/.test(valueStr)) {
-          // Numeric literal — wrap in BallDouble if it has a decimal point
-          resolvedValue = valueStr.includes(".") ? `new BallDouble(${valueStr})` : valueStr;
-        } else if (valueStr.startsWith("'") || valueStr.startsWith('"')) {
-          resolvedValue = valueStr;
-        } else {
-          // Try to parse indexed access like "coords[0]"
-          const idxMatch = /^(\w+)\[(\d+)\]$/.exec(valueStr);
-          if (idxMatch && params.includes(idxMatch[1])) {
-            resolvedValue = `${sanitize(idxMatch[1])}[${idxMatch[2]}]`;
-          } else {
-            resolvedValue = valueStr;
-          }
-        }
-        ctorArgs.push(resolvedValue);
-      }
-    }
-    // Also check for is_this params — they pass directly to the constructor
+    // Does the ctor have any field write of its own? Only WHETHER matters
+    // here; each value is resolved where the assignment is emitted, by
+    // `resolveInitializerValue`. (A `this.`-formal counts only when there is
+    // no initializer list at all, preserving the historical branch selection
+    // for the `Foo.named(this.x) : super(...)` shape, which still falls
+    // through to `return new Foo()`.)
     const thisParams = ctorParams.filter(p => p.isThis);
-    if (ctorArgs.length === 0 && initializers.length === 0 && thisParams.length > 0) {
-      for (const p of thisParams) {
-        ctorArgs.push(sanitize(p.name));
-      }
-    }
-    if (ctorArgs.length > 0 || (initializers.length > 0 && ctorArgs.length > 0)) {
+    const hasFieldInitializers = initializers.some(
+      (i: any) => i?.kind === "field" && typeof i.name === "string",
+    );
+    const hasCtorFieldWrites =
+      hasFieldInitializers || (initializers.length === 0 && thisParams.length > 0);
+    // A Dart `factory` returns some other object, so it is the ONE named
+    // constructor that must not synthesize an instance of its own class.
+    const isFactory = meta["is_factory"] === true;
+    // Everything else constructs: an initializer list / `this.`-formal, or a
+    // plain body, or both. A body-only named constructor
+    // (`Bar.named(int x) { print(x); }`) used to fall through to the
+    // run-the-body-as-a-static-method branch below, so it created no instance
+    // at all — `this` inside it was the CLASS and the method returned the
+    // body's value, i.e. `undefined` for a `print` (#564, conformance
+    // 453/454).
+    const constructsInstance =
+      hasCtorFieldWrites || (fn.body !== undefined && !isFactory);
+    if (constructsInstance) {
       // Use Object.create to avoid calling the constructor (which might be a factory).
       // This directly instantiates with fields set.
       const assignments = initializers
@@ -2978,15 +3003,27 @@ function __isUnknownFnError(e: any): boolean {
       const thisAssignments = thisParams.map(p => `__inst.${p.name} = ${sanitize(p.name)};`);
       const allAssignments = [...assignments, ...thisAssignments];
       bodyParts.push(`const __inst = Object.create(${className}.prototype);`);
+      // `Object.create` deliberately runs no constructor — which also means it
+      // runs none of the class's inline field initializers. Seed every
+      // declared field with the SAME default the class declaration emits,
+      // before any constructor-specific write, exactly as Dart orders them
+      // (inline initializers, then the initializer list, then the body).
+      // Without this a field the named constructor never mentions stayed
+      // `undefined` forever (#564: `Init.viaList`'s `w`, `Baz.bare`'s `v`).
+      for (const p of classProperties) {
+        const def = dartInitializerToTs(p.dartInitializer, p.type, p.rawDartType);
+        if (def !== undefined) bodyParts.push(`__inst.${p.name} = ${def};`);
+      }
       for (const a of allAssignments) bodyParts.push(a);
-      // A named constructor may have BOTH an initializer list / `this.`-params
-      // AND a body (`Countdown.pair(int s) : value = s { tail = …; }`, or
-      // `Countdown.from(this.value) { … }`). Dart runs the list first, then the
-      // body; the body used to be dropped entirely by this branch, so every
-      // field the body set stayed unset (conformance 436/438). `.call(__inst)`
-      // — a real `function`, not an arrow — gives the compiled body the
-      // instance as `this`, so its `this.<field>` writes land on `__inst`,
-      // while the constructor's parameters stay in scope by closure.
+      // A named constructor may have an initializer list / `this.`-params, a
+      // body, or both (`Countdown.pair(int s) : value = s { tail = …; }`,
+      // `Countdown.from(this.value) { … }`, `Bar.named(int x) { print(x); }`).
+      // Dart runs the list first, then the body; the body used to be dropped
+      // entirely by this branch, so every field the body set stayed unset
+      // (conformance 436/438). `.call(__inst)` — a real `function`, not an
+      // arrow — gives the compiled body the instance as `this`, so its
+      // `this.<field>` writes land on `__inst`, while the constructor's
+      // parameters stay in scope by closure.
       if (fn.body) {
         const captured = this.withMethodContext(
           new Set(params),
@@ -3002,7 +3039,10 @@ function __isUnknownFnError(e: any): boolean {
       }
       bodyParts.push(`return __inst;`);
     } else if (fn.body) {
-      // Has an actual body — use it
+      // A `factory` named constructor: its body IS the method — whatever it
+      // evaluates to is what the caller gets, and no instance of this class is
+      // synthesized. This is the only body-bearing shape that reaches here
+      // (every non-factory body constructs, above).
       const captured = this.withMethodContext(
         new Set(params),
         classFields,
@@ -3013,6 +3053,8 @@ function __isUnknownFnError(e: any): boolean {
       );
       bodyParts.push(captured);
     } else {
+      // Nothing to run and nothing to assign: let the real constructor build
+      // it (which runs the class's inline field initializers itself).
       bodyParts.push(`return new ${className}();`);
     }
     return {

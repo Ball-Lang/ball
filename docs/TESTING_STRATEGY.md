@@ -239,17 +239,21 @@ too, without a colour-forced CI leg.
 > it. Re-run `full_e2e.sh` unfiltered (or `--fixtures <stem>`) yourself before
 > claiming a de-carved fixture is green.
 >
-> The four `43x` constructor fixtures added for #499 are the same case: they
+> The four `43x` constructor fixtures added for #499 were the same case: they
 > are the only cross-target lock on "a constructor that builds another
 > instance of its own class must not silently get `self` back", and they pass
 > on every ENGINE — the Dart reference one plus all six self-hosted ones, the
-> C++ included. **That** is the coverage that survives carving them out of the
-> Ball -> C++ *compiled* leg. The two Ball -> C++ gaps they expose are filed as
-> [#513](https://github.com/Ball-Lang/ball/issues/513) (a read through a
+> C++ included. **That** is the coverage that survived carving them out of the
+> Ball -> C++ *compiled* leg. The two Ball -> C++ gaps they exposed were filed
+> as [#513](https://github.com/Ball-Lang/ball/issues/513) (a read through a
 > nullable self-referential field emits a concrete-struct member access on
 > `BallDyn`) and [#514](https://github.com/Ball-Lang/ball/issues/514) (a class
 > whose only constructor is zero-argument gets a duplicate default one). Both
-> are g++ build failures, not Ball -> C++ compile failures.
+> are g++ build failures, not Ball -> C++ compile failures. #513 is now FIXED:
+> `435_recursive_ctor_construction` / `436_recursive_ctor_named` /
+> `437_recursive_ctor_tree` are de-carved, listed in
+> `cpp/test/e2e_fixture_list.h`, and run on the compiled leg. Only
+> `438_ctor_initializer_list_with_body` (#514) is still carved out.
 >
 > **Name the leg that actually covers it — measure, do not assume.** An earlier
 > draft of the paragraph above also claimed those four fixtures "pass on the

@@ -4383,6 +4383,168 @@ TEST(cov_library_mode_orders_classes_by_inheritance_depth) {
     ASSERT_CONTAINS(result.header, "namespace covlib {");
 }
 
+
+// ================================================================
+// #513 / #523 / #524 — static receiver types and instance-creation values
+// ================================================================
+//
+// Each of these pins ONE emitted-shape mechanism the conformance fixtures
+// 435-437 / 443-445 exercise end-to-end. They run in seconds against the
+// compiler alone, so a regression is caught long before the per-fixture g++
+// build that would also catch it.
+
+// #513: a read THROUGH a class-typed field. `emit_struct` maps every
+// non-primitive descriptor field to a `BallDyn` member, so `h.leaf` is a
+// BallDyn — naming a struct member on it is g++'s "'class BallDyn' has no
+// member named 'label'". The receiver has to be recovered with ball_obj_as<T>.
+TEST(class_typed_field_receiver_is_recovered_before_member_access) {
+    json leaf_meta;
+    leaf_meta["kind"] = "class";
+    leaf_meta["fields"] = json::array({json{{"name", "label"}, {"type", "String"}}});
+    auto leaf_td =
+        cov_class_td("main:Leaf", {{"label", "TYPE_STRING"}}, std::move(leaf_meta));
+
+    json holder_meta;
+    holder_meta["kind"] = "class";
+    // The NULLABLE self-referential shape #513 was filed for, and the plain
+    // non-nullable one — both are erased to BallDyn members.
+    holder_meta["fields"] = json::array({json{{"name", "leaf"}, {"type", "Leaf?"}},
+                                         json{{"name", "inner"}, {"type", "Leaf"}}});
+    auto holder_td = cov_class_td(
+        "main:Holder", {{"leaf", "TYPE_MESSAGE"}, {"inner", "TYPE_MESSAGE"}},
+        std::move(holder_meta));
+
+    // void Holder.use() { Holder h = Holder(); print(h.leaf.label);
+    //                     print(h.inner.label); }
+    json h_let;
+    h_let["name"] = "h";
+    h_let["value"] = make_msg("main:Holder", {});
+    json h_let_meta;
+    h_let_meta["type"] = "Holder";
+    h_let["metadata"] = std::move(h_let_meta);
+
+    json use_meta;
+    use_meta["kind"] = "method";
+    auto use = cov_class_fn(
+        "main:Holder.use", std::move(use_meta),
+        block({json{{"let", h_let}},
+               stmt_expr(print_call(
+                   field_access(field_access(ref("h"), "leaf"), "label"))),
+               stmt_expr(print_call(
+                   field_access(field_access(ref("h"), "inner"), "label")))}),
+        "void");
+
+    auto out = compile_program(cov_class_program({leaf_td, holder_td}, {use}));
+
+    ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(h.leaf).label");
+    ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(h.inner).label");
+    // The bare struct-member form on the erased receiver is what did not build.
+    ASSERT_NOT_CONTAINS(out, "(h.leaf.label)");
+}
+
+// #513: a constructor whose body is a SINGLE expression rather than a Block —
+// `Chain(this.depth) { if (depth > 0) { … } }` encodes to one `std.if` Call.
+// The Block-only emission loop dropped it entirely, with no diagnostic: the
+// constructor ran, and simply did nothing.
+TEST(constructor_body_that_is_a_single_expression_is_emitted) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "depth"}, {"type", "int"}}});
+    auto td = cov_class_td("main:Chain", {{"depth", "TYPE_INT64"}}, std::move(meta));
+
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("depth", "", /*is_this=*/true)});
+    // body: std.if(condition: depth > 0, then: print(depth)) — one Call, no Block.
+    auto body = std_call(
+        "if", make_msg("", {{"condition", std_binary("greater_than", ref("depth"),
+                                                     lit_int(0))},
+                            {"then", print_call(ref("depth"))}}));
+    auto ctor = cov_class_fn("main:Chain.new", std::move(ctor_meta),
+                             std::move(body), "main:Chain");
+
+    auto out = compile_program(cov_class_program({td}, {ctor}));
+
+    // The constructor is emitted with its body, not as an empty `{ }`.
+    ASSERT_CONTAINS(out, "Chain(auto depth) : depth(depth) {");
+    ASSERT_NOT_CONTAINS(out, "Chain(auto depth) : depth(depth) {\n    }");
+    ASSERT_CONTAINS(out, "if ((depth > static_cast<int64_t>(0)))");
+}
+
+// #523: a freshly-constructed user-class instance written INLINE at a call site
+// is ONE positional argument VALUE, not the call's argument bag. Destructuring
+// it against the callee's parameter names placed nothing, so the argument was
+// dropped — g++'s "too few arguments to function".
+TEST(inline_instance_creation_argument_is_not_destructured) {
+    json box_meta;
+    box_meta["kind"] = "class";
+    auto box_td = cov_class_td("main:Box", {{"v", "TYPE_INT64"}},
+                               std::move(box_meta));
+
+    json read_meta;
+    read_meta["kind"] = "function";
+    read_meta["params"] = json::array({cov_param("b", "Box")});
+    json read_fn;
+    read_fn["name"] = "readBox";
+    read_fn["outputType"] = "int";
+    read_fn["metadata"] = std::move(read_meta);
+    read_fn["body"] = field_access(ref("b"), "v");
+
+    // void Box.use() { print(readBox(Box())); }
+    json use_meta;
+    use_meta["kind"] = "method";
+    auto use = cov_class_fn(
+        "main:Box.use", std::move(use_meta),
+        block({stmt_expr(print_call(
+            call("", "readBox", make_msg("main:Box", {}))))}),
+        "void");
+
+    auto out = compile_program(cov_class_program({box_td}, {read_fn, use}));
+
+    // A no-field instance creation emits the aggregate-initializer form.
+    ASSERT_CONTAINS(out, "readBox(Box{})");
+    ASSERT_NOT_CONTAINS(out, "readBox()");
+}
+
+// #524: a `let` whose initialiser is a CALL returning a user class must be
+// declared with the class the callee actually returns. Neither the `type`
+// metadata branch nor the MessageCreation branch matched a Call, so the local
+// fell into the generic `auto r = BallDyn(f());` and every later member read
+// named a member of BallDyn.
+TEST(let_bound_to_a_call_returning_a_user_class_takes_the_concrete_type) {
+    json point_meta;
+    point_meta["kind"] = "class";
+    point_meta["fields"] = json::array({json{{"name", "px"}, {"type", "int"}}});
+    auto point_td =
+        cov_class_td("main:Point", {{"px", "TYPE_INT64"}}, std::move(point_meta));
+
+    json make_meta;
+    make_meta["kind"] = "function";
+    json make_fn;
+    make_fn["name"] = "makePoint";
+    make_fn["outputType"] = "Point";
+    make_fn["metadata"] = std::move(make_meta);
+    make_fn["body"] = make_msg("main:Point", {});
+
+    // void Point.use() { final p = makePoint(); print(p.px); }
+    json p_let;
+    p_let["name"] = "p";
+    p_let["value"] = call("", "makePoint", json(nullptr));
+
+    json use_meta;
+    use_meta["kind"] = "method";
+    auto use = cov_class_fn(
+        "main:Point.use", std::move(use_meta),
+        block({json{{"let", p_let}}, stmt_expr(print_call(field_access(ref("p"), "px")))}),
+        "void");
+
+    auto out = compile_program(cov_class_program({point_td}, {make_fn, use}));
+
+    ASSERT_CONTAINS(out, "Point p = makePoint()");
+    ASSERT_NOT_CONTAINS(out, "auto p = BallDyn(makePoint())");
+    ASSERT_CONTAINS(out, "p.px");
+}
+
 // ================================================================
 // Main
 // ================================================================

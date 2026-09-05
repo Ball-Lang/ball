@@ -166,36 +166,29 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # argument count falls through to user-defined class method dispatch instead
 # of being spliced into the shortcut's template — issue #511.)
 #
-# 435_recursive_ctor_construction / 436_recursive_ctor_named /
-# 437_recursive_ctor_tree (#513): a read through a NULLABLE, self-referential
-# field (`Chain? next` -> `head.next.depth`) still takes the concrete-struct
-# member-access path, but the field itself is emitted as a `BallDyn` because it
-# is nullable, so g++ reports "'class BallDyn' has no member named 'depth'".
-# Ball->C++ compilation succeeds; only the g++ build fails.
-#
 # 438_ctor_initializer_list_with_body (#514): a class whose ONLY constructor
 # takes no arguments gets both that constructor and the synthesised default
 # one, so g++ reports "'Flags::Flags()' cannot be overloaded with
 # 'Flags::Flags()'". Again a g++ build failure, not a Ball->C++ one.
 #
-# All four were added by #512 for issue #499 (a constructor that builds another
+# It was added by #512 for issue #499 (a constructor that builds another
 # instance of its own class must not silently get `self` back). What survives
-# carving them out of THIS leg is that they pass on every ENGINE — the Dart
-# reference one plus all six self-hosted ones, the C++ included. They do NOT
-# all pass on the Rust/Go/Python/C# COMPILER legs: measured one fixture at a
-# time, 435_recursive_ctor_construction and 437_recursive_ctor_tree pass all
-# four, while 436_recursive_ctor_named and 438_ctor_initializer_list_with_body
-# fail all four — none of those compilers resolves a NAMED constructor
-# (`Class.name(args)`), which the Dart encoder emits as a method call on the
-# class reference rather than as a messageCreation. That pre-existing gap is
-# #527. Those four legs are RATCHETED (they fail only on a drop below a
-# recorded floor), not parity gates, so a green ratchet says nothing about any
-# one fixture — measure it. See docs/TESTING_STRATEGY.md's "Name the leg that
-# actually covers it".
+# carving it out of THIS leg is that it passes on every ENGINE — the Dart
+# reference one plus all six self-hosted ones, the C++ included. It does NOT
+# pass on the Rust/Go/Python/C# COMPILER legs: measured one fixture at a time,
+# 438_ctor_initializer_list_with_body fails all four — none of those compilers
+# resolves a NAMED constructor (`Class.name(args)`), which the Dart encoder
+# emits as a method call on the class reference rather than as a
+# messageCreation. That pre-existing gap is #527. Those four legs are RATCHETED
+# (they fail only on a drop below a recorded floor), not parity gates, so a
+# green ratchet says nothing about any one fixture — measure it. See
+# docs/TESTING_STRATEGY.md's "Name the leg that actually covers it".
+#
+# 435_recursive_ctor_construction / 436_recursive_ctor_named /
+# 437_recursive_ctor_tree were carved out here for #513 and are NOT any more:
+# that issue is fixed, so all three compile, build and run on this leg and are
+# listed in cpp/test/e2e_fixture_list.h.
 CPP_COMPILE_CARVEOUTS=(
-  "435_recursive_ctor_construction"
-  "436_recursive_ctor_named"
-  "437_recursive_ctor_tree"
   "438_ctor_initializer_list_with_body"
 )
 _is_carved() { local n="$1" c; (( ${#CPP_COMPILE_CARVEOUTS[@]} == 0 )) && return 1;

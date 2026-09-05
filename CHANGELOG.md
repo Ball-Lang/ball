@@ -1,3 +1,15 @@
+# [1.70.0](https://github.com/Ball-Lang/ball/compare/v1.69.0...v1.70.0) (2026-09-05)
+
+
+### Bug Fixes
+
+* **csharp:** encode int.Parse / 0-arg .Count(), read a LINQ callback under its declared field name, and give default(int) its real zero (advances [#492](https://github.com/Ball-Lang/ball/issues/492)) ([#578](https://github.com/Ball-Lang/ball/issues/578)) ([7b79f30](https://github.com/Ball-Lang/ball/commit/7b79f3008c0e5168a3d48936bdbdcc13c217a7c3)), closes [C#-encoder](https://github.com/C/issues/-encoder)
+
+
+### Features
+
+* **cli:** Go + Python adopt the compiled cli-core verbs, with an always-on cross-CLI verb-set gate (closes [#570](https://github.com/Ball-Lang/ball/issues/570)) ([#579](https://github.com/Ball-Lang/ball/issues/579)) ([039669e](https://github.com/Ball-Lang/ball/commit/039669ed1e89d8262faf4236404f0050af49bb98)), closes [#365](https://github.com/Ball-Lang/ball/issues/365) [#364](https://github.com/Ball-Lang/ball/issues/364) [#367](https://github.com/Ball-Lang/ball/issues/367) [#385](https://github.com/Ball-Lang/ball/issues/385) [#496](https://github.com/Ball-Lang/ball/issues/496) [#556](https://github.com/Ball-Lang/ball/issues/556) [#496](https://github.com/Ball-Lang/ball/issues/496)
+
 # [1.69.0](https://github.com/Ball-Lang/ball/compare/v1.68.7...v1.69.0) (2026-09-05)
 
 

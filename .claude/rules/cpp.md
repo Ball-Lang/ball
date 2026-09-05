@@ -152,6 +152,26 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `BallException::fields["message"]`, because a typed catch compiles `e.message`
   to `e.fields.at("message")`; `_ball_make_exception` stores it under `value`
   instead and aborts with `map::at`.
+- **A constructor's field write is gated on `is_this`, never on a name
+  collision or a param/field COUNT (#561).** `ctor_params`/`ctor_defaults`
+  (which decide whether a field keeps its own inline initializer, or degrades
+  to an unseeded nullable `BallDyn`) must be built with
+  `extract_is_this_flags`, never a bare `extract_params` - a PLAIN parameter
+  that merely shares a field's name binds nothing, not even when it belongs to
+  a different constructor of the same class. The old "auto-assign" heuristic
+  that positionally wrote every param into every field whenever the counts
+  matched is gone with NO replacement (it emitted `Holder(auto b) : seen(b)`
+  from a class-typed parameter, which g++ rejects outright): a plain
+  parameter's effect on a field comes from an explicit colon-initializer or a
+  body assignment, both already handled. And a constructor's OWN parameters
+  must be seeded into `declared_locals_` before its body compiles, mirroring
+  the method-emission pattern - a NAMED constructor's body runs in a static
+  factory with no `this`, so an own-field reference is rewritten to
+  `__obj.<field>` unless `declared_locals_` proves the name is shadowed. Seed
+  the named branch with the PLAIN parameters ONLY: Dart routes both reads and
+  writes of a `this.`-formal's name in the body to the FIELD (`Baz.tagged(
+  this.v) { v = 99; }` leaves `v == 99`), so those must keep the `__obj.`
+  rewrite.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)

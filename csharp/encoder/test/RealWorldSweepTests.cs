@@ -113,6 +113,8 @@ public class RealWorldSweepTests(ITestOutputHelper output)
             "CLOSED by #492 slice A — same omission path as bucket (b); dispatch resolves by the receiver's concrete runtime type, so an abstract member is unreachable anyway"),
         ("h: enum declaration with a use site", "h_enum_declaration.cs", EncodeMode.Program, true,
             "CLOSED by #492 slice C — an `enum` encodes to a Module.Enums[] EnumDescriptorProto plus a descriptor-less `kind: \"enum\"` TypeDefinition, and `Color.Green` to field_access(reference(\"Color\"), \"Green\") — the shape TypeEmit.CompileEnum already consumed and rust/encoder already emits"),
+        ("i: BCL static guard calls (ArgumentNullException.ThrowIfNull, Debug.Assert)", "i_bcl_static_guards.cs", EncodeMode.Program, true,
+            "CLOSED by #492 slice 3 — a static call on `ArgumentNullException`/`Debug` routes to the already-declared, already-compiled `std.assert`: `ThrowIfNull(x)` to assert(not_equals(x, null), <names x>), `Debug.Assert(cond[, msg])` 1:1. Added from a FRESH Tier A measurement (the `unsupported method call` fallback throw was 104 of 349 first-pass encode errors, `ThrowIfNull` its highest-count named shape) — the same way row (h) was added, not by assuming this table still describes reality"),
     ];
 
     /// <summary>Drive one fixture through the entry point its bucket declares.</summary>

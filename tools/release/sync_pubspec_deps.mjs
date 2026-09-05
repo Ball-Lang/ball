@@ -198,9 +198,10 @@ function cmpVersion(a, b) {
 
 /**
  * Does `^X.Y.Z` admit `version`? Pub's caret pins the leftmost NON-ZERO part:
- * `^1.2.3` means `>=1.2.3 <2.0.0`, `^0.3.0` means `>=0.3.0 <0.4.0`. That second
- * form is why a release matters here at all — bumping ball_base 0.3.0+3 -> 0.4.0
- * puts it outside every sibling's existing `^0.3.0+3`.
+ * `^1.2.3` means `>=1.2.3 <2.0.0`, `^0.3.0` means `>=0.3.0 <0.4.0`, and
+ * `^0.0.3` means `>=0.0.3 <0.0.4`. The middle form is why a release matters
+ * here at all — bumping ball_base 0.3.0+3 -> 0.4.0 puts it outside every
+ * sibling's existing `^0.3.0+3`.
  *
  * Returns null for any constraint shape this does not model (a range, `any`, a
  * quoted URL); the caller treats null as "not our business", never as a
@@ -213,7 +214,11 @@ export function caretAdmits(constraint, version) {
   const v = parseVersion(version);
   if (!lower || !v) return null;
   if (cmpVersion(v, lower) < 0) return false;
-  const upper = lower[0] !== 0 ? [lower[0] + 1, 0, 0, -1] : [0, lower[1] + 1, 0, -1];
+  const [major, minor, patch] = lower;
+  let upper;
+  if (major !== 0) upper = [major + 1, 0, 0, -1];
+  else if (minor !== 0) upper = [0, minor + 1, 0, -1];
+  else upper = [0, 0, patch + 1, -1];
   return cmpVersion(v, upper) < 0;
 }
 
@@ -406,6 +411,8 @@ function selfTest() {
     ['^0.3.0+6', '0.3.0+3', false, 'a 0.x caret does not admit an earlier build'],
     ['^1.2.3', '1.9.0', true, 'a 1.x caret admits a later minor'],
     ['^1.2.3', '2.0.0', false, 'a 1.x caret does not admit the next major'],
+    ['^0.0.3', '0.0.4', false, 'a 0.0.x caret pins the PATCH, not the minor'],
+    ['^0.0.3', '0.0.3+1', true, 'a 0.0.x caret admits a later build of its own patch'],
     ['any', '1.0.0', null, 'an unmodelled constraint shape is not our business'],
   ];
   let caretOk = true;

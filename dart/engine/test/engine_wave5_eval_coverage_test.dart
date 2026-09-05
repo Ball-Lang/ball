@@ -1197,8 +1197,13 @@ void main() {
     });
   });
 
-  group('single-param single-field constructor mapping (1357-1358)', () {
-    test('lone param (name != field) maps to the lone field', () async {
+  group('a plain constructor parameter never writes into a field (#539)', () {
+    test('lone param (name != field) leaves the lone field alone', () async {
+      // A single parameter and a single declared field used to be enough for
+      // _evalMessageCreation to write the argument into that field, whatever
+      // the two were called. Nothing in this program assigns `value`, so it
+      // must stay unset — the argument reaches the constructor and stops
+      // there.
       final program = buildProgram(
         functions: [
           {
@@ -1223,6 +1228,94 @@ void main() {
             'name': 'main:Cell',
             'descriptor': {
               'name': 'Cell',
+              'field': [
+                {
+                  'name': 'value',
+                  'number': 1,
+                  'label': 'LABEL_OPTIONAL',
+                  'type': 'TYPE_INT64',
+                },
+              ],
+            },
+          },
+        ],
+      );
+      expect(await runAndCapture(program), ['null']);
+    });
+
+    test(
+      'lone param whose name DOES match the field still writes nothing',
+      () async {
+        // The name collision was the other half of the same defect: a plain
+        // parameter that merely happens to share a field's name is an ordinary
+        // local, so `value` keeps its own (here absent) initializer.
+        final program = buildProgram(
+          functions: [
+            {
+              'name': 'main:Cell2.new',
+              'metadata': {
+                'kind': 'constructor',
+                'params': [
+                  {'name': 'value', 'type': 'int'},
+                ],
+              },
+            },
+            mainFn([
+              letStmt(
+                'c',
+                msg([field('value', literal(7))], typeName: 'main:Cell2'),
+              ),
+              stmt(printToString(fieldAcc(ref('c'), 'value'))),
+            ]),
+          ],
+          typeDefs: [
+            {
+              'name': 'main:Cell2',
+              'descriptor': {
+                'name': 'Cell2',
+                'field': [
+                  {
+                    'name': 'value',
+                    'number': 1,
+                    'label': 'LABEL_OPTIONAL',
+                    'type': 'TYPE_INT64',
+                  },
+                ],
+              },
+            },
+          ],
+        );
+        // The explicit `value:` field of the messageCreation itself still lands —
+        // that is a supplied field, not a parameter write-through.
+        expect(await runAndCapture(program), ['7']);
+      },
+    );
+
+    test('a `this.`-formal still writes its argument into the field', () async {
+      final program = buildProgram(
+        functions: [
+          {
+            'name': 'main:Cell3.new',
+            'metadata': {
+              'kind': 'constructor',
+              'params': [
+                {'name': 'value', 'is_this': true},
+              ],
+            },
+          },
+          mainFn([
+            letStmt(
+              'c',
+              msg([field('arg0', literal(7))], typeName: 'main:Cell3'),
+            ),
+            stmt(printToString(fieldAcc(ref('c'), 'value'))),
+          ]),
+        ],
+        typeDefs: [
+          {
+            'name': 'main:Cell3',
+            'descriptor': {
+              'name': 'Cell3',
               'field': [
                 {
                   'name': 'value',

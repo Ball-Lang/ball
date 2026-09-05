@@ -2176,15 +2176,20 @@ export class BallEngine {
       }
       let params = (!(func.name.length === 0) ? (__ball_index(this._paramCache, ((__ball_to_string(moduleName) + '.') + __ball_to_string(func.name))) ?? ((hasMetadata(func) ? this._extractParams(func.metadata) : []))) : ((hasMetadata(func) ? this._extractParams(func.metadata) : [])));
       let inputMap = this._asMap(input);
+      let inputIsInstance = (!__ball_eq(inputMap, null) && this._isInstanceValue(inputMap));
+      let boundParams = [];
       if (!(params.length === 0)) {
         if ((__ball_eq(params.length, 1) && !(!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', 'self')))) {
-          if ((!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
+          if (((!__ball_eq(inputMap, null) && !inputIsInstance) && __ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
             scope.bind(__ball_index(params, 0), __ball_index(inputMap, __ball_index(params, 0)));
+            boundParams = (boundParams.push(__ball_index(params, 0)), boundParams);
           } else {
-            if (((!__ball_eq(inputMap, null) && __ball_map_has(inputMap, 'map_contains_key', 'arg0')) && !__ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
+            if ((((!__ball_eq(inputMap, null) && !inputIsInstance) && __ball_map_has(inputMap, 'map_contains_key', 'arg0')) && !__ball_map_has(inputMap, 'map_contains_key', __ball_index(params, 0)))) {
               scope.bind(__ball_index(params, 0), __ball_index(inputMap, 'arg0'));
+              boundParams = (boundParams.push(__ball_index(params, 0)), boundParams);
             } else {
               scope.bind(__ball_index(params, 0), input);
+              boundParams = (boundParams.push(__ball_index(params, 0)), boundParams);
             }
           }
         } else {
@@ -2193,12 +2198,15 @@ export class BallEngine {
               let p = __ball_index(params, i);
               if (__ball_map_has(inputMap, 'map_contains_key', p)) {
                 scope.bind(p, __ball_index(inputMap, p));
+                boundParams = (boundParams.push(p), boundParams);
               } else {
                 if (__ball_map_has(inputMap, 'map_contains_key', ('arg' + __ball_to_string(i)))) {
                   scope.bind(p, __ball_index(inputMap, ('arg' + __ball_to_string(i))));
+                  boundParams = (boundParams.push(p), boundParams);
                 } else {
                   if ((((__ball_eq(i, 0) && __ball_eq(params.length, 1)) && __ball_map_has(inputMap, 'map_contains_key', 'value')) && this._isSetter(func))) {
                     scope.bind(p, __ball_index(inputMap, 'value'));
+                    boundParams = (boundParams.push(p), boundParams);
                   }
                 }
               }
@@ -2207,6 +2215,7 @@ export class BallEngine {
             if (Array.isArray(input)) {
               for (let i = 0; (__ball_lt(i, params.length) && __ball_lt(i, input.length)); (i++)) {
                 scope.bind(__ball_index(params, i), __ball_index(input, i));
+                boundParams = (boundParams.push(__ball_index(params, i)), boundParams);
               }
             }
           }
@@ -2218,7 +2227,7 @@ export class BallEngine {
         let selfMap = this._asMap(self);
         if (!__ball_eq(selfMap, null)) {
           for (const entry of selfMap.entries) {
-            if (!entry.key.startsWith('__')) {
+            if ((!entry.key.startsWith('__') && !boundParams.includes(entry.key))) {
               scope.bind(entry.key, entry.value);
             }
           }
@@ -2330,12 +2339,9 @@ export class BallEngine {
     if (__ball_eq(typeDef, null)) {
       return null;
     }
-    let inputMap = (this._asMap(input) ?? { ['arg0']: input });
+    let rawInputMap = this._asMap(input);
+    let inputMap = ((__ball_eq(rawInputMap, null) || this._isInstanceValue(rawInputMap)) ? { ['arg0']: input } : rawInputMap);
     let instanceFields = {};
-    for (const fieldName of typeDef.fieldNames) {
-      instanceFields[fieldName] = null;
-    }
-    let allFieldNames = this._collectAllFieldNames(typeName);
     let params = (hasMetadata(func) ? this._extractParams(func.metadata) : []);
     let paramsMeta = (hasMetadata(func) ? this._extractParamsMeta(func.metadata) : []);
     let resolvedParams = {};
@@ -2354,15 +2360,16 @@ export class BallEngine {
       }
       resolvedParams[param] = value;
       let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
-      if ((isThis || allFieldNames.includes(param))) {
+      if (isThis) {
         instanceFields[param] = value;
-      } else {
-        if ((__ball_eq(params.length, 1) && __ball_eq(allFieldNames.length, 1))) {
-          instanceFields[allFieldNames.first] = value;
-        }
       }
     }
     this._initFieldDefaults(typeName, instanceFields);
+    for (const fieldName of typeDef.fieldNames) {
+      if (!__ball_map_has(instanceFields, 'map_contains_key', fieldName)) {
+        instanceFields[fieldName] = null;
+      }
+    }
     this._applyConstructorInitializers(func, instanceFields, resolvedParams, true);
     let superclass = this._getMetaString(typeDef, 'superclass');
     let superObject;
@@ -2470,7 +2477,8 @@ export class BallEngine {
     let typeName = (__ball_ge(dotIdx, 0) ? func.name.substring(0, dotIdx) : func.name);
     instance['__type__'] = typeName;
     let resolvedParams = {};
-    let inputMap = this._asMap(input);
+    let rawInputMap = this._asMap(input);
+    let inputMap = ((!__ball_eq(rawInputMap, null) && this._isInstanceValue(rawInputMap)) ? { ['arg0']: input } : rawInputMap);
     if (!__ball_eq(inputMap, null)) {
       for (let i = 0; __ball_lt(i, params.length); (i++)) {
         let p = __ball_index(params, i);
@@ -2507,6 +2515,7 @@ export class BallEngine {
     }
     this._applyConstructorInitializers(func, instance, resolvedParams);
     let typeDef = this._findTypeDef(typeName);
+    this._initFieldDefaults(typeName, instance);
     if (!__ball_eq(typeDef, null)) {
       let superclass = this._getMetaString(typeDef, 'superclass');
       if ((!__ball_eq(superclass, null) && !(superclass.length === 0))) {
@@ -4353,7 +4362,6 @@ export class BallEngine {
           }
         }
         let instanceFields = {};
-        let allFieldNames = this._collectAllFieldNames(msg.typeName);
         for (const entry of fields.entries) {
           if (!entry.key.startsWith('arg')) {
             instanceFields[entry.key] = entry.value;
@@ -4385,12 +4393,8 @@ export class BallEngine {
             }
             resolvedParams[param] = value;
             let isThis = (__ball_lt(i, paramsMeta.length) && __ball_eq(__ball_index(__ball_index(paramsMeta, i), 'is_this'), true));
-            if ((isThis || allFieldNames.includes(param))) {
+            if (isThis) {
               instanceFields[param] = value;
-            } else {
-              if ((__ball_eq(params.length, 1) && __ball_eq(allFieldNames.length, 1))) {
-                instanceFields[allFieldNames.first] = value;
-              }
             }
           }
         }
@@ -4684,26 +4688,16 @@ export class BallEngine {
     }
   }
 
-  _collectAllFieldNames(typeName: any): any {
-    const input = typeName;
-    let names = [];
-    let typeDef = this._findTypeDef(typeName);
-    if (__ball_eq(typeDef, null)) {
-      return names;
+  _isInstanceValue(map: any): any {
+    const input = map;
+    let typeName = __ball_index(map, '__type__');
+    if ((!((typeof typeName === 'string')) || (typeName.length === 0))) {
+      return false;
     }
-    let colonIdx = typeName.indexOf(':');
-    let modPart = (__ball_ge(colonIdx, 0) ? typeName.substring(0, colonIdx) : this._currentModule);
-    let superclass = typeDef.superclass;
-    if ((!__ball_eq(superclass, null) && !(superclass.length === 0))) {
-      let qualifiedSuper = (superclass.includes(':') ? superclass : ((__ball_to_string(modPart) + ':') + __ball_to_string(superclass)));
-      __ball_push_all(names, this._collectAllFieldNames(qualifiedSuper));
+    if (__ball_map_has(map, 'map_contains_key', '__fields__')) {
+      return true;
     }
-    for (const fieldName of typeDef.fieldNames) {
-      if (!names.includes(fieldName)) {
-        names = (names.push(fieldName), names);
-      }
-    }
-    return names;
+    return !__ball_eq(this._findTypeDef(typeName), null);
   }
 
   _buildSuperObject(superclass: any, childFields: any): any {

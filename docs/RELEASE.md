@@ -118,19 +118,49 @@ combining distribution is caught before a tag is ever cut.
 ## Go modules lane (`go/<module>/vX.Y.Z`)
 
 The six Go modules are consumed straight from the module proxy — there is no
-registry account and nothing to upload; a tag *is* the release. `release-tag.yml`'s
-`tag-go-modules` job cuts all six tags on the release commit **in one push** (a
-dependent must never resolve to a version that does not exist yet), at the
-version single-sourced from the `go/*/go.mod` requires
-(`tools/go-module-proxy/build_local_proxy.py --print-version`, which also asserts
-all six agree and that no go.mod carries a `replace` directive). It is idempotent
-when the tags already exist and refuses to act on a half-tagged set.
+registry account and nothing to upload; a tag *is* the release.
 
-Bumping the Go module line is therefore a normal PR that edits those `require`
-lines; the next release commit publishes it. `tools/go-module-proxy/smoke.sh`
-(gating in ci.yml's `go` job) proves `go install
+```
+push to main
+  └► release.yml → semantic-release (as in the npm lane above)
+       └► gh workflow run tag-go-modules.yml --ref vX.Y.Z   ← EXPLICIT dispatch
+            └► tag-go-modules.yml: one `git push` creating all six
+               go/<module>/vA.B.C tags on the released commit
+```
+
+`tag-go-modules.yml` cuts all six tags **in one push** (a dependent must never
+resolve to a version that does not exist yet), at the version single-sourced from
+the `go/*/go.mod` requires (`tools/go-module-proxy/build_local_proxy.py
+--print-version`, which also asserts all six agree and that no go.mod carries a
+`replace` directive). It is idempotent when the tags already exist and refuses to
+act on a half-tagged set. Note the Go module version is its OWN line (`v0.1.0`
+first) — it is not the repo's `vX.Y.Z` release version, which only selects the
+commit the tags land on.
+
+**Why the explicit dispatch** — same reason as npm and C++ above, and this lane
+learned it the expensive way. The job originally lived in `release-tag.yml` behind
+`on: push: branches:[main]` + `if: contains(head_commit.message, 'chore(release)')`.
+semantic-release commits `chore(release): X.Y.Z [skip ci]`, and GitHub's skip-ci
+recursion protection suppresses the **entire workflow run** on such a push — not
+merely the job's `if:`. No run row is created at all, so the dead channel read as
+"nothing red" while five releases (v1.61.1 … v1.64.0) shipped and
+`gh api repos/Ball-Lang/ball/git/matching-refs/tags/go%2F` still returned `[]`.
+`tools/release/check_release_dispatch_wiring.sh` (ci.yml's `Proto Checks` job) now
+pins the dispatch contract for all three channels so this cannot recur.
+
+**Status: no `go/` tags exist yet.** As of v1.64.0 the public proxy has nothing
+to serve, so `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` does
+**not** resolve — the Go modules remain clone-and-build in practice. The dispatch
+wiring above only covers releases from here on; the already-shipped ones need a
+one-time maintainer backfill:
+
+```sh
+gh workflow run tag-go-modules.yml --ref main   # creates the six go/<module>/v0.1.0 tags
+```
+
+`tools/go-module-proxy/smoke.sh` (gating in ci.yml's `go` job) proves `go install
 github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
-proxy before any tag exists.
+proxy — that is what the tags will make real, not evidence that they exist.
 
 ## C++ `ball` binaries lane (GitHub Release assets)
 

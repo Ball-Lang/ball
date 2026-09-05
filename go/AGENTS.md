@@ -87,7 +87,13 @@ It synthesizes the `file://` proxy the `go/<module>/v0.1.0` tags will produce
 proxy.golang.org will compute), builds each module standalone with no `go.work`
 and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
 GOPATH and runs the binary. Off the *public* proxy this resolves only once the
-six `go/<module>/v0.1.0` tags are pushed on one commit.
+six `go/<module>/v0.1.0` tags are pushed on one commit — and **as of v1.64.0 they
+have not been**, so `go install …@latest` still does not resolve. Those tags come
+from `.github/workflows/tag-go-modules.yml`, which `release.yml` dispatches on
+every release (`gh workflow run tag-go-modules.yml --ref vX.Y.Z`); the releases
+that shipped before that wiring existed need a one-time maintainer backfill
+(`gh workflow run tag-go-modules.yml --ref main`). See `docs/RELEASE.md`'s
+"Go modules lane".
 
 **Both legs run against a fresh `GOMODCACHE`** — leg 1 gained one while landing
 #537. `v0.1.0` names a tag, not a commit, so a warm module cache already holding

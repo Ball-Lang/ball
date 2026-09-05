@@ -153,6 +153,18 @@ jobs:
       - name: vcpkg self-host sidecar wiring test (#368)
         run: bash tools/vcpkg-port/test/test_selfhost_asset_wiring.sh
 
+      # A release channel wired to `push: branches:[main]` + a `chore(release)`
+      # message match can NEVER fire: semantic-release commits
+      # `chore(release): X.Y.Z [skip ci]`, and GitHub's skip-ci recursion
+      # protection suppresses the whole workflow run — no run row is created at
+      # all, so the dead channel reads as "nothing red". `tag-go-modules` shipped
+      # that way and cut zero tags across five releases (#361). This pins the
+      # documented workaround release.yml already uses for npm and C++: an
+      # explicit `gh workflow run <file> --ref "v<version>"` step, guarded on
+      # released_version, pointed at a workflow that declares workflow_dispatch.
+      - name: Release dispatch wiring guard (#361)
+        run: bash tools/release/check_release_dispatch_wiring.sh
+
       # release-cpp.yml is tag-dispatched, so its build matrix is never
       # exercised by a PR — a dropped leg, an `x64` target pointed at an
       # Apple-Silicon runner, or a target table in docs/RELEASE.md left behind

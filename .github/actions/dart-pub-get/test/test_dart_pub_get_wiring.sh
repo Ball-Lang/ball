@@ -299,6 +299,26 @@ permanent_failure_is_bounded_and_loud() {
     return 1
     ;;
   esac
+  # The reported exit code must be the RESOLVER's, not the retry loop's own
+  # bookkeeping (issue #540). The stub exits 69 on every failing attempt, so
+  # both the per-attempt line and the exhaustion line must name 69. A bare
+  # `if dart pub get; then ...; fi` followed by `last_rc=$?` captures the
+  # if-compound's own status (0 on the no-else false branch, per POSIX), which
+  # silently turns every message into a misleading "(exit 0)".
+  case "$LAST_OUT" in
+  *"failed (exit 69)"*) ;;
+  *)
+    echo "a per-attempt message did not name the resolver's real exit code 69; got: $LAST_OUT"
+    return 1
+    ;;
+  esac
+  case "$LAST_OUT" in
+  *"(last exit 69)"*) ;;
+  *)
+    echo "the exhaustion message did not name the resolver's real exit code 69; got: $LAST_OUT"
+    return 1
+    ;;
+  esac
   return 0
 }
 assert_cmd "permanent failure -> nonzero, bounded at attempts, last error surfaced" 0 \

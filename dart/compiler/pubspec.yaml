@@ -2,7 +2,7 @@ name: ball_compiler
 description: >-
   Ball-to-Dart compiler that translates Ball protobuf programs into formatted
   Dart source code, with support for multi-module package compilation.
-version: 0.3.0+6
+version: 0.4.0
 homepage: https://github.com/ball-lang/ball
 repository: https://github.com/ball-lang/ball
 issue_tracker: https://github.com/ball-lang/ball/issues

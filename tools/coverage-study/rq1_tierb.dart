@@ -72,6 +72,7 @@ import 'dart:io';
 import 'package:ball_base/gen/ball/v1/ball.pb.dart' show Module;
 import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/encoder.dart';
+import 'package:ball_encoder/package_encoder.dart';
 import 'package:crypto/crypto.dart' show sha256;
 
 import 'rq1_study.dart' show stageReached, studyFile;
@@ -195,6 +196,95 @@ String? compileBack(String source) {
   }
   final compiled = buffer.toString();
   return compiled.trim().isEmpty ? null : compiled;
+}
+
+/// One package's compiled-back Dart, produced through the RECEIVER-TYPE-AWARE
+/// seam — the whole point of [preparePackageCompileBack].
+///
+/// [compileBack] above is the resolution-free path: it calls
+/// `DartEncoder().encode(source)`, whose `parseString` AST leaves every
+/// `Expression.staticType` null. Every receiver-type-aware branch in the
+/// encoder (`_receiverIsSet` and its slice-2 siblings, issue #488) is gated on
+/// a non-null `staticType`, so through that path they are **structurally
+/// unreachable**: Tier B could not see the fix for the very defect it was built
+/// to measure. `path/lib/src/path_set.dart` still scored `behavioral-drift` on
+/// `main` after slice 1 landed, with the byte-identical `return_of_invalid_type`
+/// error, purely because of this wiring.
+///
+/// `PackageEncoder.prepareStaticTypes()` is the opt-in that supplies resolved
+/// units. It is a PER-PACKAGE cost (a multi-second analyzer cold start plus one
+/// resolve per file), which is why the whole package is encoded and compiled
+/// ONCE here and every file's text is looked up from the result, rather than
+/// re-encoding per substitution.
+///
+/// Fail-soft, deliberately: a checkout the analyzer cannot resolve (no
+/// `.dart_tool/package_config.json`, a `lib/` the encoder does not scan, an
+/// analyzer crash) yields `null` and every file falls back to [compileBack].
+/// A measurement instrument must degrade to its previous behaviour, never
+/// vanish.
+class PackageCompileBack {
+  PackageCompileBack(this._byRelPath, this.warnings);
+
+  /// Package-relative POSIX path (`lib/src/path_set.dart`) → compiled Dart.
+  final Map<String, String> _byRelPath;
+
+  /// `PackageEncoder`'s own resolution warnings, surfaced for diagnosis.
+  final List<String> warnings;
+
+  /// How many files this context can supply text for.
+  int get length => _byRelPath.length;
+
+  /// The compiled-back Dart for [packageRelPath], or `null` when this package
+  /// context has nothing for it (a part file, a module that compiled to
+  /// nothing, a path outside the scanned dirs).
+  String? operator [](String packageRelPath) => _byRelPath[packageRelPath];
+}
+
+/// Encodes and compiles [checkout] ONCE through the receiver-type-aware seam.
+///
+/// Returns `null` — never throws — when the package cannot be resolved; see
+/// [PackageCompileBack] for why that fallback is load-bearing.
+Future<PackageCompileBack?> preparePackageCompileBack(
+  Directory checkout,
+) async {
+  final PackageEncoder encoder;
+  try {
+    encoder = PackageEncoder(checkout);
+    await encoder.prepareStaticTypes();
+  } catch (_) {
+    return null;
+  }
+  // Without resolved units this path is byte-identical to `compileBack`, so
+  // there is nothing to gain from the (much more expensive) package encode.
+  if (!encoder.hasStaticTypes) return null;
+
+  final Map<String, String> byRelPath = {};
+  try {
+    final program = encoder.encode();
+    final compiler = DartCompiler(program);
+    final moduleToRel = {
+      for (final entry in encoder.fileToModuleMap.entries)
+        entry.value: entry.key,
+    };
+    for (final module in program.modules) {
+      if (_isGeneratedStdModule(module)) continue;
+      final rel = moduleToRel[module.name];
+      if (rel == null) continue;
+      final String compiled;
+      try {
+        compiled = compiler.compileModule(module.name);
+      } catch (_) {
+        // One unemittable module must not cost the package its whole context;
+        // that file simply falls back to the per-file path.
+        continue;
+      }
+      if (compiled.trim().isNotEmpty) byRelPath[rel] = compiled;
+    }
+  } catch (_) {
+    return null;
+  }
+  if (byRelPath.isEmpty) return null;
+  return PackageCompileBack(byRelPath, List.of(encoder.warnings));
 }
 
 String _firstLine(Object error) {
@@ -405,7 +495,16 @@ class _Candidate {
 /// file the encoder refused or the compiler could not emit parseable Dart for
 /// is already counted as a Tier A failure, and scoring it again here would
 /// double-count one defect across two tiers.
-_Candidate _candidate(File file, Directory libRoot) {
+/// [packageRoot] and [packageCompiled] are the receiver-type-aware seam: when a
+/// package context is available, the substituted text comes from the ONE
+/// package-level encode that resolved static types, and only files it has no
+/// entry for fall back to the resolution-free [compileBack].
+_Candidate _candidate(
+  File file,
+  Directory libRoot, {
+  Directory? packageRoot,
+  PackageCompileBack? packageCompiled,
+}) {
   final rel = _relative(file, libRoot);
   final String source;
   try {
@@ -424,15 +523,20 @@ _Candidate _candidate(File file, Directory libRoot) {
   if (stageReached(tierA.reason) < 2) {
     return _Candidate.excluded(file, rel, 'not-compiled: ${tierA.reason}');
   }
-  final String? compiled;
-  try {
-    compiled = compileBack(source);
-  } catch (e) {
-    return _Candidate.excluded(
-      file,
-      rel,
-      'not-compiled: compile-error: ${_firstLine(e)}',
-    );
+  String? compiled;
+  if (packageCompiled != null && packageRoot != null) {
+    compiled = packageCompiled[_relative(file, packageRoot)];
+  }
+  if (compiled == null) {
+    try {
+      compiled = compileBack(source);
+    } catch (e) {
+      return _Candidate.excluded(
+        file,
+        rel,
+        'not-compiled: compile-error: ${_firstLine(e)}',
+      );
+    }
   }
   if (compiled == null) {
     return _Candidate.excluded(
@@ -584,8 +688,19 @@ Future<TierBPackageResult> studyPackagePerFile(
   final (:unstable, :baseline) = await establishBaseline(checkout, options);
   if (unstable != null) return TierBPackageResult(package, unstable, const []);
 
+  // AFTER establishBaseline, never before: `prepareStaticTypes()` needs the
+  // `.dart_tool/package_config.json` that `pubGet` writes, and resolving a
+  // package whose baseline turned out unusable would be wasted analyzer time.
+  final packageCompiled = await preparePackageCompileBack(checkout);
+
   var candidates = [
-    for (final file in dartFilesUnder(libRoot)) _candidate(file, libRoot),
+    for (final file in dartFilesUnder(libRoot))
+      _candidate(
+        file,
+        libRoot,
+        packageRoot: checkout,
+        packageCompiled: packageCompiled,
+      ),
   ];
   if (options.maxFilesPerPackage > 0) {
     candidates = candidates.take(options.maxFilesPerPackage).toList();
@@ -634,8 +749,19 @@ Future<TierBPackageResult> studyPackageWhole(
   final (:unstable, :baseline) = await establishBaseline(checkout, options);
   if (unstable != null) return TierBPackageResult(package, unstable, const []);
 
+  // AFTER establishBaseline, never before: `prepareStaticTypes()` needs the
+  // `.dart_tool/package_config.json` that `pubGet` writes, and resolving a
+  // package whose baseline turned out unusable would be wasted analyzer time.
+  final packageCompiled = await preparePackageCompileBack(checkout);
+
   var candidates = [
-    for (final file in dartFilesUnder(libRoot)) _candidate(file, libRoot),
+    for (final file in dartFilesUnder(libRoot))
+      _candidate(
+        file,
+        libRoot,
+        packageRoot: checkout,
+        packageCompiled: packageCompiled,
+      ),
   ];
   if (options.maxFilesPerPackage > 0) {
     candidates = candidates.take(options.maxFilesPerPackage).toList();

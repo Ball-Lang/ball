@@ -1784,7 +1784,34 @@ extension BallEngineControlFlow on BallEngine {
         case 'contains':
           return self.contains(arg0);
         case 'indexOf':
-          return self.indexOf(arg0);
+          // `indexOf(element, [start])`. The two-argument form reaches the
+          // GENERIC dispatch on purpose: `std_collections.list_index_of`
+          // declares no start operand, so the encoder declines that route for
+          // it (issue #488). Scanning by hand rather than calling
+          // `self.indexOf(arg0, from)` keeps this file Ball-portable — a
+          // two-argument `indexOf` inside the engine's own source would be
+          // declined by the very same rule when the engine is self-hosted.
+          final indexFrom = args['arg1'];
+          if (indexFrom == null) return self.indexOf(arg0);
+          var scan = _toInt(indexFrom);
+          if (scan < 0) scan = 0;
+          while (scan < self.length) {
+            if (self[scan] == arg0) return scan;
+            scan++;
+          }
+          return -1;
+        case 'lastIndexOf':
+          // Only the two-argument form reaches here (the one-argument form
+          // still routes to `std.string_last_index_of`); scan backwards by
+          // hand for the same portability reason as `indexOf` above.
+          final lastFrom = args['arg1'];
+          var lastScan = lastFrom == null ? self.length - 1 : _toInt(lastFrom);
+          if (lastScan >= self.length) lastScan = self.length - 1;
+          while (lastScan >= 0) {
+            if (self[lastScan] == arg0) return lastScan;
+            lastScan--;
+          }
+          return -1;
         case 'join':
           final joinParts = <String>[];
           for (final e in self) {
@@ -2095,7 +2122,17 @@ extension BallEngineControlFlow on BallEngine {
           final end = args['arg1'];
           return self.substring(_toInt(arg0), end != null ? _toInt(end) : null);
         case 'indexOf':
-          return self.indexOf(arg0.toString());
+          // `String.indexOf(pattern, [start])` — same reasoning as the List
+          // arm above, and the same portability constraint: compose from a
+          // one-argument `indexOf` plus `substring` rather than calling the
+          // two-argument overload the engine's own encoder declines.
+          final strFrom = args['arg1'];
+          if (strFrom == null) return self.indexOf(arg0.toString());
+          var strScan = _toInt(strFrom);
+          if (strScan < 0) strScan = 0;
+          if (strScan > self.length) return -1;
+          final strHit = self.substring(strScan).indexOf(arg0.toString());
+          return strHit < 0 ? -1 : strHit + strScan;
         case 'split':
           return self.split(arg0.toString());
         case 'trim':
@@ -2110,7 +2147,44 @@ extension BallEngineControlFlow on BallEngine {
             (args['arg1'] ?? '').toString(),
           );
         case 'startsWith':
-          return self.startsWith(arg0.toString());
+          // `startsWith(pattern, [index])`. The two-argument form reaches the
+          // GENERIC dispatch on purpose: `std.string_starts_with` declares no
+          // offset operand (issue #488), so the encoder declines that route
+          // for it. Compose from `substring` + a one-argument `startsWith`
+          // rather than calling the two-argument overload, which the engine's
+          // own encoder would decline when it is self-hosted.
+          final swFrom = args['arg1'];
+          if (swFrom == null) return self.startsWith(arg0.toString());
+          var swAt = _toInt(swFrom);
+          if (swAt < 0) swAt = 0;
+          if (swAt > self.length) return false;
+          return self.substring(swAt).startsWith(arg0.toString());
+        case 'lastIndexOf':
+          // `lastIndexOf(pattern, [start])` — start bounds the SEARCH START,
+          // so everything up to `start + pattern.length` is in range.
+          final liNeedle = arg0.toString();
+          final liStart = args['arg1'];
+          if (liStart == null) return self.lastIndexOf(liNeedle);
+          final liAt = _toInt(liStart);
+          if (liAt < 0) return -1;
+          var liEnd = liAt + liNeedle.length;
+          if (liEnd > self.length) liEnd = self.length;
+          return self.substring(0, liEnd).lastIndexOf(liNeedle);
+        case 'replaceFirst':
+          // `replaceFirst(from, to, [startIndex])`.
+          final rfTo = (args['arg1'] ?? '').toString();
+          final rfStart = args['arg2'];
+          if (rfStart == null) {
+            return self.replaceFirst(arg0.toString(), rfTo);
+          }
+          var rfAt = _toInt(rfStart);
+          if (rfAt < 0) rfAt = 0;
+          if (rfAt > self.length) return self;
+          final rfHead = self.substring(0, rfAt);
+          final rfTail = self
+              .substring(rfAt)
+              .replaceFirst(arg0.toString(), rfTo);
+          return rfHead + rfTail;
         case 'endsWith':
           return self.endsWith(arg0.toString());
         case 'padLeft':

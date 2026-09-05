@@ -379,11 +379,29 @@ and excluded from the denominator; at least one file was actually scored and a
 cannot tell "everything passed" from "nothing ran").
 
 The load-bearing assertion is the pair: a file carrying the #488 shape —
-`return seen.add(name)` on a `Set<String>` — is scored `behavioral-drift` by
-Tier B **while Tier A scores the very same source `clean`**, both verdicts
-asserted side by side in one test. That pair is the entire justification for
-Tier B existing. That self-test runs as a **gated** step in `ci.yml`'s Dart job,
-exactly like Tier A's — the instrument is gated even though the study is not.
+`return seen.add(name)` on a `Set<String>` — is measured through the
+receiver-type-aware seam and scored `clean`, **while the resolution-free
+`compileBack` still emits the broken `return seen..add(name)` cascade for the
+very same source**, both asserted side by side in one test. That self-test runs
+as a **gated** step in `ci.yml`'s Dart job, exactly like Tier A's — the
+instrument is gated even though the study is not.
+
+That assertion INVERTED in #488 slice 2, and the inversion is the point. Tier B
+originally called `DartEncoder().encode(source)` per file, whose `parseString`
+AST leaves every `Expression.staticType` null. Every receiver-type-aware branch
+in the encoder is gated on a non-null `staticType`, so from Tier B's vantage
+they were **structurally unreachable** — the harness could not see the fix for
+the very defect it was built to measure. Slice 1's `Set.add` fix had already
+landed on `main` and Tier B still scored `path/lib/src/path_set.dart` as
+`behavioral-drift`, with the byte-identical `return_of_invalid_type` error.
+
+The harness now runs ONE `PackageEncoder.prepareStaticTypes()` + `encode()` +
+`DartCompiler` per package (`preparePackageCompileBack`) and looks each file's
+text up from that result; a checkout it cannot resolve falls back per file to
+the old resolution-free `compileBack`, so a `pub get`-less tree still measures
+something rather than nothing. Two extra self-test assertions pin the seam
+itself: that the per-package context is actually built (a silent fallback would
+score `clean` by luck), and that it compiles `Set<T>.add(x)` as a plain call.
 
 ### Floored, by ratchet
 
@@ -403,13 +421,26 @@ packages clean whole-package. The first full scheduled run landed near it but
 not on it — 93/106 and 2/5 — which is exactly why the committed floor is the
 measured number and not the prototype's.
 
-One pin was run end-to-end while building this harness, as a smoke test rather
-than a baseline: `path` @ `7e3d5d8` scored **9/13 clean (69%)** per-file and
-**0/1 whole-package**, and its checkout was byte-identical to its pinned commit
-after both runs. The per-file run took ~530 s on a developer machine for 13 files
-plus the two baseline runs — roughly 35 s per `dart test`, which is what sizes
-the job's 180-minute bound. The first real numbers come from a scheduled run over
-all five pins, not from this.
+Two smoke measurements of one pin exist, both `path` @ `7e3d5d8`, per-file,
+labelled rather than baselined:
+
+| when | result | what changed |
+| --- | --- | --- |
+| while building this harness (#560) | **9/13 clean (69%)**, 0/1 whole-package | — |
+| after #488 slice 2 | **12/13 clean (92%)** | the harness was wired to the receiver-type seam (`path_set.dart` → clean), and the dropped-optional-operand family was fixed (`style/windows.dart`, `style/url.dart` → clean) |
+
+The one file still scored `behavioral-drift` is `src/context.dart`, and it is a
+different mechanism: Dart's flow-sensitive promotion through REASSIGNMENT
+(`from = from == null ? current : absolute(from);` promoting a `String?`
+parameter for the rest of the body). Ball's IR is untyped and carries no
+representation of it, so nothing survives the round trip to let the recompiled
+Dart re-derive the promotion. That is tracked as #573, not as part of #488.
+
+Neither number is a committed baseline — the checkout was byte-identical to its
+pinned commit after every run, but one pin on one machine is a sanity check, not
+variance. The per-file run takes ~530 s for 13 files plus the two baseline runs
+— roughly 35 s per `dart test`, which is what sizes the job's 180-minute bound.
+The first real numbers come from a scheduled run over all five pins.
 
 ### Fixing what it finds is not this instrument's job
 

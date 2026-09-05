@@ -1,3 +1,10 @@
+## [1.66.2](https://github.com/Ball-Lang/ball/compare/v1.66.1...v1.66.2) (2026-09-05)
+
+
+### Bug Fixes
+
+* **rust,csharp,go,python:** resolve named-constructor calls, apply constructor initializer lists, and give Rust/C# a real Set value (closes [#527](https://github.com/Ball-Lang/ball/issues/527), closes [#528](https://github.com/Ball-Lang/ball/issues/528)) ([#553](https://github.com/Ball-Lang/ball/issues/553)) ([f99b566](https://github.com/Ball-Lang/ball/commit/f99b566aca0dd9ffb0f53f32cd663ec2f3506b0b)), closes [#174](https://github.com/Ball-Lang/ball/issues/174)
+
 ## [1.66.1](https://github.com/Ball-Lang/ball/compare/v1.66.0...v1.66.1) (2026-09-05)
 
 

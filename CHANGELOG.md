@@ -1,3 +1,10 @@
+# [1.66.0](https://github.com/Ball-Lang/ball/compare/v1.65.0...v1.66.0) (2026-09-05)
+
+
+### Features
+
+* **encoder:** tolerate non-method impl items in Rust and encode C# enums and this(...) ctor chains ([#550](https://github.com/Ball-Lang/ball/issues/550)) ([2d0410d](https://github.com/Ball-Lang/ball/commit/2d0410d97eab90d7e17a9efb63b3495eb221a9b5)), closes [#491](https://github.com/Ball-Lang/ball/issues/491) [#492](https://github.com/Ball-Lang/ball/issues/492) [#492](https://github.com/Ball-Lang/ball/issues/492) [#493](https://github.com/Ball-Lang/ball/issues/493)
+
 # [1.65.0](https://github.com/Ball-Lang/ball/compare/v1.64.0...v1.65.0) (2026-09-05)
 
 

@@ -1,0 +1,4 @@
+encoded v1.0.0
+  std (base) — 13 functions
+  main — 1 functions
+    → std (ref only)

@@ -275,8 +275,14 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
   "Detect changed stacks" filter runs the job on `go/**` changes or any self-host
   Dart source change. NB: the selfhost sweep uses `go test -v` — without `-v`,
   `go test` caches and discards a passing test's `Results:` stdout.
-- Deferred to a later phase: the self-hosted cli-core verbs
-  (`info`/`validate`/`tree`/`version`). Encoder gaps remain (top-level
+- **cli-core verbs (`info`/`validate`/`tree`/`version`): complete / CI-gated**
+  (#570) — compiled from `dart/self_host/cli.ball.pb` through `go/compiler` into
+  the gitignored `go/cli/compiled/compiled_cli.go`, behind the off-by-default
+  `clicore` build tag (independent of `selfhost`). The `go` job regenerates and
+  runs the golden-parity gate against the Dart CLI's own output; the always-on
+  `CLI Verb Parity` job checks the verb set itself. See `go/cli/AGENTS.md`.
+- Deferred: `ball audit` (the verb + its options and goldens; `auditReport`
+  itself already compiles into `compiled_cli.go`). Encoder gaps remain (top-level
   types/const/var, structs-as-TypeDefinitions, maps/sets in the encoder path,
   multi-value return/assign, `switch`/`defer`/goroutines, `fmt.Printf`).
 

@@ -1,0 +1,2 @@
+Valid: "encoded" v1.0.0
+  2 modules, 10 functions

@@ -85,6 +85,16 @@ func newEngine(program *ballv1.Program) (*BallEngine, error) {
 	return &BallEngine{Program: program, view: view}, nil
 }
 
+// ProgramValue returns the loaded program's canonical proto3-JSON BallValue
+// view — the exact tree the compiled self-hosted engine reads, and the input
+// every compiled cli_core report function takes (issue #570).
+//
+// Exported so go/cli's info/validate/tree verbs can hand the view to the
+// compiled CLI core without rebuilding it (the Go analog of rust/engine's
+// `program_value()`, which rust/cli's cli-core commands call). The returned tree
+// is the engine's own — treat it as read-only.
+func (e *BallEngine) ProgramValue() ballrt.Value { return e.view }
+
 // Run executes the program and returns its captured stdout lines. In the default
 // build it returns ErrSelfHostPending; under the `selfhost` build tag it drives
 // the compiled self-hosted engine.

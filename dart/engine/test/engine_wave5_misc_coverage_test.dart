@@ -1146,10 +1146,11 @@ void main() {
       expect(await runAndCapture(p), ['5']);
     });
 
-    test('single non-this param maps onto the sole declared field', () async {
-      // params.length == 1 and the class has exactly one field, but the param
-      // is neither `is_this` nor named after that field -> it is mapped onto the
-      // sole field name.
+    test('single non-this param never reaches the sole declared field', () async {
+      // params.length == 1 and the class has exactly one field, and the param
+      // is neither `is_this` nor named after that field. _callObjectConstructor
+      // used to map it onto the sole field name anyway (#539); nothing in this
+      // constructor assigns `val`, so it must stay unset.
       final p = program(
         std: ['print', 'to_string'],
         functions: [
@@ -1185,8 +1186,55 @@ void main() {
           },
         ],
       );
-      expect(await runAndCapture(p), ['9']);
+      expect(await runAndCapture(p), ['null']);
     });
+
+    test(
+      'single non-this param named like the field still writes nothing',
+      () async {
+        // The name-collision half of the same defect, on the named-constructor
+        // path: a plain parameter sharing a field's name is an ordinary local.
+        final p = program(
+          std: ['print', 'to_string'],
+          functions: [
+            {
+              'name': 'Twin.new',
+              'metadata': {
+                'kind': 'constructor',
+                'params': [
+                  {'name': 'val'},
+                ],
+              },
+              'body': blockExpr([]),
+            },
+            mainFn([
+              letStmt(
+                't',
+                call('Twin', input: msg([field('val', literal(9))])),
+              ),
+              stmt(printToString(fieldAcc(ref('t'), 'val'))),
+            ]),
+          ],
+          typeDefs: [
+            {
+              'name': 'main:Twin',
+              'descriptor': {
+                'name': 'Twin',
+                'field': [
+                  {
+                    'name': 'val',
+                    'number': 1,
+                    'label': 'LABEL_OPTIONAL',
+                    'type': 'TYPE_INT64',
+                  },
+                ],
+              },
+            },
+          ],
+        );
+        expect(await runAndCapture(p), ['null']);
+      },
+    );
 
     test('no-body constructor called with a bare scalar input', () async {
       // A no-body constructor invoked with a non-map scalar input exercises the

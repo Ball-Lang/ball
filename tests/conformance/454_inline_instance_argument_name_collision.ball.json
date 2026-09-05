@@ -1,0 +1,733 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "add",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:Pair.new",
+          "outputType": "main:Pair",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "a",
+                "is_this": true
+              },
+              {
+                "name": "b",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "firstOfPair",
+          "inputType": "Pair",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "a"
+                }
+              },
+              "field": "a"
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "a",
+                "type": "Pair"
+              }
+            ]
+          }
+        },
+        {
+          "name": "secondOfPair",
+          "inputType": "Pair",
+          "outputType": "int",
+          "body": {
+            "fieldAccess": {
+              "object": {
+                "reference": {
+                  "name": "b"
+                }
+              },
+              "field": "b"
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "b",
+                "type": "Pair"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sumOfPair",
+          "inputType": "Pair",
+          "outputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "add",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "left",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "p"
+                            }
+                          },
+                          "field": "a"
+                        }
+                      }
+                    },
+                    {
+                      "name": "right",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "p"
+                            }
+                          },
+                          "field": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function",
+            "params": [
+              {
+                "name": "p",
+                "type": "Pair"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Wrapper.around",
+          "outputType": "main:Wrapper",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "assign",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "target",
+                      "value": {
+                        "reference": {
+                          "name": "got"
+                        }
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "a"
+                            }
+                          },
+                          "field": "b"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "a",
+                "type": "Pair"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Holder.new",
+          "outputType": "main:Holder",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "assign",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "target",
+                      "value": {
+                        "reference": {
+                          "name": "seen"
+                        }
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "reference": {
+                              "name": "b"
+                            }
+                          },
+                          "field": "a"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "b",
+                "type": "Pair"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "firstOfPair",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "main:Pair",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "8"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "9"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "secondOfPair",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "main:Pair",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "8"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "9"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "sumOfPair",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "main:Pair",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "8"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "arg1",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "9"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "p",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Pair",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "intValue": "8"
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "9"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "firstOfPair",
+                                  "input": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "secondOfPair",
+                                  "input": {
+                                    "reference": {
+                                      "name": "p"
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "call": {
+                                      "function": "around",
+                                      "input": {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "self",
+                                              "value": {
+                                                "reference": {
+                                                  "name": "Wrapper"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "arg0",
+                                              "value": {
+                                                "messageCreation": {
+                                                  "typeName": "main:Pair",
+                                                  "fields": [
+                                                    {
+                                                      "name": "arg0",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "8"
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "arg1",
+                                                      "value": {
+                                                        "literal": {
+                                                          "intValue": "9"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "field": "got"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "messageCreation": {
+                                      "typeName": "main:Holder",
+                                      "fields": [
+                                        {
+                                          "name": "arg0",
+                                          "value": {
+                                            "messageCreation": {
+                                              "typeName": "main:Pair",
+                                              "fields": [
+                                                {
+                                                  "name": "arg0",
+                                                  "value": {
+                                                    "literal": {
+                                                      "intValue": "8"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "arg1",
+                                                  "value": {
+                                                    "literal": {
+                                                      "intValue": "9"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "field": "seen"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Pair",
+          "descriptor": {
+            "name": "main:Pair",
+            "field": [
+              {
+                "name": "a",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "b",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Pair",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "a",
+                "type": "int"
+              },
+              {
+                "name": "b",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Wrapper",
+          "descriptor": {
+            "name": "main:Wrapper",
+            "field": [
+              {
+                "name": "got",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Wrapper",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "got",
+                "type": "int",
+                "initializer": "0"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Holder",
+          "descriptor": {
+            "name": "main:Holder",
+            "field": [
+              {
+                "name": "seen",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Holder",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "seen",
+                "type": "int",
+                "initializer": "0"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

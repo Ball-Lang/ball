@@ -74,28 +74,24 @@ cd ts/compiler && npm install && npm test
 cd dart && dart run compiler/tool/gen_engine_json.dart
 cd ts/compiler && node --experimental-strip-types tool/regen_compiled_engine.mjs
 
-# Regenerate compiled TS CLI core (ts/cli's info/validate/tree/version verbs —
-# issue #364) from the self-hosted cli_core.dart source. Same pipeline as
-# "Regenerate compiled TS engine" above, plus an export-rewrite pass:
-# cli_core.dart is a free-function library (not a single class like
-# engine.dart), so its compiled top-level functions need `export` added
-# explicitly — BallCompiler.compile()'s own class-export logic only covers
-# top-level *classes*. First regenerate the (gitignored) IR artifact:
+# Regenerate compiled TS CLI core (ts/cli's info/validate/tree/version/audit
+# verbs — issue #364) from the self-hosted cli_core.dart source. This is the
+# SECOND (and last) COMMITTED compiled artifact — the Rust/C#/Go/Python CLI
+# cores are gitignored and regenerated in-job — so, like compiled_engine.ts, it
+# is one of only two that can go stale in git.
+# CI-ENFORCED since #580: ci.yml's `Ball Artifact Freshness` job runs these exact
+# two commands and then `git diff --exit-code -- ts/cli/src/compiled_cli.ts`, so
+# a change to dart/shared/lib/cli_core.dart (or capability_table.dart, or
+# ts/compiler's codegen) that is not followed by a regen fails the build. Keep
+# this block and that step identical — there is exactly ONE such gate; do not
+# add a second regeneration pass to the `typescript` job.
+# regen_compiled_cli.mjs is the sibling of regen_compiled_engine.mjs plus an
+# export-rewrite pass: cli_core.dart is a free-function library (not a single
+# class like engine.dart), so its compiled top-level declarations need `export`
+# added explicitly — BallCompiler.compile()'s own export logic only covers
+# top-level *classes*. cli.ball.json is generated + gitignored.
 cd dart && dart run compiler/tool/gen_cli_json.dart
-cd ts/compiler && node --experimental-strip-types -e "
-const {readFileSync, writeFileSync} = require('fs');
-const {compile} = require('./src/index.ts');
-function unwrapBallFile(json){ if(json===null||typeof json!=='object'||Array.isArray(json))return json; const t=json['@type']; if(t===undefined)return json; const b={}; for(const[k,v]of Object.entries(json)){if(k!=='@type')b[k]=v;} return b; }
-const program = unwrapBallFile(JSON.parse(readFileSync('../../dart/self_host/cli.ball.json', 'utf8')));
-let ts = compile(program);
-ts = ts.replace(/^(function )/gm, 'export \$1');
-ts = ts.replace(/^(class )/gm, 'export \$1');
-ts = ts.replace(/^(enum )/gm, 'export \$1');
-ts = ts.replace(/^(let )/gm, 'export \$1');
-ts = ts.replace(/^(const )/gm, 'export \$1');
-ts = ts.replace(/^export export /gm, 'export ');
-writeFileSync('../cli/src/compiled_cli.ts', '// @ts-nocheck — auto-generated\n' + ts);
-"
+cd ts/compiler && node --experimental-strip-types tool/regen_compiled_cli.mjs
 # Then re-run ts/cli's suite (npm test in ts/cli — includes the parity gate
 # against the native Dart CLI, test/cli_core_parity.test.ts).
 
@@ -268,7 +264,7 @@ dart compile exe dart/ball_protobuf/tool/conformance_main.dart -o ball_conforman
 2. **Metadata is cosmetic.** Stripping all metadata must never change what a program computes. Semantic content = expression tree, function signatures, type descriptors, module structure. Everything else lives in `google.protobuf.Struct metadata` fields.
 3. **Base functions have no body.** Their implementation is supplied per-platform by the target compiler/engine — this is the extensibility mechanism.
 4. **Control flow is function calls.** `if`, `for`, `while`, `for_each` are std base functions. Compilers and engines MUST evaluate them lazily — never eagerly evaluate all branches before choosing one.
-5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `python/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (gitignored; `go/engine/cmd/regen`), `go/cli/compiled/compiled_cli.go` (gitignored; `go/cli/cmd/regen`), `python/engine/ball_engine/compiled_engine.py` (gitignored; `python -m ball_engine.regen`), `python/cli/ball_cli/compiled_cli.py` (gitignored; `python -m ball_cli.regen`), `python/engine/ball_engine/_selfhost/engine.ball.json.gz` (gitignored; `python/engine/tool/bundle_selfhost.py`), `python/cli/ball_cli/_clicore/cli_core.ball.json.gz` (gitignored; `python/cli/tool/bundle_cli_core.py`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/src/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go/Python engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
+5. **Never edit generated files:** `dart/shared/lib/gen/**`, `ts/shared/gen/**`, `rust/shared/gen/**`, `csharp/shared/gen/**`, `go/shared/gen/**`, `python/shared/gen/**`, `ts/engine/src/compiled_engine.ts`, `ts/cli/src/compiled_cli.ts` (`ts/compiler/tool/regen_compiled_cli.mjs`), `csharp/engine/src/CompiledEngine.cs` (gitignored; `csharp/engine/tool`), `csharp/cli/src/CompiledCli.cs` (gitignored; `csharp/cli/tool`), `go/engine/compiled/compiled_engine.go` (gitignored; `go/engine/cmd/regen`), `go/cli/compiled/compiled_cli.go` (gitignored; `go/cli/cmd/regen`), `python/engine/ball_engine/compiled_engine.py` (gitignored; `python -m ball_engine.regen`), `python/cli/ball_cli/compiled_cli.py` (gitignored; `python -m ball_cli.regen`), `python/engine/ball_engine/_selfhost/engine.ball.json.gz` (gitignored; `python/engine/tool/bundle_selfhost.py`), `python/cli/ball_cli/_clicore/cli_core.ball.json.gz` (gitignored; `python/cli/tool/bundle_cli_core.py`), `dart/shared/std.json`, `dart/shared/std.bin`, `dart/self_host/cli.ball.json`, `dart/self_host/cli.ball.pb` (gitignored; `gen_cli_json.dart`), `dart/cli/lib/src/version.g.dart` (`gen_version.dart`). Regenerate via `buf generate proto`, `gen_std.dart`, or the TS/C#/Go/Python engine regeneration commands above. (The C++ target is libprotobuf-free since #18 Stage 5 — there is no `cpp/shared/gen/` and no cpp plugin in `buf.gen.yaml`.)
 
 ## Architecture Big Picture
 

@@ -907,3 +907,94 @@ describe("compiler — a method-local shadows a same-named class member (#501 fa
     assert.match(field![1], /return this\.x;/);
   });
 });
+
+describe("compiler - constructor tear-offs (#531)", () => {
+  // The Dart encoder emits `Box.new(7)` as a GENERIC self-carrying method
+  // call - {function: "new", input: {self: Reference("Box"), arg0: 7}} -
+  // never as the `main:Box.new` Call that compileCall handles up front. The
+  // generic path emitted `Box.new_(7)` (`new` is not a legal TS member name),
+  // a static method no emitted class declares.
+  const tearOff = (receiver: string, args: any[]) => ({
+    call: {
+      function: "new",
+      input: {
+        messageCreation: {
+          fields: [
+            { name: "self", value: { reference: { name: receiver } } },
+            ...args.map((v, i) => ({ name: `arg${i}`, value: v })),
+          ],
+        },
+      },
+    },
+  });
+
+  test("a user-class tear-off constructs, exactly like the direct form", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        {
+          name: "main:Box",
+          descriptor: { name: "Box", field: [{ name: "v", type: "TYPE_INT64" }] },
+          metadata: { kind: "class" },
+        },
+      ],
+      functions: [
+        {
+          name: "main:Box.new",
+          metadata: { kind: "constructor", params: [{ name: "v", is_this: true }] },
+        },
+        {
+          name: "makeBox",
+          body: tearOff("Box", [{ literal: { intValue: 7 } }]),
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /new Box\(7\)/);
+    assert.doesNotMatch(ts, /Box\.new_\(/);
+  });
+
+  test("a built-in exception tear-off yields the same tagged object as direct construction", () => {
+    const program = programWithClasses({
+      functions: [
+        {
+          name: "boom",
+          body: tearOff("FormatException", [{ literal: { stringValue: "bad input" } }]),
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    // Identical to what `throw FormatException('bad input')` emits, so the
+    // typed-catch guard matches either spelling.
+    assert.match(ts, /\{\s*'__type__': 'FormatException',\s*'message': 'bad input'\s*\}/);
+    assert.doesNotMatch(ts, /FormatException\.new_\(/);
+  });
+
+  test("an ordinary static-method call on a class is untouched", () => {
+    const program = programWithClasses({
+      typeDefs: [
+        { name: "main:MathU", descriptor: { name: "MathU" }, metadata: { kind: "class" } },
+      ],
+      functions: [
+        { name: "main:MathU.square", metadata: { kind: "method", is_static: true }, body: { literal: { intValue: 1 } } },
+        {
+          name: "useSquare",
+          body: {
+            call: {
+              function: "square",
+              input: {
+                messageCreation: {
+                  fields: [
+                    { name: "self", value: { reference: { name: "MathU" } } },
+                    { name: "arg0", value: { literal: { intValue: 3 } } },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /MathU\.square\(3\)/);
+  });
+});

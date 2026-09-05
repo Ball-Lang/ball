@@ -2972,6 +2972,117 @@ TEST(emit_struct_bases_ctors_operators) {
     ASSERT_CONTAINS(out, "Foo() = default;");
 }
 
+// A class whose SOLE constructor is the zero-argument default one, with a
+// colon-initializer list AND a body that is a single non-Block statement —
+// exactly the `Flags` shape in conformance 438.
+static json cov_zero_arg_ctor_program() {
+    auto td = cov_class_td("main:Flags",
+                           {{"on", "TYPE_BOOL"}, {"ratio", "TYPE_DOUBLE"}},
+                           json{{"kind", "class"}});
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    json on_init;
+    on_init["kind"] = "field";
+    on_init["name"] = "on";
+    on_init["value"] = "true";
+    json ratio_init;
+    ratio_init["kind"] = "field";
+    ratio_init["name"] = "ratio";
+    ratio_init["value"] = "0.5";
+    ctor_meta["initializers"] =
+        json::array({std::move(on_init), std::move(ratio_init)});
+    // The body is ONE statement, which the Ball encoder emits WITHOUT a Block
+    // wrapper (`_encodeBlock` short-circuits a single-statement body).
+    auto ctor = cov_class_fn(
+        "main:Flags.new", std::move(ctor_meta),
+        std_call("assign",
+                 make_msg("AssignInput",
+                          {{"target", ref("ratio")},
+                           {"value", std_binary("add", ref("ratio"),
+                                                lit_double(0.25))}})));
+    return cov_class_program({std::move(td)}, {std::move(ctor)});
+}
+
+TEST(emit_struct_sole_zero_arg_ctor_no_duplicate_default) {
+    // #514: the synthesized `Flags() = default;` exists so `return Flags()`
+    // compiles in a class that has user constructors. When the class's ONLY
+    // constructor already IS the zero-argument one, emitting both declares the
+    // same signature twice and g++ refuses:
+    //   "'Flags::Flags()' cannot be overloaded with 'Flags::Flags()'".
+    auto out = compile_program(cov_zero_arg_ctor_program());
+    ASSERT_CONTAINS(out, "Flags() {");            // the REAL constructor
+    ASSERT_NOT_CONTAINS(out, "Flags() = default;");
+}
+
+TEST(emit_struct_ctor_taking_args_still_gets_default) {
+    // The symmetric case must NOT regress: a class whose only constructor takes
+    // ARGUMENTS genuinely needs the synthesized zero-arg default, because C++
+    // suppresses the implicit one. Guards the #514 fix against the over-broad
+    // "any constructor named new means no default" rule.
+    auto td = cov_class_td("main:Bar", {{"name", "TYPE_STRING"}},
+                           json{{"kind", "class"}});
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("name", "", true)});
+    auto ctor = cov_class_fn("main:Bar.new", std::move(ctor_meta));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "Bar() = default;");
+}
+
+TEST(emit_struct_only_named_ctor_still_gets_default) {
+    // A NAMED constructor compiles to a static factory, never a real C++
+    // constructor, so it cannot collide — the synthesized default must stay.
+    auto td = cov_class_td("main:Point", {{"x", "TYPE_INT64"}},
+                           json{{"kind", "class"}});
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    json x_init;
+    x_init["kind"] = "field";
+    x_init["name"] = "x";
+    x_init["value"] = "0";
+    ctor_meta["initializers"] = json::array({std::move(x_init)});
+    auto ctor = cov_class_fn("main:Point.origin", std::move(ctor_meta));
+    auto out = compile_program(cov_class_program({std::move(td)}, {std::move(ctor)}));
+    ASSERT_CONTAINS(out, "Point() = default;");
+    ASSERT_CONTAINS(out, "static Point origin() {");
+}
+
+// A constructor body that is a single NON-Block statement — what the Ball
+// encoder emits for a one-statement body, since `_encodeBlock` short-circuits
+// it to a bare expression — must be emitted on BOTH constructor branches.
+// `constructor_body_that_is_a_single_expression_is_emitted` (#513, above)
+// pins the DEFAULT-constructor branch for a `std.if` body; this pins the
+// NAMED-constructor branch too, and the zero-argument + colon-initializer-list
+// combination specifically, because that is the shape whose golden un-carving
+// conformance 438 depends on: without the body statement the fixture would
+// silently print 0.5 instead of 0.75 rather than failing to compile.
+TEST(ctor_non_block_body_statement_is_emitted) {
+    // Default-constructor branch.
+    auto def_out = compile_program(cov_zero_arg_ctor_program());
+    ASSERT_CONTAINS(def_out, "ball_assign(ratio, (ratio + 0.25));");
+
+    // Named-constructor branch (a static factory, so own fields are `__obj.`).
+    auto td = cov_class_td("main:Tag", {{"label", "TYPE_STRING"}},
+                           json{{"kind", "class"}});
+    json named_meta;
+    named_meta["kind"] = "constructor";
+    json label_init;
+    label_init["kind"] = "field";
+    label_init["name"] = "label";
+    label_init["value"] = "'origin'";
+    named_meta["initializers"] = json::array({std::move(label_init)});
+    auto named = cov_class_fn(
+        "main:Tag.origin", std::move(named_meta),
+        std_call("assign",
+                 make_msg("AssignInput",
+                          {{"target", ref("label")},
+                           {"value", std_binary("add", ref("label"),
+                                                lit_string("?"))}})));
+    auto named_out =
+        compile_program(cov_class_program({std::move(td)}, {std::move(named)}));
+    ASSERT_CONTAINS(named_out, "ball_assign(__obj.label, (__obj.label + \"?\"s));");
+}
+
 TEST(emit_struct_split_mode_out_of_line) {
     // compile_split moves method/ctor bodies OUT OF LINE into shards — a path
     // never reached by single-TU compile(). Drive the same rich class through
@@ -3334,7 +3445,13 @@ TEST(compile_method_call_super_and_static_dispatch) {
 // ================================================================
 
 TEST(compile_call_class_name_new_constructor) {
-    // `Foo.new(x)` where Foo is a user class → direct constructor call Foo(x).
+    // The MODULE-QUALIFIED constructor-call shape `main:Foo.new(x)` — a Call
+    // whose function IDENTIFIER names the constructor and whose input is a
+    // plain argument bag. NOTE: despite the name, this is NOT what the Dart
+    // encoder emits for the source `Foo.new(x)`; that is a self-carrying
+    // generic method call, covered by
+    // `compile_call_class_name_new_selfshape_constructor` below. Reading this
+    // test as coverage of the tear-off syntax is what let #531 ship.
     auto td = cov_class_td("main:Foo", {{"x", "TYPE_INT64"}}, json{{"kind", "class"}});
     json ctor_meta;
     ctor_meta["kind"] = "constructor";
@@ -3353,6 +3470,55 @@ TEST(compile_call_class_name_new_constructor) {
     program["entryModule"] = "main";
     program["entryFunction"] = "main";
     ASSERT_CONTAINS(compile_program(program), "Foo(static_cast<int64_t>(5))");
+}
+
+// Build a program whose `main` invokes the SELF-CARRYING tear-off shape the
+// real Dart encoder emits for `Foo.new(5)`:
+//   {function: "new", input: {self: Reference("Foo"), arg0: 5}}
+// `is_factory_new` decides whether the class declares `factory Foo.new(...)`
+// (which really does compile to the static `Foo::new_`).
+static json cov_selfshape_new_program(bool is_factory_new) {
+    auto td = cov_class_td("main:Foo", {{"x", "TYPE_INT64"}}, json{{"kind", "class"}});
+    json ctor_meta;
+    ctor_meta["kind"] = "constructor";
+    ctor_meta["params"] = json::array({cov_param("x", "", true)});
+    if (is_factory_new) ctor_meta["is_factory"] = "true";
+    auto ctor = cov_class_fn("main:Foo.new", std::move(ctor_meta),
+                             is_factory_new ? lit_int(0) : json(nullptr));
+    json program;
+    json mod;
+    mod["name"] = "main";
+    mod["typeDefs"] = json::array({td});
+    json m;
+    m["name"] = "main";
+    m["body"] = call("", "new",
+                     make_msg("", {{"self", ref("Foo")}, {"arg0", lit_int(5)}}));
+    mod["functions"] = json::array({ctor, m});
+    program["modules"] = json::array({mod});
+    program["entryModule"] = "main";
+    program["entryFunction"] = "main";
+    return program;
+}
+
+TEST(compile_call_class_name_new_selfshape_constructor) {
+    // #531: the shape the Dart encoder ACTUALLY emits for `Foo.new(5)`. The
+    // "user static-method dispatch takes priority" branch used to emit
+    // `Foo::new_(...)` — `sanitize_name("new")` appends `_` because `new` is a
+    // C++ keyword — a member no emitted struct declares, so g++ failed with
+    // "'new_' is not a member of 'Foo'".
+    auto out = compile_program(cov_selfshape_new_program(false));
+    ASSERT_CONTAINS(out, "Foo(static_cast<int64_t>(5))");
+    ASSERT_NOT_CONTAINS(out, "Foo::new_(");
+}
+
+TEST(compile_call_class_name_new_selfshape_keeps_factory_dispatch) {
+    // The one class that really DOES define `Foo::new_` is one with a
+    // `factory Foo.new(...)`, which compiles to a static method. The tear-off
+    // must keep routing to it — the fix checks `class_factory_ctors_` exactly
+    // like the messageCreation construction path, never a blanket
+    // "fn == new means plain construction".
+    auto out = compile_program(cov_selfshape_new_program(true));
+    ASSERT_CONTAINS(out, "Foo::new_(static_cast<int64_t>(5))");
 }
 
 TEST(compile_lambda_input_and_output_types) {
@@ -4218,6 +4384,71 @@ TEST(cov_throw_constructor_call_lowercase_keeps_generic_tag) {
     auto out = compile_program(prog);
     ASSERT_CONTAINS(out, "_ball_make_exception(\"Exception\"s,");
     ASSERT_NOT_CONTAINS(out, "_ball_make_exception(\"makeError\"s,");
+}
+
+TEST(cov_throw_constructor_new_selfshape_type_name_extraction) {
+    // #531: the shape the Dart encoder actually emits for
+    // `throw FormatException.new('bad input')` — a self-carrying generic call
+    // whose function is the bare string "new". The identifier-based extraction
+    // above finds no module prefix, no `.new` suffix and no upper-case leading
+    // character, so the tag stayed the generic "Exception" and
+    // `on FormatException catch` could never match. The type name has to come
+    // from the call's `self` field instead, and the payload has to be compiled
+    // directly — routing the call through compile_expr emits
+    // `new_(FormatException, …)`, which no emitted program defines.
+    auto prog = build_program(cov_throw_value(
+        call("", "new",
+             make_msg("", {{"self", ref("FormatException")},
+                           {"arg0", lit_string("bad input")}}))));
+    auto out = compile_program(prog);
+    // A built-in exception's first positional argument IS its `.message`, which
+    // the catch side reads as `e.fields.at("message")` — so it has to land in
+    // `fields`, exactly as the messageCreation spelling already does.
+    ASSERT_CONTAINS(out,
+                    "throw BallException(\"FormatException\"s, "
+                    "\"FormatException\"s, std::map<std::string, std::string>"
+                    "{{\"message\"s, \"bad input\"s}})");
+    ASSERT_NOT_CONTAINS(out, "_ball_make_exception(\"Exception\"s,");
+    ASSERT_NOT_CONTAINS(out, "new_(");
+}
+
+TEST(cov_throw_constructor_new_selfshape_runtime_payload_is_stringified) {
+    // The same tear-off with a RUNTIME payload (`'negative: ' + n`) still has to
+    // reach `.message`, so the payload is stringified into `fields` rather than
+    // stored as an opaque value.
+    auto prog = build_program(cov_throw_value(
+        call("", "new",
+             make_msg("", {{"self", ref("FormatException")},
+                           {"arg0", std_binary("add", lit_string("negative: "),
+                                               ref("n"))}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "{{\"message\"s, ball_to_string((\"negative: \"s + n))}}");
+}
+
+TEST(cov_throw_constructor_new_selfshape_user_class_keeps_payload) {
+    // A USER exception class carries an arbitrary payload, not a `.message`
+    // string, so it keeps the _ball_make_exception form — only the TYPE TAG
+    // comes from `self`.
+    auto prog = build_program(cov_throw_value(
+        call("", "new",
+             make_msg("", {{"self", ref("NotFound")},
+                           {"arg0", lit_string("missing")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_make_exception(\"NotFound\"s, \"missing\"s)");
+    ASSERT_NOT_CONTAINS(out, "_ball_make_exception(\"Exception\"s,");
+}
+
+TEST(cov_throw_constructor_new_selfshape_lowercase_keeps_generic_tag) {
+    // A lower-case, non-built-in receiver is not a type name: the extraction
+    // must LEAVE the generic "Exception" tag rather than inventing one. Same
+    // fail-loud discipline as the `mod:Foo.new` arm above.
+    auto prog = build_program(cov_throw_value(
+        call("", "new",
+             make_msg("", {{"self", ref("boom")},
+                           {"arg0", lit_string("nope")}}))));
+    auto out = compile_program(prog);
+    ASSERT_CONTAINS(out, "_ball_make_exception(\"Exception\"s,");
+    ASSERT_NOT_CONTAINS(out, "_ball_make_exception(\"boom\"s,");
 }
 
 // ---- compile_statement: `for` with an opaque string-literal init ----

@@ -127,6 +127,32 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `static BallDyn`). Declaring the local `BallDyn` erases every member;
   declaring it with the callee's *declared* base type slices.
 
+- **`ClassName() = default;` is only emitted when no user constructor ALREADY
+  is the zero-argument one (#514).** `emit_struct` synthesises a defaulted
+  default constructor so `return ClassName()` compiles in a class that has user
+  constructors. When the class's only constructor is itself zero-argument, the
+  two declarations collide and g++ rejects the struct with
+  "'Flags::Flags()' cannot be overloaded with 'Flags::Flags()'". Only a REAL
+  C++ constructor can collide, so the scan skips `is_factory` ones (static
+  methods) and named ones (static factories) - a class whose sole constructor is
+  `Foo.named(...)` still needs the synthesised default.
+- **`Foo.new(x)` is a CONSTRUCTOR TEAR-OFF, not a static method (#531).** The
+  Dart encoder emits it as a generic self-carrying call
+  (`{function: "new", input: {self: Reference("Foo"), arg0: ...}}`), which the
+  `has_self` dispatch routes into `compile_method_call` before either
+  constructor path can see it. `sanitize_name("new")` is `new_` (`new` is a C++
+  keyword), so the static-dispatch branch emitted `Foo::new_(x)` - a member no
+  emitted struct declares. Route `fn == "new"` to plain `Foo(args)` construction
+  unless `class_has_factory_new(cls)` (a real `factory Foo.new`, the one shape
+  that genuinely compiles to `Foo::new_`). The `throw` arm needs its own branch
+  for the same shape: `call.function` is the bare string "new", so the
+  `mod:Foo.new` identifier parsing finds no type name and leaves the generic
+  "Exception" tag - take it from `self` instead. A BUILT-IN exception
+  (`is_builtin_exception_name`) must land its first argument in
+  `BallException::fields["message"]`, because a typed catch compiles `e.message`
+  to `e.fields.at("message")`; `_ball_make_exception` stores it under `value`
+  instead and aborts with `map::at`.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

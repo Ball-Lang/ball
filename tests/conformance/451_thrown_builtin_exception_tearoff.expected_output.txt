@@ -1,0 +1,5 @@
+bad input
+format: negative: -2
+state: zero
+ok: 5
+direct

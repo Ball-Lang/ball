@@ -111,7 +111,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 338 passed, 0 failed, 338 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 340 passed, 0 failed, 340 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`

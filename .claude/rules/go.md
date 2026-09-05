@@ -160,7 +160,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 338 passed, 0 failed, 338 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 340 passed, 0 failed, 340 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Build-tag gating.** `compiled_engine.go` is a gitignored artifact absent from a fresh checkout,
   so everything that references it (`driver.go`, `run_selfhost.go`, `conformance/runner.go` +

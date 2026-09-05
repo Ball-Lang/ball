@@ -109,14 +109,7 @@
 396_switch_case_fallthrough
 397_map_values
 
-# Added by the #489/#499 lane, NOT frozen debt: the same fixture
-# cpp/test/full_e2e.sh already carves out, against an OPEN C++ compiler issue.
-# Measured with `bash cpp/test/quick_e2e.sh <name>` on this branch:
-#   438 -> g++: 'Flags::Flags()' cannot be overloaded with 'Flags::Flags()'
-#   (#514 — a class whose only constructor has BOTH an initializer list and a
-#   body emits the default constructor twice)
-# 434_type_of PASSES the C++ compiled leg and is listed in e2e_fixture_list.h.
-# 435/436/437 were listed here for #513; that issue is fixed, so they now pass
-# the compiled leg and are listed in e2e_fixture_list.h too. Delete this line
-# when #514 lands.
-438_ctor_initializer_list_with_body
+# Nothing from the #489/#499 lane is parked here any more: 434_type_of always
+# passed the C++ compiled leg, 435/436/437 were freed when #513 landed, and
+# 438_ctor_initializer_list_with_body was freed when #514 landed. All five are
+# listed in e2e_fixture_list.h.

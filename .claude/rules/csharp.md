@@ -178,7 +178,7 @@ compile items so the sibling projects never double-compile each other's files.
 - The committed conformance harness (`csharp/engine/conformance/`, a standalone console app, not
   an xunit project — needs a reliable `Results:` line on stdout regardless of pass/fail) has three
   legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated by the `csharp-engine` row
-  in `conformance-matrix.yml`), `compiler` (257/335 as of #527/#528 — ratcheted by that file's
+  in `conformance-matrix.yml`), `compiler` (258/335 as of #527/#528 — ratcheted by that file's
   `csharp-compiler` row against `CSHARP_COMPILER_FLOOR`; it is the compiler's own honest scope-gap
   count, a DROP fails, never a parity gate), `roundtrip` (0/320 — an honest, expected zero given
   the syntactic encoder doesn't yet recognize compiler-emitted `BallRuntime.*` shapes). Since #452

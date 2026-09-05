@@ -881,8 +881,9 @@ exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly th
 row in `conformance-matrix.yml` runs the `compiler` leg on every push to `main` (plus the weekly
 cron and `workflow_dispatch` — the matrix does NOT trigger on `pull_request`, same as every other
 row in it), prints the honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `246`, the number
-above). This is deliberate. Gating it at full parity would just hold `main` red on 74 known gaps;
+and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `258`, measured
+locally in #527/#528 — the leg's own printed count, never a predicted one). This is deliberate.
+Gating it at full parity would just hold `main` red on the remaining known gaps;
 leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
 regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
 only go up, and the job prints the exact new floor to commit when it does. **Raise the floor in
@@ -1125,7 +1126,7 @@ dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 335 passed, 0 failed, 335 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
+  -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
 # --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture

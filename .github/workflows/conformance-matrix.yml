@@ -866,13 +866,17 @@ jobs:
       # point of a ratchet. Open families are catalogued in #452.
       #
       # 255 was main's own measured value before #527/#528. Those two land
-      # 436_recursive_ctor_named and 438_ctor_initializer_list_with_body on this
-      # leg (+2). A local before/after per-fixture diff accounted for every
-      # change: only those two flipped to passing, and #528's Set
-      # representation change flipped NOTHING to failing once a set's virtual
-      # `.length` was taught to read the wrapped list (118_set_operations
-      # briefly answered `Length: 1`). Measured locally at 257, never predicted.
-      CSHARP_COMPILER_FLOOR: "257"
+      # 436_recursive_ctor_named + 438_ctor_initializer_list_with_body (#527)
+      # and 434_type_of (#528) on this leg (+3). A local before/after
+      # per-fixture diff over the WHOLE failure list accounted for every change:
+      # exactly those three flipped to passing and nothing flipped to failing.
+      # Two intermediate regressions from #528's Set representation change were
+      # found by that diff and fixed here rather than absorbed into the floor —
+      # 118_set_operations answered `Length: 1` until a set's virtual `.length`
+      # read the wrapped list, and 394_mappattern_excludes_set matched
+      # `case {…}:` until the map-pattern gate excluded the tagged shape.
+      # Measured locally at 258, never predicted.
+      CSHARP_COMPILER_FLOOR: "258"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1384,7 +1388,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      RUST_COMPILER_FLOOR: "257"
+      # 261 was main's own measured value before #527/#528 (257 was the older
+      # recorded floor). Those two land 436_recursive_ctor_named +
+      # 438_ctor_initializer_list_with_body (#527), 434_type_of (#528) and
+      # 417_null_aware_collection_elements on this leg (+4). A local
+      # before/after per-fixture diff accounted for every change: exactly those
+      # four flipped to passing and nothing flipped to failing. One intermediate
+      # regression from #528's Set representation change was found by that diff
+      # and fixed here rather than absorbed into the floor — the encoder lowers
+      # `set.add(x)` to the generic `list_push`, which panicked on the tagged
+      # map until every mutating list op learned to write through it
+      # (129_unique_elements). Measured locally at 265, never predicted.
+      RUST_COMPILER_FLOOR: "265"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

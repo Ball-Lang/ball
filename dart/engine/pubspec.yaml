@@ -23,5 +23,5 @@ dependencies:
   protobuf: ^6.0.0
 
 dev_dependencies:
-  ball_encoder: ^0.4.0
+  ball_encoder: ^0.4.1
   test: ^1.25.0

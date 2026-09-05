@@ -1,3 +1,10 @@
+## [1.67.1](https://github.com/Ball-Lang/ball/compare/v1.67.0...v1.67.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **dart:** declare the routed-but-undeclared std functions and dispatch collection methods by receiver type (closes [#505](https://github.com/Ball-Lang/ball/issues/505)) ([#547](https://github.com/Ball-Lang/ball/issues/547)) ([6e7b703](https://github.com/Ball-Lang/ball/commit/6e7b7039f1309d97ddc40087eb0fb71a2f71512c)), closes [#488](https://github.com/Ball-Lang/ball/issues/488) [#488](https://github.com/Ball-Lang/ball/issues/488) [#545](https://github.com/Ball-Lang/ball/issues/545)
+
 # [1.67.0](https://github.com/Ball-Lang/ball/compare/v1.66.2...v1.67.0) (2026-09-05)
 
 

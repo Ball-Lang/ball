@@ -251,20 +251,32 @@ factories `BallValue.Null` / `.Bool(bool)` / `.Int(long)` / `.Double(double)` / 
 - **`ToString()` matches reference-engine stdout**: whole doubles keep a trailing `.0`, `-0.0` is
   distinct, NaN/`Infinity`/`-Infinity` spellings, maps/messages render `{k: v, …}`, functions
   render `<function name>`/`<lambda>`.
-- **There is no set type.** `BallRuntime.SetCreate` returns a `BallList` (duplicate-free,
-  insertion-ordered), so in a *directly compiled* program a set is indistinguishable from a list at
-  the value level: `BallStd.TypeOf` answers `"List"` and `IsOfType(v, "Set")` answers `false`. Both
-  functions' `Set` arms key on the portable `{'__ball_set__': [...]}` map form, which only the
-  **self-hosted engine** materialises — so the engine is correct and only the compiler leg
-  diverges. Measured by conformance fixture `434_type_of` (passes every engine, fails the C#
-  compiler leg on line 8); tracked as
-  [#528](https://github.com/Ball-Lang/ball/issues/528).
-- **A named constructor (`Class.name(args)`) does not compile.** The Dart encoder emits it as a
-  method call on the class reference (not a `messageCreation`), and `Ball.Compiler` drops the
-  qualifier, emitting a bare `from(...)` — `CS0103: The name 'from' does not exist in the current
-  context`. Fixtures `436_recursive_ctor_named` / `438_ctor_initializer_list_with_body` measure it;
-  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The unnamed form (`435`/`437`)
-  compiles and passes.
+- **A Set is the portable tagged map `{"__ball_set__": [...]}`** (issue #528), the same shape C++'s
+  `ball_make_set` builds and the self-hosted engine's own Ball source materialises — not a bare
+  `BallList`. `BallRuntime.SetCreate` and every sibling op (`SetAdd`/`SetRemove`/`SetContains`/
+  `SetUnion`/`SetIntersection`/`SetDifference`/`SetLength`/`SetIsEmpty`/`SetToList`, `toSet`,
+  `unmodifiable`) build and read that shape, so `IsOfType(v, "Set")` and `BallStd.TypeOf` answer
+  `"Set"` on a directly-compiled program as well as under the self-hosted engine. Three details are
+  load-bearing and easy to break: mutation reaches **through** the wrapper to the wrapped
+  `BallList` (`SetBacking`) so alias semantics survive; `AsList` and `FieldGet`'s virtual
+  `length`/`isEmpty`/`first`/`last` see through the tag (Dart's `Set implements Iterable` — reading
+  the one-entry wrapper made `{1,2,3,4,5}.length` answer `1`); and `FormatEntries` renders the
+  tagged shape as `{1, 2}`, never `{__ball_set__: [1, 2]}`. Pinned by `BallRuntimeTests`'
+  `SetCreateProducesAValueThatIsASetAndNotAList` / `TypeOfASetCreatedSetIsSet` /
+  `SetMutationIsObservedThroughEveryAlias` / `SetRendersAsABraceListNotItsTaggedMap` /
+  `SetAlgebraProducesSets`, which run on every PR.
+- **A named constructor (`Class.name(args)`) compiles** since #527. The Dart encoder emits it as a
+  method call whose packed `self` field is a bare `reference{name: "Class"}` — a static, syntactic
+  class name, not a value — so `CompileCall` resolves it at COMPILE time to the class's
+  `Owner__member` impl (`SelfFieldClassReference` + `NamedConstructorImpl`) rather than falling
+  through to a bare `from(...)` (`CS0103`). **Shadowing wins**: a binding of that name is a real
+  value and the call stays an ordinary dispatch. `IndexConstructors` keys `_bodyCtorImplByShort` on
+  the UNNAMED (`new`) constructor only — keying every constructor there made the LAST named one win,
+  so `Point(3, 4)` ran `Point.constants()`'s body. A constructor's `metadata.initializers` are also
+  applied when it carries a body (`ConstructorInitializer`, which lowers a literal value, not only
+  the `field = param` shape). Fixtures `436_recursive_ctor_named` /
+  `438_ctor_initializer_list_with_body` measure it end to end; `compiler/test/NamedConstructorTests.cs`
+  is the PR-gated guard.
 
 ### Module builders + field extraction
 
@@ -927,8 +939,9 @@ exposes internals to `Ball.Engine.Tests` via `InternalsVisibleTo` for exactly th
 row in `conformance-matrix.yml` runs the `compiler` leg on every push to `main` (plus the weekly
 cron and `workflow_dispatch` — the matrix does NOT trigger on `pull_request`, same as every other
 row in it), prints the honest count,
-and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `246`, the number
-above). This is deliberate. Gating it at full parity would just hold `main` red on 74 known gaps;
+and fails **only if `passed` drops below `CSHARP_COMPILER_FLOOR`** (currently `258`, measured
+locally in #527/#528 — the leg's own printed count, never a predicted one). This is deliberate.
+Gating it at full parity would just hold `main` red on the remaining known gaps;
 leaving it unrun — the status quo until #452 — left those gaps *unmeasured*, and an unmeasured gap
 regresses silently. A ratchet gets the third thing: the number is visible on every run, it can
 only go up, and the job prints the exact new floor to commit when it does. **Raise the floor in
@@ -1171,7 +1184,7 @@ dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 335 passed, 0 failed, 335 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release --no-build -- --leg=compiler                    # Results: 246 passed, 74 failed, 320 total
+  -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=roundtrip [--dart=dart]      # Results: 0 passed, 320 failed, 320 total
 # --fixture=<name> (or env BALL_FIXTURE=<name>) narrows any leg to one fixture

@@ -79,6 +79,12 @@ public static partial class BallRuntime
     {
         BallList l => l,
         BallBytes b => BytesToIntList(b),
+        // A Set is the portable `{"__ball_set__": [...]}` tagged map (issue
+        // #528) and IS iterable in Dart, so every list-shaped read (for-in,
+        // map/where/join, spread, addAll) sees through the wrapper to its
+        // shared backing.
+        BallMap map when map.Get(BallSetTag) is BallList setItems => setItems,
+        BallMessage msg when msg.Get(BallSetTag) is BallList msgSetItems => msgSetItems,
         _ => throw new BallRuntimeException($"expected a list, got {TypeName(value)}"),
     };
 
@@ -795,28 +801,69 @@ public static partial class BallRuntime
     }
 
     // ════════════════════════════════════════════════════════════
-    // Set — a duplicate-free list (matching Rust/Dart's LinkedHashSet order)
+    // Set — the portable tagged map `{"__ball_set__": [...]}` (issue #528)
     // ════════════════════════════════════════════════════════════
+    //
+    // A Set is a duplicate-free, insertion-ordered list WRAPPED in a one-key map
+    // under BallSetTag — the same portable shape C++'s `ball_make_set` builds
+    // and the self-hosted engine's own Ball source materialises. Before #528
+    // `SetCreate` returned a bare `BallList`, so a directly-compiled program's
+    // set was indistinguishable from a list: `x is Set` was unconditionally
+    // false (IsOfType had no "Set" arm at all) and `std.type_of(x)` answered
+    // "List". The tag is what makes a Set a real, discriminable value.
+    //
+    // Reference semantics are preserved by reaching THROUGH the wrapper to the
+    // shared backing BallList (SetBacking), never by rebuilding the map — a
+    // `set.add(x)` through one alias must be visible through every other.
 
-    /// <summary><c>Set.from(list)</c> — a new duplicate-free list.</summary>
+    /// <summary>The reserved key that tags the portable ordered-set representation.</summary>
+    public const string BallSetTag = "__ball_set__";
+
+    /// <summary>Wrap <paramref name="items"/> as a Set value (no copy — the list becomes the shared backing).</summary>
+    private static BallValue WrapSet(BallList items)
+    {
+        var map = new BallMap(1);
+        map.Set(BallSetTag, items);
+        return map;
+    }
+
+    /// <summary>
+    /// The shared backing list of a Set — the wrapped list of a
+    /// <c>{"__ball_set__": [...]}</c> map (or message, the shape the self-hosted
+    /// engine's <c>BallObject</c> can carry). A bare list is accepted as its own
+    /// backing so a set op applied to a plain list still behaves.
+    /// </summary>
+    private static BallList SetBacking(BallValue set) => set switch
+    {
+        BallMap map when map.Get(BallSetTag) is BallList items => items,
+        BallMessage msg when msg.Get(BallSetTag) is BallList items => items,
+        _ => AsList(set),
+    };
+
+    /// <summary>Whether <paramref name="value"/> is the portable tagged set shape.</summary>
+    internal static bool IsBallSet(BallValue value) =>
+        (value is BallMap map && map.Get(BallSetTag) is BallList)
+        || (value is BallMessage msg && msg.Get(BallSetTag) is BallList);
+
+    /// <summary><c>Set.from(list)</c> — a new duplicate-free set.</summary>
     public static BallValue SetCreate(BallValue list)
     {
-        var result = new BallList();
-        foreach (var item in AsList(list).Snapshot())
+        var items = new BallList();
+        foreach (var item in SetBacking(list).Snapshot())
         {
-            if (!result.Contains(item))
+            if (!items.Contains(item))
             {
-                result.Add(item);
+                items.Add(item);
             }
         }
 
-        return result;
+        return WrapSet(items);
     }
 
     /// <summary><c>set.add(value)</c> — mutates the shared set (no-op if present); returns it.</summary>
     public static BallValue SetAdd(BallValue set, BallValue value)
     {
-        var s = AsList(set);
+        var s = SetBacking(set);
         if (!s.Contains(value))
         {
             s.Add(value);
@@ -828,7 +875,7 @@ public static partial class BallRuntime
     /// <summary><c>set.remove(value)</c> — mutates the shared set; returns it.</summary>
     public static BallValue SetRemove(BallValue set, BallValue value)
     {
-        var s = AsList(set);
+        var s = SetBacking(set);
         var index = s.IndexOf(value);
         if (index >= 0)
         {
@@ -839,22 +886,22 @@ public static partial class BallRuntime
     }
 
     /// <summary><c>set.contains(value)</c>.</summary>
-    public static BallValue SetContains(BallValue set, BallValue value) => BallValue.Bool(AsList(set).Contains(value));
+    public static BallValue SetContains(BallValue set, BallValue value) => BallValue.Bool(SetBacking(set).Contains(value));
 
     /// <summary><c>set.length</c>.</summary>
-    public static BallValue SetLength(BallValue set) => BallValue.Int(AsList(set).Count);
+    public static BallValue SetLength(BallValue set) => BallValue.Int(SetBacking(set).Count);
 
     /// <summary><c>set.isEmpty</c>.</summary>
-    public static BallValue SetIsEmpty(BallValue set) => BallValue.Bool(AsList(set).IsEmpty);
+    public static BallValue SetIsEmpty(BallValue set) => BallValue.Bool(SetBacking(set).IsEmpty);
 
     /// <summary><c>set.toList()</c> — a fresh list copy.</summary>
-    public static BallValue SetToList(BallValue set) => new BallList(AsList(set).Snapshot());
+    public static BallValue SetToList(BallValue set) => new BallList(SetBacking(set).Snapshot());
 
-    /// <summary><c>left.union(right)</c> — a new duplicate-free list.</summary>
+    /// <summary><c>left.union(right)</c> — a new set.</summary>
     public static BallValue SetUnion(BallValue left, BallValue right)
     {
-        var result = new BallList(AsList(left).Snapshot());
-        foreach (var item in AsList(right).Snapshot())
+        var result = new BallList(SetBacking(left).Snapshot());
+        foreach (var item in SetBacking(right).Snapshot())
         {
             if (!result.Contains(item))
             {
@@ -862,15 +909,15 @@ public static partial class BallRuntime
             }
         }
 
-        return result;
+        return WrapSet(result);
     }
 
-    /// <summary><c>left.intersection(right)</c> — a new list.</summary>
+    /// <summary><c>left.intersection(right)</c> — a new set.</summary>
     public static BallValue SetIntersection(BallValue left, BallValue right)
     {
-        var other = AsList(right);
+        var other = SetBacking(right);
         var result = new BallList();
-        foreach (var item in AsList(left).Snapshot())
+        foreach (var item in SetBacking(left).Snapshot())
         {
             if (other.Contains(item) && !result.Contains(item))
             {
@@ -878,15 +925,15 @@ public static partial class BallRuntime
             }
         }
 
-        return result;
+        return WrapSet(result);
     }
 
-    /// <summary><c>left.difference(right)</c> — a new list.</summary>
+    /// <summary><c>left.difference(right)</c> — a new set.</summary>
     public static BallValue SetDifference(BallValue left, BallValue right)
     {
-        var other = AsList(right);
+        var other = SetBacking(right);
         var result = new BallList();
-        foreach (var item in AsList(left).Snapshot())
+        foreach (var item in SetBacking(left).Snapshot())
         {
             if (!other.Contains(item) && !result.Contains(item))
             {
@@ -894,7 +941,7 @@ public static partial class BallRuntime
             }
         }
 
-        return result;
+        return WrapSet(result);
     }
 
     // ════════════════════════════════════════════════════════════
@@ -937,6 +984,27 @@ public static partial class BallRuntime
                     return BallValue.Int(fs.Value.Length);
                 case BallBytes fb:
                     return BallValue.Int(fb.Value.Length);
+            }
+        }
+
+        // A Set is the portable `{"__ball_set__": [...]}` tagged map (issue
+        // #528), so its virtual Iterable properties must read the WRAPPED list,
+        // not the one-entry wrapper (`{1,2,3,4,5}.length` was answering 1).
+        if (IsBallSet(obj))
+        {
+            var items = AsList(obj);
+            switch (field)
+            {
+                case "length":
+                    return BallValue.Int(items.Count);
+                case "isEmpty":
+                    return BallValue.Bool(items.IsEmpty);
+                case "isNotEmpty":
+                    return BallValue.Bool(!items.IsEmpty);
+                case "first":
+                    return items.Count > 0 ? items.Get(0) : BallValue.Null;
+                case "last":
+                    return items.Count > 0 ? items.Get(items.Count - 1) : BallValue.Null;
             }
         }
 

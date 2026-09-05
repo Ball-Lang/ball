@@ -330,20 +330,34 @@ cli-core verb) rejects it for the same reason and for the same correct cause.
 - Int arithmetic uses wrapping ops (`wrapping_add`/...) to match Dart's fixed-width 64-bit `int`
   (no overflow panics); `modulo` is Euclidean (sign of the divisor), matching Dart/`ball_dyn.h`,
   not Rust's native `%` (sign of the dividend).
-- **`BallValue` has no `Set` variant**, so `ball_set_create` returns a `BallValue::List` (see the
-  `std_collections — sets` banner in `shared/src/runtime.rs`). A set is therefore indistinguishable
-  from a list at the value level in a *directly compiled* program: `std.type_of` answers `"List"`
-  and `ball_is_type(v, "Set")` answers `false`. Both functions' `Set` arms key on the portable
-  `{'__ball_set__': [...]}` map form, which only the **self-hosted engine** materialises — so the
-  engine is correct and only the compiler leg diverges. Measured by conformance fixture
-  `434_type_of` (passes every engine, fails the Rust compiler leg on line 8); tracked as
-  [#528](https://github.com/Ball-Lang/ball/issues/528).
-- **A named constructor (`Class.name(args)`) does not compile.** The Dart encoder emits it as a
-  method call on the class reference (not a `messageCreation`), and `ball-lang-compiler` emits the
-  class name as an ordinary value reference — `[E0425] cannot find value 'Countdown' in this
-  scope`. Fixtures `436_recursive_ctor_named` / `438_ctor_initializer_list_with_body` measure it;
-  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The unnamed form
-  (`435`/`437`) compiles and passes.
+- **`BallValue` has no `Set` variant**, so a `Set` is the portable tagged map
+  `{'__ball_set__': [...]}` (issue #528) — the same shape C++'s `ball_make_set` builds and the
+  self-hosted engine's `_ballSetOf` materialises. `ball_set_create` and every sibling op build and
+  read that shape (see the `std_collections — sets` banner in `shared/src/runtime.rs`), so
+  `std.type_of` and `ball_is_type(v, "Set")` answer `Set` on a directly-compiled program as well as
+  under the self-hosted engine. Three details are load-bearing and easy to break: mutation reaches
+  **through** the wrapper to the wrapped list's shared `Arc<Mutex<Vec>>` backing (`set_backing`,
+  the analog of C++'s `_setBackingList()`), so a `set.add(x)` through one alias is observed through
+  every other; `as_list` and `ball_field_get`'s virtual `length`/`isEmpty`/`first`/`last` see
+  through the tag (Dart's `Set implements Iterable` — reading the one-entry wrapper made
+  `{1,2,3,4,5}.length` answer `1`); and `write_entries` renders the tagged shape as `{1, 2}`, never
+  `{__ball_set__: [1, 2]}`. Pinned by `runtime.rs`'s
+  `set_create_produces_a_value_that_is_a_set_and_not_a_list` /
+  `type_of_a_set_created_set_is_set` / `set_mutation_is_observed_through_every_alias` /
+  `set_renders_as_a_brace_list_not_its_tagged_map` /
+  `set_algebra_produces_sets_and_iterates_as_a_list`, which run on every PR.
+- **A named constructor (`Class.name(args)`) compiles** since #527. The Dart encoder emits it as a
+  method call whose packed `self` field is a bare `reference{name: "Class"}` — a static, syntactic
+  class name, not a value — so `compile_call` resolves it at COMPILE time to the class's associated
+  fn (`self_field_class_reference` + `named_constructor_fn` in `type_emit.rs`), rather than letting
+  `compile_reference` fall through to `Countdown.clone()` (`[E0425]`). **Shadowing wins**: a binding
+  of that name is a real value and the call stays an ordinary dispatch. `body_constructor_fn` picks
+  the UNNAMED (`new`) constructor only, so a `messageCreation` never runs a NAMED constructor's
+  body. A constructor's `metadata.initializers` are also applied when it carries a body
+  (`constructor_self_init` now lowers a literal initializer value through
+  `lower_field_initializer`, not only the `field = param` shape). Fixtures
+  `436_recursive_ctor_named` / `438_ctor_initializer_list_with_body` measure it end to end;
+  `compiler/tests/named_constructor.rs` is the PR-gated guard.
 
 ## Publishing (crates.io) — issue #366
 

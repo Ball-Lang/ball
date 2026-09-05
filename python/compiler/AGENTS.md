@@ -88,13 +88,19 @@ closures, and OOP (constructors incl. **named + optional params**, methods,
 `@property` getters/setters, `toString`, inheritance, top-level `const`s).
 
 That list describes what the *engine* program exercises. It is **not** whole-corpus
-coverage: the compile leg below shows `super`, static methods, factory/named
+coverage: the compile leg below shows `super`, static methods, factory
 constructors, mixins, enum-value references, switch patterns, generators and
 labeled break are all still open on the fixture corpus. The named-constructor gap
-(`Class.name(args)` -> `unresolved reference 'Countdown'`, measured on fixtures
-`436_recursive_ctor_named` and `438_ctor_initializer_list_with_body`) is shared
-with the Rust/Go/C# compilers and tracked as
-[#527](https://github.com/Ball-Lang/ball/issues/527).
+(`Class.name(args)` -> a spurious `unresolved reference 'Countdown'`) was **fixed**
+in [#527](https://github.com/Ball-Lang/ball/issues/527): `value_call`'s dispatch was
+already correct, but it eagerly compiled the raw `self` field through
+`reference()`'s fail-loud path before checking whether the class-static branch —
+which never uses that value — would fire, so `compile()` raised `CompileError` over
+otherwise-correct generated code. The receiver expression is now compiled **lazily**,
+only inside the branches that use it, and `_lower_init` lowers a plain string literal
+so a constructor's `metadata.initializers` survive a constructor that also has a body.
+Fixtures `436_recursive_ctor_named` and `438_ctor_initializer_list_with_body` are in
+`tests/test_conformance.py`'s golden-exact `PROVEN` list, which runs on every PR.
 
 ### Measured against the whole corpus (compile leg)
 

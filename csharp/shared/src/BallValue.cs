@@ -148,10 +148,22 @@ public abstract class BallValue
         return value.ToString(CultureInfo.InvariantCulture);
     }
 
-    /// <summary>Shared <c>{key: value, …}</c> rendering for maps and messages.</summary>
+    /// <summary>
+    /// Shared <c>{key: value, …}</c> rendering for maps and messages.
+    ///
+    /// <para>The portable ordered-set shape <c>{"__ball_set__": [1, 2]}</c>
+    /// (issue #528) renders as Dart's own set form, <c>{1, 2}</c> — the tag is a
+    /// representation detail and must never reach a user's output.</para>
+    /// </summary>
     internal static string FormatEntries(IEnumerable<KeyValuePair<string, BallValue>> entries)
     {
-        var parts = entries.Select(e => $"{e.Key}: {e.Value}");
+        var list = entries as IList<KeyValuePair<string, BallValue>> ?? entries.ToList();
+        if (list.Count == 1 && list[0].Key == "__ball_set__" && list[0].Value is BallList setItems)
+        {
+            return "{" + string.Join(", ", setItems.Snapshot()) + "}";
+        }
+
+        var parts = list.Select(e => $"{e.Key}: {e.Value}");
         return "{" + string.Join(", ", parts) + "}";
     }
 

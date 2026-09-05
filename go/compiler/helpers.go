@@ -127,6 +127,42 @@ func isIntLiteral(s string) bool {
 	return true
 }
 
+// isDoubleLiteral reports whether s is a plain (optionally signed) decimal
+// double literal (`0.5`, `-3.25`) — the shape a `ratio = 0.5` constructor
+// initializer carries as cosmetic source text.
+func isDoubleLiteral(s string) bool {
+	i := 0
+	if i < len(s) && (s[i] == '-' || s[i] == '+') {
+		i++
+	}
+	dot, digits := false, 0
+	for ; i < len(s); i++ {
+		switch {
+		case s[i] >= '0' && s[i] <= '9':
+			digits++
+		case s[i] == '.' && !dot:
+			dot = true
+		default:
+			return false
+		}
+	}
+	return dot && digits > 0
+}
+
+// plainStringLiteral unquotes a Dart string literal that carries no escape and
+// no interpolation (`'pt'` → `pt`); anything richer is left to the caller's
+// best-effort boundary.
+func plainStringLiteral(s string) (string, bool) {
+	if len(s) < 2 || s[0] != s[len(s)-1] || (s[0] != '\'' && s[0] != '"') {
+		return "", false
+	}
+	inner := s[1 : len(s)-1]
+	if strings.ContainsAny(inner, "\\$") || strings.IndexByte(inner, s[0]) >= 0 {
+		return "", false
+	}
+	return inner, true
+}
+
 // isSimpleIdent reports whether s is a bare identifier (a class name in Type()
 // initializer text).
 func isSimpleIdent(s string) bool {

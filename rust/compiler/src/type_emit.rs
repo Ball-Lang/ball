@@ -12,6 +12,7 @@
 //! system.
 use std::collections::HashMap;
 
+use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::{Expression, FunctionDefinition, Module, TypeDefinition};
 use ball_lang_shared::proto::google::protobuf::field_descriptor_proto::{Label, Type};
 use ball_lang_shared::proto::google::protobuf::value::Kind;
@@ -289,6 +290,19 @@ fn field_initializer_param(
     field: &str,
     param_names: &std::collections::HashSet<&str>,
 ) -> Option<String> {
+    let value = field_initializer_text(ctor, field)?;
+    let token: String = value
+        .trim()
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+    param_names.contains(token.as_str()).then_some(token)
+}
+
+/// The raw initializer source text a `metadata.initializers` entry gives
+/// instance field `field`, or `None` when the constructor has no initializer
+/// for it.
+fn field_initializer_text(ctor: &FunctionDefinition, field: &str) -> Option<String> {
     let meta = ctor.metadata.as_ref()?;
     let initializers = meta_list_value(meta, "initializers")?;
     for init in initializers {
@@ -301,18 +315,27 @@ fn field_initializer_param(
         if meta_string_value(init_struct, "name").as_deref() != Some(field) {
             continue;
         }
-        let value = meta_string_value(init_struct, "value")?;
-        let token: String = value
-            .trim()
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_')
-            .collect();
-        if param_names.contains(token.as_str()) {
-            return Some(token);
-        }
-        return None;
+        return meta_string_value(init_struct, "value");
     }
     None
+}
+
+/// The member short name the encoders give Dart's unnamed constructor
+/// (`main:Point.new`).
+pub(crate) const UNNAMED_CTOR_MEMBER: &str = "new";
+
+/// Unquote a Dart string literal carrying no escape and no interpolation
+/// (`'pt'` → `pt`), else `None` — the documented best-effort boundary.
+fn plain_string_literal(s: &str) -> Option<&str> {
+    let quote = s.chars().next()?;
+    if (quote != '\'' && quote != '"') || s.len() < 2 || !s.ends_with(quote) {
+        return None;
+    }
+    let inner = &s[1..s.len() - 1];
+    if inner.contains('\\') || inner.contains('$') || inner.contains(quote) {
+        return None;
+    }
+    Some(inner)
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1164,14 +1187,98 @@ impl Compiler<'_> {
     /// constructor (both build correctly as an inline field map).
     pub(crate) fn body_constructor_fn(&self, type_name: &str) -> Option<String> {
         let members = self.class_members_by_owner.get(type_name)?;
+        // The UNNAMED constructor only (`main:Point.new`): a `messageCreation`
+        // builds the class's *default* instance, so picking whichever
+        // body-carrying constructor happened to come first would run a NAMED
+        // constructor's body for `Point(3, 4)` (issue #527).
         let ctor = members.iter().copied().find(|member| {
-            func_meta_kind(member).as_deref() == Some("constructor") && member.body.is_some()
+            func_meta_kind(member).as_deref() == Some("constructor")
+                && member.body.is_some()
+                && member_short_name(&member.name) == UNNAMED_CTOR_MEMBER
         })?;
         Some(format!(
             "{}::{}",
             crate::sanitize_ident(type_name),
             member_short_name(&ctor.name)
         ))
+    }
+
+    /// The class short name a call's packed `self` field names, when that field
+    /// is a bare reference to a known user class NOT shadowed by a binding in
+    /// scope — the `Class.name(args)` receiver shape (issue #527).
+    pub(crate) fn self_field_class_reference(
+        &self,
+        call: &ball_lang_shared::proto::ball::v1::FunctionCall,
+    ) -> Option<String> {
+        let Some(Expression {
+            expr: Some(Expr::MessageCreation(mc)),
+        }) = call.input.as_deref()
+        else {
+            return None;
+        };
+        let self_field = mc.fields.iter().find(|f| f.name == "self")?;
+        let Some(Expression {
+            expr: Some(Expr::Reference(reference)),
+        }) = self_field.value.as_ref()
+        else {
+            return None;
+        };
+        let short = reference.name.as_str();
+        if !self.type_defs_by_short_name.contains_key(short) || self.is_local(short) {
+            return None;
+        }
+        Some(short.to_string())
+    }
+
+    /// The Rust associated-fn path (`main_Countdown::from`) of class
+    /// `class_short`'s **named** constructor `ctor_short`, if it has one.
+    pub(crate) fn named_constructor_fn(
+        &self,
+        class_short: &str,
+        ctor_short: &str,
+    ) -> Option<String> {
+        if ctor_short == UNNAMED_CTOR_MEMBER {
+            return None;
+        }
+        let td = self.type_defs_by_short_name.get(class_short)?;
+        let members = self.class_members_by_owner.get(td.name.as_str())?;
+        members.iter().copied().find(|member| {
+            func_meta_kind(member).as_deref() == Some("constructor")
+                && member_short_name(&member.name) == ctor_short
+        })?;
+        Some(format!(
+            "{}::{}",
+            crate::sanitize_ident(&td.name),
+            crate::sanitize_ident(ctor_short)
+        ))
+    }
+
+    /// Compile a call's packed input with its `self` field dropped — the
+    /// argument message a constructor's associated fn reads its parameters from.
+    pub(crate) fn call_args_without_self(
+        &self,
+        call: &ball_lang_shared::proto::ball::v1::FunctionCall,
+    ) -> String {
+        let Some(Expression {
+            expr: Some(Expr::MessageCreation(mc)),
+        }) = call.input.as_deref()
+        else {
+            return "BallValue::Null".to_string();
+        };
+        let rest = ball_lang_shared::proto::ball::v1::MessageCreation {
+            type_name: String::new(),
+            fields: mc
+                .fields
+                .iter()
+                .filter(|f| f.name != "self")
+                .cloned()
+                .collect(),
+            metadata: None,
+        };
+        if rest.fields.is_empty() {
+            return "BallValue::Map(BallMap::new())".to_string();
+        }
+        self.compile_message_creation(&rest)
     }
 
     pub(crate) fn field_initializer_text(
@@ -1238,6 +1345,11 @@ impl Compiler<'_> {
             if double_value.is_finite() {
                 return Some(format!("BallValue::Double({double_value}f64)"));
             }
+        }
+        // A plain (non-interpolated, unescaped) string literal — `label = 'pt'`
+        // in a constructor initializer list (issue #527).
+        if let Some(text) = plain_string_literal(s) {
+            return Some(format!("BallValue::String({text:?}.to_string())"));
         }
         if let Some(type_name) = s.strip_suffix("()") {
             let type_name = type_name.trim();
@@ -1319,6 +1431,16 @@ impl Compiler<'_> {
                 format!("{}.clone()", crate::sanitize_ident(&field))
             } else if let Some(param) = field_initializer_param(ctor, &field, &param_names) {
                 format!("{}.clone()", crate::sanitize_ident(&param))
+            } else if let Some(value) = field_initializer_text(ctor, &field)
+                .and_then(|init| self.lower_field_initializer(&init, &mut Vec::new()))
+            {
+                // A constructor initializer-list value that is a literal rather
+                // than a parameter reference (`label = 'pt'`, `y = -3`,
+                // `ratio = 0.5`) — issue #527. Without this the whole
+                // initializer list of a body-carrying constructor was dropped
+                // and the field stayed `Null`, so the body's `label + '!'`
+                // panicked.
+                value
             } else if let Some(default) = self
                 .field_initializer_text(owner_td, &field)
                 .and_then(|init| self.lower_field_initializer(&init, &mut Vec::new()))

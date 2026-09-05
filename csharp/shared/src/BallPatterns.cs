@@ -29,11 +29,13 @@ public static partial class BallRuntime
     public static bool PatternIsList(BallValue value) => value is BallList;
 
     /// <summary>
-    /// A map subject. A Ball <c>Set</c> materializes as a duplicate-free
-    /// <see cref="BallList"/>, so it can never satisfy a map pattern (issue #178
-    /// — a set must fall through to the next case, not match <c>case {…}:</c>).
+    /// A map subject. A Ball <c>Set</c> is the portable
+    /// <c>{"__ball_set__": [...]}</c> tagged map (issue #528) — a REAL one-key
+    /// map — so it must be excluded explicitly here, or a pattern keyed on that
+    /// marker matches a set (issue #178 / fixture 394: a set falls through to
+    /// the next case, never <c>case {…}:</c>, because a Dart Set is not a Map).
     /// </summary>
-    public static bool PatternIsMap(BallValue value) => value is BallMap;
+    public static bool PatternIsMap(BallValue value) => value is BallMap && !IsBallSet(value);
 
     /// <summary>A list subject's length (0 for a non-list — a list gate always precedes this conjunct).</summary>
     public static int PatternLength(BallValue value) => value is BallList list ? list.Count : 0;

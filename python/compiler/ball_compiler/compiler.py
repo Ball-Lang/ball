@@ -593,6 +593,12 @@ class Compiler:
             return "[]"
         if s in ("''", '""'):
             return "''"
+        # A plain (non-interpolated, unescaped) string literal — `label = 'pt'`
+        # in a constructor initializer list (issue #527). Anything carrying a
+        # backslash or a `$` is an escape/interpolation we do not lower here.
+        if (len(s) >= 2 and s[0] == s[-1] and s[0] in "'\""
+                and "\\" not in s and "$" not in s and s[0] not in s[1:-1]):
+            return pystr(s[1:-1])
         if s == "true":
             return "True"
         if s == "false":
@@ -1432,15 +1438,22 @@ class Compiler:
         mc = inp.get("messageCreation") if inp else None
         # A call carrying `self` in its input is a method call on the receiver.
         if mc is not None and any(fv.get("name") == "self" for fv in mc.get("fields", [])):
-            self_expr = "None"
             self_raw = None
             rest = []
             for fv in mc.get("fields", []):
                 if fv.get("name") == "self":
                     self_raw = fv["value"]
-                    self_expr = self.value(fv["value"])
                 else:
                     rest.append(fv)
+            # The receiver expression is compiled LAZILY (issue #527): a `self`
+            # field that is a bare reference to a CLASS name — the shape the
+            # encoder emits for `Class.name(args)` — is not a value at all, and
+            # compiling it would take `reference()`'s fail-loud path and record a
+            # spurious "unresolved reference 'Class'" error even though the
+            # class-static branch below never uses the result.
+            def self_expr():
+                return self.value(self_raw) if self_raw is not None else "None"
+
             # A static call on a builtin type (int.tryParse, List.filled, …):
             # route to a dedicated runtime helper with cleanly-extracted args.
             sr = self_raw.get("reference", {}).get("name", "") if isinstance(self_raw, dict) else ""
@@ -1465,16 +1478,18 @@ class Compiler:
             # through the dispatcher even though a user class declares them, since
             # the receiver may be a builtin at run time.
             if method not in self.all_method_names or fn in _UNIVERSAL_METHODS:
+                recv = self_expr()
                 sdk_args = ", ".join(self.value(fv["value"]) for fv in rest)
                 sep = ", " if rest else ""
-                return f"ballrt.call_method({self_expr}, {pystr(fn)}{sep}{sdk_args})"
+                return f"ballrt.call_method({recv}, {pystr(fn)}{sep}{sdk_args})"
+            recv = self_expr()
             if not rest:
-                return f"{self_expr}.{method}()"
+                return f"{recv}.{method}()"
             if len(rest) == 1:
-                return f"{self_expr}.{method}({self.value(rest[0]['value'])})"
+                return f"{recv}.{method}({self.value(rest[0]['value'])})"
             packed = "{" + ", ".join(
                 f"{pystr(fv.get('name', ''))}: {self.value(fv['value'])}" for fv in rest) + "}"
-            return f"{self_expr}.{method}({packed})"
+            return f"{recv}.{method}({packed})"
         # External (stub-module) calls we bridge to the runtime (dart.math, …).
         if mod in self.stub_modules:
             return self.stub_call(mod, fn, inp)

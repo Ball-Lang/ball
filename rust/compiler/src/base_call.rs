@@ -132,6 +132,19 @@ impl Compiler<'_> {
         }
         let prefix = self.resolve_user_call_name(&call.module);
         let name = crate::sanitize_ident(&call.function);
+        // A NAMED-CONSTRUCTOR call, `Class.name(args)` (issue #527). The Dart
+        // encoder emits it as an ordinary method call whose packed `self` field
+        // is a bare reference to the CLASS name — a static, syntactic name, not
+        // a runtime value — so it resolves at COMPILE time to the class's
+        // associated fn, and the class reference itself is never compiled as a
+        // value (it is not one; `compile_reference` would emit
+        // `Countdown.clone()`, an E0425). SHADOWING WINS: a binding of that name
+        // IS a real value, and the call stays an ordinary dispatch on it.
+        if let Some(receiver_class) = self.self_field_class_reference(call) {
+            if let Some(ctor_fn) = self.named_constructor_fn(&receiver_class, &call.function) {
+                return format!("{ctor_fn}({})", self.call_args_without_self(call));
+            }
+        }
         let input = match &call.input {
             Some(input) => self.compile_expression(input),
             None => "BallValue::Null".to_string(),

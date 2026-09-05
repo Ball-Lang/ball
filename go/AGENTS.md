@@ -187,14 +187,21 @@ go run ./cmd/ballgoconf 101_simple_class   # one fixture, full expected/actual d
 - It is a **command, not a test**, so the default `go test ./compiler/...` stays
   fast. `runner_test.go` keeps a positive floor: one fixture must actually pass, and
   an empty sweep is an error (a "0 passed, 0 failed" line must never read as green).
-- **Known gap — a named constructor (`Class.name(args)`) does not build.** The Dart
-  encoder emits it as a method call on the class reference rather than as a
-  `messageCreation`, and `go/compiler` emits the class name as an ordinary value
-  reference, so the emitted Go fails `go build`. Fixtures
-  `436_recursive_ctor_named` and `438_ctor_initializer_list_with_body` measure it
-  (the unnamed form, `435`/`437`, compiles and passes, as does `434_type_of`);
-  tracked as [#527](https://github.com/Ball-Lang/ball/issues/527). The leg is a
-  **ratchet**, not a parity gate, so those two count among its recorded failures.
+- **A named constructor (`Class.name(args)`) builds** since #527. The Dart encoder
+  emits it as a method call whose packed `self` field is a bare
+  `reference{name: "Class"}` — a static, syntactic class name, not a value — so
+  `compileCall` resolves it at COMPILE time to the class's `Owner__member` impl
+  (`selfFieldClassReference` + `namedConstructorImpl`) instead of falling through to
+  a bare `from(...)` with no such Go function declared. **Shadowing wins**: a
+  binding of that name is a real value and the call stays an ordinary dispatch.
+  `indexConstructors` keys `bodyCtorImpl` on the UNNAMED (`new`) constructor only —
+  keying every constructor there made the LAST named one win, so `Point(3, 4)` ran
+  `Point.constants()`'s body — and a constructor's `metadata.initializers` are now
+  applied when it carries a body (`constructorInitializer` lowers a literal value,
+  not only the `field = param` shape). Fixtures `436_recursive_ctor_named` and
+  `438_ctor_initializer_list_with_body` measure it end to end;
+  `go/compiler/named_ctor_test.go` is the PR-gated guard (this leg is a **ratchet**
+  on a workflow with no `pull_request:` trigger, so it never was).
 
 ## Round-trip conformance leg (`go/engine/conformance/roundtrip.go`, issue #452 item 3)
 The third question, after the engine and compiler legs: **can `go/encoder` read

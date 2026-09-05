@@ -1,3 +1,10 @@
+# [1.68.0](https://github.com/Ball-Lang/ball/compare/v1.67.2...v1.68.0) (2026-09-05)
+
+
+### Features
+
+* **coverage-study:** add the Tier B behavioural substitution harness for Dart ([#560](https://github.com/Ball-Lang/ball/issues/560)) ([6d74e4a](https://github.com/Ball-Lang/ball/commit/6d74e4a8c3c609c067c1f26cdfbf7c3219b537d3)), closes [#488](https://github.com/Ball-Lang/ball/issues/488) [#493](https://github.com/Ball-Lang/ball/issues/493) [#488](https://github.com/Ball-Lang/ball/issues/488)
+
 ## [1.67.2](https://github.com/Ball-Lang/ball/compare/v1.67.1...v1.67.2) (2026-09-05)
 
 

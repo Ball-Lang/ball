@@ -62,6 +62,15 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   in-place set mutation the engine performs is silently lost — issue #557).
   Chaining the calls and asserting the interleaved `set_length`/`set_contains` is
   exactly #557's regression test and should land with its fix.
+  For the same reason it is inexpressible in Dart, it also cannot survive the
+  **`dart-roundtrip`** leg of `dart/compiler/test/conformance_roundtrip_test.dart`
+  (Ball → Dart → *encoder* → Ball' → Dart): the compiled `a.add(3)` needs the
+  receiver's TYPE to re-encode as `set_add`, and the syntax-only encoder has none,
+  so it routes to `list_push` and compiles back to the cascade `a..add(3)` — the set,
+  not the bool. That one leg is the sole entry in that harness's
+  `_knownUnroundtrippable` ratchet (which fails if the entry ever starts passing);
+  the fixture's `engine`, `dart-compiled` and `ts-compiled` legs all pass. Issue #488
+  owns the receiver-type seam that will delete the entry.
 - `399_bytes_literal` — exercises a `Literal.bytes_value` node (the `literal.bytes_value`
   node-shape carve-out, #64 Phase 2b). No Dart source construct maps to a bytes literal
   (`Uint8List.fromList([...])` encodes as a constructor call), so it cannot be generated

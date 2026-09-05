@@ -1,3 +1,10 @@
+## [1.68.1](https://github.com/Ball-Lang/ball/compare/v1.68.0...v1.68.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **engine:** only a this.-formal may write a constructor parameter into its field, and never destructure an inline-constructed argument (closes [#539](https://github.com/Ball-Lang/ball/issues/539), closes [#555](https://github.com/Ball-Lang/ball/issues/555)) ([#563](https://github.com/Ball-Lang/ball/issues/563)) ([040fc6c](https://github.com/Ball-Lang/ball/commit/040fc6c3b18f23daa9ffac66c13a47ccd1e50be2)), closes [#213](https://github.com/Ball-Lang/ball/issues/213) [#561](https://github.com/Ball-Lang/ball/issues/561) [489/#499](https://github.com/Ball-Lang/ball/issues/499) [#514](https://github.com/Ball-Lang/ball/issues/514) [#561](https://github.com/Ball-Lang/ball/issues/561) [#561](https://github.com/Ball-Lang/ball/issues/561) [#564](https://github.com/Ball-Lang/ball/issues/564) [#564](https://github.com/Ball-Lang/ball/issues/564)
+
 # [1.68.0](https://github.com/Ball-Lang/ball/compare/v1.67.2...v1.68.0) (2026-09-05)
 
 

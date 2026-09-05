@@ -39,7 +39,7 @@
          self-executing test apps bridged to `dotnet test` via the VSTest
          adapter (xunit.runner.visualstudio). -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
-    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.v3" Version="4.0.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
   </ItemGroup>

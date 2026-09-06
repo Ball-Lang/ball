@@ -171,11 +171,12 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
   (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 7 passed, 2 failed, 9 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  `Results: 8 passed, 2 failed, 10 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
   `1 passed, 6 failed`; slices A/B closed buckets b, c and g; slice C added and closed bucket
   (h), `enum` declarations; slice C's line was `5 passed, 3 failed, 8 total`; slice E closed
   bucket (e), `6 passed, 2 failed, 8 total`; slice 3 added and closed bucket (i), BCL static guard
-  calls — the taxonomy grows only when a fresh measurement says so, which is
+  calls, `7 passed, 2 failed, 9 total`; slice 3b added and closed bucket (j), the 0-argument LINQ
+  terminals — the taxonomy grows only when a fresh measurement says so, which is
   how the enum bucket stayed invisible until it was the largest). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
@@ -191,7 +192,9 @@ compile items so the sibling projects never double-compile each other's files.
   independent gaps (a `PredefinedTypeSyntax` receiver, `int.Parse`, and the 0-arg `.Count()`
   METHOD spelling of the `.Count` property) and both had to be fixed for it to flip unmodified.
   Bucket (i) (slice 3) is the third: one fixture carrying `ArgumentNullException.ThrowIfNull`
-  plus both `Debug.Assert` arities.
+  plus both `Debug.Assert` arities. Bucket (j) (slice 3b) is the fourth: `.Last()` and 0-arg
+  `.Any()` in one fixture, printing from a non-empty AND an empty receiver so an inverted route
+  fails the round-trip run.
 - **`PredefinedType` static receivers** (#492 slice E): `EncodeMemberInvocation` intercepts a
   `PredefinedTypeSyntax` receiver BEFORE `StaticReceiverName` and routes it through
   `EncodePredefinedTypeStaticCall` — `int`/`long`.`Parse` → `std.string_to_int`,
@@ -208,6 +211,17 @@ compile items so the sibling projects never double-compile each other's files.
   `ThrowIfNull(value, paramName)` overload stays a LOUD error because `paramName` is `nameof(x)`,
   a shape this encoder cannot resolve. `String.IsNullOrEmpty` is a documented deferral (routing it
   would falsify `string_is_empty`'s "never emitted for a non-string" assumption in the Dart engine).
+- **0-argument LINQ terminals** (#492 slice 3b): `.Last()` → `std_collections.list_last` (same
+  throw-on-empty contract as C#'s own `.Last()`, so it is a route and not an approximation) and
+  0-arg `.Any()` → `std.not(std_collections.list_is_empty(...))` — the 0-arity halves of arity
+  windows that already carried their 1-argument arms (`list_find`/`list_any`). Both target
+  functions were already declared/compiled/interpreted; this was purely a dispatch-table gap, and
+  its measured Tier A yield is **zero** (stage 1 stayed at 123/472 — Tier A reports only a file's
+  FIRST error), so it is justified by targeted tests plus a round-trip run, never by a funnel
+  number. `LastOrDefault`/`SingleOrDefault` stay LOUD errors on purpose: the neighbouring
+  `FirstOrDefault` arm routes a default-returning name to the throwing `list_first`, a
+  pre-existing silent-wrong-behaviour defect (issue #588, listed in `csharp/AGENTS.md`'s "Still
+  open on #492") that a new name does not get to inherit.
 - **`default(T)` is the type's zero, not always null.** The `DefaultExpressionSyntax` arm used to
   encode every `default(T)` as a null literal, so `default(int)` printed `null` where C# prints
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero

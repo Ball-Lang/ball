@@ -1,3 +1,10 @@
+# [1.71.0](https://github.com/Ball-Lang/ball/compare/v1.70.1...v1.71.0) (2026-09-06)
+
+
+### Features
+
+* **csharp:** encode BCL static guards as std.assert and route the 0-argument .Last()/.Any() terminals (advances [#492](https://github.com/Ball-Lang/ball/issues/492)) ([#585](https://github.com/Ball-Lang/ball/issues/585)) ([32e3ee9](https://github.com/Ball-Lang/ball/commit/32e3ee9f9cdefa033a62e1f91296d8efe1a8fff4)), closes [494/#510](https://github.com/Ball-Lang/ball/issues/510) [#493](https://github.com/Ball-Lang/ball/issues/493) [#578](https://github.com/Ball-Lang/ball/issues/578) [494/#510](https://github.com/Ball-Lang/ball/issues/510) [#505](https://github.com/Ball-Lang/ball/issues/505) [#588](https://github.com/Ball-Lang/ball/issues/588) [#588](https://github.com/Ball-Lang/ball/issues/588) [#588](https://github.com/Ball-Lang/ball/issues/588)
+
 ## [1.70.1](https://github.com/Ball-Lang/ball/compare/v1.70.0...v1.70.1) (2026-09-05)
 
 

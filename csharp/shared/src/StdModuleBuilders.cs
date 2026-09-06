@@ -303,8 +303,15 @@ public static class StdModuleBuilders
             BaseFn("string_join", "StringJoinInput", "", "Join list of strings: list.join(separator)"),
             // Set — unordered, unique elements
             BaseFn("set_create", "ListInput", "", "Create set from list: Set.from(list)"),
-            BaseFn("set_add", "SetInput", "", "Add element: set.add(value)"),
-            BaseFn("set_remove", "SetInput", "", "Remove element: set.remove(value)"),
+            // "bool", not "" — issue #545 made set_add/set_remove Dart-exact on
+            // every target (mutate the receiver in place, answer true only on a
+            // fresh insert / an actual removal) and declared that in
+            // dart/shared/lib/std_collections.dart; this port kept "", so the
+            // declared contract disagreed with the implemented one on the C#
+            // side while both name-parity gates stayed green (issue #557).
+            // StdModuleBuilderTests.AssertOutputTypesMatch is what now sees it.
+            BaseFn("set_add", "SetInput", "bool", "Add element: set.add(value). Mutates the set in place; returns true only when the element was newly inserted (Dart Set.add semantics)."),
+            BaseFn("set_remove", "SetInput", "bool", "Remove element: set.remove(value). Mutates the set in place; returns true only when the element was present (Dart Set.remove semantics)."),
             BaseFn("set_contains", "SetInput", "", "Contains element: set.contains(value)"),
             BaseFn("set_union", "SetBinaryInput", "", "Union: left.union(right)"),
             BaseFn("set_intersection", "SetBinaryInput", "", "Intersection: left.intersection(right)"),

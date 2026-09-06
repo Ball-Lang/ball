@@ -210,6 +210,22 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   at all while `Counter()` worked. It now calls `_initFieldDefaults` like the
   `messageCreation` path does.
 
+- **The ordered-set representation probe is `is BallRawMap`, never `is Map`
+  (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
+  `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out
+  of?", which is a DIFFERENT question from a user program's `x is Map` — and
+  since #528/#553 the Rust/C#/C++ targets answer `false` to the latter for a set,
+  by design. Asking with `is Map` made the probe permanently false there, so
+  `_ballSetItems` returned a COPY and every in-place set mutation the engine
+  performed (`set_add`, `set_remove`, `list_clear` on a set, the `Set.add`/
+  `.remove` method dispatch) was silently lost. `BallRawMap` is a typedef for
+  that raw map; each runtime answers it structurally. For the same reason
+  `_ballSetItems` reads the tag through the `is BallRawMap` PROMOTION and not
+  through `v as Map`: Rust's `ball_as` and C#'s `BallRuntime.AsType` check the
+  cast against the same set-excluding `is Map` answer and would throw on the very
+  value the probe just identified. Conformance fixture
+  `460_set_mutation_in_place` is the guard.
+
 ## Generated Files — NEVER Edit
 
 - `dart/shared/lib/gen/**` — Protobuf generated types

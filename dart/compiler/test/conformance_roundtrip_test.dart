@@ -80,6 +80,17 @@ const _knownUnroundtrippable = <String, String>{
       'them one bool contract on every target), delete this entry. The '
       "fixture's other three legs — engine, dart-compiled, ts-compiled — all "
       'pass: only the leg that goes THROUGH the encoder cannot.',
+  '460_set_mutation_in_place:dart-roundtrip':
+      'The same receiver-type seam as `459_set_add_remove_bool` above, on the '
+      'same leg and for the same reason — this fixture chains the two calls '
+      'against ONE set instead of using a fresh set per case (issue #557), so '
+      'its FIRST line is a `set_add` result in a value position and re-encoding '
+      'the compiled `a.add(3)` prints the SET (`{1, 2, 3}`) where the golden '
+      'says `true`. Measured, not assumed: the remaining five lines round-trip '
+      'correctly, including the mutated `{1, 3}` — only the bool-in-value-'
+      'position line diverges. Issue #488 owns the seam; delete BOTH entries '
+      "together when it routes a `Set` receiver to `set_add`. The fixture's "
+      'other three legs — engine, dart-compiled, ts-compiled — all pass.',
 };
 
 /// Locates `tests/conformance/` by walking up from the current directory to

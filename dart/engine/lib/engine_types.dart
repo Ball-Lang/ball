@@ -109,6 +109,31 @@ double _ballToDouble(Object? value) {
 /// set from `Map` without depending on the `BallEngineStd` extension.
 const String _kBallSetTag = '__ball_set__';
 
+/// The engine's own name for the RAW string-keyed map the portable ordered-set
+/// value (`{'__ball_set__': [...]}`) actually is — the *representation*, not the
+/// user-visible `Map` type.
+///
+/// `is Map` cannot be used for that probe. Since issues #528/#553 a compiled
+/// target deliberately answers `false` to `{1, 2} is Map` so a USER program's
+/// type test is Dart-correct (`Set` does not implement `Map`), and on the
+/// targets that model a set AS a tagged map — Rust (`BallValue::Map` carrying
+/// the tag), C# (`BallMap`), C++ (`BallOrderedMap`) — that exclusion also,
+/// silently, made the ENGINE's own representation probe `false`. The engine
+/// could then never reach a set's live backing list, so every in-place set
+/// mutation it performs (`set_add`, `set_remove`, `list_clear` on a set, the
+/// `Set.add`/`.remove` method dispatch) was applied to a throwaway copy and
+/// lost — issue #557, and why conformance fixture `459_set_add_remove_bool` had
+/// to build a FRESH set per case. `460_set_mutation_in_place` is the fixture
+/// that observes the write.
+///
+/// `BallRawMap` separates the two questions. "Is this value a `Map` to a user
+/// program?" stays `is Map` (set-excluded); "is this value the raw map my own
+/// representation is built out of?" is `is BallRawMap`, which every target
+/// answers STRUCTURALLY — a raw map, tag included. On the Dart reference engine
+/// it is simply `Map<String, Object?>`, the type `_ballSetOf` returns, so this
+/// changes nothing there.
+typedef BallRawMap = Map<String, Object?>;
+
 /// True when [v] is the portable ordered-set representation
 /// (`{'__ball_set__': [...]}` — a map carrying the set marker key).
 ///
@@ -121,7 +146,17 @@ const String _kBallSetTag = '__ball_set__';
 /// ever produced by set construction (an empty `{}` now encodes as `map_create`,
 /// non-empty set literals are unambiguous), so the marker alone identifies a set
 /// on every target.
-bool _ballValueIsSet(Object? v) => v is Map && v.containsKey(_kBallSetTag);
+/// Probes [BallRawMap] FIRST and `Map` only as a fallback: on Rust/C#/C++ the
+/// `Map` arm is permanently false for a tagged set (see [BallRawMap]), and on
+/// Go/Python — whose runtimes never added that exclusion — the `Map` arm is the
+/// one that answers. On the Dart reference engine the two are the same type for
+/// every set this engine builds, so the first arm always wins and behaviour is
+/// unchanged.
+bool _ballValueIsSet(Object? v) {
+  if (v is BallRawMap) return v.containsKey(_kBallSetTag);
+  if (v is Map) return v.containsKey(_kBallSetTag);
+  return false;
+}
 
 /// Strict runtime type tests for pattern matching (avoid `is double` → num widen).
 bool _ballIsInt(Object? v) => v is int || v is BallInt;

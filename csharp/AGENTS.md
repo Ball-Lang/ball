@@ -298,6 +298,10 @@ factories `BallValue.Null` / `.Bool(bool)` / `.Int(long)` / `.Double(double)` / 
   here in the SAME PR** — otherwise this job goes red on a Dart-only change, which is exactly what
   it is for (#505 landed thirteen such functions and this gate caught the missing C# half in 73
   seconds). Rust carries the identical contract via `rust/shared/src/std_dart_parity.rs`.
+  Since #557 the same tests ALSO compare `outputType` for `outputType`
+  (`AssertOutputTypesMatch`) — a name-only gate cannot see a declared-TYPE drift, which is
+  exactly how `set_add`/`set_remove` kept `""` here after #545 declared `'bool'` in Dart, both
+  sides green and the cross-target contract split.
   `DescriptorBuilders`
   (`TypeDef`/`ExprField`/`StringField`/`BaseFn`/…) mirrors `rust/shared/src/descriptor_builders.rs`.
 - `Fields.Extract(FunctionCall) → OrderedDictionary<string, Expression>` — the named-argument
@@ -958,7 +962,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 345 passed, 0 failed, 345 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1183,7 +1187,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)`.
+  `Results: 345 passed, 0 failed, 345 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1250,7 +1254,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 344 passed, 0 failed, 344 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 345 passed, 0 failed, 345 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1420,8 +1424,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 344 passed, 0 failed,
-  344 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 345 passed, 0 failed,
+  345 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

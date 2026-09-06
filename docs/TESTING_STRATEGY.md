@@ -417,11 +417,17 @@ Two gates now cover this class:
   result of all four return-value branches (fresh insert / duplicate insert /
   present removal / absent removal). Because it is a conformance fixture it gates
   every engine and every compiled leg in the matrix at once. It uses a FRESH set
-  per case rather than observing the mutation, because the stronger chained form
-  fails on the C# and Rust self-hosted engines for an unrelated pre-existing
-  reason (issue #557); the in-place half is pinned per runtime instead
-  (`csharp/shared/test`, `rust/shared/src/runtime.rs`, `go/runtime`,
-  `python/compiler/tests`) and on the Dart reference engine.
+  per case, so it pins the RETURN VALUE only.
+* **Cross-target, in place** — `tests/conformance/460_set_mutation_in_place` is
+  the other half, added with the fix for issue #557: one set, added to, removed
+  from, then READ BACK (printed whole, measured, and probed with `set_contains`
+  for both the added and the removed element). It is what catches a mutation that
+  is silently lost — the C#, Rust and C++ self-hosted engines all printed
+  `{1, 2}` for the whole set while every bool AND `set_length` still looked right,
+  because their compiled `_ballSetItems` handed back a COPY of the backing list.
+  Only reading the same set back after a mutation can see that, which is exactly
+  why 459's fresh-set-per-case form could not. Do not rewrite it to use a fresh
+  set.
 * **Declaration** — `dart/engine/test/std_output_type_contract_test.dart` reads
   the canonical builders, and for every base function that declares a non-empty
   `outputType` it runs the Dart reference engine and asserts the answer's
@@ -438,10 +444,12 @@ it. Re-encoding the compiled `a.add(3)` needs the receiver's TYPE to tell
 has none, so the call routes to `list_push` and compiles back to the cascade
 `a..add(3)` — the SET, not the bool. That is issue #488's receiver-type seam, not
 a #545 regression: the fixture's `engine`, `dart-compiled` and `ts-compiled` legs
-all pass. It is recorded as the single entry in the harness's
-`_knownUnroundtrippable` map — a ratchet, not a baseline: an entry that starts
-passing fails the suite, an entry naming no real `fixture:leg` fails the suite,
-and every unlisted failure fails the suite exactly as before.
+all pass. Fixture 460 hits the same seam on the same leg for the same reason
+(its first line is a `set_add` result in a value position). The two are the only
+entries in the harness's `_knownUnroundtrippable` map — a ratchet, not a
+baseline: an entry that starts passing fails the suite, an entry naming no real
+`fixture:leg` fails the suite, and every unlisted failure fails the suite exactly
+as before. Issue #488 owns the seam; both entries go together when it lands.
 
 When a base function's result is meaningful — a predicate, a "was it there"
 answer, anything a caller would branch on — declare the `outputType`, add the

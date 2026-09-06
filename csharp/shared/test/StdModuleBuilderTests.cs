@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Ball.Shared;
+using Ball.V1;
 
 namespace Ball.Shared.Tests;
 
@@ -18,6 +19,14 @@ public partial class StdModuleBuilderTests
     [GeneratedRegex(@"_fn\(\s*'([^']+)'")]
     private static partial Regex FnRegistrationRegex();
 
+    /// <summary>
+    /// <c>_fn('name', 'inputType', 'outputType', …)</c> — the first three
+    /// arguments are always plain single-quoted literals (the description may be
+    /// an adjacent-string concatenation, so it is not captured).
+    /// </summary>
+    [GeneratedRegex(@"_fn\(\s*'([^']+)'\s*,\s*'([^']*)'\s*,\s*'([^']*)'")]
+    private static partial Regex FnOutputTypeRegex();
+
     private static IReadOnlyList<string> DartStdJsonFunctionNames()
     {
         using var doc = JsonDocument.Parse(File.ReadAllText(RepoPaths.StdJson));
@@ -27,12 +36,74 @@ public partial class StdModuleBuilderTests
             .ToList();
     }
 
+    /// <summary>
+    /// Every function's declared <c>outputType</c> in <c>dart/shared/std.json</c>.
+    /// proto3 JSON omits an empty string, so an absent field means <c>""</c>.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> DartStdJsonOutputTypes()
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(RepoPaths.StdJson));
+        return doc.RootElement.GetProperty("functions")
+            .EnumerateArray()
+            .ToDictionary(
+                f => f.GetProperty("name").GetString()!,
+                f => f.TryGetProperty("outputType", out var o) ? o.GetString() ?? string.Empty : string.Empty);
+    }
+
     private static IReadOnlyList<string> DartSourceFunctionNames(string module)
     {
         var text = File.ReadAllText(RepoPaths.DartStdSource(module));
         return FnRegistrationRegex().Matches(text)
             .Select(m => m.Groups[1].Value)
             .ToList();
+    }
+
+    /// <summary>
+    /// Every function's declared <c>outputType</c> in the canonical Dart source
+    /// for <paramref name="module"/>.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> DartSourceOutputTypes(string module)
+    {
+        var text = File.ReadAllText(RepoPaths.DartStdSource(module));
+        return FnOutputTypeRegex().Matches(text)
+            .ToDictionary(m => m.Groups[1].Value, m => m.Groups[3].Value);
+    }
+
+    /// <summary>
+    /// Assert every function this project's builder declares carries the SAME
+    /// <c>outputType</c> the canonical Dart declaration does.
+    ///
+    /// The name-for-name checks above cannot see this drift: issue #545 gave
+    /// <c>set_add</c>/<c>set_remove</c> Dart's <c>outputType: 'bool'</c> and this
+    /// project kept declaring <c>""</c> — both sides green while the contract
+    /// itself had split (issue #557; PR #562's round-2 review, item 1). A
+    /// declared <c>outputType</c> is load-bearing: it is what
+    /// <c>dart/engine/test/std_output_type_contract_test.dart</c> gates the Dart
+    /// engine's handlers against.
+    /// </summary>
+    private static void AssertOutputTypesMatch(
+        string module,
+        IReadOnlyDictionary<string, string> expected,
+        IReadOnlyList<FunctionDefinition> actual)
+    {
+        Assert.True(
+            expected.Count >= 10,
+            $"extracted only {expected.Count} declarations for {module} — the scan " +
+            "has stopped matching, so this gate would pass vacuously");
+
+        var mismatches = actual
+            // A function present in only one source is the name gate's report,
+            // not this one's.
+            .Where(fn => expected.ContainsKey(fn.Name) && expected[fn.Name] != fn.OutputType)
+            .Select(fn => $"{fn.Name}: Dart declares \"{expected[fn.Name]}\", this project declares \"{fn.OutputType}\"")
+            .ToList();
+
+        Assert.True(
+            mismatches.Count == 0,
+            $"`{module}` outputType drifted from the canonical Dart declarations:\n  " +
+            string.Join("\n  ", mismatches) +
+            "\n  Port the Dart `outputType` into csharp/shared/src/StdModuleBuilders.cs — a " +
+            "declared outputType is a cross-target CONTRACT (issue #545/#557), not documentation.");
     }
 
     [Fact]
@@ -44,6 +115,9 @@ public partial class StdModuleBuilderTests
         Assert.Equal(expected.Count, actual.Count);
         Assert.Equal(expected.OrderBy(n => n), actual.OrderBy(n => n));
         Assert.Equal("std", StdModuleBuilders.BuildStdModule().Name);
+
+        AssertOutputTypesMatch(
+            "std", DartStdJsonOutputTypes(), StdModuleBuilders.BuildStdModule().Functions);
     }
 
     [Fact]
@@ -54,6 +128,11 @@ public partial class StdModuleBuilderTests
         Assert.NotEmpty(expected);
         Assert.Equal(expected.Count, actual.Count);
         Assert.Equal(expected.OrderBy(n => n), actual.OrderBy(n => n));
+
+        AssertOutputTypesMatch(
+            "std_collections",
+            DartSourceOutputTypes("std_collections"),
+            StdModuleBuilders.BuildStdCollectionsModule().Functions);
     }
 
     [Fact]
@@ -64,6 +143,9 @@ public partial class StdModuleBuilderTests
         Assert.NotEmpty(expected);
         Assert.Equal(expected.Count, actual.Count);
         Assert.Equal(expected.OrderBy(n => n), actual.OrderBy(n => n));
+
+        AssertOutputTypesMatch(
+            "std_io", DartSourceOutputTypes("std_io"), StdModuleBuilders.BuildStdIoModule().Functions);
     }
 
     [Fact]
@@ -74,6 +156,11 @@ public partial class StdModuleBuilderTests
         Assert.NotEmpty(expected);
         Assert.Equal(expected.Count, actual.Count);
         Assert.Equal(expected.OrderBy(n => n), actual.OrderBy(n => n));
+
+        AssertOutputTypesMatch(
+            "std_memory",
+            DartSourceOutputTypes("std_memory"),
+            StdModuleBuilders.BuildStdMemoryModule().Functions);
     }
 
     [Theory]

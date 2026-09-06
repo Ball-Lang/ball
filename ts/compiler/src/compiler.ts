@@ -6002,6 +6002,16 @@ function __isUnknownFnError(e: any): boolean {
       // can extract the inner number — silently unwrapping doubles.
       case "Map": return `(typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value}) && !(${value} instanceof BallDouble) && !(${value} instanceof Set))`;
       case "Set": return `(${value} instanceof Set)`;
+      // The self-hosted engine's own name for the RAW string-keyed map its
+      // portable ordered-set value is BUILT OUT OF (`BallRawMap`, a typedef in
+      // dart/engine/lib/engine_types.dart — issue #557). Same plain-object test
+      // as `Map`: the TS self-host keeps NATIVE JS `Set`s, so a set is not a
+      // plain object here and the `instanceof Set` exclusion is what keeps this
+      // honest rather than something to drop. (Rust/C#/C++ model a set AS a
+      // tagged map and DO have to drop their `is Map` set exclusion for this
+      // name.) Without an arm this fell to the `default` below — `(v != null)`,
+      // true for every string, number and array.
+      case "BallRawMap": return `(typeof ${value} === 'object' && ${value} !== null && !Array.isArray(${value}) && !(${value} instanceof BallDouble) && !(${value} instanceof Set))`;
       case "Null": return `(${value} == null)`;
       case "Function": return `(typeof ${value} === 'function')`;
       case "BallMap": return `false /* BallMap is Map in TS */`;

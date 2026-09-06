@@ -1036,6 +1036,16 @@ pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
         // …and a set must NOT also answer `is Map`: the tag is a representation
         // detail, not a user-visible map (issue #528).
         "Map" | "map" => matches!(value, BallValue::Map(_)) && !is_ball_set_value(value),
+        // The self-hosted engine's own name for the RAW string-keyed map its
+        // portable ordered-set value is BUILT OUT OF (`BallRawMap`, a typedef in
+        // `dart/engine/lib/engine_types.dart`). Deliberately WITHOUT the `Map`
+        // arm's set exclusion: that exclusion answers the user-facing question
+        // ("is this value a `Map`?"), and answering it for the engine's internal
+        // representation probe too is what made `_ballValueIsSet` permanently
+        // false here — so the engine could never reach a set's live backing list
+        // and every in-place set mutation it performed was lost (issue #557,
+        // conformance fixture `460_set_mutation_in_place`).
+        "BallRawMap" => matches!(value, BallValue::Map(_)),
         "Function" => matches!(value, BallValue::Function(_)),
         "Null" | "null" => matches!(value, BallValue::Null),
         "Object" | "dynamic" | "var" => true,
@@ -4273,6 +4283,31 @@ mod tests {
             ball_type_of(one_two_set()),
             BallValue::String("Set".to_string())
         );
+    }
+
+    #[test]
+    fn set_answers_ball_raw_map_even_though_it_is_not_a_map() {
+        // The two questions the self-hosted engine has to keep apart (#557).
+        // `is Map` is the USER-FACING one and stays set-excluded (#528/#553);
+        // `is BallRawMap` is the engine's own "is this the raw map my
+        // representation is built out of?" and must answer TRUE for a tagged
+        // set, or the compiled engine's `_ballValueIsSet` is permanently false
+        // and every in-place set mutation it performs goes to a throwaway copy.
+        let set = one_two_set();
+        assert!(!ball_is_type(&set, "Map"));
+        assert!(ball_is_type(&set, "BallRawMap"));
+
+        // A plain map answers both; a non-map answers neither.
+        let map = BallMap::new();
+        map.insert("k".to_string(), BallValue::Int(1));
+        let map_value = BallValue::Map(map);
+        assert!(ball_is_type(&map_value, "Map"));
+        assert!(ball_is_type(&map_value, "BallRawMap"));
+        assert!(!ball_is_type(&BallValue::Int(1), "BallRawMap"));
+        assert!(!ball_is_type(
+            &BallValue::List(BallList::new()),
+            "BallRawMap"
+        ));
     }
 
     #[test]

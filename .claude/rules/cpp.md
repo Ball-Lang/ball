@@ -173,6 +173,20 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   this.v) { v = 99; }` leaves `v == 99`), so those must keep the `__obj.`
   rewrite.
 
+- **`is BallRawMap` is the self-hosted engine's own raw-map probe, and the `is`
+  codegen answers it (#557).** The `is Map` arms all carry
+  `&& !ball_is_ball_set(...)` so a user program's `{1,2} is Map` is `false`
+  (#68/#528) — but the compiled engine's `_ballValueIsSet` needs the OPPOSITE
+  answer for its own `{'__ball_set__': [...]}` representation, and with only
+  `is Map` to ask with it was permanently `false`, so every in-place set
+  mutation the compiled engine performed went to a throwaway copy while reads
+  still looked right. `BallRawMap` (a typedef in
+  `dart/engine/lib/engine_types.dart`) is that second question, emitted as a
+  bare `ball_is_map_dyn(...)` with NO set exclusion, in both the `is`/`is_not`
+  codegen and `_typeCheckCondition`. Conformance fixture
+  `460_set_mutation_in_place` is the guard; the whole `ctest -L selfhost` sweep
+  passes with it.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

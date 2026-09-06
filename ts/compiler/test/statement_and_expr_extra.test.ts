@@ -1385,6 +1385,21 @@ describe("compiler — emitIsCheck's nullable-type branch", () => {
   });
 });
 
+describe("compiler — emitIsCheck's BallRawMap arm (issue #557)", () => {
+  test("`std.is(value, 'BallRawMap')` emits the plain-object test, not the `!= null` default", () => {
+    // `BallRawMap` is the self-hosted engine's own name for the RAW map its
+    // portable ordered-set value is built out of (a typedef in
+    // dart/engine/lib/engine_types.dart). Without an arm it fell to
+    // emitIsCheck's `default` — `(v != null)`, true for every string, number
+    // and array — silently widening `_ballValueIsSet`'s guard.
+    const isCall: Expression = { call: { module: "std", function: "is", input: mc({ value: ref("x"), type: lit("BallRawMap") }) } };
+    const ts = compile(mainProgram({ block: { statements: [{ let: { name: "ok", value: isCall } }] } }), { includePreamble: false });
+    assert.match(ts, /typeof x === 'object' && x !== null && !Array\.isArray\(x\)/);
+    assert.match(ts, /!\(x instanceof Set\)/);
+    assert.doesNotMatch(ts, /let ok = \(x != null\);/);
+  });
+});
+
 describe("compiler — typeRefMetaToString's nullable-suffix branch", () => {
   test("a nullable TypeRef in metadata.type_args appends `?` to the stringified type", () => {
     const program: Program = {

@@ -496,6 +496,31 @@ internal sealed partial class Encoder
             case ("First" or "FirstOrDefault", 0):
                 MarkCollectionsUsed();
                 return Builders.CollectionsCall("list_first", Builders.ArgsMessage(("list", receiver)));
+
+            // The 0-argument arms of the SAME arity windows (issue #492, bucket j).
+            // `.Last()` is `list_last` outright: C#'s `.Last()` throws on an empty
+            // sequence and so does `list_last` (`BallRuntime.ListLast`, `.last` in the
+            // Dart reference engine) — the same contract, not an approximation.
+            //
+            // `LastOrDefault` is deliberately absent: its contract is "return
+            // `default(T)` on empty", which `list_last` does not model. The
+            // `FirstOrDefault` arm above already makes that trade and is a KNOWN
+            // latent defect (issue #588); a new name does not get to inherit it. Same reasoning as `TryParse`'s exclusion
+            // from `EncodePredefinedTypeStaticCall`.
+            case ("Last", 0):
+                MarkCollectionsUsed();
+                return Builders.CollectionsCall("list_last", Builders.ArgsMessage(("list", receiver)));
+
+            // 0-argument `.Any()` is "the sequence is not empty" — the predicate-less
+            // sibling of the `("Any", 1)` arm above, and NOT the same function.
+            // Composed from two already-declared base functions rather than needing a
+            // new one; `not` is plain `std`, `list_is_empty` is what needs
+            // `MarkCollectionsUsed()`.
+            case ("Any", 0):
+                MarkCollectionsUsed();
+                return Builders.UnaryStd(
+                    "not",
+                    Builders.CollectionsCall("list_is_empty", Builders.ArgsMessage(("list", receiver))));
             case ("Take", 1):
                 MarkCollectionsUsed();
                 return Builders.CollectionsCall("list_take", Builders.ArgsMessage(("list", receiver), ("value", EncodeExpr(argExprs[0]))));

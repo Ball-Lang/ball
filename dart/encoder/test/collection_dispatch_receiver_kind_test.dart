@@ -178,9 +178,12 @@ void main() {
       });
 
       test('the compiled Map.map() has no trailing .toList()', () {
+        // The `MapEntry` constructor may carry the type arguments the analyzer
+        // inferred for it (`MapEntry<String, String>`, #573 case 2) — what
+        // matters here is that the `Map.map((k, v) => …)` shape survives.
         expect(
           compiled,
-          contains('base.map((k, v) => MapEntry(k, '),
+          matches(RegExp(r'base\.map\(\(k, v\) => MapEntry(<[^>]*>)?\(k, ')),
           reason: 'compiled output was:\n$compiled',
         );
         expect(

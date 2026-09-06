@@ -50,6 +50,8 @@ is semantically identical to the original.
 | `is_late` | `bool` | Dart `late` keyword. |
 | `is_var` | `bool` | Explicitly untyped (`var x = ...`). |
 | `doc` | `string` | Documentation comment. |
+| `kind` | `string` | `"cascade"` when this binding is the receiver a lowered cascade re-applies its sections to (see `__cascade_self__` below). |
+| `null_aware` | `bool` | With `kind: "cascade"`, the source wrote `?..` — the sections run only when the receiver is non-null. |
 
 ---
 
@@ -153,6 +155,26 @@ cascade expressions (`target..a()..b()`), the encoder emits sections that
 reference `__cascade_self__` instead of re-evaluating the target. The
 compiler recognizes this sentinel and emits cascade syntax.
 
+The Dart encoder lowers a cascade it cannot route to a collection base
+function into a `Block`:
+
+```
+Block {
+  let __cascade_self__ = <target>     // metadata.kind == "cascade"
+  <section>; <section>; …             // each references __cascade_self__
+  result = reference(__cascade_self__)
+}
+```
+
+with the null-aware (`?..`) form nesting the sections one `Block` deeper,
+behind `std.if(std.equals(__cascade_self__, null), null, …)`. Engines execute
+that Block directly. A compiler emitting a language that HAS cascades should
+recognize the shape — keyed on the `kind == "cascade"` tag, never on the
+Block's shape alone — and emit native `..` syntax: lowering it to a closure
+instead (Dart's `(() { … })()`) is semantically correct but interposes a
+function boundary that Dart's flow analysis will not carry a local's type
+promotion across (issue #573).
+
 ### `__no_init__`
 
 A sentinel reference used as the initial value of `late` (uninitialized)
@@ -161,12 +183,23 @@ a late variable before assignment throws a runtime error.
 
 ### `__type_args__` (MessageCreation field)
 
-**Migrated.** Formerly a legacy field in `MessageCreation.fields` carrying
-generic type arguments as a string (e.g. `"<int>"`). Now replaced by
-structured `FunctionCall.type_args` (repeated `TypeRef`) and
-`MessageCreation.metadata.type_args`. The encoder no longer produces the
-`__type_args__` field; compilers retain a legacy fallback for old programs.
-The runtime engine reads from the structured metadata. See `proto/ball/v1/ball.proto`
+**Migrated.** Formerly the only carrier of a `MessageCreation`'s generic type
+arguments, as a raw string (e.g. `"<int>"`). The structured
+`MessageCreation.metadata.type_args` (a list of `TypeRef`s, the sibling of
+`FunctionCall.type_args`) is now the semantic source of truth, and compilers
+prefer it. The Dart encoder still writes `__type_args__` alongside it because
+the compiled engines' proto3-JSON wrapper cannot resolve the
+`metadata.type_args` `structValue` chain; compilers keep the legacy fallback
+for old programs. Both are set from one place
+(`_setTypeArgsMetadata` / `_setTypeArgsField`), so they never disagree.
+
+The Dart encoder fills them from the type arguments written in SOURCE syntax
+and, on a `PackageEncoder.prepareStaticTypes()`-resolved AST, from the ones the
+analyzer INFERRED where the source elided them (`StreamController(sync: true)`
+in a `StreamSink<S>`-returning method, issue #573). It does not annotate an
+inference that is `dynamic` throughout, which would add nothing. The
+resolution-free `encode(String)` / `encodeModule` paths leave `staticType`
+null and are unaffected. See `proto/ball/v1/ball.proto`
 for the `TypeRef` message and the `FunctionCall.type_args` field; `MessageCreation`
 has no dedicated proto field — its generic arguments live under
 `MessageCreation.metadata` as a `type_args` key.

@@ -802,6 +802,27 @@ static std::map<std::string, std::string> extract_param_defaults(
     return result;
 }
 
+// Per-parameter `is_this` flags, aligned 1:1 with extract_params(): true for a
+// genuine Dart initializing formal (`Foo(this.x)`), false for a plain parameter
+// that merely happens to share a field's name. #561: every constructor decision
+// that writes a field — the member-initializer list, and the `ctor_params` set
+// that suppresses a field's own inline initializer — must be gated on THIS, not
+// on a name collision or a param/field count match.
+static std::vector<bool> extract_is_this_flags(const nlohmann::json& metadata) {
+    std::vector<bool> result;
+    const json* params = meta_find(metadata, "params");
+    if (!params || !params->is_array()) return result;
+    // Mirror extract_params()'s skip conditions exactly so indices stay aligned.
+    for (const auto& elem : *params) {
+        if (!elem.is_object()) continue;
+        const json* nm = meta_find(elem, "name");
+        if (!nm || !nm->is_string() || nm->get<std::string>().empty()) continue;
+        const json* v = meta_find(elem, "is_this");
+        result.push_back(v && v->is_boolean() && v->get<bool>());
+    }
+    return result;
+}
+
 // Extract class-field initializers from a TypeDefinition's metadata `fields[]`
 // list (each entry: {name, type, initializer}). Maps field name -> Dart source
 // of its initializer (e.g. "parts" -> "[]"). Without seeding these, a default-
@@ -9852,14 +9873,26 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
     // Without this, default-constructing the class leaves primitive fields
     // (int64_t/bool/double) with indeterminate values — e.g. a garbage
     // `maxExpressionDepth` makes the engine throw on the first expression.
+    // #561: ONLY genuine `this.`-formals count. A plain parameter that merely
+    // shares a field's name binds nothing, so letting it into either map made a
+    // field lose its own inline initializer (and become an unseeded nullable
+    // BallDyn) — even when the colliding parameter belonged to a DIFFERENT
+    // constructor that never touches the field.
     std::map<std::string, std::string> ctor_defaults;
     std::set<std::string> ctor_params;
     for (const auto* func : methods) {
         auto m = read_meta(*func);
         if ((m.count("kind") ? m["kind"] : "") != "constructor") continue;
         if (!(func->metadata.is_object())) continue;
-        for (const auto& p : extract_params(func->metadata)) ctor_params.insert(p);
-        for (const auto& [k, v] : extract_param_defaults(func->metadata)) ctor_defaults[k] = v;
+        const auto cp = extract_params(func->metadata);
+        const auto cflags = extract_is_this_flags(func->metadata);
+        const auto cdefaults = extract_param_defaults(func->metadata);
+        for (size_t i = 0; i < cp.size(); i++) {
+            if (!(i < cflags.size() && cflags[i])) continue;
+            ctor_params.insert(cp[i]);
+            auto dit = cdefaults.find(cp[i]);
+            if (dit != cdefaults.end()) ctor_defaults[cp[i]] = dit->second;
+        }
     }
 
     // Class-level field initializers (e.g. `List<String> parts = []`). Without
@@ -9890,8 +9923,14 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
             if (dit != ctor_defaults.end()) {
                 // Constructor supplies a default (e.g. maxExpressionDepth = 1000).
                 init = " = " + dit->second;
-            } else if (fit != field_inits.end() && !ctor_params.count(fname)) {
-                // Class-level field initializer. Empty list/map literals seed the
+            } else if (fit != field_inits.end()) {
+                // Class-level field initializer. It applies regardless of whether
+                // some constructor also binds this field as a `this.`-formal:
+                // that constructor's member-initializer list overrides the
+                // in-class default per ordinary C++ rules, so there is no
+                // conflict to resolve — while a constructor that does NOT bind
+                // it must still see the declared default (#561).
+                // Empty list/map literals seed the
                 // BallDyn so subsequent .add()/[]= operate on a real container;
                 // other literals route through cpp_param_default.
                 std::string raw = fit->second;
@@ -9989,18 +10028,11 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
             current_class_fields_.insert(ball::ir::getStr(f, "name"));
     }
 
-    // Helper: extract is_this flags from constructor metadata params.
-    auto extract_is_this = [](const nlohmann::json& metadata)
-        -> std::vector<bool> {
-        std::vector<bool> result;
-        const json* params = meta_find(metadata, "params");
-        if (!params || !params->is_array()) return result;
-        for (const auto& elem : *params) {
-            if (!elem.is_object()) { result.push_back(false); continue; }
-            const json* v = meta_find(elem, "is_this");
-            result.push_back(v && v->is_boolean() && v->get<bool>());
-        }
-        return result;
+    // Helper: extract is_this flags from constructor metadata params. Delegates
+    // to the free function so the ctor_params gathering above (which runs before
+    // this point in emit_struct) and the constructor emission below cannot drift.
+    auto extract_is_this = [](const nlohmann::json& metadata) -> std::vector<bool> {
+        return extract_is_this_flags(metadata);
     };
 
     // Helper: extract initializers from constructor metadata.
@@ -10203,37 +10235,25 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 out_ << ")";
 
                 // Emit member initializer list for is_this params and super calls.
+                // #561: ONLY a `this.`-formal writes a field here. There used to
+                // be an "auto-assign" fallback that, whenever the class's field
+                // count happened to equal the param count, wrote every param
+                // into every field POSITIONALLY — no name match, no type check.
+                // That is the N-param generalization of the same heuristic PR
+                // #539 deleted from the Dart engine, and it is wrong whether or
+                // not the types line up: `Holder(Pair b)` emitted
+                // `Holder(auto b) : seen(b)` (g++ rejects it outright), and
+                // `Box(int n)` silently overwrote an unrelated field's declared
+                // default. A plain parameter's effect on a field must come from
+                // an explicit colon-initializer or a body assignment, both of
+                // which are handled below.
                 bool has_inits = false;
-                bool any_is_this = false;
                 for (size_t i = 0; i < params.size(); i++) {
                     bool is_this = i < is_this_flags.size() && is_this_flags[i];
-                    if (is_this) any_is_this = true;
                     if (is_this) {
                         out_ << (has_inits ? ", " : " : ");
                         has_inits = true;
                         out_ << member_name(params[i]) << "(" << sanitize_name(params[i]) << ")";
-                    }
-                }
-                // Auto-assign: when no is_this flags are set and no super
-                // initializers exist, but the class has fields matching the
-                // param count, map params positionally to fields as member
-                // initializers. This handles `Grandparent(name)` encoded as
-                // a single param "input" with a field "name". Skip when there
-                // are super initializers (params may be forwarded to parent).
-                bool has_super_init = false;
-                for (const auto& [ik, _] : initializers)
-                    if (ik == "super") { has_super_init = true; break; }
-                if (!any_is_this && !has_super_init && !params.empty() &&
-                    td.descriptor.is_object() && td.descriptor.contains("field") &&
-                    td.descriptor["field"].is_array()) {
-                    const auto& fields = td.descriptor["field"];
-                    if (fields.size() == params.size()) {
-                        for (size_t fi = 0; fi < fields.size(); fi++) {
-                            out_ << (has_inits ? ", " : " : ");
-                            has_inits = true;
-                            out_ << member_name(ball::ir::getStr(fields[fi], "name"))
-                                 << "(" << sanitize_name(params[fi]) << ")";
-                        }
                     }
                 }
                 // Super call from initializers metadata.
@@ -10294,6 +10314,29 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                     }
                 };
 
+                // #561: record this constructor's own parameters (and its body's
+                // locals) the way emit_struct's METHOD loop below does, so
+                // compile_reference can tell a parameter from a same-named
+                // field. Only the PLAIN parameters shadow: Dart routes both
+                // reads and writes of a `this.`-formal's name in the body to the
+                // FIELD (`Baz(this.v) { v = 99; }` leaves `v == 99`), so those
+                // must name the member. An unnamed constructor IS a real C++
+                // member function, but its parameter list shadows the member for
+                // plain C++ name lookup too, so a `this.`-formal reference has to
+                // be emitted as `this->v` explicitly — hence ctor_obj_prefix_,
+                // the same mechanism the named-constructor branch uses for
+                // `__obj.`. Both are restored before the loop moves on.
+                auto saved_ctor_declared_locals = declared_locals_;
+                auto saved_ctor_obj_prefix = ctor_obj_prefix_;
+                declared_locals_.clear();
+                for (size_t i = 0; i < params.size(); i++) {
+                    bool is_this = i < is_this_flags.size() && is_this_flags[i];
+                    if (!is_this) declared_locals_.insert(params[i]);
+                }
+                if ((func->body != nullptr))
+                    _collect_declared_locals((*func->body), declared_locals_);
+                ctor_obj_prefix_ = "this->";
+
                 if (split_mode_ && (func->body != nullptr)) {
                     out_ << ";\n";
                     std::ostringstream saved;
@@ -10326,6 +10369,8 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                 } else {
                     out_ << " {}\n";
                 }
+                declared_locals_ = std::move(saved_ctor_declared_locals);
+                ctor_obj_prefix_ = saved_ctor_obj_prefix;
             } else {
                 // Named constructor (not "new") → emit as a named static factory.
                 auto params = (func->metadata.is_object()) ? extract_params(func->metadata) : std::vector<std::string>{};
@@ -10364,7 +10409,25 @@ void CppCompiler::emit_struct(const ball::ir::TypeDefinition& td,
                     // does not exist (see ctor_obj_prefix_).
                     auto saved_ctor_obj_prefix = ctor_obj_prefix_;
                     ctor_obj_prefix_ = "__obj.";
+                    // #561: seed the constructor's own PLAIN parameters (and its
+                    // body's locals) into declared_locals_, mirroring the method
+                    // loop below. Without this, a plain parameter sharing a
+                    // field's name was rewritten to `__obj.<field>` for the whole
+                    // body and the argument was unreachable — the C++-compiler
+                    // analog of the engine-side shadowing bug PR #563 fixed.
+                    // `is_this` formals are deliberately NOT seeded: Dart routes
+                    // both reads AND writes of an initializing formal's name in
+                    // the body to the FIELD, so those must keep taking the
+                    // `__obj.` rewrite.
+                    auto saved_ctor_declared_locals = declared_locals_;
+                    declared_locals_.clear();
+                    for (size_t i = 0; i < params.size(); i++) {
+                        bool is_this = i < is_this_flags.size() && is_this_flags[i];
+                        if (!is_this) declared_locals_.insert(params[i]);
+                    }
+                    _collect_declared_locals((*func->body), declared_locals_);
                     compile_ctor_body((*func->body));
+                    declared_locals_ = std::move(saved_ctor_declared_locals);
                     ctor_obj_prefix_ = saved_ctor_obj_prefix;
                 }
                 emit_line("return __obj;");

@@ -1,3 +1,10 @@
+## [1.70.1](https://github.com/Ball-Lang/ball/compare/v1.70.0...v1.70.1) (2026-09-05)
+
+
+### Bug Fixes
+
+* **cpp:** gate a constructor's field writes on `is_this`, and keep inline field initializers (closes [#561](https://github.com/Ball-Lang/ball/issues/561)) ([#584](https://github.com/Ball-Lang/ball/issues/584)) ([4f37b32](https://github.com/Ball-Lang/ball/commit/4f37b32a5e4e98efeea9f7bf69e5f11bad5316cf))
+
 # [1.70.0](https://github.com/Ball-Lang/ball/compare/v1.69.0...v1.70.0) (2026-09-05)
 
 

@@ -1,3 +1,10 @@
+## [1.71.1](https://github.com/Ball-Lang/ball/compare/v1.71.0...v1.71.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ts:** seed a named constructor's inherited fields and always construct for a this.-formal (closes [#581](https://github.com/Ball-Lang/ball/issues/581), closes [#582](https://github.com/Ball-Lang/ball/issues/582)) ([#590](https://github.com/Ball-Lang/ball/issues/590)) ([b024a56](https://github.com/Ball-Lang/ball/commit/b024a568f2917ad828c31f44993d96ac35bdcc2b)), closes [#564](https://github.com/Ball-Lang/ball/issues/564) [#564](https://github.com/Ball-Lang/ball/issues/564)
+
 # [1.71.0](https://github.com/Ball-Lang/ball/compare/v1.70.1...v1.71.0) (2026-09-06)
 
 

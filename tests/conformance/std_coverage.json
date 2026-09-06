@@ -2346,6 +2346,8 @@
         "455_ctor_field_writes_that_survive",
         "459_set_add_remove_bool",
         "45_for_in_loop",
+        "460_named_ctor_seeds_inherited_fields",
+        "461_named_ctor_super_and_this_formal",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",

@@ -38,11 +38,22 @@ second-generation fixpoint. `Compile` needs no special mode: it already emits
 `Main` only when the entry function exists, so an `EncodeLibrary` Program with
 an empty `EntryFunction` compiles fine.
 
-Honest first baseline: **0/472 clean** (4 pinned libraries,
+Honest baseline: **0/472 clean** (4 pinned libraries,
 `tools/coverage-study/packages/csharp.json`) — but C# gets furthest of the four
-ports, and the funnel is the story: 74 files encode, 73 compile back, 58
-re-encode, and the wall is stage 4, `declaration-drift`. Do not "improve" that
-number by changing the pin list.
+ports, and the funnel is the story: **123 files encode, 122 compile back, 58
+re-encode**, and the wall is stage 4, `declaration-drift`. Do not "improve" that
+number by changing the pin list. (Re-measured at `origin/main` @ `9ede6466` by
+#492 slice 3; the earlier "74/73/58" sentence had gone stale.)
+
+**A per-shape fix does not have to move this funnel.** Slice E (#578) and slice 3
+(this one) each closed a real, verified encoder gap and each left stage 1 at
+exactly 123 — because Tier A reports only a file's FIRST error, so a file with
+two gaps just advances to its next one. Slice 3's eight `ThrowIfNull`/
+`Debug.Assert` files all moved to a *different* first error (`SwitchExpression`,
+`IsPatternExpression`, `string.IsNullOrWhiteSpace`, `out var`, …) and the
+`unsupported method call` bucket fell 104 → 97. Measure per shape; never raise
+`tools/coverage-study/baseline.json`'s floor to a number the harness did not
+actually print.
 
 `dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj` is the
 harness's own self-test and **is gated on every PR** in ci.yml's `csharp` job.
@@ -640,23 +651,28 @@ this sweep is that measurement committed, one hand-authored fixture per taxonomy
 namespaced class library with no `Main`, (b) an interface with a method, (c) a class with two
 constructors, (d) a call into a type declared in a sibling file, (e) a lambda/`PredefinedType`-heavy
 expression, (f) target-typed `new()`, (g) an abstract method with no body, (h) an `enum`
-declaration with a use site. Hand-authored on
+declaration with a use site, (i) BCL static guard calls
+(`ArgumentNullException.ThrowIfNull`/`Debug.Assert`), (j) the 0-argument LINQ terminals
+`.Last()`/`.Any()`. Hand-authored on
 purpose: no network fetch and no third-party licensing (vendoring real packages is #493's scope).
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slices A, B, C and E: **`Results: 6 passed, 2 failed, 8 total`** (slice 1's was
+Baseline after slices A, B, C, E, 3 and 3b: **`Results: 8 passed, 2 failed, 10 total`** (slice 1's was
 `0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`;
-slice C's, `5 passed, 3 failed, 8 total`).
-Buckets (b), (c) and (g) closed together, then (h), then (e); (d) cross-file and (f) target-typed
-`new()` remain open.
+slice C's, `5 passed, 3 failed, 8 total`; slice E's, `6 passed, 2 failed, 8 total`; slice 3's,
+`7 passed, 2 failed, 9 total`).
+Buckets (b), (c) and (g) closed together, then (h), then (e), then (i), then (j); (d) cross-file and
+(f) target-typed `new()` remain open.
 
 **The taxonomy is fixed only until a measurement says otherwise.** Rows (a)-(g) were transcribed
 once from #492's original manual study and cannot grow on their own — which is exactly how the
 `enum` bucket became the largest live failure mode invisibly, after slices A/B/2 closed buckets a,
 b, c and g. Row (h) was added by slice C from a fresh Tier A measurement (66 of 398 encode errors,
-100% of them enums). When a later measurement shows a new dominant shape, add its row the same
-way rather than assuming this table still describes reality.
+100% of them enums), row (i) by slice 3 from another (104 of 349, the `unsupported method call`
+fallback throw), and row (j) by slice 3b from a re-measurement of that same bucket after slice 3
+(97 of 349, spread over 84 distinct `(name, argCount)` pairs). When a later measurement shows a new
+dominant shape, add its row the same way rather than assuming this table still describes reality.
 The **global** passed count is printed, never asserted on —
 asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets
 remain open, and asserting `N == 0` would block the very slices that fix them. What it *does*
@@ -711,6 +727,96 @@ encoder's `value` key while this encoder emits the DECLARED `callback` name (see
 "Higher-order callback field aliasing"). An encode-only assertion would have declared the bucket
 closed while its output did not run.
 
+### BCL static guard calls — `ArgumentNullException.ThrowIfNull` / `Debug.Assert` (issue #492, slice 3)
+
+`EncodeMemberInvocation` knew exactly two static BCL receivers, `Console` and `Math`. Everything
+else capitalised fell past `StaticReceiverName`'s same-file-class lookup into
+`DispatchInstanceOrBuiltinMethod`, whose fallback throw (`unsupported method call `.X(...)` with N
+argument(s)`) is the LARGEST first-pass bucket in a live Tier A run — 104 of 349 encode errors,
+across **85 distinct `(name, argCount)` pairs**. That bucket is not one shape: most of it is
+cross-file user helpers (needs an `EncodeProject`-shaped public-API decision, not a slice) and
+reflection (`GetType`, `GetCustomAttributes` — unsupportable without a reflection model). The one
+sub-class routable today is a BCL receiver whose semantics already has a `std` equivalent, and on
+the measured corpus that is exactly two shapes:
+`ArgumentNullException.ThrowIfNull(x)` (7 files, the highest-count *named* shape in the bucket)
+and `Debug.Assert(cond[, msg])`.
+
+Both are "throw unless this holds" — universal **`std.assert`** (`AssertInput { condition,
+message }`), which `StdModuleBuilders` has declared, `BaseCall.CompileAssertStatement` has
+compiled and every engine has interpreted since day one, and which the C# encoder had simply never
+emitted. So this needed **no** new base function, no proto change and no cross-language work:
+`ThrowIfNull(x)` → `assert(not_equals(x, null), "<x> must not be null")`, `Debug.Assert` → a 1:1
+passthrough with the 1-arg and 2-arg overloads as separate arity arms (the `collectionRoutes`
+arity-window pattern, #494/#510).
+
+Three deliberate choices worth keeping:
+
+- The two new `switch` arms are **guarded on the same-file class table** (`DeclaresSameFileStatic`),
+  unlike `Console`/`Math`: `Debug` is a plausible name for a user's own helper class, and a class
+  this encoder is itself encoding must win over a built-in route to a type it is not.
+- The **2-argument `ThrowIfNull(value, paramName)` overload is NOT routed.** Its `paramName` is
+  spelled `nameof(x)` at every occurrence in the corpus — a shape this syntax-only encoder has no
+  model for, which would encode as an unresolvable user call to a function named `nameof`. Trading
+  a loud encode error for a program that encodes and then does not build is not an improvement.
+- `Debug.Assert` is compiled away outside a .NET `DEBUG` build; Ball has no conditional
+  compilation, so the encoded assert always runs. A documented STRENGTHENING, never a weakening.
+
+`String.IsNullOrEmpty` looked like a third candidate and was **deliberately deferred**: its only
+safe route (`or(equals(x, null), string_is_empty(x))`) would falsify the documented assumption in
+`dart/engine/lib/engine_std.dart`'s `string_is_empty` ("the encoder can never emit it for a
+non-string") and needs `or`'s short-circuit laziness verified on every target first — real work,
+for 1 measured occurrence.
+
+**What the numbers did (and did not) do.** All 8 guard-call files advanced past that error to their
+next distinct blocker (`SwitchExpression`, `IsPatternExpression`, `string.IsNullOrWhiteSpace`,
+`out var`, …), and the fallback bucket fell 104 → 97 — while stage 1 of the funnel stayed at
+**123/472**, exactly as slice E's fix also did. Tier A reports only a file's FIRST error; a correct
+per-shape fix is not obliged to move the aggregate, and `tools/coverage-study/baseline.json` must
+never be raised to a number the harness did not print.
+
+### 0-argument LINQ terminals — `.Last()` / `.Any()` (issue #492, slice 3b)
+
+`DispatchInstanceOrBuiltinMethod`'s `switch (methodName, argExprs.Count)` is a set of **arity
+windows** per routed name (the `collectionRoutes` pattern of `dart/encoder`, #494/#510).
+`First`/`FirstOrDefault` had both a 1-argument arm (`list_find`) and a 0-argument arm
+(`list_first`); `Any` had only its 1-argument arm (`list_any`), and `Last` had none. So the
+0-argument spellings fell through to the same generic `unsupported method call` throw a genuine
+cross-file user call hits — a message that actively mis-describes a plain `List<T>` call.
+
+Both now route to functions `StdModuleBuilders` already declares (the #505 declared-name rule),
+`BaseCall` already compiles and every engine already runs:
+
+- `.Last()` → `std_collections.list_last`. A route, not an approximation: C#'s `.Last()` throws
+  `InvalidOperationException` on an empty sequence and `list_last` throws
+  (`BallRuntime.ListLast`, `_stdAsList(...)!.last` in the Dart reference engine) — the same
+  contract. `ZeroArgLinqTerminalTests.LastOnAnEmptyListThrowsAtRunTime` pins that half.
+- 0-arg `.Any()` → `std.not(std_collections.list_is_empty(...))`, composed from two declared base
+  functions rather than needing a new one. The fixture prints from BOTH a non-empty and an empty
+  receiver so the inverted encoding — the easy mistake in a `not`-wrapped pair — fails the
+  round-trip proof instead of passing it.
+
+**`LastOrDefault` is deliberately NOT routed**, and that exclusion is itself a flagged defect:
+the neighbouring `("First" or "FirstOrDefault", 0)` arm maps BOTH names to the throwing
+`list_first`, so `.FirstOrDefault()` on an empty list **throws where C# returns `default(T)`** —
+a silent behaviour change that predates this slice. Fixing it needs either a new
+default-returning primitive or an `if (list_is_empty(l)) … else …` composition whose `default(T)`
+is type-dependent (`0` for `int`, `null` for a reference type) and therefore unknowable to a
+syntax-only encoder — a design decision, not a route addition. It is filed as **issue #588** and
+listed under "Still open on #492" below; the rule this slice follows is that a known defect does not get to
+spread to a second name just because the name is adjacent.
+
+**Yield, measured rather than assumed: zero on Tier A.** Running the pinned Tier A sweep on this
+branch before and after the change, `encoded` stayed at **123/472** and `encode-error` at **349**;
+the `unsupported method call` sub-bucket went 97 → 96. Both files that carried these shapes
+(`CommandLine/Core/TypeConverter.cs`'s `values.Last()`, `CommandLine/ErrorExtensions.cs`'s
+`errors.Any()`) advanced past them to a *different* first error (`.GetTypeInfo()` and
+`new NotParsed<T>(...)`). That is the same pattern slice E and slice 3 each showed and it is
+expected — Tier A reports only a file's FIRST error. The justification for this slice is therefore
+**correctness and parity with the existing `First`/`FirstOrDefault` window**, proven by targeted
+tests and a round-trip run, NOT a funnel movement; do not write it up as real-world coverage it
+did not buy, and never raise `tools/coverage-study/baseline.json`'s floor to a number the harness
+did not print.
+
 The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
 table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
 ever agree with itself, and an assertion that cannot fail documents an intent without enforcing it.
@@ -752,8 +858,14 @@ makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must s
 build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
 attached.
 
-Still open on #492 after slices A, B, C, D and E: **cross-file symbol resolution** (bucket d) and
-**target-typed `new()`** (bucket f). A fresh Tier A categorisation taken for slice E also surfaced
+Still open on #492 after slices A, B, C, D, E, 3 and 3b: **cross-file symbol resolution** (bucket d),
+**target-typed `new()`** (bucket f), and the **`FirstOrDefault`-on-empty contract** — the
+`("First" or "FirstOrDefault", 0)` arm routes the default-returning name to the throwing
+`list_first`, so an empty receiver throws where C# returns `default(T)` (**issue #588**). It
+needs a decision
+(a default-returning primitive, or an `if (list_is_empty(l)) … else …` composition whose
+`default(T)` a syntax-only encoder cannot know), not a route; `LastOrDefault`/`SingleOrDefault`
+stay LOUD errors until it is taken (`ZeroArgLinqTerminalTests.LastOrDefaultStillFailsLoud`). A fresh Tier A categorisation taken for slice E also surfaced
 three expression kinds that are **not in the taxonomy at all** and are together comparable in size
 to what bucket (e) was — `IsPatternExpression` (pattern matching), `DeclarationExpression`
 (`out var`), and `SwitchExpression` — plus `DelegateDeclaration` at the top-level-declaration
@@ -958,7 +1070,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 346 passed, 0 failed, 346 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1183,7 +1295,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 344 passed, 0 failed, 344 total (4 skipped carve-outs)`.
+  `Results: 346 passed, 0 failed, 346 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1250,7 +1362,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 344 passed, 0 failed, 344 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 346 passed, 0 failed, 346 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1420,8 +1532,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 344 passed, 0 failed,
-  344 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 346 passed, 0 failed,
+  346 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

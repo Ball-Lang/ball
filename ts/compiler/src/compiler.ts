@@ -2609,7 +2609,22 @@ function __isUnknownFnError(e: any): boolean {
     // Include inherited fields from the superclass chain so that
     // references to inherited fields inside methods emit `this.name`
     // instead of bare `name` (which would be undefined in JS).
+    //
+    // The walk also collects each ancestor level's own field SPECS (type +
+    // inline initializer), not just the names: a named constructor builds its
+    // instance with `Object.create`, which runs no constructor at all — so it
+    // never runs the real `super()` that would otherwise execute the
+    // superclass's inline field initializers as its own prologue. The seeding
+    // loop in `buildNamedCtor` therefore has to reproduce the whole chain in
+    // one flat pass, the way the Dart reference engine's constructor frame
+    // recurses through `_invokeSuperConstructor` (#581).
     const superclass = typeof meta["superclass"] === "string" ? meta["superclass"] : undefined;
+    const inheritedLevels: Array<Array<{
+      name: string;
+      type: string;
+      rawDartType: string;
+      dartInitializer?: string;
+    }>> = [];
     if (superclass) {
       const entryMod = this.program.modules.find(m => m.name === this.program.entryModule);
       let sup: string | undefined = superclass;
@@ -2618,15 +2633,43 @@ function __isUnknownFnError(e: any): boolean {
         if (!supTd) break;
         const supMeta: Struct = supTd.metadata ?? {};
         const supFields = Array.isArray(supMeta["fields"]) ? supMeta["fields"] as any[] : [];
+        const level: Array<{
+          name: string;
+          type: string;
+          rawDartType: string;
+          dartInitializer?: string;
+        }> = [];
         for (const sf of supFields) {
-          if (sf?.name) fieldNames.add(sf.name);
+          if (!sf?.name) continue;
+          fieldNames.add(sf.name);
+          // Statics live as module-level consts, never on the instance.
+          if (sf.is_static === true) continue;
+          level.push({
+            name: sf.name,
+            type: typeof sf.type === "string" ? this.dartTypeToTs(sf.type) : "any",
+            rawDartType: typeof sf.type === "string" ? sf.type : "",
+            dartInitializer: typeof sf.initializer === "string" ? sf.initializer : undefined,
+          });
         }
         if (supTd.descriptor?.field) {
           for (const f of supTd.descriptor.field) fieldNames.add(f.name);
         }
+        // Descriptor fallback mirrors the own-class path above: only when the
+        // ancestor carries no richer `metadata.fields` at all. A bare
+        // descriptor field has no initializer, so it seeds nothing — it is
+        // collected purely so the level list matches the name set.
+        if (level.length === 0 && supTd.descriptor?.field) {
+          for (const f of supTd.descriptor.field) {
+            level.push({ name: f.name, type: "any", rawDartType: "" });
+          }
+        }
+        inheritedLevels.push(level);
         sup = typeof supMeta["superclass"] === "string" ? supMeta["superclass"] : undefined;
       }
     }
+    // Root ancestor first, matching Dart's superclass-initializes-before-
+    // subclass ordering, so a subclass field that shadows an ancestor's wins.
+    const inheritedProperties = inheritedLevels.slice().reverse().flat();
 
     // Method-name set for `this.foo()` routing inside bodies.
     // Exclude static fields — they're emitted as module-level consts
@@ -2702,17 +2745,18 @@ function __isUnknownFnError(e: any): boolean {
           ctors.push(this.buildCtor(fn, mMeta, fieldNames, hasExtends));
         } else {
           // Named constructors are static factory methods that return a new
-          // instance. The class's own (non-static) field declarations go with
-          // them: the instance is built with `Object.create`, which runs no
-          // field initializer, so the builder has to seed each default itself
-          // (#564).
+          // instance. Every (non-static) field declaration reachable from this
+          // class goes with them — inherited ones first, then the class's own:
+          // the instance is built with `Object.create`, which runs no field
+          // initializer AND no real `super()`, so the builder has to seed each
+          // default along the whole superclass chain itself (#564, #581).
           methods.push(
             this.buildNamedCtor(
               fn,
               mMeta,
               fieldNames,
               tsName,
-              properties.filter((p) => !p.isStatic),
+              [...inheritedProperties, ...properties.filter((p) => !p.isStatic)],
             ),
           );
         }
@@ -2943,10 +2987,13 @@ function __isUnknownFnError(e: any): boolean {
    * 0`), `this.`-formals (`Box.of(this.value)`), a plain body
    * (`Bar.named(int x) { print(x); }`), or any combination. The instance comes
    * from `Object.create(C.prototype)` so no user constructor runs, which means
-   * the class's inline field initializers do not run either: every declared
-   * field is seeded with its own default FIRST (Dart's ordering — inline field
-   * initializers, then the initializer list, then the body), and only then do
-   * the constructor-specific writes land on top (#564).
+   * neither the class's inline field initializers nor the real `super()` that
+   * would run the SUPERCLASS's inline initializers execute either: every
+   * declared field reachable from this class — inherited ones first, then the
+   * class's own — is seeded with its default FIRST (Dart's ordering — inline
+   * field initializers, then the initializer list, then the body), and only
+   * then do the constructor-specific writes land on top (#564, #581). The
+   * caller (`emitClass`) supplies that whole-chain `classProperties` list.
    *
    * A `factory` named constructor is the one exception: by definition it
    * returns some other object, so its body runs as the static method's own
@@ -2971,16 +3018,16 @@ function __isUnknownFnError(e: any): boolean {
     const bodyParts: string[] = [];
     // Does the ctor have any field write of its own? Only WHETHER matters
     // here; each value is resolved where the assignment is emitted, by
-    // `resolveInitializerValue`. (A `this.`-formal counts only when there is
-    // no initializer list at all, preserving the historical branch selection
-    // for the `Foo.named(this.x) : super(...)` shape, which still falls
-    // through to `return new Foo()`.)
+    // `resolveInitializerValue`. A `this.`-formal ALWAYS counts, whatever else
+    // the initializer list holds: this used to also require
+    // `initializers.length === 0`, so `Foo.named(this.x) : super(1)` — a
+    // non-empty list with no `field` entry — took neither construct branch and
+    // fell through to `return new Foo()`, silently dropping the formal (#582).
     const thisParams = ctorParams.filter(p => p.isThis);
     const hasFieldInitializers = initializers.some(
       (i: any) => i?.kind === "field" && typeof i.name === "string",
     );
-    const hasCtorFieldWrites =
-      hasFieldInitializers || (initializers.length === 0 && thisParams.length > 0);
+    const hasCtorFieldWrites = hasFieldInitializers || thisParams.length > 0;
     // A Dart `factory` returns some other object, so it is the ONE named
     // constructor that must not synthesize an instance of its own class.
     const isFactory = meta["is_factory"] === true;
@@ -3004,12 +3051,15 @@ function __isUnknownFnError(e: any): boolean {
       const allAssignments = [...assignments, ...thisAssignments];
       bodyParts.push(`const __inst = Object.create(${className}.prototype);`);
       // `Object.create` deliberately runs no constructor — which also means it
-      // runs none of the class's inline field initializers. Seed every
-      // declared field with the SAME default the class declaration emits,
-      // before any constructor-specific write, exactly as Dart orders them
-      // (inline initializers, then the initializer list, then the body).
+      // runs none of the class's inline field initializers, and none of the
+      // SUPERCLASS's either (a real `super()` would have). `classProperties`
+      // is therefore the whole superclass chain root-first, then this class's
+      // own fields. Seed each with the SAME default its class declaration
+      // emits, before any constructor-specific write, exactly as Dart orders
+      // them (inline initializers, then the initializer list, then the body).
       // Without this a field the named constructor never mentions stayed
-      // `undefined` forever (#564: `Init.viaList`'s `w`, `Baz.bare`'s `v`).
+      // `undefined` forever (#564: `Init.viaList`'s `w`, `Baz.bare`'s `v`;
+      // #581: every field declared by an ancestor).
       for (const p of classProperties) {
         const def = dartInitializerToTs(p.dartInitializer, p.type, p.rawDartType);
         if (def !== undefined) bodyParts.push(`__inst.${p.name} = ${def};`);

@@ -81,9 +81,10 @@ const json = toJson(ProgramSchema, program);
   catches them; conformance `436_recursive_ctor_named` /
   `438_ctor_initializer_list_with_body` pin them.
 - **A named constructor CONSTRUCTS unless it is a `factory`, and
-  `Object.create` runs no field initializer** (#564, conformance
-  `453_ctor_param_shadows_field` / `454_inline_instance_argument_name_collision`).
-  Two invariants in `buildNamedCtor`:
+  `Object.create` runs no field initializer** (#564/#581/#582, conformance
+  `453_ctor_param_shadows_field` / `454_inline_instance_argument_name_collision` /
+  `460_named_ctor_seeds_inherited_fields` / `461_named_ctor_super_and_this_formal`).
+  Four invariants in `buildNamedCtor` (and its `emitClass` call site):
   1. Branch selection may not depend on the ctor having an initializer list or
      a `this.`-formal. A BODY-ONLY named ctor (`Bar.named(int x) { print(x); }`)
      used to fall through to a plain `static named(x) { return console.log(x); }`
@@ -98,6 +99,33 @@ const json = toJson(ProgramSchema, program);
      and before any ctor-specific write, matching Dart's ordering. Without it a
      field the ctor never mentions (`Init.viaList`'s `w`,
      `StdModuleHandler.subset`'s `_dispatch`) stays `undefined` forever.
+  3. **That seeding must walk the WHOLE superclass chain, not just the class's
+     own declared fields** (#581). `Object.create` skips the real constructor,
+     which is also the only thing that would have called `super()` — and TS/JS
+     class-field initializers run as a prologue *inside* the real constructor,
+     so an ancestor's `int n = 5;` never executes either. `emitClass`'s
+     superclass walk therefore collects each ancestor level's field SPECS (type
+     + initializer), not just its names for `this.`-routing, and hands
+     `buildNamedCtor` `[...inheritedProperties, ...ownNonStatic]` — root
+     ancestor FIRST, so a subclass field shadowing an ancestor's still wins,
+     matching Dart's superclass-initializes-before-subclass order. The Dart
+     reference engine models this recursively
+     (`engine_invocation.dart`'s `_buildConstructorInstance` →
+     `_invokeSuperConstructor`); the TS compiler has to flatten it, because
+     `Object.create` has no run-the-real-super-chain primitive to lean on.
+  4. **A `this.`-formal always routes through the construct path**, regardless
+     of what else the initializer list holds (#582). `hasCtorFieldWrites` used
+     to read `hasFieldInitializers || (initializers.length === 0 &&
+     thisParams.length > 0)` — deliberate scope-limiting carried over by #564 —
+     so `Foo.named(this.x) : super(1)` (a non-empty list with no `field` entry)
+     took neither construct branch and fell through to `return new Foo()`,
+     silently dropping the formal. It is now
+     `hasFieldInitializers || thisParams.length > 0`.
+  Note what is still open: the `Object.create` branch never emits the ancestor
+  constructor CALL a `kind: "super"` initializer entry implies — it only
+  processes `kind: "field"` entries and `this.`-formals. A superclass that
+  writes its OWN field from its OWN constructor argument still comes out
+  `undefined`. Tracked separately; do not assume #581/#582 closed it.
 - **Only a `this.`-formal writes a constructor parameter into its field.**
   `buildCtor`'s prologue used to emit `this.<p> = <p>;` for `p.isThis ||
   classFields.has(p.name)` — so a PLAIN parameter that merely shared a field's

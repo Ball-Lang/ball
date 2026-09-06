@@ -57,9 +57,14 @@ Ball → TypeScript compiler. Consumes a `Program` (proto3-JSON object) and emit
   the emitted body and called that the intended contract (#564). Any assertion
   about constructor semantics belongs on `runCompiled()` in
   `test/class_emission_extra.test.ts`; a text match is at most a supplement.
-  The three invariants that suite now pins: a non-`factory` named constructor
+  The five invariants that suite now pins: a non-`factory` named constructor
   always constructs; `Object.create` seeds every declared field's default
-  first; and only a `this.`-formal writes a parameter into its field.
+  first, walking the WHOLE superclass chain (#581 — `Object.create` skips the
+  real `super()`, so an ancestor's inline initializers never run either); a
+  `this.`-formal always routes through the construct path no matter what else
+  the initializer list holds (#582 — `Foo.named(this.x) : super(1)` used to
+  fall through to `return new Foo()`); and only a `this.`-formal writes a
+  parameter into its field.
 - **`test/full_e2e.ts` is the whole-corpus compiled leg and its `CARVE_OUTS`
   table is zero-tolerance in both directions** — a non-carved failure fails the
   leg, and so does a carved-out fixture that starts PASSING (a stale entry). It

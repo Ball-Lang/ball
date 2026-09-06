@@ -2,8 +2,10 @@
 //! tuple **and** unit) → a class-shaped `TypeDefinition` + `DescriptorProto`;
 //! `enum` (fieldless variants only) → `Module.enums[]` (an
 //! `EnumDescriptorProto`) plus a companion, descriptor-less `TypeDefinition`;
-//! `trait` → an `is_abstract` `TypeDefinition` with signature-only abstract
-//! members; `impl`/`impl Trait for Type` blocks → instance methods **and
+//! `trait` → an `is_abstract` `TypeDefinition` whose members are abstract
+//! when signature-only and concrete when default-bodied (including
+//! **receiver-less** default-bodied ones, issue #491);
+//! `impl`/`impl Trait for Type` blocks → instance methods **and
 //! receiver-less associated functions** registered as `<Owner>.<method>`
 //! `FunctionDefinition`s. Mirrors
 //! `dart/encoder/lib/encoder.dart`'s class/enum/abstract-class encoding
@@ -61,12 +63,33 @@
 //! `rust/encoder/tests/static_methods.rs`, which compiles and runs the whole
 //! round trip).
 //!
-//! The **trait** sibling (`trait Maker { fn make() -> i32; }`) is still a
-//! documented gap, deliberately: `compile_method_dispatchers` skips every
-//! `is_abstract` member, so a signature-only static trait item would have no
-//! dispatcher for a `Maker::make()` call site to resolve to — encoding it
-//! would produce a program that fails to build rather than a working one.
-//! Closing it needs compiler-side work that has no #288-style precedent yet.
+//! The **trait** sibling splits in two, and the split is the whole point
+//! (issue #491). A **default-bodied** receiver-less trait fn
+//! (`trait Maker { fn make(n: i64, m: i64) -> i64 { n + m } }`) is
+//! architecturally identical to the `impl` case above at every layer the
+//! compiler cares about: `compile_struct_def` filters a type's members by
+//! `is_abstract` **alone** — it never consults `metadata.kind`, so a
+//! trait-owned concrete member lands in the same inherent `impl` block as an
+//! `impl`-owned one — and `compile_method_dispatchers` gives it the same
+//! single-owner `is_static` route. So it encodes, with the same `is_static`
+//! metadata, the same registration in `Encoder::static_method_params` (via
+//! `collect_trait_static_params`), and the same call-site shape. Proven end
+//! to end by `static_methods.rs::
+//! default_bodied_trait_fn_without_receiver_encodes_and_round_trips`.
+//!
+//! A **signature-only** one (`trait Maker { fn make() -> i32; }`) is still a
+//! documented gap, deliberately: both of those compiler passes skip every
+//! `is_abstract` member, so it would have no dispatcher for a `Maker::make()`
+//! call site to resolve to — encoding it would produce a program that fails
+//! to build rather than a working one. Closing THAT needs compiler-side work
+//! with no #288-style precedent yet; the guard therefore keys on the missing
+//! **body**, not on the missing receiver.
+//!
+//! Note that `metadata.params` for a receiver-less member must come from
+//! `param_names_and_types`, never `method_non_self_params` — the latter
+//! unconditionally `.skip(1)`s a leading `self` that isn't there, silently
+//! dropping the member's FIRST real parameter (a 0-/1-parameter example
+//! cannot expose that; the round-trip test above declares two on purpose).
 //!
 //! ## Non-`Fn` items inside an `impl` block — skipped since #491 (slice 5)
 //!
@@ -369,17 +392,38 @@ impl Encoder {
                      (associated consts/types are a documented gap): `trait {short}`"
                 );
             };
-            if !has_self_receiver(&trait_fn.sig) {
+            let is_default_bodied = trait_fn.default.is_some();
+            // A receiver-less trait member is only a gap while it is
+            // SIGNATURE-ONLY (issue #491). A DEFAULT-BODIED one is
+            // architecturally the same thing as `impl Point { fn new(..) }`:
+            // `rust/compiler/src/type_emit.rs` emits every class member —
+            // trait-owned or not — as an inherent `impl` fn filtered by
+            // `is_abstract` alone (`compile_struct_def`), and
+            // `compile_method_dispatchers`' single-owner `is_static` route
+            // (issue #288) forwards straight into it. So the guard is on the
+            // MISSING BODY, not on the missing receiver: an abstract one is
+            // skipped by both of those, leaving a `Maker::make()` call site
+            // with no dispatcher to resolve to.
+            let is_static = !has_self_receiver(&trait_fn.sig);
+            if is_static && !is_default_bodied {
                 panic!(
-                    "ball-lang-encoder: an associated function with no `self` receiver inside a \
-                     `trait` is not supported (see the module doc comment): \
+                    "ball-lang-encoder: a signature-only associated function with no `self` \
+                     receiver inside a `trait` is not supported (see the module doc comment) — \
+                     give it a default body, which encodes as an `is_static` class member: \
                      `{short}::{}`",
                     trait_fn.sig.ident
                 );
             }
             let method_short = trait_fn.sig.ident.to_string();
-            let params = method_non_self_params(&trait_fn.sig);
-            let is_default_bodied = trait_fn.default.is_some();
+            // A receiver-less member declares no `self` to skip, so every one
+            // of its parameters is real — `method_non_self_params` would drop
+            // the first (it unconditionally `.skip(1)`s). Mirrors
+            // [`Encoder::encode_item_impl`]'s own branch exactly.
+            let params = if is_static {
+                crate::param_names_and_types(&trait_fn.sig)
+            } else {
+                method_non_self_params(&trait_fn.sig)
+            };
             let body = trait_fn
                 .default
                 .as_ref()
@@ -388,6 +432,9 @@ impl Encoder {
             let mut meta = MetaBuilder::new();
             meta.set_string("kind", "method");
             meta.set_bool_if_true("is_abstract", !is_default_bodied);
+            // The one metadata key with real code-generation effect here —
+            // `method_prologue`'s `self`-extraction bypass (issue #288).
+            meta.set_bool_if_true("is_static", is_static);
             meta.set_params(&params);
 
             members.push(FunctionDefinition {
@@ -464,6 +511,43 @@ impl Encoder {
                         .insert((owner_short.clone(), short), params);
                 }
             }
+        }
+    }
+
+    /// The `trait`-block sibling of [`Encoder::collect_impl_method_params`]
+    /// (issue #491): registers each **default-bodied**, receiver-less
+    /// associated function under the very same `(owner short, method short)`
+    /// key, so [`Encoder::encode_call`]'s local-associated-call branch can
+    /// resolve a `Maker::make(3, 4)` call site to the trait member's real
+    /// parameter names. Owner-qualified keying is what keeps a trait's `make`
+    /// and an `impl`'s same-named `make` from shadowing each other.
+    ///
+    /// A **signature-only** receiver-less member is deliberately left
+    /// unregistered: the compiler skips abstract members entirely, so a call
+    /// to one would have no dispatcher — `encode_call`'s existing panic is the
+    /// correct outcome, and [`Encoder::encode_item_trait`] refuses the
+    /// declaration outright anyway.
+    ///
+    /// The trait's own short name is registered by `encode_main_module`'s
+    /// pass 1, not here, because it must be recorded even for a trait with no
+    /// receiver-less members at all.
+    pub(crate) fn collect_trait_static_params(&mut self, item_trait: &syn::ItemTrait) {
+        let owner_short = item_trait.ident.to_string();
+        for trait_item in &item_trait.items {
+            let syn::TraitItem::Fn(trait_fn) = trait_item else {
+                continue;
+            };
+            if has_self_receiver(&trait_fn.sig) || trait_fn.default.is_none() {
+                continue;
+            }
+            let params = crate::param_names_and_types(&trait_fn.sig)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect();
+            self.static_method_params.insert(
+                (owner_short.clone(), trait_fn.sig.ident.to_string()),
+                params,
+            );
         }
     }
 

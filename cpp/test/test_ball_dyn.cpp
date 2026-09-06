@@ -1083,6 +1083,222 @@ TEST(directory_constructors_from_string_any_and_balldyn) {
 }
 
 // ================================================================
+// _ball_json_escape / _ball_json_encode -- std_convert.jsonEncode's engine
+// ================================================================
+//
+// `compiler.cpp` lowers `std_convert.json_encode` to a direct
+// `_ball_json_encode(...)` call, and conformance fixture 185_std_convert really
+// does drive it -- but that execution happens inside the e2e harness's
+// per-fixture SUBPROCESS, which is compiled from the stringified
+// ball_emit_runtime_embed.h copy with no `--coverage`, so gcov can never
+// attribute a hit to this header (issue #63). Only an in-process call from an
+// instrumented ctest binary can, which is what these tests are. Coverage-
+// additive on already-correct code (the epic's convention since #332/#356/
+// #397/#509/#533): they pass on first run, and their regression value is that
+// JSON output is BYTE-compared against goldens on every other target, so a
+// silent escaping change here would only surface as a cross-language diff.
+
+TEST(cov_ball_json_escape_control_and_quote_arms) {
+    // Every named escape, one arm each.
+    ASSERT_EQ(_ball_json_escape(""), "\"\""s);
+    ASSERT_EQ(_ball_json_escape("plain"), "\"plain\""s);
+    ASSERT_EQ(_ball_json_escape("a\"b"), "\"a\\\"b\""s);
+    ASSERT_EQ(_ball_json_escape("a\\b"), "\"a\\\\b\""s);
+    ASSERT_EQ(_ball_json_escape("a\nb"), "\"a\\nb\""s);
+    ASSERT_EQ(_ball_json_escape("a\rb"), "\"a\\rb\""s);
+    ASSERT_EQ(_ball_json_escape("a\tb"), "\"a\\tb\""s);
+    ASSERT_EQ(_ball_json_escape("a\bb"), "\"a\\bb\""s);
+    ASSERT_EQ(_ball_json_escape("a\fb"), "\"a\\fb\""s);
+    // Unnamed control chars take the \u00xx arm, low nibble and high nibble
+    // both exercised (0x01 -> "01", 0x1f -> "1f").
+    ASSERT_EQ(_ball_json_escape(std::string(1, '\x01')), "\"\\u0001\""s);
+    ASSERT_EQ(_ball_json_escape(std::string(1, '\x1f')), "\"\\u001f\""s);
+    // 0x20 (space) is the first NON-escaped code point -- the boundary the
+    // `< 0x20` test guards.
+    ASSERT_EQ(_ball_json_escape(" "), "\" \""s);
+    // A high byte (>= 0x80 as unsigned) must pass through untouched, not be
+    // mistaken for a control char by a signed `char` comparison.
+    ASSERT_EQ(_ball_json_escape(std::string(1, '\xc3')),
+              "\"" + std::string(1, '\xc3') + "\""s);
+}
+
+TEST(cov_ball_json_encode_scalar_list_map_and_extension_arms) {
+    // Scalars: one arm per `typeid` test.
+    ASSERT_EQ(_ball_json_encode(std::any{}), "null"s);
+    ASSERT_EQ(_ball_json_encode(std::any(true)), "true"s);
+    ASSERT_EQ(_ball_json_encode(std::any(false)), "false"s);
+    ASSERT_EQ(_ball_json_encode(std::any((int64_t)-42)), "-42"s);
+    ASSERT_EQ(_ball_json_encode(std::any((int)7)), "7"s);
+    // A whole double keeps its ".0" (ball_to_string, not std::to_string) --
+    // that is what makes C++ output match Dart's `1.0`, never `1`.
+    ASSERT_EQ(_ball_json_encode(std::any((double)1.0)), "1.0"s);
+    ASSERT_EQ(_ball_json_encode(std::any((double)1.5)), "1.5"s);
+    ASSERT_EQ(_ball_json_encode(std::any(std::string("a\"b"))), "\"a\\\"b\""s);
+    ASSERT_EQ(_ball_json_encode(std::any((const char*)"cc")), "\"cc\""s);
+
+    // A BallDyn-wrapped value unwraps before dispatch.
+    ASSERT_EQ(_ball_json_encode(std::any(BallDyn((int64_t)3))), "3"s);
+
+    // Nested list: empty, scalars, and a nested list.
+    ASSERT_EQ(_ball_json_encode(std::any(BallList_RT{})), "[]"s);
+    ASSERT_EQ(_ball_json_encode(std::any(BallList_RT{
+                  std::any((int64_t)1), std::any(std::string("x")),
+                  std::any(BallList_RT{std::any(true)})})),
+              "[1,\"x\",[true]]"s);
+
+    // Map: internal keys are skipped to match the Dart engine -- a "__"-prefixed
+    // key AND the literal "type_args" key. std::map orders keys, so "__hidden"
+    // comes first and "type_args" last, exercising the skip on both the
+    // first and the last entry (i.e. with `first` both true and false).
+    BallMap_RT m;
+    m["__hidden"] = std::any((int64_t)1);
+    m["a"] = std::any((int64_t)2);
+    m["b"] = std::any(BallList_RT{std::any((int64_t)3)});
+    m["type_args"] = std::any(std::string("T"));
+    ASSERT_EQ(_ball_json_encode(std::any(m)), "{\"a\":2,\"b\":[3]}"s);
+    ASSERT_EQ(_ball_json_encode(std::any(BallMap_RT{})), "{}"s);
+
+    // The ordered-map extension point (installed by ball_dyn.h): a
+    // BallOrderedMap is not a BallMap_RT, so it reaches
+    // `_ball_json_encode_ext_fn` and comes back in INSERTION order, with the
+    // same internal-key skipping.
+    BallOrderedMap om;
+    om["z"s] = std::any((int64_t)1);
+    om["__meta"s] = std::any((int64_t)9);
+    om["a"s] = std::any((int64_t)2);
+    ASSERT_EQ(_ball_json_encode(std::any(om)), "{\"z\":1,\"a\":2}"s);
+
+    // Extension SET but declining (returns ""): a type it does not handle falls
+    // through to the stringify-and-quote tail.
+    ASSERT_TRUE(_ball_json_encode_ext_fn != nullptr);
+    ASSERT_EQ(_ball_json_encode(std::any((float)1.0f)), "\"<any>\""s);
+
+    // Extension UNSET: the same tail, reached without consulting the hook. The
+    // pointer is a mutable global, so restore it for every later test.
+    auto* saved = _ball_json_encode_ext_fn;
+    _ball_json_encode_ext_fn = nullptr;
+    std::string unset_float = _ball_json_encode(std::any((float)1.0f));
+    std::string unset_ordered = _ball_json_encode(std::any(om));
+    _ball_json_encode_ext_fn = saved;
+    ASSERT_EQ(unset_float, "\"<any>\""s);
+    // Without the hook an ordered map has no JSON encoder at all: it degrades to
+    // the stringify tail, which renders it as a QUOTED Dart-style map string
+    // rather than a JSON object -- exactly the silent corruption the hook
+    // exists to prevent, pinned here so the tail is never mistaken for a
+    // working fallback.
+    ASSERT_EQ(unset_ordered, "\"{z: 1, a: 2}\""s);
+    ASSERT_TRUE(_ball_json_encode_ext_fn != nullptr);
+}
+
+// ================================================================
+// ball_object_type_matches -- `is`/`as` against the __type__/__super__ chain
+// ================================================================
+//
+// Same structural blind spot as the JSON pair above: `compiler.cpp` emits
+// `ball_object_type_matches(...)` for every `x is Point` on a map-backed
+// object, but only ever inside a generated program compiled without
+// instrumentation. These call it directly.
+
+TEST(cov_ball_object_type_matches_super_chain_and_fallback) {
+    // A generator value answers to the literal "BallGenerator" and nothing else
+    // -- the arm that runs BEFORE any map view is looked for.
+    ASSERT_TRUE(ball_object_type_matches(std::any(BallGenerator{}),
+                                         "BallGenerator"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any(BallGenerator{}), "Point"));
+
+    // A null value matches nothing.
+    ASSERT_TRUE(!ball_object_type_matches(std::any{}, "Point"));
+
+    // A RAW BallMap_RT carrying __type__ directly. Module-qualified names match
+    // their bare form in both directions (ball_type_name_matches).
+    BallMap_RT point;
+    point["__type__"] = std::any(std::string("main:Point"));
+    point["x"] = std::any((int64_t)1);
+    ASSERT_TRUE(ball_object_type_matches(std::any(point), "Point"));
+    ASSERT_TRUE(ball_object_type_matches(std::any(point), "main:Point"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any(point), "Other"));
+
+    // __super__ chain: Grandchild -> Child -> Base. Every ancestor matches, and
+    // an unrelated name matches none of them (which walks the WHOLE chain to
+    // the end and falls out of the loop).
+    BallMap_RT base;
+    base["__type__"] = std::any(std::string("Base"));
+    BallMap_RT child;
+    child["__type__"] = std::any(std::string("Child"));
+    child["__super__"] = std::any(base);
+    BallMap_RT grand;
+    grand["__type__"] = std::any(std::string("Grandchild"));
+    grand["__super__"] = std::any(child);
+    ASSERT_TRUE(ball_object_type_matches(std::any(grand), "Grandchild"));
+    ASSERT_TRUE(ball_object_type_matches(std::any(grand), "Child"));
+    ASSERT_TRUE(ball_object_type_matches(std::any(grand), "Base"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any(grand), "Unrelated"));
+
+    // A __super__ that is not a map at all stops the walk instead of throwing.
+    BallMap_RT bad_super;
+    bad_super["__type__"] = std::any(std::string("Lone"));
+    bad_super["__super__"] = std::any((int64_t)7);
+    ASSERT_TRUE(ball_object_type_matches(std::any(bad_super), "Lone"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any(bad_super), "Base"));
+
+    // A non-string __type__ is not a type tag: it must be ignored (and the
+    // __super__ walk still consulted), never string-cast blindly.
+    BallMap_RT numeric_tag;
+    numeric_tag["__type__"] = std::any((int64_t)5);
+    numeric_tag["__super__"] = std::any(base);
+    ASSERT_TRUE(!ball_object_type_matches(std::any(numeric_tag), "5"));
+    ASSERT_TRUE(ball_object_type_matches(std::any(numeric_tag), "Base"));
+    // ...and likewise for a non-string tag on an ANCESTOR.
+    BallMap_RT numeric_super;
+    numeric_super["__type__"] = std::any((int64_t)6);
+    BallMap_RT over_numeric;
+    over_numeric["__type__"] = std::any(std::string("Over"));
+    over_numeric["__super__"] = std::any(numeric_super);
+    ASSERT_TRUE(!ball_object_type_matches(std::any(over_numeric), "6"));
+
+    // A real BallObject (what an instance creation actually produces) is
+    // reached through its BASE MAP, not a direct BallMap_RT cast -- both the
+    // by-value and the shared_ptr (BallObjectRef) handle.
+    BallMap widget_fields;
+    widget_fields["w"] = std::any((int64_t)3);
+    BallObject widget(std::any(std::string("main:Widget")), std::any(base),
+                      std::any(widget_fields), std::any{});
+    ASSERT_TRUE(ball_object_type_matches(std::any(widget), "Widget"));
+    ASSERT_TRUE(ball_object_type_matches(std::any(widget), "Base"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any(widget), "Other"));
+    BallObjectRef widget_ref = std::make_shared<BallObject>(
+        std::any(std::string("main:Widget")), std::any{}, std::any(widget_fields),
+        std::any{});
+    ASSERT_TRUE(ball_object_type_matches(std::any(widget_ref), "Widget"));
+
+    // No map view at all -> the ball_dyn.h extension point. With it installed,
+    // a BallOrderedMap-backed object resolves through its own __type__ and
+    // __super__; a plain scalar still matches nothing.
+    ASSERT_TRUE(_ball_object_type_matches_ext != nullptr);
+    BallOrderedMap om;
+    om["__type__"s] = std::any(std::string("main:Ordered"));
+    om["__super__"s] = std::any(base);
+    ASSERT_TRUE(ball_object_type_matches(std::any(om), "Ordered"));
+    ASSERT_TRUE(ball_object_type_matches(std::any(om), "Base"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any(om), "Other"));
+    BallOrderedMap untagged;
+    untagged["k"s] = std::any((int64_t)1);
+    ASSERT_TRUE(!ball_object_type_matches(std::any(untagged), "Ordered"));
+    ASSERT_TRUE(!ball_object_type_matches(std::any((int64_t)5), "Ordered"));
+
+    // Extension UNSET: the same values answer a plain false instead of
+    // crashing through a null hook.
+    auto* saved = _ball_object_type_matches_ext;
+    _ball_object_type_matches_ext = nullptr;
+    bool unset_ordered = ball_object_type_matches(std::any(om), "Ordered");
+    bool unset_scalar = ball_object_type_matches(std::any((int64_t)5), "Ordered");
+    _ball_object_type_matches_ext = saved;
+    ASSERT_TRUE(!unset_ordered);
+    ASSERT_TRUE(!unset_scalar);
+    ASSERT_TRUE(_ball_object_type_matches_ext != nullptr);
+}
+
+// ================================================================
 // Main
 // ================================================================
 
@@ -1095,5 +1311,13 @@ int main() {
               << tests_failed << " failed, "
               << tests_run << " total\n";
 
+    // Positive floor: every case registers itself from a static initializer, so
+    // a binary whose registrations were all elided (or a file that lost its
+    // TEST()s in a bad merge) would print "0 passed, 0 failed" and still exit 0
+    // -- a green run that proved nothing.
+    if (tests_passed < 1) {
+        std::cout << "FAIL: no tests ran (expected at least one)\n";
+        return 1;
+    }
     return tests_failed > 0 ? 1 : 0;
 }

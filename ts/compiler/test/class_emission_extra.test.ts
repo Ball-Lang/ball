@@ -764,6 +764,164 @@ describe("compiler — buildNamedCtor (named constructors as static factories)",
     const ts = compile(program, { includePreamble: false });
     assert.match(ts, /static instance\s*\([^)]*\)\s*:\s*any\s*\{\s*return new Marker\(\);\s*\}/);
   });
+
+  // #581: `Object.create` runs no constructor, so it also skips the REAL
+  // `super()` that would have run the superclass's own inline field
+  // initializers. The seeding loop therefore has to walk the whole superclass
+  // chain itself — it used to get `emitClass`'s own-fields-only `properties`
+  // array, so every inherited field stayed `undefined` forever.
+  test("a named constructor on a subclass seeds the superclass's declared field defaults (#581)", () => {
+    const program: Program = {
+      name: "named_ctor_inherited_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          typeDefs: [
+            {
+              name: "main:Base",
+              metadata: { kind: "class", fields: [{ name: "n", type: "int", initializer: "5" }] },
+            },
+            {
+              name: "main:Sub",
+              metadata: { kind: "class", superclass: "Base", fields: [{ name: "m", type: "int" }] },
+            },
+          ],
+          functions: [
+            {
+              name: "main:Sub.named",
+              outputType: "main:Sub",
+              metadata: { kind: "constructor", params: [{ name: "m", is_this: true }] },
+            },
+            {
+              name: "main",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      let: {
+                        name: "s",
+                        value: {
+                          call: {
+                            function: "named",
+                            input: {
+                              messageCreation: {
+                                fields: [
+                                  { name: "self", value: { reference: { name: "Sub" } } },
+                                  { name: "arg0", value: { literal: { intValue: 1 } } },
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                    { expression: { call: { module: "std", function: "print", input: { messageCreation: { fields: [{ name: "message", value: { fieldAccess: { object: { reference: { name: "s" } }, field: "n" } } }] } } } } },
+                    { expression: { call: { module: "std", function: "print", input: { messageCreation: { fields: [{ name: "message", value: { fieldAccess: { object: { reference: { name: "s" } }, field: "m" } } }] } } } } },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /__inst\.n = 5;/);
+    assert.ok(
+      ts.indexOf("__inst.n = 5;") < ts.indexOf("__inst.m = m;"),
+      "the inherited default is seeded before the subclass's own ctor write",
+    );
+    // The executed assertion is the load-bearing one: emitting `__inst.n = 5;`
+    // is only evidence, `s.n === 5` is the contract.
+    assert.equal(runCompiled(program), "5\n1");
+  });
+
+  // #582: a `this.`-formal always routes through the construct path. The
+  // branch condition used to require `initializers.length === 0`, so
+  // `Foo.named(this.x) : super(1)` — a non-empty initializer list with no
+  // `field` entry — fell through to `return new Foo()` and dropped the formal.
+  test("a named constructor with BOTH super(...) and a this.-formal constructs and keeps the formal (#582)", () => {
+    const program: Program = {
+      name: "named_ctor_super_this_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        {
+          name: "main",
+          typeDefs: [
+            { name: "main:Base", metadata: { kind: "class" } },
+            {
+              name: "main:Foo",
+              metadata: { kind: "class", superclass: "Base", fields: [{ name: "x", type: "int" }] },
+            },
+          ],
+          functions: [
+            { name: "main:Base.new", metadata: { kind: "constructor", params: [{ name: "a", type: "int" }] } },
+            {
+              name: "main:Foo.named",
+              outputType: "main:Foo",
+              metadata: {
+                kind: "constructor",
+                initializers: [{ kind: "super", args: "(1)" }],
+                params: [{ name: "x", is_this: true }],
+              },
+            },
+            {
+              name: "main",
+              body: {
+                block: {
+                  statements: [
+                    {
+                      expression: {
+                        call: {
+                          module: "std",
+                          function: "print",
+                          input: {
+                            messageCreation: {
+                              fields: [
+                                {
+                                  name: "message",
+                                  value: {
+                                    fieldAccess: {
+                                      object: {
+                                        call: {
+                                          function: "named",
+                                          input: {
+                                            messageCreation: {
+                                              fields: [
+                                                { name: "self", value: { reference: { name: "Foo" } } },
+                                                { name: "arg0", value: { literal: { intValue: 7 } } },
+                                              ],
+                                            },
+                                          },
+                                        },
+                                      },
+                                      field: "x",
+                                    },
+                                  },
+                                },
+                              ],
+                            },
+                          },
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const ts = compile(program, { includePreamble: false });
+    assert.match(ts, /Object\.create\(Foo\.prototype\)/);
+    assert.match(ts, /__inst\.x = x;/);
+    assert.doesNotMatch(ts, /return new Foo\(\);/);
+    assert.equal(runCompiled(program), "7");
+  });
 });
 
 describe("compiler — filterCtorBody (self-recursive boilerplate removal)", () => {

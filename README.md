@@ -202,7 +202,7 @@ The single source of truth is [`proto/ball/v1/ball.proto`](proto/ball/v1/ball.pr
 | **Python** | Yes | -- | -- | -- |
 | **Java** | Yes | -- | -- | -- |
 
-Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `344 passed, 0 failed, 344 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
+Statuses drift — the authoritative source is CI (`.github/workflows/ci.yml`, `conformance-matrix.yml`), not this table. The TS pipeline is a full CI-gated compiler + self-hosted engine + encoder (the engine passes the conformance corpus; the encoder round-trips TS→Ball→target through universal `std`). C++ has a compiler, encoder (Clang AST → Ball), and self-hosted engine that passes every conformance fixture. Rust and C# are also complete, CI-gated pipelines — self-hosted engines at Dart parity (both at `346 passed, 0 failed, 346 total`) — see `rust/AGENTS.md` and `csharp/AGENTS.md`.
 
 ```mermaid
 flowchart LR
@@ -229,7 +229,7 @@ encoder and compiler (issue #493).
 | **Python** — Tier A | 73 | 0 (0%) | 5 | 5 | 0 | 0 |
 | **Rust** — Tier A | 110 | 0 (0%) | 0 | 0 | 0 | 0 |
 | **Go** — Tier A | 21 | 0 (0%) | 0 | 0 | 0 | 0 |
-| **Dart** — Tier B (per-file) | 106 | 93 (88%) | — | — | — | — |
+| **Dart** — Tier B (per-file) | 106 | 100 (94%) | — | — | — | — |
 | **Dart** — Tier B (whole-package) | 5 | 2 (40%) | — | — | — | — |
 
 Measured over pinned **third-party** packages — code this project did not write — by `.github/workflows/coverage-study.yml` (weekly, plus `workflow_dispatch`). Tier A is structural (encode → compile back → re-encode → declaration inventory → fixpoint); Tier B substitutes the compiled-back file into the package's own test suite, which is the tier that sees a construct that round-trips cleanly but changes what the program computes.

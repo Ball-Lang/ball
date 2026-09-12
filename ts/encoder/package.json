@@ -52,7 +52,7 @@
     "node": ">=22.0.0"
   },
   "dependencies": {
-    "typescript": "^6.0.2"
+    "typescript": "^7.0.2"
   },
   "devDependencies": {
     "c8": "^11.0.0"

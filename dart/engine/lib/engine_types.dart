@@ -123,7 +123,7 @@ const String _kBallSetTag = '__ball_set__';
 /// mutation it performs (`set_add`, `set_remove`, `list_clear` on a set, the
 /// `Set.add`/`.remove` method dispatch) was applied to a throwaway copy and
 /// lost — issue #557, and why conformance fixture `459_set_add_remove_bool` had
-/// to build a FRESH set per case. `460_set_mutation_in_place` is the fixture
+/// to build a FRESH set per case. `462_set_mutation_in_place` is the fixture
 /// that observes the write.
 ///
 /// `BallRawMap` separates the two questions. "Is this value a `Map` to a user

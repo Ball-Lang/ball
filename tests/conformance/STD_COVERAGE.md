@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 346 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +343 more | ✅ |
+| `print` | ✅ | ✅ 348 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +345 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -207,14 +207,14 @@ Standard collections module. List and map operations. Separate from std because 
 | `map_put_if_absent` | ✅ | ❌ | ✅ |
 | `map_set` | ❌ | ❌ | ✅ |
 | `map_values` | ❌ | ❌ | ✅ |
-| `set_add` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `460_set_mutation_in_place` | ✅ |
-| `set_contains` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `460_set_mutation_in_place` | ✅ |
+| `set_add` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `462_set_mutation_in_place` | ✅ |
+| `set_contains` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `462_set_mutation_in_place` | ✅ |
 | `set_create` | ✅ | ✅ 10 fixture(s): `118_set_operations`, `129_unique_elements`, `310_set_map_comprehension` +7 more | ✅ |
 | `set_difference` | ❌ | ❌ | ✅ |
 | `set_intersection` | ❌ | ❌ | ✅ |
 | `set_is_empty` | ❌ | ❌ | ✅ |
-| `set_length` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `460_set_mutation_in_place` | ✅ |
-| `set_remove` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `460_set_mutation_in_place` | ✅ |
+| `set_length` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `462_set_mutation_in_place` | ✅ |
+| `set_remove` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `462_set_mutation_in_place` | ✅ |
 | `set_to_list` | ❌ | ❌ | ✅ |
 | `set_union` | ❌ | ❌ | ✅ |
 | `string_join` | ❌ | ❌ | ✅ |

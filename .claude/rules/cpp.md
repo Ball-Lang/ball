@@ -184,7 +184,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `dart/engine/lib/engine_types.dart`) is that second question, emitted as a
   bare `ball_is_map_dyn(...)` with NO set exclusion, in both the `is`/`is_not`
   codegen and `_typeCheckCondition`. Conformance fixture
-  `460_set_mutation_in_place` is the guard; the whole `ctest -L selfhost` sweep
+  `462_set_mutation_in_place` is the guard; the whole `ctest -L selfhost` sweep
   passes with it.
 
 ### Encoder (`cpp/encoder/`)
@@ -329,6 +329,27 @@ A fast, CI-equivalent local measurement (no nested per-fixture g++ builds) is th
 `corpus_driver` target wired into `build-cov-build.sh` / `build-cov-run.sh` /
 `build-cov-report.sh`. Read the aggregate from `lcov --summary`, never
 `lcov --list` — its per-file Rate column is unreliable on a merged tracefile.
+
+Two things routinely make a coverage number mean the opposite of what it looks
+like, so check both before writing a test against a "dead" line:
+
+- **`cpp/shared/include/{ball_emit_runtime,ball_dyn}.h` are structurally
+  undercounted, not unexercised.** They are embedded verbatim into every
+  generated program, and `test_e2e` compiles each fixture in a separate,
+  NON-`--coverage` subprocess; gcov can only attribute a hit to code compiled
+  `--coverage` in the same binary that ran it. A function here reaches 0% while
+  the whole conformance corpus pounds it. The only instrument that moves it is a
+  direct in-process call from an instrumented ctest binary — a `cov_*` case in
+  `cpp/test/test_ball_dyn.cpp`, never another fixture.
+- **The Codecov API's `line_coverage` state is `0 = HIT`, `1 = MISS`** — the
+  opposite of the obvious reading, and an earlier #63 audit got it backwards and
+  concluded a wholly-dead cluster was already covered. Calibrate before trusting
+  it: fetch
+  `https://api.codecov.io/api/v2/github/Ball-Lang/repos/ball/file_report/cpp/shared/include/ball_shared.h?flag=cpp`
+  and check that the count of state-`0` entries equals the reported
+  `totals.hits`. Line numbers also drift between commits, so re-derive the
+  ranges against the source at the reported `commit_sha` rather than reusing a
+  range from an issue comment.
 
 **Always add tests alongside every C++ change.** Conformance tests automatically pick up new programs added to `tests/conformance/`.
 

@@ -4913,6 +4913,260 @@ TEST(let_bound_to_a_call_returning_a_user_class_takes_the_concrete_type) {
 }
 
 // ================================================================
+// #516 return-type narrowing — expr_contains_return / collect_returned_classes
+// ================================================================
+//
+// `map_return_type` narrows a SUBCLASSED declared return type to the concrete
+// class the body provably returns, because a struct returned by value through a
+// base-typed slot slices (fixture 440 printed 1 instead of 10). The two private
+// helpers that decide "provably" — `collect_returned_classes` and
+// `expr_contains_return` — landed with only ONE arm exercised: fixture 440's
+// body is a bare `MessageCreation`, so the Block / Let / nested-return recursion
+// arms, and the whole of `expr_contains_return`, never ran inside an
+// instrumented binary (issue #63; the Codecov file report for
+// cpp/compiler/src/compiler.cpp read 0 hits / 33 misses over
+// `expr_contains_return` and 9 hits / 29 misses over `collect_returned_classes`).
+//
+// These are coverage-additive tests on already-correct code — this epic's
+// convention since #332/#356/#397/#509/#533 — so they pass on first run. Their
+// regression value is that every REFUSAL arm below is a silently-wrong return
+// type if it ever starts widening: a body whose returns the helpers cannot fully
+// see must keep the declared type, never guess a subclass.
+
+// Base + two concrete subclasses (so `class_is_subclassed("Base")` holds and a
+// narrowing target exists) + a GENERIC subclass, which the compiler lowers to a
+// map-backed dynamic class and must therefore never be narrowed to.
+static json cov_narrow_program(std::vector<json> funcs) {
+    json base_meta;
+    base_meta["kind"] = "class";
+    auto base_td =
+        cov_class_td("main:Base", {{"tag", "TYPE_INT64"}}, std::move(base_meta));
+
+    json derived_meta;
+    derived_meta["kind"] = "class";
+    derived_meta["superclass"] = "Base";
+    auto derived_td = cov_class_td("main:Derived", {{"tag", "TYPE_INT64"}},
+                                   std::move(derived_meta));
+
+    json other_meta;
+    other_meta["kind"] = "class";
+    other_meta["superclass"] = "Base";
+    auto other_td = cov_class_td("main:Other", {{"tag", "TYPE_INT64"}},
+                                 std::move(other_meta));
+
+    json gen_meta;
+    gen_meta["kind"] = "class";
+    gen_meta["superclass"] = "Base";
+    gen_meta["type_params"] = json::array({"T"});
+    auto gen_td = cov_class_td("main:GenDerived", {{"tag", "TYPE_INT64"}},
+                               std::move(gen_meta));
+
+    return cov_class_program({base_td, derived_td, other_td, gen_td},
+                             std::move(funcs));
+}
+
+// A top-level `Base <name>()` whose body is `body`.
+static json cov_narrow_fn(const std::string& name, json body) {
+    json meta;
+    meta["kind"] = "function";
+    json f;
+    f["name"] = name;
+    f["outputType"] = "Base";
+    f["metadata"] = std::move(meta);
+    f["body"] = std::move(body);
+    return f;
+}
+
+// `std.return(value: <expr>)`.
+static json cov_return(json value) {
+    return std_call("return",
+                    make_msg("ReturnInput", {{"value", std::move(value)}}));
+}
+
+// A field-less instance creation of `main:<cls>`.
+static json cov_new(const std::string& cls) {
+    return make_msg("main:" + cls, {});
+}
+
+TEST(cov_map_return_type_block_body_explicit_return_narrows) {
+    // Base pickDerived() { print("log"); return Derived(); }
+    //
+    // The Block arm of collect_returned_classes: a leading non-return statement
+    // (scanned by expr_contains_return and cleared), then a mid-block
+    // `std.return(MessageCreation)` — NOT the block's bare `result`, which is
+    // the only shape fixture 440 supplies. One provable returned class still
+    // narrows the emitted signature.
+    auto fn = cov_narrow_fn(
+        "pickDerived",
+        block({stmt_expr(print_call(lit_string("log"))),
+               stmt_expr(cov_return(cov_new("Derived")))}));
+    auto out = compile_program(cov_narrow_program({fn}));
+
+    ASSERT_CONTAINS(out, "Derived pickDerived(");
+    ASSERT_NOT_CONTAINS(out, "Base pickDerived(");
+}
+
+TEST(cov_map_return_type_block_body_nested_return_in_let_refuses) {
+    // Base letHidesReturn() {
+    //   final plain = 1;                                    // return-free: skipped
+    //   final tmp = { final inner = { return Derived(); 0 }; 0 };
+    //   return Derived();
+    // }
+    //
+    // A `let` whose VALUE can execute a return means the picture of what this
+    // function returns is incomplete, so collect_returned_classes REFUSES and
+    // the declared base type is kept. The nesting is deliberate: it drives
+    // expr_contains_return's own Block arm through BOTH its `let`-value branch
+    // and its expression-statement branch.
+    auto hidden =
+        block({stmt_let("inner",
+                        block({stmt_expr(cov_return(cov_new("Derived")))},
+                              lit_int(0)))},
+              lit_int(0));
+    auto fn = cov_narrow_fn(
+        "letHidesReturn",
+        block({stmt_let("plain", lit_int(1)), stmt_let("tmp", std::move(hidden)),
+               stmt_expr(cov_return(cov_new("Derived")))}));
+    auto out = compile_program(cov_narrow_program({fn}));
+
+    ASSERT_CONTAINS(out, "Base letHidesReturn(");
+    ASSERT_NOT_CONTAINS(out, "Derived letHidesReturn(");
+}
+
+TEST(cov_map_return_type_control_flow_return_refuses) {
+    // Base returnInsideIf() {
+    //   if (true) { return Derived(); }
+    //   return Other();
+    // }
+    //
+    // A return nested inside control flow is invisible to the statement-level
+    // scan, so the helper refuses to widen on an incomplete picture rather than
+    // narrowing to whichever class it happened to see. This is the documented
+    // residual gap of #516, pinned as behaviour instead of prose.
+    auto guarded = std_call(
+        "if", make_msg("IfInput",
+                       {{"condition", lit_bool(true)},
+                        {"then", block({stmt_expr(cov_return(cov_new("Derived")))},
+                                       lit_int(0))}}));
+    auto fn = cov_narrow_fn(
+        "returnInsideIf",
+        block({stmt_expr(std::move(guarded)),
+               stmt_expr(cov_return(cov_new("Other")))}));
+    auto out = compile_program(cov_narrow_program({fn}));
+
+    ASSERT_CONTAINS(out, "Base returnInsideIf(");
+    ASSERT_NOT_CONTAINS(out, "Derived returnInsideIf(");
+    ASSERT_NOT_CONTAINS(out, "Other returnInsideIf(");
+}
+
+TEST(cov_map_return_type_multi_subclass_body_keeps_declared_type) {
+    // Base pickEither() { return Derived(); Other() }
+    //
+    // Two DISTINCT provable subclasses leave `returned.size() != 1`, so
+    // map_return_type keeps the declared type — the "a body that can return more
+    // than one subclass … keeps the declared type" comment, proven rather than
+    // asserted. Also drives the block-`result` recursion arm, which fixture 440
+    // never reaches because its body is a bare MessageCreation with no block.
+    auto fn = cov_narrow_fn("pickEither",
+                            block({stmt_expr(cov_return(cov_new("Derived")))},
+                                  cov_new("Other")));
+    auto out = compile_program(cov_narrow_program({fn}));
+
+    ASSERT_CONTAINS(out, "Base pickEither(");
+    ASSERT_NOT_CONTAINS(out, "Derived pickEither(");
+    ASSERT_NOT_CONTAINS(out, "Other pickEither(");
+}
+
+TEST(cov_expr_contains_return_literal_and_lambda_arms) {
+    // Two refusals driven through expr_contains_return's remaining arms:
+    //   Base listLiteralReturn() { print([1, { return Derived(); 0 }]); Derived() }
+    //     — the Literal arm walks a list literal's ELEMENTS, finds the nested
+    //       return, and refuses.
+    //   Base lambdaValued() { final cb = () => 1; Derived() }
+    //     — the Lambda arm refuses unconditionally: a lambda's own `return`
+    //       leaves the LAMBDA, not this function, and a wrong widening here is a
+    //       silently wrong return type, so it refuses rather than reasons.
+    auto list_fn = cov_narrow_fn(
+        "listLiteralReturn",
+        block({stmt_expr(print_call(lit_list(
+                  {lit_int(1), block({stmt_expr(cov_return(cov_new("Derived")))},
+                                     lit_int(0))})))},
+              cov_new("Derived")));
+    auto lambda_fn = cov_narrow_fn(
+        "lambdaValued",
+        block({stmt_let("cb", lambda_expr(lit_int(1)))}, cov_new("Derived")));
+    auto out = compile_program(cov_narrow_program({list_fn, lambda_fn}));
+
+    ASSERT_CONTAINS(out, "Base listLiteralReturn(");
+    ASSERT_NOT_CONTAINS(out, "Derived listLiteralReturn(");
+    ASSERT_CONTAINS(out, "Base lambdaValued(");
+    ASSERT_NOT_CONTAINS(out, "Derived lambdaValued(");
+}
+
+TEST(cov_map_return_type_unprovable_body_shapes_keep_declared_type) {
+    // The remaining arms, one function each. Every refusal keeps `Base` —
+    // narrowing any of them would emit a return type the body does not actually
+    // produce:
+    //   Base callBodied()     => helper();                  // a CALL is not provable
+    //   Base refBodied()      => helper;                    // neither MC, Call nor Block
+    //   Base bareReturn()     { return; }                   // `return` with no `value`
+    //   Base returnsGeneric() { return GenDerived(); }      // dynamic (generic) subclass
+    // plus one PROVABLE body, so the group cannot pass by refusing everything:
+    //   Base fieldAccessTail() { final obj = Derived();
+    //                            final probe = { print(obj.tag); obj };
+    //                            Derived() }                // every scan is clean
+
+    json helper_meta;
+    helper_meta["kind"] = "function";
+    json helper;
+    helper["name"] = "helper";
+    helper["outputType"] = "Base";
+    helper["metadata"] = std::move(helper_meta);
+    helper["body"] = cov_new("Derived");
+
+    // collect_returned_classes' Call arm accepts ONLY `std.return(...)`; a
+    // helper call's result is not provable from here.
+    auto call_fn = cov_narrow_fn("callBodied", call("", "helper", json(nullptr)));
+
+    // A bare reference: neither MessageCreation, Call, nor Block — the default
+    // arm refuses.
+    auto ref_fn = cov_narrow_fn("refBodied", ref("helper"));
+
+    // `std.return` carrying no `value` field at all.
+    auto bare_fn = cov_narrow_fn(
+        "bareReturn",
+        block({stmt_expr(std_call("return", make_msg("ReturnInput", {})))}));
+
+    // A GENERIC subclass lowers to a map-backed dynamic class whose C++ type is
+    // BallDyn, not a struct, so it is never a narrowing target.
+    auto generic_fn = cov_narrow_fn(
+        "returnsGeneric", block({stmt_expr(cov_return(cov_new("GenDerived")))}));
+
+    // A clean `let` whose value is a block ending in a bare reference: every
+    // scanned sub-expression (field access, reference, block result) is
+    // return-free, so the tail `Derived()` still narrows.
+    auto probe = block({stmt_expr(print_call(field_access(ref("obj"), "tag")))},
+                       ref("obj"));
+    auto fa_fn = cov_narrow_fn(
+        "fieldAccessTail",
+        block({stmt_let("obj", cov_new("Derived")),
+               stmt_let("probe", std::move(probe))},
+              cov_new("Derived")));
+
+    auto out = compile_program(cov_narrow_program(
+        {helper, call_fn, ref_fn, bare_fn, generic_fn, fa_fn}));
+
+    ASSERT_CONTAINS(out, "Base callBodied(");
+    ASSERT_NOT_CONTAINS(out, "Derived callBodied(");
+    ASSERT_CONTAINS(out, "Base refBodied(");
+    ASSERT_CONTAINS(out, "Base bareReturn(");
+    ASSERT_CONTAINS(out, "Base returnsGeneric(");
+    ASSERT_NOT_CONTAINS(out, "GenDerived returnsGeneric(");
+    ASSERT_CONTAINS(out, "Derived fieldAccessTail(");
+    ASSERT_NOT_CONTAINS(out, "Base fieldAccessTail(");
+}
+
+// ================================================================
 // Main
 // ================================================================
 
@@ -4925,5 +5179,13 @@ int main() {
               << tests_failed << " failed, "
               << tests_run << " total\n";
 
+    // Positive floor: every case registers itself from a static initializer, so
+    // a binary whose registrations were all elided (or a file that lost its
+    // TEST()s in a bad merge) would print "0 passed, 0 failed" and still exit 0
+    // — a green run that proved nothing.
+    if (tests_passed < 1) {
+        std::cout << "FAIL: no tests ran (expected at least one)\n";
+        return 1;
+    }
     return tests_failed > 0 ? 1 : 0;
 }

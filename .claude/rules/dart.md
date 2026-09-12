@@ -224,7 +224,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   through `v as Map`: Rust's `ball_as` and C#'s `BallRuntime.AsType` check the
   cast against the same set-excluding `is Map` answer and would throw on the very
   value the probe just identified. Conformance fixture
-  `460_set_mutation_in_place` is the guard.
+  `462_set_mutation_in_place` is the guard.
 
 ## Generated Files — NEVER Edit
 

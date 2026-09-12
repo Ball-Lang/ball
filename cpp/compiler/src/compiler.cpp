@@ -5512,7 +5512,7 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         // what made `_ballValueIsSet` permanently false in the compiled
         // self-hosted engine — so it could never reach a set's live backing list
         // and every in-place set mutation it performed was lost (issue #557,
-        // conformance fixture `460_set_mutation_in_place`).
+        // conformance fixture `462_set_mutation_in_place`).
         else if (tn == "BallRawMap") ck = "ball_is_map_dyn(BallDyn(" + val + "))";
         else ck = "ball_object_type_matches(" + val + ", \"" + tn + "\"s)";
         // For reified generics on user types (e.g. `x is Box<int>`), also check

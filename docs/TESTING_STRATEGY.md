@@ -418,7 +418,7 @@ Two gates now cover this class:
   present removal / absent removal). Because it is a conformance fixture it gates
   every engine and every compiled leg in the matrix at once. It uses a FRESH set
   per case, so it pins the RETURN VALUE only.
-* **Cross-target, in place** — `tests/conformance/460_set_mutation_in_place` is
+* **Cross-target, in place** — `tests/conformance/462_set_mutation_in_place` is
   the other half, added with the fix for issue #557: one set, added to, removed
   from, then READ BACK (printed whole, measured, and probed with `set_contains`
   for both the added and the removed element). It is what catches a mutation that
@@ -444,7 +444,7 @@ it. Re-encoding the compiled `a.add(3)` needs the receiver's TYPE to tell
 has none, so the call routes to `list_push` and compiles back to the cascade
 `a..add(3)` — the SET, not the bool. That is issue #488's receiver-type seam, not
 a #545 regression: the fixture's `engine`, `dart-compiled` and `ts-compiled` legs
-all pass. Fixture 460 hits the same seam on the same leg for the same reason
+all pass. Fixture 462 hits the same seam on the same leg for the same reason
 (its first line is a `set_add` result in a value position). The two are the only
 entries in the harness's `_knownUnroundtrippable` map — a ratchet, not a
 baseline: an entry that starts passing fails the suite, an entry naming no real

@@ -216,7 +216,7 @@ public static partial class BallRuntime
             // `_ballValueIsSet` permanently false here — so the engine could
             // never reach a set's live backing list and every in-place set
             // mutation it performed was lost (issue #557, conformance fixture
-            // `460_set_mutation_in_place`).
+            // `462_set_mutation_in_place`).
             "BallRawMap" => value is BallMap,
             "Function" => value is BallFunction,
             "Null" => value is BallNull,

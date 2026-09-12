@@ -1044,7 +1044,7 @@ pub fn ball_is_type(value: &BallValue, type_name: &str) -> bool {
         // representation probe too is what made `_ballValueIsSet` permanently
         // false here — so the engine could never reach a set's live backing list
         // and every in-place set mutation it performed was lost (issue #557,
-        // conformance fixture `460_set_mutation_in_place`).
+        // conformance fixture `462_set_mutation_in_place`).
         "BallRawMap" => matches!(value, BallValue::Map(_)),
         "Function" => matches!(value, BallValue::Function(_)),
         "Null" | "null" => matches!(value, BallValue::Null),

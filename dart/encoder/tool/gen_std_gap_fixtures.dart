@@ -553,7 +553,7 @@ Future<void> main() async {
     ),
   );
 
-  // ── 460_set_mutation_in_place: `std_collections.set_add`/`set_remove`
+  // ── 462_set_mutation_in_place: `std_collections.set_add`/`set_remove`
   // MUTATE the receiver, and the mutation is observable through the SAME
   // `let`-bound set afterwards (issue #557). This is the chained form
   // `459_set_add_remove_bool` deliberately could NOT use: there every case
@@ -575,7 +575,7 @@ Future<void> main() async {
   // to these base functions, so no portable Dart source encodes to a `set_add`
   // call. Listed in tests/conformance/CARVEOUTS.md.
   await writeFixture(
-    '460_set_mutation_in_place',
+    '462_set_mutation_in_place',
     buildProgramJson(
       name: 'set_mutation_in_place',
       // Same module shape as 459: `set_create` is declared and CALLED on `std`

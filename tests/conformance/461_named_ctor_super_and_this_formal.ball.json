@@ -1,0 +1,169 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "print",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:Base.new",
+          "outputType": "main:Base",
+          "metadata": {
+            "kind": "constructor",
+            "params": [
+              {
+                "name": "a",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Foo.named",
+          "outputType": "main:Foo",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "super",
+                "args": "(1)"
+              }
+            ],
+            "params": [
+              {
+                "name": "x",
+                "is_this": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "print",
+              "input": {
+                "messageCreation": {
+                  "typeName": "PrintInput",
+                  "fields": [
+                    {
+                      "name": "message",
+                      "value": {
+                        "fieldAccess": {
+                          "object": {
+                            "call": {
+                              "function": "named",
+                              "input": {
+                                "messageCreation": {
+                                  "fields": [
+                                    {
+                                      "name": "self",
+                                      "value": {
+                                        "reference": {
+                                          "name": "Foo"
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "name": "arg0",
+                                      "value": {
+                                        "literal": {
+                                          "intValue": "7"
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          "field": "x"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Base",
+          "descriptor": {
+            "name": "main:Base"
+          },
+          "description": "Class metadata for main:Base",
+          "metadata": {
+            "kind": "class"
+          }
+        },
+        {
+          "name": "main:Foo",
+          "descriptor": {
+            "name": "main:Foo",
+            "field": [
+              {
+                "name": "x",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Foo",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Base",
+            "fields": [
+              {
+                "name": "x",
+                "type": "int"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

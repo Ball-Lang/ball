@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 345 passed, 0 failed, 345 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 347 passed, 0 failed, 347 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -197,7 +197,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 345 passed, 0 failed, 345 total` (the 4
+  whole corpus with Dart-identical output: `Results: 347 passed, 0 failed, 347 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -259,7 +259,7 @@ cargo fmt --check && cargo clippy --workspace
   here, so every in-place set mutation the engine performed went to a throwaway
   copy. `BallRawMap` (a typedef in `dart/engine/lib/engine_types.dart`) is that
   second question, answered structurally: `matches!(value, BallValue::Map(_))`,
-  no exclusion. Conformance fixture `460_set_mutation_in_place` is the guard.
+  no exclusion. Conformance fixture `462_set_mutation_in_place` is the guard.
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
 - `rust/engine/tests/roundtrip_conformance.rs` is a **measurement-only** whole-corpus sweep

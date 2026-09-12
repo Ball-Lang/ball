@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 345 passed, 0 failed, 345 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 347 passed, 0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -102,7 +102,7 @@ compile items so the sibling projects never double-compile each other's files.
   permanently `false` here, so every in-place set mutation the engine performed went to a
   throwaway copy. `BallRawMap` (a typedef in `dart/engine/lib/engine_types.dart`) is that second
   question, answered structurally: `value is BallMap`, no exclusion. Conformance fixture
-  `460_set_mutation_in_place` is the guard.
+  `462_set_mutation_in_place` is the guard.
 - Documented scope gaps live in `csharp/AGENTS.md`'s "Compiler" section (body-carrying
   constructors, `super` chains, static members, labelled `break`/`continue` were closed during
   the self-host grind; read the current gap list before assuming something is a bug vs. a known
@@ -179,10 +179,12 @@ compile items so the sibling projects never double-compile each other's files.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
   (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 6 passed, 2 failed, 8 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  `Results: 8 passed, 2 failed, 10 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
   `1 passed, 6 failed`; slices A/B closed buckets b, c and g; slice C added and closed bucket
   (h), `enum` declarations; slice C's line was `5 passed, 3 failed, 8 total`; slice E closed
-  bucket (e) — the taxonomy grows only when a fresh measurement says so, which is
+  bucket (e), `6 passed, 2 failed, 8 total`; slice 3 added and closed bucket (i), BCL static guard
+  calls, `7 passed, 2 failed, 9 total`; slice 3b added and closed bucket (j), the 0-argument LINQ
+  terminals — the taxonomy grows only when a fresh measurement says so, which is
   how the enum bucket stayed invisible until it was the largest). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
@@ -197,6 +199,10 @@ compile items so the sibling projects never double-compile each other's files.
   Bucket (e) (slice E) is the second worked instance of that rule: its fixture carries **two**
   independent gaps (a `PredefinedTypeSyntax` receiver, `int.Parse`, and the 0-arg `.Count()`
   METHOD spelling of the `.Count` property) and both had to be fixed for it to flip unmodified.
+  Bucket (i) (slice 3) is the third: one fixture carrying `ArgumentNullException.ThrowIfNull`
+  plus both `Debug.Assert` arities. Bucket (j) (slice 3b) is the fourth: `.Last()` and 0-arg
+  `.Any()` in one fixture, printing from a non-empty AND an empty receiver so an inverted route
+  fails the round-trip run.
 - **`PredefinedType` static receivers** (#492 slice E): `EncodeMemberInvocation` intercepts a
   `PredefinedTypeSyntax` receiver BEFORE `StaticReceiverName` and routes it through
   `EncodePredefinedTypeStaticCall` — `int`/`long`.`Parse` → `std.string_to_int`,
@@ -204,6 +210,26 @@ compile items so the sibling projects never double-compile each other's files.
   declares; `float` widening to a double is a documented approximation). Anything else on a
   keyword type throws loud NAMING the receiver. `TryParse` is deliberately not routed — dropping
   its out-parameter failure branch would compile, run, and be silently wrong.
+- **BCL static guard calls** (#492 slice 3): `ArgumentNullException.ThrowIfNull(x)` →
+  `std.assert(std.not_equals(x, null), "<x> must not be null")`, `Debug.Assert(cond[, msg])` →
+  `std.assert` 1:1 (1-arg and 2-arg as separate arity arms). `std.assert` was already declared,
+  compiled and interpreted — this was purely an encoder-side gap, no new base function. Two
+  invariants: the new `switch` arms are guarded on the same-file class table
+  (`DeclaresSameFileStatic`) so a user class named `Debug` still wins, and the 2-arg
+  `ThrowIfNull(value, paramName)` overload stays a LOUD error because `paramName` is `nameof(x)`,
+  a shape this encoder cannot resolve. `String.IsNullOrEmpty` is a documented deferral (routing it
+  would falsify `string_is_empty`'s "never emitted for a non-string" assumption in the Dart engine).
+- **0-argument LINQ terminals** (#492 slice 3b): `.Last()` → `std_collections.list_last` (same
+  throw-on-empty contract as C#'s own `.Last()`, so it is a route and not an approximation) and
+  0-arg `.Any()` → `std.not(std_collections.list_is_empty(...))` — the 0-arity halves of arity
+  windows that already carried their 1-argument arms (`list_find`/`list_any`). Both target
+  functions were already declared/compiled/interpreted; this was purely a dispatch-table gap, and
+  its measured Tier A yield is **zero** (stage 1 stayed at 123/472 — Tier A reports only a file's
+  FIRST error), so it is justified by targeted tests plus a round-trip run, never by a funnel
+  number. `LastOrDefault`/`SingleOrDefault` stay LOUD errors on purpose: the neighbouring
+  `FirstOrDefault` arm routes a default-returning name to the throwing `list_first`, a
+  pre-existing silent-wrong-behaviour defect (issue #588, listed in `csharp/AGENTS.md`'s "Still
+  open on #492") that a new name does not get to inherit.
 - **`default(T)` is the type's zero, not always null.** The `DefaultExpressionSyntax` arm used to
   encode every `default(T)` as a null literal, so `default(int)` printed `null` where C# prints
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero
@@ -218,8 +244,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 345 passed, 0 failed,
-  345 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 347 passed, 0 failed,
+  347 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without
@@ -281,10 +307,15 @@ compile items so the sibling projects never double-compile each other's files.
   Exe project in `Ball.slnx`, mirroring `engine/tool`) runs real pinned libraries
   through `EncodeLibrary` -> `CSharpCompiler.Compile` -> `EncodeLibrary`, diffs the
   declaration inventory with a **Roslyn `CSharpSyntaxWalker` directly** (never
-  `Ball.Encoder`'s own walk) and checks a second-generation fixpoint. Honest first
-  baseline **0/472 clean**, but the funnel is the story: 74 files encode, 73 compile
-  back, 58 re-encode, and the wall is stage 4 (`declaration-drift`) — the furthest
-  any port gets. `dotnet test csharp/coverage-study/test/...` (the harness's own
+  `Ball.Encoder`'s own walk) and checks a second-generation fixpoint. Honest
+  baseline **0/472 clean**, but the funnel is the story: **123 files encode, 122
+  compile back, 58 re-encode**, and the wall is stage 4 (`declaration-drift`) — the
+  furthest any port gets. (Re-measured at `origin/main` @ `9ede6466`; the earlier
+  "74/73/58" sentence had gone stale.) Tier A reports only a file's FIRST error, so
+  a correct per-shape fix routinely leaves stage 1 unchanged — #578 and #492 slice 3
+  each did — while the file advances to its next gap. Verify a shape with a
+  targeted test, and only ever move `tools/coverage-study/baseline.json`'s floor to
+  a number the harness actually printed. `dotnet test csharp/coverage-study/test/...` (the harness's own
   self-test) IS gated on every PR in the `csharp` job; the RUN is the
   `csharp-tier-a` job in `coverage-study.yml`, which has **no `pull_request:`
   trigger** (its row is floored by ratchet in that workflow's `publish` job). Methodology: `tests/conformance/COVERAGE_STUDY.md`.

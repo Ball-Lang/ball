@@ -58,7 +58,7 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `true` from `set_add`. **Each case uses a FRESH set** rather than chaining calls
   against one `let`-bound set, so this fixture pins the RETURN-VALUE contract only.
   The chained form — one set, mutated and then read back — is
-  `460_set_mutation_in_place` below, added with the fix for issue #557; the two
+  `462_set_mutation_in_place` below, added with the fix for issue #557; the two
   fixtures cover different halves of the same contract, so keep both.
   For the same reason it is inexpressible in Dart, it also cannot survive the
   **`dart-roundtrip`** leg of `dart/compiler/test/conformance_roundtrip_test.dart`
@@ -69,7 +69,7 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `_knownUnroundtrippable` ratchet (which fails if the entry ever starts passing);
   the fixture's `engine`, `dart-compiled` and `ts-compiled` legs all pass. Issue #488
   owns the receiver-type seam that will delete the entry.
-- `460_set_mutation_in_place` — the IN-PLACE half of `std_collections.set_add` /
+- `462_set_mutation_in_place` — the IN-PLACE half of `std_collections.set_add` /
   `set_remove` (issue #557): one `let`-bound set is created once, added to, removed
   from, and then READ BACK — printed whole, measured with `set_length`, and probed
   with `set_contains` for both the added and the removed element. Hand-authored for

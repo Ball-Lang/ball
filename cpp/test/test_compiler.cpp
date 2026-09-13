@@ -2202,6 +2202,19 @@ TEST(collections_list_higher_order_ops) {
     ASSERT_CONTAINS(compile_program(build_program(
         coll("list_find", {{"list", ref("a")}, {"callback", ref("cb")}}))),
         "if(_ball_pred_true(fn(__e)))return __e;");
+    // #597: NO MATCH THROWS. `list_find` is Dart's `Iterable.firstWhere`
+    // without `orElse` (its own declaration in std_collections.dart says so),
+    // and the Dart reference engine throws `StateError('No element')` — the
+    // same contract `list_reduce` two assertions above already emits. Until
+    // #597 this fell off the end with `return BallDyn();`, handing the caller a
+    // null ANSWER no `catch` could ever see. Both halves are asserted: the
+    // throw is present AND the silent null-return is gone.
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_find", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "throw BallException(\"StateError\"s,\"Bad state: No element\"s);");
+    ASSERT_NOT_CONTAINS(compile_program(build_program(
+        coll("list_find", {{"list", ref("a")}, {"callback", ref("cb")}}))),
+        "return __e;}return BallDyn();}");
     ASSERT_CONTAINS(compile_program(build_program(
         coll("list_any", {{"list", ref("a")}, {"callback", ref("cb")}}))),
         "return true;}return false;}");

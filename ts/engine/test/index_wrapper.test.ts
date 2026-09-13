@@ -65,6 +65,129 @@ describe("BallEngine end-to-end: null_check", () => {
   });
 });
 
+function listFindProgram(threshold: number) {
+  return {
+    modules: [
+      {
+        name: "std",
+        functions: [
+          { name: "print", isBase: true },
+          { name: "to_string", isBase: true },
+          { name: "greater_than", isBase: true },
+        ],
+      },
+      { name: "std_collections", functions: [{ name: "list_find", isBase: true }] },
+      {
+        name: "main",
+        functions: [{
+          name: "main",
+          body: {
+            call: {
+              module: "std", function: "print",
+              input: {
+                messageCreation: {
+                  typeName: "", fields: [{
+                    name: "message",
+                    value: {
+                      call: {
+                        module: "std", function: "to_string",
+                        input: {
+                          messageCreation: {
+                            typeName: "", fields: [{
+                              name: "value",
+                              value: {
+                                call: {
+                                  module: "std_collections", function: "list_find",
+                                  input: {
+                                    messageCreation: {
+                                      typeName: "", fields: [
+                                        {
+                                          name: "list",
+                                          value: {
+                                            literal: {
+                                              listValue: {
+                                                elements: [
+                                                  { literal: { intValue: "1" } },
+                                                  { literal: { intValue: "2" } },
+                                                  { literal: { intValue: "3" } },
+                                                ],
+                                              },
+                                            },
+                                          },
+                                        },
+                                        {
+                                          name: "callback",
+                                          value: {
+                                            lambda: {
+                                              name: "",
+                                              body: {
+                                                call: {
+                                                  module: "std", function: "greater_than",
+                                                  input: {
+                                                    messageCreation: {
+                                                      typeName: "", fields: [
+                                                        { name: "left", value: { reference: { name: "x" } } },
+                                                        { name: "right", value: { literal: { intValue: String(threshold) } } },
+                                                      ],
+                                                    },
+                                                  },
+                                                },
+                                              },
+                                              metadata: {
+                                                kind: "lambda", expression_body: true, has_return: true,
+                                                params: [{ name: "x" }],
+                                              },
+                                            },
+                                          },
+                                        },
+                                      ],
+                                    },
+                                  },
+                                },
+                              },
+                            }],
+                          },
+                        },
+                      },
+                    },
+                  }],
+                },
+              },
+            },
+          },
+        }],
+      },
+    ],
+    entryModule: "main", entryFunction: "main",
+  };
+}
+
+describe("BallEngine end-to-end: std_collections.list_find no-match contract (#597)", () => {
+  test("a HIT still yields the matching element", async () => {
+    const engine = new BallEngine(listFindProgram(2));
+    await engine.run();
+    assert.deepEqual(engine.getOutput(), ["3"]);
+  });
+
+  test("a MISS THROWS a typed StateError — it never yields null", async () => {
+    // The hand-written engine_setup.ts override that used to shadow the
+    // compiled engine's implementation returned `null` here, so this program
+    // printed "null" and exited 0 while the Dart reference engine (and every
+    // other self-hosted engine) threw. Uncaught, the throw must propagate out
+    // of run(); tests/conformance/463_list_find_no_match pins the caught half.
+    const engine = new BallEngine(listFindProgram(100));
+    await assert.rejects(
+      () => engine.run(),
+      (err: any) => {
+        assert.equal(err?.__type__, "StateError");
+        assert.equal(err?.message, "No element");
+        return true;
+      },
+    );
+    assert.deepEqual(engine.getOutput(), []);
+  });
+});
+
 describe("BallEngine options", () => {
   function helloProgram() {
     return {

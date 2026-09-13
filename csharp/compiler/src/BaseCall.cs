@@ -1242,6 +1242,14 @@ public sealed partial class CSharpCompiler
             "list_filter" => $"BallRuntime.ListFilter({FieldOrNull(f, "list")}, {Callback(f)})",
             "list_all" => $"BallRuntime.ListAll({FieldOrNull(f, "list")}, {Callback(f)})",
             "list_any" => $"BallRuntime.ListAny({FieldOrNull(f, "list")}, {Callback(f)})",
+            // `list_find` had NO case at all until #597, so it fell through to
+            // `Unsupported`, which emits a RUN-TIME `UnsupportedBaseCall`
+            // throw — a native BallRuntimeException the compiled `try`'s
+            // `catch (BallThrow)` never sees, so the process died uncaught and
+            // the program's own `on StateError catch` was bypassed entirely.
+            // The encoder already routes `.First(pred)` here (Methods.cs), so
+            // "no encoder emits it" was never true for this one.
+            "list_find" => $"BallRuntime.ListFind({FieldOrNull(f, "list")}, {Callback(f)})",
             "list_sort" => $"BallRuntime.ListSort({FieldOrNull(f, "list")}, {Callback(f)})",
             "list_join" => $"BallRuntime.ListJoin({FieldOrNull(f, "list")}, {FieldOrNull(f, "separator")})",
             "list_to_list" => $"BallRuntime.ListToList({FieldOrNull(f, "list")})",

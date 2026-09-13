@@ -954,13 +954,19 @@ harness did not print.
 method names to mis-route. Dart's own `.first`/`.last`/`.firstOrNull` getters are simply not
 routed by `dart/encoder` at all (a different, pre-existing gap).
 
-**Left for its own issue:** `std_collections.list_find`'s no-match contract already DISAGREES
-across engines — the Dart reference engine throws `StateError('No element')`
-(`engine_std.dart`, matching the declaration's "Find first: `list.firstWhere(callback)`"), while
-the TS engine returns `null` (`ts/engine/src/engine_setup.ts`). That predates #588, is not caused
-by any routing choice, and is not touched here — filed as **issue #597**. It matters to this
-section for one reason: `.First(pred)` routes to `list_find` *because* the Dart reference contract
-throws on no match, so if #597 is resolved the other way that route must be revisited. Guards:
+**Resolved by #597:** `std_collections.list_find`'s no-match contract used to DISAGREE across
+targets — the Dart reference engine threw `StateError('No element')` (`engine_std.dart`, matching
+the declaration's "Find first: `list.firstWhere(callback)`"), while the TS engine returned `null`
+(a hand-written `ts/engine/src/engine_setup.ts` override that SHADOWED the compiled engine's own
+correct handler), the TS and C++ compilers emitted `undefined`/a null `BallDyn`, and THIS compiler
+had no `list_find` case at all — falling through to `Unsupported`, whose emitted
+`BallRuntime.UnsupportedBaseCall` is a RUN-TIME `BallRuntimeException`, not a `BallThrow`, so it
+sailed straight past the compiled program's own `catch (BallThrow …)`. #597 made every target throw
+the Dart contract (`BaseCall.cs` now routes to `BallRuntime.ListFind`, which throws
+`new BallThrow("StateError", "No element")`); `tests/conformance/463_list_find_no_match` is the
+cross-target guard and `csharp/compiler/test/ListFindContractTests.cs` this target's half. So
+`.First(pred)` -> `list_find` is CONFIRMED correct — real LINQ `First` throws
+`InvalidOperationException` on no match. Guards:
 `ZeroArgLinqTerminalTests.OrDefaultTerminalsFailLoud` (all four `*OrDefault` names) and
 `FirstOrDefaultContractTests` (the real C# contract, plus `First`'s two surviving routes).
 
@@ -1196,7 +1202,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 347 passed, 0 failed, 347 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1421,7 +1427,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 347 passed, 0 failed, 347 total (4 skipped carve-outs)`.
+  `Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1488,7 +1494,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 347 passed, 0 failed, 347 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 348 passed, 0 failed, 348 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1658,8 +1664,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 347 passed, 0 failed,
-  347 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 348 passed, 0 failed,
+  348 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

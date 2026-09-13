@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 347 passed, 0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -107,6 +107,16 @@ compile items so the sibling projects never double-compile each other's files.
   constructors, `super` chains, static members, labelled `break`/`continue` were closed during
   the self-host grind; read the current gap list before assuming something is a bug vs. a known
   boundary).
+
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `csharp/compiler/test/ListFindContractTests.cs` (`BallRuntime.ListFind` throws a `BallThrow`, NOT a `BallRuntimeException` — only the former is what the compiled `catch (BallThrow …)` sees, so an unhandled native fault can no longer bypass the program's own `try`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
 
@@ -257,10 +267,14 @@ compile items so the sibling projects never double-compile each other's files.
   `default(int)`, where the keyword IS the syntax) — a nullable route would be right for some `T`
   and silently wrong for others. `First` keeps both routes; `FirstOrDefault`/`LastOrDefault`/
   `SingleOrDefault` are all loud `EncoderException`s. Measured Tier A effect: **zero** (funnel
-  identical at `123/472`; one already-failing file's first error merely moved). Separately filed
-  as **#597** and NOT touched here: `list_find`'s no-match contract disagrees across engines (Dart
-  throws, TS returns `null`) — `.First(pred)` routes to `list_find` on the strength of the Dart
-  reference contract, so revisit that route if #597 resolves the other way.
+  identical at `123/472`; one already-failing file's first error merely moved). **#597 has since
+  RESOLVED, in favour of Dart's contract**: `list_find` throws a catchable `StateError` on every
+  engine and every direct compiler (the TS engine's `null`, the TS/C++ compilers' `undefined`/null
+  placeholders, and this compiler's missing `list_find` case — which emitted an
+  `UnsupportedBaseCall` that threw a native `BallRuntimeException` at run time, bypassing the
+  program's own `try` — were all bugs, now fixed). So `.First(pred)` -> `list_find` is CONFIRMED
+  correct: real LINQ `First` throws `InvalidOperationException` on no match, and `list_find` now
+  throws everywhere too. Nothing to revisit.
 - **`default(T)` is the type's zero, not always null.** The `DefaultExpressionSyntax` arm used to
   encode every `default(T)` as a null literal, so `default(int)` printed `null` where C# prints
   `0` — silent wrong output. A predefined value-type keyword now yields its real zero
@@ -275,8 +289,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 347 passed, 0 failed,
-  347 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 348 passed, 0 failed,
+  348 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without

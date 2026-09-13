@@ -12169,8 +12169,16 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
     if (fn == "list_find") {
         auto list = get_message_field(call, "list");
         auto callback = get_callback_field(call);
+        // No match THROWS, exactly like the `list_reduce` lambda above and the
+        // Dart reference engine (`engine_std.dart`: `throw StateError('No
+        // element')`) — `list_find` is Dart's `Iterable.firstWhere` WITHOUT
+        // `orElse`, per its own declaration in std_collections.dart. Returning
+        // a default-constructed (null) BallDyn here, as this did before #597,
+        // handed the caller a wrong ANSWER instead of an error and disagreed
+        // with every self-hosted engine.
         return "[](const BallDyn& v, auto fn)->BallDyn{"
-               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);if(_ball_pred_true(fn(__e)))return __e;}return BallDyn();}("
+               "for(size_t i=0;i<v.size();i++){BallDyn __e(v[static_cast<int64_t>(i)]);if(_ball_pred_true(fn(__e)))return __e;}"
+               "throw BallException(\"StateError\"s,\"Bad state: No element\"s);}("
                + list + "," + callback + ")";
     }
     if (fn == "list_any") {

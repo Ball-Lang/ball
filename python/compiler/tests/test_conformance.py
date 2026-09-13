@@ -56,6 +56,15 @@ PROVEN = [
     "435_recursive_ctor_construction",   # a constructor building its own class
     "436_recursive_ctor_named",   # `Class.name(...)` named-ctor dispatch (#527)
     "438_ctor_initializer_list_with_body",  # initializer list + body (#527)
+    # std_collections.list_find's no-match contract (#597): a HIT returns the
+    # element, a MISS THROWS a catchable StateError. Until #597 the compiler had
+    # no `list_find` entry at all, so this fixture was REFUSED with "unsupported
+    # base function" — safe, but it meant the Python target could not run a
+    # program every self-hosted engine (this one included) executes fine,
+    # because an engine's own list_find is compiled engine_std.dart, not the
+    # compiler's dispatch table. This is the ONLY leg that compiles a
+    # conformance fixture to Python, so the route is otherwise unexercised.
+    "463_list_find_no_match",
 ]
 
 

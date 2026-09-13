@@ -402,7 +402,7 @@ hand-built programs chosen to discriminate shapes the corpus never emits.
 need their own fix and their own verification (the `cpp-compiled` conformance
 leg compiles every fixture through the C++ compiler).
 
-### 5b. A base function's RETURN SHAPE is part of the contract, and is checked
+### 5b. A base function's RETURN SHAPE — including what it does when there is NOTHING to return — is part of the contract, and is checked
 Executing a base function is not enough — a fixture that only calls
 `set_add(s, x)` for its side effect never notices that the Dart engine returned
 the new SET, the Dart and C++ compilers returned the set, and the TS engine
@@ -451,9 +451,63 @@ baseline: an entry that starts passing fails the suite, an entry naming no real
 `fixture:leg` fails the suite, and every unlisted failure fails the suite exactly
 as before. Issue #488 owns the seam; both entries go together when it lands.
 
+#### The NO-MATCH half: a function that can fail to produce a value (#597)
+
+`outputType` says what a base function returns **on a hit**. It says nothing
+about the other branch, and neither does any gate built on it — the #545
+declaration probe calls each function with inputs that SUCCEED, by construction.
+So a higher-order lookup that can find nothing (`list_find`, and by the same
+reasoning `list_reduce` on an empty list) had a completely unstated contract for
+its failing branch, and six targets drifted apart on it while the corpus stayed
+green:
+
+| target | `list_find` with no match, before #597 |
+|---|---|
+| Dart reference engine | `throw StateError('No element')` ← canonical |
+| TS self-hosted engine | `null` — a hand-written `engine_setup.ts` override SHADOWED the compiled engine's own (correct) handler |
+| TS compiler | `undefined` — a bare `Array.prototype.find` |
+| C++ compiler | a default-constructed (null) `BallDyn` |
+| C# compiler | no case at all → a RUN-TIME `BallRuntimeException` the program's own `try` could not even catch |
+| Dart / Go / Python compilers | refused to compile (fail-loud, safe — but the target could not run a program every engine ran) |
+
+The canonical answer is the reference engine's, and the declaration already said
+so in prose: `dart/shared/lib/std_collections.dart` documents `list_find` as
+"Find first: list.firstWhere(callback)", and Dart's `firstWhere` **without**
+`orElse` throws by definition.
+
+**Why no existing gate could see it.** `check_encoder_completeness.dart` forces
+every base function the DART encoder can emit into an executed fixture — and the
+Dart encoder routes no Dart syntax to `list_find` at all (zero hits in
+`dart/encoder/lib/`; `.firstWhere(...)` falls through to the generic method-call
+encoder). A function no source-level encoder can emit is invisible to that gate
+by construction, and `generate_conformance.dart` cannot reach it from any
+`tests/conformance/src/*.dart` either. The #545 declaration probe checks the
+return TYPE on a hit. Nothing was positioned to ask what happens on a miss.
+
+So, as a named gap class: **a base function that can fail to find/reduce a value
+must have its FAILING branch exercised by an explicit conformance fixture**, and
+that fixture has to be hand-authored through
+`dart/encoder/tool/gen_std_gap_fixtures.dart` whenever no encoder can emit the
+call. `tests/conformance/463_list_find_no_match` is the worked example: a hit
+(the element), a miss on a non-empty list, and a miss on an empty one, each
+caught by the program's own `on StateError catch`.
+
+One portability constraint that fixture had to respect, and that any successor
+will too: **every `try` in it carries exactly ONE catch clause.** The Go, C# and
+Rust compilers all dispatch only the first catch clause with no type matching (a
+pre-existing, separately documented gap — see `csharp/compiler/src/BaseCall.cs`'s
+`CompileTryStatement`), so a multi-clause `try` whose first arm names a
+non-matching type would fail those compile legs for a reason unrelated to the
+function under test. That the throw is genuinely TYPED — reachable by
+`on StateError`, not only by an untyped catch-all, which is what Rust's bare
+`panic!` gave before #597 — is pinned per runtime instead, next to each target's
+implementation.
+
 When a base function's result is meaningful — a predicate, a "was it there"
 answer, anything a caller would branch on — declare the `outputType`, add the
-probe, and write the fixture so the value is PRINTED, not discarded.
+probe, and write the fixture so the value is PRINTED, not discarded. When it can
+FAIL to produce a result, write the fixture so the failure is OBSERVED, not
+assumed.
 
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
@@ -570,6 +624,7 @@ could not parse a summary at all).
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
+| **A base function's NO-MATCH branch is observed (§5b, #597)** — `std_collections.list_find` throws a catchable `StateError` when nothing matches, on every engine and every direct compiler; no target may answer `null`/`undefined`/an empty value, and none may refuse to compile it | `tests/conformance/463_list_find_no_match` (cross-target) + per-runtime tests: `dart/compiler/test/base_calls_test.dart`, `ts/engine/test/index_wrapper.test.ts`, `ts/compiler/test/std_call_dispatch.test.ts`, `cpp/test/test_compiler.cpp`, `csharp/compiler/test/ListFindContractTests.cs`, `rust/shared/src/runtime.rs`, `go/runtime/list_find_contract_test.go` + `go/compiler/list_find_contract_test.go`, `python/compiler/tests/test_conformance.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |

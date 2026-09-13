@@ -5755,7 +5755,20 @@ function __isUnknownFnError(e: any): boolean {
           // Dart's Iterable.firstWhere / JS Array.find. Declared in
           // dart/shared/lib/std_collections.dart and implemented by the Dart
           // engine, but never reachable from TS before (#489).
-          case "list_find": return `${this.expr(f.get("list")!)}.find(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
+          //
+          // NOT a bare `Array.prototype.find` (issue #597): that yields
+          // `undefined` when nothing matches, whereas `list_find`'s contract —
+          // the declaration's own "Find first: list.firstWhere(callback)", and
+          // what the Dart reference engine does — is to THROW
+          // `StateError('No element')`. The thrown shape is the tagged object
+          // literal every emitted typed-`catch` guard already tests for (see
+          // `typedCatchCondition`'s `objCheck` and `compileThrowValue`), so an
+          // `on StateError catch` in the source program catches it.
+          case "list_find": {
+            const findList = this.expr(f.get("list")!);
+            const findCb = this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!);
+            return `((__ball_lf_list, __ball_lf_fn) => { for (const __ball_lf_e of __ball_lf_list) { if (__ball_lf_fn(__ball_lf_e)) return __ball_lf_e; } throw {'__type__': 'StateError', 'message': 'No element'}; })(${findList}, ${findCb})`;
+          }
           case "list_flat_map": return `${this.expr(f.get("list")!)}.flatMap(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;
           case "list_to_list": return `[...${this.expr(f.get("list")!)}]`;
           case "list_foreach": return `${this.expr(f.get("list")!)}.forEach(${this.expr(f.get("function") ?? f.get("callback") ?? f.get("value")!)})`;

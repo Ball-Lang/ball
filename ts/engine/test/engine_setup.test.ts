@@ -483,6 +483,10 @@ class FakeStdHandler {
     assert.ok(fn, `no handler registered for std.${name}`);
     return await fn(input);
   }
+  /** Whether `registerExtraStdFunctions` installed an override for `name`. */
+  has(name: string): boolean {
+    return this.dispatch.has(name);
+  }
 }
 
 function makeStdHandler(): FakeStdHandler {
@@ -509,12 +513,17 @@ describe("registerExtraStdFunctions: list_*", () => {
     );
     assert.equal(await h.call("list_any", { list: [1, 2, 3], function: (x: number) => x === 2 }), true);
     assert.equal(await h.call("list_every", { list: [1, 2, 3], function: (x: number) => x > 0 }), true);
-    assert.equal(await h.call("list_find", { list: [1, 2, 3], function: (x: number) => x === 2 }), 2);
     assert.deepEqual(await h.call("list_expand", { list: [1, 2], function: (x: number) => [x, x] }), [1, 1, 2, 2]);
   });
 
-  test("list_find returns null when no element satisfies the predicate", async () => {
-    assert.equal(await h.call("list_find", { list: [1, 2, 3], function: (x: number) => x === 99 }), null);
+  // `list_find` is deliberately NOT registered by registerExtraStdFunctions
+  // (issue #597): the compiled engine's own implementation — generated from
+  // engine_std.dart, and the only one that THROWS `StateError` on no match —
+  // is the single source of truth, and a hand-written override here would
+  // shadow it. Its behaviour is pinned end-to-end through the real engine in
+  // index_wrapper.test.ts and by tests/conformance/463_list_find_no_match.
+  test("list_find is NOT overridden here — the compiled engine owns it", () => {
+    assert.equal(h.has("list_find"), false);
   });
 
   test("list_foreach also iterates a Set and a plain-object map", async () => {
@@ -1070,12 +1079,6 @@ describe("registerExtraStdFunctions: list_* fallback keys and branch edges", () 
     assert.equal(await h.call("list_every", { list: "nope" }), false);
   });
 
-  test("list_find: fallback keys and non-array/non-function -> null", async () => {
-    assert.equal(await h.call("list_find", { collection: [1, 2], value: (x: number) => x === 2 }), 2);
-    assert.equal(await h.call("list_find", { list: [1, 2], callback: (x: number) => x === 2 }), 2);
-    assert.equal(await h.call("list_find", { list: "nope" }), null);
-  });
-
   test("list_expand: fallback keys, non-array/non-function -> [], non-array return values pushed as-is", async () => {
     assert.deepEqual(await h.call("list_expand", { collection: [1, 2], value: (x: number) => [x, x] }), [1, 1, 2, 2]);
     assert.deepEqual(await h.call("list_expand", { list: [1, 2], callback: (x: number) => [x, x] }), [1, 1, 2, 2]);
@@ -1538,7 +1541,6 @@ describe("registerExtraStdFunctions: terminal default-fallback branches (no reco
     assert.deepEqual(await h.call("list_sort", { list: "nope" }), []);
     assert.equal(await h.call("list_any", {}), false);
     assert.equal(await h.call("list_every", {}), false);
-    assert.equal(await h.call("list_find", {}), null);
     assert.deepEqual(await h.call("list_expand", {}), []);
     // async callback whose non-array result is pushed as-is (both `r?.then` and the `else` arm together).
     assert.deepEqual(await h.call("list_expand", { list: [1, 2], function: async (x: number) => x * 10 }), [10, 20]);

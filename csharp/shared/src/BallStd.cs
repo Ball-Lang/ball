@@ -620,6 +620,35 @@ public static partial class BallRuntime
         return BallValue.Bool(false);
     }
 
+    /// <summary>
+    /// <c>list.firstWhere(pred)</c> — the FIRST element satisfying
+    /// <paramref name="predicate"/>. No match THROWS a catchable
+    /// <c>StateError</c> (issue #597): <c>std_collections.list_find</c> is
+    /// Dart's <c>Iterable.firstWhere</c> WITHOUT <c>orElse</c>, per its own
+    /// declaration in <c>dart/shared/lib/std_collections.dart</c>, and that is
+    /// what the Dart reference engine does. It is also what the C# encoder's
+    /// source shape means: it routes <c>.First(pred)</c> here, and real LINQ
+    /// <c>First</c> throws <c>InvalidOperationException</c> on no match.
+    ///
+    /// A <see cref="BallThrow"/>, NOT a <see cref="BallRuntimeException"/>:
+    /// only the former is what a compiled <c>try</c>'s <c>catch (BallThrow)</c>
+    /// sees, so the program's own <c>on StateError catch</c> handles it instead
+    /// of the process dying with an unhandled native exception (which is what
+    /// the previous <c>UnsupportedBaseCall</c> fallthrough did).
+    /// </summary>
+    public static BallValue ListFind(BallValue list, BallValue predicate)
+    {
+        foreach (var item in AsList(list).Snapshot())
+        {
+            if (Truthy(CallFunction(predicate, item)))
+            {
+                return item;
+            }
+        }
+
+        throw new BallThrow("StateError", "No element");
+    }
+
     /// <summary><c>list.join(separator)</c>.</summary>
     public static BallValue ListJoin(BallValue list, BallValue separator) =>
         BallValue.Str(string.Join(AsStr(separator), AsList(list).Snapshot().Select(v => v.ToString())));

@@ -53,6 +53,11 @@ import 'package:ball_engine/engine.dart';
 // ── JSON-shape helpers (mirrors dart/engine/test/engine_test.dart) ──
 
 Map<String, dynamic> literal(Object value) {
+  if (value is bool) {
+    return {
+      'literal': {'boolValue': value},
+    };
+  }
   if (value is int) {
     return {
       'literal': {'intValue': '$value'},
@@ -285,6 +290,106 @@ const _setInputTypeDef = {
     ],
   },
 };
+
+const _binaryInputTypeDef = {
+  'name': 'BinaryInput',
+  'descriptor': {
+    'name': 'BinaryInput',
+    'field': [
+      {
+        'name': 'left',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_INT64',
+      },
+      {
+        'name': 'right',
+        'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_INT64',
+      },
+    ],
+  },
+};
+
+const _listCallbackInputTypeDef = {
+  'name': 'ListCallbackInput',
+  'descriptor': {
+    'name': 'ListCallbackInput',
+    'field': [
+      {
+        'name': 'list',
+        'number': 1,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+      {
+        'name': 'callback',
+        'number': 2,
+        'label': 'LABEL_OPTIONAL',
+        'type': 'TYPE_MESSAGE',
+      },
+    ],
+  },
+};
+
+/// A single-parameter lambda `(x) => body` in the shape every encoder emits
+/// (`metadata.params` + `expression_body`), so each target compiles it to its
+/// own native closure rather than dropping it.
+Map<String, dynamic> lambda1(String param, Map<String, dynamic> body) => {
+  'lambda': {
+    'name': '',
+    'body': body,
+    'metadata': {
+      'kind': 'lambda',
+      'expression_body': true,
+      'has_return': true,
+      'params': [
+        {'name': param},
+      ],
+    },
+  },
+};
+
+/// `std_collections.list_find(list, callback)` — the callback goes under the
+/// name `ListCallbackInput` actually declares (`callback`); every target
+/// aliases `callback`/`function`/`value`, so this is the canonical spelling.
+Map<String, dynamic> listFind(
+  Map<String, dynamic> list,
+  Map<String, dynamic> callback,
+) => collectionsCall(
+  'list_find',
+  msg([field('list', list), field('callback', callback)]),
+);
+
+/// `std.try(body, catches)` where each catch entry is `(type, variable, body)`.
+/// A `type` of `''` means an untyped `catch (e)`.
+Map<String, dynamic> tryCatch(
+  List<Map<String, dynamic>> bodyStatements,
+  List<({String type, String variable, Map<String, dynamic> body})> catches,
+) => stdCall(
+  'try',
+  msg([
+    field('body', {
+      'block': {'statements': bodyStatements},
+    }),
+    field(
+      'catches',
+      listLit([
+        for (final c in catches)
+          msg([
+            if (c.type.isNotEmpty) field('type', literal(c.type)),
+            field('variable', literal(c.variable)),
+            field('body', {
+              'block': {
+                'statements': [stmt(c.body)],
+              },
+            }),
+          ]),
+      ]),
+    ),
+  ]),
+);
 
 /// Builds a minimal single-module Program: a `std` module carrying exactly
 /// the base functions used (mirrors the minimal footprint the encoder itself
@@ -609,6 +714,173 @@ Future<void> main() async {
         // Probe both mutations independently of ordering and of length.
         stmt(printExpr(toStr(setCall('set_contains', 'a', literal(3))))),
         stmt(printExpr(toStr(setCall('set_contains', 'a', literal(2))))),
+      ]),
+    ),
+  );
+
+  // -- 463_list_find_no_match: the ONE no-match contract for
+  // `std_collections.list_find` (issue #597). When no element satisfies the
+  // predicate the call THROWS a catchable `StateError` -- it never yields a
+  // null/undefined/empty placeholder. That is what the declaration itself
+  // promises (`dart/shared/lib/std_collections.dart`: "Find first:
+  // list.firstWhere(callback)", and Dart's `firstWhere` without `orElse`
+  // throws by definition) and what the Dart reference engine
+  // (`dart/engine/lib/engine_std.dart`) has always done.
+  //
+  // Before #597's fix four targets disagreed with Dart while the corpus stayed
+  // green, because NOTHING exercised the no-match branch: the TS engine's
+  // hand-written `engine_setup.ts` override shadowed the compiled engine's own
+  // (correct) handler and returned `null`; the TS compiler emitted a bare
+  // `Array.prototype.find`, which yields `undefined`; the C++ compiler emitted
+  // `return BallDyn();`; and the C# compiler had no `list_find` case at all, so
+  // it emitted an `UnsupportedBaseCall` that threw a native
+  // `BallRuntimeException` at RUN time -- not even caught by the program's own
+  // `try`. The #545 declared-outputType gate could not see any of it: it checks
+  // the return TYPE on a HIT, never the no-match path.
+  //
+  // Three cases, deliberately:
+  //   1. a HIT still returns the element (the fix must not turn every call into
+  //      a throw);
+  //   2. a MISS on a non-empty list is caught by `on StateError`;
+  //   3. a MISS on an EMPTY list throws the same way (the empty case reaches a
+  //      different branch in several targets than "scanned everything, found
+  //      nothing").
+  //
+  // Every `try` here has exactly ONE catch clause, deliberately. That the throw
+  // is a genuinely TYPED exception -- reachable by `on StateError` and not only
+  // by an untyped catch-all, which is what Rust's bare `panic!` gave before
+  // #597 -- is pinned per runtime instead (rust/shared's
+  // `list_find_no_match_throws_a_typed_state_error` asserts the
+  // `{'__type__': 'StateError', 'message': …}` payload directly; the C# and TS
+  // compiler tests assert the typed catch). A multi-clause `try` whose FIRST
+  // arm names a non-matching type cannot go in a portable fixture: the Go, C#
+  // and Rust COMPILERS all dispatch only the first catch clause with no
+  // type matching (a pre-existing, separately documented gap -- see
+  // `csharp/compiler/src/BaseCall.cs`'s `CompileTryStatement` doc comment), so
+  // such a fixture would fail those compile legs for a reason that has nothing
+  // to do with `list_find`.
+  //
+  // Not generatable from Dart source: the Dart encoder routes NO Dart syntax to
+  // `list_find` (zero hits in `dart/encoder/lib/`), so `generate_conformance`
+  // cannot reach it from any `tests/conformance/src/*.dart` -- which is also why
+  // `check_encoder_completeness.dart` never flagged the gap. Hand-built here
+  // and listed in tests/conformance/CARVEOUTS.md.
+  await writeFixture(
+    '463_list_find_no_match',
+    buildProgramJson(
+      name: 'list_find_no_match',
+      stdFunctions: [
+        {'name': 'print', 'isBase': true},
+        {'name': 'to_string', 'isBase': true},
+        {'name': 'greater_than', 'isBase': true},
+        {'name': 'try', 'isBase': true},
+      ],
+      stdTypeDefs: [
+        _printInputTypeDef,
+        _unaryInputTypeDef,
+        _binaryInputTypeDef,
+      ],
+      extraModules: [
+        {
+          'name': 'std_collections',
+          'functions': [
+            {'name': 'list_find', 'isBase': true},
+          ],
+          'typeDefs': [_listCallbackInputTypeDef],
+        },
+      ],
+      mainFunction: mainFn([
+        letStmt(
+          'nums',
+          listLit([literal(1), literal(2), literal(3)]),
+          keyword: 'final',
+        ),
+        // 1. A HIT returns the matching element.
+        stmt(
+          tryCatch(
+            [
+              stmt(
+                printExpr(
+                  toStr(
+                    listFind(
+                      ref('nums'),
+                      lambda1(
+                        'x',
+                        stdCall(
+                          'greater_than',
+                          msg([
+                            field('left', ref('x')),
+                            field('right', literal(2)),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            [
+              (
+                type: 'StateError',
+                variable: 'e',
+                body: printExpr(literal('wrong: StateError on a hit')),
+              ),
+            ],
+          ),
+        ),
+        // 2. A MISS on a non-empty list throws a catchable StateError.
+        stmt(
+          tryCatch(
+            [
+              stmt(
+                printExpr(
+                  toStr(
+                    listFind(
+                      ref('nums'),
+                      lambda1(
+                        'x',
+                        stdCall(
+                          'greater_than',
+                          msg([
+                            field('left', ref('x')),
+                            field('right', literal(100)),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            [
+              (
+                type: 'StateError',
+                variable: 'e',
+                body: printExpr(literal('caught StateError: no match')),
+              ),
+            ],
+          ),
+        ),
+        // 3. A MISS on an EMPTY list throws the same typed StateError.
+        stmt(
+          tryCatch(
+            [
+              stmt(
+                printExpr(
+                  toStr(listFind(listLit([]), lambda1('x', literal(true)))),
+                ),
+              ),
+            ],
+            [
+              (
+                type: 'StateError',
+                variable: 'e',
+                body: printExpr(literal('caught StateError: empty list')),
+              ),
+            ],
+          ),
+        ),
+        stmt(printExpr(literal('done'))),
       ]),
     ),
   );

@@ -1625,13 +1625,21 @@ pub fn ball_list_filter(list: BallValue, callback: BallValue) -> BallValue {
     )
 }
 
+/// `list.firstWhere(callback)` — the FIRST element satisfying `callback`.
+///
+/// No match throws a TYPED `StateError` (issue #597), not a bare `panic!`. This
+/// is Dart's `Iterable.firstWhere` WITHOUT `orElse` — what
+/// `dart/shared/lib/std_collections.dart` declares and what the Dart reference
+/// engine does. `ball_throw_typed` is what makes it reachable by an
+/// `on StateError catch` clause: a bare `panic!(&str)` is only recoverable by an
+/// *untyped* catch, so a multi-clause `try` whose first `on` arm names some
+/// other type would skip every clause and let the panic escape. The sibling
+/// `.first`/`.last`/`list_reduce` paths already use it for exactly this reason.
 pub fn ball_list_find(list: BallValue, callback: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
         .find(|item| ball_truthy(ball_call_function(callback.clone(), item.clone())))
-        .unwrap_or_else(|| {
-            panic!("ball-lang-compiler runtime: list_find found no matching element")
-        })
+        .unwrap_or_else(|| ball_throw_typed("StateError", "No element".to_string()))
 }
 
 pub fn ball_list_any(list: BallValue, callback: BallValue) -> BallValue {
@@ -4480,6 +4488,65 @@ mod tests {
             ball_catch_payload(payload),
             BallValue::String("boom".into())
         );
+    }
+
+    // ── std_collections.list_find's no-match contract (#597) ──
+    //
+    // `list_find` is Dart's `Iterable.firstWhere` WITHOUT `orElse`: no match
+    // THROWS. Before #597 this was a bare `panic!(&str)`, which the compiled
+    // `try`'s `catch_unwind` does catch — but only an UNTYPED clause could
+    // match it, because the payload was a `&str`, not the
+    // `{'__type__': …, 'message': …}` map every typed `on <Type> catch` arm
+    // tests. A multi-clause `try` naming some other type first would therefore
+    // skip every clause and let the panic escape. The assertions below pin the
+    // payload SHAPE, not just "it panicked", which is the half an `.is_err()`
+    // check cannot see.
+    fn gt_threshold(threshold: i64) -> BallValue {
+        BallValue::Function(crate::value::BallFunction::new(
+            "",
+            move |input| match input {
+                BallValue::Int(n) => BallValue::Bool(n > threshold),
+                other => panic!("test predicate got a non-int: {other:?}"),
+            },
+        ))
+    }
+
+    fn int_list(values: &[i64]) -> BallValue {
+        BallValue::List(BallList::from(
+            values
+                .iter()
+                .map(|v| BallValue::Int(*v))
+                .collect::<Vec<_>>(),
+        ))
+    }
+
+    #[test]
+    fn list_find_returns_the_first_match() {
+        assert_eq!(
+            ball_list_find(int_list(&[1, 2, 3]), gt_threshold(1)),
+            BallValue::Int(2)
+        );
+    }
+
+    #[test]
+    fn list_find_no_match_throws_a_typed_state_error() {
+        for list in [int_list(&[1, 2, 3]), int_list(&[])] {
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ball_list_find(list.clone(), gt_threshold(100))
+            }))
+            .expect_err("list_find with no match must throw");
+            let payload = ball_catch_payload(caught);
+            // A TYPED throw: the payload must be the map an `on StateError
+            // catch` clause matches on, not an opaque string.
+            assert_eq!(
+                ball_field_get(payload.clone(), "__type__"),
+                BallValue::String("StateError".to_string())
+            );
+            assert_eq!(
+                ball_field_get(payload, "message"),
+                BallValue::String("No element".to_string())
+            );
+        }
     }
 
     // ── strings ──

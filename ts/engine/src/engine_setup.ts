@@ -812,13 +812,18 @@ export function createEngineSetup(mod: EngineModule) {
       for (const item of list) { let r = fn(item); if (r?.then) r = await r; if (!r) return false; }
       return true;
     });
-    _r('list_find', async (i: any) => {
-      const m = _m(i); const list = m['list'] ?? m['collection'] ?? [];
-      const fn = m['function'] ?? m['value'] ?? m['callback'];
-      if (!Array.isArray(list) || typeof fn !== 'function') return null;
-      for (const item of list) { let r = fn(item); if (r?.then) r = await r; if (r) return item; }
-      return null;
-    });
+    // `list_find` is DELIBERATELY NOT overridden here (issue #597). The
+    // compiled engine already carries the reference implementation, generated
+    // straight from `dart/engine/lib/engine_std.dart`, which THROWS
+    // `StateError('No element')` when no element satisfies the predicate —
+    // Dart's `Iterable.firstWhere` without `orElse`, which is exactly what the
+    // declaration in `dart/shared/lib/std_collections.dart` promises ("Find
+    // first: list.firstWhere(callback)"). The hand-written override that used
+    // to live here returned `null` instead and, being registered AFTER the
+    // compiled table is built, SHADOWED the correct implementation — so the TS
+    // engine silently answered `null` where every self-hosted engine and the
+    // Dart reference engine threw. Re-adding a hand-written copy re-opens that
+    // drift; the compiled implementation is the single source of truth.
     _r('list_expand', async (i: any) => {
       const m = _m(i); const list = m['list'] ?? m['collection'] ?? [];
       const fn = m['function'] ?? m['value'] ?? m['callback'];

@@ -749,4 +749,43 @@ void main() {
       );
     });
   });
+
+  group('std_collections.list_find — the no-match contract (#597)', () {
+    // `list_find` is Dart's `Iterable.firstWhere` WITHOUT `orElse` (its own
+    // declaration in std_collections.dart says "Find first:
+    // list.firstWhere(callback)"), so no match THROWS `StateError('No
+    // element')` — which is exactly what the reference ENGINE
+    // (`engine_std.dart`) has always done. The compiler had no arm at all
+    // before #597: a hand-authored program calling `list_find` fell through to
+    // the unsupported-base-call marker, so the reference compiler could not
+    // compile a program its own reference engine ran. `.firstWhere(cb)` is the
+    // lowering that carries the contract for free — do NOT "helpfully" add an
+    // `orElse: () => null`, which is the exact defect #597 is about.
+    test('lowers to firstWhere with NO orElse', () {
+      final out = _compileFlat(
+        _call('std_collections', 'list_find', [
+          _field('list', _ref('xs')),
+          _field('callback', _ref('cb')),
+        ]),
+      );
+      expect(out, contains('xs.firstWhere(cb)'));
+      expect(out, isNot(contains('orElse')));
+      expect(out, isNot(contains('/* unsupported: std_collections.list_find')));
+    });
+
+    test('reads the callback under every field spelling', () {
+      for (final key in ['callback', 'function', 'value']) {
+        expect(
+          _compileFlat(
+            _call('std_collections', 'list_find', [
+              _field('list', _ref('xs')),
+              _field(key, _ref('cb')),
+            ]),
+          ),
+          contains('xs.firstWhere(cb)'),
+          reason: 'callback field spelled "$key" must still be read',
+        );
+      }
+    });
+  });
 }

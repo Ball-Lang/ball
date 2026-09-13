@@ -331,6 +331,24 @@ func ListAny(list, fn Value) Value {
 	return false
 }
 
+// ListFind returns list.firstWhere(fn) — the FIRST element satisfying fn.
+//
+// No match THROWS a typed StateError (issue #597), matching the Dart reference
+// engine and this function's own declaration ("Find first:
+// list.firstWhere(callback)" — Dart's firstWhere WITHOUT orElse throws by
+// definition). dartError, not a bare Thrown with a string value: only the
+// former reports a runtimeType a typed `on StateError catch` clause can match
+// (see flow.go's dartError doc comment).
+func ListFind(list, fn Value) Value {
+	for _, it := range asList(list).Items {
+		if Truthy(Call(fn, it)) {
+			return it
+		}
+	}
+	dartError("StateError", "No element")
+	return nil // unreachable: dartError always panics.
+}
+
 // ListSort sorts list in place (Dart's sort). cmpFn may be null (natural order).
 func ListSort(list, cmpFn Value) Value {
 	l := asList(list)

@@ -3671,6 +3671,14 @@ class DartCompiler {
       'list_filter' => '${_e(f['list']!)}.where(${_e(_cb())}).toList()',
       'list_reduce' => '${_e(f['list']!)}.reduce(${_e(_cb())})',
       'list_any' => '${_e(f['list']!)}.any(${_e(_cb())})',
+      // `firstWhere` WITHOUT `orElse` — no match throws `StateError('No
+      // element')`, which IS `list_find`'s contract (issue #597) and exactly
+      // what the declaration in std_collections.dart names ("Find first:
+      // list.firstWhere(callback)"). There was no arm at all before #597, so a
+      // hand-authored program calling `list_find` fell through to the
+      // unsupported-base-call path even though the reference ENGINE has always
+      // implemented it.
+      'list_find' => '${_e(f['list']!)}.firstWhere(${_e(_cb())})',
       'list_all' || 'list_every' => '${_e(f['list']!)}.every(${_e(_cb())})',
       'list_sort' =>
         f.containsKey('value') || f.containsKey('comparator')

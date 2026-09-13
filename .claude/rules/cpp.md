@@ -187,6 +187,16 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `462_set_mutation_in_place` is the guard; the whole `ctest -L selfhost` sweep
   passes with it.
 
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `cpp/test/test_compiler.cpp`'s `list_find` assertions (the emitted lambda throws `BallException("StateError", "Bad state: No element")`, mirroring `list_reduce`; it must never fall off the end with `return BallDyn();`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

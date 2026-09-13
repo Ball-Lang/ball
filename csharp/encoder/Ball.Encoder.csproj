@@ -16,12 +16,18 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Roslyn C# syntax API — official AST parser (CSharpSyntaxTree), used
-         syntax-only (no semantic model / no Compilation): mirrors the Dart
-         encoder's `parseString` approach documented in .claude/rules/dart.md.
-         Version pinned centrally in ../Directory.Packages.props (verified
-         against nuget.org at lane time — see that file's comment). -->
+    <!-- Roslyn. `Encode(string)`/`EncodeLibrary(string)` use the syntax API only
+         (CSharpSyntaxTree.ParseText — no Compilation, no semantic model), mirroring
+         the Dart encoder's `parseString` approach documented in .claude/rules/dart.md.
+         `EncodeProject` (issue #492, W12-C slice 1) additionally builds a real
+         CSharpCompilation and asks its SemanticModel, exactly as every Roslyn
+         analyzer and source generator does. Version pinned centrally in
+         ../Directory.Packages.props (verified against nuget.org at lane time — see
+         that file's comment). -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <!-- The hermetic net10.0 reference assemblies that compilation binds against;
+         see ProjectCompilationBuilder's doc comment for why not the SDK ref pack. -->
+    <PackageReference Include="Basic.Reference.Assemblies.Net100" />
   </ItemGroup>
 
 </Project>

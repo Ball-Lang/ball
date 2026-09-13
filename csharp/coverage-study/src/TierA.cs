@@ -66,6 +66,10 @@ public static class TierA
         ["read-error"] = 0,
         ["parse-error"] = 0,
         ["encode-error"] = 0,
+
+        // `--project-mode` only: the directory could not be resolved into a compilation at all,
+        // so no file in it was ever encoded. Stage 0, like every other stage-1 failure.
+        ["project-error"] = 0,
         ["compile-error"] = 1,
         ["reencode-error"] = 2,
         ["declaration-drift"] = 3,
@@ -218,7 +222,17 @@ public static class TierA
     }
 
     /// <summary>Runs Tier A over one file's <paramref name="source"/>.</summary>
-    public static FileResult StudyFile(string package, string file, string source)
+    /// <param name="project">When non-null, stage 1 encodes through the project-wide semantic
+    /// seam (<see cref="CSharpEncoder.EncodeFileInProject"/>) instead of the resolution-free
+    /// <see cref="CSharpEncoder.EncodeLibrary"/> — see <see cref="StudyDirectory"/>.</param>
+    /// <param name="absolutePath">The file's absolute path, needed to select its syntax tree
+    /// out of <paramref name="project"/>. Ignored when <paramref name="project"/> is null.</param>
+    public static FileResult StudyFile(
+        string package,
+        string file,
+        string source,
+        ProjectCompilation? project = null,
+        string? absolutePath = null)
     {
         var before = DeclarationInventory(source);
         if (before.Count == 0)
@@ -227,12 +241,17 @@ public static class TierA
                 "skipped: no declarations to compile");
         }
 
-        // Stage 1 — encode in LIBRARY mode (see the class doc).
+        // Stage 1 — encode. LIBRARY mode by default (see the class doc); project mode when a
+        // resolved compilation was supplied. Stages 2-5 are deliberately NOT switched: they
+        // operate on the compiler's own single-file output, which is a library by construction
+        // and has no project to resolve against.
         Program program;
         string firstIr;
         try
         {
-            program = CSharpEncoder.EncodeLibrary(source);
+            program = project is null
+                ? CSharpEncoder.EncodeLibrary(source)
+                : CSharpEncoder.EncodeFileInProject(project, absolutePath!);
             firstIr = CanonicalIr(program);
         }
         catch (Exception ex)
@@ -328,10 +347,49 @@ public static class TierA
             .OrderBy(path => path, StringComparer.Ordinal)
             .ToList();
 
-    /// <summary>Runs Tier A over every .cs file under <paramref name="directory"/>.</summary>
-    public static List<FileResult> StudyDirectory(string package, string directory)
+    /// <summary>
+    /// Runs Tier A over every .cs file under <paramref name="directory"/>.
+    ///
+    /// <para><paramref name="projectMode"/> resolves the directory ONCE into a
+    /// <see cref="ProjectCompilation"/> and then encodes each file with its own
+    /// <c>SemanticModel</c> — the C# analogue of <c>dart/encoder</c>'s
+    /// <c>PackageEncoder.prepareStaticTypes()</c> followed by a per-file <c>encode()</c>, and
+    /// the reason the seam is split in two. <b>Tier A's unit stays the FILE:</b> a file that
+    /// throws is that file's encode error, scored exactly as before, so the funnel is
+    /// comparable across the two bases. Whole-project encoding
+    /// (<see cref="CSharpEncoder.EncodeProject"/>) is abort-on-first-error by design and could
+    /// not produce a per-file number at all.</para>
+    ///
+    /// <para>A directory that cannot be resolved at all (unreadable reference set, a parse
+    /// error in some file) reports every file as a <c>project-error</c>, never a silent
+    /// fallback to library mode — the two bases must not be mixed inside one run.</para>
+    /// </summary>
+    public static List<FileResult> StudyDirectory(string package, string directory, bool projectMode = false)
     {
         var results = new List<FileResult>();
+
+        ProjectCompilation? project = null;
+        if (projectMode)
+        {
+            try
+            {
+                project = CSharpEncoder.CreateProjectCompilation(directory);
+            }
+            catch (Exception ex)
+            {
+                foreach (var path in CsFilesUnder(directory))
+                {
+                    results.Add(new FileResult(
+                        package,
+                        Path.GetRelativePath(directory, path).Replace('\\', '/'),
+                        true, false, false,
+                        $"project-error: {FirstLine(ex)}"));
+                }
+
+                return results;
+            }
+        }
+
         foreach (var path in CsFilesUnder(directory))
         {
             var rel = Path.GetRelativePath(directory, path).Replace('\\', '/');
@@ -349,7 +407,7 @@ public static class TierA
                 continue;
             }
 
-            results.Add(StudyFile(package, rel, source));
+            results.Add(StudyFile(package, rel, source, project, Path.GetFullPath(path)));
         }
 
         return results;

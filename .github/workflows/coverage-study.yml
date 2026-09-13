@@ -309,12 +309,22 @@ jobs:
       - name: Clone pinned packages
         run: bash tools/coverage-study/clone_pins.sh tools/coverage-study/packages/csharp.json "$RUNNER_TEMP/checkouts"
 
+      # `--project-mode` (issue #492, W12-C slice 1) resolves each pinned subtree into ONE
+      # Roslyn CSharpCompilation and hands every file its own SemanticModel, instead of encoding
+      # each file in isolation. Tier A's unit is unchanged — still one verdict per FILE, still
+      # the same 472-file denominator, still the same taxonomy tags (the harness's own
+      # `Project_mode_keeps_the_per_file_basis_and_resolves_a_cross_file_callee` self-test, run
+      # above, is what makes that a checked claim rather than a hopeful one). Measured before it
+      # was switched on, on the pins below: stage 1 `123/472` -> `141/472`, stage 2
+      # `122/472` -> `140/472`, clean `0/472` either way. `baseline.json`'s C# row was raised to
+      # the 141 this exact command printed, and to nothing else.
       - name: Run Tier A
         run: |
           set -euo pipefail
           dotnet run --project csharp/coverage-study/Ball.CoverageStudy.csproj -c Release -- \
             --pins tools/coverage-study/packages/csharp.json \
             --checkouts "$RUNNER_TEMP/checkouts" \
+            --project-mode \
             --json "$RUNNER_TEMP/tier_a.json" | tee "$RUNNER_TEMP/tier_a.log"
           bash tools/coverage-study/summarize.sh "C#" "$RUNNER_TEMP/tier_a.log"
 

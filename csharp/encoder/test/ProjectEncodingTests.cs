@@ -125,14 +125,23 @@ public class ProjectEncodingTests
     public void EncodeProject_ResolvesACalleeDeclaredInASiblingFile()
     {
         var program = EncodeFixtureProject("project");
+        var main = Function(program, "Main");
 
-        // The callee itself was encoded, from the other file, into the same module.
-        Assert.Equal("value", Function(program, "MathHelper_Square").Metadata.Fields["params"]
-            .ListValue.Values.Single().StringValue);
+        // The callees themselves were encoded, from the other file, into the same module.
+        Assert.NotNull(Function(program, "MathHelper_Square"));
+        Assert.NotNull(Function(program, "MathHelper_Scale"));
 
-        var call = SingleCallTo(Function(program, "Main"), string.Empty, "MathHelper_Square");
-        Assert.Equal(Expression.ExprOneofCase.Reference, call.Input.ExprCase);
-        Assert.Equal("seed", call.Input.Reference.Name);
+        // One argument: the bare encoded expression (the single-argument convention).
+        var square = SingleCallTo(main, string.Empty, "MathHelper_Square");
+        Assert.Equal(Expression.ExprOneofCase.Reference, square.Input.ExprCase);
+        Assert.Equal("seed", square.Input.Reference.Name);
+
+        // Two arguments: keyed by the CALLEE's real parameter names — `IMethodSymbol.Parameters`
+        // — not by the positional `arg0`/`arg1` fallback an unresolvable callee gets.
+        var scale = SingleCallTo(main, string.Empty, "MathHelper_Scale");
+        Assert.Equal(
+            ["value", "factor"],
+            scale.Input.MessageCreation.Fields.Select(f => f.Name).ToArray());
     }
 
     /// <summary>A project-declared extension method routes through its UNREDUCED static
@@ -186,7 +195,7 @@ public class ProjectEncodingTests
     {
         var program = EncodeFixtureProject("project");
         Assert.Equal("Main", program.EntryFunction);
-        Assert.Equal("49\n98\nMathHelper\n", CSharpRunner.Run(CSharpCompiler.Compile(program)));
+        Assert.Equal("49\n98\n21\nMathHelper\n", CSharpRunner.Run(CSharpCompiler.Compile(program)));
     }
 
     // ════════════════════════════════════════════════════════════
@@ -214,8 +223,8 @@ public class ProjectEncodingTests
         var counter = MainModule(program).TypeDefs.Single(t => t.Name == "main:Counter");
 
         Assert.Equal(["Start", "Step"], counter.Descriptor_.Field.Select(f => f.Name).ToArray());
-        Assert.Contains(MainModule(program).Functions, f => f.Name == "Counter.Doubled");
-        Assert.Contains(MainModule(program).Functions, f => f.Name == "Counter.Tripled");
+        Assert.Contains(MainModule(program).Functions, f => f.Name == "main:Counter.Doubled");
+        Assert.Contains(MainModule(program).Functions, f => f.Name == "main:Counter.Tripled");
         Assert.Equal("8\n15\n", CSharpRunner.Run(CSharpCompiler.Compile(program)));
     }
 

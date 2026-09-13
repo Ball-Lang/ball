@@ -28,6 +28,21 @@
          resolution to NuGet's silent duplicate handling. -->
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
 
+    <!-- Hermetic net10.0 REFERENCE assemblies for csharp/encoder's project-wide
+         semantic-model seam (issue #492, W12-C slice 1 — `CSharpEncoder.EncodeProject`
+         builds a real CSharpCompilation, which needs a corlib to bind against).
+         MIT, netstandard2.0, reference assemblies carried as embedded resources —
+         no native or platform-specific payload. Verified on nuget.org 2026-09-13:
+         the `api.nuget.org/v3-flatcontainer/basic.reference.assemblies.net100/index.json`
+         version list's last entry is "1.8.11" (11 versions, 1.8.1 .. 1.8.11).
+         Deliberately NOT the SDK ref pack under
+         $DOTNET_ROOT/packs/Microsoft.NETCore.App.Ref/<ver>/ref/net10.0: CI pins
+         `dotnet-version: "10.0.x"`, so <ver> floats with the runner's patch and the
+         encoder's binding answers would drift with it — the "CI Dart `stable` drift"
+         failure class. A CPM pin restores from the cache that is already keyed on
+         this file and changes only when someone bumps it deliberately. -->
+    <PackageVersion Include="Basic.Reference.Assemblies.Net100" Version="1.8.11" />
+
     <!-- csharp/cli's arg parser (issue #385). System.CommandLine went GA (stable
          2.0.0) on 2025-11-11 after years of beta/RC; verified latest stable on
          nuget.org 2026-07-11 via the v3-flatcontainer index (51 versions listed,

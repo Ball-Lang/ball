@@ -100,32 +100,81 @@ public static class CSharpEncoder
         return AssembleProgram(module, entryFunction: string.Empty);
     }
 
-    /// <summary>Encode a whole C# <b>project</b> — every <c>.cs</c> file under
-    /// <paramref name="directory"/> — into one Ball <see cref="Program"/>, resolved through a
+    /// <summary>
+    /// Encode a whole C# <b>project</b> — every <c>.cs</c> file under
+    /// <paramref name="directory"/> — into ONE Ball <see cref="Program"/>, resolved through a
     /// Roslyn <see cref="Microsoft.CodeAnalysis.SemanticModel"/> (issue #492, W12-C slice 1).
-    /// See <see cref="ProjectEncodeOptions"/> and <see cref="ProjectEncodeResult"/>.</summary>
-    public static ProjectEncodeResult EncodeProject(string directory, ProjectEncodeOptions? options = null) =>
-        throw new EncoderException(
-            "ball-encoder: EncodeProject is declared but not implemented in this commit — the " +
-            "compilation + SemanticModel seam is the commit that follows (issue #492, W12-C slice 1)");
+    ///
+    /// <para>This is the whole-project, one-<c>Program</c> entry point the CLI uses: every
+    /// file's declarations land in the single flat <c>"main"</c> module, and the first
+    /// unsupported construct in ANY file aborts the whole encode (the same shape
+    /// <c>rust/encoder</c>'s <c>encode_crate</c> has). It is deliberately NOT what the Tier A
+    /// instrument uses — Tier A's unit is the FILE, and an abort-on-first-error whole-project
+    /// encode cannot produce a per-file funnel at all. Use
+    /// <see cref="CreateProjectCompilation"/> + <see cref="EncodeFileInProject"/> for that.</para>
+    ///
+    /// <para>An entry point is optional by default (so real class libraries encode, exactly as
+    /// <see cref="EncodeLibrary"/> allows); set
+    /// <see cref="ProjectEncodeOptions.RequireEntryPoint"/> to demand one.</para>
+    /// </summary>
+    public static ProjectEncodeResult EncodeProject(string directory, ProjectEncodeOptions? options = null)
+    {
+        var project = ProjectCompilationBuilder.Build(directory, options);
+        var encoder = new Encoder();
+        encoder.BindSemantics(new RoslynSemanticQuery(project.Compilation));
 
-    /// <summary>Build the resolved <see cref="ProjectCompilation"/> for <paramref name="directory"/>
-    /// without encoding anything — the "resolve once" half of the seam.</summary>
+        var members = project.Compilation.SyntaxTrees
+            .SelectMany(tree => FlattenMembers(((CompilationUnitSyntax)tree.GetRoot()).Members))
+            .ToList();
+
+        var module = EncodeFlattenedMembers(encoder, members, out var hasMain);
+        if (!hasMain && (options?.RequireEntryPoint ?? false))
+        {
+            throw new EncoderException(
+                $"ball-encoder: project `{directory}` declares no `Main` entry point " +
+                "(ProjectEncodeOptions.RequireEntryPoint was set)");
+        }
+
+        return new ProjectEncodeResult(
+            AssembleProgram(module, entryFunction: hasMain ? "Main" : string.Empty),
+            project.Files,
+            project.CompilationDiagnostics);
+    }
+
+    /// <summary>Build the resolved <see cref="ProjectCompilation"/> for
+    /// <paramref name="directory"/> without encoding anything — the "resolve once" half of the
+    /// seam, and the direct analogue of <c>dart/encoder</c>'s
+    /// <c>PackageEncoder.prepareStaticTypes()</c>.</summary>
     public static ProjectCompilation CreateProjectCompilation(
         string directory, ProjectEncodeOptions? options = null) =>
-        throw new EncoderException(
-            "ball-encoder: CreateProjectCompilation is declared but not implemented in this " +
-            "commit — the compilation + SemanticModel seam is the commit that follows " +
-            "(issue #492, W12-C slice 1)");
+        ProjectCompilationBuilder.Build(directory, options);
 
-    /// <summary>Encode ONE file of an already-resolved project, with that file's own
+    /// <summary>
+    /// Encode ONE file of an already-resolved project, with that file's own
     /// <see cref="Microsoft.CodeAnalysis.SemanticModel"/> — the "encode per file" half of the
-    /// seam, and the only entry point the Tier A instrument may use.</summary>
-    public static Program EncodeFileInProject(ProjectCompilation project, string filePath) =>
-        throw new EncoderException(
-            "ball-encoder: EncodeFileInProject is declared but not implemented in this commit " +
-            "— the compilation + SemanticModel seam is the commit that follows (issue #492, " +
-            "W12-C slice 1)");
+    /// seam, and the only entry point the Tier A instrument may use.
+    ///
+    /// <para>Only <paramref name="filePath"/>'s own declarations land in the module (so a file
+    /// that throws is that file's encode error, scored per file, exactly as today), while the
+    /// SEMANTICS are project-wide, so a callee declared in a sibling file still resolves. The
+    /// result is library-shaped — an empty <c>entry_function</c> — exactly like
+    /// <see cref="EncodeLibrary"/>, because a single file of a project is a library, not a
+    /// program.</para>
+    /// </summary>
+    public static Program EncodeFileInProject(ProjectCompilation project, string filePath)
+    {
+        var full = System.IO.Path.GetFullPath(filePath);
+        var tree = project.Compilation.SyntaxTrees.FirstOrDefault(
+            t => string.Equals(t.FilePath, full, StringComparison.OrdinalIgnoreCase))
+            ?? throw new EncoderException(
+                $"ball-encoder: `{filePath}` is not one of the project's {project.Files.Count} " +
+                "compiled source files");
+
+        var encoder = new Encoder();
+        encoder.BindSemantics(new RoslynSemanticQuery(project.Compilation));
+        var members = FlattenMembers(((CompilationUnitSyntax)tree.GetRoot()).Members).ToList();
+        return AssembleProgram(EncodeFlattenedMembers(encoder, members, out _), entryFunction: string.Empty);
+    }
 
     /// <summary>Wrap an encoded <c>"main"</c> <see cref="Module"/> in a
     /// <see cref="Program"/>, accumulating the <c>std</c>/<c>std_collections</c>/… base modules
@@ -189,8 +238,21 @@ public static class CSharpEncoder
         }
 
         var root = (CompilationUnitSyntax)tree.GetRoot();
-        var members = FlattenMembers(root.Members).ToList();
+        return EncodeFlattenedMembers(new Encoder(), FlattenMembers(root.Members).ToList(), out hasMain);
+    }
 
+    /// <summary>
+    /// Encode a flattened member list — one file's (<see cref="Encode"/>,
+    /// <see cref="EncodeLibrary"/>, <see cref="EncodeFileInProject"/>) or a whole project's
+    /// (<see cref="EncodeProject"/>) — into a bare <c>"main"</c> <see cref="Module"/>.
+    ///
+    /// <para>The <paramref name="encoder"/> arrives with its semantic query already bound (or
+    /// not), which is the ONLY difference between the resolution-free and the project paths:
+    /// everything below is shared, so the two cannot drift.</para>
+    /// </summary>
+    private static Module EncodeFlattenedMembers(
+        Encoder encoder, List<MemberDeclarationSyntax> members, out bool hasMain)
+    {
         var globalStatements = members.OfType<GlobalStatementSyntax>().Select(g => g.Statement).ToList();
         var typeDecls = members.OfType<BaseTypeDeclarationSyntax>().ToList();
         var unsupported = members.Where(m => m is not GlobalStatementSyntax and not BaseTypeDeclarationSyntax).ToList();
@@ -202,12 +264,13 @@ public static class CSharpEncoder
                 "declarations are supported (issue #382's scope)");
         }
 
-        var encoder = new Encoder();
         encoder.CollectDeclarations(typeDecls);
 
         var functions = new List<FunctionDefinition>();
         var enums = new List<Google.Protobuf.Reflection.EnumDescriptorProto>();
         var typeDefList = new List<TypeDefinition>();
+
+        var emittedTypes = new HashSet<string>(StringComparer.Ordinal);
 
         hasMain = false;
         if (globalStatements.Count > 0)
@@ -244,8 +307,25 @@ public static class CSharpEncoder
                     "(only class/struct/record/enum declarations are supported — issue #382's scope)");
             }
 
-            var (typeDef, members2) = encoder.EncodeTypeDeclaration(classLike);
-            typeDefList.Add(typeDef);
+            // `partial` parts share ONE type symbol, so they are ONE Ball type. Every part is
+            // encoded and the results merged the first time the short name is reached; the
+            // later parts are then skipped. Without this the last part's `TypeDefinition`
+            // would simply be a second declaration of the same `main:` name in one module —
+            // and the short-name collision that would otherwise hide behind is caught, loudly,
+            // by `Encoder.CollectDeclarations` in project mode.
+            if (!emittedTypes.Add(classLike.Identifier.Text))
+            {
+                continue;
+            }
+
+            var parts = typeDecls
+                .OfType<TypeDeclarationSyntax>()
+                .Where(d => d.Identifier.Text == classLike.Identifier.Text)
+                .Select(encoder.EncodeTypeDeclaration)
+                .ToList();
+
+            typeDefList.Add(MergeTypeDefinitions(parts.Select(p => p.TypeDef).ToList()));
+            var members2 = parts.SelectMany(p => p.Members).ToList();
 
             foreach (var member in members2)
             {
@@ -275,6 +355,68 @@ public static class CSharpEncoder
         mainModule.TypeDefs.AddRange(typeDefList);
         mainModule.Enums.AddRange(enums);
         return mainModule;
+    }
+
+    /// <summary>
+    /// Fold the <see cref="TypeDefinition"/>s encoded from one type's several <c>partial</c>
+    /// parts into the single declaration that type actually is: every part's fields, in
+    /// declaration order, renumbered into one descriptor; every part's <c>metadata.fields</c>
+    /// entries; the union of every part's declared base types; <c>is_public</c> if any part
+    /// says so. The member FUNCTIONS are concatenated by the caller.
+    ///
+    /// <para>Nothing here is guesswork: a <c>partial</c> split is exactly the case where two
+    /// syntax declarations share one <c>INamedTypeSymbol</c>, and project mode has already
+    /// rejected the other case (two distinct symbols, one short name) before reaching this.
+    /// The single-part call is the identity, so the resolution-free path is untouched.</para>
+    /// </summary>
+    private static TypeDefinition MergeTypeDefinitions(IReadOnlyList<TypeDefinition> parts)
+    {
+        if (parts.Count == 1)
+        {
+            return parts[0];
+        }
+
+        var merged = parts[0].Clone();
+        var fieldNumber = merged.Descriptor_.Field.Count;
+
+        foreach (var part in parts.Skip(1))
+        {
+            foreach (var field in part.Descriptor_.Field)
+            {
+                var copy = field.Clone();
+                copy.Number = ++fieldNumber;
+                merged.Descriptor_.Field.Add(copy);
+            }
+
+            MergeMetadataList(merged, part, "fields");
+            MergeMetadataList(merged, part, "interfaces");
+            if (part.Metadata is not null &&
+                part.Metadata.Fields.TryGetValue("is_public", out var isPublic) &&
+                isPublic.BoolValue)
+            {
+                merged.Metadata.Fields["is_public"] = isPublic.Clone();
+            }
+        }
+
+        return merged;
+    }
+
+    /// <summary>Append <paramref name="part"/>'s <paramref name="key"/> metadata list onto
+    /// <paramref name="merged"/>'s, creating it when the first part had none.</summary>
+    private static void MergeMetadataList(TypeDefinition merged, TypeDefinition part, string key)
+    {
+        if (part.Metadata is null || !part.Metadata.Fields.TryGetValue(key, out var extra))
+        {
+            return;
+        }
+
+        if (merged.Metadata.Fields.TryGetValue(key, out var existing))
+        {
+            existing.ListValue.Values.AddRange(extra.ListValue.Values);
+            return;
+        }
+
+        merged.Metadata.Fields[key] = extra.Clone();
     }
 
     /// <summary>Unwrap namespace declarations (both file-scoped and block-scoped) so their

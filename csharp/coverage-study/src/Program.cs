@@ -37,6 +37,12 @@ public static class EntryPoint
         var sourceDir = Arg(args, "source-dir");
         var jsonOut = Arg(args, "json");
 
+        // OFF by default, deliberately: `--project-mode` changes what the funnel MEASURES
+        // (a file resolved against its whole project, rather than in isolation), and a basis
+        // swap must be an explicit, reported choice — never one smuggled into a fix. See
+        // TierA.StudyDirectory.
+        var projectMode = args.Contains("--project-mode");
+
         var results = new List<FileResult>();
         var missingPins = new List<string>();
 
@@ -61,7 +67,7 @@ public static class EntryPoint
                     continue;
                 }
 
-                results.AddRange(TierA.StudyDirectory(pin.Name, directory));
+                results.AddRange(TierA.StudyDirectory(pin.Name, directory, projectMode));
             }
         }
         else if (package is not null && sourceDir is not null)
@@ -72,7 +78,7 @@ public static class EntryPoint
                 return 2;
             }
 
-            results.AddRange(TierA.StudyDirectory(package, sourceDir));
+            results.AddRange(TierA.StudyDirectory(package, sourceDir, projectMode));
         }
         else
         {

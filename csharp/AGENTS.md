@@ -30,7 +30,7 @@ phase table (the epic issue itself closes separately, per maintainer review).
 
 A separate Exe project in `Ball.slnx` (mirroring `engine/tool`/`cli/tool`) plus
 its `test/` sibling. It runs pinned third-party libraries through
-`CSharpEncoder.EncodeLibrary` → `CSharpCompiler.Compile` →
+`CSharpEncoder.EncodeFileInProject` → `CSharpCompiler.Compile` →
 `CSharpEncoder.EncodeLibrary`, diffs the declaration inventory using a **Roslyn
 `CSharpSyntaxWalker` directly** — never `Ball.Encoder`'s own walk, so an encoder
 bookkeeping bug cannot hide from the instrument measuring it — and checks a
@@ -40,10 +40,25 @@ an empty `EntryFunction` compiles fine.
 
 Honest baseline: **0/472 clean** (4 pinned libraries,
 `tools/coverage-study/packages/csharp.json`) — but C# gets furthest of the four
-ports, and the funnel is the story: **123 files encode, 122 compile back, 58
+ports, and the funnel is the story: **141 files encode, 140 compile back, 58
 re-encode**, and the wall is stage 4, `declaration-drift`. Do not "improve" that
-number by changing the pin list. (Re-measured at `origin/main` @ `9ede6466` by
-#492 slice 3; the earlier "74/73/58" sentence had gone stale.)
+number by changing the pin list.
+
+**Stage 1 is measured with `--project-mode` since #492 W12-C slice 1** — each
+pinned subtree resolves into ONE `CSharpCompilation` and every file is encoded
+with its own `SemanticModel` (`CSharpEncoder.CreateProjectCompilation` +
+`EncodeFileInProject`). **The unit is unchanged**: still one verdict per FILE,
+still the same 472-file denominator, still the same taxonomy tags, so the two
+bases are comparable — and
+`TierASelfTests.Project_mode_keeps_the_per_file_basis_and_resolves_a_cross_file_callee`
+is what makes that a checked claim. The flag defaults OFF in the harness and is
+passed explicitly by `coverage-study.yml`, because a basis change must be an
+explicit, reported choice. Measured on the same pins, both ways: stage 1
+`123/472` → `141/472`, stage 2 `122/472` → `140/472`, clean `0/472` either way;
+**18 files advanced, 0 regressed**, and the `unsupported method call`
+first-blocker family fell **101 → 53**. (The earlier "123/122/58" line was
+correct for the library basis and was re-verified before the switch; before that,
+a stale "74/73/58" sentence had survived here.)
 
 **A per-shape fix does not have to move this funnel.** Slices E (#578), 3, 3b and
 4 each closed a real, verified encoder gap and each left stage 1 at
@@ -574,7 +589,15 @@ concurrent again.
 
 `csharp/encoder/` encodes C# source into a Ball `Program` via **Roslyn**
 (`Microsoft.CodeAnalysis.CSharp`, pinned in `Directory.Packages.props` — verified latest stable
-on nuget.org at lane time: `5.6.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line). Parsing is
+on nuget.org at lane time: `5.6.0`, matching `dotnet/roslyn`'s C# 14/.NET 10 line).
+
+**Two entry-point families, and the distinction is load-bearing.** `Encode(string)` /
+`EncodeLibrary(string)` are **syntax-only** — the rest of this section describes them, and they are
+unchanged. `EncodeProject(dir)` / `EncodeFileInProject(...)` (issue #492, W12-C slice 1) build a
+real `CSharpCompilation` and ask its `SemanticModel`; see "Project mode" below. Everything said
+about name heuristics and receiver ambiguity here is scoped to the resolution-free family.
+
+Parsing on the resolution-free family is
 **syntax-only** (`CSharpSyntaxTree.ParseText`, no `CSharpCompilation`/semantic model) — the same
 discipline as `dart/encoder/lib/encoder.dart`'s `parseString` approach (see
 `.claude/rules/dart.md`'s "syntactic-encoder gotchas": dispatch is by *syntax and name
@@ -1057,8 +1080,107 @@ makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must s
 build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
 attached.
 
-Still open on #492 after slices A, B, C, D, E, 3, 3b and 4: **cross-file symbol resolution** (bucket d)
-and **target-typed `new()`** (bucket f). The **`FirstOrDefault`-on-empty contract** is CLOSED
+### Project mode — `EncodeProject` / `EncodeFileInProject` (issue #492, W12-C slice 1)
+
+The syntax-only entry points above are unchanged and stay the default. **`EncodeProject` is the
+opt-in that adds a real `CSharpCompilation` and a `SemanticModel`** — closing bucket (d),
+cross-file symbol resolution, the last shape-routing slices could not touch.
+
+**The measurement that decided it.** Across the four Tier A pins, the `unsupported method call`
+fallback throw was the largest first-blocker family (101 files). Asking a compilation about every
+one of them: **99 of 101 bind** — 44 to a callee declared in another file of the same project, 20
+to an extension method (15 of them the project's own static extension classes), 35 to a BCL
+metadata symbol. The one genuine non-binding case is a consequence of the Humanizer pin
+deliberately excluding its source-generator sibling. Two consecutive shape-routing slices before
+this had moved the funnel by exactly zero, which is what the 2026-09-06 comment on #492 predicted.
+
+**The seam, in three public members** (`encoder/src/ProjectEncoding.cs`,
+`ProjectCompilationBuilder.cs`, `SemanticQuery.cs`):
+
+| Member | Shape |
+|---|---|
+| `EncodeProject(dir, options?) -> ProjectEncodeResult` | whole project → ONE `Program`, abort-on-first-error (the `rust/encoder` `encode_crate` shape) |
+| `CreateProjectCompilation(dir, options?) -> ProjectCompilation` | "resolve once" — the analogue of `dart/encoder`'s `PackageEncoder.prepareStaticTypes()` |
+| `EncodeFileInProject(project, path) -> Program` | "encode per file" — only THAT file's declarations, project-wide SEMANTICS |
+
+The split is load-bearing. **Tier A's unit is the FILE**, so it uses the second pair and its funnel
+stays per-file and comparable; a whole-project encode aborts on the first unsupported construct in
+any of 240 files and could not produce a per-file number at all.
+
+`Encoder` holds a `private ISemanticQuery _semantics = NullSemanticQuery.Instance` — "I don't
+know" to every question. `Encode(string)`/`EncodeLibrary(string)` never replace it, so their output
+is **byte-identical** to before the seam existed, structurally rather than by testing luck. That is
+the #488 precedent (`dart/encoder/lib/encoder.dart`: "byte-identical to before — which is what
+keeps every self-hosted engine unaffected"), and
+`ProjectEncodingTests.EncodeSingleFile_IsByteIdenticalToACommittedGolden` is the guard. **Never
+relax it.**
+
+**What moved to symbols.** A symbol-first guard sits in FRONT of `Methods.cs`'s `(name, argc)`
+table; the table itself is untouched. When `GetSymbolInfo` returns a method whose containing type
+has `DeclaringSyntaxReferences` (Roslyn's own source-vs-metadata test), the call takes the
+user-call path: a static becomes `UserCall(Owner_Method, …)`, an instance becomes the `self`
+dispatch, and an extension method routes through `ReducedFrom` — its unreduced static signature —
+with the receiver bound to the `this` parameter's real name. Arguments are keyed by
+`IMethodSymbol.Parameters`, not the positional `arg0`/`arg1` fallback. A **metadata** symbol has no
+declaring syntax, so it falls through to the table exactly as before. `nameof(x)` folds to
+`GetConstantValue`, which is what the 2-argument `ArgumentNullException.ThrowIfNull(value,
+nameof(x))` overload was waiting on.
+
+**Policy: `SymbolInfo.Symbol` only, never `CandidateSymbols`.** `Symbol` is the one Roslyn's own
+overload resolution chose; every other `CandidateReason` means the call site is not a single
+determinate target, so it is REPORTED (the reason is appended to the encoder's own error), never
+guessed at.
+
+**Two previously SILENT defects this closed** (both were flagged and fixed here per CLAUDE.md's
+"flag and fix any bugs you encounter"):
+
+1. **Short-name collisions.** Ball has no namespaces, so `A.Foo` and `B.Foo` both encoded to
+   `main:Foo` — two `TypeDefinition`s and two `main:Foo.Method` functions in one module, with no
+   error at all. Project mode groups declarations by `INamedTypeSymbol` and throws, naming both
+   fully-qualified types and both files. It fires on 4 real files in the corpus
+   (`CSharpx.Either`/`Either<,>`, `Maybe`/`Maybe<T>`, `Result`/`Result<,>`,
+   `Newtonsoft.Json.JsonConverter`/`JsonConverter<T>`). Disambiguating the encoded NAMES is a later
+   slice, and it has to be decided against `csharp/compiler`'s consumption of them.
+2. **`partial` parts silently overwriting each other.** `CollectDeclarations` did
+   `ClassFields[shortName] = fields` — the last part won, and `EncodeMainModule` emitted one
+   `TypeDefinition` per syntax part. Parts now accumulate and merge into the one type they are.
+   That fix is **unconditional**: it was a same-file defect too.
+
+**Receiver-discriminated names fail LOUD in project mode.** `Methods.cs` documents that
+`.Contains(x)`/`.IndexOf(x)` route unconditionally to the STRING op — a coin flip the
+resolution-free path never promised to win. Inside a mode that advertises symbol-grade answers,
+falling back to that heuristic would be a silent fail-soft, so `GuardReceiverDiscriminatedCall`
+throws when the receiver cannot be bound AND when it binds to something the route does not model.
+The resolution-free path is untouched: the same text through `Encode(string)` still returns today's
+answer, and `ProjectEncodingTests` asserts both halves.
+
+**Reference assemblies are hermetic and version-pinned** —
+`Basic.Reference.Assemblies.Net100 1.8.11` (MIT, netstandard2.0, references as embedded resources),
+in `Directory.Packages.props`. Deliberately NOT the SDK ref pack under
+`$DOTNET_ROOT/packs/Microsoft.NETCore.App.Ref/<ver>/ref/net10.0`: CI pins `dotnet-version:
+"10.0.x"`, so `<ver>` floats with the runner's patch and the encoder's binding answers would drift
+with it. An **empty** reference list and an **unreadable** reference path are both loud errors —
+never a partial reference set, which makes the compilation answer *wrongly* rather than
+*not-at-all*. That is a deliberate divergence from `dart/encoder`'s `prepareStaticTypes`
+("Opt-in and fail-soft by design"): there the fallback IS the only behaviour that path promised.
+
+**Compilation diagnostics are surfaced, never swallowed and never fatal.** Over third-party source
+they are dominated by dependencies and `#define`s the caller may legitimately not have (measured:
+Cronos 0, CommandLine 8, Humanizer 284, Newtonsoft.Json 230), and Roslyn binds nearly everything in
+an error-bearing compilation anyway. They come back in `ProjectEncodeResult.CompilationDiagnostics`.
+`ProjectEncodeOptions.Defines` exists because Newtonsoft's real build defines `HAVE_LINQ`.
+
+**Still out of scope for this slice** (each its own follow-up): receiver-TYPED routing rather than
+refusal — and it wants a SYMBOL-keyed route table, `(containing type, name, parameter types)`, not
+more predicates bolted onto `(name, argc)` arms; target-typed `new()` (bucket f) and cross-file
+`new Foo(...)`; qualified type names so a colliding project encodes at all; `ball encode --project`.
+Genuinely unrepresentable after all of them, measured: 7 reflection call sites, 2 `out`/`ref`
+parameters, and 12 culture/calendar/time APIs that need new `std_time` declarations — a
+`needs-std-function` decision for its own lane, not something to fold in here.
+
+Still open on #492 after slices A, B, C, D, E, 3, 3b, 4 and W12-C slice 1:
+**target-typed `new()`** (bucket f). Bucket (d), cross-file symbol resolution, is CLOSED by the
+seam above. The **`FirstOrDefault`-on-empty contract** is CLOSED
 (**issue #588**): the decision was taken — no default-returning primitive, because a syntax-only
 encoder cannot know `T`, so `FirstOrDefault` is unrouted at both arities and every `*OrDefault`
 name is now a loud error (`ZeroArgLinqTerminalTests.OrDefaultTerminalsFailLoud`,

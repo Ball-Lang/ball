@@ -2,7 +2,9 @@
 //
 // Four shapes, three of which a syntax-only encode cannot resolve and a
 // semantic model answers exactly:
-//   * `MathHelper.Square(seed)` — a callee declared in `geometry.cs`.
+//   * `MathHelper.Square(seed)` and `MathHelper.Scale(seed, 3)` — callees
+//     declared in `geometry.cs`; the 2-argument one also proves the encoded
+//     input is keyed by the CALLEE's real parameter names.
 //   * `squared.Doubled()`       — a project-declared extension method.
 //   * `nameof(MathHelper)`      — a compile-time constant string, which Roslyn
 //                                 hands over as `GetConstantValue`.
@@ -23,8 +25,10 @@ public static class Program
         var seed = 7;
         var squared = MathHelper.Square(seed);
         var doubled = squared.Doubled();
+        var scaled = MathHelper.Scale(seed, 3);
         Console.WriteLine(squared);
         Console.WriteLine(doubled);
+        Console.WriteLine(scaled);
 
         var label = nameof(MathHelper);
         if (label.Contains("Math"))

@@ -15,4 +15,13 @@ public static class MathHelper
     {
         return value * value;
     }
+
+    // Two parameters on purpose: a 2+-argument call packs its input as a
+    // `MessageCreation` keyed by the CALLEE's declared parameter names, and the
+    // positional `arg0`/`arg1` fallback is what a call with no resolvable callee
+    // falls back to. `IMethodSymbol.Parameters` is where the real names come from.
+    public static int Scale(int value, int factor)
+    {
+        return value * factor;
+    }
 }

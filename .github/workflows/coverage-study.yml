@@ -115,10 +115,10 @@ jobs:
   #
   # Tier B is the instrument that sees it: swap a library file for the
   # pipeline's own compiled-back version and run THAT PACKAGE'S OWN `dart test`.
-  # Both modes run here — per-file isolation (one substitution at a time, the
-  # file restored before the next) and whole-package (every eligible file at
-  # once, one verdict). They answer different questions and are meant to be read
-  # together.
+  # Both modes run here — per-file isolation (one substitution at a time, each
+  # in its own private copy of the checkout) and whole-package (every eligible
+  # file at once, one verdict). They answer different questions and are meant to
+  # be read together.
   #
   # LIKE EVERY JOB IN THIS FILE, THIS IS NOT A GATE and never will be: the
   # workflow has no `pull_request:` trigger, so a regression Tier B finds does
@@ -173,10 +173,12 @@ jobs:
           bash tools/coverage-study/summarize.sh Dart "$RUNNER_TEMP/tier_b.log" "Tier B"
 
       # A checkout left dirty by the per-file run would compound every verdict
-      # of the whole-package run that follows. The harness already verifies each
-      # restore by SHA-256 and throws on a mismatch; this asserts the same
-      # property from OUTSIDE the harness, against git, before the second mode
-      # reuses the same trees.
+      # of the whole-package run that follows. Since #653 the harness does not
+      # write the package source at all — each candidate is substituted into a
+      # private copy — so this asserts that property from OUTSIDE the harness,
+      # against git, before the second mode reuses the same trees. It is also
+      # what would catch a THIRD party writing these trees, which is what the
+      # in-place harness used to mistake for behavioural drift.
       #
       # `--untracked-files=no` is deliberate: substitution only ever rewrites
       # TRACKED files, while `dart pub get` leaves `.dart_tool/` and (for a
@@ -185,14 +187,14 @@ jobs:
       # would make this assertion red for a reason that has nothing to do with
       # restoration. Every dirty checkout is printed before the step exits, so a
       # failure names the files rather than only the fact of one.
-      - name: Assert every checkout was restored
+      - name: Assert every checkout is still pristine
         run: |
           set -euo pipefail
           dirty=0
           for dir in "$RUNNER_TEMP"/checkouts/*/; do
             status="$(git -C "$dir" status --porcelain --untracked-files=no)"
             if [ -n "$status" ]; then
-              echo "::error::$dir has modified tracked files after the per-file run — Tier B did not restore it"
+              echo "::error::$dir has modified tracked files after the per-file run — Tier B must never write the checkout it was pointed at"
               printf '%s\n' "$status"
               dirty=1
             fi

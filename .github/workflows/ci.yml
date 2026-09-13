@@ -361,6 +361,16 @@ jobs:
       - name: Compiler-cache gate self-test (#594)
         run: bash cpp/test/check_compiler_cache_applied.sh --self-test
 
+      # The self-test above proves the gate's parsers and its ceiling
+      # comparison; it runs the script directly and therefore structurally
+      # cannot notice WHERE in the cpp job the gate step sits. That placement
+      # is load-bearing (#660): full_e2e.sh's compile-and-link smoke adds
+      # uncacheable ccache calls, so a reorder puts the ubuntu/macOS legs at 4
+      # against a ceiling of 0 with a misleading cause. This asserts the order
+      # from ci.yml itself, with a negative control on a relocated copy.
+      - name: Compiler-cache gate step-order wiring test (#660)
+        run: bash cpp/test/test_cache_gate_step_order.sh
+
       # conformance-matrix.yml is a PR gate since #619, and BOTH of its triggers
       # (`push` to main and `pull_request`) share ONE path filter via a YAML
       # anchor. If a future edit turns that alias back into two literal lists and

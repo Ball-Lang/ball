@@ -371,6 +371,24 @@ self_test() {
     fi
   }
 
+  # run_case_out <name> <want-exit> <grep-pattern> [args...] — like run_case,
+  # but also pins the NUMBER the gate derived. An exit code alone cannot tell
+  # "read 16 declined, under the ceiling" from "read 233 declined, under a
+  # ceiling that happened to be higher".
+  run_case_out() {
+    local name="$1" want="$2" pat="$3"; shift 3
+    local out rc
+    out="$(run_check "$@" 2>&1)"; rc=$?
+    if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -q "$pat"; then
+      pass=$((pass + 1))
+      echo "ok   $name (exit $rc)"
+    else
+      fail=$((fail + 1))
+      echo "FAIL $name: expected exit $want and output matching '$pat', got exit $rc"
+      echo "$out" | sed 's/^/     | /'
+    fi
+  }
+
   # Verbatim shapes of the two tools' machine-readable output.
   #
   # `Non-cacheable compilations` and `Non-cacheable calls` are DIFFERENT sccache
@@ -385,26 +403,96 @@ self_test() {
     printf 'Non-cacheable compilations %29s\n' "$nc"
     printf 'Non-cacheable calls %36s\n' "${4:-$nc}"
   }
-  # ccache's stats file carries BOTH forms, exactly as the gate collects them:
-  # `ccache -s`'s human summary first (the only place ccache reports the
-  # cacheable/uncacheable split — `--print-stats` has no such counter pair),
-  # then the tab-separated `--print-stats` counters. The human lines are not
-  # tab-separated, so the counter parsers ignore them and vice versa.
-  ccache_stats() { # <direct hits> <preprocessed hits> <misses> [uncacheable]
-    local u="${4:-0}" cacheable total
-    cacheable=$(($1 + $2 + $3))
-    total=$((cacheable + u))
-    awk -v c="$cacheable" -v t="$total" \
-      'BEGIN { printf "Cacheable calls: %5d / %d (%.2f%%)\n", c, t, (t ? 100 * c / t : 0) }'
-    if [ "$u" -gt 0 ]; then
-      awk -v u="$u" -v t="$total" \
-        'BEGIN { printf "Uncacheable calls: %3d / %d (%.2f%%)\n", u, t, (t ? 100 * u / t : 0) }'
-    fi
-    printf 'cache_miss\t%s\n' "$3"
-    printf 'direct_cache_hit\t%s\n' "$1"
-    printf 'files_in_cache\t17\n'
-    printf 'preprocessed_cache_hit\t%s\n' "$2"
+  # A complete, fabricated `ccache --print-stats` block: every counter id the
+  # two pinned ccache versions emit, tab-separated, zeros included, sorted the
+  # way ccache sorts them. Parameterised on the four numbers the gate cares
+  # about so a case can state its intent in one line.
+  #
+  #   ccache_print_stats <direct hits> <preprocessed hits> <misses>
+  #                      [called_for_link] [internal_error] [omit_encoding]
+  #
+  # `called_for_link` stands in for the FLAG_UNCACHEABLE family and
+  # `internal_error` for FLAG_ERROR; `omit_encoding` drops the 4.14-only id to
+  # reproduce the 4.9.1 shape.
+  ccache_print_stats() {
+    local d="$1" p="$2" m="$3" link="${4:-0}" ierr="${5:-0}" omit="${6:-}"
+    printf 'autoconf_test\t0\n'
+    printf 'bad_compiler_arguments\t0\n'
+    printf 'bad_input_file\t0\n'
+    printf 'bad_output_file\t0\n'
+    printf 'cache_miss\t%s\n' "$m"
+    printf 'cache_size_kibibyte\t176128\n'
+    printf 'called_for_link\t%s\n' "$link"
+    printf 'called_for_preprocessing\t0\n'
+    printf 'cleanups_performed\t0\n'
+    printf 'compile_failed\t0\n'
+    printf 'compiler_check_failed\t0\n'
+    printf 'compiler_produced_empty_output\t0\n'
+    printf 'compiler_produced_no_output\t0\n'
+    printf 'compiler_produced_stdout\t0\n'
+    printf 'could_not_find_compiler\t0\n'
+    printf 'could_not_use_modules\t0\n'
+    printf 'could_not_use_precompiled_header\t0\n'
+    printf 'direct_cache_hit\t%s\n' "$d"
+    printf 'direct_cache_miss\t%s\n' "$m"
+    printf 'disabled\t0\n'
+    printf 'error_hashing_extra_file\t0\n'
+    printf 'files_in_cache\t644\n'
+    printf 'internal_error\t%s\n' "$ierr"
+    printf 'local_storage_hit\t%s\n' "$((d + p))"
+    printf 'local_storage_miss\t%s\n' "$m"
+    printf 'local_storage_read_hit\t%s\n' "$((d + p))"
+    printf 'local_storage_read_miss\t%s\n' "$m"
+    printf 'local_storage_write\t%s\n' "$m"
+    printf 'max_cache_size_kibibyte\t1048576\n'
+    printf 'max_files_in_cache\t0\n'
+    printf 'missing_cache_file\t0\n'
+    printf 'modified_input_file\t0\n'
+    printf 'multiple_source_files\t0\n'
+    printf 'no_input_file\t0\n'
+    printf 'output_to_stdout\t0\n'
+    printf 'preprocessed_cache_hit\t%s\n' "$p"
+    printf 'preprocessed_cache_miss\t0\n'
+    printf 'preprocessor_error\t0\n'
+    printf 'recache\t0\n'
+    printf 'remote_storage_error\t0\n'
+    printf 'remote_storage_hit\t0\n'
+    printf 'remote_storage_miss\t0\n'
+    printf 'remote_storage_read_hit\t0\n'
+    printf 'remote_storage_read_miss\t0\n'
+    printf 'remote_storage_timeout\t0\n'
+    printf 'remote_storage_write\t0\n'
+    printf 'stats_updated_timestamp\t1757700042\n'
     printf 'stats_zeroed_timestamp\t1757700000\n'
+    printf 'unsupported_code_directive\t0\n'
+    printf 'unsupported_compiler_option\t0\n'
+    printf 'unsupported_environment_variable\t0\n'
+    [ "$omit" = "omit_encoding" ] || printf 'unsupported_source_encoding\t0\n'
+    printf 'unsupported_source_language\t0\n'
+  }
+
+  # One `ccache -s` human summary line, with its two numbers passed as LITERAL
+  # strings so a case can inject ccache's thousands separator verbatim.
+  ccache_human_line() {
+    printf 'Cacheable calls: %5s / %s (99.99%%)\n' "$1" "$2"
+  }
+
+  # ccache's stats file carries BOTH forms, exactly as the gate collects them:
+  # `ccache -s`'s human summary first (echoed to the CI log, and the shape the
+  # gate used to PARSE) and then the tab-separated `--print-stats` counters,
+  # which are what it reads now (#660). The human lines carry no tabs, so the
+  # counter parsers never see them.
+  ccache_stats() { # <direct hits> <preprocessed hits> <misses> [uncacheable]
+    local d="$1" p="$2" m="$3" u="${4:-0}" cacheable total
+    cacheable=$((d + p + m))
+    total=$((cacheable + u))
+    ccache_human_line "$cacheable" "$total"
+    if [ "$u" -gt 0 ]; then
+      printf 'Uncacheable calls: %3s / %s ( 1.23%%)\n' "$u" "$total"
+    fi
+    # The uncacheable calls land on `called_for_link` — the counter the real
+    # ubuntu leg's four post-gate `g++` compile-and-link calls increment.
+    ccache_print_stats "$d" "$p" "$m" "$u" 0
   }
 
   # 1. THE BUG: sccache saw zero requests while the job compiled ~600 TUs.
@@ -545,8 +633,14 @@ self_test() {
   } >"$tmp/sccache_nan.txt"
   run_case "non-integer non-cacheable count fails loud" 1 \
     --tool sccache --compiled 600 --stats-file "$tmp/sccache_nan.txt"
+  # 23. ...and the mirror of that rule after #660: the human `Cacheable calls:`
+  #     line is no longer an INPUT, only log decoration, so a stats file
+  #     without it must still produce the number. This case used to assert the
+  #     opposite, which is exactly what made a thousands separator in that line
+  #     able to corrupt the count.
   grep -v '^Cacheable calls:' "$tmp/ccache_clean.txt" >"$tmp/ccache_no_summary.txt"
-  run_case "ccache stats without the cacheable/total summary fail loud" 1 \
+  run_case_out "ccache stats without the human summary still parse" 0 \
+    'non-cacheable compilations: 0' \
     --tool ccache --compiled 322 --stats-file "$tmp/ccache_no_summary.txt"
 
   # 24. Misconfiguration of the new knob itself must be loud, like --compiled.
@@ -554,13 +648,191 @@ self_test() {
     --tool sccache --compiled 600 --max-noncacheable "none" \
     --stats-file "$tmp/sccache_clean.txt"
 
+  # ── 25-34. ccache's MACHINE-READABLE non-cacheable count (issue #660) ─────
+  #
+  # The cases above read the uncacheable split out of `ccache -s`'s HUMAN
+  # summary line (`Cacheable calls: <n> / <total>`), digit-split with
+  # `split($0, a, /[^0-9]+/)`. That parse is wrong the moment either number
+  # carries ccache's thousands separator — `1,234 / 1,250` reads as c=1, t=234
+  # and reports 233 declined compiles that never happened — and it makes the
+  # gate depend on a table layout ccache is free to re-render at any release.
+  # `ccache --print-stats` is the documented machine-parsable form:
+  #
+  #   "Print statistics counter IDs and corresponding values in machine-parsable
+  #    (tab-separated or JSON) format."
+  #        -- https://ccache.dev/manual/4.14.html (--print-stats)
+  #
+  # ccache derives its own human summary as
+  #   total_calls   = hits + misses + errors + uncacheable
+  #   cacheable     = hits + misses
+  # with `uncacheable` = the sum of every counter flagged FLAG_UNCACHEABLE and
+  # `errors` = every counter flagged FLAG_ERROR (src/core/Statistics.cpp in
+  # 4.9.1, src/ccache/core/statistics.cpp in 4.14 — both the same expression).
+  # So the shortfall the old parse read off the human line is exactly
+  # `uncacheable + errors`, and every one of those counters is printed by
+  # `--print-stats` (which emits every field without FLAG_NEVER, zeros
+  # included, plus max_cache_size_kibibyte / max_files_in_cache /
+  # stats_updated_timestamp).
+  #
+  # VERSION-PINNED: ubuntu-latest installs ccache 4.9.1 (apt, `ccache version
+  # 4.9.1` in the C++ (ubuntu-latest) job log of main run 34749011196, job
+  # 103702029894) and macos-latest 4.14 (`ccache version 4.14`, job
+  # 103702029887 of the same run). Their counter tables differ by exactly ONE
+  # id — 4.14 adds `unsupported_source_encoding` — so the fixtures below cover
+  # both shapes.
+
+  # 25. THE NEW SOURCE OF TRUTH: `--print-stats` counters alone, with NO human
+  #     summary in the file at all. 4 uncacheable calls (the compile-and-link
+  #     `g++` that full_e2e.sh's smoke runs through ccache), under an explicit
+  #     ceiling of 5.
+  ccache_print_stats 318 0 0 4 0 >"$tmp/ccache_counters_only.txt"
+  run_case_out "ccache non-cacheable read from --print-stats counters alone" 0 \
+    'non-cacheable compilations: 4' \
+    --tool ccache --compiled 322 --max-noncacheable 5 \
+    --stats-file "$tmp/ccache_counters_only.txt"
+
+  # 26. THE BUG, verbatim from the issue: a thousands-separated human line.
+  #     The counters say 16 declined (1250 - 1234); the digit-splitting parse
+  #     of `Cacheable calls: 1,234 / 1,250` reads c=1, t=234 and reports 233.
+  #     Both land on the same side of most ceilings, so the case pins the
+  #     NUMBER, not just the exit code.
+  {
+    ccache_human_line "1,234" "1,250"
+    ccache_print_stats 1234 0 0 16 0
+  } >"$tmp/ccache_thousands.txt"
+  run_case_out "thousands-separated human line does not corrupt the count" 0 \
+    'non-cacheable compilations: 16' \
+    --tool ccache --compiled 1250 --max-noncacheable 20 \
+    --stats-file "$tmp/ccache_thousands.txt"
+
+  # 27. ccache's own `total_calls` includes the FLAG_ERROR counters, so the
+  #     shortfall the gate reports must too — otherwise a leg whose compiles
+  #     all failed to hash reads as a perfectly cached one.
+  {
+    ccache_human_line 322 322
+    ccache_print_stats 320 0 0 0 2
+  } >"$tmp/ccache_errors.txt"
+  run_case_out "error counters count toward the non-cacheable total" 0 \
+    'non-cacheable compilations: 2' \
+    --tool ccache --compiled 322 --max-noncacheable 5 \
+    --stats-file "$tmp/ccache_errors.txt"
+
+  # 28. The ubuntu leg's ccache 4.9.1 prints one counter FEWER than macOS's
+  #     4.14 (`unsupported_source_encoding` is 4.14-only). Both shapes must
+  #     parse; a required-id list that demanded the newer one would red the
+  #     ubuntu leg for a version difference.
+  ccache_print_stats 322 0 0 0 0 omit_encoding >"$tmp/ccache_491.txt"
+  run_case_out "ccache 4.9.1's counter set (no unsupported_source_encoding) parses" 0 \
+    'non-cacheable compilations: 0' \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_491.txt"
+
+  # 29. A counter id this gate does not classify means ccache grew a counter —
+  #     possibly an uncacheable one, which would then be silently UNDER-counted
+  #     and the ceiling would pass while the cache declined. Fail loud and name
+  #     it; the fix is one line in the id table.
+  {
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0
+    printf 'brand_new_uncacheable_reason\t7\n'
+  } >"$tmp/ccache_unknown_id.txt"
+  run_case "unclassified ccache counter id fails loud" 1 \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_unknown_id.txt"
+
+  # 30. A counter id that DISAPPEARED is the same defect from the other side:
+  #     the sum silently loses a term. (Here `called_for_link`, the counter the
+  #     real ubuntu leg's 4 uncacheable calls land on.)
+  {
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0 | grep -v '^called_for_link	'
+  } >"$tmp/ccache_missing_id.txt"
+  run_case "ccache stats missing a required counter id fail loud" 1 \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_missing_id.txt"
+
+  # 31. A non-integer value on a counted counter must fail, exactly like the
+  #     sccache `Non-cacheable compilations many` case above.
+  {
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0 | grep -v '^called_for_link	'
+    printf 'called_for_link\tmany\n'
+  } >"$tmp/ccache_nan_counter.txt"
+  run_case "non-integer ccache counter value fails loud" 1 \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_nan_counter.txt"
+
+  # ── 32-34. The two ccache INVOCATIONS, through a stub on PATH ─────────────
+  # The cases above all hand the gate a stats FILE. These drive the branch CI
+  # actually takes — the gate shelling out to ccache itself — with a stub that
+  # fails one sub-command at a time. `ccache -s` used to be a cosmetic
+  # `::warning::` here; a gate that cannot read its own instrument is not a
+  # gate, so it must be an `::error::` like every other unreadable-stats path.
+  mkdir -p "$tmp/bin_s_fails" "$tmp/bin_ps_fails" "$tmp/bin_ok"
+  ccache_print_stats 322 0 0 0 0 >"$tmp/stub_counters.txt"
+  ccache_human_line 322 322 >"$tmp/stub_human.txt"
+  cat >"$tmp/bin_s_fails/ccache" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  -s | --show-stats) echo "ccache: error: failed to read stats file" >&2; exit 1 ;;
+  --print-stats) cat "$tmp/stub_counters.txt"; exit 0 ;;
+esac
+exit 2
+STUB
+  cat >"$tmp/bin_ps_fails/ccache" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  -s | --show-stats) cat "$tmp/stub_human.txt"; exit 0 ;;
+  --print-stats) echo "ccache: error: unknown option --print-stats" >&2; exit 1 ;;
+esac
+exit 2
+STUB
+  cat >"$tmp/bin_ok/ccache" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  -s | --show-stats) cat "$tmp/stub_human.txt"; exit 0 ;;
+  --print-stats) cat "$tmp/stub_counters.txt"; exit 0 ;;
+esac
+exit 2
+STUB
+  chmod +x "$tmp/bin_s_fails/ccache" "$tmp/bin_ps_fails/ccache" "$tmp/bin_ok/ccache"
+
+  # run_case_path <name> <want-exit> <grep-pattern> <bindir> [args...]
+  run_case_path() {
+    local name="$1" want="$2" pat="$3" bindir="$4"; shift 4
+    local out rc
+    out="$(PATH="$bindir:$PATH"; run_check "$@" 2>&1)"; rc=$?
+    if [ "$rc" -eq "$want" ] && printf '%s' "$out" | grep -q "$pat"; then
+      pass=$((pass + 1))
+      echo "ok   $name (exit $rc)"
+    else
+      fail=$((fail + 1))
+      echo "FAIL $name: expected exit $want and output matching '$pat', got exit $rc"
+      echo "$out" | sed 's/^/     | /'
+    fi
+  }
+
+  # 32. `ccache -s` failing is a HARD failure with its own message, not a
+  #     warning the run limps past.
+  run_case_path "'ccache -s' failure is a hard, named failure" 1 \
+    "::error::'ccache -s' failed" "$tmp/bin_s_fails" \
+    --tool ccache --compiled 322
+
+  # 33. `ccache --print-stats` failing is the same (it is now the only source
+  #     of the numbers the gate compares).
+  run_case_path "'ccache --print-stats' failure is a hard, named failure" 1 \
+    "::error::'ccache --print-stats' failed" "$tmp/bin_ps_fails" \
+    --tool ccache --compiled 322
+
+  # 34. ...and the happy path through the very same stub harness, so 32-33
+  #     cannot pass merely because the stub is unusable.
+  run_case_path "ccache invoked for real (both sub-commands OK) stays green" 0 \
+    'non-cacheable compilations: 0' "$tmp/bin_ok" \
+    --tool ccache --compiled 322
+
   rm -rf "$tmp"
 
   local total=$((pass + fail))
   # Positive floor: an exit code plus a failure count cannot tell "everything
   # passed" from "nothing ran".
-  if [ "$total" -lt 20 ]; then
-    echo "::error::compiler-cache gate self-test ran only $total case(s) — expected at least 20."
+  if [ "$total" -lt 34 ]; then
+    echo "::error::compiler-cache gate self-test ran only $total case(s) — expected at least 34."
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"

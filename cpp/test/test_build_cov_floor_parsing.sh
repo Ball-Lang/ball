@@ -183,11 +183,69 @@ run_case "shared a tenth of a point under its committed floor" 1 \
   "$(summary_line "$c_floor")" "$(summary_line "$e_floor")" \
   "$(summary_line "$(just_under "$s_floor")")"
 
+
+# ── 10. The FUTURE-RATCHET simulation (issue #660) ────────────────────────
+#
+# Case 1 above feeds the "above floor" percentages. Until #660 it hand-wrote
+# them as the measurement of the day (94.6 / 99.0 / 94.3), which made this
+# suite go red the first time a ratchet moved a floor past one of those
+# numbers — a PARSING test failing for a reason that has nothing to do with
+# parsing, and the same staleness class #643's commit 3 removed from the
+# sibling wiring test.
+#
+# This is the negative control for that. It ratchets a SCRATCH copy of
+# build-cov-floor.sh to floors that sit ABOVE the numbers case 1 used to
+# hard-code, drops a scratch copy of this very file next to it, and runs it:
+# a suite whose "above floor" inputs are derived from the table it is testing
+# stays green under any ratchet, one that hard-codes them does not.
+#
+# The scratch run is told not to recurse (it would fork forever otherwise).
+if [ "${BALL_COV_FLOOR_TEST_RATCHET_SIM:-}" != "1" ]; then
+  sim="$(mktemp -d)"
+  mkdir -p "$sim/cpp/test"
+  # Floors chosen to exceed the compiler/shared measurements case 1 used to
+  # hard-code (94.6 / 94.3) while staying low enough that floor+1 is still a
+  # legal percentage for every target.
+  awk '
+    /^[[:space:]]*\[compiler\]=/ { print "  [compiler]=96"; next }
+    /^[[:space:]]*\[encoder\]=/  { print "  [encoder]=98";  next }
+    /^[[:space:]]*\[shared\]=/   { print "  [shared]=96";   next }
+    { print }
+  ' "$SCRIPT" >"$sim/cpp/build-cov-floor.sh"
+  cp "${BASH_SOURCE[0]}" "$sim/cpp/test/test_build_cov_floor_parsing.sh"
+
+  # The rewrite must have actually landed, or this control would "pass"
+  # against the committed floors and prove nothing.
+  sim_floors="$(sed -n '/^declare -A FLOORS=(/,/^)/p' "$sim/cpp/build-cov-floor.sh" |
+    sed -n 's/^[[:space:]]*\[[A-Za-z_]*\]=\(.*\)$/\1/p' | sort -n | tr '\n' ' ')"
+  if [ "$sim_floors" != "96 96 98 " ]; then
+    fail=$((fail + 1))
+    echo "FAIL  future-ratchet simulation: scratch floors are '$sim_floors', expected '96 96 98 '"
+  else
+    sim_out="$(BALL_COV_FLOOR_TEST_RATCHET_SIM=1 \
+      bash "$sim/cpp/test/test_build_cov_floor_parsing.sh" 2>&1)"
+    sim_rc=$?
+    if [ "$sim_rc" -eq 0 ]; then
+      pass=$((pass + 1))
+      echo "PASS  this suite survives a ratchet to floors 96/98/96 (inputs derived, not hard-coded)"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  this suite goes red under a ratchet to floors 96/98/96 — its 'above floor' inputs are hard-coded, not read from the FLOORS table (exit $sim_rc)"
+      printf '  %s\n' "$sim_out"
+    fi
+  fi
+  rm -rf "$sim"
+fi
+
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything
 # passed" from "nothing ran".
-if [ "$total" -lt 9 ]; then
-  echo "::error::floor-parsing test ran only $total case(s) — expected at least 9."
+# The ratchet simulation below re-runs this file, and that inner run must not
+# recurse into it again — so the inner run has one case fewer.
+min_cases=10
+[ "${BALL_COV_FLOOR_TEST_RATCHET_SIM:-}" = "1" ] && min_cases=9
+if [ "$total" -lt "$min_cases" ]; then
+  echo "::error::floor-parsing test ran only $total case(s) — expected at least $min_cases."
   exit 1
 fi
 echo "Results: $pass passed, $fail failed, $total total"

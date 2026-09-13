@@ -109,7 +109,10 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   in the tree — this runs under `--dry-run` too), its `prepareCmd` is the bump itself, and its
   `publishCmd` dispatches `tag-go-modules.yml` at the channel tag **and waits for that run**
   (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget — #627; a bare
-  `gh workflow run` returns on acceptance, so a failed tag cut used to leave the release green)
+  `gh workflow run` returns on acceptance, so a failed tag cut used to leave the release green).
+  It waits for a run **strictly newer** than the newest one on that ref before the dispatch
+  (#656) — GitHub creates the new row seconds later, and a manual repair re-dispatch on the same
+  channel tag leaves a row whose stale `success` would otherwise answer on the first poll
   — so `tag_go_modules.sh` stays the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
   `chore(go):` PR, so every release re-dispatched the tagger and it passed reporting "all six tags
   already exist, nothing to do" while the published line stayed put — the #551 failure one level
@@ -127,7 +130,10 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   module path with an EMPTY version list and exits 0 — which the classifier treats as UNKNOWN
   (a failure), never as an absence. A tag younger than `MAX_LAG_MINUTES` (60) is tolerated;
   `proxy.golang.org`'s index lag was measured at ~25 min. `check_go_freshness.sh --self-test`
-  runs on every PR in `Proto Checks`.
+  runs on every PR in `Proto Checks`. It is also the only freshness alarm here with a
+  `pull_request` trigger, and that is safe *only* because its `paths:` filter names its own two
+  files — `check_go_release_wiring.sh` asserts that list as a SET, and
+  `check_go_release_wiring.sh --self-test` carries the negative controls (#656). Do not widen it.
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:

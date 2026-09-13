@@ -9,6 +9,6 @@ module github.com/ball-lang/ball/go/compiler
 go 1.23
 
 require (
-	github.com/ball-lang/ball/go/shared v0.1.0
+	github.com/ball-lang/ball/go/shared v0.2.0
 	google.golang.org/protobuf v1.36.11
 )

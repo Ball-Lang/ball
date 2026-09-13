@@ -9,11 +9,18 @@ name: Tag Go modules
 # dependent resolves to a version that does not exist.
 #
 # The version is NOT the Dart/Melos release version: the Go modules carry their
-# own line (v0.1.0 first), single-sourced from the go.mod files themselves —
-# build_local_proxy.py --print-version asserts all six agree and that no go.mod
-# carries a `replace` directive before printing it. Bumping the Go modules is
-# therefore a normal PR that edits those `require` lines; this workflow then cuts
-# the tags on the next release.
+# own line (v0.1.0 first, v0.2.0 since #586), single-sourced from the go.mod
+# files themselves — build_local_proxy.py --print-version asserts all six agree,
+# that no go.mod carries a `replace` directive, that go.work's pins and `use`
+# block agree with them, and (in smoke.sh) that the synthesized proxy carries
+# exactly this version before printing it. Bumping the Go modules is therefore a
+# normal PR that runs tools/go-module-proxy/bump_go_modules.sh; this workflow
+# then cuts the tags on the next release.
+#
+# Tags are IMMUTABLE once fetched through proxy.golang.org / sum.golang.org — a
+# moved tag is a checksum mismatch for every consumer that already has it — which
+# is why the half-tagged refusal below never papers over a partial set, and why a
+# published line is superseded by a NEW version rather than re-cut in place.
 #
 # Idempotent by construction: if all six tags already exist (the steady state —
 # most releases do not bump the Go module version), the job reports and exits

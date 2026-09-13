@@ -274,6 +274,19 @@ jobs:
       - name: Go module tagging test (#361)
         run: bash tools/test/test_tag_go_modules.sh
 
+      # The OTHER half of the Go module line: the version itself. It lives in
+      # nine places (six go/*/go.mod require blocks, go/go.work's five replace
+      # pins, tools/coverage-study/go, and go/cli/version.go's `ball version`
+      # fallback), and Go's registry IS the git tag — so a half-landed bump is
+      # either "unknown revision go/<m>/vX.Y.Z" or, worse, a silent fall-through
+      # to the PUBLIC proxy that measures released code while reading green.
+      # bump_go_modules.sh makes that edit ONE action and build_local_proxy.py
+      # asserts the result; this proves both on a scratch tree — every refusal
+      # (non-semver, a major >= 2 with no /vN path suffix, a moved version
+      # constant), idempotency, and each drift the assertions must catch.
+      - name: Go module version bump + proxy assertion test (#586)
+        run: bash tools/test/test_bump_go_modules.sh
+
       # The conformance-corpus total is hand-copied as prose into CLAUDE.md,
       # every AGENTS.md, .claude/rules/*.md, README.md and this workflow's own
       # comments; nothing checked them, so four mutually inconsistent totals
@@ -372,11 +385,12 @@ jobs:
       - name: Verb-parity checker self-test (#570)
         run: python tools/test/test_check_cli_verb_parity.py
 
-      # A DEFAULT (no build tag) Go binary: the cli-core verbs must be listed in
-      # `--help` and dispatchable even without the generated compiled_cli.go, so
-      # this gate's answer never depends on how the binary was built. The verbs
-      # themselves then fail loud at RUNTIME (exit 1 + regenerate hint), which
-      # go/cli's own default-build test asserts.
+      # A plain `go build` of the Go CLI — which is now the ONLY build there is:
+      # #586 deleted the `selfhost`/`clicore` build tags along with every stub
+      # and honest-failure path, because `go install` accepts no `-tags` and the
+      # module a proxy serves is the repository at the tag. Both generated
+      # artifacts are committed, so this binary lists AND answers every verb,
+      # and the parity gate below reads a real verb set rather than a stub's.
       - name: Build the Go CLI
         run: cd go/cli && go build -o "$RUNNER_TEMP/ball-go" ./cmd/ball
 
@@ -2014,22 +2028,30 @@ jobs:
       # contains one or more replace directives."
       #
       # Those replace directives are now gone: each module `require`s its
-      # intra-repo dependencies at v0.1.0 (the first published Go module tag
-      # set), and go/go.work carries versioned `replace ... v0.1.0 => ./<dep>`
-      # pins so local dev/CI keeps resolving against this tree. go.work is never
+      # intra-repo dependencies at the Go module line's version (v0.2.0 since
+      # #586; move it only with tools/go-module-proxy/bump_go_modules.sh), and
+      # go/go.work carries versioned `replace ... vX.Y.Z => ./<dep>` pins so
+      # local dev/CI keeps resolving against this tree. go.work is never
       # published, so the go.mod files stay proxy-clean.
       #
       # tools/go-module-proxy/smoke.sh proves that end-to-end WITHOUT needing
       # the tags to exist yet: it synthesizes the exact file:// module proxy the
-      # `go/<module>/v0.1.0` tags will produce (from the tracked files of this
-      # commit, so the module hashes match what proxy.golang.org will compute),
-      # then (leg 1) builds each module standalone with no go.work and no
-      # siblings, and (leg 2) runs `go install .../go/cli/cmd/ball@v0.1.0` into
-      # a clean GOPATH/GOMODCACHE and executes the installed binary against a
-      # real conformance fixture. Both legs gate: leg 1 asserts fail == 0 over a
-      # non-empty module set (bare-integer counts + a positive floor), leg 2
-      # asserts the binary exists and produces output. No continue-on-error —
-      # that would reduce the exit 1 to an annotation.
+      # `go/<module>/vX.Y.Z` tags will produce (from the TRACKED files of this
+      # commit, so the module hashes match what proxy.golang.org will compute,
+      # and so the two committed artifacts of #586 are inside the zips), then
+      # (leg 1) builds each module standalone with no go.work and no siblings,
+      # and (leg 2) runs `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean
+      # GOPATH/GOMODCACHE and EXECUTES the installed binary. All three legs
+      # gate: leg 1 asserts fail == 0 over a non-empty module set (bare-integer
+      # counts + a positive floor); leg 2 asserts the binary installs and
+      # answers; leg 2b asserts it actually RUNS — `ball run` over conformance
+      # fixtures plus `ball info`/`ball version`, byte-compared against the same
+      # goldens the in-repo sweeps use, behind a >= 4 execution floor. The
+      # version is derived, never spelled: smoke.sh takes it from
+      # build_local_proxy.py --print-version, the same call tag-go-modules.yml
+      # makes, so a half-bumped tree fails here instead of synthesizing a proxy
+      # at a version no tag will carry. No continue-on-error — that would reduce
+      # the exit 1 to an annotation.
       #
       # After the six tags are pushed, the follow-up is to point the same script
       # at the real proxy (drop the synthesized one) — the assertions stay.
@@ -2039,8 +2061,8 @@ jobs:
           set -euo pipefail
           bash tools/go-module-proxy/smoke.sh | tee /tmp/go-proxy-smoke.log
           {
-            echo "Go module external-consumer smoke (issue #361):"
-            grep -E '^(Results:|go install |ball check )' /tmp/go-proxy-smoke.log
+            echo "Go module external-consumer smoke (issues #361, #586):"
+            grep -E '^(Results:|Behaviour:|go install |ball (check|run|info|version) )' /tmp/go-proxy-smoke.log
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ── Self-hosted CLI core: golden-parity gate (issue #570) ──

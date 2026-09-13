@@ -173,8 +173,9 @@ verb silently disappearing here fails even though every Go test would still pass
   positive on a valid program that hits a documented `go/compiler` scope gap).
 - **`go install` needs the module tags pushed** (issue #361). The module *shape*
   is now correct: `go/cli/go.mod` `require`s `compiler`/`encoder`/`engine`/
-  `shared` (+ indirect `runtime`) at **`v0.1.0`** and carries **no `replace`
-  directives** — `go install` rejects any module whose go.mod has one:
+  `shared` (+ indirect `runtime`) at **`v0.2.0`** (the line #586 moved to) and
+  carries **no `replace` directives** — `go install` rejects any module whose
+  go.mod has one:
 
   ```
   $ go install github.com/ball-lang/ball/go/cli/cmd/ball@latest   # before the fix
@@ -184,15 +185,23 @@ verb silently disappearing here fails even though every Go test would still pass
       it to be interpreted differently than if it were the main module.
   ```
 
-  The local pins moved to `go/go.work`'s versioned `replace ... v0.1.0 => ./<dep>`
+  The local pins moved to `go/go.work`'s versioned `replace ... vX.Y.Z => ./<dep>`
   block (go.work is never published). ci.yml's `go` job proves the external path
   every run and **gates** on it — `tools/go-module-proxy/smoke.sh` synthesizes the
-  proxy the `go/<module>/v0.1.0` tags will produce, builds all six modules in
-  isolation, then `go install .../go/cli/cmd/ball@v0.1.0` into a clean GOPATH and
+  proxy the `go/<module>/vX.Y.Z` tags will produce, builds all six modules in
+  isolation, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and
   **runs** the binary — `ball run` over two conformance fixtures plus `ball info`
   and `ball version`, byte-compared against the same goldens the in-repo tests
   use (#586). Off the *public* proxy this only works once the six
-  `go/<module>/v0.1.0` tags are pushed on one commit; until then the practical
-  acquisition path is still clone-and-build (#361). The six tags still point at
-  `v0.1.0` — re-cutting them so a released `ball` carries the committed artifacts
-  is a separate, owner-approved release action.
+  `go/<module>/vX.Y.Z` tags for that version are pushed on one commit; until then
+  the practical acquisition path is still clone-and-build (#361).
+
+  **`v0.1.0` is not usable and never will be.** Those six tags exist, but they
+  predate #586: at that commit the compiled engine and CLI core were gitignored
+  and build-tag-gated, so a binary installed from them can only
+  `compile`/`encode`/`check`. Go tags are immutable once fetched through
+  `proxy.golang.org`/`sum.golang.org` (a moved tag is a checksum mismatch for
+  every consumer that already has it), so they are NOT re-cut — **`v0.2.0` is
+  the first Go module line that carries the committed artifacts**, and its six
+  tags come from `.github/workflows/tag-go-modules.yml`. Move the line only with
+  `tools/go-module-proxy/bump_go_modules.sh` (see `go/AGENTS.md`).

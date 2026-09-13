@@ -11,6 +11,18 @@ members = [
     "tools/rq1-study",
 ]
 
+# The checked-in FIXTURE CRATES for `encode_crate` (issue #491). They are real
+# crates on purpose — `rust/encoder/tests/crate_encoding.rs` walks their `mod`
+# graphs and proves the documented "crate root = the directory holding
+# Cargo.toml" entry point — but nothing ever builds them with cargo, and a
+# manifest inside a workspace directory is otherwise an error ("current package
+# believes it's in a workspace when it's not"). Excluding them says so
+# explicitly instead of leaving cargo to guess.
+exclude = [
+    "encoder/tests/fixtures/counter_crate",
+    "encoder/tests/fixtures/modgraph_crate",
+]
+
 # Phase 1a scaffold (issue #33): no Ball logic yet — just a compiling workspace
 # with the five member crates wired together via path dependencies so later
 # phases (proto bindings #34, compiler #36-38, encoder #42-43, engine #39,

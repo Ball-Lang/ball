@@ -26,16 +26,23 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. Seven are flipped today: receiver-less associated functions and
-//! cross-file call targets (PR #526), non-`Fn` items inside an `impl` block,
-//! tuple + unit structs, and — newest — module-scope `const`/`static`/`type`
-//! aliases and non-`Fn` items inside a `trait` block. The deeper proofs live
-//! in `rust/encoder/tests/static_methods.rs`,
+//! unverified. **Eight** are flipped today: receiver-less associated functions
+//! and cross-file call targets (PR #526), non-`Fn` items inside an `impl`
+//! block, tuple + unit structs, module-scope `const`/`static`/`type` aliases,
+//! non-`Fn` items inside a `trait` block, and — newest — the cross-file
+//! METHOD call, closed by the crate-aware `encode_crate`. The deeper proofs
+//! live in `rust/encoder/tests/static_methods.rs`,
 //! `rust/encoder/tests/cross_module_calls.rs`,
 //! `rust/encoder/tests/mixed_impl_items.rs`,
-//! `rust/encoder/tests/tuple_and_unit_structs.rs` and
-//! `rust/encoder/tests/mixed_module_items.rs`; the flipped tests here
+//! `rust/encoder/tests/tuple_and_unit_structs.rs`,
+//! `rust/encoder/tests/mixed_module_items.rs` and
+//! `rust/encoder/tests/crate_encoding.rs`; the flipped tests here
 //! remain the goalposts that keep this file's gap list honest.
+//!
+//! **Count them, don't quote a number from memory.** `grep -c should_panic
+//! rust/encoder/tests/documented_gaps.rs` is the authoritative "what is still
+//! open"; a prose tally in this comment or in `.claude/rules/rust.md` goes
+//! stale the moment a slice lands (it had, by two, before this one).
 //!
 //! **Closing a gap can create a new one, and that pin is owed in the same
 //! PR.** Skipping a module-scope `const` declaration made a *reference* to one
@@ -67,10 +74,11 @@
 //!   syntax into that already-supported `is_static` shape — closed by slice 3.
 //!
 //! `methods.rs`' cross-file METHOD-call gap — 24 of 196 study files, the
-//! largest remaining bucket — used to be listed above as unpinned. It is
-//! pinned now, at the bottom of this file, *without* being closed: a gate
-//! nothing observes is a missing-test bug on its own, independent of whether
-//! the behaviour ever changes.
+//! largest remaining bucket — was first listed above as unpinned, then pinned
+//! (PR #589) *without* being closed, because a gate nothing observes is a
+//! missing-test bug on its own. It is CLOSED now, by the crate-aware
+//! `encode_crate`, and its test at the bottom of this file is flipped
+//! accordingly.
 
 /// Source is only ever encoded, never compiled, so every snippet here is
 /// minimal — the panic must fire on the shape, not on anything downstream.
@@ -227,8 +235,9 @@ fn trait_associated_const_and_type_encode() {
 /// table's larger 24-file row is the SEPARATE `unsupported method call,
 /// callee not in this file` gap: `methods.rs`'s own panic on a
 /// `receiver.method(args)` whose method name isn't in the
-/// `collect_impl_method_params` pre-pass. That bucket is untouched here and
-/// has no pin in this file yet — it is the recommended next slice.)
+/// `collect_impl_method_params` pre-pass. That bucket is CLOSED too now, by
+/// the crate-aware `encode_crate` — see `cross_file_method_call_encodes` at
+/// the bottom of this file.)
 ///
 /// A cross-file call now encodes as an unresolved `ModuleImport` rather than
 /// panicking; the structural assertions live in
@@ -292,29 +301,39 @@ fn unmapped_macro_invocation_is_a_documented_gap() {
 
 // ── methods.rs: instance-method resolution ───────────────────────────────────
 
-/// The single largest remaining bucket of issue #491 — **24 of 196 study
-/// files**, bigger than the 26-file associated-fn bucket was after that one
-/// closed — and, until now, the only gap in this file's list with no pin at
-/// all. `methods.rs::encode_method_call`'s catch-all fires for a
-/// `receiver.method(args)` whose method is neither a recognized built-in arm
-/// nor a same-file `impl` method name recorded by the
+/// **CLOSED** by issue #491's crate-aware slice — the single largest bucket in
+/// the study, **24 of 196 files**, bigger than the 26-file associated-fn bucket
+/// was before #526 closed it. `methods.rs::encode_method_call`'s catch-all
+/// fires for a `receiver.method(args)` whose method is neither a recognized
+/// built-in arm nor a same-file `impl` method name recorded by the
 /// `collect_impl_method_params` pre-pass; the overwhelmingly common real-world
 /// cause is that the method IS user-defined, just in another file.
 ///
-/// Behaviour is unchanged by the PR that added this test — the gate already
-/// existed, nothing observed it. It is deliberately NOT closed here: unlike
-/// the cross-file *free-function* call (`other_file::helper(1)`, closed
-/// earlier), `receiver.method(args)` carries no module-qualifying path segment
-/// for a syntax-only encoder to attribute the callee to, so closing it needs a
-/// multi-file-aware encoding mode — a design decision, not a dispatch-table
-/// arm. See `methods.rs`'s module doc comment for the neighbouring PERMANENT
-/// carve-outs, which this bucket is explicitly not one of.
+/// It could not be closed one file at a time. Unlike the cross-file
+/// *free-function* call (`other_file::helper(1)`, closed by #526),
+/// `receiver.method(args)` carries no module-qualifying path segment for a
+/// syntax-only encoder to attribute the callee to. The owner's 2026-09-13
+/// decision on #491 was a crate-aware entry point — `encode_crate`, which walks
+/// the `mod` graph and encodes every file against ONE crate-wide symbol table,
+/// the Rust sibling of `dart/encoder/lib/package_encoder.dart`. The
+/// encode → compile → **run** proof lives in
+/// `rust/encoder/tests/crate_encoding.rs`.
+///
+/// The boundary this NARROWS rather than removes has its own pin there
+/// (`a_method_no_file_in_the_crate_declares_still_fails_loud`): a method no
+/// file in the crate declares is still a loud panic, because a syntax-only
+/// encoder cannot tell that from a typo. See `methods.rs`'s module doc comment
+/// for the neighbouring PERMANENT carve-outs, which this bucket is explicitly
+/// not one of.
 #[test]
-#[should_panic(expected = "unsupported method call")]
-fn cross_file_method_call_is_a_documented_gap() {
-    encode(
-        "struct Foo { x: i32 }\n\
-         impl Foo { fn get(&self) -> i32 { self.x } }\n\
-         fn main() { let f = Foo { x: 1 }; println!(\"{}\", f.other_method()); }",
+fn cross_file_method_call_encodes() {
+    let crate_root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("counter_crate");
+    let program = ball_lang_encoder::encode_crate(&crate_root);
+    assert!(
+        program.modules.iter().any(|m| m.name == "counter"),
+        "the crate walk must reach the file declaring the called method"
     );
 }

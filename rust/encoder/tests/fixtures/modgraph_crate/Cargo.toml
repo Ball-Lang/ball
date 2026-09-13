@@ -1,0 +1,17 @@
+# A LIBRARY fixture crate whose `mod` graph uses every resolution shape the
+# Rust reference documents (issue #491) — `foo/mod.rs`, `#[path = "..."]`, an
+# inline `mod` block, an out-of-line `mod` inside a non-mod-rs file, and a
+# `#[cfg(test)]` module that must NOT be walked.
+#
+# Like `counter_crate`, nothing builds this with cargo (it is in
+# `rust/Cargo.toml`'s workspace `exclude` list); it is read as input by
+# `rust/encoder/tests/crate_encoding.rs`.
+[package]
+name = "ball-fixture-modgraph-crate"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+name = "ball_fixture_modgraph_crate"
+path = "src/lib.rs"

@@ -191,4 +191,73 @@ void main() {
       },
     );
   });
+
+  // `_isPureExpression` decides whether a null-aware operand may simply be
+  // REPEATED in the `!= null` guard and the element, or must first be bound to
+  // a temp so it is evaluated exactly once. Its parenthesised and
+  // property-access arms had no test (issue #605) even though both are ordinary
+  // Dart: `?(x)` and `?a.b.c`. Getting either wrong is silent — the operand
+  // would be bound through the `collection_for` temp shape instead, which is
+  // still correct but needlessly allocates, or (if misjudged the other way) an
+  // impure operand would be evaluated twice. Every expectation is the verified
+  // native `dart run` output.
+  group('pure null-aware operands are repeated, not bound', () {
+    const _classes = '''
+class Box {
+  int? v;
+  Box(this.v);
+}
+
+class Outer {
+  Box b;
+  Outer(this.b);
+}
+''';
+
+    test('a parenthesised identifier is pure', () async {
+      expect(
+        await run('''
+$_classes
+List<int> paren(int? x) => [1, ?(x)];
+void main() {
+  print(paren(2));
+  print(paren(null));
+}
+'''),
+        '[1, 2]\n[1]',
+      );
+    });
+
+    test('a multi-step property access is pure', () async {
+      expect(
+        await run('''
+$_classes
+List<int> propAccess(Outer o) => [1, ?o.b.v];
+void main() {
+  print(propAccess(Outer(Box(7))));
+  print(propAccess(Outer(Box(null))));
+}
+'''),
+        '[1, 7]\n[1]',
+      );
+    });
+
+    test('an impure operand is still evaluated exactly once', () async {
+      // The counterpart to the two above: a CALL is not pure, so it must be
+      // bound rather than repeated — one 'eval' line, never two.
+      expect(
+        await run('''
+int? probe(int? v) {
+  print('eval');
+  return v;
+}
+void main() {
+  print([1, ?probe(3)]);
+  print([1, ?probe(null)]);
+}
+'''),
+        'eval\n[1, 3]\neval\n[1]',
+      );
+    });
+  });
 }

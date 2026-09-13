@@ -462,6 +462,97 @@ void main() {
       expect(w['location'], 'main.loop');
     });
   });
+
+  // `_exprIsSet` answers "does this Expression have ANY expression kind set?".
+  // Only its first probe (`hasCall`) was ever exercised — a `for` update is
+  // almost always a `std.assign` CALL — so the other six oneof arms sat
+  // uncovered (issue #605). They are load-bearing: the analyzer must treat a
+  // present-but-EMPTY `update` field as "no update" (and warn), and must treat
+  // every one of the seven Expression kinds as a real update (and not warn).
+  group('for-loop update: every Expression kind counts as "set"', () {
+    List<Map> forLoopWarnings(Map<String, dynamic>? update) {
+      final program = _buildProgram(
+        stdFunctions: [
+          {'name': 'for', 'inputType': 'ForInput'},
+          {'name': 'print', 'inputType': 'PrintInput'},
+          {'name': 'less_than', 'inputType': 'BinaryInput'},
+        ],
+        functions: [
+          {
+            'name': 'main',
+            'body': _call(
+              'std',
+              'for',
+              _msg('ForInput', [
+                _field('init', _litInt(0)),
+                _field(
+                  'condition',
+                  _call(
+                    'std',
+                    'less_than',
+                    _msg('BinaryInput', [
+                      _field('left', _ref('i')),
+                      _field('right', _litInt(10)),
+                    ]),
+                  ),
+                ),
+                if (update != null) _field('update', update),
+                _field(
+                  'body',
+                  _call(
+                    'std',
+                    'print',
+                    _msg('PrintInput', [_field('message', _litStr('x'))]),
+                  ),
+                ),
+              ]),
+            ),
+          },
+        ],
+      );
+      return analyzeTermination(
+        program,
+      ).cast<Map>().where((w) => w['category'] == 'infinite_loop').toList();
+    }
+
+    // One case per `Expression` oneof arm, in the order `_exprIsSet` probes
+    // them, so each arm is the one that answers.
+    final kinds = <String, Map<String, dynamic>>{
+      'call': _call('std', 'print', _msg('PrintInput', [])),
+      'literal': _litInt(1),
+      'reference': _ref('i'),
+      'fieldAccess': _fieldAccess(_ref('obj'), 'n'),
+      'messageCreation': _msg('Tick', [_field('n', _litInt(1))]),
+      'block': _block([_exprStmt(_ref('i'))]),
+      'lambda': _lambda(_ref('i')),
+    };
+    for (final entry in kinds.entries) {
+      test('an update of kind "${entry.key}" is an update', () {
+        expect(
+          forLoopWarnings(entry.value),
+          isEmpty,
+          reason:
+              'a `for` whose update is a ${entry.key} expression has an '
+              'update, so it must not be reported as update-less',
+        );
+      });
+    }
+
+    test('a present but EMPTY update expression is not an update', () {
+      // The field exists, so `_getFieldValue` returns non-null — but no oneof
+      // arm is set, so all seven probes must answer false and the loop must
+      // still be reported.
+      final warnings = forLoopWarnings(<String, dynamic>{});
+      expect(warnings, hasLength(1));
+      expect(warnings[0]['message'], contains('for loop without update'));
+    });
+
+    test('an absent update field is not an update', () {
+      final warnings = forLoopWarnings(null);
+      expect(warnings, hasLength(1));
+      expect(warnings[0]['message'], contains('for loop without update'));
+    });
+  });
 }
 
 /// Build a termination warning Map (mirrors the analyzer's warning shape).

@@ -164,4 +164,64 @@ void main() {
       expect(_empty('string_pad_left'), contains('/* invalid padLeft */'));
     });
   });
+
+  // The regex family's guard was the one marker in this set with no test
+  // (issue #605): it is the only line `coverage_dart.dart` still reported for
+  // dart/compiler. It needs all THREE of value/from/to, so a call missing any
+  // one of them lands here — pinned below both ways.
+  group('regex helper guards', () {
+    test('regex_replace / regex_replace_all with no operands', () {
+      expect(
+        _empty('regex_replace'),
+        contains('/* invalid regex replaceFirst */'),
+      );
+      expect(
+        _empty('regex_replace_all'),
+        contains('/* invalid regex replaceAll */'),
+      );
+    });
+
+    test('regex_replace with a partial operand set', () {
+      // value + from present, `to` missing — still invalid, and the marker
+      // must name the method so the malformed call is identifiable.
+      final src = _compile(
+        _paren(
+          _call('regex_replace', [
+            _field(
+              'value',
+              Expression()..literal = (Literal()..stringValue = 'abc'),
+            ),
+            _field(
+              'from',
+              Expression()..literal = (Literal()..stringValue = 'b'),
+            ),
+          ]),
+        ),
+      );
+      expect(src, contains('/* invalid regex replaceFirst */'));
+    });
+
+    test('a complete regex_replace still compiles normally', () {
+      final src = _compile(
+        _paren(
+          _call('regex_replace', [
+            _field(
+              'value',
+              Expression()..literal = (Literal()..stringValue = 'abc'),
+            ),
+            _field(
+              'from',
+              Expression()..literal = (Literal()..stringValue = 'b'),
+            ),
+            _field(
+              'to',
+              Expression()..literal = (Literal()..stringValue = 'X'),
+            ),
+          ]),
+        ),
+      );
+      expect(src, contains('replaceFirst(RegExp('));
+      expect(src, isNot(contains('/* invalid')));
+    });
+  });
 }

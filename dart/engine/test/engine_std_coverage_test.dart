@@ -89,7 +89,8 @@ const _stdFnNames = <String>[
   // concurrency / misc
   'thread_spawn', 'thread_join', 'mutex_create', 'mutex_lock', 'mutex_unlock',
   'scoped_lock', 'atomic_load', 'atomic_store', 'atomic_compare_exchange',
-  'symbol', 'type_literal', 'switch_expr',
+  'symbol', 'type_literal', 'switch_expr', 'type_of', 'probe_host_value',
+  'probe_tagged_map',
   // builtin-class statics, index, cascade, record, string buffer
   'dart_list_generate', 'dart_list_filled', 'index', 'cascade',
   'null_aware_cascade', 'record', 'string_buffer_create', 'string_buffer_write',
@@ -1481,6 +1482,49 @@ void main() {
         'true',
       );
     });
+    // A raw `Map<String, Object?>` — a `BallRawMap`, the type the portable
+    // ordered set IS — carrying the `__ball_set__` marker but NOT a list under
+    // it. `_ballValueIsSet` says "set" (it keys on the marker alone, see
+    // engine_types.dart), the `is BallRawMap` promotion added for issue #557
+    // then reads the tag, and neither the `BallList` nor the `List` arm
+    // matches. The empty-list fallback is what keeps that shape from crashing
+    // the engine; issue #605 found it uncovered. A module handler is the
+    // documented seam through which a raw map reaches the engine — and on the
+    // Rust/C#/C++/Go/Python runtimes the ordered set IS exactly this raw map,
+    // so a malformed one is a real cross-target shape, not a synthetic one.
+    test(
+      'a marker-carrying raw map with a non-list tag reads as empty',
+      () async {
+        Future<String> readVia(String fn) async {
+          // A FRESH handler per run: `StdModuleHandler.init` captures the
+          // engine's stdout sink, so reusing one instance across two engines
+          // would keep writing to the first engine's captured lines.
+          final std = StdModuleHandler()
+            ..register(
+              'probe_tagged_map',
+              (_) => <String, Object?>{'__ball_set__': 'not-a-list'},
+            );
+          final program = buildProgram(
+            functions: [
+              mainFn([
+                stmt(
+                  printToString(
+                    stdCall(
+                      fn,
+                      msg([field('set', stdCall('probe_tagged_map', msg([])))]),
+                    ),
+                  ),
+                ),
+              ]),
+            ],
+          );
+          return (await runAndCapture(program, handlers: [std])).single;
+        }
+
+        expect(await readVia('set_length'), '0');
+        expect(await readVia('set_to_list'), '[]');
+      },
+    );
     test('set_union', () async {
       expect(
         await evalPrint(
@@ -2027,6 +2071,27 @@ void main() {
         ),
         '5',
       );
+    });
+    // Static-method dispatch: `math_clamp({value: <class ref>, min: v,
+    // max: lo, arg2: hi})`. When `value` is map-shaped it is a class
+    // reference, not the number to clamp, so every operand shifts one slot.
+    // Issue #605 found this whole arm uncovered.
+    test('math_clamp shifts its operands for static-method dispatch', () async {
+      Future<String> clampVia(int v, int lo, int hi) => evalPrint(
+        stdCall(
+          'math_clamp',
+          msg([
+            // A class-reference receiver: map-shaped, never a number.
+            field('value', msg([field('__type__', literal('main:MathRef'))])),
+            field('min', literal(v)),
+            field('max', literal(lo)),
+            field('arg2', literal(hi)),
+          ]),
+        ),
+      );
+      expect(await clampVia(10, 0, 5), '5');
+      expect(await clampVia(-3, 0, 5), '0');
+      expect(await clampVia(3, 0, 5), '3');
     });
     test('math constants', () async {
       expect(await evalPrint(stdCall('math_pi', msg([]))), '3.141592653589793');
@@ -2856,6 +2921,72 @@ void main() {
       expect(
         await switchPat(listLit([literal(1), literal(9)]), pat, 'list-match'),
         'default',
+      );
+    });
+  });
+
+  // `std.type_of` (#489) — the two arms issue #605 found uncovered: the
+  // fail-loud guard on a non-message input, and the host-value fallback that
+  // every value outside the portable vocabulary (Null/bool/int/double/String/
+  // List/Set/Function/Map/user class) lands on.
+  group('type_of', () {
+    test('a portable value reports its canonical base type name', () async {
+      expect(
+        await evalPrintStr(
+          stdCall('type_of', msg([field('value', literal(1))])),
+        ),
+        'int',
+      );
+      expect(
+        await evalPrintStr(
+          stdCall('type_of', msg([field('value', literal('x'))])),
+        ),
+        'String',
+      );
+    });
+
+    test('a non-message input fails loud', () async {
+      // The handler must never answer for an input it cannot read — a silent
+      // '' or 'Null' here would make `type_of` lie about the value.
+      final program = buildProgram(
+        functions: [
+          mainFn([stmt(call('type_of', module: 'std', input: literal(7)))]),
+        ],
+      );
+      await expectLater(
+        runAndCapture(program),
+        throwsA(
+          isA<BallRuntimeError>().having(
+            (e) => e.message,
+            'message',
+            contains('std.type_of'),
+          ),
+        ),
+      );
+    });
+
+    test('a host value falls back to its runtime type name', () async {
+      // A custom module handler is the documented extensibility seam, so a
+      // host object (here a Duration) really can reach `type_of`.
+      final std = StdModuleHandler()
+        ..register('probe_host_value', (_) => const Duration(seconds: 1));
+      final program = buildProgram(
+        functions: [
+          mainFn([
+            stmt(
+              printExpr(
+                stdCall(
+                  'type_of',
+                  msg([field('value', stdCall('probe_host_value', msg([])))]),
+                ),
+              ),
+            ),
+          ]),
+        ],
+      );
+      expect(
+        (await runAndCapture(program, handlers: [std])).single,
+        'Duration',
       );
     });
   });

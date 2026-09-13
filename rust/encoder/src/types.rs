@@ -91,6 +91,26 @@
 //! dropping the member's FIRST real parameter (a 0-/1-parameter example
 //! cannot expose that; the round-trip test above declares two on purpose).
 //!
+//! ## Non-`Fn` items inside a `trait` block — skipped since #491
+//!
+//! An associated `const`, an associated `type`, or an item-position macro
+//! inside a `trait` block declares nothing Ball models, so
+//! [`Encoder::encode_item_trait`] **skips** it and keeps encoding the block's
+//! remaining method signatures — the exact tolerance `encode_item_impl`
+//! (below) already had, and the one the pre-pass over this very syntax,
+//! [`Encoder::collect_trait_static_params`], always had. Before this, one
+//! associated const aborted the whole FILE: 3 of the 110 scored files in the
+//! live Tier A funnel stopped here first (e.g. `itertools/adaptors/map.rs`,
+//! `bitflags/traits.rs`).
+//!
+//! Skipping cannot silently change what a program computes: a reference to
+//! the dropped item is a multi-segment path (`Self::SIDES`), which still
+//! fails loud at `lib.rs`'s "unsupported path expression" panic. Proof lives
+//! in `rust/encoder/tests/mixed_module_items.rs`.
+//!
+//! A **signature-only receiver-less** trait fn is a different, still-open gap
+//! — see the section above; that guard is untouched.
+//!
 //! ## Non-`Fn` items inside an `impl` block — skipped since #491 (slice 5)
 //!
 //! An associated `const`, an associated `type`, or an item-position macro
@@ -386,11 +406,22 @@ impl Encoder {
 
         let mut members = Vec::new();
         for trait_item in &item.items {
+            // A non-`Fn` trait item (an associated `const`, an associated
+            // `type`, or an item-position macro) declares nothing Ball
+            // models, so it is SKIPPED rather than aborting the whole block
+            // (issue #491) — the same tolerance [`Encoder::encode_item_impl`]
+            // already has for the identical shapes in an `impl` block, and
+            // the same one the pre-pass over this very syntax,
+            // [`Encoder::collect_trait_static_params`], has always had. Before
+            // this, one associated const aborted the whole FILE: 3 of the 110
+            // scored Tier A files stopped here first.
+            //
+            // Skipping cannot silently change what a program computes: a real
+            // *reference* to the dropped item (`Self::SIDES`, `Shape::SIDES`)
+            // is a multi-segment path, which still fails loud on its own at
+            // `lib.rs`'s "unsupported path expression" panic.
             let syn::TraitItem::Fn(trait_fn) = trait_item else {
-                panic!(
-                    "ball-lang-encoder: only method signatures are supported inside a `trait` block \
-                     (associated consts/types are a documented gap): `trait {short}`"
-                );
+                continue;
             };
             let is_default_bodied = trait_fn.default.is_some();
             // A receiver-less trait member is only a gap while it is

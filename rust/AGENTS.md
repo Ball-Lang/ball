@@ -24,16 +24,25 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest baseline, **still 0/110 clean, 0 files even encoded** (5 pinned crates,
-`tools/coverage-study/packages/rust.json`) after every #491 slice merged so far.
+Honest baseline, **still 0/110 clean, 0 files even encoded** (the 5 crates pinned in
+`tools/coverage-study/packages/rust.json` — **`itertools`, `smallvec`, `bitflags`, `heck`,
+`strsim`**, not the original 10-crate set the #491 prose below narrates) after every #491 slice
+merged so far.
 Every scored file is an `encode-error`: the encoder's documented gaps
-(item-level `const`/`static`/`type`, `write!` and other unmapped macros,
+(item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate
 file, and a file that clears one gap lands on the next. That is the honest
 number, not a cherry-picked one — do not "improve" it by changing the pin list,
 and **do not expect a closed gap category to move it** (see "Tuple + unit
 structs" below for the measured before/after histogram that proves it does
 not).
+
+**Run it from a per-worktree `CARGO_TARGET_DIR`, never a shared one.** Two concurrent lanes (or a
+worktree plus the main checkout) pointed at the same target directory will serve each other a
+stale `rlib` from an in-flight edit, producing a red that reproduces nowhere in the affected
+lane's own diff — a false red that cost a day on 2026-09-13. `export
+CARGO_TARGET_DIR="$PWD/.cargo-target"` inside the worktree before any `cargo` command, and keep
+that path gitignored.
 
 `cargo test -p ball-rq1-study` is the harness's own self-test and **is gated on
 every PR** in ci.yml's `rust` job. The RUN is the `rust-tier-a` job
@@ -188,8 +197,9 @@ construction).
 `rust/encoder/tests/documented_gaps.rs` closes that observation gap: one `#[should_panic]`
 characterization test per gap category (data-carrying enum variants, receiver-less associated
 functions in `impl` and `trait` blocks, cross-file call targets, tuple/unit structs, non-`Fn`
-`impl` items, item-level `const`/`static`/`type`, an `impl` whose **self type** is not a plain
-named type, unmapped macro invocations), each pinning the shortest stable
+`impl` and `trait` items, module-scope `const`/`static`/`type` and references to one, an `impl`
+whose **self type** is not a plain named type, unmapped macro invocations at expression and item
+level), each pinning the shortest stable
 substring of today's panic. It runs on the required `Rust` CI check via `cargo test --workspace`.
 **Keep it in sync with the module doc comments** — when a slice closes a gap, flip that test from
 `#[should_panic]` to a real "encodes and round-trips" assertion in the same PR, so the module-doc
@@ -227,7 +237,7 @@ model unresolved cross-module calls — or (b) accepting it as a boundary, the w
 module doc already names `.next()`/`.unwrap_or_default()` as **permanent** carve-outs. That is an
 owner decision, and it should be sized off its own fresh measurement.
 
-#### Receiver-less associated functions + cross-file calls (#491 slice 3)
+#### Receiver-less associated functions + cross-file calls (PR #526, self-labelled "#491 slice 3")
 
 Two more buckets closed, both encoder-side only (no compiler, proto or self-hosted-engine change):
 
@@ -328,10 +338,11 @@ Say that plainly rather than implying a moved floor. The value here is that a re
 narrower than three merged PRs' worth of documentation claimed, and that a latent
 parameter-dropping defect (see the paragraph above) never shipped.
 
-A neighbouring trait gap the same sweep DOES show as live: `only method signatures are supported
-inside a `trait` block` — an associated `const`/`type` inside a `trait` — blocks 3 of the 110
-files first. That is the `impl`-block tolerance of slice 5 not yet extended to `trait` blocks, and
-it is a plausible cheap next slice; it has no `documented_gaps.rs` pin yet either.
+A neighbouring trait gap the same sweep showed as live: `only method signatures are supported
+inside a `trait` block` — an associated `const`/`type` inside a `trait` — blocked 3 of the 110
+files first. That was the `impl`-block tolerance of slice 5 not yet extended to `trait` blocks;
+it is **closed now**, together with the module-scope `const`/`static`/`type` skip — see
+"Module-scope `const`/`static`/`type` alias + trait-block associated items" below.
 
 #### Non-`Fn` items inside an `impl` block (#491 slice 5)
 
@@ -429,6 +440,92 @@ after a PR titled "slice 5" that closed non-`Fn` impl items, a gap discovered or
 never in the issue's list. The headings in this file preserve the labels their PRs actually used;
 **name a gap by its content from here on** (`tuple_and_unit_structs`, `data_carrying_enums`,
 `method_call_cross_file`), not by an ordinal that no longer identifies anything.
+
+**The concrete cost of that drift, recorded so it is not paid twice.** A 2026-09-13 dispatch
+re-targeted "impl associated fns without a `self` receiver (26 study files)" and "same-file/
+`use`-visible call targets (15 files)" as new work. Both were closed six weeks earlier, by
+**PR #526** (`feat(rust,csharp): encode receiver-less associated functions and cross-file calls`,
+merged 2026-09-03) — the PR the "Receiver-less associated functions + cross-file calls" section
+above is now explicitly attributed to, and which appeared in no "landed" list the dispatch was
+built from. The row counts in the issue body are from the ORIGINAL
+196-file/10-crate characterisation and were never revised as slices landed, so reading them as a
+worklist re-targets closed work.
+
+The authoritative "what is still open" is not the issue body: it is
+`rust/encoder/tests/documented_gaps.rs` (every remaining gap has a `#[should_panic]` pin; a closed
+one is a positive assertion) plus a fresh Tier A run's first-blocker histogram. Check those two
+before sizing a slice, and prefer `grep -c should_panic rust/encoder/tests/documented_gaps.rs`
+over any prose count — including this file's.
+
+#### Module-scope `const`/`static`/`type` alias + trait-block associated items (#491)
+
+Two sites that each aborted a whole file on one modelless declaration, closed together because
+they are the same argument:
+
+- `lib.rs`'s top-level item `match` had no arm for `syn::Item::Const`/`Static`/`Type`, so they
+  fell through to the `unsupported top-level item` panic. A top-level **`type` alias was the
+  first blocker for 7 of the 110 scored files** (`itertools/free.rs`, `size_hint.rs`,
+  `intersperse.rs`, `merge_join.rs`, `grouping_map.rs`, `duplicates_impl.rs`,
+  `combinations_with_replacement.rs`).
+- `types.rs::encode_item_trait` panicked (`only method signatures are supported inside a trait
+  block`) on the first non-`Fn` `TraitItem` — **3 of the 110**
+  (`itertools/adaptors/map.rs`, `itertools/iter_index.rs`, `bitflags/traits.rs`). This is the
+  "plausible cheap next slice" the previous section flagged; it is now closed.
+
+Both now **skip** the declaration, exactly as `encode_item_impl` already does one level down.
+
+**The module-scope skip needed a second half that the `impl`-block one did not**, and this is the
+part worth remembering. `encode_item_impl`'s skip is self-securing because a reference to what it
+dropped is `Self::CAP` — a two-segment path `encode_path_expr` already refuses. A module-scope
+`const` is referenced as a bare `LIMIT`, a **single**-segment path that the very same function
+would have passed straight through its `reference(name)` fallback, emitting a read of a binding
+nobody declared: a silent degradation, not a loud failure. So `encode_main_module`'s pass 1
+records every skipped name in `Encoder::skipped_item_names` and `encode_path_expr` panics at the
+USE site, naming the declaration. Copying the `impl` precedent without that guard would have
+traded a loud encode-time panic for a program that fails to build downstream.
+
+**A top-level macro invocation is deliberately NOT included.** A macro at item level can be the
+thing that DEFINES a type the rest of the file references — `bitflags::bitflags! { … }` produces
+the `TestFlags` that every `bitflags/tests/*.rs` file then calls into, and those files are 28 of
+the 110 scored (18 `unsupported call target` + 10 `unsupported path expression`, all on
+`TestFlags::…`). Skipping the macro would orphan those references into a *more* confusing panic
+naming a type that looks like it should exist. That bucket needs macro **expansion**, and is
+pinned by `documented_gaps.rs::top_level_macro_invocation_is_a_documented_gap`.
+
+Proof: `rust/encoder/tests/mixed_module_items.rs` (encode → compile → `cargo build` → run,
+prints `11`) plus its loud-reference counterpart; three `documented_gaps.rs` pins land in the same
+PR — `top_level_const_static_and_type_alias_encode` and `trait_associated_const_and_type_encode`
+flipped positive, `reference_to_a_skipped_top_level_const_is_a_documented_gap` and
+`top_level_macro_invocation_is_a_documented_gap` added. The trait-block gap had **no pin at all**
+before this PR (it was reachable only incidentally through the receiver-less-fn characterisation,
+which exercises a different failure in the same function), so the pin is added here, already
+flipped — a gate nothing observes is a missing-test bug in its own right.
+
+`item_kind_name`'s `const`/`static`/`type alias` arms are gone with them (unreachable now), and
+the variants that CAN still reach the panic are named individually instead of collapsing to
+`item`. That alone identified the three files the previous sweep could only report as an
+unclassified `item`: `itertools/lib.rs` and `heck/lib.rs` are `extern crate`, and
+`smallvec/rawsmallvec.rs` is a `union`.
+
+**Measured before and after, same 5 pins, same 110 scored files: the aggregate does NOT move.**
+`Results: 0 passed, 110 failed, 110 total`, `1 encoded: 0/110` both ways, so
+`tools/coverage-study/baseline.json`'s Rust row (scored 110 / clean 0 / encoded 0) is unchanged —
+nothing dropped, nothing to ratchet up. All 10 files land on a second, independent gap
+immediately:
+
+| first-blocker category | before | after |
+|---|---:|---:|
+| `unsupported top-level item` | 12 | **5** |
+| `only method signatures are supported inside a `trait` block` | 3 | **0** |
+| `unsupported call target` | 30 | 35 |
+| `unsupported method call` | 16 | 18 |
+| `unsupported Rust expression kind` | 7 | 8 |
+| a `let` binding's non-identifier pattern | 0 | 1 |
+| signature-only receiver-less `trait` fn | 0 | 1 |
+| every other category (path expression 12, macro 9, `impl` self type 8, data-carrying enum 5, …) | unchanged | unchanged |
+
+The 5 that still block on `unsupported top-level item` are the 2 macro invocations, 2 `extern
+crate`s and 1 `union` named above — none of them a tolerance fix.
 
 #### `.fuse()` / `.is_empty()` (#491 slice 6)
 

@@ -63,6 +63,32 @@
 //! semantics of their own); anything else unhandled is a loud panic, never a
 //! silent skip.
 //!
+//! ## Module-scope `const`/`static`/`type` alias: skipped, not a panic (#491)
+//!
+//! A module-scope `const`, `static` or `type` alias declares nothing Ball
+//! models, so [`encode_main_module`] **skips** it and keeps encoding the
+//! file's real code — the same tolerance `types.rs::encode_item_impl` already
+//! has for the identical shapes inside an `impl` block. Before this, one such
+//! declaration aborted the whole file: a top-level `type` alias was the FIRST
+//! blocker for 7 of the 110 scored files in the live Tier A funnel.
+//!
+//! Unlike the `impl`-block skip, this one needs a second half to stay honest.
+//! A skipped `impl` item is referenced as `Self::CAP` — a two-segment path
+//! [`Encoder::encode_path_expr`] already refuses — whereas a skipped
+//! module-scope one is referenced as a bare `LIMIT`, a single-segment path
+//! the same function would otherwise pass through its `reference(name)`
+//! fallback, emitting a read of a binding nobody declared. So the skipped
+//! names are recorded ([`Encoder::skipped_item_names`]) and a reference to
+//! one fails **loud** at the use site, naming the declaration.
+//!
+//! A top-level **macro invocation** stays a loud panic on purpose: a macro at
+//! item level can be the very thing that DEFINES a type the rest of the file
+//! references (`bitflags::bitflags! { … }` produces the `TestFlags` every
+//! `bitflags/tests/*.rs` file then calls into — 28 of those 110 scored
+//! files), so skipping it would orphan those references into a confusing
+//! downstream panic instead of a clean boundary. Closing that bucket needs
+//! macro *expansion*, a materially bigger feature.
+//!
 //! ## Cross-file calls: an unresolved `ModuleImport`, not a panic (issue #491)
 //!
 //! A call into a MODULE this file does not declare (`other_file::helper(1)`)
@@ -442,6 +468,27 @@ fn encode_main_module(source: &str) -> EncodedFile {
             syn::Item::Impl(item_impl) => {
                 encoder.collect_impl_method_params(item_impl);
             }
+            // A module-scope `const`/`static`/`type` alias declares nothing
+            // Ball models, so pass 2 SKIPS it (issue #491) — but its NAME has
+            // to be remembered here, before any expression is encoded,
+            // because a bare `LIMIT` is a single-segment path that
+            // `encode_path_expr` would otherwise hand to its
+            // `reference(name)` fallback. See `skipped_item_names`.
+            syn::Item::Const(item_const) => {
+                encoder
+                    .skipped_item_names
+                    .insert(item_const.ident.to_string());
+            }
+            syn::Item::Static(item_static) => {
+                encoder
+                    .skipped_item_names
+                    .insert(item_static.ident.to_string());
+            }
+            syn::Item::Type(item_type) => {
+                encoder
+                    .skipped_item_names
+                    .insert(item_type.ident.to_string());
+            }
             _ => {}
         }
     }
@@ -478,10 +525,36 @@ fn encode_main_module(source: &str) -> EncodedFile {
             // Imports and (sub)modules carry no runtime semantics of their
             // own to encode — silently skipped, not a scope violation.
             syn::Item::Use(_) | syn::Item::Mod(_) => {}
+            // A module-scope `const`/`static`/`type` alias declares nothing
+            // Ball models, so it is SKIPPED rather than aborting the whole
+            // file (issue #491) — the same tolerance
+            // `types.rs::encode_item_impl` already has for the identical
+            // shapes one level down, inside an `impl` block.
+            //
+            // Unlike that one, the skip is NOT safe on its own: `Self::CAP`
+            // is a two-segment path that lands on `encode_path_expr`'s
+            // "unsupported path expression" panic by itself, whereas a bare
+            // `LIMIT` is a single-segment path the same function would pass
+            // straight through its `reference(name)` fallback — a dangling
+            // reference to a binding nobody declared, i.e. exactly the silent
+            // degradation this crate's fail-loud posture exists to prevent.
+            // The names are therefore recorded in pass 1
+            // (`skipped_item_names`) and `encode_path_expr` fails loud at the
+            // USE site instead. Proof:
+            // `rust/encoder/tests/mixed_module_items.rs`.
+            //
+            // `syn::Item::Macro` is deliberately NOT folded in here: a macro
+            // at item level can be the very thing that DEFINES a type the
+            // rest of the file references (`bitflags::bitflags! { … }`
+            // produces the `TestFlags` every `bitflags/tests/*.rs` file then
+            // calls into), so skipping it would orphan those references into
+            // a confusing downstream panic naming a type that looks like it
+            // should exist. Closing that bucket needs macro *expansion*.
+            syn::Item::Const(_) | syn::Item::Static(_) | syn::Item::Type(_) => {}
             other => panic!(
                 "ball-lang-encoder: unsupported top-level item `{}` — issue #43's scope covers \
-                 struct/enum/trait/impl declarations; consts/statics/type-aliases/macro \
-                 invocations at item level remain deferred",
+                 struct/enum/trait/impl declarations (plus skipped consts/statics/type-aliases); \
+                 macro invocations at item level remain deferred",
                 item_kind_name(other)
             ),
         }
@@ -521,12 +594,23 @@ fn encode_main_module(source: &str) -> EncodedFile {
     }
 }
 
+/// The human-readable name the "unsupported top-level item" panic reports.
+///
+/// `Const`/`Static`/`Type` are absent on purpose — they are skipped now
+/// (issue #491) and can no longer reach the panic, so listing them would
+/// describe a branch that does not exist. Every *other* `syn::Item` variant
+/// that still can reach it is named individually: an unclassified `item` is
+/// exactly the diagnostic that makes a real-code sweep un-actionable (3 of
+/// the 110 scored Tier A files reported it, with no way to tell a `union`
+/// from an `extern crate` from unparsed `Verbatim` tokens).
 fn item_kind_name(item: &syn::Item) -> &'static str {
     match item {
-        syn::Item::Const(_) => "const",
-        syn::Item::Static(_) => "static",
-        syn::Item::Type(_) => "type alias",
         syn::Item::Macro(_) => "macro invocation",
+        syn::Item::Union(_) => "union",
+        syn::Item::ExternCrate(_) => "extern crate",
+        syn::Item::ForeignMod(_) => "extern block",
+        syn::Item::TraitAlias(_) => "trait alias",
+        syn::Item::Verbatim(_) => "verbatim tokens",
         _ => "item",
     }
 }
@@ -595,6 +679,19 @@ pub(crate) struct Encoder {
     /// [`Self::tuple_struct_names`] — a struct is named, tuple, or unit, never
     /// two of them.
     pub(crate) unit_struct_names: HashSet<String>,
+    /// The name of every module-scope `const`/`static`/`type` alias this file
+    /// declares — declarations Ball models nothing for, which
+    /// [`encode_main_module`]'s pass 2 therefore SKIPS (issue #491).
+    ///
+    /// Recorded so the skip cannot degrade silently. A skipped `impl`-block
+    /// item is referenced as `Self::CAP`, a two-segment path that
+    /// [`Self::encode_path_expr`] already refuses on its own; a skipped
+    /// module-scope one is referenced as a bare `LIMIT`, a single-segment
+    /// path that the very same function would otherwise pass through its
+    /// `reference(name)` fallback, emitting a read of a binding nobody
+    /// declared. This set is what turns that into a loud panic naming the
+    /// declaration.
+    pub(crate) skipped_item_names: HashSet<String>,
     /// Every module alias a call site referenced but this file does not
     /// declare — recorded as an unresolved [`ModuleImport`] on the `main`
     /// module (see [`Self::encode_call`]'s unresolved-external branch). A
@@ -614,6 +711,7 @@ impl Encoder {
             local_type_names: HashSet::new(),
             tuple_struct_names: HashSet::new(),
             unit_struct_names: HashSet::new(),
+            skipped_item_names: HashSet::new(),
             unresolved_modules: BTreeSet::new(),
         }
     }
@@ -797,6 +895,20 @@ impl Encoder {
             // binding nobody declared.
             if self.unit_struct_names.contains(&name) {
                 return self.encode_unit_struct_creation(&name);
+            }
+            // A module-scope `const`/`static`/`type` alias whose DECLARATION
+            // was skipped (issue #491, see `skipped_item_names`). Checked
+            // here — last, after the enclosing fn/closure's own parameters
+            // and after unit structs, so a same-named binding still wins,
+            // matching this file's established syntactic, name-only
+            // resolution — and *before* the `reference(name)` fallback, which
+            // would otherwise emit a read of a binding nobody declared.
+            if self.skipped_item_names.contains(&name) {
+                panic!(
+                    "ball-lang-encoder: `{name}` names a top-level `const`/`static`/`type` alias, \
+                     whose declaration this encoder skips — referencing one is a documented gap; \
+                     inline the value or pass it as a parameter"
+                );
             }
             return reference(name);
         }

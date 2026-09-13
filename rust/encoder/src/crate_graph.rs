@@ -30,14 +30,28 @@
 //! - Inside an inline `mod` block the two bases coincide, at the mod-rs (or
 //!   non-mod-rs-plus-its-own-name) directory extended by the inline module
 //!   components.
+//! - `#[path = "..."]` on an inline `mod` block **replaces** the component that
+//!   block would otherwise contribute, so the reference's own combined example
+//!   — `#[path = "thread_files"] mod thread { #[path = "tls.rs"] mod
+//!   local_data; }` — resolves to `thread_files/tls.rs` relative to the source
+//!   file's directory (issue #626). Proven by
+//!   `crate_encoding.rs::a_path_attribute_on_an_inline_mod_block_rebases_its_children`.
 //!
 //! ## Deliberate deviations, each for a stated reason
 //!
-//! - **`#[cfg(test)]` modules are not walked.** `cargo build` does not compile
+//! - **TEST-ONLY modules are not walked.** `cargo build` does not compile
 //!   them, so neither does this; they are also where `assert!`-heavy code
 //!   lives, and one loud panic aborts the whole crate encode. Proven by
 //!   `crate_encoding.rs::a_cfg_test_module_is_not_walked`, whose fixture's
 //!   test module holds an `assert!` the encoder has no mapping for.
+//!   "Test-only" is decided by evaluating the `cfg` predicate with
+//!   `test := false` and every other leaf UNKNOWN ([`is_cfg_test`]), not by
+//!   scanning its tokens for a bare `test` ident — that scan matched
+//!   `#[cfg(not(test))]` too and **silently dropped** a module every ordinary
+//!   build has (issue #626), which is precisely the failure the last bullet
+//!   below rules out for a missing FILE. A module that a feature can turn on
+//!   (`#[cfg(any(test, feature = "x"))]`) is kept for the same reason: `cargo
+//!   build --features x` compiles it.
 //! - **An inline `mod` block becomes its own Ball module**, not a flattening
 //!   into its parent — it is a separate Rust module, and flattening would
 //!   collide two same-named items that Rust keeps apart.
@@ -410,8 +424,18 @@ fn walk_items(
                     items: inline_items.clone(),
                 },
             });
-            // Inside an inline block both bases are the same nested directory.
-            let nested = dirs.out_of_line.join(&name);
+            // Inside an inline block both bases are the same nested directory:
+            // the current out-of-line base extended by the component this block
+            // contributes. `#[path = "…"]` on the BLOCK REPLACES that
+            // component, resolved against the block's own `#[path]` base — the
+            // reference's combined example, `#[path = "thread_files"] mod
+            // thread { #[path = "tls.rs"] mod local_data; }`, landing on
+            // `thread_files/tls.rs` relative to the source file's directory
+            // (issue #626).
+            let nested = match path_attribute(&item_mod.attrs) {
+                Some(rel) => dirs.path_attr.join(rel),
+                None => dirs.out_of_line.join(&name),
+            };
             let child_dirs = ModuleDir {
                 out_of_line: nested.clone(),
                 path_attr: nested,
@@ -486,25 +510,117 @@ fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
     None
 }
 
-/// Is this item gated on `cfg(test)`? Scans the predicate's token tree for a
-/// bare `test` IDENT, so `#[cfg(all(test, unix))]` counts and
-/// `#[cfg(feature = "testing")]` (a string literal, not an ident) does not.
+/// Is this item **test-only** — does `cargo build`, with `test` OFF, definitely
+/// not compile it?
+///
+/// The predicate is evaluated three-valued ([`cfg_without_test`]) with
+/// `test := false` and every other leaf UNKNOWN, and the module is skipped only
+/// when the whole predicate comes out definitely FALSE. Scanning the token tree
+/// for a bare `test` ident instead — what this did before issue #626 — also
+/// matched `#[cfg(not(test))]`, a module every ordinary build HAS, and dropped
+/// it silently.
+///
+/// | predicate | with `test = false` | module |
+/// | --- | --- | --- |
+/// | `test` | false | skipped |
+/// | `all(test, unix)` | false | skipped |
+/// | `not(test)` | true | kept |
+/// | `all(unix, not(test))` | unknown (`unix` is unknown) | kept |
+/// | `any(test, feature = "x")` | unknown | kept |
+/// | `feature = "testing"` | unknown (a literal, not the ident) | kept |
+///
+/// `any(test, feature = "x")` is KEPT deliberately: `cargo build --features x`
+/// compiles that module, so it is a module an ordinary build has, and skipping
+/// it would be the same silent scope loss in a rarer spelling.
 fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+    // Stacked `cfg` attributes are conjoined, so ONE test-only conjunct gates
+    // the whole item.
     attrs.iter().any(|attr| {
         attr.path().is_ident("cfg")
-            && match &attr.meta {
-                syn::Meta::List(list) => contains_test_ident(list.tokens.clone()),
-                _ => false,
-            }
+            && attr
+                .parse_args::<syn::Meta>()
+                .is_ok_and(|meta| cfg_without_test(&meta) == Tri::False)
     })
 }
 
-fn contains_test_ident(tokens: proc_macro2::TokenStream) -> bool {
-    tokens.into_iter().any(|tree| match tree {
-        proc_macro2::TokenTree::Ident(ident) => ident == "test",
-        proc_macro2::TokenTree::Group(group) => contains_test_ident(group.stream()),
-        _ => false,
-    })
+/// A `cfg` predicate's value once `test` is known false and nothing else is
+/// known at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tri {
+    False,
+    True,
+    Unknown,
+}
+
+impl Tri {
+    fn negate(self) -> Tri {
+        match self {
+            Tri::False => Tri::True,
+            Tri::True => Tri::False,
+            Tri::Unknown => Tri::Unknown,
+        }
+    }
+}
+
+/// Evaluate a `cfg` predicate with `test := false` and every other leaf
+/// UNKNOWN. `not`/`all`/`any` are evaluated as the boolean operators the
+/// reference defines them to be — NOT special-cased by name around a string
+/// scan, which is what made the previous implementation wrong in one direction
+/// only.
+///
+/// A shape this cannot read (an unparseable predicate, a `not(...)` with other
+/// than one operand, a future `cfg` operator) evaluates to [`Tri::Unknown`], so
+/// the module is KEPT — anything wrong inside it then surfaces as a loud panic
+/// at its own encode site rather than as a module that quietly is not there.
+fn cfg_without_test(meta: &syn::Meta) -> Tri {
+    use syn::punctuated::Punctuated;
+
+    match meta {
+        // `test` is the only leaf whose value is known here. `unix`,
+        // `target_os = "…"` and `feature = "…"` are configuration this encoder
+        // cannot see, so they stay UNKNOWN rather than defaulting either way.
+        syn::Meta::Path(path) => {
+            if path.is_ident("test") {
+                Tri::False
+            } else {
+                Tri::Unknown
+            }
+        }
+        syn::Meta::NameValue(_) => Tri::Unknown,
+        syn::Meta::List(list) => {
+            let Ok(operands) =
+                list.parse_args_with(Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated)
+            else {
+                return Tri::Unknown;
+            };
+            if list.path.is_ident("not") {
+                match operands.len() {
+                    1 => cfg_without_test(&operands[0]).negate(),
+                    _ => Tri::Unknown,
+                }
+            } else if list.path.is_ident("all") {
+                // An empty `all()` is true, per the reference's own definition.
+                operands.iter().fold(Tri::True, |acc, operand| {
+                    match (acc, cfg_without_test(operand)) {
+                        (Tri::False, _) | (_, Tri::False) => Tri::False,
+                        (Tri::Unknown, _) | (_, Tri::Unknown) => Tri::Unknown,
+                        _ => Tri::True,
+                    }
+                })
+            } else if list.path.is_ident("any") {
+                // An empty `any()` is false, per the reference's own definition.
+                operands.iter().fold(Tri::False, |acc, operand| {
+                    match (acc, cfg_without_test(operand)) {
+                        (Tri::True, _) | (_, Tri::True) => Tri::True,
+                        (Tri::Unknown, _) | (_, Tri::Unknown) => Tri::Unknown,
+                        _ => Tri::False,
+                    }
+                })
+            } else {
+                Tri::Unknown
+            }
+        }
+    }
 }
 
 fn declares_main(ast: &syn::File) -> bool {
@@ -741,5 +857,89 @@ impl CrateSymbols {
                 owners.iter().cloned().collect::<Vec<_>>().join(", ")
             ),
         }
+    }
+}
+
+// ════════════════════════════════════════════════════════════
+// Unit tests for the `cfg` predicate
+// ════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod tests {
+    use super::is_cfg_test;
+
+    /// Parse an attribute list exactly as it appears on a `mod` declaration,
+    /// so each case below reads as the Rust source it is gating.
+    fn attrs(attributes: &str) -> Vec<syn::Attribute> {
+        let item: syn::ItemMod = syn::parse_str(&format!("{attributes} mod m;"))
+            .unwrap_or_else(|err| panic!("failed to parse `{attributes} mod m;`: {err}"));
+        item.attrs
+    }
+
+    #[test]
+    fn a_bare_cfg_test_module_is_skipped() {
+        assert!(
+            is_cfg_test(&attrs("#[cfg(test)]")),
+            "`cargo build` does not compile a `#[cfg(test)]` module, so neither does the walk"
+        );
+    }
+
+    #[test]
+    fn a_test_conjunct_still_skips() {
+        assert!(
+            is_cfg_test(&attrs("#[cfg(all(test, unix))]")),
+            "`all(test, …)` is false whenever `test` is off, so `cargo build` never compiles it"
+        );
+    }
+
+    #[test]
+    fn stacked_cfg_attributes_are_conjoined() {
+        assert!(
+            is_cfg_test(&attrs("#[cfg(unix)]\n#[cfg(test)]")),
+            "stacked `cfg` attributes are ANDed, so one test-only conjunct gates the module"
+        );
+    }
+
+    #[test]
+    fn a_cfg_not_test_module_is_kept() {
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(not(test))]")),
+            "`cargo build` DOES compile a `#[cfg(not(test))]` module — dropping it would take \
+             every declaration in it with it"
+        );
+    }
+
+    #[test]
+    fn a_test_ident_under_a_not_inside_an_all_is_kept() {
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(all(unix, not(test)))]")),
+            "`all(unix, not(test))` is TRUE on a unix `cargo build`"
+        );
+    }
+
+    #[test]
+    fn a_module_gated_on_test_or_a_feature_is_kept() {
+        // DECIDED, and recorded in this module's deviation list: a module
+        // compiled under `test` OR under a feature is KEPT, because
+        // `cargo build --features x` compiles it. Skipping it would silently
+        // drop a module that an ordinary (non-test) build has.
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(any(test, feature = \"x\"))]")),
+            "`any(test, feature = \"x\")` can be true with `test` off — cargo builds it with the \
+             feature"
+        );
+    }
+
+    #[test]
+    fn a_feature_named_testing_is_not_cfg_test() {
+        assert!(
+            !is_cfg_test(&attrs("#[cfg(feature = \"testing\")]")),
+            "a string literal is not the `test` ident"
+        );
+    }
+
+    #[test]
+    fn a_module_with_no_cfg_attribute_is_kept() {
+        assert!(!is_cfg_test(&attrs("#[doc = \"a plain module\"]")));
     }
 }

@@ -276,8 +276,15 @@ on top forces library mode on a crate that does have a `fn main`.
   `foo.rs` **or** `foo/mod.rs` (both is an error, neither is an error), the declaring file's own
   directory for a mod-rs file and `<dir>/<stem>/` otherwise, `#[path = "…"]` relative to the
   declaring FILE's directory outside an inline block and to the nested directory inside one, and
-  an inline `mod` block as its own module. `#[cfg(test)]` modules are not walked — `cargo build`
-  does not compile them either, and one `assert!` inside one would abort the whole crate encode.
+  an inline `mod` block as its own module — with `#[path]` **on** an inline block replacing the
+  component that block contributes, so the reference's `#[path = "thread_files"] mod thread {
+  #[path = "tls.rs"] mod local_data; }` lands on `thread_files/tls.rs` (#626). **Test-only**
+  modules are not walked — `cargo build` does not compile them either, and one `assert!` inside
+  one would abort the whole crate encode. "Test-only" is the `cfg` predicate evaluated with
+  `test := false` and every other leaf UNKNOWN, NOT a scan for a bare `test` ident: that scan
+  matched `#[cfg(not(test))]` and silently dropped a module every ordinary build has (#626).
+  `#[cfg(any(test, feature = "x"))]` is kept for the same reason — cargo builds it with the
+  feature.
 - **Output is multi-module, and needed no compiler change.** One Ball `Module` per Rust module
   (crate root → `main`, others keep their `::`-joined path); a cross-file call carries
   `FunctionCall.module`, which `type_emit.rs::resolve_user_call_name` — issue #38's multi-module
@@ -528,8 +535,9 @@ worklist re-targets closed work.
 The authoritative "what is still open" is not the issue body: it is
 `rust/encoder/tests/documented_gaps.rs` (every remaining gap has a `#[should_panic]` pin; a closed
 one is a positive assertion) plus a fresh Tier A run's first-blocker histogram. Check those two
-before sizing a slice, and prefer `grep -c should_panic rust/encoder/tests/documented_gaps.rs`
-over any prose count — including this file's.
+before sizing a slice, and prefer `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`
+over any prose count — including this file's. Anchor the pattern at the line start: the
+unanchored form counts the file's prose mentions too (13 against 6 real pins, #626).
 
 #### Module-scope `const`/`static`/`type` alias + trait-block associated items (#491)
 

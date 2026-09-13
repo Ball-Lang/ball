@@ -1,4 +1,5 @@
-# A THREE-FILE FIXTURE CRATE for `ball_lang_encoder::encode_crate` (issue #491).
+# A FOUR-FILE FIXTURE CRATE for `ball_lang_encoder::encode_crate` (issue #491,
+# extended for #626 with the `#[cfg(not(test))]` module `src/live.rs`).
 #
 # Deliberately NOT a workspace member (`rust/Cargo.toml`'s `exclude` list keeps
 # cargo from adopting it): nothing ever builds this package with cargo. It is

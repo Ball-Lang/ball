@@ -153,13 +153,17 @@ fn module_names(program: &Program) -> BTreeSet<String> {
 /// `main.rs` calls `c.bump(3)` — a method declared in `counter.rs` — and
 /// `describe(total)`, a free function declared in `text.rs` and reached by its
 /// bare name through a `use`. Neither resolves in a single-file encode; both
-/// must resolve here, and the crate must then actually print `total=5`.
+/// must resolve here. The result is then passed through `live::stamp`, which
+/// lives in the `#[cfg(not(test))]` module `live.rs` — a module `cargo build`
+/// compiles and issue #626's predicate bug silently DROPPED, so a regression
+/// there cannot reach this assertion: the generated program would not compile
+/// at all. The crate must actually print `total=5 live`.
 ///
 /// `2 + 3 = 5` is hand-computed from the fixture's own Rust source, not read
 /// off any run — the same discipline `end_to_end.rs` documents for its own
 /// expected values.
 #[test]
-fn three_file_crate_encodes_compiles_and_runs() {
+fn the_fixture_crate_encodes_compiles_and_runs() {
     let program = ball_lang_encoder::encode_crate(&fixture_crate("counter_crate"));
     assert_eq!(
         program.entry_function, "main",
@@ -169,9 +173,25 @@ fn three_file_crate_encodes_compiles_and_runs() {
     let stdout = compile_and_run("counter_crate", &compiled);
     assert_eq!(
         stdout.trim(),
-        "total=5",
-        "the cross-file method call and the cross-file free call must both \
-         resolve.\n--- generated main.rs ---\n{compiled}"
+        "total=5 live",
+        "the cross-file method call, the cross-file free call and the \
+         `#[cfg(not(test))]` module must all resolve.\n--- generated main.rs ---\n{compiled}"
+    );
+}
+
+/// A `#[cfg(not(test))]` module is part of every ordinary `cargo build`, so the
+/// walk must keep it. Issue #626: the predicate scanned the whole token tree
+/// for a bare `test` ident, matched the one inside `not(...)`, and dropped the
+/// module — its symbols vanished from the crate table with no diagnostic, which
+/// is exactly the silent scope loss this module's "a missing module is a loud
+/// panic" posture exists to prevent.
+#[test]
+fn a_cfg_not_test_module_is_walked() {
+    let program = ball_lang_encoder::encode_crate(&fixture_crate("counter_crate"));
+    let names = module_names(&program);
+    assert!(
+        names.contains("live"),
+        "`#[cfg(not(test))] mod live;` is compiled by `cargo build` and must be encoded: {names:?}"
     );
 }
 
@@ -198,7 +218,7 @@ fn the_crate_root_may_be_a_manifest_dir_a_src_dir_or_the_root_file() {
 fn every_rust_module_becomes_its_own_ball_module() {
     let program = ball_lang_encoder::encode_crate(&fixture_crate("counter_crate"));
     let names = module_names(&program);
-    for expected in ["main", "counter", "text"] {
+    for expected in ["main", "counter", "text", "live"] {
         assert!(
             names.contains(expected),
             "module `{expected}` is missing from {names:?}"
@@ -237,6 +257,66 @@ fn the_mod_graph_walk_covers_every_documented_resolution_shape() {
             "module `{expected}` is missing from {names:?}"
         );
     }
+}
+
+/// `#[path]` on an **inline** `mod` block rebases the modules declared inside
+/// it. The Rust reference's own combined example
+/// (<https://doc.rust-lang.org/reference/items/modules.html>, "The `path`
+/// attribute"), quoted verbatim:
+///
+/// ```text
+/// #[path = "thread_files"]
+/// mod thread {
+///     // Load the `local_data` module from `thread_files/tls.rs` relative to
+///     // this source file's directory.
+///     #[path = "tls.rs"]
+///     mod local_data;
+/// }
+/// ```
+///
+/// Before issue #626 the walker ignored the `#[path]` on the inline block and
+/// looked for `<dir>/thread/tls.rs`, so this crate failed loud with "could not
+/// find the source file for module `local_data`" — a documented-nowhere
+/// deviation from the reference.
+#[test]
+fn a_path_attribute_on_an_inline_mod_block_rebases_its_children() {
+    let dir = scratch_crate(
+        "inline_path_base",
+        &[
+            (
+                "src/main.rs",
+                "#[path = \"thread_files\"]\n\
+                 mod thread {\n\
+                     #[path = \"tls.rs\"]\n\
+                     pub mod local_data;\n\
+                 }\n\
+                 fn main() {}",
+            ),
+            ("src/thread_files/tls.rs", "pub fn key() -> i64 { 7 }"),
+        ],
+    );
+    let program = ball_lang_encoder::encode_crate(&dir);
+    let names = module_names(&program);
+    assert!(
+        names.contains("thread::local_data"),
+        "`#[path = \"thread_files\"]` on the inline block must rebase its child to \
+         `thread_files/tls.rs`: {names:?}"
+    );
+    let local_data = program
+        .modules
+        .iter()
+        .find(|m| m.name == "thread::local_data")
+        .expect("the module is present, per the assertion above");
+    assert!(
+        local_data.functions.iter().any(|f| f.name == "key"),
+        "the rebased module must carry the declarations of `thread_files/tls.rs`, not an empty \
+         shell: {:?}",
+        local_data
+            .functions
+            .iter()
+            .map(|f| f.name.clone())
+            .collect::<Vec<_>>()
+    );
 }
 
 /// `cargo build` does not compile a `#[cfg(test)]` module and neither does the

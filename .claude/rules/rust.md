@@ -158,10 +158,13 @@ cargo fmt --check && cargo clippy --workspace
   `const`/`static`/`type` alias (the declaration itself is skipped — see below),
   unmapped macros (`write!` — the measured largest *next* bucket, 9 of the 110 files). Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
-  (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the
-  flipped ones with `grep -c should_panic rust/encoder/tests/documented_gaps.rs`, never from
-  prose**: this line read "Five are flipped" while eight were, because a tally in a rule file
-  goes stale the moment a slice lands. **A pin is owed the moment a gate exists, not the moment
+  (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
+  pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
+  prose** — 6 on 2026-09-13, and everything else in that file is a flipped, positive assertion.
+  Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
+  should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
+  comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
+  — this line once read "Five are flipped" while eight were. **A pin is owed the moment a gate exists, not the moment
   it closes** — the 24-file cross-file METHOD-call bucket went three merged #491 PRs with a live
   gate and no test observing it before `cross_file_method_call_is_a_documented_gap` pinned it. It
   is CLOSED now by the crate-aware `encode_crate` (below), and that test is flipped positive.
@@ -246,8 +249,14 @@ cargo fmt --check && cargo clippy --workspace
   `receiver.method(args)` whose method is declared in another file. Resolution follows the Rust
   reference (`foo.rs` XOR `foo/mod.rs`; the declaring file's own directory for a mod-rs file and
   `<dir>/<stem>/` otherwise; `#[path]` relative to the declaring FILE's directory outside an
-  inline block and to the nested directory inside one; an inline `mod` block is its own module);
-  `#[cfg(test)]` modules are not walked, because `cargo build` does not compile them either.
+  inline block and to the nested directory inside one; an inline `mod` block is its own module,
+  and `#[path]` ON such a block replaces the component it contributes, so
+  `#[path = "thread_files"] mod thread { #[path = "tls.rs"] mod local_data; }` resolves to
+  `thread_files/tls.rs`, #626); TEST-ONLY modules are not walked, because `cargo build` does not
+  compile them either. Test-only means the `cfg` predicate evaluated with `test := false` and
+  every other leaf UNKNOWN - never a token scan for a bare `test` ident, which also matched
+  `#[cfg(not(test))]` and silently dropped a module every ordinary build HAS (#626).
+  `#[cfg(any(test, feature = "x"))]` is kept: cargo builds it with the feature.
   **Output is multi-module and needed NO compiler change** - a cross-file call carries
   `FunctionCall.module`, which `type_emit.rs::resolve_user_call_name` (issue #38's multi-module
   output) already turns into the `<mod>::` qualifier onto that module's dispatcher. What it

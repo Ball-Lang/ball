@@ -15,9 +15,16 @@ parser/serializer against `ball.schema.json`).
 
 Every `*.ball.json` file in this repo — see `examples/**/*.ball.json` and
 `tests/conformance/*.ball.json` — validates against `ball.schema.json`.
-Run `python scripts/validate_ball_schema.py` to check the whole corpus; that
-script is CI's authoritative check that the schema and the real files it
-describes have not drifted apart.
+Run `python scripts/validate_ball_schema.py` to check the whole corpus. CI runs
+it on every PR (`ci.yml`'s always-run `proto` job), alongside
+`python tools/check_proto_schema_drift.py` — the other half of the contract,
+which compares this schema field-for-field against `ball.proto` itself. The
+corpus check alone cannot see a drift in a message no corpus file contains: a
+`ball.v1.Program` document exercises none of `BallCapabilityReport`,
+`BallManifest` or `BallLockfile`, so a field added to one of those (as #609
+added `CallSite.resolved_module`) would leave the schema silently REJECTING the
+tool output it documents — every `$defs` object sets
+`additionalProperties: false`.
 
 ## Contents
 

@@ -37,7 +37,7 @@ Each implementation documents its own generated/editable files. See the per-lang
 | Path | What it is | Editable? |
 |------|-----------|-----------|
 | `proto/ball/v1/ball.proto` | Language schema | Yes — run `buf lint` + `buf generate` after |
-| `ball.schema.json` | JSON Schema (Draft 2020-12) mirroring `ball.proto`'s protobuf-JSON wire format, for JSON-only (non-protobuf) language implementers | Yes — keep in sync with `ball.proto`; re-run `scripts/validate_ball_schema.py` after any change |
+| `ball.schema.json` | JSON Schema (Draft 2020-12) mirroring `ball.proto`'s protobuf-JSON wire format, for JSON-only (non-protobuf) language implementers | Yes — keep in sync with `ball.proto`. CI-gated on every PR by `tools/check_proto_schema_drift.py` (field-for-field against the proto) + `scripts/validate_ball_schema.py` (the whole `.ball.json` corpus), both in `ci.yml`'s always-run `proto` job |
 | `docs/BALL_JSON_SPEC.md` | Narrative companion to `ball.schema.json` | Yes |
 | `dart/shared/lib/std.dart` | Std library definition | Yes — run `gen_std.dart` after |
 | `dart/shared/std.json` | Compiled std module | NO — generated |

@@ -538,6 +538,60 @@ pub fn shadowed() -> String {
 }
 
 // ════════════════════════════════════════════════════════════
+// block scoping — an inner `let` dies at its closing brace
+// ════════════════════════════════════════════════════════════
+
+#[test]
+fn a_string_let_inside_a_nested_block_does_not_outlive_it() {
+    // Rust's own rule: the inner `f` is gone at the closing brace, so the
+    // `write!` below names the PARAMETER. A binding frame that is only
+    // per-function leaks that inner `let` past its scope and re-assigns a
+    // `String` that is not in scope any more — a SILENT miscompile, exactly
+    // the class `Encoder::local_scopes` exists to prevent.
+    const SOURCE: &str = r#"
+pub fn dash(f: &mut fmt::Formatter) -> fmt::Result {
+    {
+        let f = String::from("scratch");
+        println!("{}", f);
+    }
+    write!(f, "-")
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "dash", "sink_write");
+    assert_eq!(
+        field(call, "sink").expr,
+        reference_to("f"),
+        "the inner block's `let f` is out of scope; `f` here is the sink parameter"
+    );
+    assert_eq!(
+        count_std_calls(&program, "dash", "assign"),
+        0,
+        "nothing is re-assigned — there is no local `String` in scope at the `write!`"
+    );
+}
+
+#[test]
+fn a_non_string_let_inside_a_nested_block_does_not_refuse_an_outer_sink() {
+    // The same leak in its loud direction: if the inner `let out` survived
+    // its block, the `write!` below would be refused as "a local whose
+    // initialiser is not a `String` constructor" — a false refusal of a
+    // perfectly ordinary sink parameter.
+    const SOURCE: &str = r#"
+pub fn dash(out: &mut fmt::Formatter) -> fmt::Result {
+    {
+        let out = 1;
+        println!("{}", out);
+    }
+    write!(out, "-")
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "dash", "sink_write");
+    assert_eq!(field(call, "sink").expr, reference_to("out"));
+}
+
+// ════════════════════════════════════════════════════════════
 // (v) a local of some OTHER type — a loud panic, never a guess
 // ════════════════════════════════════════════════════════════
 

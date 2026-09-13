@@ -115,10 +115,10 @@ jobs:
   #
   # Tier B is the instrument that sees it: swap a library file for the
   # pipeline's own compiled-back version and run THAT PACKAGE'S OWN `dart test`.
-  # Both modes run here — per-file isolation (one substitution at a time, the
-  # file restored before the next) and whole-package (every eligible file at
-  # once, one verdict). They answer different questions and are meant to be read
-  # together.
+  # Both modes run here — per-file isolation (one substitution at a time, each
+  # in its own private copy of the checkout) and whole-package (every eligible
+  # file at once, one verdict). They answer different questions and are meant to
+  # be read together.
   #
   # LIKE EVERY JOB IN THIS FILE, THIS IS NOT A GATE and never will be: the
   # workflow has no `pull_request:` trigger, so a regression Tier B finds does

@@ -81,13 +81,22 @@
 //! names are recorded ([`Encoder::skipped_item_names`]) and a reference to
 //! one fails **loud** at the use site, naming the declaration.
 //!
-//! A top-level **macro invocation** stays a loud panic on purpose: a macro at
-//! item level can be the very thing that DEFINES a type the rest of the file
-//! references (`bitflags::bitflags! { … }` produces the `TestFlags` every
-//! `bitflags/tests/*.rs` file then calls into — 28 of those 110 scored
-//! files), so skipping it would orphan those references into a confusing
-//! downstream panic instead of a clean boundary. Closing that bucket needs
-//! macro *expansion*, a materially bigger feature.
+//! A top-level **macro invocation** is never SKIPPED: a macro at item level can
+//! be the very thing that DEFINES a type the rest of the file references
+//! (`bitflags::bitflags! { … }` produces the `TestFlags` every
+//! `bitflags/tests/*.rs` file then calls into), so skipping it would orphan
+//! those references into a confusing downstream panic instead of a clean
+//! boundary. Since issue #629 a **`macro_rules!`** invocation is *expanded*
+//! instead ([`macro_expand`]); one no `macro_rules!` in scope defines — every
+//! proc-macro, `#[derive]` helper and attribute macro — still panics, by design.
+//!
+//! **Do not read the `TestFlags` family as a macro bucket.** Measured on the
+//! pinned Tier A corpus: only 4 of the 110 scored files are first-blocked by a
+//! `macro_rules!` invocation at all. The 28 `bitflags/tests/*.rs` files come
+//! from a `bitflags!` invocation inside a `#[cfg(test)] mod tests`, which
+//! `crate_graph` deliberately does not walk (issue #621), and they then need
+//! generic bounds, associated-type paths and `impl Trait` parameters as well —
+//! three separate things, of which expansion is one.
 //!
 //! ## Cross-file calls: an unresolved `ModuleImport`, not a panic (issue #491)
 //!
@@ -171,6 +180,7 @@
 mod block;
 mod control_flow;
 mod crate_graph;
+mod macro_expand;
 mod methods;
 mod types;
 
@@ -179,6 +189,8 @@ use crate_graph::{ROOT_MODULE, Resolved};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+
+use ball_lang_macro_expand::MacroTable;
 
 use ball_lang_shared::proto::ball::v1::expression::Expr;
 use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
@@ -431,8 +443,22 @@ struct EncodedFile {
 /// [`encode_module_only`]: one source string, encoded as the `main` module
 /// with no knowledge of any other file.
 fn encode_main_module(source: &str) -> EncodedFile {
-    let file: syn::File = syn::parse_file(source)
+    let mut file: syn::File = syn::parse_file(source)
         .unwrap_or_else(|err| panic!("ball-lang-encoder: failed to parse Rust source: {err}"));
+    // Macro expansion (issue #629) runs FIRST, because an expansion can
+    // introduce a struct, an impl or a free fn every later pass must see. In
+    // single-file mode the only definitions in scope are this file's own — and
+    // a dependency-defined macro is a loud error naming the missing dependency
+    // graph, never a silent skip, because there is no manifest to read here.
+    let mut table = MacroTable::new();
+    table.set_dependencies_unavailable(
+        "this file was encoded on its own, with no crate manifest to resolve dependencies against \
+         — use `ball encode --crate <dir>` to encode it as part of its crate"
+            .to_owned(),
+    );
+    macro_expand::collect_definitions(&file.items, ROOT_MODULE, &mut table)
+        .unwrap_or_else(|err| macro_expand::fail(err));
+    macro_expand::expand_file(&mut file, &table).unwrap_or_else(|err| macro_expand::fail(err));
     encode_file_module(&file, ROOT_MODULE, None)
 }
 
@@ -590,12 +616,21 @@ fn encode_file_module(
             // produces the `TestFlags` every `bitflags/tests/*.rs` file then
             // calls into), so skipping it would orphan those references into
             // a confusing downstream panic naming a type that looks like it
-            // should exist. Closing that bucket needs macro *expansion*.
+            // should exist.
+            //
+            // Since issue #629 a `macro_rules!` invocation no longer REACHES
+            // this arm: `macro_expand`'s pre-pass has already replaced it with
+            // its expansion (and removed the `macro_rules!` definitions
+            // themselves). What still lands here is a macro nothing in scope
+            // defines — every proc-macro, `#[derive]` and attribute macro
+            // included, which are out of scope by design.
             syn::Item::Const(_) | syn::Item::Static(_) | syn::Item::Type(_) => {}
             other => panic!(
                 "ball-lang-encoder: unsupported top-level item `{}` — issue #43's scope covers \
                  struct/enum/trait/impl declarations (plus skipped consts/statics/type-aliases); \
-                 macro invocations at item level remain deferred",
+                 `macro_rules!` invocations are expanded (issue #629) but macro invocations at \
+                 item level that no `macro_rules!` in scope defines — proc-macros, `#[derive]` \
+                 and attribute macros — remain deferred",
                 item_kind_name(other)
             ),
         }

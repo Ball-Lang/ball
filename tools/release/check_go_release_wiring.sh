@@ -318,8 +318,74 @@ YML
   expect "unparseable YAML is refused, never read as agreement" 1 "$SCRATCH/broken.yml" "not parseable YAML"
   expect "the shipped .github/workflows/go-freshness.yml satisfies it" 0 "$WORKFLOWS/go-freshness.yml"
 
+  # ── The LEG, not the checker (#694). ────────────────────────────────────
+  # Everything above proves what `freshness_paths_problems` ANSWERS. None of it
+  # can see what the leg that consumes that answer does when the checker cannot
+  # answer at all — and that is the failure that actually happened: PR #662's
+  # round-1 review removed python3 from PATH and this guard printed
+  # `PASS … / Results: 26 passed, 1 failed, 27 total`, counting a leg that
+  # asserted nothing toward its own positive floor, while the sibling
+  # `--self-test` step correctly went exit 127.
+  #
+  # So these two cases drive the WHOLE guard as a subprocess and read its
+  # verdict, with and without a python3 that works. A PATH whose first `python3`
+  # exits 127 is exactly what a runner image without python3 looks like from
+  # inside this script.
+  mkdir -p "$SCRATCH/nopy"
+  cat >"$SCRATCH/nopy/python3" <<'STUB'
+#!/usr/bin/env bash
+# Stands in for "python3 is not installed": the status `command not found`
+# produces, with nothing on stdout.
+exit 127
+STUB
+  chmod +x "$SCRATCH/nopy/python3"
+
+  local LEG="go-freshness.yml's pull_request trigger is scoped to the alarm's own two files"
+
+  # leg_case <name> <PASS|FAIL> [PATH prefix]
+  # Runs the guard itself and asserts the verdict THIS leg reported, plus the
+  # guard's own exit status — the two things a stdout-only leg cannot connect.
+  leg_case() {
+    local name="$1" want="$2" prefix="${3-}"
+    local out rc=0 good=1
+    if [ -n "$prefix" ]; then
+      out="$(PATH="$prefix:$PATH" bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+    else
+      out="$(bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+    fi
+    case "$out" in
+    *"$want  $LEG"*) ;;
+    *) good=0 ;;
+    esac
+    if [ "$want" = "FAIL" ]; then
+      [ "$rc" -ne 0 ] || good=0
+      # The status the checker died with must be NAMED: without it the next
+      # reader cannot tell a drifted path list from a checker that never ran.
+      case "$out" in
+      *"exit status 127"*) ;;
+      *) good=0 ;;
+      esac
+    else
+      [ "$rc" -eq 0 ] || good=0
+    fi
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (guard exited $rc, wanted the leg to report $want)"
+      printf '%s\n' "$out" |
+        grep -E "^(PASS|FAIL)  go-freshness\.yml's pull_request|^Results:" |
+        sed 's/^/    | /'
+    fi
+  }
+
+  leg_case "the leg PASSES on the shipped tree when the checker can run" PASS
+  leg_case "the leg FAILS when the paths checker cannot run at all (python3 exits 127)" \
+    FAIL "$SCRATCH/nopy"
+
   local total=$((pass + fail))
-  local MIN=9
+  local MIN=11
   case "$pass$fail$total" in
   *[!0-9]*)
     echo "::error::go-freshness paths self-test produced a non-numeric tally"

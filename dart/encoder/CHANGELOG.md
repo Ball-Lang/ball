@@ -1,3 +1,11 @@
+## [0.4.2](https://github.com/Ball-Lang/ball/compare/ball_encoder-v0.4.1...ball_encoder-v0.4.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **dart:** keep flow promotion across a round-tripped cascade and carry inferred constructor generics (closes [#573](https://github.com/Ball-Lang/ball/issues/573)) ([#592](https://github.com/Ball-Lang/ball/issues/592)) ([fb109cf](https://github.com/Ball-Lang/ball/commit/fb109cf010ac936516d6439d0b26f0593c0a178d)), closes [#488-slice](https://github.com/Ball-Lang/ball/issues/488-slice) [#488](https://github.com/Ball-Lang/ball/issues/488)
+* **engine:** probe the ordered-set representation with `is BallRawMap`, so in-place set mutation survives on every self-hosted engine (closes [#557](https://github.com/Ball-Lang/ball/issues/557)) ([#591](https://github.com/Ball-Lang/ball/issues/591)) ([64633d3](https://github.com/Ball-Lang/ball/commit/64633d39e20aa72d4146ebdd02d86effe5e55a55)), closes [528/#553](https://github.com/Ball-Lang/ball/issues/553) [#545](https://github.com/Ball-Lang/ball/issues/545)
+
 ## [0.4.1](https://github.com/Ball-Lang/ball/compare/ball_encoder-v0.4.0...ball_encoder-v0.4.1) (2026-09-05)
 
 

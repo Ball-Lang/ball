@@ -479,9 +479,13 @@ first line carrying the committed engine and CLI core**. The line MOVES ON ITS O
 semantic-release version line (`.github/release/go.releaserc.json` + `.github/workflows/go-release.yml`,
 dispatched by `release.yml`, tags `go-modules/vX.Y.Z`), computed from `go/`-path commits, whose
 prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh` and whose publishCmd dispatches
-`tag-go-modules.yml` — the SINGLE tagging path — at that tag. Until #361's second half the tagging
+`tag-go-modules.yml` — the SINGLE tagging path — at that tag **and waits for that run to finish**
+(`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any non-`success`
+conclusion — #627). Until #361's second half the tagging
 was automatic but the version was a human's `chore(go):` PR, so every release re-tagged v0.1.0 and
-passed; `tools/release/check_go_release_wiring.sh` is the guard on that shape. Run
+passed; `tools/release/check_go_release_wiring.sh` is the guard on that shape, and
+`.github/workflows/go-freshness.yml` (weekly) is the outcome alarm that asks proxy.golang.org
+whether it actually serves the version main names. Run
 `bump_go_modules.sh` yourself only out of band; `go/go.work.sum` is gitignored (every hash is already
 in a committed `go.sum` — https://go.dev/ref/mod#go-work-sum).
 

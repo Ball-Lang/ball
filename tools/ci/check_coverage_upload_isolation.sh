@@ -22,11 +22,13 @@
 # https://github.com/codecov/codecov-action/blob/v7.0.0/action.yml): v7 is a
 # COMPOSITE action, and `fail_ci_if_error` is wired to exactly one of its steps,
 # as `CC_FAIL_ON_ERROR` on the final `Upload coverage to Codecov` step that runs
-# dist/codecov.sh. The OIDC token is fetched two steps EARLIER, by
-# `Get OIDC token` (actions/github-script -> core.getIDToken(audience)), which
-# carries no `continue-on-error`, no retry, and is not influenced by
-# `fail_ci_if_error` at all. v7.0.0 exposes no retry input of any kind (the full
-# input list is in that action.yml: base_sha … working-directory). So the ONLY
+# dist/codecov.sh. The OIDC token is fetched FOUR steps earlier, by the 5th of
+# that file's 9 composite steps, `Get OIDC token`
+# (actions/github-script -> core.getIDToken(audience)), which carries no `if:`,
+# no `continue-on-error`, no retry, and is not influenced by
+# `fail_ci_if_error` at all. v7.0.0 exposes no retry input of any kind (its 49
+# inputs run base_sha … working-directory; none matches retry/attempt/backoff).
+# So the ONLY
 # way to bound that flake is to fetch the token ourselves, with a retry, and
 # hand it to the action through its documented `token` input — action.yml
 # funnels `use_oidc`'s token and the `token` input into the same `CC_TOKEN`

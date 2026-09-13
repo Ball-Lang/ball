@@ -683,10 +683,12 @@ jobs:
   # codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f is v7.0.0
   # (https://github.com/codecov/codecov-action/blob/v7.0.0/action.yml), a
   # COMPOSITE action. `fail_ci_if_error` becomes CC_FAIL_ON_ERROR on its LAST
-  # step only (dist/codecov.sh). The token is fetched two steps earlier by
-  # `Get OIDC token` (actions/github-script -> core.getIDToken(audience)), which
-  # has no retry and no continue-on-error and is not affected by that input at
-  # all — and v7.0.0 exposes NO retry input of any kind. So the token is fetched
+  # step only (dist/codecov.sh). The token is fetched FOUR steps earlier by the
+  # 5th of that file's 9 composite steps, `Get OIDC token`
+  # (actions/github-script -> core.getIDToken(audience)), which has no `if:`, no
+  # retry and no continue-on-error and is not affected by that input at
+  # all — and v7.0.0 exposes NO retry input of any kind (none of its 49 inputs
+  # matches retry/attempt/backoff). So the token is fetched
   # here instead, with a bounded retry, and handed over through the action's
   # documented `token` input: action.yml funnels `use_oidc`'s token and the
   # `token` input into the same CC_TOKEN, so dist/codecov.sh cannot tell them

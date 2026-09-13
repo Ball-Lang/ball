@@ -234,6 +234,10 @@ cd "$(dirname "$0")"
 #   conclusion and never by the run's. An earlier wording here said "the C++
 #   JOB's conclusion", which, applied literally, would have thrown out the very
 #   run this paragraph is defending (PR #643, advisory 1).
+#   CONFIRMED by re-running it (#638's DoD 3, `gh run rerun 34746079045
+#   --failed`): attempt 2 is green end to end — including that same step 13 —
+#   and printed the identical 93.9% / 94.6 / 99.0 / 94.3. So this row is a real
+#   reading, not a salvaged one, and the six-run series below has no gap.
 #   Issue #638 removed the cause: the Codecov upload now runs in its own
 #   `codecov-upload` job, so from that commit on the C++ job's conclusion IS its
 #   floor verdict again. The step-level rule stays, because it is the one that

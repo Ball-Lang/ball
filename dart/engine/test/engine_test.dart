@@ -9923,6 +9923,132 @@ void main() {
       );
     });
   });
+
+  // ── Field write vs. declared setter (issue #664) ─────────────────────────
+  //
+  // `_trySetterDispatch` suppressed setter dispatch whenever the instance
+  // carried a field of the assigned name (#501). Dart's question is narrower:
+  // does that field's own DECLARATION contribute a setter? A `final` field
+  // contributes a getter and nothing else, so an explicit setter declared
+  // beside it is the only setter for that name.
+  group('field write vs. declared setter', () {
+    test('a setter beside a same-named final field runs', () async {
+      const src = '''
+class FixedSlice {
+  final int length;
+
+  FixedSlice(int end) : length = end;
+
+  set length(int newLength) {
+    throw UnsupportedError('Cannot resize a FixedSlice');
+  }
+}
+
+void main() {
+  final slice = FixedSlice(3);
+  print(slice.length);
+  try {
+    slice.length = 5;
+    print('setter did not throw');
+  } catch (e) {
+    print('setter threw');
+  }
+  print(slice.length);
+}
+''';
+      // RED before the fix: `setter did not throw` and a final field silently
+      // overwritten to 5.
+      expect(await runAndCapture(_encodeMain(src)), ['3', 'setter threw', '3']);
+    });
+
+    test('a non-final field still shadows an inherited setter', () async {
+      const src = '''
+class A {
+  int _stored = 1;
+
+  int get x => _stored;
+
+  set x(int value) {
+    _stored = value * 10;
+  }
+}
+
+class B extends A {
+  @override
+  int x = 5;
+}
+
+void main() {
+  A a = A();
+  a.x = 3;
+  print(a.x);
+
+  B b = B();
+  b.x = 7;
+  print(b.x);
+}
+''';
+      // The direction #501 fixed: B's own non-final field DOES contribute a
+      // setter, which overrides A's — the write must stay a plain field write.
+      expect(await runAndCapture(_encodeMain(src)), ['30', '7']);
+    });
+
+    test(
+      'a non-final override of an ancestor final field keeps the field write',
+      () async {
+        const src = '''
+class Base {
+  final int size;
+
+  Base(int n) : size = n;
+
+  set size(int value) {
+    throw UnsupportedError('Base.size is read-only');
+  }
+}
+
+class Grown extends Base {
+  @override
+  int size = 2;
+
+  Grown() : super(1);
+}
+
+void main() {
+  final g = Grown();
+  g.size = 9;
+  print(g.size);
+}
+''';
+        // The nearest declaration wins: `Grown.size` is non-final, so its own
+        // implicit setter overrides `Base`'s declared one and the write stays a
+        // plain field write. Walking past `Grown` to `Base`'s final `size`
+        // would run the throwing setter instead.
+        expect(await runAndCapture(_encodeMain(src)), ['9']);
+      },
+    );
+
+    test('a final field with no declared setter is written directly', () async {
+      const src = '''
+class Point {
+  final int x;
+
+  Point(int v) : x = v;
+}
+
+void main() {
+  final p = Point(1);
+  p.x = 4;
+  print(p.x);
+}
+''';
+      // No setter exists for `x`, so `_trySetterDispatch` finds nothing and the
+      // plain map write runs — unchanged by #664. (Real Dart rejects this write
+      // at compile time; the engine has no static check, and inventing one here
+      // would be a behaviour change this issue does not own.)
+      expect(await runAndCapture(_encodeMain(src)), ['4']);
+    });
+  });
 }
 
 /// Encode a Ball-portable Dart [source] library whose entry point is `main`.

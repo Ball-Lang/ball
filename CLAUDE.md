@@ -352,8 +352,8 @@ Five packages (no workspace manager — each has its own `node_modules`):
 
 ### Rust workspace (`rust/`)
 
-Cargo workspace (`rust/Cargo.toml`, `resolver = "3"`) with five member crates plus one internal
-tool crate — see `rust/AGENTS.md` for the full status table:
+Cargo workspace (`rust/Cargo.toml`, `resolver = "3"`) with six member crates plus two internal
+tool crates — see `rust/AGENTS.md` for the full status table:
 
 - `ball-lang-shared` — protobuf bindings (`prost` + `prost-reflect`, generated via the
   `buf.build/community/neoeinstein-prost` plugin into `rust/shared/gen/`) plus the runtime value
@@ -370,7 +370,19 @@ tool crate — see `rust/AGENTS.md` for the full status table:
   table — the Rust sibling of `dart/encoder/lib/package_encoder.dart` — so a
   `receiver.method(args)` or a bare-name call whose callee lives in another file resolves into an
   ordinary cross-module Ball call instead of failing loud. The output is multi-module and needed
-  **no** compiler change (issue #38's `<mod>::` qualification already handles it).
+  **no** compiler change (issue #38's `<mod>::` qualification already handles it). Since #629 it
+  also **expands `macro_rules!`** (see `ball-lang-macro-expand` below) as a pre-pass, so an
+  item-level declarative macro no longer aborts a file; proc-macros, `#[derive]`, attribute
+  macros and the builtin/std family stay out of scope and loud, by design.
+- `ball-lang-macro-expand` — `macro_rules!` expansion (issue #629), quarantining rust-analyzer's
+  own macro-by-example engine (`ra_ap_mbe` and three siblings, all `=`-pinned in lockstep, plus
+  salsa) behind a four-item API so `ball-lang-encoder` names no `ra_ap_*` type. Definitions come
+  from the crate's own items and, for a `<krate>::<macro>!` path, from the direct dependencies'
+  `#[macro_export]`ed ones located through `cargo metadata`. Hygiene is an **approximation**
+  (origin-tagged α-renaming of definition-origin bindings), stated as such; every failure is a
+  named, loud `MacroError`, and every call into the engine sits behind `catch_unwind`. It is
+  PUBLISHED like the other members — `cargo publish --workspace` refuses a `publish = false`
+  dependency of a published crate. See `rust/AGENTS.md` § "`macro_rules!` expansion".
 - `ball-lang-engine` — self-hosted engine (SKILL.md Phase 4 Option B), same approach as TS/C++:
   compiles `dart/self_host/engine.ball.json` through `ball-lang-compiler`. **Complete, at Dart
   parity** (#39/#300 closed): the compiled engine builds and runs the whole conformance corpus
@@ -486,7 +498,9 @@ dispatched by `release.yml`, tags `go-modules/vX.Y.Z`), computed from `go/`-path
 prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh` and whose publishCmd dispatches
 `tag-go-modules.yml` — the SINGLE tagging path — at that tag **and waits for that run to finish**
 (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any non-`success`
-conclusion — #627). Until #361's second half the tagging
+conclusion — #627; the run it waits for must be strictly newer than the newest one on that ref
+before the dispatch, so a manual repair re-dispatch cannot answer for the next release — #656).
+Until #361's second half the tagging
 was automatic but the version was a human's `chore(go):` PR, so every release re-tagged v0.1.0 and
 passed; `tools/release/check_go_release_wiring.sh` is the guard on that shape, and
 `.github/workflows/go-freshness.yml` (weekly) is the outcome alarm that asks proxy.golang.org

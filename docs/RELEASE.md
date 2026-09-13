@@ -391,8 +391,10 @@ push to main
                            ├► tag-go-modules.yml: ONE `git push` creating all six
                            │  go/<module>/vA.B.C tags on the bump commit
                            └─ …and the publishCmd WAITS for that run (30 s apart,
-                              20 min budget) and fails the release on any
-                              non-success conclusion            ← AWAITED (#627)
+                              20 min budget), accepting ONLY a run newer than the
+                              newest one on that ref before the dispatch, and
+                              fails the release on any non-success conclusion
+                                                          ← AWAITED (#627, #656)
 
 weekly, independently
   └► go-freshness.yml → check_go_freshness.sh
@@ -430,6 +432,20 @@ budget running out, and on the dispatch itself failing. Second, nothing anywhere
 asked the *registry* whether it serves what the tree names;
 `.github/workflows/go-freshness.yml` is that alarm, and it is the Go sibling of
 `pubdev-freshness.yml`.
+
+**And "the run" has to be *this* run (#656).** GitHub creates the dispatched
+run's row a few seconds *after* accepting the dispatch, so the poller's first
+attempt lands in a window where the newest `workflow_dispatch` row on the channel
+tag can only be one that was already there — and that is not hypothetical: the
+manual repair two sections down re-dispatches the tagger on that exact ref, and
+so does GitHub's re-run button. A stale `success` in that window is
+indistinguishable from "this release's six tags were cut". So `--dispatch` now
+records the newest matching run's `databaseId` **before** dispatching and
+afterwards accepts only a strictly greater one (run ids are monotonic per
+repository); if the baseline cannot be established at all, it refuses to dispatch
+rather than guess, because falling back to "no prior run" *is* the bug. The
+`--self-test` drives both directions offline: a stale `success` plus a fresh
+`failure` must fail, and a stale row with no new run must exhaust the budget.
 
 **`tag_go_modules.sh` is still the single tagging path.** It owns the invariant
 that makes the lane safe: all six tags on ONE commit in ONE push (a dependent
@@ -721,6 +737,10 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   re-dispatch the tagger at the channel tag that release created,
   `gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z`. It derives the
   version from that ref's `go.mod` files, so the tags land on the right commit.
+  That manual run leaves a `workflow_dispatch` row on the channel tag; since
+  #656 a later automated dispatch on the same ref cannot mistake it for its own
+  (it demands a strictly newer run id), so repairing a release by hand does not
+  blind the next one.
 - **`go-freshness.yml` red with `proxy.golang.org serves … and NOT vX.Y.Z`:** the
   six tags for main's module line are either missing (`UNTAGGED` — the tagger
   never cut them; check `go-release.yml`'s and `tag-go-modules.yml`'s recent
@@ -742,8 +762,8 @@ another.
 |---|---|---|---|
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
 | `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, the lockstep wiring (#566) going missing, and a dry run losing the ability to rehearse the branch it was dispatched for | whether a release was actually cut — it is entirely static |
-| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / bump / commit / dispatch disagree, a file the bump rewrites that the release commit does not carry, a second tagger next to `tag_go_modules.sh`, the driver losing its dry-run rehearsal, the two main-pushing lanes drifting out of one concurrency group, a `publishCmd` that dispatches the tagger without awaiting it, and (#627) a `tag-go-modules.yml` header that claims `release.yml` dispatches it. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
-| `tools/release/await_workflow_run.py` | every PR (`--self-test`, `Proto Checks`) + every Go release's `publishCmd` | a **tag cut that did not happen**: `gh workflow run` returns as soon as GitHub accepts the dispatch, so before #627 a `tag-go-modules.yml` run that failed, was cancelled, hit its half-tagged refusal or never started left the `go-release` run green. It polls the dispatched run to completion (30 s apart, 20 min budget) and fails on any non-`success` conclusion | whether the tags it waited for are *reachable* — that is the freshness alarm's job |
+| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) + its own `--self-test` | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / bump / commit / dispatch disagree, a file the bump rewrites that the release commit does not carry, a second tagger next to `tag_go_modules.sh`, the driver losing its dry-run rehearsal, the two main-pushing lanes drifting out of one concurrency group, a `publishCmd` that dispatches the tagger without awaiting it, (#627) a `tag-go-modules.yml` header that claims `release.yml` dispatches it, a poller that awaits a run without pinning it to a pre-dispatch baseline, and (#656) a `go-freshness.yml` whose `pull_request` filter has grown past the alarm's own two files — the only thing that keeps this repo's one PR-triggered freshness alarm from making unrelated work depend on `proxy.golang.org`. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
+| `tools/release/await_workflow_run.py` | every PR (`--self-test`, `Proto Checks`) + every Go release's `publishCmd` | a **tag cut that did not happen**: `gh workflow run` returns as soon as GitHub accepts the dispatch, so before #627 a `tag-go-modules.yml` run that failed, was cancelled, hit its half-tagged refusal or never started left the `go-release` run green. It polls the dispatched run to completion (30 s apart, 20 min budget) and fails on any non-`success` conclusion — and since #656 only a run **strictly newer** than the newest one on that ref before the dispatch can answer for it, so a stale run left by a manual repair or a re-run cannot stand in for the one this release started | whether the tags it waited for are *reachable* — that is the freshness alarm's job |
 | `.github/workflows/go-freshness.yml` | weekly + dispatch | the **module proxy falling behind main**: `proxy.golang.org` not listing the version `main`'s six `go.mod` files name, for a tag older than the (default 60 min) index-lag window, or for a version never tagged at all. The Go sibling of `pubdev-freshness.yml`, and the only guard in this table that leaves the repository | a lane that broke in the last hour (the lag window is deliberately generous), and anything about *which* commit the tags sit on |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
@@ -899,10 +919,24 @@ seeded packages it is fast.)
    cutover. If a package's admin page ever shows this **disabled**, its next
    publish fails with "publishing from github is not enabled"; re-enable it and
    re-dispatch `gh workflow run release-publish.yml --ref <pkg>-v<version>`.
-3. **crates.io** (issue #366): done. The `ball-lang-*` crates were bootstrapped at
-   0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is now configured for all
-   five and the token fallback has been removed (OIDC is the only auth path), so
-   the `CARGO_REGISTRY_TOKEN` secret can be deleted.
+3. **crates.io** (issue #366): done for the original five. The `ball-lang-*` crates
+   were bootstrapped at 0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is
+   configured for those five and the token fallback has been removed (OIDC is the
+   only auth path).
+
+   **Open item — a SIXTH crate now exists.** Issue #629 added
+   `ball-lang-macro-expand` (`rust/macro-expand/`), which `ball-lang-encoder`
+   depends on and which `cargo publish --workspace` therefore must publish.
+   crates.io only lets a Trusted Publisher be configured **after** a crate's first
+   publish (RFC 3691) — the same chicken-and-egg the other five hit at 0.1.0 — so
+   the **next `rust-crates/vX.Y.Z` run will fail on that crate under OIDC-only
+   auth** until a maintainer bootstraps it once. Two ways, either acceptable:
+   restore `CARGO_REGISTRY_TOKEN` for that one run, or `cargo publish -p
+   ball-lang-macro-expand` once by hand from a maintainer account. Then add its
+   Trusted Publisher entry (repo `Ball-Lang/ball`, workflow
+   `publish-crates.yml`) and the OIDC-only path covers all six. Do **not**
+   reintroduce a silent token fallback in the workflow to paper over this — that
+   is exactly the lying-gate shape the OIDC-only decision removed.
 4. **Confirm the release bot may push** `chore(release): … [skip ci]` commits +
    tags to `main` with `GITHUB_TOKEN` (the live npm semantic-release already
    does, and since #551 so does the Dart lane). **`RELEASE_PAT` is now

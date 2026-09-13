@@ -453,8 +453,10 @@ async function runUntrusted(rawBytes: Uint8Array, signature: Uint8Array): Promis
     unlinkSync(tmp);
   }
 
-  // 3b. Own allowlist walk (still needed — audit is blind to custom isBase-module
-  //     DECLARATIONS and to module_imports). Proto field names are camelCased.
+  // 3b. Own allowlist walk (still needed — since #609 the audit NAMES a custom
+  //     isBase-module call under the `custom` capability, but says nothing about
+  //     what the host implements, and it is still blind to module_imports).
+  //     Proto field names are camelCased.
   const allowed = new Set(['std', 'std_collections', 'std_convert', 'ui']);
   for (const m of program.modules ?? []) {
     if ((m.moduleImports ?? []).length > 0) throw new Error(`module "${m.name}" declares imports`);

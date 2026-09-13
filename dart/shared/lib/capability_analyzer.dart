@@ -60,6 +60,7 @@ Map<String, Object?> analyzeCapabilitiesReachable(Program program) {
   final table = buildCapabilityTable();
   final baseModules = _identifyBaseModules(program.modules);
   final userFns = _collectUserFunctionNames(program.modules);
+  final customBaseFns = _collectCustomBaseFns(program.modules);
   final fnCaps = <String, Object?>{}; // "module.function" -> List<String> caps
   final capSites = <String, Object?>{}; // capName -> List<site>
   final visited = <String>[];
@@ -68,6 +69,7 @@ Map<String, Object?> analyzeCapabilitiesReachable(Program program) {
     'baseModules': baseModules,
     'table': table,
     'userFns': userFns,
+    'customBaseFns': customBaseFns,
     'fnCaps': fnCaps,
     'capSites': capSites,
     'visited': visited,
@@ -103,6 +105,7 @@ void _analyzeReachableFn(Map ctx) {
   final baseModules = ctx['baseModules'];
   final table = ctx['table'];
   final userFns = ctx['userFns'];
+  final customBaseFns = ctx['customBaseFns'];
   final Map fnCaps = ctx['fnCaps'];
   final capSites = ctx['capSites'];
   final List visited = ctx['visited'];
@@ -134,6 +137,7 @@ void _analyzeReachableFn(Map ctx) {
         'table': table,
         'callees': callees,
         'userFns': userFns,
+        'customBaseFns': customBaseFns,
       });
       fnCaps[key] = caps;
       for (final dynamic callee in callees) {
@@ -142,6 +146,7 @@ void _analyzeReachableFn(Map ctx) {
           'baseModules': baseModules,
           'table': table,
           'userFns': userFns,
+          'customBaseFns': customBaseFns,
           'fnCaps': fnCaps,
           'capSites': capSites,
           'visited': visited,
@@ -171,6 +176,7 @@ Map<String, Object?> _analyzeCapabilitiesCore(Map ctx) {
   final table = buildCapabilityTable();
   final baseModules = _identifyBaseModules(modules);
   final userFns = _collectUserFunctionNames(modules);
+  final customBaseFns = _collectCustomBaseFns(modules);
   final functionsOut = <Object?>[];
   final capSites = <String, Object?>{}; // capName -> List<site>
 
@@ -193,6 +199,7 @@ Map<String, Object?> _analyzeCapabilitiesCore(Map ctx) {
           'table': table,
           'callees': null,
           'userFns': userFns,
+          'customBaseFns': customBaseFns,
         });
       }
       functionsOut.add({
@@ -242,6 +249,33 @@ List<String> _collectUserFunctionNames(dynamic modules) {
     }
   }
   return names;
+}
+
+/// Every `"module.function"` DECLARED `isBase` in a module that is not one of
+/// the eight universal std modules — the host-extension seam (issue #609).
+///
+/// A Ball program may declare its own base module and have the host supply the
+/// implementation through a `BallModuleHandler` (`mymodule.exec_shell`). The
+/// capability table cannot know what such a function does, and before #609 the
+/// audit simply missed it: the `(module, function)` lookup failed, the #402
+/// bare-name fallback failed too (the name is in no std module), the call was
+/// filed as an ordinary user call, and the program read **pure / NO RISK**.
+/// Every key returned here is classified `'custom'` instead — never pure.
+///
+/// The DECLARATION is the signal, never the (spoofable) call-site string: a
+/// call naming an undeclared module resolves to nothing and stays an ordinary
+/// user call, so this can only ever add a capability a program really declared.
+List<String> _collectCustomBaseFns(dynamic modules) {
+  final keys = <String>[];
+  for (final module in modules) {
+    if (isKnownBaseModule(module.name)) continue;
+    for (final f in module.functions) {
+      if (!f.isBase) continue;
+      final key = '${module.name}.${f.name}';
+      if (!keys.contains(key)) keys.add(key);
+    }
+  }
+  return keys;
 }
 
 /// Detect non-base user functions whose bare name collides with a base
@@ -297,6 +331,7 @@ void _walkCap(Map ctx) {
   final table = ctx['table'];
   final callees = ctx['callees'];
   final userFns = ctx['userFns'];
+  final customBaseFns = ctx['customBaseFns'];
   if (expr == null) return;
 
   if (expr.hasCall()) {
@@ -309,6 +344,7 @@ void _walkCap(Map ctx) {
       'table': table,
       'callees': callees,
       'userFns': userFns,
+      'customBaseFns': customBaseFns,
     });
   } else if (expr.hasLiteral()) {
     final lit = expr.literal;
@@ -323,6 +359,7 @@ void _walkCap(Map ctx) {
           'table': table,
           'callees': callees,
           'userFns': userFns,
+          'customBaseFns': customBaseFns,
         });
       }
     }
@@ -338,6 +375,7 @@ void _walkCap(Map ctx) {
           'table': table,
           'callees': callees,
           'userFns': userFns,
+          'customBaseFns': customBaseFns,
         });
       }
       if (stmt.hasExpression()) {
@@ -350,6 +388,7 @@ void _walkCap(Map ctx) {
           'table': table,
           'callees': callees,
           'userFns': userFns,
+          'customBaseFns': customBaseFns,
         });
       }
     }
@@ -363,6 +402,7 @@ void _walkCap(Map ctx) {
         'table': table,
         'callees': callees,
         'userFns': userFns,
+        'customBaseFns': customBaseFns,
       });
     }
   } else if (expr.hasLambda()) {
@@ -375,6 +415,7 @@ void _walkCap(Map ctx) {
       'table': table,
       'callees': callees,
       'userFns': userFns,
+      'customBaseFns': customBaseFns,
     });
   } else if (expr.hasMessageCreation()) {
     for (final field in expr.messageCreation.fields) {
@@ -387,6 +428,7 @@ void _walkCap(Map ctx) {
         'table': table,
         'callees': callees,
         'userFns': userFns,
+        'customBaseFns': customBaseFns,
       });
     }
   } else if (expr.hasFieldAccess()) {
@@ -400,6 +442,7 @@ void _walkCap(Map ctx) {
         'table': table,
         'callees': callees,
         'userFns': userFns,
+        'customBaseFns': customBaseFns,
       });
     }
   }
@@ -416,9 +459,29 @@ void _walkCapCall(Map ctx) {
   final table = ctx['table'];
   final callees = ctx['callees'];
   final userFns = ctx['userFns'];
+  final List customBaseFns = ctx['customBaseFns'];
 
   final module = call.module.isEmpty ? contextModule : call.module;
   final fn = call.function;
+
+  // #609: a call into a base module the PROGRAM declares (the host-extension
+  // seam, `BallModuleHandler`) is classified `custom` — the audit knows the
+  // call happens but cannot know what the host implements, and reporting it as
+  // an ordinary user call is what made `mymodule.exec_shell` read as pure.
+  // It is recorded IN ADDITION to any std capability the name resolves to, so
+  // a declared custom `mutex_create` is reported as both.
+  final isCustom = customBaseFns.contains('$module.$fn');
+  if (isCustom) {
+    _recordCapSite({
+      'cap': 'custom',
+      'caps': caps,
+      'capSites': capSites,
+      'module': contextModule,
+      'function': contextFunction,
+      'calleeModule': module,
+      'calleeFunction': fn,
+    });
+  }
 
   var cap = lookupCapability(table, module, fn);
   if (cap.isEmpty) {
@@ -446,26 +509,21 @@ void _walkCapCall(Map ctx) {
   }
 
   if (cap.isNotEmpty) {
-    if (!caps.contains(cap)) caps.add(cap);
-    if (cap != 'pure') {
-      List sites;
-      if (capSites.containsKey(cap)) {
-        sites = capSites[cap];
-      } else {
-        sites = <Object?>[];
-        capSites[cap] = sites;
-      }
-      // `calleeModule` keeps the literal call-site module so a spoofed call is
-      // visibly flagged in the report (e.g. `harmless_looking_module.
-      // mutex_create`), while the capability is the resolved base-fn identity.
-      sites.add({
-        'module': contextModule,
-        'function': contextFunction,
-        'calleeModule': module,
-        'calleeFunction': fn,
-      });
-    }
-  } else if (callees != null) {
+    // `calleeModule` keeps the literal call-site module so a spoofed call is
+    // visibly flagged in the report (e.g. `harmless_looking_module.
+    // mutex_create`), while the capability is the resolved base-fn identity.
+    _recordCapSite({
+      'cap': cap,
+      'caps': caps,
+      'capSites': capSites,
+      'module': contextModule,
+      'function': contextFunction,
+      'calleeModule': module,
+      'calleeFunction': fn,
+    });
+  } else if (!isCustom && callees != null) {
+    // A declared custom base function has no body to walk into, so it is never
+    // a reachability callee — only an unresolved name is.
     callees.add({'module': module, 'function': fn});
   }
 
@@ -479,8 +537,33 @@ void _walkCapCall(Map ctx) {
       'table': table,
       'callees': callees,
       'userFns': userFns,
+      'customBaseFns': customBaseFns,
     });
   }
+}
+
+/// Add `ctx['cap']` to the function's capability list and — for anything but
+/// `'pure'` — record the call site under it. `ctx` = `{cap, caps, capSites,
+/// module, function, calleeModule, calleeFunction}`. Single-arg (engine-safe).
+void _recordCapSite(Map ctx) {
+  final String cap = ctx['cap'];
+  final List caps = ctx['caps'];
+  final Map capSites = ctx['capSites'];
+  if (!caps.contains(cap)) caps.add(cap);
+  if (cap == 'pure') return;
+  List sites;
+  if (capSites.containsKey(cap)) {
+    sites = capSites[cap];
+  } else {
+    sites = <Object?>[];
+    capSites[cap] = sites;
+  }
+  sites.add({
+    'module': ctx['module'],
+    'function': ctx['function'],
+    'calleeModule': ctx['calleeModule'],
+    'calleeFunction': ctx['calleeFunction'],
+  });
 }
 
 /// Assemble the final report [Map] from the per-function capability list and
@@ -603,7 +686,12 @@ String formatCapabilityReport(Map report) {
 
   lines.add('Capabilities:');
   final List capabilities = report['capabilities'];
+  // #609: whether the program calls into a base module it declares itself.
+  // Derived from the rendered capabilities rather than a new summary flag, so
+  // the report Map keeps the exact shape `BallCapabilityReport` models.
+  var hasCustom = false;
   for (final entry in capabilities) {
+    if (entry['capability'] == 'custom') hasCustom = true;
     final icon = entry['riskLevel'] == 'none' ? '✓' : '⚠';
     final List callSites = entry['callSites'];
     final siteCount = callSites.length;
@@ -677,6 +765,12 @@ String formatCapabilityReport(Map report) {
     risk = hasShadows
         ? 'REVIEW REQUIRED — declares base-function shadows'
         : 'NO RISK — pure computation only';
+  } else if (hasCustom) {
+    // #609: a call into a host-supplied base module outranks every KNOWN
+    // category below, because its effects are exactly what this report cannot
+    // bound — ranking it LOW/MEDIUM/HIGH would assert something unproven. The
+    // known capabilities are still listed above with their own call sites.
+    risk = 'REVIEW REQUIRED — calls into custom base modules';
   } else if (controlsProcess || usesMemory || usesNetwork) {
     risk = 'HIGH RISK';
   } else if (rFs || wFs || usesConcurrency) {

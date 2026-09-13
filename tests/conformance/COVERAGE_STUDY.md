@@ -774,3 +774,6 @@ Remaining work, now that #493 is closed:
   back; they do not move them forward. Every drift and encode-error tag in the
   reports above is a real gap in an encoder or a compiler, and fixing them is
   what raises these rows — the ratchet then makes each gain permanent.
+
+<!-- probe (#666 re-measure): a corpus diff, to observe that every conformance-matrix
+row still starts. Throwaway branch; never merged. -->

@@ -19,10 +19,22 @@
 #          clean GOPATH/GOMODCACHE, and the installed binary actually runs.
 #
 # Both legs are gating: leg 1 asserts fail == 0 over a non-empty module set, and
-# leg 2 asserts the installed `ball` runs `check` on a real conformance fixture.
-# Before the go.mod rewrite this PR makes, leg 1 failed 4/6 with "replacement
-# directory ../<dep> does not exist" and leg 2 failed with "The go.mod file for
-# the module providing named packages contains one or more replace directives."
+# leg 2 asserts the installed `ball` actually EXECUTES — `run` on a conformance
+# fixture byte-matching its committed golden, and the cli-core verbs `info` and
+# `version` likewise. Before the go.mod rewrite of #361, leg 1 failed 4/6 with
+# "replacement directory ../<dep> does not exist" and leg 2 failed with "The
+# go.mod file for the module providing named packages contains one or more
+# replace directives."
+#
+# Leg 2's behavioural assertions are the #586 gate. Until #586 the leg only ran
+# `--help` and `check`, which need neither the self-hosted engine nor the
+# compiled CLI core — so a `go install`-acquired `ball` that could not run a
+# single program, and answered `info`/`validate`/`tree`/`version` with an
+# exit-1 "rebuild with -tags …" hint, read as a full pass. The two generated
+# artifacts those verbs need (go/engine/compiled/compiled_engine.go,
+# go/cli/compiled/compiled_cli.go) were gitignored and build-tag-gated, and the
+# module a proxy serves is the repository AT THE TAG — so they simply were not
+# in it, and `go install` gives a consumer no way to pass `-tags` anyway.
 #
 # Usage: tools/go-module-proxy/smoke.sh   (from anywhere; needs go + python3)
 set -euo pipefail
@@ -31,6 +43,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 version="$(python3 "$here/build_local_proxy.py" --print-version)"
 fixture="tests/conformance/100_complex_control_flow.ball.json"
+# Fixtures leg 2 EXECUTES through the installed binary, byte-compared against the
+# same goldens go/engine's conformance sweep and go/cli's tests use.
+run_fixtures="100_complex_control_flow 101_simple_class"
+info_fixture="100_complex_control_flow"
 
 work="$(mktemp -d)"
 proxy_url="$(python3 "$here/build_local_proxy.py" "$work/proxy" --version "$version")"
@@ -125,4 +141,78 @@ if [ -z "$check_out" ]; then
 fi
 echo "go install $version -> $ball"
 echo "ball check $fixture -> $check_out"
+
+# ── leg 2b: the installed binary EXECUTES (issue #586) ──────────────────────
+#
+# `check`/`compile`/`encode` above prove only that the binary starts and parses.
+# The verbs a consumer actually reaches for — `run` and the cli-core reports —
+# need the two generated artifacts (compiled_engine.go / compiled_cli.go), and
+# those only reach a registry consumer if they are TRACKED: `go install` accepts
+# no `-tags`, and the module the proxy serves is the repository at the tag. So
+# this block is the end-to-end proof of #586, and it compares BYTES against the
+# same goldens go/engine's conformance sweep and go/cli's parity gate use — not
+# "produced some output", which an honest-failure stub could never satisfy but a
+# wrong-output engine could.
+#
+# Normalization is CR-only (`tr -d '\r'`): the goldens are LF in the index but
+# CRLF in a Windows worktree, and collapsing anything more (trailing newlines,
+# whitespace) would let a real divergence pass.
+ran=0
+for stem in $run_fixtures; do
+  golden="$root/tests/conformance/$stem.expected_output.txt"
+  if [ ! -s "$golden" ]; then
+    echo "smoke: golden $golden is missing or empty — the assertion would prove nothing" >&2
+    exit 1
+  fi
+  if ! "$ball" run "$root/tests/conformance/$stem.ball.json" >"$work/$stem.run.out" 2>"$work/$stem.run.err"; then
+    echo "smoke: installed ball could not RUN $stem — a go install-acquired ball must execute programs (#586)" >&2
+    sed 's/^/       /' "$work/$stem.run.err" >&2
+    exit 1
+  fi
+  if ! diff -u <(tr -d '\r' <"$golden") <(tr -d '\r' <"$work/$stem.run.out"); then
+    echo "smoke: ball run $stem diverged from its golden" >&2
+    exit 1
+  fi
+  echo "ball run $stem -> matches tests/conformance/$stem.expected_output.txt"
+  ran=$((ran + 1))
+done
+
+# cli-core: one program-taking verb against its Dart golden, plus `version`
+# (which takes no program). Both take the honest-failure path without the
+# compiled CLI core, so this is the other half of the #586 proof.
+info_golden="$root/tests/cli_core_goldens/$info_fixture.info.txt"
+if [ ! -s "$info_golden" ]; then
+  echo "smoke: golden $info_golden is missing or empty" >&2
+  exit 1
+fi
+if ! "$ball" info "$root/tests/conformance/$info_fixture.ball.json" >"$work/info.out" 2>"$work/info.err"; then
+  echo "smoke: installed ball could not run the cli-core verb 'info' (#586)" >&2
+  sed 's/^/       /' "$work/info.err" >&2
+  exit 1
+fi
+if ! diff -u <(tr -d '\r' <"$info_golden") <(tr -d '\r' <"$work/info.out"); then
+  echo "smoke: ball info $info_fixture diverged from the Dart golden" >&2
+  exit 1
+fi
+echo "ball info $info_fixture -> matches tests/cli_core_goldens/$info_fixture.info.txt"
+ran=$((ran + 1))
+
+if ! version_out="$("$ball" version 2>"$work/version.err")"; then
+  echo "smoke: installed ball could not run the cli-core verb 'version' (#586)" >&2
+  sed 's/^/       /' "$work/version.err" >&2
+  exit 1
+fi
+case "$version_out" in
+  "ball "?*) ;;
+  *) echo "smoke: ball version printed '$version_out', want 'ball <version>'" >&2; exit 1 ;;
+esac
+echo "ball version -> $version_out"
+ran=$((ran + 1))
+
+# Positive floor: an empty fixture list or a skipped loop must never read green.
+if [ "$ran" -lt 4 ]; then
+  echo "smoke: executed only $ran behavioural assertions, want >= 4" >&2
+  exit 1
+fi
+echo "Behaviour: $ran executions passed, 0 failed, $ran total"
 echo "go module external-consumer smoke: OK ($pass/$total modules, ball installed and ran)"

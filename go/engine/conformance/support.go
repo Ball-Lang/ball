@@ -49,11 +49,38 @@ func first(xs []string) string {
 	return xs[0]
 }
 
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
+// detailBudget is the character budget one `FAILING [name] status detail` line
+// gets. It matches what the sibling harnesses spend — csharp/engine/conformance/
+// Fixtures.cs's `Truncate(detail, 200)` and rust/engine/tests/
+// roundtrip_conformance.rs's `first_line` — so the four legs' logs are equally
+// diagnosable.
+const detailBudget = 200
+
+// errorDetail renders a (possibly multi-line) error as the ONE line a leg prints
+// per failing fixture.
+//
+// The compiler's and the encoder's errors are multi-line by construction — a
+// header plus one bullet per unsupported construct — and a fixture's whole
+// diagnosis lives in those bullets. This used to keep only the text before the
+// first newline, so the Go row's CI log read `go→ball: 6 unsupported
+// construct(s):` and nothing else: a truncation with no ellipsis and no hint
+// that anything had been cut, which is why issue #642's investigation had to
+// reproduce this leg locally to learn what the six were. Python joins with
+// " / " (python/engine/conformance/roundtrip.py) and C#/Rust truncate visibly at
+// 200 characters; this does both.
+func errorDetail(s string) string {
+	var parts []string
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimRight(line, " \t\r")
+		if strings.TrimSpace(trimmed) != "" {
+			parts = append(parts, trimmed)
+		}
 	}
-	return s
+	joined := strings.Join(parts, " / ")
+	if runes := []rune(joined); len(runes) > detailBudget {
+		return string(runes[:detailBudget]) + "…"
+	}
+	return joined
 }
 
 // conformanceDir walks up from the test's working directory to the repo root and

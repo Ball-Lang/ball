@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 351 passed, 0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -148,6 +148,25 @@ compile items so the sibling projects never double-compile each other's files.
   the same silent `null` placeholder and now throw too.
   `csharp/compiler/test/StateErrorContractTests.cs` is this target's half.
   See `docs/TESTING_STRATEGY.md` §5b.
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. `BallRuntime.PatternCastAssert` takes the subject (`BallValue`) now,
+  and `BallValue.DartErrorToString` gained the `TypeError` arm with an EMPTY
+  prefix.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).**
   `CompileTryStatement` emits one `catch (BallThrow __ballEx)` containing an
   `if`/`else if` chain: an `on <Type> catch` clause runs only when
@@ -382,8 +401,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 351 passed, 0 failed,
-  351 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 356 passed, 0 failed,
+  356 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without
@@ -400,19 +419,25 @@ compile items so the sibling projects never double-compile each other's files.
   legs selected via `--leg=`: `engine` (320/320, Dart parity — CI-gated by the `csharp-engine` row
   in `conformance-matrix.yml`), `compiler` (258/335 as of #527/#528 — ratcheted by that file's
   `csharp-compiler` row against `CSHARP_COMPILER_FLOOR`; it is the compiler's own honest scope-gap
-  count, a DROP fails, never a parity gate), `roundtrip` (0/320 — an honest, expected zero given
-  the syntactic encoder doesn't yet recognize compiler-emitted `BallRuntime.*` shapes). Since #452
-  item 1 the round-trip leg is ALSO run in CI, by the `csharp-roundtrip` measurement row: no floor
-  (a ratchet on 0 is meaningless), but it asserts the harness produced a parseable `Results:` line
-  with integer counts and `total >= 1`, so the leg can no longer silently rot. Since #452 item 3
-  the Python/Go/Rust targets have identical rows (`python-roundtrip`/`go-roundtrip`/
-  `rust-roundtrip`) built to the same shape and reporting the same honest zero. Do not treat the
-  numbers here as live — read them off those rows. NOTE: since #619 every row in
+  count, a DROP fails, never a parity gate), `roundtrip` (a flat 0/320 until #642 — the syntactic
+  Roslyn encoder refused the compiler's own output outright: the unconditional `BallOneofs` class,
+  every `BallRuntime.*` base-call helper, and the `BallValue` literal factories.
+  `encoder/src/RuntimeHelpers.cs` is the inverse table that closes the dominant part of that, and
+  `encoder/test/CompilerOutputTests.cs` is the fast guard on the shape). Since #452 item 1 the
+  round-trip leg is ALSO run in CI, by the `csharp-roundtrip` row, and since #642 that row is
+  **floored and ratcheted**: harness health (a parseable `Results:` line, integer counts,
+  `total >= 1`) PLUS `passed >= 1` PLUS `passed >= CSHARP_ROUNDTRIP_FLOOR`, all enforced by
+  `tools/ci/roundtrip_floor.sh`. It is still NOT a parity gate — most of the corpus does not
+  round-trip yet — but a flat zero is red, and the floor only rises; raise it in the SAME PR as the
+  fix that earned it (the job prints the exact new value). Since #452 item 3 the Python/Go/Rust
+  targets have identical rows (`python-roundtrip`/`go-roundtrip`/`rust-roundtrip`) built to the
+  same shape and floored the same way. Do not treat the numbers here as live — read them off those
+  rows. NOTE: since #619 every row in
   `conformance-matrix.yml` (these, the engine rows, and the `*_COMPILER_FLOOR` ratchets alike) DOES
   gate a PR — the workflow has a path-filtered `pull_request:` trigger sharing the `push` filter, so
   no dispatch is needed. What each row gates still differs: the engine rows gate full Dart parity,
-  the `*_COMPILER_FLOOR` rows are ratchets that tolerate their known gaps, and the `*-roundtrip`
-  rows gate harness health only.
+  and the `*_COMPILER_FLOOR` / `*_ROUNDTRIP_FLOOR` rows are ratchets that tolerate their known
+  gaps.
   See `csharp/AGENTS.md`'s "Conformance harness" section before treating a non-`engine`-leg number
   as a regression.
 

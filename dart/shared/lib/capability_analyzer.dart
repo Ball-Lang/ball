@@ -60,7 +60,7 @@ Map<String, Object?> analyzeCapabilitiesReachable(Program program) {
   final table = buildCapabilityTable();
   final baseModules = _identifyBaseModules(program.modules);
   final userFns = _collectUserFunctionNames(program.modules);
-  final customBaseFns = _collectCustomBaseFns(program.modules);
+  final customBaseFns = _collectCustomBaseFns(program.modules, table);
   final fnCaps = <String, Object?>{}; // "module.function" -> List<String> caps
   final capSites = <String, Object?>{}; // capName -> List<site>
   final visited = <String>[];
@@ -176,7 +176,7 @@ Map<String, Object?> _analyzeCapabilitiesCore(Map ctx) {
   final table = buildCapabilityTable();
   final baseModules = _identifyBaseModules(modules);
   final userFns = _collectUserFunctionNames(modules);
-  final customBaseFns = _collectCustomBaseFns(modules);
+  final customBaseFns = _collectCustomBaseFns(modules, table);
   final functionsOut = <Object?>[];
   final capSites = <String, Object?>{}; // capName -> List<site>
 
@@ -251,8 +251,8 @@ List<String> _collectUserFunctionNames(dynamic modules) {
   return names;
 }
 
-/// Every `"module.function"` DECLARED `isBase` in a module that is not one of
-/// the eight universal std modules — the host-extension seam (issue #609).
+/// Every `"module.function"` DECLARED `isBase` that [table] does not model —
+/// the host-extension seam (issues #609, #683).
 ///
 /// A Ball program may declare its own base module and have the host supply the
 /// implementation through a `BallModuleHandler` (`mymodule.exec_shell`). The
@@ -262,15 +262,33 @@ List<String> _collectUserFunctionNames(dynamic modules) {
 /// filed as an ordinary user call, and the program read **pure / NO RISK**.
 /// Every key returned here is classified `'custom'` instead — never pure.
 ///
+/// #609 keyed that on the MODULE NAME (anything outside the eight `std*`
+/// names), which left one hole: a program-supplied module **squatting** a std
+/// name — a module literally called `std` declaring `exec_shell` — was read as
+/// std territory and fell back to being an ordinary user call, i.e. pure. The
+/// test is now what the TABLE models, so the squatter is caught (#683).
+///
+/// The #402 bare-name resolution is applied only INSIDE the eight std module
+/// names ([isKnownBaseModule]), and that scope is load-bearing in both
+/// directions:
+///   * without it the conformance corpus lights up — fixtures declare
+///     `std.list_push` while the table keys `std_collections.list_push`, the
+///     same base function under a looser label;
+///   * with it applied everywhere, a host module declaring `mutex_create`
+///     would be blessed as `std_concurrency.mutex_create` by a bare-name
+///     coincidence, re-opening #609.
+///
 /// The DECLARATION is the signal, never the (spoofable) call-site string: a
 /// call naming an undeclared module resolves to nothing and stays an ordinary
 /// user call, so this can only ever add a capability a program really declared.
-List<String> _collectCustomBaseFns(dynamic modules) {
+List<String> _collectCustomBaseFns(dynamic modules, Map table) {
   final keys = <String>[];
   for (final module in modules) {
-    if (isKnownBaseModule(module.name)) continue;
+    final lenient = isKnownBaseModule(module.name);
     for (final f in module.functions) {
       if (!f.isBase) continue;
+      if (lookupCapability(table, module.name, f.name).isNotEmpty) continue;
+      if (lenient && lookupCapabilityByName(table, f.name).isNotEmpty) continue;
       final key = '${module.name}.${f.name}';
       if (!keys.contains(key)) keys.add(key);
     }
@@ -676,6 +694,35 @@ Map<String, Object?> _buildReportFromFunctions(
 /// the legacy proto-report renderer). Built from a line list joined with `\n`
 /// plus a trailing newline — reproducing `StringBuffer.writeln` semantics — so
 /// it self-hosts on the compiled TS/C++/Rust CLIs (which have no StringBuffer).
+///
+/// ## `Summary:` precedence — the pinned rule (issue #682)
+///
+/// Exactly one line is printed, chosen by the FIRST matching arm of:
+///
+/// 1. `NO RISK — pure computation only` — pure, and no base-function shadow.
+/// 2. `REVIEW REQUIRED — declares base-function shadows` — pure, but a user
+///    function shadows a capability-bearing base name (#420).
+/// 3. `REVIEW REQUIRED — calls into custom base modules` — any `custom` call.
+/// 4. `HIGH RISK` — `process`, `memory` or `network`.
+/// 5. `MEDIUM RISK` — filesystem or `concurrency`.
+/// 6. `LOW RISK` — everything else effectful.
+///
+/// **An UNBOUNDED effect outranks a ranked one**, so arm 3 sits above arm 4: a
+/// program that calls BOTH `std_io.exit` and a host-supplied module prints
+/// `REVIEW REQUIRED`, not `HIGH RISK`. Printing `HIGH RISK` there would assert
+/// a ceiling this report has not proven (it cannot see what the host function
+/// does) and would hide the one fact a reviewer must act on — that a module
+/// outside the audit's knowledge is reached. The ordering is deliberate and
+/// pinned by `capability_analyzer_test.dart`'s `#682` group.
+///
+/// **Consumer contract:** this line is a REVIEW PROMPT, not an enforcement
+/// surface, and must never be grepped for `HIGH RISK` — that substring is
+/// absent from a program that is high-risk AND custom. Enforce with
+/// `--deny <capability>` ([checkPolicy]) or by reading `capabilities[]`; both
+/// are unaffected by this ordering and both still fire on the combined
+/// program. The one in-repo consumer,
+/// `.github/actions/ball-audit/action.yml`, greps only for `NO RISK`, which
+/// arm 3 correctly withholds.
 String formatCapabilityReport(Map report) {
   final lines = <String>[];
   lines.add(
@@ -766,10 +813,12 @@ String formatCapabilityReport(Map report) {
         ? 'REVIEW REQUIRED — declares base-function shadows'
         : 'NO RISK — pure computation only';
   } else if (hasCustom) {
-    // #609: a call into a host-supplied base module outranks every KNOWN
-    // category below, because its effects are exactly what this report cannot
-    // bound — ranking it LOW/MEDIUM/HIGH would assert something unproven. The
-    // known capabilities are still listed above with their own call sites.
+    // #609/#682: a call into a host-supplied base function outranks every
+    // KNOWN category below, because its effects are exactly what this report
+    // cannot bound — ranking it LOW/MEDIUM/HIGH would assert something
+    // unproven. The known capabilities are still listed above with their own
+    // call sites, and `--deny` still fires on each. See this function's
+    // doc comment for the full precedence rule and the consumer contract.
     risk = 'REVIEW REQUIRED — calls into custom base modules';
   } else if (controlsProcess || usesMemory || usesNetwork) {
     risk = 'HIGH RISK';

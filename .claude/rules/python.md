@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 351 passed,
-0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 356 passed,
+0 failed, 356 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -136,6 +136,27 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   `test_state_error_sites_are_typed_and_stringify_like_dart` is this target's
   half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. Python raises no `TypeError` (its compiler fails loud on a cast
+  pattern), so `dart_errors.py` deliberately has no class for it — a future site
+  must add one whose `toString` is the MESSAGE ALONE, never the base classes'
+  generic `<Type>: <message>`. `python/compiler/tests/test_runtime.py` pins the
+  three renderings this runtime does produce.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →
@@ -151,7 +172,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 351 passed, 0 failed, 351 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 356 passed, 0 failed, 356 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`
@@ -274,11 +295,17 @@ python -m conformance.runner                             # prints the CI-parseab
 - `python/engine/conformance/runner.py` is the committed `tests/conformance/*.ball.json` runner — the
   `python-engine` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained count.
 - `python/engine/conformance/roundtrip.py` (`python -m conformance.roundtrip`, or
-  `python -m python.engine.conformance.roundtrip` from the repo root) is a **measurement-only**
+  `python -m python.engine.conformance.roundtrip` from the repo root) is a measurement
   sweep (#452 item 3): Ball → Python → Ball → the **Dart** reference engine → golden diff. Needs
-  `dart` on PATH (or `BALL_DART`), not the compiled engine. Honest baseline **0/321**, expected by
-  construction and mirroring `csharp-roundtrip`; gated only on "the sweep ran something", never on
-  the failure count. Its CI home is the `python-roundtrip` row in `conformance-matrix.yml`, which
-  **is a PR gate since #619** — the row runs automatically on any PR touching a filtered path, gated
-  on harness health (a parseable `Results:` line, integer counts, `total >= 1`), never on the
-  failure count. No dispatch needed.
+  `dart` on PATH (or `BALL_DART`), not the compiled engine. It measured a flat **0/321** from the
+  day it shipped until #642 — the encoder refused the compiler's own output outright: the
+  `try:`/`except ballrt.BallReturn` wrapper the compiler put around EVERY function body (`ast`'s
+  `Try` is an unsupported statement here), and every `ballrt.*` base-call helper. The compiler now
+  emits that wrapper only when the body can actually raise (`compiler.py::emit_body`, a
+  conservative textual test for `ballrt.ret(`), and `ball_encoder/ballrt_calls.py` is the inverse
+  table for the helpers; `tests/test_compiler_output.py` is the fast guard on both halves. Its CI
+  home is the `python-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619**
+  and **floored + ratcheted since #642**: harness health PLUS `passed >= 1` PLUS
+  `passed >= PYTHON_ROUNDTRIP_FLOOR`, enforced by `tools/ci/roundtrip_floor.sh`. Still NOT a parity
+  gate — but a flat zero is red, and the floor only rises. **Raise it in the SAME PR as the fix
+  that earned it**; the job prints the exact new value.

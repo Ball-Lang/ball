@@ -158,9 +158,17 @@ func (c *Compiler) compileEnumNamespace(en *descriptorpb.EnumDescriptorProto) st
 	return b.String()
 }
 
+// compileOneofDiscriminators emits a `var ballOneof_<Enum>` namespace for every
+// synthesized oneof discriminator the program REFERENCES — never the whole
+// table. Emitting all of it unconditionally left five dead top-level vars at the
+// head of every compiled program (a hello-world included), which is both dead
+// code and the bulk of what the Go encoder refuses when it re-reads the
+// compiler's own output (issue #642). `usedOneofs` is populated by
+// compileReference, the only site that resolves a bare name to one of these, so
+// nothing referenced can go unemitted.
 func (c *Compiler) compileOneofDiscriminators() string {
-	names := make([]string, 0, len(oneofDiscriminators))
-	for k := range oneofDiscriminators {
+	names := make([]string, 0, len(c.usedOneofs))
+	for k := range c.usedOneofs {
 		names = append(names, k)
 	}
 	sort.Strings(names)

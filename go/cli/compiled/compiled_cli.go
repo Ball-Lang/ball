@@ -804,6 +804,18 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std.double_to_string"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_to_int"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.to_int"), "pure")
+		__map1.Set(ballrt.ToStr("std.to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.int_to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.double_to_int"), "pure")
+		__map1.Set(ballrt.ToStr("std.to_string_as_fixed"), "pure")
+		__map1.Set(ballrt.ToStr("std.to_string_as_exponential"), "pure")
+		__map1.Set(ballrt.ToStr("std.to_string_as_precision"), "pure")
+		__map1.Set(ballrt.ToStr("std.ceil_to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.floor_to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.round_to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.truncate_to_double"), "pure")
+		__map1.Set(ballrt.ToStr("std.compare_to"), "pure")
 		__map1.Set(ballrt.ToStr("std.null_coalesce"), "pure")
 		__map1.Set(ballrt.ToStr("std.null_check"), "pure")
 		__map1.Set(ballrt.ToStr("std.if"), "pure")
@@ -828,6 +840,27 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std.is"), "pure")
 		__map1.Set(ballrt.ToStr("std.is_not"), "pure")
 		__map1.Set(ballrt.ToStr("std.as"), "pure")
+		__map1.Set(ballrt.ToStr("std.type_of"), "pure")
+		__map1.Set(ballrt.ToStr("std.type_literal"), "pure")
+		__map1.Set(ballrt.ToStr("std.symbol"), "pure")
+		__map1.Set(ballrt.ToStr("std.cascade"), "pure")
+		__map1.Set(ballrt.ToStr("std.null_aware_access"), "pure")
+		__map1.Set(ballrt.ToStr("std.null_aware_call"), "pure")
+		__map1.Set(ballrt.ToStr("std.null_aware_cascade"), "pure")
+		__map1.Set(ballrt.ToStr("std.invoke"), "pure")
+		__map1.Set(ballrt.ToStr("std.tear_off"), "pure")
+		__map1.Set(ballrt.ToStr("std.spread"), "pure")
+		__map1.Set(ballrt.ToStr("std.null_spread"), "pure")
+		__map1.Set(ballrt.ToStr("std.collection_if"), "pure")
+		__map1.Set(ballrt.ToStr("std.collection_for"), "pure")
+		__map1.Set(ballrt.ToStr("std.switch_expr"), "pure")
+		__map1.Set(ballrt.ToStr("std.record"), "pure")
+		__map1.Set(ballrt.ToStr("std.typed_list"), "pure")
+		__map1.Set(ballrt.ToStr("std.list_filled"), "pure")
+		__map1.Set(ballrt.ToStr("std.list_generate"), "pure")
+		__map1.Set(ballrt.ToStr("std.dart_list_filled"), "pure")
+		__map1.Set(ballrt.ToStr("std.dart_list_generate"), "pure")
+		__map1.Set(ballrt.ToStr("std.map_create"), "pure")
 		__map1.Set(ballrt.ToStr("std.index"), "pure")
 		__map1.Set(ballrt.ToStr("std.index_assign"), "pure")
 		__map1.Set(ballrt.ToStr("std.labeled"), "pure")
@@ -858,6 +891,11 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std.string_pad_left"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_pad_right"), "pure")
 		__map1.Set(ballrt.ToStr("std.string_interpolation"), "pure")
+		__map1.Set(ballrt.ToStr("std.string_code_unit_at"), "pure")
+		__map1.Set(ballrt.ToStr("std.string_runes"), "pure")
+		__map1.Set(ballrt.ToStr("std.sink_create"), "pure")
+		__map1.Set(ballrt.ToStr("std.sink_write"), "pure")
+		__map1.Set(ballrt.ToStr("std.sink_to_string"), "pure")
 		__map1.Set(ballrt.ToStr("std.regex_match"), "pure")
 		__map1.Set(ballrt.ToStr("std.regex_find"), "pure")
 		__map1.Set(ballrt.ToStr("std.regex_find_all"), "pure")
@@ -943,6 +981,10 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std_collections.list_take"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.list_drop"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.list_concat"), "pure")
+		__map1.Set(ballrt.ToStr("std_collections.list_clear"), "pure")
+		__map1.Set(ballrt.ToStr("std_collections.list_foreach"), "pure")
+		__map1.Set(ballrt.ToStr("std_collections.list_join"), "pure")
+		__map1.Set(ballrt.ToStr("std_collections.list_to_list"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.map_get"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.map_set"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.map_delete"), "pure")
@@ -956,6 +998,8 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std_collections.map_filter"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.map_is_empty"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.map_length"), "pure")
+		__map1.Set(ballrt.ToStr("std_collections.map_contains_value"), "pure")
+		__map1.Set(ballrt.ToStr("std_collections.map_put_if_absent"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.set_create"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.set_add"), "pure")
 		__map1.Set(ballrt.ToStr("std_collections.set_remove"), "pure")
@@ -1094,7 +1138,12 @@ func analyzeCapabilitiesReachable(input ballrt.Value) (__ret ballrt.Value) {
 		_ = baseModules
 		var userFns ballrt.Value = _collectUserFunctionNames(ballrt.FieldGet(program, "modules"))
 		_ = userFns
-		var customBaseFns ballrt.Value = _collectCustomBaseFns(ballrt.FieldGet(program, "modules"))
+		var customBaseFns ballrt.Value = _collectCustomBaseFns(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("arg0", ballrt.FieldGet(program, "modules"))
+			__m.Set("arg1", table)
+			return __m
+		}())
 		_ = customBaseFns
 		var fnCaps ballrt.Value = func() ballrt.Value {
 			__map4 := ballrt.NewMap()
@@ -1379,7 +1428,12 @@ func _analyzeCapabilitiesCore(input ballrt.Value) (__ret ballrt.Value) {
 		_ = baseModules
 		var userFns ballrt.Value = _collectUserFunctionNames(modules)
 		_ = userFns
-		var customBaseFns ballrt.Value = _collectCustomBaseFns(modules)
+		var customBaseFns ballrt.Value = _collectCustomBaseFns(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("arg0", modules)
+			__m.Set("arg1", table)
+			return __m
+		}())
 		_ = customBaseFns
 		var functionsOut ballrt.Value = ballrt.NewList()
 		_ = functionsOut
@@ -1589,8 +1643,10 @@ func _collectUserFunctionNames(input ballrt.Value) (__ret ballrt.Value) {
 
 func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 	_ = input
-	modules := input
+	modules := ballrt.ArgGet(input, "modules", "arg0")
 	_ = modules
+	table := ballrt.ArgGet(input, "table", "arg1")
+	_ = table
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
 		var keys ballrt.Value = ballrt.NewList()
@@ -1600,15 +1656,8 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 				_ = module
 				if ballrt.RunLoopBody("", func() {
 					_ = func() ballrt.Value {
-						_ = func() ballrt.Value {
-							if ballrt.Truthy(isKnownBaseModule(ballrt.FieldGet(module, "name"))) {
-								return func() ballrt.Value {
-									_ = ballrt.Continue("")
-									return ballrt.Value(nil)
-								}()
-							}
-							return ballrt.Value(nil)
-						}()
+						var lenient ballrt.Value = isKnownBaseModule(ballrt.FieldGet(module, "name"))
+						_ = lenient
 						_ = func() ballrt.Value {
 							for _, f := range ballrt.Iterate(ballrt.FieldGet(module, "functions")) {
 								_ = f
@@ -1616,6 +1665,35 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 									_ = func() ballrt.Value {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.Not(ballrt.FieldGet(f, "isBase"))) {
+												return func() ballrt.Value {
+													_ = ballrt.Continue("")
+													return ballrt.Value(nil)
+												}()
+											}
+											return ballrt.Value(nil)
+										}()
+										_ = func() ballrt.Value {
+											if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(lookupCapability(func() ballrt.Value {
+												__m := ballrt.NewMap()
+												__m.Set("arg0", table)
+												__m.Set("arg1", ballrt.FieldGet(module, "name"))
+												__m.Set("arg2", ballrt.FieldGet(f, "name"))
+												return __m
+											}())))) {
+												return func() ballrt.Value {
+													_ = ballrt.Continue("")
+													return ballrt.Value(nil)
+												}()
+											}
+											return ballrt.Value(nil)
+										}()
+										_ = func() ballrt.Value {
+											if ballrt.Truthy((ballrt.Truthy(lenient) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(lookupCapabilityByName(func() ballrt.Value {
+												__m := ballrt.NewMap()
+												__m.Set("arg0", table)
+												__m.Set("arg1", ballrt.FieldGet(f, "name"))
+												return __m
+											}())))))) {
 												return func() ballrt.Value {
 													_ = ballrt.Continue("")
 													return ballrt.Value(nil)
@@ -2922,7 +3000,12 @@ func _analyzeTerminationCore(input ballrt.Value) (__ret ballrt.Value) {
 			__map34 := ballrt.NewMap()
 			__map34.Set(ballrt.ToStr("modules"), modules)
 			__map34.Set(ballrt.ToStr("baseModules"), baseModules)
-			__map34.Set(ballrt.ToStr("customBaseFns"), _collectCustomBaseFns(modules))
+			__map34.Set(ballrt.ToStr("customBaseFns"), _collectCustomBaseFns(func() ballrt.Value {
+				__m := ballrt.NewMap()
+				__m.Set("arg0", modules)
+				__m.Set("arg1", buildCapabilityTable(ballrt.Value(nil)))
+				return __m
+			}()))
 			return __map34
 		}())
 		_ = callGraph
@@ -6249,59 +6332,3 @@ func _exprHasExitSignal(input ballrt.Value) (__ret ballrt.Value) {
 	}()
 	return
 }
-
-var ballOneof_Expression_Expr = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("call", "call")
-	__m.Set("literal", "literal")
-	__m.Set("reference", "reference")
-	__m.Set("fieldAccess", "fieldAccess")
-	__m.Set("messageCreation", "messageCreation")
-	__m.Set("block", "block")
-	__m.Set("lambda", "lambda")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("Expression_Expr", __m)
-}()
-
-var ballOneof_Literal_Value = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("intValue", "intValue")
-	__m.Set("doubleValue", "doubleValue")
-	__m.Set("stringValue", "stringValue")
-	__m.Set("boolValue", "boolValue")
-	__m.Set("bytesValue", "bytesValue")
-	__m.Set("listValue", "listValue")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("Literal_Value", __m)
-}()
-
-var ballOneof_ModuleImport_Source = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("http", "http")
-	__m.Set("file", "file")
-	__m.Set("git", "git")
-	__m.Set("registry", "registry")
-	__m.Set("inline", "inline")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("ModuleImport_Source", __m)
-}()
-
-var ballOneof_Statement_Stmt = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("let", "let")
-	__m.Set("expression", "expression")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("Statement_Stmt", __m)
-}()
-
-var ballOneof_structpb_Value_Kind = func() ballrt.Value {
-	__m := ballrt.NewMap()
-	__m.Set("nullValue", "nullValue")
-	__m.Set("numberValue", "numberValue")
-	__m.Set("stringValue", "stringValue")
-	__m.Set("boolValue", "boolValue")
-	__m.Set("structValue", "structValue")
-	__m.Set("listValue", "listValue")
-	__m.Set("notSet", "notSet")
-	return ballrt.NewMessage("structpb.Value_Kind", __m)
-}()

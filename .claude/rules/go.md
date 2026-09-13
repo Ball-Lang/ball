@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 351 passed,
-0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 356 passed,
+0 failed, 356 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -200,6 +200,26 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 - **Fail-loud (issue #55):** an unsupported base function / expression shape is a compile error,
   never silent bad code.
 
+- **`std_collections.list_foreach` compiles to `ballrt.ListForEach`, and the receiver may be a MAP
+  (#642).** It had no case at all in `base_call.go`, so 116_map_iteration, 119_nested_maps and
+  121_map_from_entries were refused outright — the same shape of gap #597 closed for `list_find`.
+  The Dart → Ball encoder is syntactic, so `map.forEach((k, v) => ...)` and
+  `list.forEach((e) => ...)` both arrive as `list_foreach` with no receiver type to tell them apart;
+  `ballrt.ListForEach`'s map arm passes each entry as one `{key, value, arg0, arg1}` message,
+  mirroring the Dart reference engine's own `list_foreach` (`engine_std.dart`) field for field.
+  `Map.fromEntries` (`ballrt.MapFromEntries`) landed with it — 121's next blocker once it compiled.
+  `go/compiler/list_foreach_test.go` compiles all three fixtures AND runs them against the goldens.
+
+- **`std_collections.list_foreach` compiles to `ballrt.ListForEach`, and the receiver may be a MAP
+  (#642).** It had no case at all in `base_call.go`, so 116_map_iteration, 119_nested_maps and
+  121_map_from_entries were refused outright — the same shape of gap #597 closed for `list_find`.
+  The Dart → Ball encoder is syntactic, so `map.forEach((k, v) => ...)` and
+  `list.forEach((e) => ...)` both arrive as `list_foreach` with no receiver type to tell them apart;
+  `ballrt.ListForEach`'s map arm passes each entry as one `{key, value, arg0, arg1}` message,
+  mirroring the Dart reference engine's own `list_foreach` (`engine_std.dart`) field for field.
+  `Map.fromEntries` (`ballrt.MapFromEntries`) landed with it — 121's next blocker once it compiled.
+  `go/compiler/list_foreach_test.go` compiles all three fixtures AND runs them against the goldens.
+
 - **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
   `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
   `dart/shared/lib/std_collections.dart` says ("Find first:
@@ -240,6 +260,25 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `go/runtime/state_error_contract_test.go` +
   `go/compiler/state_error_contract_test.go` are this target's halves.
   See `docs/TESTING_STRATEGY.md` §5b.
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. The cast assert lives in `ballrt.CastAssert` (not inlined by
+  `go/compiler/pattern.go` any more) and `ops.go`'s `dartErrorToString` gained
+  the `TypeError` arm with an EMPTY prefix.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
   emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
   `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`
@@ -288,7 +327,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 351 passed, 0 failed, 351 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 356 passed, 0 failed, 356 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the
@@ -364,11 +403,34 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `TestConformance` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained
   count.
 - `go/engine/conformance/roundtrip.go` (`go test -v -run TestRoundTrip ./conformance/`) is a
-  **measurement-only** sweep (#452 item 3): Ball → Go → Ball → the **Dart** reference engine →
+  measurement sweep (#452 item 3): Ball → Go → Ball → the **Dart** reference engine →
   golden diff (it needs `dart` on PATH and skips loudly without it; the shared
-  `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in `support.go`). Honest baseline
-  **0/321**, expected by construction and mirroring
-  `csharp-roundtrip`; gated only on `total >= 1`, never on the failure count. Its CI home is the
-  `go-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** — the row runs
-  automatically on any PR touching a filtered path, gated on harness health (a parseable `Results:`
-  line, integer counts, `total >= 1`), never on the failure count. No dispatch needed.
+  `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in `support.go`). It measured a
+  flat **0/321** from the day it shipped until #642 — the encoder refused the compiler's own
+  output outright (the unconditional `ballOneof_*` top-level vars, the `ballrt.RunEntry` entry
+  wrapper, and every `ballrt.*` base-call helper). `go/encoder/ballrt.go` is the inverse table that
+  closes the dominant part of that, and `go/encoder/ballrt_test.go` is the fast guard on the
+  shape. Its CI home is the `go-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate
+  since #619** and **floored + ratcheted since #642**: harness health (a parseable `Results:` line,
+  integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= GO_ROUNDTRIP_FLOOR`, enforced by
+  `tools/ci/roundtrip_floor.sh`. It is still NOT a parity gate — most of the corpus does not
+  round-trip yet — but a flat zero is red, and the floor only rises. **Raise the floor in the SAME
+  PR as the fix that earned it**; the job prints the exact new value. The remaining gap is named in
+  the row's own step summary with the issue tracking it (#691: no `std_collections` helper has an
+  inverse in `go/encoder/ballrt.go` yet), never as an "expected baseline".
+- **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
+  compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
+  construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture
+  failed. The predecessor kept just the text before the first `\n`, dropping every bullet with no
+  ellipsis, which is why #642's investigation had to reproduce the Go leg locally to learn what its
+  six constructs were. `errorDetail` joins with `" / "` (Python's separator) and truncates at the
+  same visible 200-character budget C#/Rust use. `go/engine/conformance/support_test.go` pins it. The remaining gap is named in
+  the row's own step summary with the issue tracking it (#691: no `std_collections` helper has an
+  inverse in `go/encoder/ballrt.go` yet), never as an "expected baseline".
+- **A leg's `Result.Detail` goes through `errorDetail`, which JOINS every line (#642).** The
+  compiler's and the encoder's errors are multi-line — a header plus one bullet per unsupported
+  construct — and a `FAILING [name] status detail` line is the only place CI shows why a fixture
+  failed. The predecessor kept just the text before the first `\n`, dropping every bullet with no
+  ellipsis, which is why #642's investigation had to reproduce the Go leg locally to learn what its
+  six constructs were. `errorDetail` joins with `" / "` (Python's separator) and truncates at the
+  same visible 200-character budget C#/Rust use. `go/engine/conformance/support_test.go` pins it.

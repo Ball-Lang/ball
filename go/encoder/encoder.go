@@ -236,12 +236,22 @@ func assembleProgram(funcs []*ballv1.FunctionDefinition, entryFunction string) *
 func (e *Encoder) encodeFunc(fd *ast.FuncDecl) *ballv1.FunctionDefinition {
 	params := paramNames(fd.Type)
 
-	body := e.encodeBlockStmt(fd.Body)
+	// `func main() { ballrt.RunEntry(func() ballrt.Value { … }) }` is the shape
+	// go/compiler emits for a program's entry point: RunEntry runs the entry
+	// body and swallows a top-level std.return, which is exactly a Ball entry
+	// function. Unwrap it so the encoded `main` carries the real body rather
+	// than a call to a wrapper Ball has no equivalent for.
+	body := fd.Body
+	if fd.Name.Name == "main" && len(params) == 0 {
+		if inner := unwrapEntryWrapper(fd.Body); inner != nil {
+			body = inner
+		}
+	}
 
 	fn := &ballv1.FunctionDefinition{
 		Name:       fd.Name.Name,
 		OutputType: resultType(fd.Type),
-		Body:       body,
+		Body:       e.encodeBlockStmt(body),
 		Metadata:   funcMetadata(params),
 	}
 	if len(params) == 1 {

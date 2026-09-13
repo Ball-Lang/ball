@@ -62,11 +62,14 @@ public class RealWorldSweepTests(ITestOutputHelper output)
     private readonly ITestOutputHelper _output = output;
 
     /// <summary>
-    /// The one committed file that is <em>not</em> a sweep entry: bucket (d)'s
-    /// sibling declaration, which exists only so the caller has an out-of-file
-    /// callee to fail on.
+    /// Bucket (d)'s sibling declaration — the file its caller calls into.
+    /// Until W12-C it was the one committed file that was <em>not</em> a sweep
+    /// input, because no code path could reach both files in one encode; it is
+    /// now the second file of bucket (d)'s <see cref="EncodeMode.Project"/>
+    /// entry (see <see cref="Fixtures"/>'s <c>Companions</c> column), which is
+    /// exactly what closing that bucket means.
     /// </summary>
-    private const string CalleeOnlyFixture = "d_cross_file_callee.cs";
+    private const string CrossFileCalleeFixture = "d_cross_file_callee.cs";
 
     /// <summary>
     /// Which public encoder entry point a bucket's shape is meant to be encoded
@@ -81,6 +84,12 @@ public class RealWorldSweepTests(ITestOutputHelper output)
 
         /// <summary>A library: <see cref="CSharpEncoder.EncodeLibrary"/>, no entry point required.</summary>
         Library,
+
+        /// <summary>A multi-file project: <see cref="CSharpEncoder.EncodeProject"/> over a
+        /// directory holding the bucket's fixture plus its declared companions, with one
+        /// Roslyn <c>CSharpCompilation</c> and a <c>SemanticModel</c> behind it (issue #492,
+        /// W12-C slice 1).</summary>
+        Project,
     }
 
     /// <summary>
@@ -103,8 +112,8 @@ public class RealWorldSweepTests(ITestOutputHelper output)
             "CLOSED by #492 slice A — a bodyless interface member is OMITTED from Module.Functions (Types.cs), never thrown on; the declaration itself still round-trips as a TypeDefinition"),
         ("c: class with two constructors", "c_two_constructors.cs", EncodeMode.Program, true,
             "CLOSED by #492 slice B — each constructor reduces to a CtorShape (params + the fields it assigns) and a call site selects by arity; fields are keyed by the class's DECLARED names, never the ctor's parameter names"),
-        ("d: call into a type declared in a sibling file", "d_cross_file_caller.cs", EncodeMode.Program, false,
-            "no cross-file symbol table — the encoder sees one file per Encode() call"),
+        ("d: call into a type declared in a sibling file", "d_cross_file_caller.cs", EncodeMode.Project, true,
+            "CLOSED by #492 W12-C slice 1 — `CSharpEncoder.EncodeProject` builds ONE Roslyn `CSharpCompilation` over the whole directory (hermetic net10.0 reference assemblies from the version-pinned Basic.Reference.Assemblies.Net100) and hands each file its own `SemanticModel`, so `GetSymbolInfo` at the call site returns the sibling file's `MathHelper.Square(int value)` — declaring file, static-ness and real parameter name included. `Encode(string)`/`EncodeLibrary(string)` are untouched and stay resolution-free, guarded by ProjectEncodingTests' byte-identity golden"),
         ("e: lambda / PredefinedType-heavy expression", "e_lambda_and_predefined_types.cs", EncodeMode.Program, true,
             "CLOSED by #492 slice E — a PredefinedTypeSyntax receiver (`int.Parse`/`double.Parse`) routes to the already-declared `string_to_int`/`string_to_double` std calls, and the 0-arg `.Count()` METHOD spelling gets the same `std.length` mapping EncodePropertyAccess's `.Count` PROPERTY form already had; the fixture's encoded output is compiled and RUN (PredefinedTypeCallTests), which is what caught the C# compiler reading a LINQ callback only under the Dart encoder's `value` key"),
         ("f: target-typed new()", "f_target_typed_new.cs", EncodeMode.Program, false,
@@ -121,19 +130,64 @@ public class RealWorldSweepTests(ITestOutputHelper output)
             "CLOSED by #492 slice 4 — `string` is a PredefinedTypeSyntax keyword, so `string.Join(...)` reaches EncodePredefinedTypeStaticCall, which modelled only `Parse`; the 2-argument shape now routes to the already-declared `std_collections.string_join` with the arguments SWAPPED into StringJoinInput's `list`/`separator` field order. Added from a FRESH Tier A measurement (12 of the 19 first-error `unsupported static call` files, every one of them this exact spelling), the same way rows (h)/(i) were — not by assuming this table still describes reality"),
     ];
 
+    /// <summary>
+    /// Extra committed fixture files a <see cref="EncodeMode.Project"/> bucket's
+    /// directory must hold alongside its own. Kept as an explicit, printed input
+    /// rather than "whatever the directory happens to contain": the swept file
+    /// set is what the measurement is ABOUT, so a surprising sweep must be
+    /// visible instead of inferred.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> Companions = new(StringComparer.Ordinal)
+    {
+        ["d_cross_file_caller.cs"] = [CrossFileCalleeFixture],
+    };
+
     /// <summary>Drive one fixture through the entry point its bucket declares.</summary>
-    private static void EncodeFixture(string source, EncodeMode mode)
+    private static void EncodeFixture(string file, EncodeMode mode)
     {
         switch (mode)
         {
             case EncodeMode.Library:
-                CSharpEncoder.EncodeLibrary(source);
+                CSharpEncoder.EncodeLibrary(ReadFixture(file));
                 break;
             case EncodeMode.Program:
-                CSharpEncoder.Encode(source);
+                CSharpEncoder.Encode(ReadFixture(file));
+                break;
+            case EncodeMode.Project:
+                EncodeFixtureAsProject(file);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "unknown encode mode");
+        }
+    }
+
+    /// <summary>
+    /// Copy a bucket's fixture plus its declared <see cref="Companions"/> into a
+    /// scratch directory and encode them as one project. A scratch directory is
+    /// needed because the committed fixture directory holds the WHOLE taxonomy —
+    /// several buckets declare their own <c>Program.Main</c>, so compiling them
+    /// together would be a different (and meaningless) input.
+    /// </summary>
+    private static void EncodeFixtureAsProject(string file)
+    {
+        var directory = Path.Combine(
+            Path.GetTempPath(), "ball-sweep-project-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var members = Companions.TryGetValue(file, out var extra)
+                ? extra.Prepend(file)
+                : [file];
+            foreach (var name in members)
+            {
+                File.WriteAllText(Path.Combine(directory, name), ReadFixture(name));
+            }
+
+            CSharpEncoder.EncodeProject(directory);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
         }
     }
 
@@ -151,10 +205,9 @@ public class RealWorldSweepTests(ITestOutputHelper output)
         var results = new List<(string Bucket, bool Encoded, string Detail)>();
         foreach (var (bucket, file, mode, _, expectation) in Fixtures)
         {
-            var source = ReadFixture(file);
             try
             {
-                EncodeFixture(source, mode);
+                EncodeFixture(file, mode);
                 results.Add((bucket, true, $"encoded via {mode}"));
             }
             catch (EncoderException ex)
@@ -224,10 +277,9 @@ public class RealWorldSweepTests(ITestOutputHelper output)
         var crashes = new List<string>();
         foreach (var (bucket, file, mode, _, _) in Fixtures)
         {
-            var source = ReadFixture(file);
             try
             {
-                EncodeFixture(source, mode);
+                EncodeFixture(file, mode);
             }
             catch (EncoderException)
             {
@@ -245,23 +297,26 @@ public class RealWorldSweepTests(ITestOutputHelper output)
 
     /// <summary>
     /// Bucket (d)'s sibling declaration is committed and non-empty — an empty
-    /// callee would make the caller fail for the wrong reason.
+    /// callee would make the caller encode for the wrong reason.
     /// </summary>
     [Fact]
     public void CrossFileCalleeFixture_IsCommitted()
     {
-        Assert.NotEqual(string.Empty, ReadFixture(CalleeOnlyFixture).Trim());
+        Assert.NotEqual(string.Empty, ReadFixture(CrossFileCalleeFixture).Trim());
+        Assert.Contains(CrossFileCalleeFixture, Companions["d_cross_file_caller.cs"]);
     }
 
     /// <summary>
     /// Compares the declared taxonomy against the fixture files that actually
-    /// shipped, in both directions, and returns the swept set (everything
-    /// except <see cref="CalleeOnlyFixture"/>) in taxonomy order.
+    /// shipped, in both directions, and returns the swept set (the taxonomy's
+    /// own entry files, not their <see cref="Companions"/>) in taxonomy order.
     /// </summary>
     private static List<string> AssertFixtureSetIsIntact()
     {
         var onDisk = DiscoverFixtureFiles();
-        var declared = Fixtures.Select(f => f.File).Append(CalleeOnlyFixture)
+        var declared = Fixtures.Select(f => f.File)
+            .Concat(Companions.Values.SelectMany(names => names))
+            .Distinct(StringComparer.Ordinal)
             .OrderBy(n => n, StringComparer.Ordinal).ToList();
 
         Assert.Equal(declared, onDisk);

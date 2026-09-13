@@ -100,6 +100,33 @@ public static class CSharpEncoder
         return AssembleProgram(module, entryFunction: string.Empty);
     }
 
+    /// <summary>Encode a whole C# <b>project</b> — every <c>.cs</c> file under
+    /// <paramref name="directory"/> — into one Ball <see cref="Program"/>, resolved through a
+    /// Roslyn <see cref="Microsoft.CodeAnalysis.SemanticModel"/> (issue #492, W12-C slice 1).
+    /// See <see cref="ProjectEncodeOptions"/> and <see cref="ProjectEncodeResult"/>.</summary>
+    public static ProjectEncodeResult EncodeProject(string directory, ProjectEncodeOptions? options = null) =>
+        throw new EncoderException(
+            "ball-encoder: EncodeProject is declared but not implemented in this commit — the " +
+            "compilation + SemanticModel seam is the commit that follows (issue #492, W12-C slice 1)");
+
+    /// <summary>Build the resolved <see cref="ProjectCompilation"/> for <paramref name="directory"/>
+    /// without encoding anything — the "resolve once" half of the seam.</summary>
+    public static ProjectCompilation CreateProjectCompilation(
+        string directory, ProjectEncodeOptions? options = null) =>
+        throw new EncoderException(
+            "ball-encoder: CreateProjectCompilation is declared but not implemented in this " +
+            "commit — the compilation + SemanticModel seam is the commit that follows " +
+            "(issue #492, W12-C slice 1)");
+
+    /// <summary>Encode ONE file of an already-resolved project, with that file's own
+    /// <see cref="Microsoft.CodeAnalysis.SemanticModel"/> — the "encode per file" half of the
+    /// seam, and the only entry point the Tier A instrument may use.</summary>
+    public static Program EncodeFileInProject(ProjectCompilation project, string filePath) =>
+        throw new EncoderException(
+            "ball-encoder: EncodeFileInProject is declared but not implemented in this commit " +
+            "— the compilation + SemanticModel seam is the commit that follows (issue #492, " +
+            "W12-C slice 1)");
+
     /// <summary>Wrap an encoded <c>"main"</c> <see cref="Module"/> in a
     /// <see cref="Program"/>, accumulating the <c>std</c>/<c>std_collections</c>/… base modules
     /// the module's functions actually call. Shared by <see cref="Encode"/> and

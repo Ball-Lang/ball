@@ -328,25 +328,29 @@ jobs:
             echo "ERROR: could not parse line coverage percentage from cpp.lcov"
             exit 1
           fi
-          # Ratcheted 72 -> 83 -> 86 -> 87 (issue #63).
+          # Ratcheted 72 -> 83 -> 86 -> 87 -> 91 (issue #63).
           #
-          # LATEST MEASUREMENT — this workflow's own most recent successful C++
-          # coverage run on main: run 29332380082, job 87083173640,
-          # 2026-07-14T12:24Z, which printed verbatim
-          #     lines......: 88.3% (10113 of 11447 lines)
-          #     C++ overall line coverage: 88.3% (floor: 86%)
-          # 87 leaves 1.3pt of headroom against that reading, consistent with
-          # this project's ~2pt CI-variance buffer convention. (The block that
-          # used to live here still narrated PR #370's 2026-07-10 numbers —
-          # 88.1% (9989/11336) — even though PR #397 had since lifted
-          # compiler.cpp 90.66% -> 92.55% and explicitly deferred ratcheting
-          # "with a fresh measurement". That follow-up is this line.)
+          # LATEST MEASUREMENT — SIX consecutive runs of this workflow on main,
+          # spanning six commits, all printing the identical number (read from
+          # `gh api repos/Ball-Lang/ball/actions/jobs/<id>/logs`):
+          #   run 34740025834 44d7177f / 34741799437 a796c3ea /
+          #   34742610281 af471b96 / 34743380653 1207d677 /
+          #   34746079045 97927362 / 34749011302 92148281
+          #     C++ overall line coverage: 93.9% (floor: 87%)
+          # 91 is that 93.9 minus this project's ~2pt CI-variance buffer,
+          # rounded down to whole points. The previous 87 was derived on
+          # 2026-07-14 against an 88.3% reading and had since drifted 6.9pt
+          # below what CI measures — wide enough that every test #495 and #587
+          # added could have been deleted with this gate still green.
+          # (Run 34746079045's workflow conclusion is `failure`; its C++ JOB
+          # passed with exactly this number and died in the last step on a
+          # codecov OIDC token timeout. Read the job, not the run.)
           #
           # The per-target numbers behind the aggregate (compiler / encoder /
           # shared) have their own, finer floors, and the step below GATES on
           # them via cpp/build-cov-floor.sh — this aggregate is the blended
           # backstop, not the only check. See that step.
-          floor=87
+          floor=91
           echo "C++ overall line coverage: ${pct}% (floor: ${floor}%)"
           awk -v p="$pct" -v f="$floor" 'BEGIN {
             if (p + 0 < f) {
@@ -376,9 +380,13 @@ jobs:
       #   run 33614144984  main @ edf9f6c6  2026-09-02T09:39Z
       #   run 33617428731  main @ 5b8c7b18  2026-09-02T10:16Z
       #     cpp/compiler: 92.3%   cpp/encoder: 89.1%   cpp/shared: 81.8%
-      # so build-cov-floor.sh's FLOORS are re-derived from that measurement
+      # so build-cov-floor.sh's FLOORS were re-derived from that measurement
       # minus this project's ~2pt CI-variance buffer (90 / 87 / 79) and this
       # step now INVOKES the script rather than duplicating its comparison.
+      # RATCHETED again 2026-09-13 to 92 / 97 / 92, against six consecutive
+      # agreeing runs measuring 94.6 / 99.0 / 94.3 — the run ids and the reason
+      # the old floors had drifted 4.6-15.3pt low are in build-cov-floor.sh's
+      # header, which is where these numbers live.
       # The script's exit code IS the step's exit code — deliberately no
       # `continue-on-error`, which would swallow it and demote the gate back to
       # an annotation.

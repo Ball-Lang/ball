@@ -205,20 +205,40 @@ STUB
   return "$rc"
 }
 
+# The percentages below are READ OUT of the committed FLOORS table rather than
+# restated here. They used to be hardcoded at the numbers of the day (92.3 /
+# 89.1 / 81.8), which made every ratchet of those floors red this file — a
+# wiring test failing for a reason that has nothing to do with wiring. This
+# suite asks "does the step propagate the script's exit code?", and the answer
+# must not depend on which decade's measurement is pasted into it.
+# cpp/test/test_build_cov_floor_parsing.sh is what pins the table's own shape.
+floor_for() {
+  sed -n '/^declare -A FLOORS=(/,/^)/p' "$SCRIPT" \
+    | sed -n "s/^[[:space:]]*\[$1\]=\(.*\)$/\1/p" | head -1
+}
+# under <int-floor> — a tenth of a point below it, without bash floating point.
+under() { printf '%s.9\n' "$(($1 - 1))"; }
+
+C_FLOOR="$(floor_for compiler)"
+E_FLOOR="$(floor_for encoder)"
+S_FLOOR="$(floor_for shared)"
+
 # Every target clears its floor -> the step must go green.
 assert_cmd "all targets above floor -> exit 0" 0 \
-  run_script "$(summary_line 92.3)" "$(summary_line 89.1)" "$(summary_line 81.8)"
+  run_script "$(summary_line "$C_FLOOR")" "$(summary_line "$E_FLOOR")" \
+  "$(summary_line "$S_FLOOR")"
 
 # One target regresses under its floor -> the step must go red. This is the
 # whole point of gating, and the case the old report-only step could not fail.
 assert_cmd "one target below floor -> exit 1" 1 \
-  run_script "$(summary_line 70.0)" "$(summary_line 89.1)" "$(summary_line 81.8)"
+  run_script "$(summary_line "$(under "$C_FLOOR")")" "$(summary_line "$E_FLOOR")" \
+  "$(summary_line "$S_FLOOR")"
 
 # An unparseable summary is a broken measurement, not an absent one: fail loud
 # rather than let an un-checked floor pass.
 assert_cmd "unparseable summary -> exit 1" 1 \
   run_script "lcov: ERROR: no valid records found in tracefile" \
-  "$(summary_line 89.1)" "$(summary_line 81.8)"
+  "$(summary_line "$E_FLOOR")" "$(summary_line "$S_FLOOR")"
 
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything

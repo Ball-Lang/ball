@@ -106,7 +106,8 @@ the same `bump_go_modules.sh` below, `@semantic-release/git` commits
 `chore(release): go vX.Y.Z [skip ci]`, and its `publishCmd` dispatches
 `tag-go-modules.yml` at the channel tag **and waits for that run to finish**
 (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any
-non-`success` conclusion — #627) — so a `feat(go):`/`fix(go):` merge is all it
+non-`success` conclusion — #627; and since #656 only a run *newer* than the
+newest one on that ref before the dispatch counts as that run) — so a `feat(go):`/`fix(go):` merge is all it
 takes to move the published line, and a tag cut that fails reddens the release
 that caused it. `tag_go_modules.sh` remains the SINGLE tagging path;
 `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks` job) pins all
@@ -350,7 +351,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 350 passed, 0 failed, 350 total`; 4 golden-less
+  (`Results: 351 passed, 0 failed, 351 total`; 4 golden-less
   resource-limit/sandbox carve-outs). `compiled/compiled_engine.go` is a
   COMMITTED generated artifact since #586 (no build tag), kept fresh by ci.yml's
   `Ball Artifact Freshness` regen-and-diff job. See `go/engine/AGENTS.md`.

@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 351 passed, 0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -119,6 +119,22 @@ compile items so the sibling projects never double-compile each other's files.
   must carry the type name `StateError` so the program's own `on StateError
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `csharp/compiler/test/ListFindContractTests.cs` (`BallRuntime.ListFind` throws a `BallThrow`, NOT a `BallRuntimeException` — only the former is what the compiled `catch (BallThrow …)` sees, so an unhandled native fault can no longer bypass the program's own `try`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `csharp/shared/test/SinkContractTests.cs` and `csharp/compiler/test/StringSinkTests.cs` (which compiles the fixture and RUNS it against the golden).
+  Backing: `BallRuntime.SinkCreate`/`SinkWrite`/`SinkToString`, over a `BallMap` — a reference type, so the callee's append is visible. A bare `StringBuilder` would make `TypeOf` answer `StringBuilder`. NOTE the blast radius: adding a std declaration grows the std module every encoded program embeds, so `ProjectEncodingTests`' committed golden (`fixtures/goldens/e_lambda_and_predefined_types.ball.json`) must be regenerated in the same PR — that is legitimate drift, not a relaxation of the guard.
 
 - **`ListFirst`/`ListLast`/`RemoveLast` throw `BallThrow`, not
   `BallRuntimeException` (#616)** — the same anti-pattern #597 fixed for
@@ -366,8 +382,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 350 passed, 0 failed,
-  350 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 351 passed, 0 failed,
+  351 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without

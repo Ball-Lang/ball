@@ -75,6 +75,24 @@ final Map<String, List<_Probe>> _probes = {
       want: false,
     ),
   ],
+  // `sink_to_string` reads a text sink back (issue #630). The declaration is
+  // load-bearing on more than one target: a sink is a `__type__`-tagged map, so
+  // a runtime that answered the SINK instead of its accumulated text would
+  // still "work" anywhere the result is only printed — `to_string` of a
+  // StringBuffer-shaped map prints its buffer on the Dart engine. Probing the
+  // runtime TYPE is what separates the two.
+  'std.sink_to_string': [
+    (
+      description: 'an empty sink reads back as the empty String',
+      call: _sinkToString(_sinkCreate(null)),
+      want: '',
+    ),
+    (
+      description: "a seeded sink reads back its text, not the sink",
+      call: _sinkToString(_sinkCreate('ab')),
+      want: 'ab',
+    ),
+  ],
 };
 
 /// Declarations that predate this gate and are NOT probed yet — a ratchet, not
@@ -128,6 +146,7 @@ const _unprobedLegacyDeclarations = <String>{
 bool _matchesDeclaredType(String outputType, Object? value) =>
     switch (outputType) {
       'bool' => value is bool,
+      'String' => value is String,
       _ => throw StateError(
         'std_output_type_contract_test has no runtime predicate for the '
         'declared outputType "$outputType". Add one (and a probe) rather than '
@@ -288,6 +307,8 @@ Future<Object?> _eval(Map<String, dynamic> expr) async {
           'name': 'std',
           'functions': [
             {'name': 'set_create', 'isBase': true},
+            for (final n in ['sink_create', 'sink_write', 'sink_to_string'])
+              {'name': n, 'isBase': true},
           ],
         },
         {
@@ -391,6 +412,42 @@ Map<String, dynamic> _setOf(List<int> items) => {
               },
             },
           },
+        ],
+      },
+    },
+  },
+};
+
+Map<String, dynamic> _strLit(String v) => {
+  'literal': {'stringValue': v},
+};
+
+/// `std.sink_create(initial: <seed>)` — [seed] null means an empty sink.
+Map<String, dynamic> _sinkCreate(String? seed) => {
+  'call': {
+    'module': 'std',
+    'function': 'sink_create',
+    'input': {
+      'messageCreation': {
+        'typeName': 'SinkCreateInput',
+        'fields': [
+          if (seed != null) {'name': 'initial', 'value': _strLit(seed)},
+        ],
+      },
+    },
+  },
+};
+
+/// `std.sink_to_string(sink: <sink>)`.
+Map<String, dynamic> _sinkToString(Map<String, dynamic> sink) => {
+  'call': {
+    'module': 'std',
+    'function': 'sink_to_string',
+    'input': {
+      'messageCreation': {
+        'typeName': 'SinkToStringInput',
+        'fields': [
+          {'name': 'sink', 'value': sink},
         ],
       },
     },

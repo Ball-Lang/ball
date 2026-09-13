@@ -4586,11 +4586,14 @@ function __isUnknownFnError(e: any): boolean {
       return `new ${shortTn}(${args})`;
     }
 
-    // Dart StringBuffer → empty string in TS (string concatenation replaces
-    // the mutable buffer). writeCharCode / write are handled in compileCall.
-    if (shortTn === "StringBuffer") {
-      return `""`;
-    }
+    // (issue #630/#633) A `main:StringBuffer` messageCreation used to compile to
+    // `""` here — the by-value representation this whole issue is about: the
+    // buffer was a bare string, so `type_of` answered "String" and an append
+    // inside a callee was lost. The Dart encoder no longer emits that typeName
+    // (a `StringBuffer` routes to `std.sink_create`), so the arm was dead code
+    // asserting the wrong contract. Removed rather than kept and blessed; a
+    // legacy program carrying that typeName now takes the ordinary
+    // class-construction path below, which at least produces an object.
 
     // BallValue wrapper types — transparent in TS (no wrapper needed).
     // BallMap(map) → just the map; BallList(list) → just the list; etc.
@@ -4991,6 +4994,24 @@ function __isUnknownFnError(e: any): boolean {
         const val = f.get("value") ?? f.get("target") ?? f.get("arg0");
         if (!val) throw new Error("TS compiler: std.type_of is missing its `value` field");
         return `__ball_type_of(${this.expr(val)})`;
+      }
+      // #630 — the declared text sink. Backed by a `__type__`-tagged object so
+      // `type_of` answers "Sink" and appends survive a call boundary; the
+      // ad-hoc `self += text` arm this replaces had neither property.
+      case "sink_create": {
+        const initial = f.get("initial");
+        return `__ball_sink_create(${initial ? this.expr(initial) : "null"})`;
+      }
+      case "sink_write": {
+        const sink = f.get("sink");
+        const text = f.get("text");
+        if (!sink || !text) throw new Error("TS compiler: std.sink_write requires both `sink` and `text` fields");
+        return `__ball_sink_write(${this.expr(sink)}, ${this.expr(text)})`;
+      }
+      case "sink_to_string": {
+        const sink = f.get("sink");
+        if (!sink) throw new Error("TS compiler: std.sink_to_string requires a `sink` field");
+        return `__ball_sink_to_string(${this.expr(sink)})`;
       }
       case "if": {
         const cond = this.expr(f.get("condition")!);

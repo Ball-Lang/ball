@@ -15,10 +15,6 @@
           "isBase": true
         },
         {
-          "name": "string_is_empty",
-          "isBase": true
-        },
-        {
           "name": "map_create",
           "isBase": true
         }
@@ -67,27 +63,6 @@
           },
           "metadata": {
             "kind": "method"
-          }
-        },
-        {
-          "name": "main:BuiltinNames.new",
-          "outputType": "main:BuiltinNames",
-          "metadata": {
-            "kind": "constructor",
-            "params": [
-              {
-                "name": "keys",
-                "is_this": true
-              },
-              {
-                "name": "values",
-                "is_this": true
-              },
-              {
-                "name": "entries",
-                "is_this": true
-              }
-            ]
           }
         },
         {
@@ -288,130 +263,6 @@
                 },
                 {
                   "let": {
-                    "name": "b",
-                    "value": {
-                      "messageCreation": {
-                        "typeName": "main:BuiltinNames",
-                        "fields": [
-                          {
-                            "name": "arg0",
-                            "value": {
-                              "literal": {
-                                "intValue": "11"
-                              }
-                            }
-                          },
-                          {
-                            "name": "arg1",
-                            "value": {
-                              "literal": {
-                                "intValue": "22"
-                              }
-                            }
-                          },
-                          {
-                            "name": "arg2",
-                            "value": {
-                              "literal": {
-                                "intValue": "33"
-                              }
-                            }
-                          }
-                        ]
-                      }
-                    },
-                    "metadata": {
-                      "keyword": "var",
-                      "type": "BuiltinNames"
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "b"
-                                    }
-                                  },
-                                  "field": "keys"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "b"
-                                    }
-                                  },
-                                  "field": "values"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "b"
-                                    }
-                                  },
-                                  "field": "entries"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "let": {
                     "name": "list",
                     "value": {
                       "literal": {
@@ -461,45 +312,6 @@
                                     }
                                   },
                                   "field": "length"
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_is_empty",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "list"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
                                 }
                               }
                             }
@@ -683,45 +495,6 @@
                       }
                     }
                   }
-                },
-                {
-                  "expression": {
-                    "call": {
-                      "module": "std",
-                      "function": "print",
-                      "input": {
-                        "messageCreation": {
-                          "typeName": "PrintInput",
-                          "fields": [
-                            {
-                              "name": "message",
-                              "value": {
-                                "call": {
-                                  "module": "std",
-                                  "function": "string_is_empty",
-                                  "input": {
-                                    "messageCreation": {
-                                      "typeName": "",
-                                      "fields": [
-                                        {
-                                          "name": "value",
-                                          "value": {
-                                            "reference": {
-                                              "name": "m"
-                                            }
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          ]
-                        }
-                      }
-                    }
-                  }
                 }
               ]
             }
@@ -756,50 +529,6 @@
             "fields": [
               {
                 "name": "length",
-                "type": "int"
-              }
-            ]
-          }
-        },
-        {
-          "name": "main:BuiltinNames",
-          "descriptor": {
-            "name": "main:BuiltinNames",
-            "field": [
-              {
-                "name": "keys",
-                "number": 1,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_INT64"
-              },
-              {
-                "name": "values",
-                "number": 2,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_INT64"
-              },
-              {
-                "name": "entries",
-                "number": 3,
-                "label": "LABEL_OPTIONAL",
-                "type": "TYPE_INT64"
-              }
-            ]
-          },
-          "description": "Class metadata for main:BuiltinNames",
-          "metadata": {
-            "kind": "class",
-            "fields": [
-              {
-                "name": "keys",
-                "type": "int"
-              },
-              {
-                "name": "values",
-                "type": "int"
-              },
-              {
-                "name": "entries",
                 "type": "int"
               }
             ]

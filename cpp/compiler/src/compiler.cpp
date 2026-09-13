@@ -2145,12 +2145,41 @@ std::string CppCompiler::compile_field_access(const ball::ir::FieldAccess& acces
             return "\"" + field + "\"s";
         }
     }
+    // #681: a DECLARED data member always beats a virtual property of the same
+    // name. `.length` / `.isEmpty` / `.isNotEmpty` below are unconditional
+    // shortcuts, so `class Holder { int length; }` had `h.length` emitted as
+    // `ball_length(BallDyn(h))` — the instance's FIELD COUNT (`1`) instead of
+    // the field (`3`), silently, with no error. The WRITE side never had this
+    // bug: the `assign` branch resolves `h.length = 5` as a struct-member write
+    // without consulting these shortcuts at all, so the read path was simply
+    // asymmetric with it.
+    //
+    // The proof is receiver-scoped and narrow, exactly as #513/#515 established
+    // for the `value`/`fields`/`kind`/`values` family: `receiver_class_of`
+    // already answers "" for a generic instantiation, an enum, a dynamic class
+    // and every runtime/stub type (all map-backed, whose "fields" are bracket
+    // keys), so only a concrete struct-backed user class that declares a plain
+    // data member of this name — one that is neither a getter nor a shadowing
+    // field — takes the struct-member path further down. Every receiver whose
+    // class cannot be proven keeps the virtual property, unchanged.
+    const bool virtual_prop_is_declared_field =
+        (field == "length" || field == "isEmpty" || field == "isNotEmpty") &&
+        [&]() {
+            const std::string rc = receiver_class_of(*access.object);
+            if (rc.empty()) return false;
+            const std::string sf = sanitize_name(field);
+            return class_has_own_field(rc, sf) && !class_has_getter(rc, sf) &&
+                   !class_field_shadows_getter(rc, sf);
+        }();
     // Common virtual properties → C++ equivalents.
     // `.length` is UTF-16 code-unit length for strings (Dart parity), element
     // count for lists/maps; ball_length dispatches on the runtime type.
-    if (field == "length") return "ball_length(" + obj + ")";
-    if (field == "isEmpty") return obj + ".empty()";
-    if (field == "isNotEmpty") return "!" + obj + ".empty()";
+    if (field == "length" && !virtual_prop_is_declared_field)
+        return "ball_length(" + obj + ")";
+    if (field == "isEmpty" && !virtual_prop_is_declared_field)
+        return obj + ".empty()";
+    if (field == "isNotEmpty" && !virtual_prop_is_declared_field)
+        return "!" + obj + ".empty()";
     // Dart double properties: .isNaN, .isInfinite, .isFinite, .isNegative
     if (field == "isNaN") return "ball_isNaN(" + obj + ")";
     if (field == "isInfinite") return "ball_isInfinite(" + obj + ")";

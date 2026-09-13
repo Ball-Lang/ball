@@ -12,6 +12,12 @@ part of 'cli_core.dart';
 
 /// The capability category names, in report-iteration order. Each program
 /// function is tagged with a subset of these; `'pure'` means no side effects.
+///
+/// `'custom'` (issue #609) is the one category this table cannot describe: it
+/// marks a call into a base module the program DECLARES itself — the host
+/// extension seam (`BallModuleHandler`), whose implementation is supplied per
+/// platform and is therefore outside the language's known side-effect surface.
+/// It is never `pure`; see [capabilityRisk].
 List<String> capabilityNames() {
   return <String>[
     'pure',
@@ -24,10 +30,15 @@ List<String> capabilityNames() {
     'concurrency',
     'network',
     'async',
+    'custom',
   ];
 }
 
 /// Risk level associated with a capability name (`'none'` for `'pure'`).
+///
+/// `'custom'` is `'unknown'` — not `'low'` and not `'high'`. The audit knows
+/// only that the program calls into a host-supplied module; ranking that call
+/// would be a fabrication, and calling it harmless would be the #609 bug.
 String capabilityRisk(String capability) {
   if (capability == 'pure') return 'none';
   if (capability == 'io') return 'low';
@@ -39,6 +50,7 @@ String capabilityRisk(String capability) {
   if (capability == 'concurrency') return 'medium';
   if (capability == 'network') return 'high';
   if (capability == 'async') return 'low';
+  if (capability == 'custom') return 'unknown';
   return 'none';
 }
 
@@ -70,6 +82,18 @@ List<String> capabilityModuleNames() {
     'std_memory',
     'std_concurrency',
   ];
+}
+
+/// Whether [module] is one of the eight universal std modules this table
+/// models ([capabilityModuleNames]). Everything else that declares `isBase`
+/// functions is a HOST extension (`BallModuleHandler`) whose semantics the
+/// audit cannot know — see the `'custom'` capability (issue #609).
+bool isKnownBaseModule(String module) {
+  final modules = capabilityModuleNames();
+  for (final m in modules) {
+    if (m == module) return true;
+  }
+  return false;
 }
 
 /// Resolve a base-function capability by BARE function name alone, ignoring the

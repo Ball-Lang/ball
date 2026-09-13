@@ -14,7 +14,7 @@
 # (#521/#522 sized the Windows budget against a cold run, so an always-cold leg
 # sits under it forever).
 #
-# The assertion is deliberately one-sided and cheap:
+# The first assertion is deliberately one-sided and cheap:
 #
 #     compiled_tus > 0 AND cache requests == 0   ->   FAIL
 #
@@ -22,6 +22,43 @@
 # change to the Ball->C++ emitter that invalidates every generated TU) is a
 # normal, blameless event and must stay green; "the launcher is not wired at
 # all" is a defect and must not.
+#
+# The second assertion (issue #599) covers that check's blind spot — the cache
+# IS consulted and DECLINES every compile:
+#
+#     compiled_tus > 0 AND non_cacheable > <per-OS ceiling>   ->   FAIL
+#
+# Requests, hits and misses all read healthy in that state while nothing is
+# ever cached, so the check above cannot see it. It is not hypothetical: #594's
+# own first Ninja run on Windows reported `Non-cacheable compilations 296` —
+# every generated fixture — because CMake's MSVC module defaults an unset build
+# type to Debug, whose `/Zi` writes a PDB shared by a target's TUs, and sccache
+# refuses to cache that. ci.yml now configures the scratch project with an
+# explicitly EMPTY CMAKE_BUILD_TYPE; nothing asserted that it stays that way.
+#
+# ── the per-OS ceiling, MEASURED ───────────────────────────────────────────
+#
+# Read out of this gate's own step in three consecutive green ci.yml runs on
+# main (`gh api repos/Ball-Lang/ball/actions/jobs/<id>/logs`), at the point the
+# script itself reads the statistics:
+#
+#   run 34749011196 (92148281) / 34746079068 (97927362) / 34743380631 (1207d677)
+#     windows-latest  sccache  Non-cacheable compilations  0 / 0 / 0
+#     ubuntu-latest   ccache   Cacheable calls 322/322     0 / 0 / 0
+#     macos-latest    ccache   Cacheable calls 321/321     0 / 0 / 0
+#
+# All three toolchains agree on the same number across all three runs, so the
+# ceiling sits AT the measurement — 0 — and the gate fails only on a RISE, the
+# same ratchet discipline cpp/build-cov-floor.sh's coverage floors use. There
+# is no variance buffer to add: a single declined compile on a leg that has
+# never had one is the #594 shape returning, at whatever scale.
+#
+# NOTE on the ubuntu leg specifically: the job's POST-JOB ccache summary shows
+# `322 / 326 (98.77%)`, i.e. 4 uncacheable calls. Those accrue AFTER this gate
+# runs, from the `full_e2e.sh` smoke step that prefixes ccache to a
+# compile-and-link `g++` invocation (a link is uncacheable by construction).
+# They are outside what this script reads and must not be folded into the
+# ceiling — read the number from THIS step, not from the post-job block.
 #
 # `compiled_tus` is MEASURED, not assumed: object files under the parent build
 # directory (the runner starts from a fresh checkout, so every one of them was
@@ -39,6 +76,7 @@
 #   --coverage-file FILE     test_e2e's "Fixtures: N expected, N executed" file
 #   --compiled N             override the compiled-TU count (tests)
 #   --stats-file FILE        parse this instead of invoking the tool (tests)
+#   --max-noncacheable N     override the per-OS non-cacheable ceiling (tests)
 #   --self-test              run the built-in parser cases and exit
 
 set -uo pipefail
@@ -92,6 +130,54 @@ parse_ccache_hits() {
   ' "$1"
 }
 
+# ── non-cacheable parsers (issue #599) ─────────────────────────────────────
+#
+# sccache reports the number directly. `Non-cacheable compilations` and
+# `Non-cacheable calls` are DIFFERENT counters printed one after the other, so
+# this anchors on the two-word prefix and takes the numeric $3 — the same
+# discipline parse_sccache_requests uses against "Compile requests executed".
+parse_sccache_noncacheable() {
+  awk '
+    /^Non-cacheable compilations[ \t]/ { if ($3 ~ /^[0-9]+$/) { print $3; found = 1; exit } }
+    END { if (!found) exit 1 }
+  ' "$1"
+}
+
+# ccache has no cacheable/uncacheable counter PAIR in `--print-stats` (its
+# "uncacheable" total is derived from a long, version-specific set of reason
+# counters), so the number comes from the one place ccache states it outright:
+# `ccache -s`'s "Cacheable calls: <cacheable> / <total>" line, which the CI step
+# already prints today and whose two numbers are plain integers. The gate
+# collects both forms into one stats file; the human lines carry no tabs, so
+# the counter parsers above ignore them and this one ignores the counters.
+parse_ccache_noncacheable() {
+  awk '
+    /^[ \t]*Cacheable calls:[ \t]*[0-9]+[ \t]*\/[ \t]*[0-9]+/ {
+      n = split($0, a, /[^0-9]+/)
+      c = ""; t = ""
+      for (i = 1; i <= n; i++) {
+        if (a[i] == "") continue
+        if (c == "") c = a[i]; else { t = a[i]; break }
+      }
+      if (c != "" && t != "" && t + 0 >= c + 0) { print t - c; found = 1; exit }
+    }
+    END { if (!found) exit 1 }
+  ' "$1"
+}
+
+# noncacheable_ceiling <tool> — the measured per-OS ceiling (see the header).
+# Keyed by tool because this repo's CI maps them one-to-one: sccache is the
+# windows-latest leg, ccache is ubuntu-latest + macos-latest. A `case` rather
+# than an associative array so the script keeps running under bash 3.2 (the
+# macOS system bash).
+noncacheable_ceiling() {
+  case "$1" in
+    sccache) echo 0 ;; # windows-latest
+    ccache) echo 0 ;;  # ubuntu-latest, macos-latest
+    *) echo "" ;;
+  esac
+}
+
 # is_uint <value> — a bare non-negative integer, nothing else. Every number this
 # gate compares goes through here first: `[ "$x" -gt 0 ]` on a non-numeric $x
 # exits 2, and a failing `[` INSIDE an `if` silently skips the branch and falls
@@ -125,7 +211,7 @@ count_fixtures() {
 
 # ── main check ─────────────────────────────────────────────────────────────
 run_check() {
-  local tool="" build_dir="" coverage_file="" compiled="" stats_file=""
+  local tool="" build_dir="" coverage_file="" compiled="" stats_file="" max_nc=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --tool) tool="${2:-}"; shift 2 ;;
@@ -133,6 +219,7 @@ run_check() {
       --coverage-file) coverage_file="${2:-}"; shift 2 ;;
       --compiled) compiled="${2:-}"; shift 2 ;;
       --stats-file) stats_file="${2:-}"; shift 2 ;;
+      --max-noncacheable) max_nc="${2:-}"; shift 2 ;;
       *) echo "::error::unknown argument '$1'"; return 1 ;;
     esac
   done
@@ -141,6 +228,20 @@ run_check() {
     ccache | sccache) ;;
     *) echo "::error::--tool must be 'ccache' or 'sccache' (got '${tool}')"; return 1 ;;
   esac
+
+  # The non-cacheable ceiling: explicit override, else this tool's measured row.
+  if [ -n "$max_nc" ]; then
+    if ! is_uint "$max_nc"; then
+      echo "::error::--max-noncacheable must be a non-negative integer (got '$max_nc')"
+      return 1
+    fi
+  else
+    max_nc="$(noncacheable_ceiling "$tool")"
+    if ! is_uint "$max_nc"; then
+      echo "::error::no measured non-cacheable ceiling for tool '$tool' — add its row to noncacheable_ceiling() rather than letting the check pass unmeasured."
+      return 1
+    fi
+  fi
 
   # ── how many cacheable TUs did this job compile? ──
   if [ -n "$compiled" ]; then
@@ -176,12 +277,20 @@ run_check() {
       fi
       cat "$stats_file"
     else
-      if ! ccache -s; then
-        # Cosmetic only — the parse below reads --print-stats — so a failure
-        # here is reported rather than acted on.
-        echo "::warning::'ccache -s' failed; the machine-readable statistics this gate actually reads follow."
+      # BOTH forms go into the stats file. `--print-stats` carries the machine-
+      # readable counters the request/hit parsers read; `ccache -s`'s human
+      # summary is the only place ccache states the cacheable/uncacheable split
+      # (#599). Its lines carry no tabs, so neither parser sees the other's
+      # input. The human half is echoed to the log as it always was.
+      if ccache -s >"$stats_file" 2>&1; then
+        cat "$stats_file"
+      else
+        echo "::warning::'ccache -s' failed; its output was:"
+        cat "$stats_file"
+        # Drop it rather than letting an error message reach the parsers.
+        : >"$stats_file"
       fi
-      if ! ccache --print-stats >"$stats_file" 2>&1; then
+      if ! ccache --print-stats >>"$stats_file" 2>&1; then
         echo "::error::'ccache --print-stats' failed (needs ccache >= 4.4); its output was:"
         cat "$stats_file"
         rm -f "$owned_stats"
@@ -190,13 +299,15 @@ run_check() {
     fi
   fi
 
-  local requests hits
+  local requests hits noncacheable
   if [ "$tool" = "sccache" ]; then
     requests="$(parse_sccache_requests "$stats_file")" || requests=""
     hits="$(parse_sccache_hits "$stats_file")" || hits=""
+    noncacheable="$(parse_sccache_noncacheable "$stats_file")" || noncacheable=""
   else
     requests="$(parse_ccache_requests "$stats_file")" || requests=""
     hits="$(parse_ccache_hits "$stats_file")" || hits=""
+    noncacheable="$(parse_ccache_noncacheable "$stats_file")" || noncacheable=""
   fi
   [ -n "$owned_stats" ] && rm -f "$owned_stats"
 
@@ -215,9 +326,25 @@ run_check() {
 
   if [ "$compiled" -eq 0 ]; then
     echo "No cacheable TUs were compiled in this job; nothing for the cache to record."
-  else
-    echo "Compiler cache OK: the launcher is applied ($requests request(s) for $compiled compiled TU(s))."
+    return 0
   fi
+
+  # ── did the cache DECLINE those compiles? (issue #599) ──
+  # Only meaningful when something was compiled, which is why it sits after the
+  # zero-compiles branch above. It also runs BEFORE the success line: a gate
+  # that prints "OK" and then fails reads as a flake to whoever scans the log.
+  if ! is_uint "$noncacheable"; then
+    echo "::error::could not read a non-cacheable compilation count out of $tool's statistics — the gate cannot tell an applied cache from one that declined every compile, so it fails. (sccache: a 'Non-cacheable compilations <int>' line; ccache: 'ccache -s''s 'Cacheable calls: <n> / <total>' line.)"
+    return 1
+  fi
+
+  echo "non-cacheable compilations: $noncacheable (ceiling: $max_nc)"
+  if [ "$noncacheable" -gt "$max_nc" ]; then
+    echo "::error::$tool declined to cache $noncacheable compilation(s), above the measured ceiling of $max_nc — the cache is consulted but caches nothing, so this leg is uncached however healthy the request count looks. The known cause is a build-type change putting a shared PDB (MSVC /Zi) back into the generated fixtures' compile lines; see issues #594 / #599 and cpp/test/AGENTS.md."
+    return 1
+  fi
+
+  echo "Compiler cache OK: the launcher is applied ($requests request(s) for $compiled compiled TU(s))."
   return 0
 }
 

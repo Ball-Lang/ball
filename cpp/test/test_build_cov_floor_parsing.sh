@@ -31,10 +31,15 @@ pass=0
 fail=0
 
 # Real floors, mirrored from build-cov-floor.sh's FLOORS map, so the cases below
-# read as "above"/"below" without duplicating the numbers' meaning. Re-derived
-# 2026-09-02 from two consecutive coverage.yml runs on main (92.3 / 89.1 / 81.8)
-# minus the ~2pt CI-variance buffer, when the script became CI's actual gate.
-#   compiler 90, encoder 87, shared 79
+# read as "above"/"below" without duplicating the numbers' meaning. Ratcheted
+# 2026-09-13 from six consecutive coverage.yml runs on main that measured an
+# identical 94.6 / 99.0 / 94.3, minus the ~2pt CI-variance buffer (the run ids
+# are in build-cov-floor.sh's header).
+#   compiler 92, encoder 97, shared 92
+# The boundary cases at the bottom of this file READ those values out of the
+# committed script instead of restating them, so the next ratchet moves them on
+# its own; only the "above floor" percentages below are hand-written, and they
+# are that same measurement.
 
 # summary_line <pct> — one line in the exact shape `lcov --summary` prints.
 summary_line() { printf '  lines......: %s%% (1000 of 1100 lines)\n' "$1"; }
@@ -86,25 +91,25 @@ STUB
   rm -rf "$tmp"
 }
 
-# 1. Every target at/above its floor -> exit 0.
+# 1. Every target at/above its floor -> exit 0. (CI's own measurement.)
 run_case "all targets at or above floor" 0 \
-  "$(summary_line 92.5)" "$(summary_line 89.1)" "$(summary_line 81.7)"
+  "$(summary_line 94.6)" "$(summary_line 99.0)" "$(summary_line 94.3)"
 
 # 2. One target below its floor -> exit 1 (the gate's whole purpose).
 run_case "compiler below floor" 1 \
-  "$(summary_line 80.0)" "$(summary_line 89.1)" "$(summary_line 81.7)"
+  "$(summary_line 80.0)" "$(summary_line 99.0)" "$(summary_line 94.3)"
 
 # 3. Empty summary (lcov printed nothing — e.g. an empty/broken extraction)
 #    -> MUST exit 1. This is the fail-open branch: before the fix the script
 #    printed `SKIP` and exited 0 with the floor never checked.
 run_case "empty summary fails loud" 1 \
-  "" "$(summary_line 89.1)" "$(summary_line 81.7)"
+  "" "$(summary_line 99.0)" "$(summary_line 94.3)"
 
 # 4. Malformed summary (output present, but no parseable `lines...:` line)
 #    -> MUST exit 1, same reason.
 run_case "malformed summary fails loud" 1 \
   "lcov: ERROR: no valid records found in tracefile" \
-  "$(summary_line 89.1)" "$(summary_line 81.7)"
+  "$(summary_line 99.0)" "$(summary_line 94.3)"
 
 # ── The committed FLOORS table itself (issues #63 / #599) ──────────────────
 #

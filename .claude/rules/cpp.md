@@ -297,6 +297,16 @@ Three things had to be true, and each is now pinned by CI rather than by prose:
    configured and ignored is not. A step-time budget cannot tell those apart,
    which is why this leg sat under its 20 min budget, permanently cold, for so
    long.
+4. **The same gate asserts the cache does not DECLINE every compile** (#599).
+   Point 2's failure shape leaves requests/hits/misses looking healthy while
+   nothing is cached, so point 3's check is blind to it. The ceiling on
+   non-cacheable compilations (sccache's `Non-cacheable compilations`, ccache's
+   `Cacheable calls: <n> / <total>` shortfall) is **0 on all three legs**,
+   measured from the gate's own step in three consecutive green main runs and
+   recorded with those run ids in the script's header. Move it only against a
+   fresh measurement. Read the number from the gate's step: ubuntu's *post-job*
+   `ccache -s` shows 4 uncacheable calls, which accrue later from
+   `full_e2e.sh`'s compile-and-link smoke and are not the gate's input.
 
 Parallelism must never shrink coverage, so each harness asserts its own count:
 `test_e2e` compares executed tests against `e2e_fixture_list.h` + 3 inline

@@ -956,12 +956,12 @@ jobs:
           steps.assert-ts-cli.outcome == 'failure' ||
           steps.assert-go.outcome == 'failure' )
         env:
-          ASSERT_SHARED: ${{{{ steps.assert-shared.outcome }}}}
-          ASSERT_CORPUS: ${{{{ steps.assert-corpus.outcome }}}}
-          ASSERT_STD_COVERAGE: ${{{{ steps.assert-std-coverage.outcome }}}}
-          ASSERT_TS_ENGINE: ${{{{ steps.assert-ts-engine.outcome }}}}
-          ASSERT_TS_CLI: ${{{{ steps.assert-ts-cli.outcome }}}}
-          ASSERT_GO: ${{{{ steps.assert-go.outcome }}}}
+          ASSERT_SHARED: ${{ steps.assert-shared.outcome }}
+          ASSERT_CORPUS: ${{ steps.assert-corpus.outcome }}
+          ASSERT_STD_COVERAGE: ${{ steps.assert-std-coverage.outcome }}
+          ASSERT_TS_ENGINE: ${{ steps.assert-ts-engine.outcome }}
+          ASSERT_TS_CLI: ${{ steps.assert-ts-cli.outcome }}
+          ASSERT_GO: ${{ steps.assert-go.outcome }}
         run: |
           set -euo pipefail
           dest="$RUNNER_TEMP/regenerated"

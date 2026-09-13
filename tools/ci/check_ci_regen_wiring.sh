@@ -271,7 +271,37 @@ if push is not None:
     else:
         ok("the push step consults the loop-breaker and sources the marker from it")
 
-# 4. No escape hatches anywhere in the job. A `continue-on-error` on any step
+# 4. Every `${{ … }}` placeholder in the job must be WELL FORMED. GitHub parses
+#    expressions only when it creates a run, and a workflow that fails to parse
+#    produces NO CHECKS AT ALL — and an absent check reads as green. PyYAML is
+#    perfectly happy with `${{{{ … }}}}` (a stray brace pair from a templating
+#    slip), so the YAML parse above cannot see this class; scan the text.
+placeholder_errors = []
+for step in steps:
+    if not isinstance(step, dict):
+        continue
+    chunks = [cond(step), body(step)]
+    env = step.get("env")
+    if isinstance(env, dict):
+        chunks.extend(str(v) for v in env.values())
+    with_ = step.get("with")
+    if isinstance(with_, dict):
+        chunks.extend(str(v) for v in with_.values())
+    for chunk in chunks:
+        if "${{{" in chunk or "}}}" in chunk:
+            placeholder_errors.append(name(step) or str(step.get("id")))
+            break
+if placeholder_errors:
+    bad(
+        "malformed `${{ … }}` placeholder (a stray brace) in: "
+        + ", ".join(sorted(set(placeholder_errors)))
+        + " — GitHub would refuse to create the run, and a workflow that never "
+        "runs shows NO checks, which reads as green"
+    )
+else:
+    ok("every `${{ … }}` placeholder in the job is well formed")
+
+# 5. No escape hatches anywhere in the job. A `continue-on-error` on any step
 #    here would turn the whole regenerate-and-diff contract green-by-default.
 hatches = []
 if job.get("continue-on-error"):
@@ -291,7 +321,7 @@ print(f"Results: {passed} passed, {len(failures)} failed, {total} total")
 if failures:
     print(f"::error::{path}: the `{JOB}` regeneration wiring is broken (see the FAIL lines above; issue #625).")
     sys.exit(1)
-if passed < 6:
+if passed < 7:
     print(
         f"::error::{path}: only {passed} assertion(s) ran — a guard that checked "
         "almost nothing is not a passing guard."
@@ -440,6 +470,15 @@ self_test() {
     "$(fixture "$gate" "$upload_gate" "$push_gate" 'bash tools/ci/regen_loop_breaker.sh --rev HEAD; git commit -m "Ball-Regen-Autopush: ball-artifact-freshness"' "" "assert-go")" \
     "--print-marker"
 
+  local stray_brace='      - name: Something templated
+        env:
+          OUTCOME: ${{{ steps.assert-go.outcome }}}
+        run: echo x
+'
+  expect "a stray-brace placeholder fails" 1 \
+    "$(fixture "$gate" "$upload_gate" "$push_gate" "$good_run" "$stray_brace" "assert-go")" \
+    "malformed"
+
   local swallow='      - name: Something lenient
         continue-on-error: true
         run: echo x
@@ -477,8 +516,8 @@ jobs:
 ' "::error::"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 10 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 10) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 11 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 11) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

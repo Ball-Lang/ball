@@ -212,7 +212,12 @@ avoid constructs that need receiver-type info:
     same name (`DUPLICATE_DEFINITION`). Ball's field IR cannot tell "assigned
     by the initializer list" from "assigned in the constructor body". **#651**
     (a sibling of #573: the same "IR too coarse to tell two source shapes
-    apart" family).
+    apart" family). That file needs a SECOND fix to go green: `ListSlice`
+    declares a `final length` field next to an explicit `set length`, and the
+    engine's `_trySetterDispatch` suppresses the setter whenever the instance
+    carries a field of that name — right for a non-final field (#501, fixture
+    `432_shadowed_getter_setter_write`), wrong for a final one, which
+    contributes no setter of its own: **#664**.
   - `collection/lib/src/iterable_extensions.dart` — **`Ext(receiver).member`
     stays unencodable, and MUST NOT be erased to `receiver.member`.** An
     extension override is written precisely when the plain access would
@@ -228,7 +233,11 @@ avoid constructs that need receiver-type info:
   - `collection/lib/src/wrappers.dart` — compiles now, but its own suite
     still fails on `x.isNotEmpty` being rewritten as `!x.isEmpty`, which a
     DELEGATING receiver can see (`collection`'s `wrapper_test.dart` records
-    the forwarded `Invocation` symbol): **#674**.
+    the forwarded `Invocation` symbol): **#674**. Same root, other direction:
+    the `.isEmpty` rewrite consults no receiver type at all, so an instance
+    FIELD named `isEmpty` is answered by `std.string_is_empty` on every engine
+    — **#697**, the last member of #488's receiver-type family and the only one
+    outside its 16-file table.
 
 - **The `async` safety return must type-check under `strict-casts`.** Every
   `async`, non-generator, non-`void` function gets a trailing statement so

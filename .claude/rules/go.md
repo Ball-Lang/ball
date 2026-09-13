@@ -107,14 +107,27 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   dispatches on every release (`--ref main`). Its `verifyReleaseCmd` is
   `bump_go_modules.sh --check-next` (legal semver, major < 2, and exactly `semver.inc` of the line
   in the tree — this runs under `--dry-run` too), its `prepareCmd` is the bump itself, and its
-  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag — so `tag_go_modules.sh` stays
-  the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
+  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag **and waits for that run**
+  (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget — #627; a bare
+  `gh workflow run` returns on acceptance, so a failed tag cut used to leave the release green)
+  — so `tag_go_modules.sh` stays the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
   `chore(go):` PR, so every release re-dispatched the tagger and it passed reporting "all six tags
   already exist, nothing to do" while the published line stayed put — the #551 failure one level
   down. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`) pins the lane's shape;
   `check_release_dispatch_wiring.sh` still pins the tag-pinned channels and that no workflow
   dispatches the tagger. Rehearse a change with
   `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
+- **Whether the tags are actually SERVED is a separate alarm (#627).** Every guard above is
+  static. `.github/workflows/go-freshness.yml` (weekly + dispatch) is the outcome guard: for each
+  of the six modules it runs
+  `GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org go list -m -versions
+  github.com/ball-lang/ball/go/<module>` from a scratch directory, and the version **main's**
+  go.mod files name must appear in the answer. `GOWORK=off` is load-bearing: run anywhere under
+  `go/`, the workspace's `replace` pins resolve the module locally and that command prints the
+  module path with an EMPTY version list and exits 0 — which the classifier treats as UNKNOWN
+  (a failure), never as an absence. A tag younger than `MAX_LAG_MINUTES` (60) is tolerated;
+  `proxy.golang.org`'s index lag was measured at ~25 min. `check_go_freshness.sh --self-test`
+  runs on every PR in `Proto Checks`.
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:

@@ -146,8 +146,11 @@ for wf in "$WORKFLOWS"/*.yml; do
   grep -qE '^[[:space:]]{2}tag-go-modules:' "$wf" && stray+=("$(basename "$wf"): declares a tag-go-modules job")
   # An actual dispatch (not a comment) from a workflow. Since #361's second half
   # there is none: a version-less dispatch re-cuts whatever version the go.mod
-  # files already carry, which is a no-op that reports success.
-  sed 's/#.*$//' "$wf" | grep -qF 'gh workflow run tag-go-modules.yml' &&
+  # files already carry, which is a no-op that reports success. Both dispatch
+  # shapes are recognised — the bare `gh workflow run` and the awaited
+  # `await_workflow_run.py --workflow …` the publishCmd uses since #627 — so a
+  # stray dispatcher cannot hide behind the newer spelling.
+  sed 's/#.*$//' "$wf" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml' &&
     stray+=("$(basename "$wf"): dispatches tag-go-modules.yml")
 done
 if [ "${#stray[@]}" -eq 0 ]; then

@@ -247,3 +247,54 @@ def test_state_error_sites_are_typed_and_stringify_like_dart(call):
     assert type(payload).__name__ == "StateError"
     assert payload.message == "No element"
     assert ballrt.to_str(payload) == "Bad state: No element"
+
+
+# ── The Dart-error rendering contract (issue #641) ───────────────────────────
+#
+# Every runtime has to answer ONE question when a program prints a caught
+# built-in error: what string does it read? Four of the targets answer it from
+# an explicit `name -> prefix` table; Python answers it from this class
+# hierarchy, so the prefix each class spells is pinned HERE rather than by
+# `tools/check_error_rendering_tables.py` (which checks only that the classes
+# COVER every name this runtime raises).
+#
+# The prefixes are measured against the Dart SDK, not assumed. The fourth
+# built-in, `TypeError`, is the odd one out — Dart's `_TypeError.toString()` IS
+# its message, with no type-name prefix — and no Python runtime site raises one
+# (the compiler fails loud on a cast pattern), so it is deliberately absent
+# here; a future site must add it WITH that no-prefix rendering, never the
+# generic `<Type>: <message>` the two base classes spell.
+def _dart_errors():
+    from ballrt import dart_errors
+
+    return dart_errors
+
+
+def _state_error(message):
+    from ballrt.selfhost import StateError
+
+    return StateError(message)
+
+
+@pytest.mark.parametrize(
+    ("build", "expected"),
+    [
+        pytest.param(
+            lambda: _state_error("No element"),
+            "Bad state: No element",
+            id="StateError",
+        ),
+        pytest.param(
+            lambda: _dart_errors().FormatException("bad"),
+            "FormatException: bad",
+            id="FormatException",
+        ),
+        pytest.param(
+            lambda: _dart_errors().RangeError("index 3 out of range"),
+            "RangeError: index 3 out of range",
+            id="RangeError",
+        ),
+    ],
+)
+def test_dart_error_values_stringify_the_way_dart_does(build, expected):
+    assert ballrt.to_str(build()) == expected

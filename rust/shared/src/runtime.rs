@@ -4654,6 +4654,71 @@ mod tests {
         });
     }
 
+    /// Issue #641 — the OTHER built-in a Ball program can catch, and the one
+    /// whose rendering is not `<Type>: <message>`.
+    ///
+    /// Dart's failed cast raises a `TypeError` whose `toString()` IS its
+    /// message — no `TypeError: ` prefix — and that message names the value's
+    /// RUNTIME type before the target type:
+    ///
+    /// ```text
+    /// type 'String' is not a subtype of type 'int' in type cast
+    /// ```
+    ///
+    /// `ball_cast_assert` used to spell `type cast failed: not a int` and never
+    /// saw the subject at all, and `dart_error_to_string` rendered the result
+    /// as `TypeError: …`. Two wrongs that no fixture could see, because
+    /// `302_cast_patterns` prints a hardcoded literal from its catch body.
+    /// The cross-target guard is `466_caught_type_error_to_string`.
+    #[test]
+    fn a_failed_cast_assert_is_typed_and_stringifies_like_dart() {
+        fn assert_type_error(want: &str, value: BallValue, type_name: &str) {
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ball_cast_assert(false, value, type_name)
+            }))
+            .expect_err("a failed cast must throw, not return");
+            let payload = ball_catch_payload(caught);
+            assert_eq!(
+                ball_field_get(payload.clone(), "__type__"),
+                BallValue::String("TypeError".to_string())
+            );
+            assert_eq!(payload.to_string(), want);
+        }
+
+        assert_type_error(
+            "type 'String' is not a subtype of type 'int' in type cast",
+            BallValue::String("hi".to_string()),
+            "int",
+        );
+        assert_type_error(
+            "type 'double' is not a subtype of type 'int' in type cast",
+            BallValue::Double(1.5),
+            "int",
+        );
+        assert_type_error(
+            "type 'bool' is not a subtype of type 'int' in type cast",
+            BallValue::Bool(true),
+            "int",
+        );
+        assert_type_error(
+            "type 'Null' is not a subtype of type 'int' in type cast",
+            BallValue::Null,
+            "int",
+        );
+        assert_type_error(
+            "type 'int' is not a subtype of type 'String' in type cast",
+            BallValue::Int(7),
+            "String",
+        );
+    }
+
+    /// A matching cast answers `true` so it can sit as a conjunct in the
+    /// pattern's `&&` chain.
+    #[test]
+    fn a_matching_cast_assert_passes_through() {
+        assert!(ball_cast_assert(true, BallValue::Int(42), "int"));
+    }
+
     /// The Dart-error rendering table is closed over the type names
     /// `ball_throw_typed` raises: a map that merely carries a `message` field is
     /// user data and keeps the generic `{key: value}` form.

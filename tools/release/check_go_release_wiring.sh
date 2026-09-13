@@ -181,6 +181,51 @@ sys.exit(1 if found else 0)
 PY
 }
 
+# ── The checker's EXIT STATUS is part of its answer (#694). ────────────────
+# `freshness_paths_problems` reports a clean list by printing nothing, and a
+# checker that cannot run AT ALL — python3 absent, PyYAML absent, the embedded
+# Python raising (the traceback goes to stderr) — also prints nothing. Read only
+# its stdout and those two are the same observation, so the leg below used to say
+# PASS for a check that never happened and count it toward this guard's own
+# positive floor. PR #662's round-1 review reproduced exactly that with python3
+# off PATH.
+#
+# So the status is folded in here, once, and the leg consumes THIS function:
+#   0 = it ran and found nothing   1 = it ran and printed problems
+#   anything else = it could not run, which is never agreement.
+# The two self-contradictory shapes (0 with output, 1 without) are refused too —
+# a checker that has started disagreeing with itself is not evidence either way.
+freshness_paths_findings() {
+  local out rc=0
+  out="$(freshness_paths_problems "$1" 2>&1)" || rc=$?
+  case "$rc" in
+  0)
+    [ -z "$out" ] && return 0
+    printf '%s\n' \
+      "the paths checker exited 0 (clean) while printing output, so it is disagreeing with itself:"
+    printf '%s\n' "$out" | sed 's/^/  | /'
+    return 1
+    ;;
+  1)
+    if [ -z "$out" ]; then
+      printf '%s\n' \
+        "the paths checker exited 1 (problems found) but printed none, so there is nothing to act on"
+      return 1
+    fi
+    printf '%s\n' "$out"
+    return 1
+    ;;
+  *)
+    printf '%s\n' \
+      "the paths checker could not run: exit status $rc (expected 0 = clean, or 1 = problems found)." \
+      "127 means python3 is not on PATH; a PyYAML import failure and an unhandled traceback land here too." \
+      "An answer that was never computed is not a clean answer (#694)."
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  | /'
+    return 1
+    ;;
+  esac
+}
+
 # ── The negative controls for the checker above. ──────────────────────────
 # A guard whose own failure path is never exercised is decoration: the leg would
 # pass identically if `freshness_paths_problems` stopped looking at the list.
@@ -318,8 +363,74 @@ YML
   expect "unparseable YAML is refused, never read as agreement" 1 "$SCRATCH/broken.yml" "not parseable YAML"
   expect "the shipped .github/workflows/go-freshness.yml satisfies it" 0 "$WORKFLOWS/go-freshness.yml"
 
+  # ── The LEG, not the checker (#694). ────────────────────────────────────
+  # Everything above proves what `freshness_paths_problems` ANSWERS. None of it
+  # can see what the leg that consumes that answer does when the checker cannot
+  # answer at all — and that is the failure that actually happened: PR #662's
+  # round-1 review removed python3 from PATH and this guard printed
+  # `PASS … / Results: 26 passed, 1 failed, 27 total`, counting a leg that
+  # asserted nothing toward its own positive floor, while the sibling
+  # `--self-test` step correctly went exit 127.
+  #
+  # So these two cases drive the WHOLE guard as a subprocess and read its
+  # verdict, with and without a python3 that works. A PATH whose first `python3`
+  # exits 127 is exactly what a runner image without python3 looks like from
+  # inside this script.
+  mkdir -p "$SCRATCH/nopy"
+  cat >"$SCRATCH/nopy/python3" <<'STUB'
+#!/usr/bin/env bash
+# Stands in for "python3 is not installed": the status `command not found`
+# produces, with nothing on stdout.
+exit 127
+STUB
+  chmod +x "$SCRATCH/nopy/python3"
+
+  local LEG="go-freshness.yml's pull_request trigger is scoped to the alarm's own two files"
+
+  # leg_case <name> <PASS|FAIL> [PATH prefix]
+  # Runs the guard itself and asserts the verdict THIS leg reported, plus the
+  # guard's own exit status — the two things a stdout-only leg cannot connect.
+  leg_case() {
+    local name="$1" want="$2" prefix="${3-}"
+    local out rc=0 good=1
+    if [ -n "$prefix" ]; then
+      out="$(PATH="$prefix:$PATH" bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+    else
+      out="$(bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+    fi
+    case "$out" in
+    *"$want  $LEG"*) ;;
+    *) good=0 ;;
+    esac
+    if [ "$want" = "FAIL" ]; then
+      [ "$rc" -ne 0 ] || good=0
+      # The status the checker died with must be NAMED: without it the next
+      # reader cannot tell a drifted path list from a checker that never ran.
+      case "$out" in
+      *"exit status 127"*) ;;
+      *) good=0 ;;
+      esac
+    else
+      [ "$rc" -eq 0 ] || good=0
+    fi
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (guard exited $rc, wanted the leg to report $want)"
+      printf '%s\n' "$out" |
+        grep -E "^(PASS|FAIL)  go-freshness\.yml's pull_request|^Results:" |
+        sed 's/^/    | /'
+    fi
+  }
+
+  leg_case "the leg PASSES on the shipped tree when the checker can run" PASS
+  leg_case "the leg FAILS when the paths checker cannot run at all (python3 exits 127)" \
+    FAIL "$SCRATCH/nopy"
+
   local total=$((pass + fail))
-  local MIN=9
+  local MIN=11
   case "$pass$fail$total" in
   *[!0-9]*)
     echo "::error::go-freshness paths self-test produced a non-numeric tally"
@@ -836,11 +947,24 @@ if [ -f "$FRESHWF" ]; then
   # proxy.golang.org is that the filter names the alarm's OWN two files. Widen
   # it and a CDN hiccup reddens unrelated work; narrow it and a change to the
   # alarm stops having to prove itself against the live proxy before it merges.
+  #
+  # Through freshness_paths_findings, never freshness_paths_problems directly:
+  # the verdict has to consume the checker's EXIT STATUS, not only its stdout,
+  # or "it found nothing" and "it never ran" are the same observation (#694).
+  pathrc=0
+  pathout="$(freshness_paths_findings "$FRESHWF")" || pathrc=$?
   pathprobs=()
   while IFS= read -r pline; do
     [ -n "$pline" ] && pathprobs+=("$pline")
-  done < <(freshness_paths_problems "$FRESHWF")
-  if [ "${#pathprobs[@]}" -eq 0 ]; then
+  done <<EOF
+$pathout
+EOF
+  if [ "$pathrc" -ne 0 ] && [ "${#pathprobs[@]}" -eq 0 ]; then
+    # Cannot happen through the wrapper above, which always says why it failed.
+    # Asserted anyway so a future edit cannot turn a silent non-zero into a PASS.
+    pathprobs=("the paths checker failed with exit status $pathrc and said nothing")
+  fi
+  if [ "$pathrc" -eq 0 ] && [ "${#pathprobs[@]}" -eq 0 ]; then
     ok "go-freshness.yml's pull_request trigger is scoped to the alarm's own two files"
   else
     no "go-freshness.yml's pull_request trigger is scoped to the alarm's own two files" \

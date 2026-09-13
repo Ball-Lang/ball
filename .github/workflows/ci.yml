@@ -146,6 +146,21 @@ jobs:
       - name: Conformance-count drift guard test (#519)
         run: bash tools/test/test_check_conformance_doc_counts.sh
 
+      # Every runtime raises a handful of built-in Dart errors, and each target
+      # then has to answer what a CAUGHT one prints as. Four of them answer from
+      # an explicit `name -> prefix` table, and those tables were only "closed"
+      # in prose: #616 left `TypeError` out of C#'s, Go's and TS's while every
+      # one of those runtimes raises it for a failed cast, and gave Rust's the
+      # wrong rendering — four different strings for one program, invisible to
+      # every gate (#641). The self-test runs FIRST: a checker nobody has watched
+      # fail is not a gate, so its negative controls (drop an entry, break a
+      # prefix, add an unknown raised name, silence an extractor) prove it fires.
+      - name: Dart-error rendering table self-test (#641)
+        run: python tools/test/test_check_error_rendering_tables.py
+
+      - name: Dart-error rendering tables are closed (#641)
+        run: python tools/check_error_rendering_tables.py
+
       # The vcpkg self-host sidecar (issues #368/#361) is wired across four
       # files that never see each other at runtime: the release workflow that
       # publishes the asset, the portfile that names it, the overlay generator
@@ -390,10 +405,28 @@ jobs:
       # an absent check reads as green. This compares the two lists AFTER the
       # YAML parser expands the alias, so it still bites on the copy-paste shape.
       # `--self-test` first: a guard that stopped comparing must not pass.
-      - name: Conformance-matrix path-filter drift guard (#619)
+      #
+      # The same script also carries the SECOND invariant that filter acquired
+      # when the matrix rows became conditional (#666): every entry in it must
+      # map onto a classifier signal some row's `if:` reads. It proves that by
+      # running the real detect-changed-stacks classifier over a synthesized
+      # path for each entry — an unmapped entry means a PR that starts the
+      # workflow with every row skipped, i.e. a green matrix that ran nothing.
+      - name: "Conformance-matrix path-filter + row-signal guard (#619, #666)"
         run: |
           bash tools/ci/check_matrix_paths.sh --self-test
           bash tools/ci/check_matrix_paths.sh
+
+      # The RUN-time half of the same invariant. conformance-matrix.yml's
+      # `Parity Matrix` is ~200 lines of shell that nothing could execute
+      # outside a real Actions run, so every claim about it was prose. This
+      # renders that exact step from the workflow and runs it under bash against
+      # scenarios — including the one the per-row conditions made reachable: a
+      # pull_request on which EVERY row skipped, which must now FAIL. Its
+      # negative control strips the floor block and asserts the same scenario
+      # goes green, so a floor that stops biting cannot pass here.
+      - name: Parity Matrix summary gate self-test (#666)
+        run: python3 tools/test/test_parity_matrix_floor.py
 
       # tools/ci/apply_regenerated.sh is how a lane applies the artifacts the
       # `Ball Artifact Freshness` job regenerates and uploads (#619), i.e. the
@@ -445,6 +478,30 @@ jobs:
       # run here on every PR, offline.
       - name: Regeneration loop-breaker self-test (#625)
         run: bash tools/ci/regen_loop_breaker.sh --self-test
+
+      # Per-PR job fan-out guard (#666). Runner concurrency is the measured
+      # bottleneck of this repo's PR sweep, and nothing stopped a new job from
+      # joining EVERY pull request unconditionally — the cost of that is one
+      # more `- name:` in a 2900-line file, invisible in review. This asserts
+      # every job reachable on `pull_request` in ci.yml / conformance-matrix.yml
+      # / regression-gates.yml / ball-audit.yml is required, `changes`-
+      # conditioned, inside a `paths:`-filtered workflow, the classifier itself,
+      # or allow-listed WITH A REASON.
+      #
+      # It also carries the correctness half: a required context must APPEAR on
+      # every PR. A job-level `if:` on a MATRIX job whose name interpolates
+      # `${{ matrix.<key> }}` collapses every leg into ONE check run under the
+      # un-expanded name, so the required contexts never report and the PR can
+      # never merge — measured on PR #647 at bc0c367a, where a dart-only diff
+      # turned the `cpp` gate off and produced a lone `C++ (${{ matrix.os }})`
+      # instead of the three required `C++ (<os>)` contexts.
+      #
+      # `--self-test` first: the fabricated-unconditional-job negative control
+      # and the two report-safety controls must still be able to fail.
+      - name: Per-PR job fan-out guard (#666)
+        run: |
+          bash tools/ci/check_pr_job_fanout.sh --self-test
+          bash tools/ci/check_pr_job_fanout.sh
 
       # docs/TESTING_STRATEGY.md spells out WHICH status checks the `Protect
       # main` ruleset requires — the list a lane reads to decide "the checks are
@@ -1372,10 +1429,35 @@ jobs:
     needs: changes
     # C++ is build-isolated (does not build from dart/ or ts/). #18 Stage 5: it
     # no longer FetchContents Google protobuf — the build is now libprotobuf-free
-    # (nlohmann/json only), so configure + build are dramatically faster. Skip
-    # the whole 3-OS matrix when nothing under cpp/ (or proto/, or this workflow)
-    # changed.
-    if: ${{ needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
+    # (nlohmann/json only), so configure + build are dramatically faster. The
+    # heavy work below is skipped when nothing under cpp/ (or a self-host Dart
+    # source, or proto/, or this workflow) changed.
+    #
+    # THE CONDITION IS ON THE STEPS, NOT THE JOB, AND THAT IS LOAD-BEARING
+    # (#666). This job owns THREE of the 19 required contexts of ruleset
+    # 17056238 — `C++ (ubuntu-latest)`, `C++ (windows-latest)`,
+    # `C++ (macos-latest)` — and a required check that never reports blocks the
+    # merge forever. A skipped job normally satisfies a required check, but a
+    # skipped MATRIX job does not: GitHub emits ONE check run under the
+    # UN-EXPANDED name, literally `C++ (${{ matrix.os }})`, so none of the three
+    # required contexts appear at all. Measured: PR #647 at bc0c367a, a
+    # dart-only diff, produced exactly that — a lone
+    # `C++ (${{ matrix.os }})=skipped` and three permanently-missing contexts,
+    # i.e. an unmergeable PR. With the gate at STEP level every leg starts,
+    # reports under its real name, and costs ~20s when there is nothing to do.
+    # tools/ci/check_pr_job_fanout.sh fails the build if a job-level `if:` is
+    # ever put back on a required matrix job here.
+    #
+    # The activation itself is UNCHANGED from the job-level condition it
+    # replaces — `cpp` (which already folds in the self-host Dart sources) or
+    # the `infra` fail-safe. Narrowing the macOS leg further below `infra` was
+    # considered and rejected on the measurement: a warm macOS leg costs 50-55s
+    # (runs 34733… / #652, #644), all three PR shapes measured for #666 have
+    # `infra=true`, so a narrower rule would have saved nothing on any of them —
+    # while a ci.yml edit to the macOS-only `brew install` / Configure steps
+    # would have lost its only coverage.
+    env:
+      BALL_CPP_ACTIVE: ${{ needs.changes.outputs.cpp == 'true' || needs.changes.outputs.infra == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -1405,9 +1487,23 @@ jobs:
     #   whole job            19m -> 9m57s cold -> 2m02s warm
     timeout-minutes: 25
     steps:
+      # Always runs, on every leg, so this check reports under its real name
+      # (see the job header) and its log says WHY it did nothing.
+      - name: C++ activation
+        shell: bash
+        run: |
+          if [ "${BALL_CPP_ACTIVE}" = "true" ]; then
+            echo "C++ stack changed (cpp=${{ needs.changes.outputs.cpp }}, infra=${{ needs.changes.outputs.infra }}) — running the full leg."
+          else
+            echo "No cpp/, self-host or infra change in this diff — reporting green without building."
+            echo "This leg owns the required context 'C++ (${{ matrix.os }})', so it must report; see ci.yml's cpp job header (#666)."
+          fi
+
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        if: env.BALL_CPP_ACTIVE == 'true'
 
       - uses: bufbuild/buf-action@fd21066df7214747548607aaa45548ba2b9bc1ff # v1
+        if: env.BALL_CPP_ACTIVE == 'true'
         with:
           setup_only: true
 
@@ -1417,6 +1513,7 @@ jobs:
       # Linux/macOS, sccache on Windows (MSVC).
       - name: ccache
         uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+        if: env.BALL_CPP_ACTIVE == 'true'
         with:
           key: cpp-${{ matrix.os }}
           variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
@@ -1430,15 +1527,16 @@ jobs:
       # somebody else's numbers. sccache's live in the server process (fresh
       # per runner), zeroed here too so both legs mean the same thing.
       - name: Zero compiler-cache statistics
+        if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} --zero-stats
 
       - name: Install nlohmann-json (Ubuntu)
-        if: runner.os == 'Linux'
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
 
       - name: Install nlohmann-json (macOS)
-        if: runner.os == 'macOS'
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'macOS'
         run: brew install nlohmann-json
 
       # Windows: nlohmann-json is fetched by CMake FetchContent
@@ -1452,7 +1550,7 @@ jobs:
       # actions/runner-images `images/windows/Windows2025-VS2026-Readme.md`
       # (the image `windows-latest` points at) lists "Ninja 1.13.2" under Tools.
       - name: Set up the MSVC environment (Windows, for -G Ninja)
-        if: runner.os == 'Windows'
+        if: env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
 
       # -DBALL_BUILD_PROTOBUF_RT=ON builds Ball's own compiled protobuf runtime
@@ -1474,9 +1572,11 @@ jobs:
       # same single-config shape the Linux/macOS legs already use, which is what
       # `test_e2e`'s nested scratch project inherits via BALL_E2E_GENERATOR.
       - name: Configure CMake
+        if: env.BALL_CPP_ACTIVE == 'true'
         run: cmake -S cpp -B cpp/build ${{ runner.os == 'Windows' && '-G Ninja' || '' }} -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'Linux' && '-DBALL_BUILD_PROTOBUF_RT=ON' || '' }} -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
 
       - name: Build all targets
+        if: env.BALL_CPP_ACTIVE == 'true'
         run: cmake --build cpp/build --config Release
 
       # One place decides the parallelism for `ctest -j` and for the scratch
@@ -1488,6 +1588,7 @@ jobs:
       # reintroduce it invisibly.
       - name: Resolve build parallelism
         id: jobs
+        if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1513,6 +1614,7 @@ jobs:
       # already bit the macOS release leg (#404). This runs on all three OS legs.
       # `ball version` is real (not a self-host stub) in a plain cmake build.
       - name: Install smoke (exercises install(TARGETS ball) — issue #368)
+        if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1529,6 +1631,7 @@ jobs:
       # and rewrites it on every run; this makes "the file is present" mean
       # "THIS ctest invocation produced it", not "some invocation once did".
       - name: Reset e2e coverage report
+        if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: rm -f cpp/build/test/e2e_coverage.txt
 
@@ -1607,6 +1710,7 @@ jobs:
       # The `Compiler cache applied` step's non-cacheable ceiling (#599) is what
       # now fails the job if that regresses.
       - name: Run tests
+        if: env.BALL_CPP_ACTIVE == 'true'
         timeout-minutes: ${{ runner.os == 'Windows' && 13 || 8 }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
@@ -1627,6 +1731,7 @@ jobs:
       # stdout via --output-on-failure, mismatch message included. This step
       # exists for the green case, which is the one that was invisible.)
       - name: "C++ e2e fixture coverage"
+        if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -1678,6 +1783,7 @@ jobs:
       # scratch build compiled. The script's parsers are unit-tested in the
       # always-on `proto` job (`--self-test`).
       - name: "Compiler cache applied (#594)"
+        if: env.BALL_CPP_ACTIVE == 'true'
         shell: bash
         run: |
           bash cpp/test/check_compiler_cache_applied.sh \
@@ -1700,7 +1806,7 @@ jobs:
       # vs the merge-base (or the `ALL` fail-open sentinel when it couldn't
       # determine a diff base) — run full_e2e.sh against just those. See #347.
       - name: "C++ compiled e2e — new/changed fixtures only (closes main-only-leg escape class)"
-        if: ${{ runner.os == 'Linux' && needs.changes.outputs.changed_fixtures != '' }}
+        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' && needs.changes.outputs.changed_fixtures != '' }}
         # full_e2e.sh compiles one g++ TU per fixture. Same two knobs as
         # test_e2e above (issue #521): compile the fixtures concurrently, and
         # route them through this job's ccache so an unchanged fixture is a
@@ -1735,7 +1841,7 @@ jobs:
       # ccache-backed g++ -O0 TUs, seconds — this is a harness smoke, not a
       # conformance gate; the full corpus stays in the matrix leg.
       - name: "C++ compiled e2e — harness smoke (full_e2e.sh parallel path, no fixtures changed)"
-        if: ${{ runner.os == 'Linux' && needs.changes.outputs.changed_fixtures == '' }}
+        if: ${{ env.BALL_CPP_ACTIVE == 'true' && runner.os == 'Linux' && needs.changes.outputs.changed_fixtures == '' }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
           BALL_E2E_LAUNCHER: ccache

@@ -7067,10 +7067,14 @@ function compileStructuredPattern(
       // A cast pattern (subpat as T) ASSERTS the runtime type — it matches
       // structurally (like its sub-pattern) but THROWS on a mismatch (Dart
       // semantics), it does NOT refute. Conjoin ball_cast_assert(<typecheck>,
-      // "T") into the condition, short-circuited by the sub-pattern's own
-      // condition (so e.g. [var x as int] only asserts after the list shape
+      // <subject>, "T") into the condition, short-circuited by the sub-pattern's
+      // own condition (so e.g. [var x as int] only asserts after the list shape
       // matched). The assert also makes the case emit `if (cond)` rather than a
       // bare catch-all. (conformance 302)
+      //
+      // The SUBJECT is passed too because Dart's cast-failure message names the
+      // value's runtime type before the target type (issue #641; conformance
+      // 467_caught_type_error_to_string).
       const castType = fields.get("type")?.literal?.stringValue;
       const subpat = fields.get("pattern");
       let sub: StructuredPatternResult = { condition: "true", bindings: [] };
@@ -7080,7 +7084,7 @@ function compileStructuredPattern(
       }
       if (castType) {
         return {
-          condition: `(${sub.condition} && ball_cast_assert(${typeCheckCondition(castType, subject)}, ${JSON.stringify(castType)}))`,
+          condition: `(${sub.condition} && ball_cast_assert(${typeCheckCondition(castType, subject)}, ${subject}, ${JSON.stringify(castType)}))`,
           bindings: sub.bindings,
         };
       }

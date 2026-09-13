@@ -8,11 +8,12 @@
 /// What it has to prove is that the new instrument is worth trusting, against
 /// the REAL pipeline and a REAL `dart test` run:
 ///
-///  1. **Restoration integrity.** Per-file substitution puts the original bytes
-///     back after every run, verified by SHA-256. A harness that leaves a
-///     checkout dirty compounds substitutions across files and silently
-///     corrupts every later verdict, so this is the first assertion, not an
-///     afterthought.
+///  1. **The checkout is left byte-for-byte as it was found**, verified by
+///     SHA-256 after every mode. A harness that leaves a checkout dirty
+///     compounds substitutions across files and silently corrupts every later
+///     verdict, so this is the first assertion, not an afterthought. Since
+///     #653 it holds for a stronger reason than a careful restore: the harness
+///     substitutes into a private COPY and never writes the checkout at all.
 ///  2. A file whose compiled-back Dart still passes the package's suite is
 ///     scored `clean` — the harness cannot pass by calling everything dirty.
 ///  3. **The load-bearing one.** A file carrying the #488 shape — a
@@ -58,6 +59,12 @@
 ///     measured 20/23 in CI, with no encoder or compiler change in between),
 ///     every one of them carrying a build error anchored in a DIFFERENT file
 ///     than the one it says it substituted.
+///
+///     Isolation makes this run harmless to others; it cannot make others
+///     harmless to it, since the copy is taken FROM the shared checkout. So the
+///     last two rows cover [verifyTreeUnchanged]: an unchanged tree passes, and
+///     a tree that changed under the run FAILS LOUD rather than charging a
+///     stranger's edit to the substituted file.
 ///
 /// It also covers the whole-package mode (`rq1_tierb_all.dart`), whose stricter
 /// signal is one verdict per package with no restore between files, and the
@@ -526,6 +533,41 @@ Future<void> _perFileIsolation() async {
           'run — no substitution survived into the next invocation',
       afterwards.healthy,
       'outcome was $afterwards — ${afterwards.detail}',
+    );
+
+    // Isolation makes this run harmless to others; it cannot make others
+    // harmless to it, because the copy is taken FROM the shared checkout. When
+    // a stranger does change the tree, the only honest answer is to stop: the
+    // baseline no longer describes what is being scored.
+    final snapshot = snapshotTree(libRoot);
+    check(
+      'an unchanged checkout passes the between-candidate integrity check',
+      () {
+        try {
+          verifyTreeUnchanged(libRoot, snapshot, package: 'isolation');
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }(),
+    );
+
+    final betaFile = File('${dir.path}/lib/bb_beta.dart');
+    final betaBytes = betaFile.readAsBytesSync();
+    betaFile.writeAsStringSync('class Beta { int value() => 3; }\n');
+    var threw = false;
+    try {
+      verifyTreeUnchanged(libRoot, snapshot, package: 'isolation');
+    } on StateError {
+      threw = true;
+    } finally {
+      betaFile.writeAsBytesSync(betaBytes, flush: true);
+    }
+    check(
+      'ISSUE #653: a checkout that changed under the run FAILS LOUD instead of '
+          'scoring — a stranger\'s edit is never charged to the substituted file',
+      threw,
+      'verifyTreeUnchanged accepted a modified tree',
     );
   } finally {
     dir.deleteSync(recursive: true);

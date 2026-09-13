@@ -48,11 +48,28 @@
 /// never read as an encoder regression, which is the same rule Tier A applies
 /// to an unreachable pin.
 ///
-/// RESTORATION INTEGRITY is the harness's first obligation. A run that leaves a
-/// checkout dirty compounds substitutions across files and silently corrupts
-/// every later verdict, so the original bytes are snapshotted before the write,
-/// restored in a `finally`, and the restored file's SHA-256 is compared against
-/// the snapshot's. A mismatch throws — it is never reported as a verdict.
+/// ISOLATION is the harness's first obligation, and it is stronger than
+/// restoring what it wrote (issue #653). `dart test` builds the WHOLE package,
+/// so a build error ANYWHERE fails the build and lands on whichever file the
+/// harness believes it substituted. A verdict is therefore only about its own
+/// file if nothing else in that tree differs from the pristine checkout while
+/// the suite runs — and a checkout is an ordinary directory that a second Tier B
+/// process, a diagnostic script or a re-clone can be walking at the same time.
+/// Substituting in place made that indistinguishable from a real regression:
+/// `collection` measured 12/23 against CI's 20/23 on the same pin with no
+/// pipeline change in between, 7 of the 8 false rows carrying a build error
+/// anchored in the COMPILED-BACK text of a file the harness was not scoring.
+///
+/// So the harness never writes the package's source at all. Each candidate is
+/// substituted into its own private copy of the checkout, scored there, and the
+/// copy is deleted ([withSubstitutedCopy]); before each copy the pristine tree
+/// is re-verified against a SHA-256 snapshot taken after the baseline
+/// ([snapshotTree]/[verifyTreeUnchanged]) and a mismatch THROWS — something else
+/// is mutating the tree, the baseline no longer describes what is being scored,
+/// and every verdict from that point on would be a lie. Two properties fall out:
+/// a crashed run cannot leave a checkout dirty, and candidate N's compilation
+/// cannot reach candidate N+1 through `dart test`'s persisted incremental
+/// kernel, because every candidate starts from the same baseline state.
 ///
 /// Usage (from the repo root):
 ///
@@ -548,32 +565,123 @@ _Candidate _candidate(
   return _Candidate.substitutable(file, rel, compiled);
 }
 
-/// Overwrites [file] with [replacement], runs [body], then restores the exact
-/// original bytes and PROVES the restoration by digest.
+/// SHA-256 of every `.dart` file under [root], keyed by absolute path.
 ///
-/// The digest check is not defensive decoration: a silent restore failure turns
-/// every subsequent verdict in the same checkout into a lie, so it throws
-/// rather than reporting a tag.
-Future<T> withSubstitutedFile<T>(
-  File file,
-  String replacement,
-  Future<T> Function() body,
-) async {
-  final original = file.readAsBytesSync();
-  final originalDigest = digestOf(original);
-  try {
-    file.writeAsStringSync(replacement, flush: true);
-    return await body();
-  } finally {
-    file.writeAsBytesSync(original, flush: true);
-    final restoredDigest = digestOf(file.readAsBytesSync());
-    if (restoredDigest != originalDigest) {
-      throw StateError(
-        'restoration failed for ${file.path}: $restoredDigest != '
-        '$originalDigest — every later verdict in this checkout would be '
-        'compounded on a dirty tree',
-      );
+/// Taken once per package, right after the baseline, and re-checked before
+/// every candidate: it is the yardstick's fine print. The baseline tally only
+/// describes the tree it was measured on.
+Map<String, String> snapshotTree(Directory root) => {
+  for (final file in dartFilesUnder(root))
+    file.path: digestOf(file.readAsBytesSync()),
+};
+
+/// Throws unless [root] still matches [snapshot] exactly.
+///
+/// Reached only when something OUTSIDE this run changed the checkout — another
+/// Tier B process over the same `--checkouts`, a diagnostic script, a re-clone.
+/// That is not a verdict and must never be scored as one: from the first
+/// changed byte the baseline no longer describes the tree, and `dart test`
+/// would charge the stranger's file to whichever file this run is holding.
+void verifyTreeUnchanged(
+  Directory root,
+  Map<String, String> snapshot, {
+  required String package,
+}) {
+  final now = snapshotTree(root);
+  final changed = <String>[
+    for (final entry in now.entries)
+      if (snapshot[entry.key] != entry.value)
+        snapshot.containsKey(entry.key)
+            ? 'modified ${entry.key}'
+            : 'added ${entry.key}',
+    for (final path in snapshot.keys)
+      if (!now.containsKey(path)) 'removed $path',
+  ];
+  if (changed.isEmpty) return;
+  throw StateError(
+    'the $package checkout changed underneath this run — ${changed.join('; ')}. '
+    'Tier B scores a file by running the WHOLE package, so every verdict from '
+    'here on would be charged to the wrong file. Give each run its own '
+    'checkouts directory.',
+  );
+}
+
+/// `dart test`'s own build cache, relative to a checkout root. Never copied
+/// into a scored workspace: carrying one candidate's compiled kernel into the
+/// next is exactly the cross-candidate contamination the copy exists to
+/// prevent, and a kernel is keyed by `package:` URI, so it would survive the
+/// change of directory unnoticed.
+const _uncopiedSubtree = '.dart_tool/test';
+
+void _copyTree(Directory from, Directory to, {String prefix = ''}) {
+  to.createSync(recursive: true);
+  for (final entity in from.listSync(followLinks: false)) {
+    final name = entity.path.split(Platform.pathSeparator).last;
+    final rel = prefix.isEmpty ? name : '$prefix/$name';
+    if (rel == _uncopiedSubtree) continue;
+    if (entity is Directory) {
+      _copyTree(entity, Directory('${to.path}/$name'), prefix: rel);
+    } else if (entity is File) {
+      entity.copySync('${to.path}/$name');
     }
+    // Links are deliberately skipped: no pinned package ships one, and
+    // following one would copy something outside the checkout.
+  }
+}
+
+Future<void> _deleteWithRetry(Directory dir) async {
+  for (var attempt = 0; attempt < 5; attempt++) {
+    try {
+      if (!dir.existsSync()) return;
+      dir.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      // A just-exited `dart test` can still hold a handle on Windows. Yield
+      // rather than block: other packages are running on this event loop.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+  }
+  // A leaked temp directory costs disk, never a verdict — say so and carry on
+  // rather than failing a measurement over cleanup.
+  stderr.writeln('WARNING: could not delete the scored workspace ${dir.path}');
+}
+
+/// Copies [checkout], applies [substitutions] (checkout-relative POSIX path →
+/// replacement text) to the COPY, runs [body] against it, and deletes the copy.
+///
+/// The checkout the harness was pointed at is never written. That is the whole
+/// property: a run cannot contaminate the next candidate, cannot leave a dirty
+/// tree behind when it dies, and cannot be the stranger that corrupts a
+/// concurrent run's verdicts.
+Future<T> withSubstitutedCopy<T>(
+  Directory checkout,
+  Map<String, String> substitutions,
+  Future<T> Function(Directory workspace) body,
+) async {
+  final workspace = Directory.systemTemp.createTempSync('ball_tierb_');
+  try {
+    _copyTree(checkout, workspace);
+    for (final entry in substitutions.entries) {
+      final target = File('${workspace.path}/${entry.key}');
+      if (!target.existsSync()) {
+        throw StateError(
+          'the copied workspace has no ${entry.key} — the copy is incomplete '
+          'and its verdict would be meaningless',
+        );
+      }
+      target.writeAsStringSync(entry.value, flush: true);
+    }
+    // `dart test` re-resolves when the package config is older than the
+    // pubspec; a fresh copy's timestamps are all "now" in whatever order the
+    // walk produced them, so make the config the newest file deliberately
+    // instead of leaving an implicit `pub get` to chance.
+    final config = File('${workspace.path}/.dart_tool/package_config.json');
+    if (config.existsSync()) {
+      config.writeAsBytesSync(config.readAsBytesSync(), flush: true);
+    }
+    return await body(workspace);
+  } finally {
+    await _deleteWithRetry(workspace);
   }
 }
 
@@ -716,6 +824,10 @@ Future<TierBPackageResult> studyPackagePerFile(
     candidates = candidates.take(options.maxFilesPerPackage).toList();
   }
 
+  // The yardstick's fine print: the baseline tally describes THIS tree. Every
+  // candidate re-checks it before being scored (issue #653).
+  final pristine = snapshotTree(libRoot);
+
   final results = <TierBFileResult>[];
   for (final candidate in candidates) {
     final excluded = candidate.reason;
@@ -723,11 +835,10 @@ Future<TierBPackageResult> studyPackagePerFile(
       results.add(TierBFileResult(package, candidate.rel, excluded));
       continue;
     }
-    final after = await withSubstitutedFile(
-      candidate.file,
-      candidate.compiled!,
-      () => runDartTest(checkout, timeout: options.testTimeout),
-    );
+    verifyTreeUnchanged(libRoot, pristine, package: package);
+    final after = await withSubstitutedCopy(checkout, {
+      _relative(candidate.file, checkout): candidate.compiled!,
+    }, (workspace) => runDartTest(workspace, timeout: options.testTimeout));
     results.add(
       TierBFileResult(
         package,
@@ -786,30 +897,21 @@ Future<TierBPackageResult> studyPackageWhole(
     );
   }
 
-  final originals = <File, List<int>>{};
-  final digests = <File, String>{};
-  String? reason;
-  try {
-    for (final candidate in substitutable) {
-      final bytes = candidate.file.readAsBytesSync();
-      originals[candidate.file] = bytes;
-      digests[candidate.file] = digestOf(bytes);
-      candidate.file.writeAsStringSync(candidate.compiled!, flush: true);
-    }
-    final after = await runDartTest(checkout, timeout: options.testTimeout);
-    reason = classify(baseline, after, options.testTimeout);
-  } finally {
-    for (final entry in originals.entries) {
-      entry.key.writeAsBytesSync(entry.value, flush: true);
-      final restored = digestOf(entry.key.readAsBytesSync());
-      if (restored != digests[entry.key]) {
-        throw StateError(
-          'restoration failed for ${entry.key.path} — the checkout is now '
-          'dirty and every later verdict would be compounded on it',
-        );
-      }
-    }
-  }
+  // Same isolation as per-file mode (issue #653): the whole substitution lands
+  // in a private copy, so this run can neither be corrupted by, nor corrupt,
+  // anything else pointed at the same checkout. There is exactly one scored run
+  // here, so there is no between-candidate snapshot to re-check.
+  final reason = await withSubstitutedCopy(
+    checkout,
+    {
+      for (final candidate in substitutable)
+        _relative(candidate.file, checkout): candidate.compiled!,
+    },
+    (workspace) async {
+      final after = await runDartTest(workspace, timeout: options.testTimeout);
+      return classify(baseline, after, options.testTimeout);
+    },
+  );
 
   return TierBPackageResult(package, 'scored', [
     TierBFileResult(

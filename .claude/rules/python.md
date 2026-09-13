@@ -110,6 +110,22 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `python/runtime/ballrt/collections.py`'s `list_find` (a `StateError` payload carried by `BallThrow`) and the `463_list_find_no_match` entry in `python/compiler/tests/test_conformance.py` is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `python/compiler/tests/test_sink.py`, plus the `465_string_sink` entry in `python/compiler/tests/test_conformance.py`'s `PROVEN` list (compile + run + golden diff).
+  Backing: `ballrt.sink_create`/`sink_write`/`sink_to_string` (`python/runtime/ballrt/sink.py`), over a plain `dict` — a reference, and the shape `ballrt.type_of` already reads a `__type__` tag from. An `io.StringIO` would answer `StringIO`.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →

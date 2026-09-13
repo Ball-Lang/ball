@@ -2234,10 +2234,17 @@ extension BallEngineControlFlow on BallEngine {
     // ── Map methods on typed objects ──
     final selfMap = _cfAsMap(self);
     if (selfMap != null && selfMap.containsKey('__type__')) {
-      // StringBuffer methods.
+      // StringBuffer methods. A declared text sink (`std:Sink`, issue #630) is
+      // the same `__type__`/`__buffer__` shape, so the members the encoder does
+      // NOT route to `std.sink_*` — `clear`, and any hand-written Ball program
+      // still using the legacy spelling — keep working on every engine. The
+      // routed members (`write`/`writeln`/`writeCharCode`/`toString`/`length`)
+      // never reach here from encoded Dart any more.
       final typeName = selfMap['__type__'] as String?;
       if (typeName != null &&
-          (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
+          (typeName == _kBallSinkTag ||
+              typeName.endsWith(':StringBuffer') ||
+              typeName == 'StringBuffer')) {
         switch (method) {
           case 'write':
             selfMap['__buffer__'] =

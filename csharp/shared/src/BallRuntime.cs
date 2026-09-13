@@ -864,6 +864,79 @@ public static partial class BallRuntime
     public const string BallSetTag = "__ball_set__";
 
     /// <summary>Wrap <paramref name="items"/> as a Set value (no copy — the list becomes the shared backing).</summary>
+    // ── The declared text sink (issue #630) ────────────────────────────────
+    //
+    // A sink is a <c>__type__</c>-tagged <see cref="BallMap"/> carrying its
+    // accumulated text under <c>__buffer__</c>, NOT a bare
+    // <see cref="System.Text.StringBuilder"/>. Two properties depend on that,
+    // and both fail SILENTLY when a target gets them wrong:
+    //
+    //  * <c>std.type_of</c> answers <c>"Sink"</c>, because <c>TypeOf</c>
+    //    already reads a map's <c>__type__</c> tag. A bare StringBuilder would
+    //    answer <c>"StringBuilder"</c> here and <c>"String"</c>/<c>"Builder"</c>/
+    //    <c>"StringIO"</c> elsewhere, so a Ball program branching on
+    //    <c>type_of</c> would take a different arm per target.
+    //  * <see cref="BallMap"/> is a reference type, so an append performed
+    //    inside a callee is visible to the caller — the precedent being issue
+    //    #300, where a by-value clone lost every list append.
+
+    private const string BallSinkTag = "std:Sink";
+    private const string BallSinkBuffer = "__buffer__";
+
+    /// <summary><c>std.sink_create(initial?)</c> — a new text sink, optionally seeded.</summary>
+    public static BallValue SinkCreate(BallValue initial)
+    {
+        var map = new BallMap(2);
+        map.Set("__type__", BallValue.Str(BallSinkTag));
+        map.Set(BallSinkBuffer, BallValue.Str(initial is BallNull ? string.Empty : SinkText(initial)));
+        return map;
+    }
+
+    /// <summary>
+    /// <c>std.sink_write(sink, text)</c> — append <paramref name="text"/>.
+    /// Returns null: the observable effect is the in-place mutation, which is
+    /// what makes the sink reference-semantic.
+    /// </summary>
+    public static BallValue SinkWrite(BallValue sink, BallValue text)
+    {
+        var map = SinkBacking(sink, "sink_write");
+        var existing = map.Get(BallSinkBuffer) is BallString s ? s.Value : string.Empty;
+        map.Set(BallSinkBuffer, BallValue.Str(existing + SinkText(text)));
+        return BallValue.Null;
+    }
+
+    /// <summary><c>std.sink_to_string(sink)</c> — the accumulated text, in write order.</summary>
+    public static BallValue SinkToString(BallValue sink)
+    {
+        var map = SinkBacking(sink, "sink_to_string");
+        return BallValue.Str(map.Get(BallSinkBuffer) is BallString s ? s.Value : string.Empty);
+    }
+
+    /// <summary>
+    /// The live backing map of a sink, or a loud failure. Never fabricate an
+    /// empty sink: silently accepting a non-sink turns every mis-routed
+    /// <c>sink_write</c> into a discarded write (issue #55's shape).
+    /// </summary>
+    private static BallMap SinkBacking(BallValue sink, string function)
+    {
+        if (sink is BallMap map && map.Get("__type__") is BallString tag && tag.Value == BallSinkTag)
+        {
+            return map;
+        }
+
+        throw new BallRuntimeException(
+            $"std.{function}: expected a sink (std.sink_create), got {TypeOf(sink)}");
+    }
+
+    /// <summary>
+    /// A sink operand's text form. <c>sink_write</c> takes TEXT and every
+    /// encoder wraps a non-string operand in <c>std.to_string</c> first, but a
+    /// bare value still stringifies rather than throwing — matching Dart's
+    /// <c>StringBuffer.write</c>.
+    /// </summary>
+    private static string SinkText(BallValue value) =>
+        value is BallString s ? s.Value : value.ToString() ?? string.Empty;
+
     private static BallValue WrapSet(BallList items)
     {
         var map = new BallMap(1);

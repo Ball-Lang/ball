@@ -253,9 +253,11 @@ function __ball_to_string(v: any): string {
     return '{' + [...v].map(__ball_to_string).join(', ') + '}';
   }
   if (typeof v === 'object' && !Array.isArray(v)) {
-    // StringBuffer-like objects
-    if (v['__buffer__'] && Array.isArray(v['__buffer__'])) {
-      return v['__buffer__'].join('');
+    // A text sink (#630) or the legacy StringBuffer object it replaces:
+    // stringify as the accumulated text, never as a map. The declared sink's
+    // buffer is a string; the legacy ad-hoc form used an array.
+    if (v['__buffer__'] !== undefined) {
+      return Array.isArray(v['__buffer__']) ? v['__buffer__'].join('') : String(v['__buffer__']);
     }
     // Check for custom toString method on the instance (not Object.prototype).
     if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') {
@@ -1502,6 +1504,38 @@ function __ball_type_of(value: any): string {
     return 'Map';
   }
   return typeof value;
+}
+
+// std text sink (#630) — sink_create / sink_write / sink_to_string.
+//
+// A sink is a __type__-tagged plain object, NOT a bare string: the tag is what
+// makes __ball_type_of answer "Sink" on every target (a bare string would
+// answer "String" here and "StringBuilder"/"Builder"/"StringIO" elsewhere),
+// and a JS object is a reference, so an append performed inside a callee is
+// visible to the caller — the property that otherwise fails silently. The
+// previous ad-hoc handling (self += text, and engine_setup.ts's two
+// incompatible write registrations — issue #633) had neither.
+//
+// NOTE: this whole preamble lives inside a String.raw template literal, so a
+// backtick anywhere in it — even in a comment — terminates the template and
+// breaks the parse. Do not "improve" the quoting below.
+function __ball_sink_create(initial: any): any {
+  return { __type__: 'std:Sink', __buffer__: initial == null ? '' : __ball_to_string(initial) };
+}
+
+function __ball_sink_write(sink: any, text: any): any {
+  if (sink == null || typeof sink !== 'object') {
+    throw new Error('std.sink_write: expected a sink (std.sink_create), got ' + __ball_type_of(sink));
+  }
+  sink['__buffer__'] = String(sink['__buffer__'] ?? '') + __ball_to_string(text);
+  return null;
+}
+
+function __ball_sink_to_string(sink: any): string {
+  if (sink == null || typeof sink !== 'object') {
+    throw new Error('std.sink_to_string: expected a sink (std.sink_create), got ' + __ball_type_of(sink));
+  }
+  return String(sink['__buffer__'] ?? '');
 }
 
 // Minimal DateTime / Duration / Future polyfills used by std_time and
@@ -3209,14 +3243,14 @@ export class BallEngine {
       let __naa_7 = __ball_index(s.fields, 'nullable');
       return (__ball_eq(__naa_7, null) ? null : __naa_7.boolValue);
     })() ?? false);
-    let buf = "";
+    let buf = __ball_sink_create(name);
     if ((!__ball_eq(args, null) && !(args.length === 0))) {
-      (buf += (('<' + __ball_to_string(args.map(BallEngine._typeRefValueToString).join(', '))) + '>'));
+      __ball_sink_write(buf, (('<' + __ball_to_string(args.map(BallEngine._typeRefValueToString).join(', '))) + '>'));
     }
     if (nullable) {
-      (buf += '?');
+      __ball_sink_write(buf, '?');
     }
-    return __ball_to_string(buf);
+    return __ball_sink_to_string(buf);
   }
 
   async _evalExpression(expr: any, scope: any): Promise<any> {
@@ -6982,7 +7016,7 @@ export class BallEngine {
     let selfMap = this._cfAsMap(self);
     if ((!__ball_eq(selfMap, null) && __ball_map_has(selfMap, 'map_contains_key', '__type__'))) {
       let typeName = __ball_index(selfMap, '__type__');
-      if ((!__ball_eq(typeName, null) && (typeName.endsWith(':StringBuffer') || __ball_eq(typeName, 'StringBuffer')))) {
+      if ((!__ball_eq(typeName, null) && ((__ball_eq(typeName, _kBallSinkTag) || typeName.endsWith(':StringBuffer')) || __ball_eq(typeName, 'StringBuffer')))) {
         do {
           const __sw = method;
           if ((__sw === 'write')) {
@@ -8286,7 +8320,7 @@ export class BallEngine {
       }), ['string_pad_right']: ((i) => {
         const input = i;
         return this._stdStringPad(i, false);
-      }), ['regex_match']: ((i) => {
+      }), ['sink_create']: this._stdSinkCreate.bind(this), ['sink_write']: this._stdSinkWrite.bind(this), ['sink_to_string']: this._stdSinkToString.bind(this), ['regex_match']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
           return new RegExp(b).hasMatch(a);
@@ -8807,8 +8841,8 @@ export class BallEngine {
     let map = this._stdAsMap(v);
     if (!__ball_eq(map, null)) {
       let typeName = __ball_index(map, '__type__');
-      if ((!__ball_eq(typeName, null) && (typeName.endsWith(':StringBuffer') || __ball_eq(typeName, 'StringBuffer')))) {
-        return (__ball_index(map, '__buffer__') ?? '');
+      if ((!__ball_eq(typeName, null) && ((__ball_eq(typeName, _kBallSinkTag) || typeName.endsWith(':StringBuffer')) || __ball_eq(typeName, 'StringBuffer')))) {
+        return (__ball_index(map, _kBallSinkBuffer) ?? '');
       }
       if (!__ball_eq(typeName, null)) {
         if ((typeName.endsWith('Exception') || typeName.endsWith('Error'))) {
@@ -8999,6 +9033,75 @@ export class BallEngine {
     if (__ball_eq(target, null)) {
       return null;
     }
+  }
+
+  _stdSinkCreate(input: any): any {
+    let m = this._stdAsMap(input);
+    let seed = (__ball_eq(m, null) ? null : __ball_index(m, 'initial'));
+    let sink = _ballUserMap();
+    sink['__type__'] = _kBallSinkTag;
+    sink[_kBallSinkBuffer] = (__ball_eq(seed, null) ? '' : this._ballSinkText(seed));
+    return sink.cast();
+  }
+
+  _stdSinkWrite(input: any): any {
+    let m = this._stdAsMap(input);
+    if (__ball_eq(m, null)) {
+      throw new BallRuntimeError('std.sink_write: expected an input message');
+    }
+    let sink = this._stdSinkBacking(__ball_index(m, 'sink'), 'sink_write');
+    let existing = __ball_index(sink, _kBallSinkBuffer);
+    sink[_kBallSinkBuffer] = __ball_add(((__ball_eq(existing, null) ? '' : this._ballSinkText(existing))), this._ballSinkText(__ball_index(m, 'text')));
+  }
+
+  _stdSinkToString(input: any): any {
+    let m = this._stdAsMap(input);
+    if (__ball_eq(m, null)) {
+      throw new BallRuntimeError('std.sink_to_string: expected an input message');
+    }
+    let sink = this._stdSinkBacking(__ball_index(m, 'sink'), 'sink_to_string');
+    let buffer = __ball_index(sink, _kBallSinkBuffer);
+    return (__ball_eq(buffer, null) ? '' : this._ballSinkText(buffer));
+  }
+
+  _stdSinkBacking(value: any, function_: any): any {
+    let map = this._stdAsMap(value);
+    if ((__ball_eq(map, null) || !__ball_eq(__ball_index(map, '__type__'), _kBallSinkTag))) {
+      throw new BallRuntimeError(((('std.' + __ball_to_string(function_)) + ': expected a sink (std.sink_create), got ') + __ball_to_string(this._typeNameOf(value))));
+    }
+    return map;
+  }
+
+  _ballSinkText(v: any): any {
+    const input = v;
+    if ((typeof v === 'string')) {
+      return v;
+    }
+    if ((typeof v === 'string')) {
+      return v.value;
+    }
+    if ((__ball_eq(v, null) || (v == null))) {
+      return 'null';
+    }
+    if ((typeof v === 'boolean')) {
+      return __ball_to_string(v);
+    }
+    if ((typeof v === 'boolean')) {
+      return __ball_to_string(v.value);
+    }
+    if ((typeof v === 'number' && Number.isInteger(v))) {
+      return __ball_to_string(v);
+    }
+    if ((typeof v === 'number' && Number.isInteger(v))) {
+      return __ball_to_string(v.value);
+    }
+    if ((v instanceof BallDouble || (typeof v === 'number' && !Number.isInteger(v)))) {
+      return __ball_to_string(v);
+    }
+    if ((typeof v === 'number' || v instanceof BallDouble)) {
+      return __ball_to_string(v);
+    }
+    return __ball_to_string(v);
   }
 
   _stdTypeCheck(input: any): any {
@@ -10513,6 +10616,8 @@ export class StdModuleHandler extends BallModuleHandler {
   }
 }
 let _kBallSetTag = (() => { return '__ball_set__'; })();
+let _kBallSinkTag = (() => { return 'std:Sink'; })();
+let _kBallSinkBuffer = (() => { return '__buffer__'; })();
 let _sentinel = (() => { return { '__type': 'main:Object' }; })();
 let _builtinTypeNames = (() => { return new Set(['int', 'double', 'num', 'String', 'bool', 'List', 'Map', 'Set', 'Null', 'void', 'Object', 'dynamic', 'Function', 'Future', 'Stream', 'Iterable', 'Iterator', 'Type', 'Symbol', 'Never']); })();
 let _builtinExceptionNames = (() => { return new Set(['Exception', 'Error', 'FormatException', 'RangeError', 'ArgumentError', 'StateError', 'UnsupportedError', 'UnimplementedError', 'TypeError', 'NoSuchMethodError', 'OutOfMemoryError', 'StackOverflowError', 'IntegerDivisionByZeroException', 'ConcurrentModificationError', 'IndexError', 'IOException', 'FileSystemException', 'HttpException', 'SocketException']); })();

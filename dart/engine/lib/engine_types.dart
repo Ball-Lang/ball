@@ -109,6 +109,17 @@ double _ballToDouble(Object? value) {
 /// set from `Map` without depending on the `BallEngineStd` extension.
 const String _kBallSetTag = '__ball_set__';
 
+/// The `__type__` tag every text sink carries (issue #630), and the key its
+/// accumulated text lives under.
+///
+/// `std.type_of` strips the module prefix off a `__type__` tag, so a sink
+/// answers `"Sink"` on every target — never the host builder's own type name,
+/// which is what the compiled targets would otherwise report (`String`,
+/// `StringBuilder`, `Builder`, `StringIO`, …) and what would make a Ball
+/// program branching on `type_of` take a different arm per target.
+const String _kBallSinkTag = 'std:Sink';
+const String _kBallSinkBuffer = '__buffer__';
+
 /// The engine's own name for the RAW string-keyed map the portable ordered-set
 /// value (`{'__ball_set__': [...]}`) actually is — the *representation*, not the
 /// user-visible `Map` type.

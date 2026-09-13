@@ -10,9 +10,9 @@
     "package:ball_base buildStdTimeModule()",
     "package:ball_base buildStdConcurrencyModule()"
   ],
-  "totalFunctions": 271,
+  "totalFunctions": 274,
   "functionsByModule": {
-    "std": 127,
+    "std": 130,
     "std_collections": 59,
     "std_concurrency": 9,
     "std_convert": 6,
@@ -22,9 +22,9 @@
     "std_time": 12
   },
   "summary": {
-    "encoderEmittable": 121,
-    "coveredByFixture": 130,
-    "engineImplementedDart": 233,
+    "encoderEmittable": 126,
+    "coveredByFixture": 135,
+    "engineImplementedDart": 236,
     "carvedOut": 0
   },
   "functions": [
@@ -545,6 +545,7 @@
         "444_inline_constructed_call_argument",
         "451_thrown_builtin_exception_tearoff",
         "464_typed_catch_clause_dispatch",
+        "465_string_sink",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -2562,6 +2563,46 @@
     },
     {
       "module": "std",
+      "name": "sink_create",
+      "inputType": "SinkCreateInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "150_state_machine",
+        "465_string_sink"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "sink_to_string",
+      "inputType": "SinkToStringInput",
+      "outputType": "String",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "150_state_machine",
+        "465_string_sink"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "sink_write",
+      "inputType": "SinkWriteInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "150_state_machine",
+        "465_string_sink"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
       "name": "string_char_at",
       "inputType": "IndexInput",
       "encoderEmittable": false,
@@ -2625,8 +2666,11 @@
       "module": "std",
       "name": "string_from_char_code",
       "inputType": "UnaryInput",
-      "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "465_string_sink"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -2679,8 +2723,10 @@
       "module": "std",
       "name": "string_length",
       "inputType": "UnaryInput",
-      "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "465_string_sink"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3064,7 +3110,6 @@
         "125_group_by",
         "127_zip_lists",
         "139_decimal_to_binary",
-        "140_caesar_cipher",
         "141_palindrome_number",
         "142_armstrong_number",
         "143_perfect_number",
@@ -4995,10 +5040,8 @@
       "string_char_code_at",
       "string_concat",
       "string_contains",
-      "string_from_char_code",
       "string_index_of",
       "string_join",
-      "string_length",
       "string_repeat",
       "thread_join",
       "thread_spawn",

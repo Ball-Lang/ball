@@ -1942,6 +1942,95 @@ fn set_backing(set: &BallValue) -> BallList {
     }
 }
 
+// ── The declared text sink (issue #630) ─────────────────────────────────────
+//
+// A sink is a `__type__`-tagged `BallMap` carrying its accumulated text under
+// `__buffer__`, NOT a bare `String`. Two properties depend on that, and both
+// fail SILENTLY when a target gets them wrong:
+//
+//  * `ball_type_of` answers `"Sink"`, because it already reads a map's
+//    `__type__` tag. A bare `String` backing would answer `"String"` here and
+//    `"StringBuilder"`/`"Builder"`/`"StringIO"` on the other targets, so a Ball
+//    program branching on `type_of` would take a different arm per target.
+//  * `BallMap` is `Arc<Mutex<IndexMap>>`-backed, so an append performed inside
+//    a callee is visible to the caller. This crate already had to learn that
+//    for `BallList` — issue #300, where a by-value `Vec<BallValue>` clone lost
+//    every append — which is why the sink is not a `String` field.
+
+/// The `__type__` tag of a text sink. `ball_type_of` strips the module prefix,
+/// so a sink reports `"Sink"`.
+const BALL_SINK_TAG: &str = "std:Sink";
+const BALL_SINK_BUFFER: &str = "__buffer__";
+
+/// `std.sink_create(initial?)` — a new text sink, optionally seeded.
+pub fn ball_sink_create(initial: BallValue) -> BallValue {
+    let map = BallMap::new();
+    map.insert("__type__", BallValue::String(BALL_SINK_TAG.to_string()));
+    let seed = match initial {
+        BallValue::Null => String::new(),
+        other => sink_text(&other),
+    };
+    map.insert(BALL_SINK_BUFFER, BallValue::String(seed));
+    BallValue::Map(map)
+}
+
+/// `std.sink_write(sink, text)` — append `text`. Returns null: the observable
+/// effect is the in-place mutation, which is what makes the sink
+/// reference-semantic.
+pub fn ball_sink_write(sink: BallValue, text: BallValue) -> BallValue {
+    let map = sink_backing(&sink, "sink_write");
+    let existing = match map.get(BALL_SINK_BUFFER) {
+        Some(BallValue::String(s)) => s,
+        _ => String::new(),
+    };
+    map.insert(
+        BALL_SINK_BUFFER,
+        BallValue::String(existing + &sink_text(&text)),
+    );
+    BallValue::Null
+}
+
+/// `std.sink_to_string(sink)` — the accumulated text, in write order.
+pub fn ball_sink_to_string(sink: BallValue) -> BallValue {
+    let map = sink_backing(&sink, "sink_to_string");
+    match map.get(BALL_SINK_BUFFER) {
+        Some(BallValue::String(s)) => BallValue::String(s),
+        _ => BallValue::String(String::new()),
+    }
+}
+
+/// A sink operand's text form. `sink_write` takes TEXT and every encoder wraps
+/// a non-string operand in `std.to_string` first, but a bare value still
+/// stringifies rather than panicking — matching Dart's `StringBuffer.write`.
+fn sink_text(value: &BallValue) -> String {
+    match value {
+        BallValue::String(s) => s.clone(),
+        other => match ball_to_string(other.clone()) {
+            BallValue::String(s) => s,
+            v => v.to_string(),
+        },
+    }
+}
+
+/// The live backing map of a sink, or a loud panic. Never fabricate an empty
+/// sink: silently accepting a non-sink turns every mis-routed `sink_write` into
+/// a discarded write (issue #55's silent-degradation shape).
+fn sink_backing(sink: &BallValue, function: &str) -> BallMap {
+    match sink {
+        BallValue::Map(map) => match map.get("__type__") {
+            Some(BallValue::String(tag)) if tag == BALL_SINK_TAG => map.clone(),
+            _ => panic!(
+                "ball-lang-compiler runtime: std.{function} expected a sink \
+                 (std.sink_create), got a plain map"
+            ),
+        },
+        other => panic!(
+            "ball-lang-compiler runtime: std.{function} expected a sink \
+             (std.sink_create), got {other:?}"
+        ),
+    }
+}
+
 pub fn ball_set_create(list: BallValue) -> BallValue {
     let mut out: Vec<BallValue> = Vec::new();
     for item in set_backing(&list).snapshot() {
@@ -4106,10 +4195,7 @@ mod tests {
     #[test]
     fn sink_is_a_tagged_reference_value() {
         let sink = ball_sink_create(BallValue::Null);
-        assert_eq!(
-            ball_type_of(sink.clone()),
-            BallValue::String("Sink".into())
-        );
+        assert_eq!(ball_type_of(sink.clone()), BallValue::String("Sink".into()));
 
         ball_sink_write(sink.clone(), BallValue::String("a".into()));
         // The by-value trap: hand the sink to a callee and append there.
@@ -4118,10 +4204,7 @@ mod tests {
         }
         append(sink.clone());
 
-        assert_eq!(
-            ball_sink_to_string(sink),
-            BallValue::String("ab".into())
-        );
+        assert_eq!(ball_sink_to_string(sink), BallValue::String("ab".into()));
     }
 
     #[test]

@@ -197,6 +197,22 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `cpp/test/test_compiler.cpp`'s `list_find` assertions (the emitted lambda throws `BallException("StateError", "Bad state: No element")`, mirroring `list_reduce`; it must never fall off the end with `return BallDyn();`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `cpp/test/test_compiler.cpp`'s `string_sink_emits_the_runtime_helpers`.
+  Backing: `ball_sink_create`/`ball_sink_write`/`ball_sink_to_string` in `ball_dyn.h`, over a `BallOrderedMap` that `BallDyn` wraps in a `shared_ptr` — which is what makes the callee's append visible. `_ball_sink_backing` takes its `BallDyn` **by value** on purpose: a copy shares the same `BallOrderedMapRef`, and a by-value parameter is what lets a `const BallDyn&` call site reach the non-const accessor. Editing `ball_dyn.h` needs a compiler REBUILD — it is embedded into every emitted program via the generated `ball_dyn_embed.h`.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

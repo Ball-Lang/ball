@@ -4992,6 +4992,26 @@ function __isUnknownFnError(e: any): boolean {
         if (!val) throw new Error("TS compiler: std.type_of is missing its `value` field");
         return `__ball_type_of(${this.expr(val)})`;
       }
+      // #630 — the declared text sink. Backed by a `__type__`-tagged object so
+      // `type_of` answers "Sink" and appends survive a call boundary; the
+      // ad-hoc `self += text` arm this replaces had neither property.
+      case "sink_create": {
+        const initial = f.get("initial");
+        return `__ball_sink_create(${initial ? this.expr(initial) : "null"})`;
+      }
+      case "sink_write": {
+        const sink = f.get("sink");
+        const text = f.get("text");
+        if (!sink || !text) {
+          throw new Error("TS compiler: std.sink_write requires both `sink` and `text` fields");
+        }
+        return `__ball_sink_write(${this.expr(sink)}, ${this.expr(text)})`;
+      }
+      case "sink_to_string": {
+        const sink = f.get("sink");
+        if (!sink) throw new Error("TS compiler: std.sink_to_string requires a `sink` field");
+        return `__ball_sink_to_string(${this.expr(sink)})`;
+      }
       case "if": {
         const cond = this.expr(f.get("condition")!);
         const thenExpr = f.get("then")!;

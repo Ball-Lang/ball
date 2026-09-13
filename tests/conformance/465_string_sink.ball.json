@@ -11,11 +11,35 @@
           "isBase": true
         },
         {
+          "name": "sink_write",
+          "isBase": true
+        },
+        {
+          "name": "sink_create",
+          "isBase": true
+        },
+        {
+          "name": "sink_to_string",
+          "isBase": true
+        },
+        {
           "name": "print",
           "isBase": true
         },
         {
+          "name": "string_length",
+          "isBase": true
+        },
+        {
+          "name": "concat",
+          "isBase": true
+        },
+        {
           "name": "string_is_empty",
+          "isBase": true
+        },
+        {
+          "name": "string_from_char_code",
           "isBase": true
         },
         {
@@ -35,6 +59,26 @@
                 "number": 1,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
               }
             ]
           }
@@ -60,16 +104,18 @@
       "functions": [
         {
           "name": "appendWord",
-          "inputType": "StringBuffer",
+          "inputType": "dynamic",
           "outputType": "void",
           "body": {
             "call": {
-              "function": "write",
+              "module": "std",
+              "function": "sink_write",
               "input": {
                 "messageCreation": {
+                  "typeName": "",
                   "fields": [
                     {
-                      "name": "self",
+                      "name": "sink",
                       "value": {
                         "reference": {
                           "name": "sink"
@@ -77,10 +123,26 @@
                       }
                     },
                     {
-                      "name": "arg0",
+                      "name": "text",
                       "value": {
-                        "reference": {
-                          "name": "word"
+                        "call": {
+                          "module": "std",
+                          "function": "to_string",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "value",
+                                  "value": {
+                                    "reference": {
+                                      "name": "word"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
                         }
                       }
                     }
@@ -94,7 +156,7 @@
             "params": [
               {
                 "name": "sink",
-                "type": "StringBuffer"
+                "type": "dynamic"
               },
               {
                 "name": "word",
@@ -113,25 +175,33 @@
                   "let": {
                     "name": "out",
                     "value": {
-                      "messageCreation": {
-                        "typeName": "main:StringBuffer"
+                      "call": {
+                        "module": "std",
+                        "function": "sink_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": ""
+                          }
+                        }
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "StringBuffer"
+                      "type": "dynamic"
                     }
                   }
                 },
                 {
                   "expression": {
                     "call": {
-                      "function": "write",
+                      "module": "std",
+                      "function": "sink_write",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "sink",
                               "value": {
                                 "reference": {
                                   "name": "out"
@@ -139,7 +209,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "text",
                               "value": {
                                 "literal": {
                                   "stringValue": "a"
@@ -155,12 +225,14 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "write",
+                      "module": "std",
+                      "function": "sink_write",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "sink",
                               "value": {
                                 "reference": {
                                   "name": "out"
@@ -168,7 +240,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "text",
                               "value": {
                                 "literal": {
                                   "stringValue": "b"
@@ -224,13 +296,13 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string",
+                                  "function": "sink_to_string",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "sink",
                                           "value": {
                                             "reference": {
                                               "name": "out"
@@ -261,13 +333,40 @@
                             {
                               "name": "message",
                               "value": {
-                                "fieldAccess": {
-                                  "object": {
-                                    "reference": {
-                                      "name": "out"
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_length",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "sink_to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "sink",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "out"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
                                     }
-                                  },
-                                  "field": "length"
+                                  }
                                 }
                               }
                             }
@@ -281,35 +380,43 @@
                   "let": {
                     "name": "seeded",
                     "value": {
-                      "messageCreation": {
-                        "typeName": "main:StringBuffer",
-                        "fields": [
-                          {
-                            "name": "arg0",
-                            "value": {
-                              "literal": {
-                                "stringValue": "x"
+                      "call": {
+                        "module": "std",
+                        "function": "sink_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "initial",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "x"
+                                  }
+                                }
                               }
-                            }
+                            ]
                           }
-                        ]
+                        }
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "StringBuffer"
+                      "type": "dynamic"
                     }
                   }
                 },
                 {
                   "expression": {
                     "call": {
-                      "function": "writeln",
+                      "module": "std",
+                      "function": "sink_write",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "sink",
                               "value": {
                                 "reference": {
                                   "name": "seeded"
@@ -317,10 +424,34 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "text",
                               "value": {
-                                "literal": {
-                                  "stringValue": "y"
+                                "call": {
+                                  "module": "std",
+                                  "function": "concat",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "left",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "y"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "right",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "\n"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
                                 }
                               }
                             }
@@ -333,12 +464,14 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "write",
+                      "module": "std",
+                      "function": "sink_write",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "sink",
                               "value": {
                                 "reference": {
                                   "name": "seeded"
@@ -346,7 +479,7 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "text",
                               "value": {
                                 "literal": {
                                   "stringValue": "z"
@@ -373,13 +506,13 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string",
+                                  "function": "sink_to_string",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "sink",
                                           "value": {
                                             "reference": {
                                               "name": "seeded"
@@ -402,13 +535,19 @@
                   "let": {
                     "name": "blank",
                     "value": {
-                      "messageCreation": {
-                        "typeName": "main:StringBuffer"
+                      "call": {
+                        "module": "std",
+                        "function": "sink_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": ""
+                          }
+                        }
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "StringBuffer"
+                      "type": "dynamic"
                     }
                   }
                 },
@@ -434,8 +573,24 @@
                                         {
                                           "name": "value",
                                           "value": {
-                                            "reference": {
-                                              "name": "blank"
+                                            "call": {
+                                              "module": "std",
+                                              "function": "sink_to_string",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "typeName": "",
+                                                  "fields": [
+                                                    {
+                                                      "name": "sink",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "blank"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
                                             }
                                           }
                                         }
@@ -454,12 +609,14 @@
                 {
                   "expression": {
                     "call": {
-                      "function": "writeCharCode",
+                      "module": "std",
+                      "function": "sink_write",
                       "input": {
                         "messageCreation": {
+                          "typeName": "",
                           "fields": [
                             {
-                              "name": "self",
+                              "name": "sink",
                               "value": {
                                 "reference": {
                                   "name": "blank"
@@ -467,10 +624,26 @@
                               }
                             },
                             {
-                              "name": "arg0",
+                              "name": "text",
                               "value": {
-                                "literal": {
-                                  "intValue": "81"
+                                "call": {
+                                  "module": "std",
+                                  "function": "string_from_char_code",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "literal": {
+                                              "intValue": "81"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
                                 }
                               }
                             }
@@ -512,8 +685,24 @@
                                                     {
                                                       "name": "value",
                                                       "value": {
-                                                        "reference": {
-                                                          "name": "blank"
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "sink_to_string",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "typeName": "",
+                                                              "fields": [
+                                                                {
+                                                                  "name": "sink",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "blank"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
                                                         }
                                                       }
                                                     }
@@ -549,13 +738,13 @@
                               "value": {
                                 "call": {
                                   "module": "std",
-                                  "function": "to_string",
+                                  "function": "sink_to_string",
                                   "input": {
                                     "messageCreation": {
                                       "typeName": "",
                                       "fields": [
                                         {
-                                          "name": "value",
+                                          "name": "sink",
                                           "value": {
                                             "reference": {
                                               "name": "blank"

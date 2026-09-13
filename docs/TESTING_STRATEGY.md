@@ -538,6 +538,44 @@ probe, and write the fixture so the value is PRINTED, not discarded. When it can
 FAIL to produce a result, write the fixture so the failure is OBSERVED, not
 assumed.
 
+**#630 adds the third shape: a base function whose result is an OBJECT carries a
+contract about that object, and neither `outputType` nor a printed value can see
+it.** `std.sink_create` returns a text sink, and two properties of that value
+are load-bearing on every target:
+
+* `std.type_of(sink)` must answer `"Sink"` — the same string everywhere, never
+  the host builder's own type name. A target backing the sink with a bare
+  `String`/`StringBuilder`/`strings.Builder`/`io.StringIO` answers `"String"`/
+  `"StringBuilder"`/`"Builder"`/`"StringIO"` instead, so a Ball program
+  branching on `type_of` takes a different arm per target — a divergence that
+  compiles, runs, and prints plausible output everywhere.
+* The sink is **reference-semantic**: appending to it inside a callee is visible
+  to the caller. A by-value backing loses exactly that append and nothing else —
+  the silent shape of issue #300 (Rust's by-value `Vec<BallValue>` clone lost
+  every list append) and of the C++ self-host's by-value `std::map` copy.
+
+Neither is a *return shape*, so the #545 probe cannot reach them; the second is
+also invisible to any fixture that only uses the value in the function that
+created it. The gates are therefore split in two, and BOTH are required:
+
+* **Cross-target behaviour** — `tests/conformance/465_string_sink` builds a sink,
+  appends to it **across a function call**, reads it back, and also exercises
+  `.length`/`.isEmpty`/`writeln`/`writeCharCode`/the `StringBuffer('x')` seed.
+  The cross-call append is the whole point of the fixture.
+* **The type tag, per target** — a conformance golden *cannot* assert
+  `type_of(sink) == "Sink"`, because a golden is produced by running the
+  fixture's Dart source natively and real Dart answers `"StringBuffer"`. So each
+  target pins it in its own unit test, beside its own backing:
+  `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`,
+  `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`,
+  `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`,
+  `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py`.
+
+The general rule: **when a base function returns a value with an identity — a
+type tag, a shared backing, an ordering — name that contract in the declaration's
+doc comment and gate it per target, because the corpus can only see what the
+source language can express.**
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -727,6 +765,7 @@ could not parse a summary at all).
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | **A base function's NO-MATCH branch is observed (§5b, #597)** — `std_collections.list_find` throws a catchable `StateError` when nothing matches, on every engine and every direct compiler; no target may answer `null`/`undefined`/an empty value, and none may refuse to compile it | `tests/conformance/463_list_find_no_match` (cross-target) + per-runtime tests: `dart/compiler/test/base_calls_test.dart`, `ts/engine/test/index_wrapper.test.ts`, `ts/compiler/test/std_call_dispatch.test.ts`, `cpp/test/test_compiler.cpp`, `csharp/compiler/test/ListFindContractTests.cs`, `rust/shared/src/runtime.rs`, `go/runtime/list_find_contract_test.go` + `go/compiler/list_find_contract_test.go`, `python/compiler/tests/test_conformance.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
+| **A base function's returned VALUE carries a contract (§5b, #630)** — `std.sink_create`'s sink is a `__type__`-tagged, REFERENCE-semantic value: `std.type_of` answers `Sink` on every target (never the host builder's type), and an append performed inside a callee is visible to the caller. A conformance golden cannot assert the tag (the oracle is native Dart, which says `StringBuffer`), so the behaviour and the tag are gated separately | `tests/conformance/465_string_sink` (cross-target; the `appendWord(out, 'c')` line is the reference-semantics leg) + per-target tag tests: `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`, `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`, `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`, `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |

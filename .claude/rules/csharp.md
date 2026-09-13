@@ -120,6 +120,22 @@ compile items so the sibling projects never double-compile each other's files.
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `csharp/compiler/test/ListFindContractTests.cs` (`BallRuntime.ListFind` throws a `BallThrow`, NOT a `BallRuntimeException` — only the former is what the compiled `catch (BallThrow …)` sees, so an unhandled native fault can no longer bypass the program's own `try`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `csharp/shared/test/SinkContractTests.cs` and `csharp/compiler/test/StringSinkTests.cs` (which compiles the fixture and RUNS it against the golden).
+  Backing: `BallRuntime.SinkCreate`/`SinkWrite`/`SinkToString`, over a `BallMap` — a reference type, so the callee's append is visible. A bare `StringBuilder` would make `TypeOf` answer `StringBuilder`. NOTE the blast radius: adding a std declaration grows the std module every encoded program embeds, so `ProjectEncodingTests`' committed golden (`fixtures/goldens/e_lambda_and_predefined_types.ball.json`) must be regenerated in the same PR — that is legitimate drift, not a relaxation of the guard.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).**
   `CompileTryStatement` emits one `catch (BallThrow __ballEx)` containing an
   `if`/`else if` chain: an `on <Type> catch` clause runs only when

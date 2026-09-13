@@ -203,6 +203,22 @@ const json = toJson(ProgramSchema, program);
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `ts/engine/test/index_wrapper.test.ts` (the engine — `engine_setup.ts` deliberately does NOT override `list_find`, so the compiled engine's own correct handler wins) and `ts/compiler/test/std_call_dispatch.test.ts` (the compiler emits a throwing IIFE, never a bare `Array.prototype.find`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `ts/compiler/test/string_sink.test.ts` (emitted helpers + a probe run asserting `Sink` and a cross-call append) and the `465_string_sink` row in `ts/compiler/test/native_conformance.test.ts`.
+  Backing: `__ball_sink_create`/`__ball_sink_write`/`__ball_sink_to_string` in `preamble.ts`, over a plain JS object (a reference). This REPLACED three divergent ad-hoc forms — the compiler's `self += text`, and `engine_setup.ts`'s TWO `write` registrations, one pushing onto an Array `__buffer__` and one concatenating onto a String one (issue #633). Both engine registrations are deleted: the legacy StringBuffer method surface belongs to the COMPILED engine, which those overrides shadowed (the #597 shape). Remember that the whole preamble lives inside a `String.raw` template literal — a backtick anywhere in it, even in a comment, terminates the template.
+
 ### Encoder
 
 - TypeScript → Ball, built on the TypeScript Compiler API (`typescript` package, `ts.SyntaxKind`).

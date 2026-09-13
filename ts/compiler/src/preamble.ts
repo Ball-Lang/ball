@@ -266,9 +266,11 @@ function __ball_to_string(v: any): string {
     return '{' + [...v].map(__ball_to_string).join(', ') + '}';
   }
   if (typeof v === 'object' && !Array.isArray(v)) {
-    // StringBuffer-like objects
-    if (v['__buffer__'] && Array.isArray(v['__buffer__'])) {
-      return v['__buffer__'].join('');
+    // A text sink (#630) or the legacy StringBuffer object it replaces:
+    // stringify as the accumulated text, never as a map. The declared sink's
+    // buffer is a string; the legacy ad-hoc form used an array.
+    if (v['__buffer__'] !== undefined) {
+      return Array.isArray(v['__buffer__']) ? v['__buffer__'].join('') : String(v['__buffer__']);
     }
     // Check for custom toString method on the instance (not Object.prototype).
     if (v.toString !== Object.prototype.toString && typeof v.toString === 'function') {
@@ -1515,6 +1517,38 @@ function __ball_type_of(value: any): string {
     return 'Map';
   }
   return typeof value;
+}
+
+// std text sink (#630) — sink_create / sink_write / sink_to_string.
+//
+// A sink is a __type__-tagged plain object, NOT a bare string: the tag is what
+// makes __ball_type_of answer "Sink" on every target (a bare string would
+// answer "String" here and "StringBuilder"/"Builder"/"StringIO" elsewhere),
+// and a JS object is a reference, so an append performed inside a callee is
+// visible to the caller — the property that otherwise fails silently. The
+// previous ad-hoc handling (self += text, and engine_setup.ts's two
+// incompatible write registrations — issue #633) had neither.
+//
+// NOTE: this whole preamble lives inside a String.raw template literal, so a
+// backtick anywhere in it — even in a comment — terminates the template and
+// breaks the parse. Do not "improve" the quoting below.
+function __ball_sink_create(initial: any): any {
+  return { __type__: 'std:Sink', __buffer__: initial == null ? '' : __ball_to_string(initial) };
+}
+
+function __ball_sink_write(sink: any, text: any): any {
+  if (sink == null || typeof sink !== 'object') {
+    throw new Error('std.sink_write: expected a sink (std.sink_create), got ' + __ball_type_of(sink));
+  }
+  sink['__buffer__'] = String(sink['__buffer__'] ?? '') + __ball_to_string(text);
+  return null;
+}
+
+function __ball_sink_to_string(sink: any): string {
+  if (sink == null || typeof sink !== 'object') {
+    throw new Error('std.sink_to_string: expected a sink (std.sink_create), got ' + __ball_type_of(sink));
+  }
+  return String(sink['__buffer__'] ?? '');
 }
 
 // Minimal DateTime / Duration / Future polyfills used by std_time and

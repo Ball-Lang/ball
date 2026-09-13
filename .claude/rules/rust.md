@@ -111,6 +111,22 @@ cargo fmt --check && cargo clippy --workspace
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `rust/shared/src/runtime.rs`'s `list_find_no_match_throws_a_typed_state_error` (`ball_list_find` uses `ball_throw_typed`, like its `.first`/`list_reduce` neighbours — a bare `panic!(&str)` is recoverable only by an UNTYPED catch) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `rust/shared/src/runtime.rs`'s `sink_is_a_tagged_reference_value` and `rust/compiler/tests/string_sink.rs`.
+  Backing: `ball_sink_create`/`ball_sink_write`/`ball_sink_to_string` in `rust/shared/src/runtime.rs`, over a `BallValue::Map` — an `Arc<Mutex<IndexMap>>`, so the callee's append is shared. A bare `String` field would make `ball_type_of` answer `String` and lose every cross-call append, exactly as the by-value `Vec<BallValue>` clone did in #300.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compile_try`
   emits an `if`/`else if` chain over the recovered payload: an `on <Type> catch`
   clause runs only when `ball_catch_matches(&__err, "<Type>")` accepts the thrown

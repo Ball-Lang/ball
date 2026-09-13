@@ -24,7 +24,7 @@ public class SinkContractTests
     {
         var sink = BallRuntime.SinkCreate(BallValue.Null);
 
-        Assert.Equal("Sink", Assert.IsType<BallString>(BallStd.TypeOf(sink)).Value);
+        Assert.Equal("Sink", Assert.IsType<BallString>(BallRuntime.TypeOf(sink)).Value);
 
         BallRuntime.SinkWrite(sink, BallValue.Str("a"));
         // The by-value trap: hand the sink to a callee (what a compiled Ball

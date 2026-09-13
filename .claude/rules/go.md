@@ -191,6 +191,22 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `go/runtime/list_find_contract_test.go` (`ListFind` throws via `dartError`, so the payload is a typed `*Message`) and `go/compiler/list_find_contract_test.go` (compiles the fixture and runs it) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/465_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `go/runtime/sink_contract_test.go` and `go/compiler/string_sink_test.go` (which compiles the fixture and RUNS it against the golden).
+  Backing: `ballrt.SinkCreate`/`SinkWrite`/`SinkToString` (`go/runtime/sink.go`), over a `*ballrt.Map` — a POINTER, so the callee's append is visible. A `*strings.Builder` would make `TypeOf` answer `Builder`, and a `strings.Builder` VALUE would lose appends outright: Go's own docs say "Do not copy a non-zero Builder".
+
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
   emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
   `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`

@@ -2668,6 +2668,78 @@ inline std::string ball_type_of(const BallDyn& v) {
     return ball_runtime_type_name(u);
 }
 
+// ── std text sink (#630) — `sink_create` / `sink_write` / `sink_to_string` ──
+//
+// A sink is a `__type__`-tagged BallOrderedMap carrying its accumulated text
+// under `__buffer__`, NOT a `std::ostringstream` (nor the ad-hoc
+// `BallStringBuffer` above). Two properties depend on that, and both fail
+// SILENTLY when a target gets them wrong:
+//
+//  * `ball_type_of` answers "Sink", because `ball_object_type_tag` already
+//    reads a map's `__type__` tag. A bare stream backing would report its own
+//    host type here and a different one on every other target, so a Ball
+//    program branching on `type_of` would take a different arm per target.
+//  * `BallDyn(BallOrderedMap&&)` wraps the map in a `shared_ptr`, so an append
+//    performed inside a callee is visible to the caller. A by-value
+//    `BallOrderedMap`/`std::ostringstream` copy would lose exactly that append
+//    and nothing else — the same failure `dart/engine/lib/engine_eval.dart`
+//    records for a plain map literal in the self-host.
+inline const std::string& _ball_sink_tag() {
+    static const std::string tag = "std:Sink";
+    return tag;
+}
+
+// The live backing map of a sink, or a loud throw. Taken BY VALUE on purpose:
+// a BallDyn copy shares the same `BallOrderedMapRef`, so mutating through it
+// mutates the caller's sink — and a by-value parameter is what lets a
+// `const BallDyn&` call site reach the non-const accessor.
+inline BallOrderedMap* _ball_sink_backing(BallDyn sink, const char* function) {
+    if (BallOrderedMap* omp = sink._orderedMapPtr()) {
+        auto it = omp->index_.find("__type__");
+        if (it != omp->index_.end()) {
+            const std::any& tv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+            if (tv.type() == typeid(std::string) &&
+                std::any_cast<const std::string&>(tv) == _ball_sink_tag()) {
+                return omp;
+            }
+        }
+    }
+    throw std::runtime_error(std::string("std.") + function +
+                             ": expected a sink (std.sink_create)");
+}
+
+inline BallDyn ball_sink_create(const BallDyn& initial) {
+    BallOrderedMap m;
+    m["__type__"] = std::any(_ball_sink_tag());
+    m["__buffer__"] =
+        std::any(initial.has_value() ? ball_to_string(initial) : std::string());
+    return BallDyn(std::move(m));
+}
+
+inline BallDyn ball_sink_write(const BallDyn& sink, const BallDyn& text) {
+    BallOrderedMap* omp = _ball_sink_backing(sink, "sink_write");
+    std::string existing;
+    auto it = omp->index_.find("__buffer__");
+    if (it != omp->index_.end()) {
+        const std::any& bv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (bv.type() == typeid(std::string))
+            existing = std::any_cast<const std::string&>(bv);
+    }
+    (*omp)["__buffer__"] = std::any(existing + ball_to_string(text));
+    return BallDyn();
+}
+
+inline BallDyn ball_sink_to_string(const BallDyn& sink) {
+    BallOrderedMap* omp = _ball_sink_backing(sink, "sink_to_string");
+    auto it = omp->index_.find("__buffer__");
+    if (it != omp->index_.end()) {
+        const std::any& bv = _BallDynUnwrapper::unwrap(omp->entries_[it->second].second);
+        if (bv.type() == typeid(std::string))
+            return BallDyn(std::any_cast<const std::string&>(bv));
+    }
+    return BallDyn(std::string());
+}
+
 // A compiled user class is emitted as a plain C++ struct rather than a
 // `__type__`-tagged map, so it cannot answer through the BallDyn overload
 // above; each such struct exposes a static `__ball_type_name()`. This template

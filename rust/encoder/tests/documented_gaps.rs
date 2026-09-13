@@ -39,10 +39,13 @@
 //! `rust/encoder/tests/crate_encoding.rs`; the flipped tests here
 //! remain the goalposts that keep this file's gap list honest.
 //!
-//! **Count them, don't quote a number from memory.** `grep -c should_panic
+//! **Count them, don't quote a number from memory.** `grep -c '^#\[should_panic'
 //! rust/encoder/tests/documented_gaps.rs` is the authoritative "what is still
 //! open"; a prose tally in this comment or in `.claude/rules/rust.md` goes
-//! stale the moment a slice lands (it had, by two, before this one).
+//! stale the moment a slice lands (it had, by two, before this one). Anchor the
+//! pattern at the line start: an unanchored `grep -c should_panic` also matches
+//! the PROSE mentions in these doc comments, so it over-counts by every one of
+//! them — it answered 13 against 6 open attributes when issue #626 caught it.
 //!
 //! **Closing a gap can create a new one, and that pin is owed in the same
 //! PR.** Skipping a module-scope `const` declaration made a *reference* to one

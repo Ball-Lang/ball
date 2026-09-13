@@ -665,7 +665,7 @@ pub(crate) fn has_self_receiver(sig: &syn::Signature) -> bool {
 /// checked [`has_self_receiver`]. Fails loud on a destructuring parameter
 /// pattern, matching `param_names_and_types`'s own posture for free
 /// functions.
-pub(crate) fn method_non_self_params(sig: &syn::Signature) -> Vec<(String, String)> {
+fn method_non_self_params(sig: &syn::Signature) -> Vec<(String, String)> {
     sig.inputs
         .iter()
         .skip(1)

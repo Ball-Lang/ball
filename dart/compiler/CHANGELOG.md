@@ -1,3 +1,10 @@
+## [0.4.3](https://github.com/Ball-Lang/ball/compare/ball_compiler-v0.4.2...ball_compiler-v0.4.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* **cpp:** make the self-host C++ emitter single-path and gate its default output (closes [#601](https://github.com/Ball-Lang/ball/issues/601)) ([#602](https://github.com/Ball-Lang/ball/issues/602)) ([29ebdfe](https://github.com/Ball-Lang/ball/commit/29ebdfed93a3ec17e5021465dcbe52050861bd49))
+
 ## [0.4.2](https://github.com/Ball-Lang/ball/compare/ball_compiler-v0.4.1...ball_compiler-v0.4.2) (2026-09-13)
 
 

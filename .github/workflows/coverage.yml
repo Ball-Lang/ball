@@ -1,9 +1,22 @@
 name: Coverage
 
 # Cross-stack coverage: each language stack runs its suites under coverage,
-# emits lcov, and uploads to Codecov with a flag (dart / typescript / cpp /
-# rust). Codecov merges the flags into one repo-wide report (epic #59, #60).
-# Auth is OIDC — public repo, no CODECOV_TOKEN needed.
+# emits lcov, and publishes it as a `coverage-lcov-<flag>` artifact; the
+# separate `codecov-upload` job carries those to Codecov under their flags
+# (dart / typescript / cpp / rust / csharp), which Codecov merges into one
+# repo-wide report (epic #59, #60). Auth is OIDC — public repo, no
+# CODECOV_TOKEN needed.
+#
+# MEASUREMENT AND TRANSPORT ARE DIFFERENT JOBS (issue #638). A language job's
+# conclusion is its COVERAGE FLOOR's verdict and nothing else: it ends on its
+# floor steps, having already handed its lcov over. Uploading lived inside those
+# jobs until run 34746079045, whose `C++ coverage` job passed both floors and
+# then died on a codecov-action OIDC token-fetch timeout — a red on main with no
+# coverage regression behind it, on the very history #63's ratchet and #599's
+# cache ceiling read. See the `codecov-upload` job below for why
+# `fail_ci_if_error: false` could not prevent that and why the retry is ours;
+# tools/ci/check_coverage_upload_isolation.sh (ci.yml's always-on `Proto Checks`
+# job) is what keeps the two halves apart.
 #
 # The Dart job ALSO enforces the line-coverage ratchet (floor must never
 # regress; raise toward 100%).
@@ -128,17 +141,28 @@ jobs:
         # measures 100.00%.
         run: dart run tools/coverage_dart.dart --floor 99.9
 
-      - name: Upload Dart coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      # THE ONLY STEP ALLOWED TO FOLLOW A FLOOR STEP (#638). Every other stack
+      # hands its lcov over BEFORE its gate; coverage_dart.dart writes
+      # coverage/dart.lcov and enforces the floor in the SAME invocation (the
+      # file is written before the comparison), so re-running it just to take the
+      # artifact would double a 20-minute job. Hence `!cancelled()`: the artifact
+      # must be taken even when the ratchet FAILS, or Codecov's history would get
+      # a hole exactly at the commit that dropped — the one run worth publishing.
+      # The step cannot mask the ratchet's verdict: a failed step is not rescued
+      # by later steps running, so this job's conclusion is still the floor's.
+      # tools/ci/check_coverage_upload_isolation.sh is what keeps it that way.
+      - name: Publish the Dart lcov for the upload job
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          use_oidc: true
           # Single merged lcov with the COMPLETE file/folder tree (every package,
           # every authored file, 0% for untested) — not a tested subset.
-          files: ./coverage/dart.lcov
-          flags: dart
-          # Best-effort: a Codecov outage / not-yet-activated repo must not fail
-          # the ratchet gate above. (This is the codecov-action default.)
-          fail_ci_if_error: false
+          name: coverage-lcov-dart
+          path: coverage/dart.lcov
+          # An empty artifact would make the upload job green while publishing
+          # nothing — the silent half of the failure #638 is about.
+          if-no-files-found: error
+          retention-days: 7
 
   # ──────────────────────────────────────────────────
   # TypeScript — c8 (V8) coverage → lcov, per package
@@ -220,17 +244,27 @@ jobs:
           cd ts/cli && npm ci && npm run build
           npx --yes c8@11.0.0 --reporter=lcovonly --src src --all npm test
 
-      - name: Upload TypeScript coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      # ALL five TS packages (engine, compiler, encoder, shared, cli). c8
+      # `--all` includes never-executed src files at 0%, so each package's
+      # coverage is complete, not just the exercised files. Staged into one flat
+      # directory with distinct names so the artifact's layout does not depend on
+      # upload-artifact's least-common-ancestor rule for a multi-path upload.
+      - name: Stage the TypeScript lcov files
+        run: |
+          set -euo pipefail
+          mkdir -p ts-coverage
+          for pkg in engine compiler encoder shared cli; do
+            cp "ts/$pkg/coverage/lcov.info" "ts-coverage/$pkg.lcov"
+          done
+          ls -l ts-coverage
+
+      - name: Publish the TypeScript lcov for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          use_oidc: true
-          # ALL five TS packages (engine, compiler, encoder, shared, cli). c8
-          # `--all` includes never-executed src files at 0%, so each package's
-          # coverage is complete, not just the exercised files.
-          files: >-
-            ./ts/engine/coverage/lcov.info,./ts/compiler/coverage/lcov.info,./ts/encoder/coverage/lcov.info,./ts/shared/coverage/lcov.info,./ts/cli/coverage/lcov.info
-          flags: typescript
-          fail_ci_if_error: false
+          name: coverage-lcov-typescript
+          path: ts-coverage/
+          if-no-files-found: error
+          retention-days: 7
 
   # ──────────────────────────────────────────────────
   # C++ — gcov/lcov over the ctest binaries (Linux/gcc)
@@ -304,6 +338,17 @@ jobs:
             --output-file cpp.lcov --ignore-errors unused,empty
           lcov --list cpp.lcov --ignore-errors empty
 
+      # Hand the measurement to the transport job BEFORE the gates below, so
+      # everything that follows in this job is a floor step and this job's
+      # conclusion is exactly the floor verdict (#638).
+      - name: Publish the C++ lcov for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov-cpp
+          path: cpp.lcov
+          if-no-files-found: error
+          retention-days: 7
+
       # Line-coverage ratchet for cpp/{compiler,encoder,shared} (issue #63,
       # part of epic #59/#60). Mirrors the Dart job's ratchet philosophy
       # (`tools/coverage_dart.dart --floor`): the floor must never regress,
@@ -342,9 +387,15 @@ jobs:
           # 2026-07-14 against an 88.3% reading and had since drifted 6.9pt
           # below what CI measures — wide enough that every test #495 and #587
           # added could have been deleted with this gate still green.
-          # (Run 34746079045's workflow conclusion is `failure`; its C++ JOB
-          # passed with exactly this number and died in the last step on a
-          # codecov OIDC token timeout. Read the job, not the run.)
+          # (Run 34746079045's workflow conclusion is `failure` and so is its
+          # `C++ coverage` JOB's: steps 11 and 12 — this floor and the per-target
+          # one below — both passed with exactly these numbers, and the job then
+          # died in step 13 on a codecov OIDC token-fetch timeout. Judge a
+          # coverage.yml run by those two FLOOR STEPS, by name, not by the job's
+          # or the run's conclusion. That run is why the upload no longer lives
+          # in this job at all (#638), so for runs after this commit the job
+          # conclusion and the floor verdict coincide again — but the rule that
+          # outlives the fix is: read the steps.)
           #
           # The per-target numbers behind the aggregate (compiler / encoder /
           # shared) have their own, finer floors, and the step below GATES on
@@ -448,14 +499,6 @@ jobs:
             exit 1
           fi
 
-      - name: Upload C++ coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          use_oidc: true
-          files: ./cpp.lcov
-          flags: cpp
-          fail_ci_if_error: false
-
   # ──────────────────────────────────────────────────
   # Rust — cargo-llvm-cov over the default-feature workspace
   # ──────────────────────────────────────────────────
@@ -505,6 +548,15 @@ jobs:
       - name: Coverage — cargo-llvm-cov (workspace, default features)
         run: cd rust && cargo llvm-cov --workspace --lcov --output-path ../rust.lcov
 
+      # Transport out of the measurement job, before the gate below (#638).
+      - name: Publish the Rust lcov for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov-rust
+          path: rust.lcov
+          if-no-files-found: error
+          retention-days: 7
+
       # Line-coverage ratchet for the authored rust/ crates (epic #59) —
       # mirrors the Dart (`coverage_dart.dart --floor`) and C++ ("C++ line
       # coverage floor") gates: the floor must never regress and is raised
@@ -524,16 +576,6 @@ jobs:
           --ignore-filename-regex '(^|/)gen/|compiled_engine\.rs'
           --fail-under-lines 65
           --summary-only
-
-      - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          use_oidc: true
-          files: ./rust.lcov
-          flags: rust
-          # Best-effort: a Codecov outage / not-yet-activated repo must not
-          # fail this job (mirrors the dart/typescript/cpp uploads above).
-          fail_ci_if_error: false
 
   # ──────────────────────────────────────────────────
   # C# — coverlet (VSTest "XPlat Code Coverage") → lcov, merged via
@@ -584,6 +626,15 @@ jobs:
           reportgenerator "-reports:csharp/coverage-raw/**/coverage.info"
           "-targetdir:csharp/coverage-report" "-reporttypes:lcov;TextSummary"
 
+      # Transport out of the measurement job, before the gate below (#638).
+      - name: Publish the C# lcov for the upload job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov-csharp
+          path: csharp/coverage-report/lcov.info
+          if-no-files-found: error
+          retention-days: 7
+
       # Line-coverage floor for the authored csharp/ packages (issue #386,
       # epic #59/#60) — mirrors the Dart/C++/Rust ratchet philosophy: the
       # floor must never regress, and is raised toward 100% as tests land.
@@ -609,12 +660,226 @@ jobs:
             print "OK: " p "% >= floor " f "%.";
           }'
 
-      - name: Upload C# coverage to Codecov
+  # ──────────────────────────────────────────────────
+  # Codecov upload — TRANSPORT ONLY (issue #638)
+  #
+  # WHY THIS JOB EXISTS. Until #638 every measurement job ended by uploading its
+  # own lcov to Codecov, so one job's exit code answered two different questions:
+  # "did coverage hold?" and "did the upload reach codecov.io?". Run 34746079045
+  # on main is what that costs: its `C++ coverage` job passed step 11 (`C++ line
+  # coverage floor`, 93.9% >= 91%) and step 12 (`C++ per-target coverage floors`,
+  # 94.6/99.0/94.3 >= 92/97/92) and then FAILED step 13 on
+  #   Unhandled error: Failed to get ID Token. Request timeout:
+  #   …/idtoken/…&audience=https%3A%2F%2Fcodecov.io
+  # — a GitHub OIDC hiccup. main's coverage history therefore records a red on a
+  # commit whose coverage was fine, which is precisely the signal #63's ratchet
+  # and #599's cache ceiling are derived from.
+  #
+  # Now each measurement job publishes `coverage-lcov-<flag>` and ENDS on its
+  # floor steps, so its conclusion IS the measurement; this job carries the
+  # bytes. A red here means "upload broken" and nothing else.
+  #
+  # WHY `fail_ci_if_error: false` WAS NOT ENOUGH, AND WHY THE RETRY IS OURS.
+  # codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f is v7.0.0
+  # (https://github.com/codecov/codecov-action/blob/v7.0.0/action.yml), a
+  # COMPOSITE action. `fail_ci_if_error` becomes CC_FAIL_ON_ERROR on its LAST
+  # step only (dist/codecov.sh). The token is fetched two steps earlier by
+  # `Get OIDC token` (actions/github-script -> core.getIDToken(audience)), which
+  # has no retry and no continue-on-error and is not affected by that input at
+  # all — and v7.0.0 exposes NO retry input of any kind. So the token is fetched
+  # here instead, with a bounded retry, and handed over through the action's
+  # documented `token` input: action.yml funnels `use_oidc`'s token and the
+  # `token` input into the same CC_TOKEN, so dist/codecov.sh cannot tell them
+  # apart. If a future codecov-action gains a real retry input, THAT is the
+  # moment to delete this step — and
+  # tools/ci/check_coverage_upload_isolation.sh is the assertion to update.
+  # ──────────────────────────────────────────────────
+  codecov-upload:
+    name: Codecov upload
+    needs: [dart, typescript, cpp, rust, csharp]
+    # `!cancelled()` rather than `always()`: a cancelled run has nothing worth
+    # publishing, but a measurement job that FAILED its floor still produced an
+    # lcov whose numbers Codecov must record — the drop is the interesting run.
+    # The four jobs pinned to non-PR events simply contribute no artifact on a
+    # pull_request, and a `needs` on a skipped job would otherwise skip this one.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # The Codecov CLI walks the repository to build the report's file network
+      # and to apply path fixes, so the checkout is not optional.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # `pattern:` (not `name:`) so a stack whose job was skipped or died early
+      # is simply absent rather than an error here; the assertion below is what
+      # decides whether an absence is legitimate. Downloaded INTO the workspace
+      # because `hashFiles()` resolves relative to GITHUB_WORKSPACE only.
+      - name: Download every coverage lcov
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-lcov-*
+          path: coverage-artifacts
+
+      # POSITIVE FLOOR (#439/#444): an exit code cannot tell "every upload
+      # succeeded" from "there was nothing to upload". A stack whose measurement
+      # job SUCCEEDED must have left its lcov here; one that failed may
+      # legitimately have died before producing it, and one that was skipped
+      # never ran at all.
+      - name: Assert every measured stack left its lcov here
+        env:
+          RESULTS: >-
+            dart=${{ needs.dart.result }}
+            typescript=${{ needs.typescript.result }}
+            cpp=${{ needs.cpp.result }}
+            rust=${{ needs.rust.result }}
+            csharp=${{ needs.csharp.result }}
+        run: |
+          set -uo pipefail
+          missing=0
+          present=0
+          expected=0
+          for entry in $RESULTS; do
+            flag="${entry%%=*}"
+            result="${entry#*=}"
+            dir="coverage-artifacts/coverage-lcov-$flag"
+            files=""
+            if [ -d "$dir" ]; then
+              files="$(find "$dir" -type f -size +0c | head -20)"
+            fi
+            case "$result" in
+            skipped | cancelled)
+              echo "SKIP  $flag: its measurement job did not run for this event ($result)."
+              continue
+              ;;
+            success)
+              expected=$((expected + 1))
+              ;;
+            esac
+            if [ -n "$files" ]; then
+              present=$((present + 1))
+              echo "OK    $flag ($result):"
+              printf '        %s\n' $files
+            elif [ "$result" = "success" ]; then
+              missing=$((missing + 1))
+              echo "::error::$flag's measurement job succeeded but left no lcov artifact — this upload job would have published nothing for it and still gone green."
+            else
+              echo "NOTE  $flag: its measurement job concluded '$result' and produced no lcov; nothing to upload for this flag."
+            fi
+          done
+          echo "lcov artifacts present: $present (expected at least $expected)"
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          if [ "$expected" -gt 0 ] && [ "$present" -eq 0 ]; then
+            echo "::error::no lcov artifact reached this job although $expected measurement job(s) succeeded."
+            exit 1
+          fi
+
+      # The exact request that timed out in run 34746079045, with a bounded
+      # retry. ACTIONS_ID_TOKEN_REQUEST_URL/_TOKEN are handed to every step by
+      # the workflow-level `permissions: id-token: write`, and the URL already
+      # carries `?api-version=2.0`, so the audience is appended with `&` —
+      # pre-encoded here exactly as core.getIDToken() encodes it.
+      - name: Fetch the Codecov OIDC token (bounded retry)
+        id: oidc
+        env:
+          AUDIENCE_ENCODED: https%3A%2F%2Fcodecov.io
+        run: |
+          set -uo pipefail
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] ||
+            [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "::error::no ACTIONS_ID_TOKEN_REQUEST_* in the environment — this job needs id-token: write."
+            exit 1
+          fi
+          attempts=3
+          i=1
+          while [ "$i" -le "$attempts" ]; do
+            rc=0
+            body="$(curl --silent --show-error --fail \
+              --connect-timeout 10 --max-time 30 \
+              --retry 2 --retry-delay 2 --retry-connrefused \
+              -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              -H "Accept: application/json" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE_ENCODED}" 2>&1)" || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              token="$(printf '%s' "$body" |
+                python3 -c 'import json,sys; print(json.load(sys.stdin).get("value",""))')"
+              if [ -n "$token" ]; then
+                echo "::add-mask::$token"
+                echo "token=$token" >>"$GITHUB_OUTPUT"
+                echo "Codecov OIDC token acquired on attempt $i/$attempts (length ${#token})."
+                exit 0
+              fi
+              echo "attempt $i/$attempts: the token endpoint returned no \`value\` field."
+            else
+              echo "attempt $i/$attempts: curl exited $rc."
+            fi
+            i=$((i + 1))
+            if [ "$i" -le "$attempts" ]; then
+              sleep $((i * 5))
+            fi
+          done
+          echo "::error::could not fetch the Codecov OIDC token after $attempts attempts — this is TRANSPORT, not coverage: every floor in this run is reported by its own measurement job."
+          exit 1
+
+      # One step per flag, because `flags:` takes a single value per upload.
+      # Each is gated on `!cancelled()` so one broken flag does not hide the
+      # other four — a failed step is not rescued by later steps running, so the
+      # JOB still ends red — and on `steps.oidc.conclusion` so a dead token does
+      # not turn into five confusing tokenless rejections.
+      #
+      # `disable_search: true` is mandatory now that all five stacks' lcov share
+      # one workspace: a searching uploader would tag every stack's report with
+      # this step's flag. `fail_ci_if_error: true` is the point of the whole
+      # change — the upload can no longer touch a coverage verdict, so when it
+      # breaks it must say so out loud instead of passing silently.
+      - name: Upload Dart coverage to Codecov
+        if: ${{ !cancelled() && steps.oidc.conclusion == 'success' && hashFiles('coverage-artifacts/coverage-lcov-dart/**') != '' }}
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
-          use_oidc: true
-          files: ./csharp/coverage-report/lcov.info
+          token: ${{ steps.oidc.outputs.token }}
+          disable_search: true
+          files: ./coverage-artifacts/coverage-lcov-dart/dart.lcov
+          flags: dart
+          fail_ci_if_error: true
+
+      - name: Upload TypeScript coverage to Codecov
+        if: ${{ !cancelled() && steps.oidc.conclusion == 'success' && hashFiles('coverage-artifacts/coverage-lcov-typescript/**') != '' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ steps.oidc.outputs.token }}
+          disable_search: true
+          files: >-
+            ./coverage-artifacts/coverage-lcov-typescript/engine.lcov,./coverage-artifacts/coverage-lcov-typescript/compiler.lcov,./coverage-artifacts/coverage-lcov-typescript/encoder.lcov,./coverage-artifacts/coverage-lcov-typescript/shared.lcov,./coverage-artifacts/coverage-lcov-typescript/cli.lcov
+          flags: typescript
+          fail_ci_if_error: true
+
+      - name: Upload C++ coverage to Codecov
+        if: ${{ !cancelled() && steps.oidc.conclusion == 'success' && hashFiles('coverage-artifacts/coverage-lcov-cpp/**') != '' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ steps.oidc.outputs.token }}
+          disable_search: true
+          files: ./coverage-artifacts/coverage-lcov-cpp/cpp.lcov
+          flags: cpp
+          fail_ci_if_error: true
+
+      - name: Upload Rust coverage to Codecov
+        if: ${{ !cancelled() && steps.oidc.conclusion == 'success' && hashFiles('coverage-artifacts/coverage-lcov-rust/**') != '' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ steps.oidc.outputs.token }}
+          disable_search: true
+          files: ./coverage-artifacts/coverage-lcov-rust/rust.lcov
+          flags: rust
+          fail_ci_if_error: true
+
+      - name: Upload C# coverage to Codecov
+        if: ${{ !cancelled() && steps.oidc.conclusion == 'success' && hashFiles('coverage-artifacts/coverage-lcov-csharp/**') != '' }}
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          token: ${{ steps.oidc.outputs.token }}
+          disable_search: true
+          files: ./coverage-artifacts/coverage-lcov-csharp/lcov.info
           flags: csharp
-          # Best-effort: a Codecov outage / not-yet-activated repo must not
-          # fail this job (mirrors the dart/typescript/cpp/rust uploads above).
-          fail_ci_if_error: false
+          fail_ci_if_error: true

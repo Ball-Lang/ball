@@ -13,6 +13,14 @@
 # codes are pinned by cpp/test/test_build_cov_floor_parsing.sh. Both run in
 # ci.yml's always-on `proto` job.
 #
+# READING A CI RUN: the verdict is the two floor STEPS — `C++ line coverage
+# floor` and `C++ per-target coverage floors (compiler/encoder/shared — gated)`
+# — never a job or workflow conclusion. Those can be red for reasons that have
+# nothing to do with coverage; run 34746079045 is the worked example, below.
+# Since #638 the cpp job ENDS on those two steps (the Codecov upload moved to
+# its own `codecov-upload` job), and tools/ci/check_coverage_upload_isolation.sh
+# is what keeps it that way.
+#
 # Usage: ./build-cov-floor.sh
 #   Exits 1 and prints every target under its floor, or whose coverage summary
 #   could not be parsed; exits 0 otherwise.
@@ -195,7 +203,9 @@ cd "$(dirname "$0")"
 # for, now that main has the agreeing runs it was waiting on. SIX consecutive
 # coverage.yml runs on main, spanning six commits, printed a BIT-IDENTICAL
 # triple (read with `gh api repos/Ball-Lang/ball/actions/jobs/<id>/logs`; the
-# C++ coverage JOB succeeded in every one of them):
+# `C++ line coverage floor` and `C++ per-target coverage floors` STEPS both
+# succeeded in every one of them — which is not the same as the job succeeding,
+# see the note after the table):
 #   run 34740025834  44d7177f   job 103678055268
 #   run 34741799437  a796c3ea   job 103682620624
 #   run 34742610281  af471b96   job 103684757379
@@ -213,12 +223,21 @@ cd "$(dirname "$0")"
 # been deleted and this gate would still have been green. That is what a floor
 # nobody raises decays into, and it is why the ratchet is part of the work
 # rather than a numbered follow-up.
-#   (Run 34746079045's WORKFLOW conclusion is `failure`, but its C++ coverage
-#   JOB passed with exactly these numbers; it died in the LAST step, a
-#   codecov/codecov-action OIDC "Failed to get ID Token" request timeout —
-#   third-party infrastructure, not coverage. Judge a coverage.yml run by the
-#   C++ JOB's conclusion and its printed per-target lines, never by the run's
-#   overall conclusion.)
+#   (Run 34746079045 is red at BOTH levels: the workflow's conclusion is
+#   `failure` and so is its `C++ coverage` JOB's. What passed, with exactly
+#   these numbers, are its two floor STEPS — step 11 `C++ line coverage floor`
+#   and step 12 `C++ per-target coverage floors (compiler/encoder/shared —
+#   gated)`. The job then died in step 13 on a codecov/codecov-action OIDC
+#   "Failed to get ID Token" request timeout: third-party transport, not
+#   coverage. So the rule is: judge a coverage.yml run by those two FLOOR STEPS
+#   by name and by the per-target lines they print — never by the job's
+#   conclusion and never by the run's. An earlier wording here said "the C++
+#   JOB's conclusion", which, applied literally, would have thrown out the very
+#   run this paragraph is defending (PR #643, advisory 1).
+#   Issue #638 removed the cause: the Codecov upload now runs in its own
+#   `codecov-upload` job, so from that commit on the C++ job's conclusion IS its
+#   floor verdict again. The step-level rule stays, because it is the one that
+#   was true before the fix and stays true after it.)
 declare -A FLOORS=(
   [compiler]=92
   [encoder]=97

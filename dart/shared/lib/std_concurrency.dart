@@ -15,7 +15,7 @@
 /// `atomic_compare_exchange` exchanges only when the cell holds `expected`.
 /// Every Ball engine today implements the single-threaded end of that contract
 /// (`thread_spawn` runs the body eagerly); see `docs/TESTING_STRATEGY.md` and
-/// conformance fixture `466_std_concurrency_handles`, which pins it on every
+/// conformance fixture `467_std_concurrency_handles`, which pins it on every
 /// engine and every compiled target.
 library;
 

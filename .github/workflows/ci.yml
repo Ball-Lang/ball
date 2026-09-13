@@ -195,6 +195,18 @@ jobs:
       - name: Go module release lane wiring guard (#361)
         run: bash tools/release/check_go_release_wiring.sh
 
+      # #656: the negative controls for the one leg of that guard that parses
+      # YAML instead of grepping — go-freshness.yml's `pull_request.paths`.
+      # go-freshness.yml is the only freshness alarm here with a PR trigger, and
+      # its header's argument for why that is not a per-PR dependency on
+      # proxy.golang.org rests entirely on the filter naming the alarm's own two
+      # files. A `grep -qF` for those two lines passes just as happily with a
+      # third one under them, so the leg parses the list and compares it as a
+      # SET — and these fixtures (widened, narrowed, unfiltered, paths-ignore,
+      # no PR trigger, unparseable) are what prove it still refuses.
+      - name: go-freshness.yml paths-scoping negative controls (#656)
+        run: bash tools/release/check_go_release_wiring.sh --self-test
+
       # #627: the two halves the guard above can only assert the EXISTENCE of.
       #
       # The freshness classifier is the Go lane's answer to pubdev-freshness.yml
@@ -378,6 +390,16 @@ jobs:
       - name: Compiler-cache gate self-test (#594)
         run: bash cpp/test/check_compiler_cache_applied.sh --self-test
 
+      # The self-test above proves the gate's parsers and its ceiling
+      # comparison; it runs the script directly and therefore structurally
+      # cannot notice WHERE in the cpp job the gate step sits. That placement
+      # is load-bearing (#660): full_e2e.sh's compile-and-link smoke adds
+      # uncacheable ccache calls, so a reorder puts the ubuntu/macOS legs at 4
+      # against a ceiling of 0 with a misleading cause. This asserts the order
+      # from ci.yml itself, with a negative control on a relocated copy.
+      - name: Compiler-cache gate step-order wiring test (#660)
+        run: bash cpp/test/test_cache_gate_step_order.sh
+
       # conformance-matrix.yml is a PR gate since #619, and BOTH of its triggers
       # (`push` to main and `pull_request`) share ONE path filter via a YAML
       # anchor. If a future edit turns that alias back into two literal lists and
@@ -414,6 +436,23 @@ jobs:
           bash tools/ci/check_ci_regen_wiring.sh --self-test
           bash tools/ci/check_ci_regen_wiring.sh
 
+      # coverage.yml's Codecov upload must not be able to red a green coverage
+      # measurement (#638). Run 34746079045's `C++ coverage` job passed both
+      # floor steps and then failed on a codecov-action OIDC token-fetch
+      # timeout, so main's coverage history records a red on a commit whose
+      # coverage was fine — and `fail_ci_if_error: false` could not prevent it,
+      # because that input only reaches the action's LAST composite step, not
+      # the un-retried `Get OIDC token` one that timed out. This parses
+      # coverage.yml and asserts measurement and transport are different jobs,
+      # that nothing after a floor step can mask its verdict, that the upload
+      # retries the token fetch and then fails LOUD, and that no
+      # `continue-on-error`/`|| true` is anywhere near it. `--self-test` first:
+      # a guard that stopped asserting must not pass.
+      - name: Coverage upload-isolation wiring guard (#638)
+        run: |
+          bash tools/ci/check_coverage_upload_isolation.sh --self-test
+          bash tools/ci/check_coverage_upload_isolation.sh
+
       # The loop-breaker itself (#625): one auto-push per HUMAN commit. It is the
       # only thing standing between a nondeterministic generator and an infinite
       # push -> run -> drift -> push cycle once REGEN_PAT exists, and — like the
@@ -423,6 +462,28 @@ jobs:
       # run here on every PR, offline.
       - name: Regeneration loop-breaker self-test (#625)
         run: bash tools/ci/regen_loop_breaker.sh --self-test
+
+      # docs/TESTING_STRATEGY.md spells out WHICH status checks the `Protect
+      # main` ruleset requires — the list a lane reads to decide "the checks are
+      # green", i.e. a mechanical claim about a live GitHub setting. It was
+      # hand-written and matched the ruleset byte-for-byte on 2026-09-14, with
+      # nothing keeping the two in sync: add or rename a required context in the
+      # ruleset and the doc silently becomes a lie, in the one direction that
+      # matters (a lane concludes a PR is gated on something it is not). This
+      # compares the doc's marked list against the LIVE ruleset over the REST
+      # API — `GET /repos/{owner}/{repo}/rulesets/{ruleset_id}`, which needs only
+      # "Metadata" repository permissions (read) and "can be used without
+      # authentication ... if only public resources are requested"
+      # (https://docs.github.com/en/rest/repos/rules?apiVersion=2022-11-28#get-a-repository-ruleset),
+      # so the job's own GITHUB_TOKEN reads it on this public repo. Offline unit
+      # cases first: a comparator that stopped comparing looks exactly like one
+      # that found no drift.
+      - name: Required status-check contexts doc guard (#655)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash tools/test/test_check_required_contexts.sh
+          bash tools/ci/check_required_contexts.sh
 
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
@@ -2457,7 +2518,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 351 passed, 0 failed, 351 total (4 skipped carve-outs)" — the
+      # "Results: 352 passed, 0 failed, 352 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2652,7 +2713,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 351 passed, 0 failed, 351 total (4 skipped carve-outs)" — the 4
+      # "Results: 352 passed, 0 failed, 352 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -2807,7 +2868,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 351 passed, 0 failed, 351 total (4 skipped carve-outs)" — the 4
+      # "Results: 352 passed, 0 failed, 352 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

@@ -67,7 +67,7 @@ final Map<String, List<_Probe>> _probes = {
   // Handles are minted 1, 2, 3… per engine instance and `_eval` builds a fresh
   // engine per probe, so the FIRST handle of each kind is deterministic. That
   // exact number is the reference engine's, not a portable promise: conformance
-  // fixture `466_std_concurrency_handles` asserts only that handles are
+  // fixture `467_std_concurrency_handles` asserts only that handles are
   // DISTINCT, which is what a Ball program may rely on.
   'std_concurrency.thread_spawn': [
     (
@@ -159,6 +159,24 @@ final Map<String, List<_Probe>> _probes = {
       want: false,
     ),
   ],
+  // `sink_to_string` reads a text sink back (issue #630). The declaration is
+  // load-bearing on more than one target: a sink is a `__type__`-tagged map, so
+  // a runtime that answered the SINK instead of its accumulated text would
+  // still "work" anywhere the result is only printed — `to_string` of a
+  // StringBuffer-shaped map prints its buffer on the Dart engine. Probing the
+  // runtime TYPE is what separates the two.
+  'std.sink_to_string': [
+    (
+      description: 'an empty sink reads back as the empty String',
+      call: _sinkToString(_sinkCreate(null)),
+      want: '',
+    ),
+    (
+      description: "a seeded sink reads back its text, not the sink",
+      call: _sinkToString(_sinkCreate('ab')),
+      want: 'ab',
+    ),
+  ],
 };
 
 /// Declarations that predate this gate and are NOT probed yet — a ratchet, not
@@ -215,6 +233,7 @@ bool _matchesDeclaredType(String outputType, Object? value) =>
     switch (outputType) {
       'bool' => value is bool,
       'int' => value is int,
+      'String' => value is String,
       // A `void` base function contributes no value; the engine's handlers
       // answer `null`. Asserting that is what stops a "void" function from
       // quietly returning something a program could come to depend on.
@@ -379,6 +398,8 @@ Future<Object?> _eval(Map<String, dynamic> expr) async {
           'name': 'std',
           'functions': [
             {'name': 'set_create', 'isBase': true},
+            for (final n in ['sink_create', 'sink_write', 'sink_to_string'])
+              {'name': n, 'isBase': true},
           ],
         },
         {
@@ -498,6 +519,42 @@ Map<String, dynamic> _setOf(List<int> items) => {
               },
             },
           },
+        ],
+      },
+    },
+  },
+};
+
+Map<String, dynamic> _strLit(String v) => {
+  'literal': {'stringValue': v},
+};
+
+/// `std.sink_create(initial: <seed>)` — [seed] null means an empty sink.
+Map<String, dynamic> _sinkCreate(String? seed) => {
+  'call': {
+    'module': 'std',
+    'function': 'sink_create',
+    'input': {
+      'messageCreation': {
+        'typeName': 'SinkCreateInput',
+        'fields': [
+          if (seed != null) {'name': 'initial', 'value': _strLit(seed)},
+        ],
+      },
+    },
+  },
+};
+
+/// `std.sink_to_string(sink: <sink>)`.
+Map<String, dynamic> _sinkToString(Map<String, dynamic> sink) => {
+  'call': {
+    'module': 'std',
+    'function': 'sink_to_string',
+    'input': {
+      'messageCreation': {
+        'typeName': 'SinkToStringInput',
+        'fields': [
+          {'name': 'sink', 'value': sink},
         ],
       },
     },

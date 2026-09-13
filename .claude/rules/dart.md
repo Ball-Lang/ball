@@ -37,6 +37,21 @@ for the authoritative member set).
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `dart/compiler/test/base_calls_test.dart`'s `list_find` group (the compiler lowers it to `.firstWhere(cb)` with NO `orElse`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `dart/engine/test/engine_test.dart`'s `std text sink (#630)` group (the engine) and `dart/compiler/test/base_calls_test.dart` (the compiler's `_ballSink*` helpers).
+  Backing: the engine builds the tag map through `_ballUserMap()`, NOT a map literal — a plain literal lowers to a by-value `std::map` in the C++ self-host and the callee's append is lost; the compiler emits top-level `_ballSinkCreate`/`_ballSinkWrite`/`_ballSinkToString` helpers over a Dart `Map` (a reference type), never a host `StringBuffer`, which would make `_ballTypeOf` answer `StringBuffer`. The ENCODER routes `StringBuffer` syntactically (a local declared `StringBuffer`/`StringSink` or initialised with `StringBuffer(...)`, or a parameter annotated that way), because `generate_conformance.dart` parses without resolution; a `StringBuffer`/`StringSink` type ANNOTATION is recorded as `dynamic` (`_portableTypeSource`) so the compiled-back Dart does not annotate a sink as a `StringBuffer` and fail to type-check. `clear()`/`writeAll()` are deliberate carve-outs: they stay on the engines' Dart-SDK method surface, which now accepts the `std:Sink` tag as well as the legacy `:StringBuffer` one.
 - **A caught `StateError` reads as `Bad state: <message>` (#616).** `463` above
   proves the throw is TYPED; it prints a hardcoded literal from its catch
   bodies, so it pins nothing about the caught VALUE. The reference engine used
@@ -302,7 +317,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   twice, locking a locked mutex, unlocking an unlocked one, naming an unminted
   handle) raises a `BallRuntimeError`. They are LISTS, not int-keyed maps, on
   purpose: this file is compiled into six other engines and a list index has one
-  representation on every target. `tests/conformance/466_std_concurrency_handles`
+  representation on every target. `tests/conformance/467_std_concurrency_handles`
   is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
   the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`

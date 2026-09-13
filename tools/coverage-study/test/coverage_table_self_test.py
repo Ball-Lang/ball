@@ -624,6 +624,63 @@ def main() -> int:
             message,
         )
 
+        # ── 14f. an exclusion rule that stopped firing is a BREACH ──────────
+        # The #648 shape, and the one every other floor is blind to: the whole
+        # excluded population re-enters the denominator (`excluded` 7 -> 0,
+        # `scored` 4 -> 11) and nothing else gets worse. Every ratio here
+        # IMPROVES, so `scored`, the clean ratio and the funnel ratio all pass —
+        # this run would otherwise be a pure RAISE, silently re-flooring the row
+        # on a population nobody chose. The measured cause of that in Rust is a
+        # crate root that stopped resolving, which turns the `#[cfg(test)]`
+        # reachability half off and leaves the 34 excluded files scored.
+        vanished = Case(tmp, "vanished")
+        vanished.put_artifact(
+            "coverage-study-tier-a-dart/tier_a.json",
+            tier_a_artifact(clean=10, drift=1, encode_errors=0, excluded=0),
+        )
+        vanished.put_baseline([baseline_row(excluded=7)])
+        before = vanished.baseline.read_text(encoding="utf-8")
+        got = vanished.run("--write")
+        message = got.stdout + got.stderr
+        check(
+            "an excluded->0 jump that lands in `scored` is a breach, not a raise",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "that breach names the exclusion rule as the cause, not the ratio",
+            "exclusion" in message and "7 -> 0" in message and "4 -> 11" in message,
+            message,
+        )
+        check(
+            "the baseline is NOT re-floored on that breach",
+            vanished.baseline.read_text(encoding="utf-8") == before,
+            vanished.baseline.read_text(encoding="utf-8"),
+        )
+
+        # ── 14g. …and the same drop with a STEADY denominator is not ────────
+        # The negative control that keeps 14f from being a blanket "excluded may
+        # never fall": a pin that legitimately dropped its own tests moves the
+        # count to 0 with nothing re-entering the denominator. `scored` is
+        # unchanged, so nothing was readmitted, so it is a raise like any other.
+        dropped = Case(tmp, "dropped")
+        dropped.put_artifact(
+            "coverage-study-tier-a-dart/tier_a.json",
+            tier_a_artifact(clean=3, drift=1, encode_errors=0, excluded=0),
+        )
+        dropped.put_baseline([baseline_row(excluded=7)])
+        got = dropped.run("--write")
+        check(
+            "excluded -> 0 with an unchanged denominator stays a raise",
+            got.returncode == 0,
+            f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
+        )
+        check(
+            "and that raise records the new exclusion count",
+            json.loads(dropped.baseline.read_text(encoding="utf-8"))["rows"][0]["excluded"] == 0,
+            dropped.baseline.read_text(encoding="utf-8"),
+        )
+
         # ── 15. check mode reports a stale README without rewriting it ──────
         stale = Case(tmp, "stale")
         stale.put_artifact("coverage-study-tier-a-dart/tier_a.json", tier_a_artifact(clean=3, drift=1, encode_errors=0))

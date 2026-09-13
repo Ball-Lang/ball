@@ -7974,7 +7974,7 @@ export class BallEngine {
         let raw = __ball_index(m, 'map');
         let map = (false /* BallMap is Map in TS */ ? raw.entries : (((typeof raw === 'object' && raw !== null && !Array.isArray(raw) && !(raw instanceof BallDouble) && !(raw instanceof Set)) ? raw : {})));
         return Object.values(__ball_require_map(map, 'map_contains_value')).includes(__ball_index(m, 'value'));
-      }), ['map_put_if_absent']: ((i) => {
+      }), ['map_put_if_absent']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
         let map = (this._stdAsMap(__ball_index(m, 'map')) ?? __ball_index(m, 'map'));
@@ -7982,7 +7982,11 @@ export class BallEngine {
         if (!__ball_map_has(map, 'map_contains_key', key)) {
           this._trackMemoryAllocation(_ballMapEntryBytes);
           let val = __ball_index(m, 'value');
-          map[key] = ((typeof val === 'function') ? val() : val);
+          let produced = ((typeof val === 'function') ? val(null) : val);
+          if ((produced != null)) {
+            produced = await produced;
+          }
+          map[key] = produced;
         }
         return __ball_index(map, key);
       }), ['map_keys']: ((i) => {

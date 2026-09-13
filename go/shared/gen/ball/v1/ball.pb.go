@@ -2815,11 +2815,22 @@ func (x *BallCapabilityReport) GetSummary() *CapabilitySummary {
 // call sites in the program that trigger it.
 type CapabilityEntry struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Category name: "pure", "io", "fs", "process", "time", "random",
+	// Category name. Closed set, in report-iteration order:
 	//
-	//	"memory", "concurrency", "network".
+	//	"pure", "io", "fs", "process", "time", "random", "memory",
+	//	"concurrency", "network", "async", "custom".
+	//
+	// A `custom` category marks a call into a base function the PROGRAM declares
+	// that the analyzer's capability table does not model (the host-extension
+	// seam) — its effects are unknown, so it is never pure and never ranked.
+	// Double-quoted tokens in this comment are the enumeration itself and are
+	// gated against the analyzer by
+	// dart/shared/test/capability_table_closed_set_test.dart; keep prose
+	// references in `backticks` so the gate reads only the closed set.
 	Capability string `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
-	// Risk level: "none", "low", "medium", "high".
+	// Risk level. Closed set: "none", "low", "medium", "high", "unknown".
+	// Only the `custom` category carries `unknown`. Same double-quote
+	// convention and same gate as `capability` above.
 	RiskLevel string `protobuf:"bytes,2,opt,name=risk_level,json=riskLevel,proto3" json:"risk_level,omitempty"`
 	// Every call site in the program that triggers this capability.
 	CallSites     []*CallSite `protobuf:"bytes,3,rep,name=call_sites,json=callSites,proto3" json:"call_sites,omitempty"`

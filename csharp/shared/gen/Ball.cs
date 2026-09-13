@@ -10916,8 +10916,16 @@ namespace Ball.V1 {
     public const int CapabilityFieldNumber = 1;
     private string capability_ = "";
     /// <summary>
-    /// Category name: "pure", "io", "fs", "process", "time", "random",
-    ///                "memory", "concurrency", "network".
+    /// Category name. Closed set, in report-iteration order:
+    ///   "pure", "io", "fs", "process", "time", "random", "memory",
+    ///   "concurrency", "network", "async", "custom".
+    /// A `custom` category marks a call into a base function the PROGRAM declares
+    /// that the analyzer's capability table does not model (the host-extension
+    /// seam) — its effects are unknown, so it is never pure and never ranked.
+    /// Double-quoted tokens in this comment are the enumeration itself and are
+    /// gated against the analyzer by
+    /// dart/shared/test/capability_table_closed_set_test.dart; keep prose
+    /// references in `backticks` so the gate reads only the closed set.
     /// </summary>
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
@@ -10932,7 +10940,9 @@ namespace Ball.V1 {
     public const int RiskLevelFieldNumber = 2;
     private string riskLevel_ = "";
     /// <summary>
-    /// Risk level: "none", "low", "medium", "high".
+    /// Risk level. Closed set: "none", "low", "medium", "high", "unknown".
+    /// Only the `custom` category carries `unknown`. Same double-quote
+    /// convention and same gate as `capability` above.
     /// </summary>
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]

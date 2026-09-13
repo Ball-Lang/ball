@@ -13,11 +13,17 @@ part of 'cli_core.dart';
 /// The capability category names, in report-iteration order. Each program
 /// function is tagged with a subset of these; `'pure'` means no side effects.
 ///
-/// `'custom'` (issue #609) is the one category this table cannot describe: it
-/// marks a call into a base module the program DECLARES itself — the host
-/// extension seam (`BallModuleHandler`), whose implementation is supplied per
-/// platform and is therefore outside the language's known side-effect surface.
-/// It is never `pure`; see [capabilityRisk].
+/// `'custom'` (issues #609, #683) is the one category this table cannot
+/// describe: it marks a call into a base function the program DECLARES but
+/// this table does not model — the host extension seam (`BallModuleHandler`),
+/// whose implementation is supplied per platform and is therefore outside the
+/// language's known side-effect surface. It is never `pure`; see
+/// [capabilityRisk].
+///
+/// **This list is a closed set.** `proto/ball/v1/ball.proto`'s
+/// `CapabilityEntry.capability` doc comment enumerates it for consumers, and
+/// `dart/shared/test/capability_table_closed_set_test.dart` asserts the two
+/// agree — so a new category cannot drift the published schema silently.
 List<String> capabilityNames() {
   return <String>[
     'pure',
@@ -39,6 +45,10 @@ List<String> capabilityNames() {
 /// `'custom'` is `'unknown'` — not `'low'` and not `'high'`. The audit knows
 /// only that the program calls into a host-supplied module; ranking that call
 /// would be a fabrication, and calling it harmless would be the #609 bug.
+///
+/// The set of levels this can return is closed and mirrored by
+/// `CapabilityEntry.risk_level`'s doc comment in `ball.proto`; the closed-set
+/// suite asserts the two agree.
 String capabilityRisk(String capability) {
   if (capability == 'pure') return 'none';
   if (capability == 'io') return 'low';
@@ -85,9 +95,18 @@ List<String> capabilityModuleNames() {
 }
 
 /// Whether [module] is one of the eight universal std modules this table
-/// models ([capabilityModuleNames]). Everything else that declares `isBase`
-/// functions is a HOST extension (`BallModuleHandler`) whose semantics the
-/// audit cannot know — see the `'custom'` capability (issue #609).
+/// models ([capabilityModuleNames]).
+///
+/// Since #683 the module name alone no longer decides `'custom'` — a base
+/// function is `'custom'` when the TABLE does not model it, whatever module
+/// declares it. What this predicate still decides is the SCOPE of the #402
+/// bare-name resolution: inside the eight std module names a declaration may
+/// be resolved by bare name (the conformance corpus routinely labels a
+/// collection base function `std.list_push` while the table keys
+/// `std_collections.list_push` — the same base function, loosely labelled).
+/// Outside them that leniency would be wrong: a host module declaring
+/// `mutex_create` is not `std_concurrency.mutex_create`, and treating a
+/// bare-name coincidence as evidence would re-open issue #609.
 bool isKnownBaseModule(String module) {
   final modules = capabilityModuleNames();
   for (final m in modules) {
@@ -138,6 +157,20 @@ String lookupBaseModuleByName(Map table, String function) {
 
 /// Build the `"module.function" -> capability-name` table. Provably complete:
 /// every base function that can perform a side effect appears here.
+///
+/// "Provably" is now literal (#683). Two closed-set gates in
+/// `dart/shared/test/capability_table_closed_set_test.dart` assert this
+/// against sources of truth on every PR:
+///   * every base function the eight `buildStd*Module()` builders DECLARE has
+///     an entry here, and
+///   * every base function an executed conformance fixture declares RESOLVES
+///     (directly, or by bare name within a std module name).
+/// Before those gates 60+ declared/dispatched/executed base functions were
+/// absent, which is what made a squatted `std.exec_shell` audit as pure.
+///
+/// A base function whose semantics this table does not model MUST NOT be
+/// added with a guessed capability — leave it out and it is classified
+/// `'custom'` (risk `unknown`), which is the honest answer.
 Map<String, String> buildCapabilityTable() {
   return <String, String>{
     // ── std: print ──
@@ -188,6 +221,18 @@ Map<String, String> buildCapabilityTable() {
     'std.double_to_string': 'pure',
     'std.string_to_int': 'pure',
     'std.string_to_double': 'pure',
+    'std.to_int': 'pure',
+    'std.to_double': 'pure',
+    'std.int_to_double': 'pure',
+    'std.double_to_int': 'pure',
+    'std.to_string_as_fixed': 'pure',
+    'std.to_string_as_exponential': 'pure',
+    'std.to_string_as_precision': 'pure',
+    'std.ceil_to_double': 'pure',
+    'std.floor_to_double': 'pure',
+    'std.round_to_double': 'pure',
+    'std.truncate_to_double': 'pure',
+    'std.compare_to': 'pure',
 
     // ── std: null safety (pure) ──
     'std.null_coalesce': 'pure',
@@ -228,6 +273,45 @@ Map<String, String> buildCapabilityTable() {
     'std.is': 'pure',
     'std.is_not': 'pure',
     'std.as': 'pure',
+    'std.type_of': 'pure',
+    'std.type_literal': 'pure',
+    'std.symbol': 'pure',
+
+    // ── std: expression lowerings the encoders emit (all pure) ──
+    //
+    // Desugarings, not effects: each one only re-shapes operands the caller
+    // already evaluated. `cascade`/`null_aware_*` sequence field and method
+    // accesses on a receiver; `invoke`/`tear_off` apply a value that is
+    // already a function (whatever IT calls is classified at its own call
+    // site); `spread`/`null_spread`/`collection_if`/`collection_for` build
+    // collection literals; `switch_expr`/`record` build values. None reaches
+    // the host, so `pure` is the measured answer, not a default.
+    'std.cascade': 'pure',
+    'std.null_aware_access': 'pure',
+    'std.null_aware_call': 'pure',
+    'std.null_aware_cascade': 'pure',
+    'std.invoke': 'pure',
+    'std.tear_off': 'pure',
+    'std.spread': 'pure',
+    'std.null_spread': 'pure',
+    'std.collection_if': 'pure',
+    'std.collection_for': 'pure',
+    'std.switch_expr': 'pure',
+    'std.record': 'pure',
+
+    // ── std: collection CONSTRUCTION (pure) ──
+    //
+    // Keyed under `std` because that is the module the encoders declare them
+    // in and the module the engines dispatch them from — `std_collections`
+    // declares none of them, and duplicating the names across both modules
+    // would break the globally-unique-bare-name invariant the #402 fallback
+    // depends on.
+    'std.typed_list': 'pure',
+    'std.list_filled': 'pure',
+    'std.list_generate': 'pure',
+    'std.dart_list_filled': 'pure',
+    'std.dart_list_generate': 'pure',
+    'std.map_create': 'pure',
 
     // ── std: indexing (pure) ──
     'std.index': 'pure',
@@ -264,6 +348,8 @@ Map<String, String> buildCapabilityTable() {
     'std.string_pad_left': 'pure',
     'std.string_pad_right': 'pure',
     'std.string_interpolation': 'pure',
+    'std.string_code_unit_at': 'pure',
+    'std.string_runes': 'pure',
 
     // ── std: regex (pure) ──
     'std.regex_match': 'pure',
@@ -359,6 +445,10 @@ Map<String, String> buildCapabilityTable() {
     'std_collections.list_take': 'pure',
     'std_collections.list_drop': 'pure',
     'std_collections.list_concat': 'pure',
+    'std_collections.list_clear': 'pure',
+    'std_collections.list_foreach': 'pure',
+    'std_collections.list_join': 'pure',
+    'std_collections.list_to_list': 'pure',
     'std_collections.map_get': 'pure',
     'std_collections.map_set': 'pure',
     'std_collections.map_delete': 'pure',
@@ -372,6 +462,8 @@ Map<String, String> buildCapabilityTable() {
     'std_collections.map_filter': 'pure',
     'std_collections.map_is_empty': 'pure',
     'std_collections.map_length': 'pure',
+    'std_collections.map_contains_value': 'pure',
+    'std_collections.map_put_if_absent': 'pure',
     'std_collections.set_create': 'pure',
     'std_collections.set_add': 'pure',
     'std_collections.set_remove': 'pure',

@@ -148,7 +148,10 @@ String _capabilityEntryComment(Directory root, String field) {
   return comment.join(' ');
 }
 
-/// Every double-quoted token in [text].
+/// Every double-quoted token in [text]. The proto comment's convention (stated
+/// in the comment itself) is that double quotes spell the enumeration and
+/// `backticks` spell prose references, so this reads the closed set and nothing
+/// else.
 Set<String> _quoted(String text) =>
     RegExp(r'"([a-z_]+)"').allMatches(text).map((m) => m.group(1)!).toSet();
 
@@ -267,9 +270,14 @@ void main() {
       // moment #683's rule lands — the failure mode #683 warns about.
       final unresolved = <String>[];
       for (final key in corpus.keys) {
-        final bare = key.substring(key.indexOf('.') + 1);
+        final dot = key.indexOf('.');
+        final module = key.substring(0, dot);
+        final bare = key.substring(dot + 1);
         if (table.containsKey(key)) continue;
-        if (lookupCapabilityByName(table, bare).isNotEmpty) continue;
+        if (isKnownBaseModule(module) &&
+            lookupCapabilityByName(table, bare).isNotEmpty) {
+          continue;
+        }
         unresolved.add(
           '$key  (${corpus[key]!.length} fixtures, e.g. '
           '${(corpus[key]!.toList()..sort()).first})',

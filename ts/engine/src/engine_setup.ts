@@ -631,21 +631,16 @@ export function createEngineSetup(mod: EngineModule) {
           return new BD(self.value % Number(_coerceNum(arg0)));
         }
       }
-      if (typeof self === 'object' && self !== null && '__type__' in self) {
-        switch (fn) {
-          case 'write':
-            if (!self['__buffer__']) self['__buffer__'] = [];
-            self['__buffer__'].push(String(arg0 ?? ''));
-            return null;
-          case 'writeCharCode':
-            if (!self['__buffer__']) self['__buffer__'] = [];
-            self['__buffer__'].push(String.fromCharCode(Number(arg0 ?? 0)));
-            return null;
-          case 'toString':
-            if (self['__buffer__']) return self['__buffer__'].join('');
-            break;
-        }
-      }
+      // (issue #633) An ad-hoc `write`/`writeCharCode`/`toString` handler for
+      // `__type__`-tagged objects used to sit here, pushing onto an ARRAY
+      // `__buffer__` — while a SECOND registration further down this same file
+      // concatenated onto a STRING `__buffer__`, and the compiled engine's own
+      // (Dart-derived) handler used a string too. Whichever won, one read-back
+      // path was wrong for the buffer in use, and nothing asserted which. Both
+      // are gone: the sink is a declared std representation now (issue #630),
+      // and the legacy StringBuffer method surface is the COMPILED engine's
+      // own, so it needs no override here (the #597 shape — a hand-written
+      // override shadowing the compiled engine's correct handler).
       if (self instanceof Set) {
         switch (fn) {
           case 'union': { const o = arg0 instanceof Set ? arg0 : new Set(Array.isArray(arg0) ? arg0 : []); return new Set([...self, ...o]); }
@@ -1069,9 +1064,13 @@ export function createEngineSetup(mod: EngineModule) {
       if (!/^-?\d+$/.test(s)) throw Object.assign(new Error(s), { name: 'FormatException', __type__: 'FormatException' });
       return parseInt(s, 10);
     });
-    _r('writeCharCode', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { self['__buffer__'] = (self['__buffer__'] ?? '') + String.fromCharCode(Number(m['arg0'] ?? m['value'] ?? 0)); } return null; });
-    _r('write', (i: any) => { const m = _m(i); const self = m['self']; if (typeof self === 'object' && self !== null) { self['__buffer__'] = (self['__buffer__'] ?? '') + String(m['arg0'] ?? m['value'] ?? ''); } return null; });
-  
+    // (issue #633) The second of the two ad-hoc `write`/`writeCharCode`
+    // registrations used to sit here, concatenating onto a STRING `__buffer__`
+    // while the block above pushed onto an ARRAY one. Both are removed: the
+    // sink is a declared std representation (issue #630), and the legacy
+    // StringBuffer method surface belongs to the COMPILED engine, whose
+    // handler these overrides shadowed.
+
     // ── Conversion ─────────────────────────────────────────────────────
     _r('to_double', (i: any) => _toDoubleValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));
     _r('int_to_double', (i: any) => _toDoubleValue(_m(i)['value'] ?? _m(i)['arg0'] ?? i));

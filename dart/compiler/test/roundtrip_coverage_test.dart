@@ -383,6 +383,40 @@ void main() {
     });
 
     test('cascade notation (recognized back into `..` syntax)', () {
+      // The receiver is a user class rather than a `StringBuffer`: since #630
+      // a StringBuffer cascade routes its sections to `std.sink_write`, which
+      // is a free function and therefore cannot come back as `..`. The
+      // construct under test here is the cascade LOWERING, so use a receiver
+      // whose sections stay method calls; the sink cascade has its own test
+      // below.
+      final out = _flat('''
+class Log {
+  void add(String s) { print(s); }
+}
+
+void main() {
+  var l = Log()
+    ..add('a')
+    ..add('b');
+  print(l.toString());
+}
+''');
+      // The Dart encoder lowers cascades to a `let __cascade_self__ = …` block
+      // that re-applies each section and returns the receiver; the compiler
+      // recognizes that shape back into Dart's own cascade syntax rather than
+      // emitting an immediately-invoked closure, which would drop the type
+      // promotion of any local the sections read (issue #573).
+      expect(out, contains("(Log()..add('a')..add('b'))"));
+      expect(out, isNot(contains('__cascade_self__')));
+    });
+
+    test('a cascade on a text sink routes its sections to sink_write (#630)', () {
+      // `sb..write('a')` reaches `_encodeMethodInvocation` with a NULL target,
+      // so the receiver is the cascade's own target and the ordinary
+      // sink-receiver check cannot see it. Before #630 the sections stayed
+      // generic `write` method calls on the tagged map — which the Dart
+      // compiler emitted as `..write('a')` on a `Map` (a runtime NoSuchMethod)
+      // and which no other compiled target implemented at all.
       final out = _flat('''
 void main() {
   var sb = StringBuffer()
@@ -391,13 +425,16 @@ void main() {
   print(sb.toString());
 }
 ''');
-      // The Dart encoder lowers cascades to a `let __cascade_self__ = …` block
-      // that re-applies each section and returns the receiver; the compiler
-      // recognizes that shape back into Dart's own cascade syntax rather than
-      // emitting an immediately-invoked closure, which would drop the type
-      // promotion of any local the sections read (issue #573).
-      expect(out, contains("(StringBuffer()..write('a')..write('b'))"));
-      expect(out, isNot(contains('__cascade_self__')));
+      // Each section is a free-function call on the bound receiver, and the
+      // receiver READS BACK through the sink too — `var sb = StringBuffer()..…`
+      // still holds a sink, so `sb.toString()` must route.
+      expect(out, contains("_ballSinkWrite(__cascade_self__, 'a')"));
+      expect(out, contains('_ballSinkToString(sb)'));
+      expect(out, isNot(contains("..write('a')")));
+      // The encoder drops the `cascade` tag for a sink, so the compiler must
+      // NOT emit `..`-syntax: doing so would leak `__cascade_self__` into the
+      // emitted source as a bare identifier.
+      expect(out, isNot(contains(".._ballSinkWrite")));
     });
 
     test('const constructor invocation', () {

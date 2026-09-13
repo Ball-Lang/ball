@@ -5121,6 +5121,16 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         if (e.empty()) return "ball_string_substring(BallDyn(" + v + "), " + s + ")";
         return "ball_string_substring(BallDyn(" + v + "), " + s + ", " + e + ")";
     }
+    // `String.fromCharCode(n)` as a BASE function. The runtime helper
+    // (`fromCharCode`, ball_dyn.h) has always existed — the self-hosted engine
+    // reaches it through the Dart-SDK static table — but the base-function
+    // spelling the Dart encoder emits had no arm here, so a program using
+    // `StringBuffer.writeCharCode`, which #630 desugars into
+    // `string_from_char_code`, was refused outright.
+    if (fn == "string_from_char_code") {
+        auto v = get_message_field(call, "value");
+        return "fromCharCode(\"String\"s, BallDyn(" + v + "))";
+    }
     if (fn == "string_to_upper") {
         auto v = get_message_field(call, "value");
         return "[](std::string s){std::transform(s.begin(),s.end(),s.begin(),::toupper);return s;}(" + v + ")";
@@ -5550,6 +5560,18 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
     // `__ball_type_name()` template overload; every other value converts to the
     // BallDyn overload.
     if (fn == "type_of") return "ball_type_of(" + get_message_field(call, "value") + ")";
+    // #630 — the declared text sink. Backed by a `__type__`-tagged
+    // BallOrderedMap (shared_ptr-wrapped by BallDyn) so `ball_type_of` answers
+    // "Sink" and an append inside a callee is visible to the caller; a
+    // by-value `std::ostringstream` would lose both. `get_message_field`
+    // already yields `BallDyn()` for an absent `initial`.
+    if (fn == "sink_create")
+        return "ball_sink_create(BallDyn(" + get_message_field(call, "initial") + "))";
+    if (fn == "sink_write")
+        return "ball_sink_write(BallDyn(" + get_message_field(call, "sink") + "), BallDyn(" +
+               get_message_field(call, "text") + "))";
+    if (fn == "sink_to_string")
+        return "ball_sink_to_string(BallDyn(" + get_message_field(call, "sink") + "))";
     if (fn == "null_coalesce") {
         auto left = get_message_field(call, "left");
         auto right = get_message_field(call, "right");

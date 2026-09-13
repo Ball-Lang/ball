@@ -7,6 +7,10 @@
       "name": "std",
       "functions": [
         {
+          "name": "sink_create",
+          "isBase": true
+        },
+        {
           "name": "for",
           "isBase": true
         },
@@ -39,11 +43,19 @@
           "isBase": true
         },
         {
+          "name": "to_string",
+          "isBase": true
+        },
+        {
+          "name": "sink_write",
+          "isBase": true
+        },
+        {
           "name": "break",
           "isBase": true
         },
         {
-          "name": "to_string",
+          "name": "sink_to_string",
           "isBase": true
         },
         {
@@ -131,13 +143,19 @@
                   "let": {
                     "name": "output",
                     "value": {
-                      "messageCreation": {
-                        "typeName": "main:StringBuffer"
+                      "call": {
+                        "module": "std",
+                        "function": "sink_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": ""
+                          }
+                        }
                       }
                     },
                     "metadata": {
                       "keyword": "var",
-                      "type": "StringBuffer"
+                      "type": "dynamic"
                     }
                   }
                 },
@@ -445,12 +463,14 @@
                                                                                                         {
                                                                                                           "expression": {
                                                                                                             "call": {
-                                                                                                              "function": "write",
+                                                                                                              "module": "std",
+                                                                                                              "function": "sink_write",
                                                                                                               "input": {
                                                                                                                 "messageCreation": {
+                                                                                                                  "typeName": "",
                                                                                                                   "fields": [
                                                                                                                     {
-                                                                                                                      "name": "self",
+                                                                                                                      "name": "sink",
                                                                                                                       "value": {
                                                                                                                         "reference": {
                                                                                                                           "name": "output"
@@ -458,10 +478,26 @@
                                                                                                                       }
                                                                                                                     },
                                                                                                                     {
-                                                                                                                      "name": "arg0",
+                                                                                                                      "name": "text",
                                                                                                                       "value": {
-                                                                                                                        "reference": {
-                                                                                                                          "name": "c"
+                                                                                                                        "call": {
+                                                                                                                          "module": "std",
+                                                                                                                          "function": "to_string",
+                                                                                                                          "input": {
+                                                                                                                            "messageCreation": {
+                                                                                                                              "typeName": "",
+                                                                                                                              "fields": [
+                                                                                                                                {
+                                                                                                                                  "name": "value",
+                                                                                                                                  "value": {
+                                                                                                                                    "reference": {
+                                                                                                                                      "name": "c"
+                                                                                                                                    }
+                                                                                                                                  }
+                                                                                                                                }
+                                                                                                                              ]
+                                                                                                                            }
+                                                                                                                          }
                                                                                                                         }
                                                                                                                       }
                                                                                                                     }
@@ -621,12 +657,14 @@
                                                                                             {
                                                                                               "expression": {
                                                                                                 "call": {
-                                                                                                  "function": "write",
+                                                                                                  "module": "std",
+                                                                                                  "function": "sink_write",
                                                                                                   "input": {
                                                                                                     "messageCreation": {
+                                                                                                      "typeName": "",
                                                                                                       "fields": [
                                                                                                         {
-                                                                                                          "name": "self",
+                                                                                                          "name": "sink",
                                                                                                           "value": {
                                                                                                             "reference": {
                                                                                                               "name": "output"
@@ -634,7 +672,7 @@
                                                                                                           }
                                                                                                         },
                                                                                                         {
-                                                                                                          "name": "arg0",
+                                                                                                          "name": "text",
                                                                                                           "value": {
                                                                                                             "literal": {
                                                                                                               "stringValue": "|"
@@ -760,12 +798,14 @@
                                                                                                   "name": "else",
                                                                                                   "value": {
                                                                                                     "call": {
-                                                                                                      "function": "write",
+                                                                                                      "module": "std",
+                                                                                                      "function": "sink_write",
                                                                                                       "input": {
                                                                                                         "messageCreation": {
+                                                                                                          "typeName": "",
                                                                                                           "fields": [
                                                                                                             {
-                                                                                                              "name": "self",
+                                                                                                              "name": "sink",
                                                                                                               "value": {
                                                                                                                 "reference": {
                                                                                                                   "name": "output"
@@ -773,10 +813,26 @@
                                                                                                               }
                                                                                                             },
                                                                                                             {
-                                                                                                              "name": "arg0",
+                                                                                                              "name": "text",
                                                                                                               "value": {
-                                                                                                                "reference": {
-                                                                                                                  "name": "c"
+                                                                                                                "call": {
+                                                                                                                  "module": "std",
+                                                                                                                  "function": "to_string",
+                                                                                                                  "input": {
+                                                                                                                    "messageCreation": {
+                                                                                                                      "typeName": "",
+                                                                                                                      "fields": [
+                                                                                                                        {
+                                                                                                                          "name": "value",
+                                                                                                                          "value": {
+                                                                                                                            "reference": {
+                                                                                                                              "name": "c"
+                                                                                                                            }
+                                                                                                                          }
+                                                                                                                        }
+                                                                                                                      ]
+                                                                                                                    }
+                                                                                                                  }
                                                                                                                 }
                                                                                                               }
                                                                                                             }
@@ -929,12 +985,14 @@
                                                                                       "name": "else",
                                                                                       "value": {
                                                                                         "call": {
-                                                                                          "function": "write",
+                                                                                          "module": "std",
+                                                                                          "function": "sink_write",
                                                                                           "input": {
                                                                                             "messageCreation": {
+                                                                                              "typeName": "",
                                                                                               "fields": [
                                                                                                 {
-                                                                                                  "name": "self",
+                                                                                                  "name": "sink",
                                                                                                   "value": {
                                                                                                     "reference": {
                                                                                                       "name": "output"
@@ -942,10 +1000,26 @@
                                                                                                   }
                                                                                                 },
                                                                                                 {
-                                                                                                  "name": "arg0",
+                                                                                                  "name": "text",
                                                                                                   "value": {
-                                                                                                    "reference": {
-                                                                                                      "name": "c"
+                                                                                                    "call": {
+                                                                                                      "module": "std",
+                                                                                                      "function": "to_string",
+                                                                                                      "input": {
+                                                                                                        "messageCreation": {
+                                                                                                          "typeName": "",
+                                                                                                          "fields": [
+                                                                                                            {
+                                                                                                              "name": "value",
+                                                                                                              "value": {
+                                                                                                                "reference": {
+                                                                                                                  "name": "c"
+                                                                                                                }
+                                                                                                              }
+                                                                                                            }
+                                                                                                          ]
+                                                                                                        }
+                                                                                                      }
                                                                                                     }
                                                                                                   }
                                                                                                 }
@@ -1024,13 +1098,13 @@
               "result": {
                 "call": {
                   "module": "std",
-                  "function": "to_string",
+                  "function": "sink_to_string",
                   "input": {
                     "messageCreation": {
                       "typeName": "",
                       "fields": [
                         {
-                          "name": "value",
+                          "name": "sink",
                           "value": {
                             "reference": {
                               "name": "output"

@@ -58,6 +58,44 @@ reproduce Dart's own `runtimeType` spelling for collections (`List<int>`,
 tracking. Conformance fixture `434_type_of` normalises those three shapes before
 printing, so its golden is still the real `dart run` output.
 
+### `StringBuffer` → the declared text sink (#630)
+
+`StringBuffer` routes onto `std.sink_create` / `sink_write` / `sink_to_string`.
+Before #630 it encoded as a generic constructor plus generic method calls that
+the Dart and TS *engines* then special-cased by name — divergently (#633) — and
+that the Rust/C#/Go/Python/C++ compilers did not implement at all.
+
+The decision is **syntactic**, because it has to be: `generate_conformance.dart`
+and every self-host regeneration parse with `parseString`, so `staticType` is
+null and #488's receiver-type gate is unavailable. A receiver counts as a sink
+only when the nearest enclosing scope declares that exact name as a
+`StringBuffer`/`StringSink` — by type annotation, by a `StringBuffer(...)`
+initializer, or as a formal parameter of that type. Pinned by
+`test/string_sink_test.dart`, including the two carve-out directions (an
+untracked receiver; a same-named local in a different function).
+
+| Dart source | Encoded as |
+| --- | --- |
+| `StringBuffer()` / `new StringBuffer(seed)` | `std.sink_create` (`initial` when seeded) |
+| `sb.write(x)` | `std.sink_write(sink, text)` — `x` wrapped in `std.to_string` unless it is a string literal |
+| `sb.writeln([x])` | `sink_write` with `"\n"` appended (`core`'s own `writeln!` rule) |
+| `sb.writeCharCode(c)` | `sink_write` over `std.string_from_char_code(c)` |
+| `sb.toString()` | `std.sink_to_string(sink)` |
+| `sb.length` / `.isEmpty` / `.isNotEmpty` | the existing `string_*` ops over `sink_to_string(sink)` |
+| `sb.clear()` / `sb.writeAll(...)` | **carve-out** — unchanged generic method call; they stay on the engines' Dart-SDK method surface, which accepts the `std:Sink` tag as well as the legacy `:StringBuffer` one |
+
+Two related consequences:
+
+* A `StringBuffer`/`StringSink` **type annotation** is recorded in metadata as
+  `dynamic` (`_portableTypeSource`). Metadata is cosmetic (invariant #2), and
+  recording the Dart spelling would make the compiled-back Dart annotate a sink
+  — a tagged map on every target — as a `StringBuffer` and fail to type-check.
+* `String.fromCharCode(n)` now routes to `std.string_from_char_code`. That
+  closes a round-trip hole the sink work exposed: the Dart COMPILER emits that
+  exact spelling, and with no route back the compile → re-encode → engine leg
+  turned it into a generic call carrying `self: reference("String")`, which no
+  engine can resolve.
+
 ## Dependencies
 - Internal: `ball_base` (`ball_engine` is dev-only).
 - External: `analyzer` (Dart parser), `yaml`, `pub_semver`, `http`, `archive`.

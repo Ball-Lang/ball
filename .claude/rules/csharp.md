@@ -460,8 +460,10 @@ compile items so the sibling projects never double-compile each other's files.
   in-memory Roslyn and assert **byte-exact** stdout; prefer extending these (or conformance
   fixtures) over C#-only unit tests, per the repo-wide "prefer conformance tests" rule. But note
   `EndToEndTests` is **four hardcoded fixtures**, not a corpus sweep — the only leg that compiles
-  the whole corpus through `CSharpCompiler` is `engine/conformance --leg=compiler`, a ratchet on a
-  workflow with no `pull_request` trigger. A rule that depends on a specific IR shape needs a
+  the whole corpus through `CSharpCompiler` is `engine/conformance --leg=compiler`, the
+  `csharp-compiler` ratchet row in `conformance-matrix.yml` — which since #619 DOES gate every
+  PR (the workflow has a path-filtered `pull_request:` trigger sharing its `push` filter), as a
+  ratchet on the known gap rather than a parity gate. A rule that depends on a specific IR shape needs a
   targeted test (`AccessorEdgeCaseTests.cs`, #461, is the worked example — both its shapes are
   unreachable from any generated fixture).
 - **Captured stdout is per-execution-context — never `Console.SetOut` (#611).** `CSharpRunner.Run`

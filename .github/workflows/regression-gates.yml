@@ -485,12 +485,19 @@ jobs:
             echo "::error::a split multi-TU tree exists at dart/self_host/lib/engine_rt — the second emit path is back, and CMake would prefer it over the engine this job built"
             exit 1
           fi
-          # The flags that used to select between the two shapes must stay gone:
-          # re-adding one silently re-opens the never-compiled path.
-          if grep -q -e '--split' -e '--shards' -e '--monolithic' dart/compiler/tool/compile_engine_cpp.dart; then
-            echo "::error::compile_engine_cpp.dart names --split/--shards/--monolithic again — the self-host emit must take no shape-selecting flags"
-            exit 1
-          fi
+          # The flags that used to select between the two shapes must stay gone.
+          # Asserted by BEHAVIOUR, not by grep: the tool's own doc comment and
+          # usage error name all three (that is how a developer finds out they
+          # were removed), so a text search would flag its own explanation.
+          # What must never come back is ACCEPTING one — each of these has to
+          # exit non-zero, which the flagless tool does with EX_USAGE before it
+          # touches anything.
+          for flag in --monolithic --split --shards; do
+            if dart run dart/compiler/tool/compile_engine_cpp.dart "$flag" >/dev/null 2>&1; then
+              echo "::error::compile_engine_cpp.dart accepted $flag — a shape-selecting flag is back, and with it a second emit path no gate compiles"
+              exit 1
+            fi
+          done
           if grep -rq --include=CMakeLists.txt --include='*.cmake' --include='*.cpp' --include='*.h' --include='*.hpp' 'engine_rt_common\.hpp' cpp/; then
             echo "::error::cpp/ references engine_rt_common.hpp again — CMake must not have a split-tree preference to fall into"
             exit 1

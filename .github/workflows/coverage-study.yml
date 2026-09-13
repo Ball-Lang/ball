@@ -484,6 +484,14 @@ jobs:
   # on a missing artifact rather than treating it as 0 scored, 0 clean (which
   # would satisfy every percentage floor forever).
   #
+  # WHAT THE COUNTS COULD NOT SEE (issue #676). `baseline.json` records how many
+  # test-only files each Tier A harness took out of the denominator;
+  # `excluded.json` records WHICH, per pin. A partial readmission moves both
+  # numbers the way a legitimate test-population change does, so it is invisible
+  # to arithmetic — the list is diffed instead, and a path it excludes that a run
+  # SCORED is a breach naming the file. The list is regenerated and committed
+  # here exactly the way the baseline is raised.
+  #
   # The commit is guarded twice over: this workflow has no `pull_request:`
   # trigger at all, and the commit step additionally requires `github.ref` to be
   # refs/heads/main, so a dispatch on a topic branch runs the full check-and-
@@ -534,12 +542,22 @@ jobs:
       # or scored denominator; raises the baseline on an improvement; rewrites
       # the generated block in README.md. A missing or zero-scored report is a
       # hard failure here, never a 0% pass.
+      #
+      # `--excluded-list` (issue #676) is the committed per-file test-only
+      # exclusion list, language -> pin -> sorted paths. A path it records that
+      # this run SCORED is a breach naming the file: that is a PARTIAL
+      # readmission, which no count can see (34 -> 31 with three files moving
+      # back into the denominator has the same arithmetic signature as a pin
+      # whose test suite shrank by three while its library grew by three). A
+      # newly excluded path is reported and the list is regenerated, the same way
+      # the baseline is raised.
       - name: Check the floors and regenerate the table
         run: |
           set -euo pipefail
           python3 tools/coverage-study/coverage_table.py \
             --artifacts "$RUNNER_TEMP/reports" \
             --baseline tools/coverage-study/baseline.json \
+            --excluded-list tools/coverage-study/excluded.json \
             --readme README.md \
             --write \
             --summary "$GITHUB_STEP_SUMMARY"
@@ -554,13 +572,13 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
-          if git diff --quiet -- README.md tools/coverage-study/baseline.json; then
-            echo "table and baseline already current — nothing to commit"
+          if git diff --quiet -- README.md tools/coverage-study/baseline.json tools/coverage-study/excluded.json; then
+            echo "table, baseline and excluded list already current — nothing to commit"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md tools/coverage-study/baseline.json
+          git add README.md tools/coverage-study/baseline.json tools/coverage-study/excluded.json
           git commit \
             -m "chore(coverage-study): refresh the third-party coverage table [skip ci]" \
             -m "Regenerated from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} by tools/coverage-study/coverage_table.py. A raised row means that measure improved and its floor moved up with it (issue #493)."
@@ -574,5 +592,5 @@ jobs:
         run: |
           set -euo pipefail
           echo "ref is ${GITHUB_REF} — not main, so nothing is committed."
-          git --no-pager diff --stat -- README.md tools/coverage-study/baseline.json
-          git --no-pager diff -- tools/coverage-study/baseline.json
+          git --no-pager diff --stat -- README.md tools/coverage-study/baseline.json tools/coverage-study/excluded.json
+          git --no-pager diff -- tools/coverage-study/baseline.json tools/coverage-study/excluded.json

@@ -53,6 +53,30 @@ for the authoritative member set).
   `_stateError`. `tests/conformance/465_state_error_message` is the cross-target
   guard. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`late` on an instance field is decided from the IR, not from the field
+  declaration (#651).** A non-nullable field with no inline initializer needs
+  `late` only when nothing PROVES it assigned by the end of construction — i.e.
+  when it is written in a constructor BODY (#305). Two shapes prove it without
+  a body, and the encoder already records both:
+  `metadata['initializers']` `{kind: field, name, value}` (the constructor's own
+  initializer list) and a `metadata['params']` entry with `is_this: true` that is
+  ALWAYS supplied (required positional, `required` named, or optional carrying a
+  `default`). `_definitelyAssignedFields(methods)` in `compiler.dart` computes
+  the INTERSECTION of those across every generative constructor — skipping
+  factories, `redirects_to`, and an initializer of `kind: redirect`, which
+  delegate rather than initialize — and `_addInstanceFields` drops `fb.late` for
+  the result. Never widen the decision back to "no initializer ⇒ `late`": a
+  `late final` field is assignable after construction, so it contributes an
+  implicit SETTER, and next to a user-declared setter of the same name that is a
+  `DUPLICATE_DEFINITION` compile-time error — the real-world case is
+  `collection`'s `ListSlice` (`final int length` + `set length(...)`), which is
+  legal Dart precisely because a plain `final` field contributes a getter and
+  nothing else. `dart/compiler/test/field_finality_test.dart` pins both
+  directions and runs a real `dart analyze` over the compiled output;
+  `tests/conformance/466_initializer_list_field_with_setter` is the cross-target
+  fixture it compiles. Also keep `const`-constructor classes free of `late final`
+  (#305) — that carve-out is unchanged.
+
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`
 - Uses `analyzer` package to parse Dart AST

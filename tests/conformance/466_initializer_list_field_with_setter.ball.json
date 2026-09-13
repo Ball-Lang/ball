@@ -62,7 +62,7 @@
             "initializers": [
               {
                 "kind": "field",
-                "name": "length",
+                "name": "windowSize",
                 "value": "end"
               }
             ],
@@ -79,7 +79,7 @@
           }
         },
         {
-          "name": "main:FixedSlice.length",
+          "name": "main:FixedSlice.windowSize",
           "inputType": "int",
           "body": {
             "call": {
@@ -117,7 +117,7 @@
             "is_setter": true,
             "params": [
               {
-                "name": "newLength",
+                "name": "newSize",
                 "type": "int"
               }
             ]
@@ -239,7 +239,7 @@
                                       "name": "slice"
                                     }
                                   },
-                                  "field": "length"
+                                  "field": "windowSize"
                                 }
                               }
                             }
@@ -353,7 +353,7 @@
                 "type": "TYPE_BYTES"
               },
               {
-                "name": "length",
+                "name": "windowSize",
                 "number": 2,
                 "label": "LABEL_OPTIONAL",
                 "type": "TYPE_INT64"
@@ -370,7 +370,7 @@
                 "is_final": true
               },
               {
-                "name": "length",
+                "name": "windowSize",
                 "type": "int",
                 "is_final": true
               }

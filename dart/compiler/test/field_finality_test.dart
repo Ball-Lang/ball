@@ -551,8 +551,8 @@ void main() {
     });
 
     test('the field is emitted without `late`', () {
-      expect(compiled, contains('final int length;'));
-      expect(compiled, isNot(contains('late final int length')));
+      expect(compiled, contains('final int windowSize;'));
+      expect(compiled, isNot(contains('late final int windowSize')));
     });
 
     test(

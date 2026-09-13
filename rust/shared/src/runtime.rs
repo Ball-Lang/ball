@@ -1081,7 +1081,15 @@ pub fn ball_is(value: BallValue, type_name: &str) -> BallValue {
 /// `value.runtimeType.toString()` and JavaScript's `typeof` encode to this
 /// function, so it must agree with the Dart reference engine's `_typeNameOf`.
 pub fn ball_type_of(value: BallValue) -> BallValue {
-    let name = match &value {
+    BallValue::String(ball_runtime_type_name(&value))
+}
+
+/// [`ball_type_of`]'s answer as a plain `String`, for the places that need the
+/// name inside a message rather than as a Ball value (issue #641's cast-failure
+/// text). Deliberately NOT [`ball_type_name`], which is the cruder internal
+/// spelling (`bytes`, `Message`) and does not agree with `std.type_of`.
+pub(crate) fn ball_runtime_type_name(value: &BallValue) -> String {
+    match value {
         BallValue::Null => "Null".to_string(),
         BallValue::Bool(_) => "bool".to_string(),
         BallValue::Int(_) => "int".to_string(),
@@ -1097,7 +1105,7 @@ pub fn ball_type_of(value: BallValue) -> BallValue {
             // since issue #528) and by the self-hosted engine's `_ballSetOf` —
             // and a self-hosted-engine object is a map tagged with `__type__`;
             // both must be discriminated before plain `Map`.
-            if is_ball_set_value(&value) {
+            if is_ball_set_value(value) {
                 "Set".to_string()
             } else {
                 match map.get("__type__") {
@@ -1108,22 +1116,30 @@ pub fn ball_type_of(value: BallValue) -> BallValue {
                 }
             }
         }
-    };
-    BallValue::String(name)
+    }
 }
 
 /// A `CastPattern` (`case var x as int:`) **asserts** its type rather than
 /// refuting the case: a mismatch *throws*, it does not fall through to the next
-/// case (the reference engine throws `BallException('TypeError', 'type cast
-/// failed: not a $typeName')`; the TS/CLI targets carry the same
-/// `ball_cast_assert`). Catchable, so a `try`/`catch` around the switch sees it
-/// (fixture 302). Returns `true` so it can sit as a conjunct in the pattern's
-/// `&&` chain — where its position (after the sub-pattern's own condition) is
-/// what keeps `[var x as int]` from throwing on a subject that isn't even a
-/// 2-element list.
-pub fn ball_cast_assert(matched: bool, type_name: &str) -> bool {
+/// case (the reference engine throws the same typed `TypeError`; the TS/CLI
+/// targets carry the same `ball_cast_assert`). Catchable, so a `try`/`catch`
+/// around the switch sees it (fixture 302). Returns `true` so it can sit as a
+/// conjunct in the pattern's `&&` chain — where its position (after the
+/// sub-pattern's own condition) is what keeps `[var x as int]` from throwing on
+/// a subject that isn't even a 2-element list.
+///
+/// The message is Dart's own, verbatim (issue #641) — it names the VALUE's
+/// runtime type before the target type, which is why the subject is a parameter
+/// at all. Guard: conformance `467_caught_type_error_to_string`.
+pub fn ball_cast_assert(matched: bool, value: &BallValue, type_name: &str) -> bool {
     if !matched {
-        ball_throw_typed("TypeError", format!("type cast failed: not a {type_name}"));
+        ball_throw_typed(
+            "TypeError",
+            format!(
+                "type '{}' is not a subtype of type '{type_name}' in type cast",
+                ball_runtime_type_name(value)
+            ),
+        );
     }
     true
 }
@@ -4774,6 +4790,71 @@ mod tests {
         assert_state_error("Bad state: Too many elements", || {
             ball_list_single(int_list(&[1, 2]))
         });
+    }
+
+    /// Issue #641 — the OTHER built-in a Ball program can catch, and the one
+    /// whose rendering is not `<Type>: <message>`.
+    ///
+    /// Dart's failed cast raises a `TypeError` whose `toString()` IS its
+    /// message — no `TypeError: ` prefix — and that message names the value's
+    /// RUNTIME type before the target type:
+    ///
+    /// ```text
+    /// type 'String' is not a subtype of type 'int' in type cast
+    /// ```
+    ///
+    /// `ball_cast_assert` used to spell `type cast failed: not a int` and never
+    /// saw the subject at all, and `dart_error_to_string` rendered the result
+    /// as `TypeError: …`. Two wrongs that no fixture could see, because
+    /// `302_cast_patterns` prints a hardcoded literal from its catch body.
+    /// The cross-target guard is `467_caught_type_error_to_string`.
+    #[test]
+    fn a_failed_cast_assert_is_typed_and_stringifies_like_dart() {
+        fn assert_type_error(want: &str, value: BallValue, type_name: &str) {
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ball_cast_assert(false, &value, type_name)
+            }))
+            .expect_err("a failed cast must throw, not return");
+            let payload = ball_catch_payload(caught);
+            assert_eq!(
+                ball_field_get(payload.clone(), "__type__"),
+                BallValue::String("TypeError".to_string())
+            );
+            assert_eq!(payload.to_string(), want);
+        }
+
+        assert_type_error(
+            "type 'String' is not a subtype of type 'int' in type cast",
+            BallValue::String("hi".to_string()),
+            "int",
+        );
+        assert_type_error(
+            "type 'double' is not a subtype of type 'int' in type cast",
+            BallValue::Double(1.5),
+            "int",
+        );
+        assert_type_error(
+            "type 'bool' is not a subtype of type 'int' in type cast",
+            BallValue::Bool(true),
+            "int",
+        );
+        assert_type_error(
+            "type 'Null' is not a subtype of type 'int' in type cast",
+            BallValue::Null,
+            "int",
+        );
+        assert_type_error(
+            "type 'int' is not a subtype of type 'String' in type cast",
+            BallValue::Int(7),
+            "String",
+        );
+    }
+
+    /// A matching cast answers `true` so it can sit as a conjunct in the
+    /// pattern's `&&` chain.
+    #[test]
+    fn a_matching_cast_assert_passes_through() {
+        assert!(ball_cast_assert(true, &BallValue::Int(42), "int"));
     }
 
     /// The Dart-error rendering table is closed over the type names

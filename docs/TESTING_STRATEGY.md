@@ -66,6 +66,31 @@ the reverse (every `.ball.json` has a source).
 > name that encoder can emit, then compile each one) plus a documented carve-out
 > file (`ts/encoder/ENCODER_CARVEOUTS.md`). A new language encoder needs both.
 
+> **Scanning the emit SITES is not the whole population (#488).** Until the
+> #488 wrap-up the gate extracted emittable names with two regexes over string
+> literals at the emit call sites — but `encoder.dart` routes a large family
+> through dispatch TABLES (`collectionRoutes`, `unaryRoutes`, `getterRoutes`,
+> `convertTopLevelRoutes`, `cascadeCollectionRoutes`) whose emit site is
+> `..function = fnName`, with `fnName` destructured from the table's tuple
+> VALUE. Every base function reachable only that way was exempt regardless of
+> coverage: `std_collections.map_contains_value` sat in the generated
+> `tests/conformance/std_coverage.json` with `coveredByFixtures: []` and
+> `carvedOut: false` while this gate printed "No completeness gaps."
+> `check_encoder_completeness.dart`'s `_routeTables` now parses those tables'
+> value position, and **exits non-zero if a declared table is not found**, so a
+> rename cannot silently shrink the population back. A new dispatch table must
+> be added to `_routeTables`.
+
+> **Completeness has a COMPILER end too (#488).** A base function the encoder
+> emits but the Dart compiler has no `case` for falls to the default arm, which
+> emits a `/* unsupported: … */` COMMENT where an expression belongs — a build
+> error in the compiled-back file, and nothing audited it.
+> `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the mirror:
+> every `encoderEmittable` name in `std_coverage.json` must have a compiler
+> case, with a positive floor on the population so an inventory shape change
+> cannot pass it vacuously. Declared-but-unroutable names are a different,
+> pre-existing gap tracked by #654.
+
 ### 2b. A name-shape assertion is not a test
 An encoder unit test that asserts `call.function === "list_add"` proves only that
 the encoder is self-consistent. It passes *because* the bug exists, and it makes
@@ -324,8 +349,8 @@ gate** — `coverage-study.yml` has no `pull_request:` trigger, because these
 harnesses clone and build third-party packages — but it is no longer merely
 report-only: its `publish` job floors every row against
 `tools/coverage-study/baseline.json` and fails the run on a drop. The floors are
-**ratchets at the measured numbers** (fail on a drop in the clean ratio, the
-stage-1 funnel ratio, or the scored denominator; raise the baseline on an
+**ratchets at the measured numbers** (fail on a drop in the clean ratio, in ANY
+funnel stage's ratio, or in the scored denominator; raise the baseline on an
 improvement), not the >= 95% / >= 75% issue #493 first proposed — Dart Tier A
 measures 61% and four of six Tier A rows measure 0% clean, so an aspirational
 floor would be permanently red and therefore muted. The same job publishes the
@@ -378,12 +403,58 @@ because for four of the five ports the clean number is 0% and the information is
 entirely in *where* files stop: the Rust/C#/Go/Python compilers emit
 runtime-call-shaped source their syntactic encoders were never built to read
 back, so stage 3 (re-encode) is a wall — the same wall the `*-roundtrip` rows
-already report as an honest 0/32x on the project's own corpus. A bare 0% would
+report on the project's own corpus. Those rows read a flat `0 passed` for as long
+as they existed and went green every time, because nothing floored the count
+(#642); each one now carries a measured floor and a ratchet (see the table
+below), and the remaining gap is named per target with the issue tracking it
+(#689 C#, #690 Python, #691 Go, #692 Rust). A bare 0% would
 hide the difference between "the encoder rejected the file outright" (Rust, Go:
 0 files even encode) and "58 of 472 files got all the way to the declaration
 diff" (C#). TypeScript is the one port with a non-zero first number (4/48), and
 its failures are spread across every stage rather than piled on one.
 
+
+### 2c. A measurement leg is floored the moment it measures anything (#642)
+
+The four `*-roundtrip` rows (`conformance-matrix.yml`: Ball fixture →
+`<lang>` compiler → that language's own encoder → the **Dart** reference engine →
+golden diff) are the repo's hardest legs by construction, and for as long as they
+existed every one of them printed
+
+```
+Results: 0 passed, 349 failed, 349 total (4 skipped carve-outs)
+```
+
+and reported the row healthy. The only assertion was `total >= 1` — the harness
+ran — so an honest "it has always been 0" was indistinguishable from a future
+regression, and the rows could not have noticed one.
+
+The rule this repo now follows on any measurement leg:
+
+1. **No positive floor while the leg genuinely passes nothing.** Adding
+   `passed >= 1` to a row measuring 0 makes it permanently red for a pre-existing
+   gap, and invites the one thing a floor must never buy — a special-cased
+   fixture or a weakened fail-loud check, just to clear it. The floor lands in
+   the SAME PR as the first passing fixture, never before.
+2. **A row at zero must not report "OK".** Until the floor can land, the row
+   prints the first failing fixture's error VERBATIM and names its gap with an
+   issue number in the step summary. "Expected baseline" is not a status.
+3. **Once it measures something, the floor is set AT the measured count** — the
+   number that row's own CI job printed, never a prediction, never an
+   aspiration — and only ever rises, in the same PR as the fix that earned it.
+   `tools/ci/roundtrip_floor.sh` prints the exact new value on an improvement.
+4. **The gate is a script, and the script has its own test.** Inline workflow
+   bash cannot be unit-tested, and a `[ "$passed" -lt "$floor" ]` with an empty
+   or multiline operand exits 2 — which, inside an `if`, SKIPS the branch and
+   falls through to a green exit. `tools/test/test_roundtrip_floor.sh` runs on
+   every PR and pins all of it, the wiring included.
+
+Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
+its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
+loop fixtures re-encode clean and then hang (#693): Rust **99**, C# **76**,
+Python **41**, Go **31** of 352. Those are the floors. None of the four is a parity gate — most of
+the corpus still does not round-trip anywhere — but a flat zero is red, and a
+drop is red.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
@@ -392,6 +463,50 @@ that turns a missing feature into silent wrong output. Concrete guards now in
 place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
+
+### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
+Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
+
+A checker that reports "clean" by **printing nothing** and a checker that
+**could not run at all** produce the same stdout. So a leg shaped like
+
+```bash
+probs=()
+while IFS= read -r line; do probs+=("$line"); done < <(check "$file")   # WRONG
+if [ "${#probs[@]}" -eq 0 ]; then ok "…"; fi
+```
+
+reports PASS — and counts +1 toward its own positive floor — when `python3` is
+absent, an import fails, or the checker dies on a traceback (stderr, not
+stdout). That is issue #694, reproduced in PR #662's round-1 review by taking
+`python3` off PATH: the leg printed `PASS` and the sweep reported its usual
+tally, from a check that never happened — while the sibling `--self-test` step,
+which does let the status through, correctly went exit 127. Reachability is not
+the bar; a gate that can be silently disabled is already broken.
+
+One of these three shapes, always:
+
+1. **The checker's status is the step's status** — make the call the script's
+   last command: `check_file "$WORKFLOW"; exit $?`
+   (`tools/ci/check_matrix_paths.sh`, `tools/ci/check_ci_regen_wiring.sh`, and
+   the trailing `python3 - … <<'PY'` heredoc in
+   `tools/ci/check_required_contexts.sh`).
+2. **Capture both and classify the status** —
+   `out="$(check "$f")"; rc=$?`, then treat every status the checker does not
+   define (anything but its clean/found-problems pair) as a **failure that names
+   the status**. `freshness_paths_findings` in
+   `tools/release/check_go_release_wiring.sh` is the worked example; so is
+   `cpp/test/check_compiler_cache_applied.sh`'s `|| requests=""` + `is_uint`.
+3. **Make empty output fail closed, and say why it is closed** — a positive
+   floor (`[ "$checked" -lt 1 ] && exit 1`), an explicit `[ -n "$x" ]` arm, or a
+   comparison against a non-empty expected value, so "nothing came back" cannot
+   reach the `ok` branch. Never `|| true` on the line the verdict reads.
+
+And the negative control belongs to the **leg**, not just the checker: cases
+that only assert what the checker answers about fabricated inputs cannot see a
+checker that answers nothing. Shadow the dependency (a PATH stub that exits 127)
+and assert the leg reports FAIL, paired with a positive control on the real tree
+so the negative case cannot pass for an unrelated reason.
 
 ### 4. A fixture's name must not overstate its coverage
 Enforced by `dart/encoder/bin/check_fixture_names.dart` (CI): a fixture named
@@ -634,6 +749,41 @@ type tag, a shared backing, an ordering — name that contract in the declaratio
 doc comment and gate it per target, because the corpus can only see what the
 source language can express.**
 
+#### A rendering TABLE is only closed when a TEST says so (#641)
+
+#616's per-target fix left each compiled runtime with an explicit
+`name -> prefix` table (`dart_error_to_string` / `dartErrorToString` /
+`DartErrorToString` / `__ball_err_prefix`) whose doc comment asserts it is
+"EXPLICIT and closed over the type names this runtime raises". That claim was
+prose. Three of the four tables had no `TypeError` arm while every one of those
+runtimes raises a `TypeError` for a failed cast, and the fourth rendered it with
+a prefix Dart does not spell — so the same caught cast read four different ways,
+and no gate could see it, because the only fixture that reaches a cast pattern
+(`302_cast_patterns`) prints a hardcoded literal from its catch body.
+
+Two instruments close it, and they are different in kind:
+
+* `tests/conformance/467_caught_type_error_to_string` — the cross-target
+  observable, printing `$e` / `e.toString()` / an interpolated form after a
+  failed cast pattern, and ending with an `on TypeError catch` clause so a
+  target whose cast throws something untyped fails too.
+* `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR) — the
+  STRUCTURAL half a fixture cannot supply. It extracts, per target, the Dart
+  error names that target raises as a Ball throw and the names its table covers,
+  then asserts closure, coverage and prefix agreement, with positive floors so a
+  regex that stops matching fails instead of passing vacuously. Its own
+  self-test (`tools/test/test_check_error_rendering_tables.py`) runs first.
+
+The canonical string comes from **real Dart**, and that is a property of how the
+corpus is built rather than a preference: `dart/encoder/bin/generate_conformance.dart`
+captures `dart run <source>`'s stdout, so any fixture generated from
+`tests/conformance/src/` is golden-locked to the SDK's own answer — here
+`type 'String' is not a subtype of type 'int' in type cast`, with **no**
+`TypeError: ` prefix, because `_TypeError.toString()` IS its message. When a new
+built-in error becomes reachable from a Ball program, measure its `toString()`
+against the SDK, add it to the checker's contract, and add its arm to every
+table — the checker fails until all of that is done.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -764,8 +914,116 @@ repository's `Protect main` ruleset, whose **19 required status check contexts**
 
 A PR is BLOCKED until all 19 report success, so "the checks are green" is a
 mechanical statement about that list, not a judgement call. `Dart Coverage
-Ratchet` is on it too — it is easy to overlook because it lives in
-`coverage.yml`, not `ci.yml`.
+Ratchet` is on it too — it is easy to overlook because it is an independent job
+(`dart-coverage` in `ci.yml`) rather than part of the `Dart` job; the
+`coverage.yml` workflow next to it owns NO required context.
+
+### Per-PR job fan-out (issue #666)
+
+Runner concurrency is the measured bottleneck of this repo's PR sweep. The org
+is on the GitHub Free plan — **20 concurrent jobs, 5 of them macOS**
+(<https://docs.github.com/en/actions/reference/limits>) — and on 2026-09-13, with
+a dozen lanes in flight, `gh run list --status queued` showed **30 runs queued
+and 0 in progress**. Every workflow already carries a `concurrency` group with
+`cancel-in-progress`, so nothing superseded is wasting a slot: the fan-out
+itself is the cost.
+
+**The policy.** Every job reachable on `pull_request` in `ci.yml`,
+`conformance-matrix.yml`, `regression-gates.yml`, `ball-audit.yml` and
+`coverage.yml` must be one of:
+
+1. the owner of one of the 19 required contexts — it has to report anyway;
+2. conditioned by a job-level `if:` on a `changes` output (the
+   `./.github/actions/detect-changed-stacks` composite action, single source of
+   truth since #458);
+3. inside a workflow whose `pull_request:` trigger carries a `paths:` filter;
+4. the `changes` classifier itself;
+5. listed in `tools/ci/pr_job_fanout_allowlist.txt` **with a reason**.
+
+`tools/ci/check_pr_job_fanout.sh` enforces it from the always-on `Proto Checks`
+job, and its `--self-test` drives a fabricated unconditional job as the negative
+control. An exemption without a stated reason is rejected.
+
+**A required context must APPEAR, and a skipped MATRIX job does not report
+one.** This is the sharp edge of "never require path-filtered jobs" above, and
+it is not hypothetical. A job-level `if:` that evaluates false normally still
+satisfies a required check — GitHub records the check as skipped. But when the
+job is a MATRIX job whose `name:` interpolates `${{ matrix.<key> }}`, GitHub
+emits exactly ONE check run, under the **un-expanded** name. `ci.yml`'s `cpp`
+job carried such an `if:`, so a diff that touched neither `cpp/**` nor `infra`
+produced a lone `C++ (${{ matrix.os }})` and **none** of the three required
+`C++ (ubuntu-latest)` / `(windows-latest)` / `(macos-latest)` contexts —
+measured on PR #647 at `bc0c367a`, whose check-run set is exactly that. Such a
+PR can never merge. The fix is to gate the **steps**, never the job: every leg
+starts, reports under its real name, and costs ~20 s when there is nothing to
+do. The guard fails the build if a job-level `if:` is put back on a required
+matrix job.
+
+**What is conditioned on what.**
+
+| Workflow | Conditioning | Notes |
+| --- | --- | --- |
+| `ci.yml` | per-job `if:` on `changes` outputs; `cpp` gates its STEPS | `changes`, `proto`, `cli-verb-parity`, `dart-coverage` are always-on and each owns a required context |
+| `conformance-matrix.yml` | workflow `paths:` filter **and**, since #666, a per-row `if:` | PR runs only the rows the diff can move; push/schedule/dispatch still run the FULL matrix |
+| `regression-gates.yml` | per-job `if:` on `changes` outputs | already so before #666 |
+| `ball-audit.yml` | workflow `paths:` (`**.ball.json`, `**.ball.bin`) | owns no required context |
+| `coverage.yml` | workflow `paths:` (`cpp/**`) + `github.event_name != 'pull_request'` on the other four | owns no required context |
+
+**The conformance matrix's per-row conditions.** Each row runs when the diff
+touches `tests/conformance/**` (`corpus`), any of
+`dart/{engine,shared,compiler,self_host}/**` (`dart_core` — the Dart sources
+every self-hosted engine is compiled from), the matrix's own definition
+(`matrix_self` — `conformance-matrix.yml` or `tools/ci/roundtrip_floor.sh`), or
+that row's own language dir.
+Measured on PR #644 (`d853854b`): 18 matrix jobs ran, 15 of them for languages
+the diff did not touch. The `infra` fail-safe is deliberately NOT part of those
+conditions — it is true for any file outside the language dirs (docs, `tools/`,
+`ci.yml`), which would put all 18 rows back on every CI-lane PR. Leaving it out
+is safe **here and only here** because this workflow's trigger is already
+`paths:`-filtered, so every file that can start it maps onto one of those
+signals. The per-row conditions are all
+`github.event_name != 'pull_request' || …`, so the post-merge and weekly
+full-matrix safety net does not move.
+
+**"Every filter path maps onto a row signal" is a correctness invariant, and it
+is guarded twice.** Leaving `infra` out of the row conditions is only safe while
+that holds. An entry in the filter that lights up no signal a row reads is
+SILENTLY GREEN: the workflow starts (the path matched), all 17 rows evaluate
+false, and a summary that correctly treats `skipped` as benign prints a full
+table of SKIPs and exits 0 — a green Conformance Matrix that executed zero rows.
+So:
+
+- **Statically**, `tools/ci/check_matrix_paths.sh` (always-on `proto` job) now
+  does more than compare the two triggers' lists. For each entry in the filter
+  it synthesizes a concrete path that entry matches, runs the REAL
+  `detect-changed-stacks` classifier over it, and fails unless at least one
+  signal some row's `if:` reads comes back `true`. The signal set is scraped out
+  of `conformance-matrix.yml` itself (`needs.<classifier>.outputs.<name>`), so
+  there is no second table to keep in sync, and `--self-test` drives the
+  negative control — adding `proto/**` to the filter is RED.
+- **At run time**, `conformance-matrix.yml`'s `Parity Matrix` fails a
+  `pull_request` run that executed ZERO engine rows, whatever the cause (an
+  unmapped filter path, a row condition that stopped matching, a classifier that
+  returned all-false). Push, schedule and dispatch runs are exempt because their
+  rows are unconditional. `tools/test/test_parity_matrix_floor.py` (also the
+  `proto` job) renders that summary step out of the workflow and executes it
+  under bash across eight scenarios, including a negative control that strips
+  the floor and asserts the same all-skipped run then goes green.
+
+The detect-changed-stacks truth table pins `corpus`/`dart_core`/`matrix_self`
+themselves.
+
+**The matrix gates changes to itself** (#642). `conformance-matrix.yml` and
+`tools/ci/roundtrip_floor.sh` are in the filter, so a PR that only moves a row's
+floor re-runs the matrix — before #642 such a PR started no matrix run at all,
+and an absent check reads as green, which is how the four round-trip rows were
+first floored by a commit nothing re-measured. Those two paths map onto
+`infra` alone, which no row reads, so the guards above made adding them a real
+decision rather than a one-line edit: they also required a signal,
+`matrix_self`, which EVERY row ORs in (a change to the matrix definition can
+move any row). The classifier truth table pins it both ways — the two paths set
+it, a neighbouring workflow and a neighbouring `tools/ci` script do not, so it
+cannot decay into `infra` under another name.
 
 **That list is gated, not trusted** (issue #655). It used to be hand-copied
 prose about a setting edited in a web UI: it matched the live ruleset on
@@ -953,6 +1211,8 @@ could not parse a summary at all).
 | **Completeness (§2)** — Dart encoder only | `check_encoder_completeness.dart` | every PR |
 | **Routed-but-undeclared std functions (#505)** — the REVERSE of completeness: every `std`/`std_collections` function `encoder.dart`'s `collectionRoutes` table routes to must be declared by `buildStdModule()`/`buildStdCollectionsModule()` | `dart/shared/test/std_routed_declarations_test.dart` (carries a positive floor so a regex that stops matching cannot pass vacuously) | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
+| **Compiler-side dispatch completeness (§2, #488)** — every `encoderEmittable` base function in `std_coverage.json` must have a case in `dart/compiler/lib/compiler.dart`, so none can compile to a `/* unsupported: … */` comment | `dart/compiler/test/base_call_dispatch_completeness_test.dart` (positive floor on the emittable population) | every PR (`Dart`, `cd dart/compiler && dart test`) |
+| **Compiled-back code type-checks under NON-DEFAULT analysis options (#488)** — the `async` safety return must be legal under `analyzer: language: strict-casts: true`, which `dart-lang/async`'s own `analysis_options.yaml` sets. No other gate in this repository runs `dart analyze` under anything but the defaults: Tier A and Tier B compile and RUN, never lint | `dart/compiler/test/strict_casts_safety_return_test.dart` — its silence-is-a-pass assertion is preceded by a NEGATIVE CONTROL that feeds the pre-fix line through the same helper and requires the diagnostic back, so a `dart analyze` that never ran cannot pass it vacuously | every PR (`Dart`, `cd dart/compiler && dart test`) |
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |
@@ -960,6 +1220,7 @@ could not parse a summary at all).
 | **A base function's NO-MATCH branch is observed (§5b, #597)** — `std_collections.list_find` throws a catchable `StateError` when nothing matches, on every engine and every direct compiler; no target may answer `null`/`undefined`/an empty value, and none may refuse to compile it | `tests/conformance/463_list_find_no_match` (cross-target) + per-runtime tests: `dart/compiler/test/base_calls_test.dart`, `ts/engine/test/index_wrapper.test.ts`, `ts/compiler/test/std_call_dispatch.test.ts`, `cpp/test/test_compiler.cpp`, `csharp/compiler/test/ListFindContractTests.cs`, `rust/shared/src/runtime.rs`, `go/runtime/list_find_contract_test.go` + `go/compiler/list_find_contract_test.go`, `python/compiler/tests/test_conformance.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A base function's returned VALUE carries a contract (§5b, #630)** — `std.sink_create`'s sink is a `__type__`-tagged, REFERENCE-semantic value: `std.type_of` answers `Sink` on every target (never the host builder's type), and an append performed inside a callee is visible to the caller. A conformance golden cannot assert the tag (the oracle is native Dart, which says `StringBuffer`), so the behaviour and the tag are gated separately | `tests/conformance/466_string_sink` (cross-target; the `appendWord(out, 'c')` line is the reference-semantics leg) + per-target tag tests: `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`, `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`, `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`, `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
+| **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/467_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
@@ -967,19 +1228,24 @@ could not parse a summary at all).
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
-| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
+| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED |
+| **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
+| **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
+| **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 8 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |
+| **The Go module release lane stays machine-driven, and its own YAML-parsing leg cannot be silently disabled** (#361/#656/#694) | `tools/release/check_go_release_wiring.sh` — 27 legs over the lane's shape (one semantic-release config, the commit carrying every file the bump rewrites, `tag_go_modules.sh` as the single tagging path, no silent v2), of which the go-freshness `pull_request.paths` leg parses YAML rather than grepping because the claim is that a LIST IS EXACTLY A SET. `--self-test` drives 11 cases: 9 on the checker's verdicts (widened, narrowed, unfiltered, `paths-ignore`, no PR trigger, unparseable) and 2 on the **leg**, which run the whole guard with and without a `python3` that works — the §3a control, added after the leg was found reporting PASS with the checker unable to run | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
+| **The two docs that enumerate "every engine" cannot drift from the matrix** (#610/#613) | `tools/ci/check_engine_row_docs.sh` — derives the engine languages from the **parity table** `conformance-matrix.yml`'s `summary` job prints (its `print_row` calls, which is where a new engine is declared a full-parity row, and which excludes the ratcheted compiler / measurement round-trip legs by construction; a parity row reporting a job outside `summary.needs` is a hard error, because such a row can never fail the matrix), then gates `tests/editions/portability_matrix.md`'s `## Engines` table and `plugins/ball/skills/embed/SKILL.md`'s `## Per-target honest status` table on three rules: one data row per derived engine, a row naming each of them, and no row claiming a parity-table engine cannot execute a program. Matching is scoped to each table's DATA ROWS — a whole-file name scan is a fake green, since an engine's name survives in prose long after its row is gone. The portability doc additionally may freeze no fixture or engine tally. `--self-test` drives 16 cases first (floor: `pass < 16` is a hard error), each asserting the failure MESSAGE as well as the exit code | every PR (the always-on `proto` job, offline) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
 | **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result — and, for Tier A, on a log missing its `excluded (test-only): N` line, which would mean the library-code-only rule vanished (issue #491) |
-| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, diffs the per-file exclusion list in `tools/coverage-study/excluded.json` and fails naming any file that list excludes and the run scored (#676), and regenerates the README table, committing all three to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
+| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, EVERY funnel stage's ratio — stage 3 `reencoded` by name since #632, because it is the only stage whose INPUT is this repo's own output, so a construct a compiler emits that its own encoder refuses stops there and nowhere else, which is what `rust/compiler`'s `panic!` dispatcher arm did while a stage-1-only floor stayed green — and the scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, diffs the per-file exclusion list in `tools/coverage-study/excluded.json` and fails naming any file that list excludes and the run scored (#676), and regenerates the README table, committing all three to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
-| The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
+| The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical. Since #632 also: a stage-3 drop fails (on a fixture holding `scored`, `clean` and stage 1 fixed, so it can only be failing on that stage), a stage-3 gain raises and names it, a Tier A row missing any stage key fails loud rather than defaulting it, a Tier B row carrying one fails loud, and a non-monotone baseline funnel is rejected | every PR (`Python`) |
 | **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
 | Line coverage ratchet (Rust/C#) + the Dart push-to-main measurement | `coverage.yml`'s `dart`/`rust`/`csharp` jobs | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++), aggregate **and** per-target | `coverage.yml`'s `cpp` job — the `C++ line coverage floor` and `C++ per-target coverage floors (compiler/encoder/shared — gated)` steps, the latter taking `cpp/build-cov-floor.sh`'s exit code | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |

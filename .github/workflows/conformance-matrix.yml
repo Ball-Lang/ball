@@ -21,7 +21,10 @@ name: Conformance Matrix
 # `tools/ci/check_matrix_paths.sh` pins the invariant anyway — it compares the
 # two lists AFTER the YAML parser has expanded the alias, so replacing the alias
 # with a divergent literal list still fails — and runs on every PR from ci.yml's
-# always-on `proto` job.
+# always-on `proto` job. It also enforces the SECOND invariant this filter
+# carries since the per-row conditions landed: every entry in it must map onto a
+# classifier signal that some row's `if:` reads, or a PR touching only that path
+# starts the workflow with every row skipped.
 on:
   push:
     branches: [main]
@@ -39,6 +42,13 @@ on:
       - "go/**"
       - "python/**"
       - "dart/self_host/**"
+      # The matrix must gate changes to ITSELF (#642). A PR that only edits this
+      # workflow — a row's floor, a row's parse block — used to get no matrix run
+      # at all, and an absent check reads as green: the four `*-roundtrip` rows
+      # were floored in a commit this filter did not select, so the commit that
+      # was supposed to prove them RED proved nothing.
+      - ".github/workflows/conformance-matrix.yml"
+      - "tools/ci/roundtrip_floor.sh"
   pull_request:
     # The SAME list as `push` above, by YAML alias — never a second copy.
     paths: *matrix_paths
@@ -60,10 +70,91 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────────
+  # Which rows does THIS diff actually need? (issue #666)
+  # ──────────────────────────────────────────────────
+  # Every row below used to run on every PR that tripped the path filter above,
+  # so a one-line change to a Rust test file ran the C#, Go, Python, TS, C++ and
+  # Dart legs too. Measured on PR #644 (d853854b): 18 matrix jobs, 15 of them for
+  # languages the diff did not touch — on a Free-plan org capped at 20 concurrent
+  # jobs, with 30 runs queued and 0 in progress at the time #666 was filed.
+  #
+  # The classifier is the SAME composite action ci.yml and regression-gates.yml
+  # use (./.github/actions/detect-changed-stacks — single source of truth since
+  # #458), and the two signals that switch EVERY row back on are `corpus` (the
+  # tests/conformance/** fixture corpus) and `dart_core` (dart/engine,
+  # dart/shared, dart/compiler, dart/self_host — the Dart sources every
+  # self-hosted engine is compiled from). A change to either can move any row's
+  # result, so neither may be narrowed to one language.
+  #
+  # WHAT IS DELIBERATELY ABSENT: the `infra` fail-safe. `infra` is true for any
+  # file outside the language dirs — docs, tools/, root configs, ci.yml — and
+  # OR-ing it in here would put all 18 rows back on every CI-lane PR, which is
+  # the exact waste this closes. It is safe to leave out HERE, and only here,
+  # because this workflow's `pull_request:` trigger is already `paths:`-filtered:
+  # every file that can start this workflow at all is one of tests/conformance/**
+  # (-> corpus), the four dart_core dirs, ts/**, cpp/**, rust/**, csharp/**,
+  # go/** or python/** (-> that language's own flag), or the matrix's OWN
+  # definition — this file and tools/ci/roundtrip_floor.sh, both added to the
+  # filter by #642 so a PR that only moves a row's floor still re-runs the
+  # matrix (-> `matrix_self`, which EVERY row below ORs in, because a change to
+  # the matrix definition can move any row).
+  #
+  # "Every file that can start this workflow maps onto a signal some row reads"
+  # is therefore a CORRECTNESS invariant of this matrix, not a convention, and
+  # it is GUARDED BOTH WAYS:
+  #   * statically, by tools/ci/check_matrix_paths.sh, which for each entry in
+  #     the filter synthesizes a path that entry matches, runs the REAL
+  #     detect-changed-stacks classifier over it, and fails unless a signal some
+  #     row condition reads comes back true. Its `--self-test` drives the
+  #     unmapped-path negative control.
+  #   * at run time, by the positive floor in `Parity Matrix` below, which fails
+  #     a pull_request run that executed ZERO engine rows.
+  # Without both, an unmapped path is silently green: the workflow starts, every
+  # row skips, and a summary that (correctly) treats `skipped` as benign prints
+  # a full table of SKIPs and exits 0.
+  #
+  # PR-ONLY. Every condition below is `github.event_name != 'pull_request' || …`,
+  # so the push-to-main, weekly and dispatch runs still execute the FULL matrix
+  # — that full run is the documented safety net for the per-PR narrowing, and
+  # it does not move.
+  changes:
+    # NOT named "Detect changed stacks": that is one of the 19 required contexts
+    # of ruleset 17056238, and this workflow's `pull_request:` trigger is
+    # `paths:`-filtered — a required context must never live behind a path
+    # filter, because a PR that misses the filter leaves it pending forever
+    # (docs/TESTING_STRATEGY.md, "never require path-filtered jobs").
+    # ci.yml's and regression-gates.yml's identically-bodied jobs own that
+    # context; this one only selects rows.
+    name: Detect matrix rows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ts: ${{ steps.f.outputs.ts }}
+      cpp: ${{ steps.f.outputs.cpp }}
+      rust: ${{ steps.f.outputs.rust }}
+      csharp: ${{ steps.f.outputs.csharp }}
+      go: ${{ steps.f.outputs.go }}
+      python: ${{ steps.f.outputs.python }}
+      corpus: ${{ steps.f.outputs.corpus }}
+      dart_core: ${{ steps.f.outputs.dart_core }}
+      matrix_self: ${{ steps.f.outputs.matrix_self }}
+    steps:
+      # fetch-depth: 0 (full history, so the merge-base of the diff is
+      # reachable) is the composite action's documented precondition.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - id: f
+        uses: ./.github/actions/detect-changed-stacks
+
+  # ──────────────────────────────────────────────────
   # Dart engine (reference implementation)
   # ──────────────────────────────────────────────────
   dart-engine:
     name: Dart Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -132,6 +223,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ts-engine:
     name: TS Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -208,6 +301,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ts-compiled-engine:
     name: TS Compiled Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -280,6 +375,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ts-compiled-direct:
     name: TS Compiled (Direct)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -358,6 +455,8 @@ jobs:
   # ──────────────────────────────────────────────────
   cpp-compiled:
     name: C++ Compiled
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.cpp == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -451,6 +550,8 @@ jobs:
   # ──────────────────────────────────────────────────
   rust-engine:
     name: Rust Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -541,6 +642,8 @@ jobs:
   # ──────────────────────────────────────────────────
   csharp-engine:
     name: C# Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.csharp == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -633,6 +736,8 @@ jobs:
   # ──────────────────────────────────────────────────
   go-engine:
     name: Go Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -717,6 +822,8 @@ jobs:
   # ──────────────────────────────────────────────────
   python-engine:
     name: Python Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -879,6 +986,8 @@ jobs:
   # ──────────────────────────────────────────────────
   csharp-compiler:
     name: C# Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.csharp == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -907,7 +1016,7 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "270"
+      CSHARP_COMPILER_FLOOR: "275"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -990,7 +1099,7 @@ jobs:
       floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
-  # C# round-trip leg — MEASUREMENT ONLY, NO FLOOR (#452 item 1)
+  # C# round-trip leg — FLOORED + RATCHETED (#452 item 1, floored by #642)
   #
   # Ball fixture -> C# (Ball.Compiler) -> re-encode that C# back to Ball
   # (Ball.Encoder / Roslyn) -> run the RE-ENCODED program on the DART reference
@@ -1006,19 +1115,31 @@ jobs:
   # harness could fail to compile, throw, or start reporting a wrong count with
   # no CI signal whatsoever. This row makes that number live.
   #
-  # NO FLOOR GATE, deliberately: the honest baseline is 0/320 BY CONSTRUCTION.
-  # The compiler emits a flat class dispatching through `BallRuntime.*` calls
-  # over `BallValue`; the syntactic Roslyn encoder targets idiomatic hand-written
-  # C# and rejects those shapes (`unsupported method call `.ArgGet(...)``,
-  # `new BallList(...) targets an unknown type`, …). A ratchet on 0 is
-  # meaningless. What this job DOES gate is harness health: a `Results:` line
-  # must be produced, its counts must be bare integers, and total must be >= 1.
-  # The leg's own exit code is EXPECTED to be non-zero while fixtures fail.
+  # This row USED to carry no floor on `passed`, only `total >= 1`. It therefore
+  # printed `Results: 0 passed, N failed, N total` on every run since the day it
+  # shipped and went GREEN every time (#642). A measurement leg that cannot pass
+  # a single fixture is not measuring: the floor below is now a real, measured
+  # count and a ratchet, enforced by tools/ci/roundtrip_floor.sh (unit-tested by
+  # tools/test/test_roundtrip_floor.sh on every PR).
+  #
+  # REMAINING GAP (named, not hidden): the compiler emits a flat class
+  # dispatching through `BallRuntime.*` calls over `BallValue`, and the
+  # syntactic Roslyn encoder targets idiomatic hand-written C#. Closing that for
+  # the whole corpus is per-target encoder feature work tracked in #452/#492 —
+  # the floor records exactly how far it has got, and only rises.
   # ──────────────────────────────────────────────────
   csharp-roundtrip:
     name: C# Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.csharp == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> C# -> Ball -> Dart engine.
+      # NEVER lower this to turn a red build green — preventing exactly that is
+      # the whole point of a ratchet. The job prints the exact new value when it
+      # sees an improvement; raise it in the SAME PR as the fix that earned it.
+      CSHARP_ROUNDTRIP_FLOOR: "76"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1045,66 +1166,29 @@ jobs:
         run: |
           cd csharp
           set +e
-          output=$(dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=roundtrip --dart=dart 2>&1)
+          dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=roundtrip --dart=dart > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — never a global grep over all
-          # output. A multiline capture makes `[ "$total" -lt 1 ]` exit 2, and a
-          # failing `[` inside an `if` SKIPS the branch and falls through to
-          # exit 0: the gate would be silently DISABLED. `tail -1` makes that
-          # unreachable; the integer guard below asserts it rather than trusting
-          # it. (This leg's line carries a trailing " (N skipped carve-outs)"
-          # suffix — the `(?= total)` lookahead is unaffected.)
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== C# Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          # Positive floor. A harness that printed nothing, or discovered no
-          # fixtures, must NEVER read as a silent pass (#439/#444) — and since
-          # this leg has no ratchet, this is the ONLY thing standing between
-          # "the harness rotted" and a green job.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### C# round-trip leg (measurement only — issue #452 item 1)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> C# -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`BallRuntime.*\`-shaped C# the syntactic Roslyn encoder does not recognise)."
-            echo "This row exists to keep the number live and to catch the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "**Gap, tracked in #689.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> C# compiler dispatches through \`BallRuntime.*\` over"
+            echo "\`BallValue\`, and the syntactic Roslyn encoder reads idiomatic"
+            echo "hand-written C#. #689 carries the measured first blocker"
+            echo "(\`BallRuntime.FieldGet\`) and the smallest next step."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          # The leg's own exit code is expected to be non-zero while fixtures
-          # fail; it is reported, not gated on.
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          # C#'s harness prints `  <fixture>: ERROR: …` under `--- failures ---`
+          # rather than the `FAILING [name] …` the other three share, so this row
+          # passes its own pattern for the verbatim first-failure echo.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note" "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
   # Round-trip legs for Python / Go / Rust (#452 item 3) — MEASUREMENT ONLY.
@@ -1118,27 +1202,40 @@ jobs:
   # Running it on the language's own engine would only prove the pipeline agrees
   # with itself; Dart is the ground truth.
   #
-  # NO FLOOR GATE, deliberately: a near-zero baseline is honest and expected
-  # BY CONSTRUCTION. Every one of these compilers emits a flat program
-  # dispatching through its own runtime's helpers over its own Ball-value type,
-  # a shape none of the syntactic/AST-based encoders was built to re-parse.
-  # A ratchet on 0 is meaningless. What these jobs DO gate is harness health: a
-  # `Results:` line must be produced, its counts must be bare integers, and
-  # total must be >= 1. Each leg's own exit code is EXPECTED to be non-zero
-  # while fixtures fail.
+  # FLOORED + RATCHETED SINCE #642. Each of these rows used to gate on harness
+  # health alone (`total >= 1`) and nothing else, so all three printed
+  # `Results: 0 passed, N failed, N total` on every run since they shipped and
+  # went GREEN every time. A measurement leg that cannot round-trip a single
+  # fixture is not measuring anything. Each row now carries a
+  # `<LANG>_ROUNDTRIP_FLOOR` constant and runs tools/ci/roundtrip_floor.sh,
+  # which fails on `passed < 1`, fails on a drop below the floor, and prints the
+  # exact new floor to record on an improvement. That script is unit-tested by
+  # tools/test/test_roundtrip_floor.sh (ci.yml's always-on `proto` job), which
+  # also asserts that all four rows actually invoke it.
+  #
+  # REMAINING GAP (named per row, not hidden): every one of these compilers
+  # emits a flat program dispatching through its own runtime's helpers over its
+  # own Ball-value type, a shape the syntactic/AST-based encoders were not built
+  # to re-parse. Closing that for the whole corpus is per-target encoder feature
+  # work tracked in #452 (and, for Rust's `panic!` sub-case, #632). Each leg's
+  # own exit code is still EXPECTED to be non-zero while any fixture fails; it
+  # is reported, never gated on.
   #
   # THESE ROWS RUN ON PRs SINCE #619: this workflow gained a path-filtered
   # `pull_request:` trigger, so a PR touching any filtered path gets every row —
-  # these measurement legs included — as a PR check, with no dispatch. What is
-  # still deliberately NOT gated is their FAILURE COUNT: each leg's own exit code
-  # is expected to be non-zero, and the assertion stays "the harness produced a
-  # parseable `Results:` line, its counts are bare integers, and total >= 1". A
-  # red row here means the harness broke, never that a fixture regressed.
+  # these measurement legs included — as a PR check, with no dispatch.
   # ──────────────────────────────────────────────────
   python-roundtrip:
     name: Python Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
+      # engine. NEVER lower this to turn a red build green; raise it in the SAME
+      # PR as the fix that earned it (the job prints the exact new value).
+      PYTHON_ROUNDTRIP_FLOOR: "41"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1167,71 +1264,38 @@ jobs:
         id: conformance
         run: |
           set +e
-          output=$(python -m python.engine.conformance.roundtrip 2>&1)
+          python -m python.engine.conformance.roundtrip > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — never a global grep over all
-          # output. A multiline capture makes `[ "$total" -lt 1 ]` exit 2, and a
-          # failing `[` inside an `if` SKIPS the branch and falls through to
-          # exit 0: the gate would be silently DISABLED. `tail -1` makes that
-          # unreachable; the integer guard below asserts it rather than trusting
-          # it. (This leg's line carries a trailing " (N skipped carve-outs)"
-          # suffix — the `(?= total)` lookahead is unaffected.)
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Python Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          # Positive floor. A harness that printed nothing, or discovered no
-          # fixtures, must NEVER read as a silent pass (#439/#444) — and since
-          # this leg has no ratchet, this is the ONLY thing standing between
-          # "the harness rotted" and a green job.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### Python round-trip leg (measurement only — issue #452 item 3)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> Python -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`ballrt.*\`-shaped Python the syntactic \`ast\` encoder does not recognise)."
-            echo "This row exists to keep the number live and to catch the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "**Gap, tracked in #690.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> Python compiler dispatches through \`ballrt.*\` helpers, and"
+            echo "the syntactic \`ast\` encoder reads idiomatic hand-written Python. #690"
+            echo "carries the measured first blockers (\`try\`, top-level classes, the"
+            echo "unmapped \`ballrt.math_*\` helpers) and the smallest next step."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          # The leg's own exit code is expected to be non-zero while fixtures
-          # fail; it is reported, not gated on.
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   go-roundtrip:
     name: Go Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
+      # NEVER lower this to turn a red build green; raise it in the SAME PR as
+      # the fix that earned it (the job prints the exact new value).
+      GO_ROUNDTRIP_FLOOR: "31"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1256,60 +1320,38 @@ jobs:
         working-directory: go/engine
         run: |
           set +e
-          output=$(go test -v -run TestRoundTrip -timeout 3600s ./conformance/ 2>&1)
+          go test -v -run TestRoundTrip -timeout 3600s ./conformance/ > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — see the Python row above for
-          # why a global grep here is a silently-disabled gate.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Go Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### Go round-trip leg (measurement only — issue #452 item 3)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> Go -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`ballrt.*\`-shaped Go the syntactic \`go/ast\` encoder does not recognise)."
-            echo "This row exists to keep the number live and to catch the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "**Gap, tracked in #691.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> Go compiler dispatches through \`ballrt.*\` helpers over"
+            echo "\`ballrt.Value\`, and the syntactic \`go/ast\` encoder reads idiomatic"
+            echo "hand-written Go. #691 carries the measured first blocker (no"
+            echo "\`std_collections\` helper has an inverse yet) and the smallest next step."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   rust-roundtrip:
     name: Rust Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
+      # NEVER lower this to turn a red build green; raise it in the SAME PR as
+      # the fix that earned it (the job prints the exact new value).
+      RUST_ROUNDTRIP_FLOOR: "99"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1341,56 +1383,27 @@ jobs:
         working-directory: rust
         run: |
           set +e
-          output=$(cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture 2>&1)
+          cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — see the Python row above for
-          # why a global grep here is a silently-disabled gate.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Rust Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### Rust round-trip leg (measurement only — issue #452 item 3)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> Rust -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`ball_lang_shared::runtime::*\`-shaped Rust the syntactic \`syn\` encoder does"
-            echo "not recognise — and it has no \`fn main()\` shape the encoder's default path"
-            echo "accepts). This row keeps the number live and catches the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> Rust compiler dispatches through"
+            echo "\`ball_lang_shared::runtime::*\` over \`BallValue\`, and the syntactic"
+            echo "\`syn\` encoder reads idiomatic hand-written Rust. #692 carries the"
+            echo "measured first blocker (\`BallMap::new()\`) and the smallest next step;"
+            echo "the method-dispatcher \`panic!\` sub-case is #632, a different metric."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
   # Compiler legs — Ball -> <lang> -> build -> run, PER FIXTURE (#452)
@@ -1417,6 +1430,8 @@ jobs:
   # ──────────────────────────────────────────────────
   rust-compiler:
     name: Rust Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.rust == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1442,7 +1457,7 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "273"
+      RUST_COMPILER_FLOOR: "276"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1525,6 +1540,8 @@ jobs:
 
   go-compiler:
     name: Go Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1543,8 +1560,13 @@ jobs:
       # — exactly 146_nested_try_catch_types flipped to passing, the new
       # 464_typed_catch_clause_dispatch passes, and nothing flipped to failing.
       # Measured by this very row at 283 (run 34739969708, and 283 again on the
-      # run before it), matching the local sweep, never predicted.
-      GO_COMPILER_FLOOR: "283"
+      # run before it), matching the local sweep, never predicted. Raised to 290
+      # by #642's `std_collections.list_foreach` + `Map.fromEntries` slice
+      # (116_map_iteration / 119_nested_maps / 121_map_from_entries had NO
+      # compiler case at all and were refused outright) plus that PR's
+      # use-driven oneof-discriminator change and the corpus's own growth to
+      # 351 — measured by this row at 290 on run 34768892821, never predicted.
+      GO_COMPILER_FLOOR: "291"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1621,6 +1643,8 @@ jobs:
 
   python-compiler:
     name: Python Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.python == 'true' || needs.changes.outputs.matrix_self == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1629,7 +1653,7 @@ jobs:
       # leg (+2); a local before/after per-fixture diff accounted for every
       # change (105, 106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 245, never predicted.
-      PYTHON_COMPILER_FLOOR: "245"
+      PYTHON_COMPILER_FLOOR: "255"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1715,7 +1739,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip, python-roundtrip, go-roundtrip, rust-roundtrip]
+    # `changes` is in this list so a BROKEN classifier cannot read as green:
+    # if it fails, every row skips, and without the explicit assertion below
+    # "nothing failed" would be indistinguishable from "everything passed".
+    needs: [changes, dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip, python-roundtrip, go-roundtrip, rust-roundtrip]
     steps:
       - name: Print conformance matrix
         run: |
@@ -1723,10 +1750,17 @@ jobs:
           echo "║ Engine                       ║ Passed ║ Failed ║ Total  ║ Status ║"
           echo "╠══════════════════════════════╬════════╬════════╬════════╬════════╣"
 
+          # A row that did not run for THIS diff reports SKIP, never FAIL
+          # (#666): since the per-row conditions landed, a PR that touches one
+          # language runs that language's rows only, and the rest are skipped
+          # by design. `skipped` is the ONLY non-success result treated as
+          # benign — failure and cancelled still read FAIL.
           print_row() {
             local name="$1" passed="$2" failed="$3" total="$4" result="$5"
             local status="PASS"
-            if [ "$result" != "success" ]; then
+            if [ "$result" = "skipped" ]; then
+              status="SKIP"
+            elif [ "$result" != "success" ]; then
               status="FAIL"
             fi
             printf "║ %-28s ║ %6s ║ %6s ║ %6s ║ %-6s ║\n" \
@@ -1800,89 +1834,159 @@ jobs:
           echo ""
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "FLOOR" "STATUS"
           csc_status="PASS"
-          if [ "${{ needs.csharp-compiler.result }}" != "success" ]; then csc_status="FAIL"; fi
+          if [ "${{ needs.csharp-compiler.result }}" = "skipped" ]; then csc_status="SKIP"; elif [ "${{ needs.csharp-compiler.result }}" != "success" ]; then csc_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "C# Compiler (Ball -> C# -> Roslyn)" "${{ needs.csharp-compiler.outputs.passed }}" "${{ needs.csharp-compiler.outputs.failed }}" "${{ needs.csharp-compiler.outputs.total }}" "${{ needs.csharp-compiler.outputs.floor }}" "$csc_status"
           rust_status="PASS"
-          if [ "${{ needs.rust-compiler.result }}" != "success" ]; then rust_status="FAIL"; fi
+          if [ "${{ needs.rust-compiler.result }}" = "skipped" ]; then rust_status="SKIP"; elif [ "${{ needs.rust-compiler.result }}" != "success" ]; then rust_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Rust Compiler (Ball -> Rust -> cargo)" "${{ needs.rust-compiler.outputs.passed }}" "${{ needs.rust-compiler.outputs.failed }}" "${{ needs.rust-compiler.outputs.total }}" "${{ needs.rust-compiler.outputs.floor }}" "$rust_status"
           go_status="PASS"
-          if [ "${{ needs.go-compiler.result }}" != "success" ]; then go_status="FAIL"; fi
+          if [ "${{ needs.go-compiler.result }}" = "skipped" ]; then go_status="SKIP"; elif [ "${{ needs.go-compiler.result }}" != "success" ]; then go_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Go Compiler (Ball -> Go -> go build)" "${{ needs.go-compiler.outputs.passed }}" "${{ needs.go-compiler.outputs.failed }}" "${{ needs.go-compiler.outputs.total }}" "${{ needs.go-compiler.outputs.floor }}" "$go_status"
           python_status="PASS"
-          if [ "${{ needs.python-compiler.result }}" != "success" ]; then python_status="FAIL"; fi
+          if [ "${{ needs.python-compiler.result }}" = "skipped" ]; then python_status="SKIP"; elif [ "${{ needs.python-compiler.result }}" != "success" ]; then python_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Compiler (Ball -> Python)" "${{ needs.python-compiler.outputs.passed }}" "${{ needs.python-compiler.outputs.failed }}" "${{ needs.python-compiler.outputs.total }}" "${{ needs.python-compiler.outputs.floor }}" "$python_status"
           echo ""
 
-          # -- Measurement legs, NO floor ----------------------------------
-          # Not a parity claim and not a ratchet: the count is reported so it
-          # stays live instead of decaying into a doc comment. STATUS here means
-          # "the harness ran and reported a trustworthy count", NOT "the leg
-          # passes" — 0/320 is the expected baseline for the round trip (#452).
-          echo "Measurement legs (no floor - the count is the product)"
+          # -- Round-trip measurement legs, FLOORED + RATCHETED (#642) ------
+          # Not a parity claim: none of these four round-trips the whole corpus,
+          # and each row's own step summary names its remaining gap with the
+          # issue tracking it (#689 C#, #690 Python, #691 Go, #692 Rust). But the
+          # count is no longer unfloored: every row fails on `passed < 1` and on
+          # a DROP below its measured floor (tools/ci/roundtrip_floor.sh), so a
+          # regression is red. STATUS is the row's own result, which now carries
+          # the floor — it is no longer "the harness ran" alone. These rows
+          # printed `0 passed` on every run and read OK for as long as they
+          # existed; that is the hole #642 closed, so never reintroduce an
+          # "expected baseline" framing here.
+          echo "Round-trip legs (floored + ratcheted - not parity)"
           echo ""
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "HARNESS"
-          csrt_status="OK"
-          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "$csrt_status"
-          pyrt_status="OK"
-          if [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Python Round-Trip (Ball -> Py -> Ball)" "${{ needs.python-roundtrip.outputs.passed }}" "${{ needs.python-roundtrip.outputs.failed }}" "${{ needs.python-roundtrip.outputs.total }}" "$pyrt_status"
-          gort_status="OK"
-          if [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Go Round-Trip (Ball -> Go -> Ball)" "${{ needs.go-roundtrip.outputs.passed }}" "${{ needs.go-roundtrip.outputs.failed }}" "${{ needs.go-roundtrip.outputs.total }}" "$gort_status"
-          rsrt_status="OK"
-          if [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Rust Round-Trip (Ball -> Rust -> Ball)" "${{ needs.rust-roundtrip.outputs.passed }}" "${{ needs.rust-roundtrip.outputs.failed }}" "${{ needs.rust-roundtrip.outputs.total }}" "$rsrt_status"
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "FLOOR" "STATUS"
+          csrt_status="PASS"
+          if [ "${{ needs.csharp-roundtrip.result }}" = "skipped" ]; then csrt_status="SKIP"; elif [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "${{ needs.csharp-roundtrip.outputs.floor }}" "$csrt_status"
+          pyrt_status="PASS"
+          if [ "${{ needs.python-roundtrip.result }}" = "skipped" ]; then pyrt_status="SKIP"; elif [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Round-Trip (Ball -> Py -> Ball)" "${{ needs.python-roundtrip.outputs.passed }}" "${{ needs.python-roundtrip.outputs.failed }}" "${{ needs.python-roundtrip.outputs.total }}" "${{ needs.python-roundtrip.outputs.floor }}" "$pyrt_status"
+          gort_status="PASS"
+          if [ "${{ needs.go-roundtrip.result }}" = "skipped" ]; then gort_status="SKIP"; elif [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Go Round-Trip (Ball -> Go -> Ball)" "${{ needs.go-roundtrip.outputs.passed }}" "${{ needs.go-roundtrip.outputs.failed }}" "${{ needs.go-roundtrip.outputs.total }}" "${{ needs.go-roundtrip.outputs.floor }}" "$gort_status"
+          rsrt_status="PASS"
+          if [ "${{ needs.rust-roundtrip.result }}" = "skipped" ]; then rsrt_status="SKIP"; elif [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Rust Round-Trip (Ball -> Rust -> Ball)" "${{ needs.rust-roundtrip.outputs.passed }}" "${{ needs.rust-roundtrip.outputs.failed }}" "${{ needs.rust-roundtrip.outputs.total }}" "${{ needs.rust-roundtrip.outputs.floor }}" "$rsrt_status"
           echo ""
 
-          # Fail the summary if any engine job did not succeed (primary gate).
           summary_failed=0
-          if [ "${{ needs.dart-engine.result }}" != "success" ] || \
-             [ "${{ needs.ts-engine.result }}" != "success" ] || \
-             [ "${{ needs.ts-compiled-engine.result }}" != "success" ] || \
-             [ "${{ needs.ts-compiled-direct.result }}" != "success" ] || \
-             [ "${{ needs.cpp-compiled.result }}" != "success" ] || \
-             [ "${{ needs.rust-engine.result }}" != "success" ] || \
-             [ "${{ needs.csharp-engine.result }}" != "success" ] || \
-             [ "${{ needs.go-engine.result }}" != "success" ] || \
-             [ "${{ needs.python-engine.result }}" != "success" ]; then
-            echo ""
-            echo "One or more engine jobs did not succeed. See individual job logs above."
+
+          # The classifier itself must have succeeded. Every row's condition
+          # reads its outputs, so a failed `changes` job skips the whole matrix
+          # — and a summary that counted skips as fine would then report a green
+          # parity table for a run that executed nothing (#666).
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "::error::the Detect changed stacks job did not succeed (${{ needs.changes.result }}) — every row's condition is unevaluated, so this run proves nothing."
             summary_failed=1
           fi
+
+          # POSITIVE FLOOR, pull_request ONLY (#666). `skipped` is benign
+          # above — a row this diff does not require is not a failure — so a PR
+          # on which EVERY row's condition evaluated false would print a full
+          # table of SKIPs, find nothing to complain about, and exit 0. That is
+          # a green Conformance Matrix that executed zero rows, and no count of
+          # "nothing failed" can tell it apart from "everything passed".
+          #
+          # It cannot happen while every path in the `&matrix_paths` filter sets
+          # a signal some row reads — tools/ci/check_matrix_paths.sh proves that
+          # statically, by running the real classifier over a probe path for
+          # each filter entry. This is the RUN-time half of the same invariant,
+          # and it does not care WHY the rows were empty: a filter path with no
+          # signal, a row condition that stopped matching, or a classifier that
+          # returned all-false all land here.
+          #
+          # Push, schedule and dispatch runs are exempt because their rows are
+          # unconditional (`github.event_name != 'pull_request' || …`), so the
+          # count is trivially 9 and the floor would say nothing.
+          engine_rows_run=0
+          for res in \
+            "${{ needs.dart-engine.result }}" \
+            "${{ needs.ts-engine.result }}" \
+            "${{ needs.ts-compiled-engine.result }}" \
+            "${{ needs.ts-compiled-direct.result }}" \
+            "${{ needs.cpp-compiled.result }}" \
+            "${{ needs.rust-engine.result }}" \
+            "${{ needs.csharp-engine.result }}" \
+            "${{ needs.go-engine.result }}" \
+            "${{ needs.python-engine.result }}"; do
+            if [ "$res" != "skipped" ]; then
+              engine_rows_run=$((engine_rows_run + 1))
+            fi
+          done
+          echo ""
+          echo "Engine rows executed for this diff: $engine_rows_run of 9 (event: ${{ github.event_name }})"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$engine_rows_run" -lt 1 ]; then
+            echo "::error::this pull_request run executed ZERO engine rows — every row's condition evaluated false, so the table above proves nothing. The workflow started, so some path in the &matrix_paths filter matched this diff; that path must map onto a signal the row conditions read. Run 'bash tools/ci/check_matrix_paths.sh' to find the unmapped entry."
+            summary_failed=1
+          fi
+
+          # Fail the summary if any engine job did not succeed (primary gate).
+          # `skipped` is explicitly permitted — see print_row above; a row that
+          # this diff does not require is not a failure. `failure` and
+          # `cancelled` still fail.
+          engine_not_ok() {
+            [ "$1" != "success" ] && [ "$1" != "skipped" ]
+          }
+          for entry in \
+            "Dart Engine:${{ needs.dart-engine.result }}" \
+            "TS Self-Hosted Engine:${{ needs.ts-engine.result }}" \
+            "TS Compiled Engine:${{ needs.ts-compiled-engine.result }}" \
+            "TS Compiled (Direct):${{ needs.ts-compiled-direct.result }}" \
+            "C++ Compiled:${{ needs.cpp-compiled.result }}" \
+            "Rust Self-Hosted Engine:${{ needs.rust-engine.result }}" \
+            "C# Self-Hosted Engine:${{ needs.csharp-engine.result }}" \
+            "Go Self-Hosted Engine:${{ needs.go-engine.result }}" \
+            "Python Self-Hosted Engine:${{ needs.python-engine.result }}"; do
+            name="${entry%%:*}"; res="${entry##*:}"
+            if engine_not_ok "$res"; then
+              echo ""
+              echo "::error::the $name row did not succeed ($res). See its job log."
+              summary_failed=1
+            fi
+          done
 
           # Each ratcheted compile leg self-gates on its own floor (a DROP fails
           # the job), so its RESULT is the whole signal. They are intentionally
           # absent from the failed-count loop below: that loop asserts FULL
-          # PARITY, and none of these four legs has it yet (C# 226/320, Rust
-          # 237, Go 243, Python 238) — feeding those honest failure counts in
-          # there would wire known-red numbers into the parity gate.
+          # PARITY, and none of these four legs has it yet — each still fails
+          # dozens of fixtures, which is exactly what its own
+          # `<LANG>_COMPILER_FLOOR` records. Feeding those honest failure counts
+          # in here would wire known-red numbers into the parity gate; the
+          # floors are where the real numbers live, and they only rise.
           for leg in \
             "C#:${{ needs.csharp-compiler.result }}" \
             "Rust:${{ needs.rust-compiler.result }}" \
             "Go:${{ needs.go-compiler.result }}" \
             "Python:${{ needs.python-compiler.result }}"; do
             name="${leg%%:*}"; res="${leg#*:}"
-            if [ "$res" != "success" ]; then
+            if engine_not_ok "$res"; then
               echo ""
               echo "The $name compiler leg regressed below its floor. See its job log."
               summary_failed=1
             fi
           done
 
-          # The round-trip measurement legs have no floor, so each one's RESULT
-          # is the only signal it carries: the job fails solely when the harness
-          # itself broke (no parseable Results line, a non-integer count, or zero
-          # fixtures discovered). Their FAILURE COUNTS are deliberately NOT fed
-          # into the parity loop below — 0/321 passing is the honest, expected
-          # baseline in all four, and wiring that in would hard-red every run.
+          # The round-trip legs are floored and ratcheted since #642 but are
+          # still not PARITY gates: each row fails when its harness broke, when
+          # it round-tripped zero fixtures, or when its count dropped below its
+          # own `<LANG>_ROUNDTRIP_FLOOR`. Their FAILURE COUNTS stay out of the
+          # parity loop below on purpose — most of the corpus does not yet
+          # round-trip on any target, and wiring that in would hard-red every
+          # run. Each row's RESULT is the signal; its floor is what makes a flat
+          # zero red instead of green.
           for leg in \
             "C#:${{ needs.csharp-roundtrip.result }}" \
             "Python:${{ needs.python-roundtrip.result }}" \
             "Go:${{ needs.go-roundtrip.result }}" \
             "Rust:${{ needs.rust-roundtrip.result }}"; do
             name="${leg%%:*}"; res="${leg#*:}"
-            if [ "$res" != "success" ]; then
+            if engine_not_ok "$res"; then
               echo ""
               echo "The $name round-trip harness did not report a trustworthy count. See its job log."
               summary_failed=1
@@ -1920,4 +2024,4 @@ jobs:
           fi
 
           echo ""
-          echo "All engines passed conformance."
+          echo "All engines this diff requires passed conformance (a SKIP row is one the diff does not touch; the push-to-main and weekly runs execute the full matrix)."

@@ -190,7 +190,24 @@ func (e *Encoder) encodeCall(c *ast.CallExpr) *ballv1.Expression {
 		if pkg, ok := fn.X.(*ast.Ident); ok && pkg.Name == "fmt" {
 			return e.encodeFmtCall(fn.Sel.Name, c.Args)
 		}
+		// A Ball Go runtime helper — `go/compiler` emits every base call as one
+		// of these, so recognizing them is what lets the encoder read the
+		// compiler's own output back (see ballrt.go).
+		if pkg, ok := fn.X.(*ast.Ident); ok && pkg.Name == ballrtPackage {
+			return e.encodeBallrtCall(fn.Sel.Name, c.Args)
+		}
 		e.fail("unsupported qualified call %s.%s", typeString(fn.X), fn.Sel.Name)
+		return nullLit()
+	case *ast.FuncLit:
+		// An immediately-invoked function literal — the compiler's lowering of a
+		// Ball block in expression position. Inlined back to a Ball block when
+		// its shape is unambiguous; see inlineIIFE.
+		if len(c.Args) == 0 {
+			if block, ok := e.inlineIIFE(fn); ok {
+				return block
+			}
+		}
+		e.fail("unsupported immediately-invoked function literal (only a 0-argument literal whose body ends in a single `return <expr>` and contains no other `return` is inlinable as a Ball block)")
 		return nullLit()
 	case *ast.Ident:
 		name := fn.Name

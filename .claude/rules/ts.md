@@ -135,6 +135,27 @@ const json = toJson(ProgramSchema, program);
   test asserting emitted TEXT cannot see it — the shape compiles fine and
   silently answers with the wrong value, so the guard is a `runCompiled()`
   assertion in `test/class_emission_extra.test.ts` plus conformance 453.
+- **A `final` field declared beside a same-named SETTER moves its storage to a
+  backing member (#664/#651).** Dart allows the pair — a `final` field
+  contributes a getter and nothing else, so the explicit setter is the only
+  setter for that name (`collection`'s `ListSlice`). JavaScript does not: a
+  class field is installed on the INSTANCE with `[[Define]]` at construction, so
+  an own data property named `length` shadows the prototype's `set length` and
+  every write lands on the field with the setter never running — and TypeScript
+  rejects the declaration pair outright ("Duplicate identifier"). `emitClass`
+  therefore emits the storage as `__ball_field_<name>` (`accessorBackingName`)
+  and re-exposes the field NAME as a plain `get`, leaving the declared setter as
+  the only setter. Only writes that target the FIELD rather than the setter
+  rename — a `this.`-formal, an initializer-list entry, a named constructor's
+  `Object.create` seeding — all routed through `BallCompiler.fieldStorage`; every
+  read, inside the class or out, goes through the getter. **Gated on
+  `is_final`**, exactly like the Dart reference engine's
+  `_nearestFieldDeclarationIsFinal`: a NON-final field declares its own setter,
+  which shadows the inherited one (#501), and must keep its plain data member.
+  A text assertion on the declaration pair cannot see the bug — node runs the
+  pre-fix output happily and silently changes the `final` field — so the guard is
+  a `runCompiled()` assertion in `test/class_emission_extra.test.ts` plus
+  conformance `470_setter_beside_final_field`.
 - Base function dispatch in `_callBaseFunction()` switch
 - **`Box.new(7)` is a CONSTRUCTOR TEAR-OFF, not a static method (#531).** The
   Dart encoder emits it as a generic self-carrying call
@@ -187,6 +208,22 @@ const json = toJson(ProgramSchema, program);
   only `value`/`prefix` made both collapse to `''.startsWith('')` — **always
   true**, for years, because every corpus use of them asserted a TRUE answer.
   Fixture `260_string_functions` now pins the false cases too.
+- **`patchCompiledEngine`'s fast paths run BEFORE the compiled engine's own
+  resolution order, so each one must defer to it (#664).**
+  `engine_setup.ts`'s `_collectionFieldAccess` answered `length`/`isEmpty`/
+  `isNotEmpty` from an object's entry count for EVERY plain object — including a
+  class instance — while the Dart reference engine resolves a field access as
+  own key → `__super__` chain → methods → user getter → and only THEN those
+  virtual map properties. A class declaring `final int length` therefore read
+  its instance's entry count on this target alone: `slice.length` answered `2`
+  where every other engine answered the field, silently, with no error (found
+  while adding conformance `470_setter_beside_final_field`; a plain map carrying
+  a literal `'length'` key had it too). It now defers whenever the receiver is a
+  class instance (`hasOwnProperty('__type__')` — `BallObject` keeps its
+  bookkeeping as non-enumerable OWN properties) or carries an own key of that
+  name. Any new fast path added ahead of `origEvalFieldAccess` owes the same
+  deferral; `test/engine_setup.test.ts`'s
+  "a declared field beats the virtual map getters" group is the guard.
 - Post-processing `body.replace(/…/, …)` passes in `ts/compiler/src/compiler.ts`
   are anchored on the compiled engine's literal TEXT. When the reference engine
   moves, a pattern stops matching and the pass becomes a silent no-op. After
@@ -228,6 +265,41 @@ const json = toJson(ProgramSchema, program);
   besides: every encoder emits `list_reduce` only from a one-argument
   `.reduce(cb)`. `tests/conformance/465_state_error_message` is the guard.
   See `docs/TESTING_STRATEGY.md` §5b.
+
+- **`map_put_if_absent`'s thunk arrives in `value`, and a Ball lambda takes
+  exactly ONE input (#488).** Third instance of the bullet three up, found the
+  same way — by the first fixture ever to execute the base function
+  (`469_map_put_if_absent`; the encoder-completeness gate could not see a name
+  that lives in `collectionRoutes`' map VALUE). The `engine_setup.ts` override
+  read the thunk only from `ifAbsent`/`if_absent`, which the encoder never
+  emits, so the CLOSURE ITSELF was stored in the map and printed; and a thunk it
+  did find was called with zero arguments, which no Ball lambda accepts. The
+  result is awaited, as `list_map` does. When adding an override here, check the
+  key names against `collectionRoutes` in `dart/encoder/lib/encoder.dart` and
+  against the compiled engine's own `['<name>']:` entry — the compiled engine is
+  the reference implementation, and shadowing it is only ever justified when it
+  cannot run at all.
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. `ball_cast_assert` takes the subject and throws the TAGGED
+  `{__type__: 'TypeError', message}` object every emitted typed-`catch` guard
+  tests — a bare JS `Error` is not an instance of `globalThis.TypeError`, so
+  `on TypeError catch` never matched it. `__ball_err_prefix` gained
+  `TypeError: ''`. Both live in the preamble TEMPLATE LITERAL, so never put a
+  backtick or `${` in a comment you add there.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
 
 ### Encoder
 

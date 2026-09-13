@@ -433,6 +433,42 @@ class DartCompiler {
     return dartType;
   }
 
+  /// The statement that closes an `async`, non-generator function whose
+  /// declared result type is not `void`.
+  ///
+  /// Ball's IR does not record "every path of this body returns", so the
+  /// compiler appends a trailing statement unconditionally to satisfy Dart's
+  /// own flow analysis. WHICH statement depends on the declared result:
+  ///
+  ///  * a NULLABLE (or `dynamic`) result — falling off the end of a Ball
+  ///    function really does produce `null`, and `Future<int?>` accepts it, so
+  ///    the honest statement is a plain `return null;`.
+  ///  * a NON-NULLABLE result (`Future<bool>`, `Future<T>`) — `null` is not a
+  ///    value of that type at all. The old `return null as dynamic;` threw a
+  ///    `TypeError` the moment it was ever reached, so the line was already
+  ///    unreachable-by-construction; spelling it as a `Never`-typed `throw`
+  ///    keeps that meaning and is assignable to EVERY return type, including
+  ///    under `analyzer: language: strict-casts: true`, where an implicit
+  ///    `dynamic` → `bool` conversion is an error even in code flow analysis
+  ///    has proved unreachable (issue #488,
+  ///    `async/lib/src/stream_queue.dart` + `async/lib/src/async_cache.dart`).
+  static String _asyncSafetyReturn(String rawReturnType) {
+    var inner = rawReturnType.trim();
+    if (inner.startsWith('Future<') && inner.endsWith('>')) {
+      inner = inner.substring('Future<'.length, inner.length - 1).trim();
+    }
+    final acceptsNull =
+        inner.isEmpty ||
+        inner.endsWith('?') ||
+        inner == 'dynamic' ||
+        inner == 'Null' ||
+        inner == 'void' ||
+        inner == 'Future';
+    return acceptsNull
+        ? 'return null;'
+        : "throw StateError('unreachable: Ball async body already returned');";
+  }
+
   cb.Library _buildLibrary(Module mainModule, FunctionDefinition? entryFunc) {
     // Build dart module → import alias mapping for this module.
     _dartModuleAliases = _buildDartModuleAliases(mainModule);
@@ -1573,7 +1609,7 @@ class DartCompiler {
                   !isAsyncStar &&
                   func.outputType.isNotEmpty &&
                   _dartType(func.outputType) != 'void') {
-                _wl('return null as dynamic;');
+                _wl(_asyncSafetyReturn(_dartType(func.outputType)));
               }
             }),
           );
@@ -2274,7 +2310,7 @@ class DartCompiler {
           !isAsyncStar &&
           rawReturnType != null &&
           rawReturnType != 'void') {
-        _wl('return null as dynamic;');
+        _wl(_asyncSafetyReturn(rawReturnType));
       }
       _depth--;
       _wl('}');
@@ -3761,6 +3797,8 @@ class DartCompiler {
         '${_e(f['map']!)}.putIfAbsent(${_e(f['key']!)}, ${_e(f['value']!)})',
       'map_delete' => '${_e(f['map']!)}.remove(${_e(f['key']!)})',
       'map_contains_key' => '${_e(f['map']!)}.containsKey(${_e(f['key']!)})',
+      'map_contains_value' =>
+        '${_e(f['map']!)}.containsValue(${_e(f['value']!)})',
       'map_keys' => '${_e(f['map']!)}.keys.toList()',
       'map_values' => '${_e(f['map']!)}.values.toList()',
       'map_entries' => '${_e(f['map']!)}.entries.toList()',

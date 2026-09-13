@@ -1429,7 +1429,7 @@ TEST(cov63_to_string_invokes_object_toString_method) {
     BallObject obj(std::any(std::string("Pair")), std::any{},
                    std::any(BallMap{{"a", std::any((int64_t)1)}}),
                    std::any(methods));
-    BallDyn d(std::any(std::make_shared<BallObject>(obj)));
+    BallDyn d{std::any(std::make_shared<BallObject>(obj))};
     ASSERT_EQ((std::string)d, std::string("CUSTOM"));
 }
 
@@ -1504,7 +1504,7 @@ TEST(cov63_index_string_on_generator_and_object) {
 
     BallObject obj(std::any(std::string("P")), std::any{},
                    std::any(BallMap{{"a", std::any((int64_t)42)}}), std::any{});
-    BallDyn od(std::any(std::make_shared<BallObject>(obj)));
+    BallDyn od{std::any(std::make_shared<BallObject>(obj))};
     ASSERT_EQ((int64_t)od["a"s], (int64_t)42);
     ASSERT_TRUE(!od["missing"s]._val.has_value());
 }
@@ -1584,7 +1584,7 @@ TEST(cov63_count_over_scope_object_and_scalar) {
 
     BallObject obj(std::any(std::string("T")), std::any{},
                    std::any(BallMap{{"f", std::any((int64_t)1)}}), std::any{});
-    BallDyn od(std::any(std::make_shared<BallObject>(obj)));
+    BallDyn od{std::any(std::make_shared<BallObject>(obj))};
     ASSERT_EQ(od.count("f"s), (size_t)1);
 
     // A scalar holds no keys at all.
@@ -1815,10 +1815,14 @@ TEST(cov63_any_to_map_accepts_every_map_shaped_payload) {
     const BallMap* by_ref = _ball_object_base_map(std::any(shared));
     ASSERT_TRUE(by_ref != nullptr);
     ASSERT_EQ(by_ref->count("e"), (size_t)1);
-    const BallMap* by_val = _ball_object_base_map(
-        std::any(BallObject(std::any(std::string("T")), std::any{},
-                            std::any(BallMap{{"e", std::any((int64_t)1)}}),
-                            std::any{})));
+    // The by-VALUE arm returns a pointer INTO the std::any's stored object, so
+    // the any must outlive the read -- passing a temporary dangles the moment
+    // the full expression ends (libstdc++ happened to still read the right
+    // bytes; libc++ did not, which is what the macOS leg caught).
+    const std::any by_val_any{BallObject(
+        std::any(std::string("T")), std::any{},
+        std::any(BallMap{{"e", std::any((int64_t)1)}}), std::any{})};
+    const BallMap* by_val = _ball_object_base_map(by_val_any);
     ASSERT_TRUE(by_val != nullptr);
     ASSERT_EQ(by_val->count("e"), (size_t)1);
     ASSERT_TRUE(_ball_object_base_map(std::any(BallDyn(std::any(shared)))) == nullptr);
@@ -1842,13 +1846,13 @@ TEST(cov63_bind_local_across_scope_representations) {
     _ball_bind_local(as_om, "b", std::any((int64_t)2));
     ASSERT_EQ((int64_t)as_om["b"s], (int64_t)2);
 
-    BallDyn as_omref(std::any(std::make_shared<BallOrderedMap>()));
+    BallDyn as_omref{std::any(std::make_shared<BallOrderedMap>())};
     _ball_bind_local(as_omref, "c", std::any((int64_t)3));
     ASSERT_EQ((int64_t)as_omref["c"s], (int64_t)3);
 
     // Anything else falls back to BallDyn::set.
     BallObject obj(std::any(std::string("T")));
-    BallDyn as_obj(std::any(std::make_shared<BallObject>(obj)));
+    BallDyn as_obj{std::any(std::make_shared<BallObject>(obj))};
     _ball_bind_local(as_obj, "d", std::any((int64_t)4));
     ASSERT_EQ((int64_t)as_obj["d"s], (int64_t)4);
 }
@@ -1982,7 +1986,7 @@ TEST(cov63_map_entries_over_ordered_map_and_object) {
     // BallMap cast.
     BallObject obj(std::any(std::string("T")), std::any{},
                    std::any(BallMap{{"f", std::any((int64_t)9)}}), std::any{});
-    BallDyn od(std::any(std::make_shared<BallObject>(obj)));
+    BallDyn od{std::any(std::make_shared<BallObject>(obj))};
     BallDyn obj_entries = ball_map_entries(od);
     ASSERT_TRUE((int64_t)obj_entries.size() >= (int64_t)1);
 }

@@ -75,6 +75,17 @@ export class BallCompiler {
   private currentClassGetterNames: Set<string> = new Set();
 
   /**
+   * Field names of the current class whose storage moved to a private backing
+   * member because the class ALSO declares a setter of that name (#664/#651).
+   * A JS class field is installed on the instance and would shadow the
+   * prototype setter, so the name is re-exposed as a getter instead. Only a
+   * write that targets the FIELD — a `this.`-formal, an initializer-list entry,
+   * a named constructor's seeding — names the backing member; see
+   * [accessorBackingName].
+   */
+  private currentClassAccessorBackedFields: Set<string> = new Set();
+
+  /**
    * Short names of STATIC methods of the current class. Static members are
    * not on `this` in JS, so unqualified same-class calls/tear-offs to these
    * must be emitted as `<ClassName>.<name>` rather than `this.<name>`.
@@ -2678,6 +2689,7 @@ function __isUnknownFnError(e: any): boolean {
     const staticMethodNames = new Set<string>();
     const staticFieldNames = new Set<string>();
     const getterNames = new Set<string>();
+    const setterNames = new Set<string>();
     for (const fn of members) {
       const mMeta: Struct = fn.metadata ?? {};
       if ((mMeta as any).kind === "static_field") {
@@ -2687,6 +2699,9 @@ function __isUnknownFnError(e: any): boolean {
         methodNames.add(shortName);
         if (mMeta["is_getter"] === true) {
           getterNames.add(shortName);
+        }
+        if (mMeta["is_setter"] === true) {
+          setterNames.add(shortName);
         }
         // Static methods (incl. named constructors, which become static
         // factory methods) live on the class, not on instances. Track them
@@ -2700,15 +2715,49 @@ function __isUnknownFnError(e: any): boolean {
         }
       }
     }
+    // ── A `final` field declared next to a same-named setter (#664/#651) ──
+    // Dart allows it: a `final` field contributes a GETTER and nothing else, so
+    // the explicit setter is the only setter for that name (`collection`'s
+    // `ListSlice` is the real-world shape). JavaScript does not: a class field
+    // is installed on the INSTANCE with [[Define]] at construction, so an own
+    // data property named `length` shadows the prototype's `set length` and
+    // every write lands on the field with the setter never running — and TypeScript
+    // rejects the declaration pair outright ("Duplicate identifier").
+    //
+    // Lower the storage under a private backing name and re-expose the field
+    // NAME as a plain getter, leaving the declared setter as the only setter —
+    // the JS shape of exactly what Dart's `final` field means. Writes that
+    // target the FIELD rather than the setter (a `this.`-formal, an initializer
+    // list entry, a named constructor's seeding) name the backing member; every
+    // read, inside the class or out, goes through the getter.
+    // Gated on FINALITY, exactly like the Dart reference engine's write path
+    // (`engine_eval.dart`'s `_nearestFieldDeclarationIsFinal`): only a `final`
+    // field declares no setter of its own. A NON-final field does declare one,
+    // which shadows anything inherited (#501), so it keeps its plain data
+    // member and the declared setter of that name stays shadowed — the same
+    // answer every engine gives.
+    const accessorBackedFields = new Set<string>();
+    for (const p of properties) {
+      if (p.isStatic || !p.isReadonly) continue;
+      // A same-named getter AND field cannot both be declared in Dart, so a
+      // name that is also a getter is not this shape — leave it alone.
+      if (setterNames.has(p.name) && !getterNames.has(p.name)) {
+        accessorBackedFields.add(p.name);
+      }
+    }
+    const fieldStorageName = (n: string): string =>
+      accessorBackedFields.has(n) ? accessorBackingName(n) : n;
     const savedClassMethods = this.currentClassMethodNames;
     const savedClassStatics = this.currentClassStaticNames;
     const savedClassGetters = this.currentClassGetterNames;
     const savedClassName = this.currentClassName;
     const savedTypeParams = this.currentClassTypeParams;
+    const savedAccessorBacked = this.currentClassAccessorBackedFields;
     const deferredStaticFields: string[] = [];
     this.currentClassMethodNames = methodNames;
     this.currentClassStaticNames = staticMethodNames;
     this.currentClassGetterNames = getterNames;
+    this.currentClassAccessorBackedFields = accessorBackedFields;
     this.currentClassName = tsName;
     this.currentClassTypeParams = new Set(
       Array.isArray(meta["type_params"]) ? (meta["type_params"] as string[]) : [],
@@ -2785,11 +2834,26 @@ function __isUnknownFnError(e: any): boolean {
       }
     }
 
+    // Re-expose each backed field NAME as the getter its `final` declaration
+    // means. Emitted after the member loop so a hand-written accessor of the
+    // same name (which Dart would have rejected) could never be overwritten
+    // silently — `accessorBackedFields` excludes every declared getter name.
+    for (const p of properties) {
+      if (!accessorBackedFields.has(p.name)) continue;
+      getters.push({
+        name: p.name,
+        isStatic: false,
+        returnType: p.type,
+        statements: `return this.${fieldStorageName(p.name)};`,
+      });
+    }
+
     this.currentClassMethodNames = savedClassMethods;
     this.currentClassStaticNames = savedClassStatics;
     this.currentClassGetterNames = savedClassGetters;
     this.currentClassName = savedClassName;
     this.currentClassTypeParams = savedTypeParams;
+    this.currentClassAccessorBackedFields = savedAccessorBacked;
 
     // Inheritance.
     const superName =
@@ -2815,7 +2879,7 @@ function __isUnknownFnError(e: any): boolean {
       extends: superName ? this.dartTypeToTs(superName) : undefined,
       implements: tsInterfaces && tsInterfaces.length > 0 ? tsInterfaces : undefined,
       properties: properties.map((p) => ({
-        name: p.name,
+        name: fieldStorageName(p.name),
         type: p.type,
         isStatic: p.isStatic,
         isReadonly: p.isReadonly,
@@ -2897,10 +2961,12 @@ function __isUnknownFnError(e: any): boolean {
     if (isSingleInput && classFields.size > 0) {
       if (classFields.size === 1) {
         const fname = [...classFields][0];
-        prologueParts.push(`this.${fname} = input;`);
+        prologueParts.push(`this.${this.fieldStorage(fname)} = input;`);
       } else {
         for (const fname of classFields) {
-          prologueParts.push(`this.${fname} = input?.['${fname}'] ?? input;`);
+          prologueParts.push(
+            `this.${this.fieldStorage(fname)} = input?.['${fname}'] ?? input;`,
+          );
         }
       }
     } else {
@@ -2913,7 +2979,9 @@ function __isUnknownFnError(e: any): boolean {
       // Dart engine carried until #563.
       for (const p of rawParams) {
         if (p.isThis) {
-          prologueParts.push(`this.${p.name} = ${sanitize(p.name)};`);
+          prologueParts.push(
+            `this.${this.fieldStorage(p.name)} = ${sanitize(p.name)};`,
+          );
         }
       }
     }
@@ -2925,7 +2993,7 @@ function __isUnknownFnError(e: any): boolean {
     for (const init of initializers) {
       if (init?.kind !== "field" || typeof init.name !== "string") continue;
       prologueParts.push(
-        `this.${init.name} = ${resolveInitializerValue(init.value, rawParamNames)};`,
+        `this.${this.fieldStorage(init.name)} = ${resolveInitializerValue(init.value, rawParamNames)};`,
       );
     }
     const prologue = prologueParts.join("\n");
@@ -3045,9 +3113,9 @@ function __isUnknownFnError(e: any): boolean {
       // This directly instantiates with fields set.
       const assignments = initializers
         .filter((i: any) => i?.kind === "field")
-        .map((init: any) => `__inst.${init.name} = ${resolveInitializerValue(init.value, params)};`);
+        .map((init: any) => `__inst.${this.fieldStorage(init.name)} = ${resolveInitializerValue(init.value, params)};`);
       // For is_this params, assign them as fields
-      const thisAssignments = thisParams.map(p => `__inst.${p.name} = ${sanitize(p.name)};`);
+      const thisAssignments = thisParams.map(p => `__inst.${this.fieldStorage(p.name)} = ${sanitize(p.name)};`);
       const allAssignments = [...assignments, ...thisAssignments];
       bodyParts.push(`const __inst = Object.create(${className}.prototype);`);
       // `Object.create` deliberately runs no constructor — which also means it
@@ -3062,7 +3130,7 @@ function __isUnknownFnError(e: any): boolean {
       // #581: every field declared by an ancestor).
       for (const p of classProperties) {
         const def = dartInitializerToTs(p.dartInitializer, p.type, p.rawDartType);
-        if (def !== undefined) bodyParts.push(`__inst.${p.name} = ${def};`);
+        if (def !== undefined) bodyParts.push(`__inst.${this.fieldStorage(p.name)} = ${def};`);
       }
       for (const a of allAssignments) bodyParts.push(a);
       // A named constructor may have an initializer list / `this.`-params, a
@@ -3141,6 +3209,22 @@ function __isUnknownFnError(e: any): boolean {
       returnType: isAsync ? "Promise<any>" : "any",
       statements: body,
     };
+  }
+
+  /**
+   * The member a WRITE that targets the field itself must name.
+   *
+   * Only the constructor paths use it — a `this.`-formal, an initializer-list
+   * entry, and a named constructor's `Object.create` seeding — because those
+   * are exactly the writes Dart performs on the FIELD rather than through a
+   * setter. Everything else (a read, an assignment in a method body) keeps the
+   * declared name and therefore goes through the accessor pair, which is what
+   * Dart does too. See [currentClassAccessorBackedFields].
+   */
+  private fieldStorage(field: string): string {
+    return this.currentClassAccessorBackedFields.has(field)
+      ? accessorBackingName(field)
+      : field;
   }
 
   private buildGetter(fn: FunctionDef, meta: Struct, classFields: Set<string>) {
@@ -6580,6 +6664,17 @@ function classTsName(qualified: string): string {
   return colon < 0 ? qualified : qualified.slice(colon + 1);
 }
 
+/**
+ * The private backing member a field's storage moves to when its class also
+ * declares a setter of the same name (#664/#651). Deliberately NOT a `#private`
+ * field: the compiled classes are read back through bracket access in a few
+ * runtime paths, and a `#name` is unreachable there. The `__ball_field_` prefix
+ * cannot collide with a Dart identifier — `sanitize` never produces it.
+ */
+function accessorBackingName(field: string): string {
+  return `__ball_field_${field}`;
+}
+
 function isStd(module: string | undefined): boolean {
   return module === "std" ||
     module === "std_collections" || module === "std_io" ||
@@ -6972,10 +7067,14 @@ function compileStructuredPattern(
       // A cast pattern (subpat as T) ASSERTS the runtime type — it matches
       // structurally (like its sub-pattern) but THROWS on a mismatch (Dart
       // semantics), it does NOT refute. Conjoin ball_cast_assert(<typecheck>,
-      // "T") into the condition, short-circuited by the sub-pattern's own
-      // condition (so e.g. [var x as int] only asserts after the list shape
+      // <subject>, "T") into the condition, short-circuited by the sub-pattern's
+      // own condition (so e.g. [var x as int] only asserts after the list shape
       // matched). The assert also makes the case emit `if (cond)` rather than a
       // bare catch-all. (conformance 302)
+      //
+      // The SUBJECT is passed too because Dart's cast-failure message names the
+      // value's runtime type before the target type (issue #641; conformance
+      // 467_caught_type_error_to_string).
       const castType = fields.get("type")?.literal?.stringValue;
       const subpat = fields.get("pattern");
       let sub: StructuredPatternResult = { condition: "true", bindings: [] };
@@ -6985,7 +7084,7 @@ function compileStructuredPattern(
       }
       if (castType) {
         return {
-          condition: `(${sub.condition} && ball_cast_assert(${typeCheckCondition(castType, subject)}, ${JSON.stringify(castType)}))`,
+          condition: `(${sub.condition} && ball_cast_assert(${typeCheckCondition(castType, subject)}, ${subject}, ${JSON.stringify(castType)}))`,
           bindings: sub.bindings,
         };
       }

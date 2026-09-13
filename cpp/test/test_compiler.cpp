@@ -4055,6 +4055,90 @@ TEST(subclass_field_shadowing_getter_emits_virtual_override) {
     ASSERT_NOT_CONTAINS(out, "int64_t x = 5;");
 }
 
+// ================================================================
+// Tests — a `final` field declared beside a same-named setter (issue #664)
+// ================================================================
+
+// `class FixedSlice { final int length; set length(v) => throw …; }` is legal
+// Dart: a `final` field contributes a getter and NOTHING else, so the declared
+// setter is the only setter for that name (`collection`'s `ListSlice`). C++ has
+// no such split — a data member `length` and a member function `length(v)` are
+// the SAME name, and g++ rejects the pair with "'…::length(auto&&)' conflicts
+// with a previous declaration", which is how conformance
+// 470_setter_beside_final_field failed to BUILD on the compiled leg. The field
+// takes the #501 backing-member treatment, but ONLY the getter half of the
+// accessor pair: the declared setter already owns the write side, so
+// synthesising the implicit one would redefine the user's own member.
+TEST(final_field_beside_own_setter_backs_the_member_and_emits_only_a_getter) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "length"},
+                                       {"type", "int"},
+                                       {"is_final", true}}});
+    auto td = cov_class_td("main:FixedSlice", {{"length", "TYPE_INT64"}},
+                           std::move(meta));
+
+    json setter_meta;
+    setter_meta["kind"] = "method";
+    setter_meta["is_setter"] = true;
+    setter_meta["params"] = json::array({cov_param("v", "int")});
+    auto setter = cov_class_fn("main:FixedSlice.length", std::move(setter_meta),
+                               lit_int(0), "void");
+
+    auto prog = cov_class_program({td}, {setter});
+    auto out = compile_program(prog);
+
+    // Storage moved to the private backing member ...
+    ASSERT_CONTAINS(out, "private:");
+    ASSERT_CONTAINS(out, "_ball_shadow_length");
+    // ... the field NAME is re-exposed as a getter ...
+    ASSERT_CONTAINS(out, "length() { return _ball_shadow_length; }");
+    // ... and NO implicit setter is synthesised: the declared one is the only
+    // member function of that name taking an argument. `__ball_shadow_v` is the
+    // implicit setter's own parameter name, so its absence is the assertion.
+    ASSERT_NOT_CONTAINS(out, "__ball_shadow_v");
+    // The defect itself: no plain data member literally named `length` may be
+    // emitted alongside the declared setter of the same name.
+    ASSERT_NOT_CONTAINS(out, "int64_t length{};");
+}
+
+// The same class's field READ must compile to the accessor CALL, not to
+// `ball_length(...)`. `.length` has an unconditional virtual-property shortcut
+// near the top of compile_field_access, and it used to fire even for a receiver
+// whose own class declares a field of that name - so `slice.length` compiled to
+// the instance's ELEMENT COUNT with no error anywhere. The shortcut now yields
+// to a PROVABLE receiver class that declares the name.
+TEST(length_on_a_class_that_declares_it_is_the_field_not_ball_length) {
+    json meta;
+    meta["kind"] = "class";
+    meta["fields"] = json::array({json{{"name", "length"},
+                                       {"type", "int"},
+                                       {"is_final", true}}});
+    auto td = cov_class_td("main:FixedSlice", {{"length", "TYPE_INT64"}},
+                           std::move(meta));
+
+    json setter_meta;
+    setter_meta["kind"] = "method";
+    setter_meta["is_setter"] = true;
+    setter_meta["params"] = json::array({cov_param("v", "int")});
+    auto setter = cov_class_fn("main:FixedSlice.length", std::move(setter_meta),
+                               lit_int(0), "void");
+
+    // A method on the same class whose body reads `self.length`: the receiver's
+    // class is provable, which is the scope the fix is deliberately limited to.
+    json read_meta;
+    read_meta["kind"] = "method";
+    auto read_fn = cov_class_fn(
+        "main:FixedSlice.readLength", std::move(read_meta),
+        field_access(ref("self"), "length"), "int");
+
+    auto prog = cov_class_program({td}, {setter, read_fn});
+    auto out = compile_program(prog);
+
+    ASSERT_NOT_CONTAINS(out, "ball_length((*this))");
+    ASSERT_CONTAINS(out, "_ball_shadow_length");
+}
+
 // An ordinary (non-shadowing) field on a subclass must be emitted exactly as
 // before: a plain public data member, no backing rename, no accessor pair. This
 // pins the blast radius of the shadow pass to the classes that actually shadow.
@@ -4764,6 +4848,46 @@ TEST(class_typed_field_receiver_is_recovered_before_member_access) {
     ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(h.inner).label");
     // The bare struct-member form on the erased receiver is what did not build.
     ASSERT_NOT_CONTAINS(out, "(h.leaf.label)");
+}
+
+// #488: the SAME field read UNQUALIFIED. Inside its own class a field is named
+// bare (`leaf`, not `this.leaf`) — `compile_reference` emits the plain member
+// name — but `receiver_class_of` only knew how to prove a local/parameter or an
+// explicit FieldAccess, so the two spellings of one slot disagreed:
+// `this.leaf.label` compiled, `leaf.label` emitted a member access on the
+// BallDyn member and g++ rejected it with "'class BallDyn' has no member named
+// 'label'". Fixture 471_null_aware_chain_scope's `node?.leaf.value` is the first
+// corpus program to read a class-typed own field this way.
+TEST(unqualified_own_field_receiver_is_recovered_before_member_access) {
+    json leaf_meta;
+    leaf_meta["kind"] = "class";
+    leaf_meta["fields"] = json::array({json{{"name", "label"}, {"type", "String"}}});
+    auto leaf_td =
+        cov_class_td("main:Leaf", {{"label", "TYPE_STRING"}}, std::move(leaf_meta));
+
+    json holder_meta;
+    holder_meta["kind"] = "class";
+    holder_meta["fields"] = json::array({json{{"name", "leaf"}, {"type", "Leaf?"}},
+                                         json{{"name", "inner"}, {"type", "Leaf"}}});
+    auto holder_td = cov_class_td(
+        "main:Holder", {{"leaf", "TYPE_MESSAGE"}, {"inner", "TYPE_MESSAGE"}},
+        std::move(holder_meta));
+
+    // void Holder.use() { print(leaf.label); print(inner.label); }
+    json use_meta;
+    use_meta["kind"] = "method";
+    auto use = cov_class_fn(
+        "main:Holder.use", std::move(use_meta),
+        block({stmt_expr(print_call(field_access(ref("leaf"), "label"))),
+               stmt_expr(print_call(field_access(ref("inner"), "label")))}),
+        "void");
+
+    auto out = compile_program(cov_class_program({leaf_td, holder_td}, {use}));
+
+    ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(leaf).label");
+    ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(inner).label");
+    // The bare struct-member form on the erased receiver is what did not build.
+    ASSERT_NOT_CONTAINS(out, "(leaf.label)");
 }
 
 // #513: a constructor whose body is a SINGLE expression rather than a Block —

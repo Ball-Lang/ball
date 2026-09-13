@@ -1,0 +1,15 @@
+int: matched 42
+type 'String' is not a subtype of type 'int' in type cast
+type 'String' is not a subtype of type 'int' in type cast
+String: caught type 'String' is not a subtype of type 'int' in type cast
+type 'double' is not a subtype of type 'int' in type cast
+type 'double' is not a subtype of type 'int' in type cast
+double: caught type 'double' is not a subtype of type 'int' in type cast
+type 'bool' is not a subtype of type 'int' in type cast
+type 'bool' is not a subtype of type 'int' in type cast
+bool: caught type 'bool' is not a subtype of type 'int' in type cast
+type 'Null' is not a subtype of type 'int' in type cast
+type 'Null' is not a subtype of type 'int' in type cast
+Null: caught type 'Null' is not a subtype of type 'int' in type cast
+matched ok
+on TypeError: type 'int' is not a subtype of type 'String' in type cast

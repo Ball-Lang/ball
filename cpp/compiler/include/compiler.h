@@ -172,6 +172,14 @@ private:
     // for the backing-member + accessor pair; every other class is emitted
     // byte-identically to before.
     std::unordered_map<std::string, std::unordered_set<std::string>> class_shadowed_fields_;
+    // #664: the subset of class_shadowed_fields_ that is backed for a DIFFERENT
+    // reason — the class declares a SETTER of the field's own name. In Dart that
+    // is legal only for a `final` field (which contributes a getter and nothing
+    // else), so emit_struct synthesizes only the GETTER half of the accessor
+    // pair for these; the declared setter is the write side. Emitting the
+    // implicit setter too would be a redefinition of the user's own member.
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        class_setter_backed_fields_;
     // Maps a class key to the C++ type each of its shadowing fields must be
     // stored and re-exposed with: the type the SHADOWED ancestor getter is
     // emitted with. Overriding a `virtual T x()` with a `U x()` is a covariant-
@@ -488,6 +496,13 @@ private:
     // `ball_obj_as<C>(…)` before naming a member on it, or g++ rejects the
     // access with "'class BallDyn' has no member named '…'".
     bool receiver_is_erased(const ball::ir::Expression& raw) const;
+
+    // #488: the concrete user class an UNQUALIFIED reference to an own instance
+    // field declares — the bare-name spelling of `this.<field>`, which
+    // compile_reference emits as the plain member name. "" when the name is not
+    // such a field (a local shadows it, there is no enclosing class, the member
+    // is an accessor, or its declared type is not a concrete struct).
+    std::string declared_field_class_of_own_name(const std::string& name) const;
 
     // #513: the class a DECLARED Ball type source names once it is stripped of
     // its nullability suffix, when that class is a concrete (struct-emitted)

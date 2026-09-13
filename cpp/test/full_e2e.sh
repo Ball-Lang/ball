@@ -194,7 +194,7 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # 455_ctor_field_writes_that_survive, the positive half of the same test design,
 # which passed this leg all along.
 #
-# 467_initializer_list_field_with_setter is carved out here for #695. It is the
+# 468_initializer_list_field_with_setter is carved out here for #695. It is the
 # only entry, and it is a TARGET gap, not a fixture problem: the class declares a
 # `final` field and its OWN setter of the same name, which is legal Dart (a plain
 # `final` field contributes a getter and nothing else) and which every ENGINE —
@@ -207,7 +207,7 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # extending that trigger to a class's own accessors. Delete this entry, delete the
 # matching line in cpp/test/e2e_fixture_list_known_gaps.txt, and add the name to
 # program_names() in cpp/test/e2e_fixture_list.h the moment it lands.
-CPP_COMPILE_CARVEOUTS=(467_initializer_list_field_with_setter)
+CPP_COMPILE_CARVEOUTS=(468_initializer_list_field_with_setter)
 _is_carved() { local n="$1" c; (( ${#CPP_COMPILE_CARVEOUTS[@]} == 0 )) && return 1;
   for c in "${CPP_COMPILE_CARVEOUTS[@]}"; do [[ "$c" == "$n" ]] && return 0; done; return 1; }
 

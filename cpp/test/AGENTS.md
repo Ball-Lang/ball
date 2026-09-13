@@ -159,7 +159,7 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   **Why one call and not two steps:** `full_e2e.sh`'s positive floor
   (`passed == 0 && failed == 0` ⇒ exit 1, "this leg proved nothing") is
   per-invocation. A PR whose every changed fixture is a tracked
-  `CPP_COMPILE_CARVEOUTS` entry — `467_initializer_list_field_with_setter`
+  `CPP_COMPILE_CARVEOUTS` entry — `468_initializer_list_field_with_setter`
   (#695) is exactly that — would otherwise select one fixture, skip it as a
   carve-out, run nothing, and go red naming the wrong cause. Widening the
   filter is what the floor's own message prescribes, so the slice rides along

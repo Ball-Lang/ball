@@ -68,6 +68,25 @@ for the authoritative member set).
   `_stateError`. `tests/conformance/465_state_error_message` is the cross-target
   guard. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. The reference engine has no rendering table either —
+  `_evalLazyTry` binds `e.value` verbatim — so `engine_std.dart`'s `case 'cast'`
+  spells the whole string, using `_typeNameOf(value)` for the runtime type.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
+
 - **`late` on an instance field is decided from the IR, not from the field
   declaration (#651).** A non-nullable field with no inline initializer needs
   `late` only when nothing PROVES it assigned by the end of construction — i.e.
@@ -88,7 +107,7 @@ for the authoritative member set).
   legal Dart precisely because a plain `final` field contributes a getter and
   nothing else. `dart/compiler/test/field_finality_test.dart` pins both
   directions and runs a real `dart analyze` over the compiled output;
-  `tests/conformance/467_initializer_list_field_with_setter` is the cross-target
+  `tests/conformance/468_initializer_list_field_with_setter` is the cross-target
   fixture it compiles. Also keep `const`-constructor classes free of `late final`
   (#305) — that carve-out is unchanged.
 

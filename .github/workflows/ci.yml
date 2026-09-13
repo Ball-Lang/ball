@@ -1472,14 +1472,14 @@ jobs:
         run: rm -f cpp/build/test/e2e_coverage.txt
 
       # Step-level budget — the actual ratchet (#521, re-derived in #594).
-      # `Run tests` is dominated by test_e2e, which builds ~296 generated
+      # `Run tests` is dominated by test_e2e, which builds ~297 generated
       # fixture programs in a scratch CMake project. Budget: 13 min on Windows,
       # 8 min on Linux/macOS.
       #
       # A ratchet has to be sized against the SLOWEST healthy run, not the
       # fastest. With the cache warm the Linux/macOS step is 11s / 19s, but a
       # COLD cache is a normal, blameless event: any PR that touches the
-      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~296
+      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~297
       # generated TUs, and an Actions cache eviction or a first run on a new
       # key does the same. #521 measured that case on its run 33698642352 —
       # ubuntu `Run tests` 5m19s with `ccache -s` reporting 22 hits out of 292
@@ -1521,7 +1521,7 @@ jobs:
       # registering the tests would otherwise be indistinguishable from green.
       #
       # BALL_E2E_JOBS / BALL_E2E_LAUNCHER are read by cpp/test/test_e2e.cpp for
-      # the nested scratch project: build the ~269 fixture targets in parallel,
+      # the nested scratch project: build the ~297 fixture targets in parallel,
       # and route their compiles through the same compiler cache as the parent
       # build. The launcher is now set on ALL THREE legs (#594). It used to be
       # Linux/macOS only, because CMake honours <LANG>_COMPILER_LAUNCHER for the
@@ -1533,6 +1533,18 @@ jobs:
       # passes `-G Ninja` on Windows, the scratch project inherits that generator
       # through BALL_E2E_GENERATOR, and the "Compiler cache applied" step below
       # fails the job if any of that ever stops being true.
+      #
+      # Note that test_e2e configures that scratch project with `CMAKE_BUILD_TYPE`
+      # explicitly EMPTY, on every platform (#594) — do not "fix" it to Release.
+      # An unset build type is not neutral on MSVC: CMake's module initialises it
+      # to Debug, whose `/Zi` writes a PDB shared by a target's TUs, and sccache
+      # refuses to cache that — the first Ninja run reported
+      # `Non-cacheable compilations 296`, i.e. every fixture. Empty means "no
+      # configuration-specific flags" (what Linux/macOS always had), which is
+      # semantics-neutral here: these binaries are compiled, run, and their
+      # stdout diffed against a golden — never optimised for, never debugged.
+      # The `Compiler cache applied` step's non-cacheable ceiling (#599) is what
+      # now fails the job if that regresses.
       - name: Run tests
         timeout-minutes: ${{ runner.os == 'Windows' && 13 || 8 }}
         env:
@@ -1588,6 +1600,16 @@ jobs:
       # Deliberately NOT a hit RATE. A cold cache is blameless and routine (a
       # new key, an eviction, an emitter change that invalidates every
       # generated TU) and must stay green.
+      #
+      # It also asserts the MIRROR IMAGE of that defect (issue #599): the cache
+      # is consulted and DECLINES every compile. Requests, hits and misses all
+      # read healthy in that state, so the check above cannot see it — and it is
+      # exactly what #594's first Ninja run did on Windows
+      # (`Non-cacheable compilations 296`, one per generated fixture, from the
+      # MSVC-default Debug build type's shared PDB). The ceiling is 0 on all
+      # three legs, measured from this step's own output in three consecutive
+      # green main runs; the run ids and the per-OS rows live in the script's
+      # header, which is where to change them — against a fresh measurement.
       #
       # It runs AFTER the coverage step on purpose: the coverage assertion is
       # the stronger invariant and has to report first, and this step reads the

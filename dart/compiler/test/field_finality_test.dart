@@ -555,32 +555,28 @@ void main() {
       expect(compiled, isNot(contains('late final int windowSize')));
     });
 
-    test(
-      'the compiled source passes a real `dart analyze`',
-      () async {
-        final dir = Directory.systemTemp.createTempSync('ball_field_finality');
-        addTearDown(() => dir.deleteSync(recursive: true));
-        final file = File('${dir.path}/compiled.dart')
-          ..writeAsStringSync(compiled);
+    test('the compiled source passes a real `dart analyze`', () async {
+      final dir = Directory.systemTemp.createTempSync('ball_field_finality');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/compiled.dart')
+        ..writeAsStringSync(compiled);
 
-        // The real analyzer, not a substring check: DUPLICATE_DEFINITION is a
-        // COMPILE_TIME_ERROR, so `--no-fatal-warnings` still surfaces it while
-        // letting the compiler's cosmetic `unused_local_variable` prologue pass.
-        final result = await Process.run(Platform.resolvedExecutable, [
-          'analyze',
-          '--no-fatal-warnings',
-          file.path,
-        ]);
+      // The real analyzer, not a substring check: DUPLICATE_DEFINITION is a
+      // COMPILE_TIME_ERROR, so `--no-fatal-warnings` still surfaces it while
+      // letting the compiler's cosmetic `unused_local_variable` prologue pass.
+      final result = await Process.run(Platform.resolvedExecutable, [
+        'analyze',
+        '--no-fatal-warnings',
+        file.path,
+      ]);
 
-        expect(
-          result.exitCode,
-          0,
-          reason:
-              'dart analyze rejected the compiled output:\n'
-              '${result.stdout}\n${result.stderr}',
-        );
-      },
-      timeout: const Timeout(Duration(minutes: 3)),
-    );
+      expect(
+        result.exitCode,
+        0,
+        reason:
+            'dart analyze rejected the compiled output:\n'
+            '${result.stdout}\n${result.stderr}',
+      );
+    }, timeout: const Timeout(Duration(minutes: 3)));
   });
 }

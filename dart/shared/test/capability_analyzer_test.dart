@@ -631,6 +631,222 @@ void main() {
     });
   });
 
+  // ── #609: calls into a declared custom (non-std) base module ─────────────
+  //
+  // A program may declare its OWN `isBase` module — the documented host
+  // extension seam (`BallModuleHandler`). Its implementation is supplied per
+  // platform, so the capability table cannot know what it does; before #609 the
+  // `(module, function)` lookup simply missed and the program audited as
+  // pure / NO RISK. Every such call is now surfaced under an explicit `custom`
+  // capability (risk `unknown`), the summary escalates to REVIEW REQUIRED,
+  // `--deny custom` trips, and the termination analyzer reports the callee as
+  // unanalyzable.
+  group('#609 custom base modules', () {
+    /// A program whose entry calls `[callModule].[callFunction]`. When
+    /// [declareCustomModule] is true a base module named [callModule] declaring
+    /// [callFunction] is present (the host-extension seam); otherwise the call
+    /// resolves to nothing at all.
+    Program buildCustom({
+      String callModule = 'mymodule',
+      String callFunction = 'exec_shell',
+      bool declareCustomModule = true,
+      String customModuleName = 'mymodule',
+    }) {
+      final modules = <Map<String, dynamic>>[
+        {
+          'name': 'std',
+          'functions': [
+            {'name': 'print', 'isBase': true},
+          ],
+        },
+        if (declareCustomModule)
+          {
+            'name': customModuleName,
+            'functions': [
+              {'name': callFunction, 'isBase': true},
+            ],
+          },
+        {
+          'name': 'main',
+          'functions': [
+            {
+              'name': 'main',
+              'outputType': 'void',
+              'body': {
+                'call': {
+                  'module': callModule,
+                  'function': callFunction,
+                  'input': {
+                    'messageCreation': {'fields': <dynamic>[]},
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ];
+      return Program()..mergeFromProto3Json({
+        'name': 'custom',
+        'version': '1.0.0',
+        'entryModule': 'main',
+        'entryFunction': 'main',
+        'modules': modules,
+      }, ignoreUnknownFields: true);
+    }
+
+    test('`custom` is a declared capability whose risk is unknown', () {
+      expect(capabilityNames(), contains('custom'));
+      expect(capabilityRisk('custom'), 'unknown');
+    });
+
+    test('isKnownBaseModule recognizes exactly the eight std modules', () {
+      for (final m in capabilityModuleNames()) {
+        expect(isKnownBaseModule(m), isTrue, reason: '$m is a std module');
+      }
+      expect(isKnownBaseModule('mymodule'), isFalse);
+      expect(isKnownBaseModule(''), isFalse);
+    });
+
+    test('a call into a declared custom base module is never pure', () {
+      final r = analyzeCapabilities(buildCustom());
+      expect(_sum(r)['isPure'], isFalse);
+      final entry = _findCap(r, 'custom');
+      expect(entry['riskLevel'], 'unknown');
+      final sites = entry['callSites'] as List;
+      expect(sites, hasLength(1));
+      final site = sites.single as Map;
+      expect(site['module'], 'main');
+      expect(site['function'], 'main');
+      expect(site['calleeModule'], 'mymodule');
+      expect(site['calleeFunction'], 'exec_shell');
+    });
+
+    test(
+      'the report names the module + function and escalates the summary',
+      () {
+        final text = formatCapabilityReport(analyzeCapabilities(buildCustom()));
+        expect(text, contains('custom (1 call sites:'));
+        expect(text, contains('main.main → mymodule.exec_shell'));
+        expect(
+          text,
+          contains('REVIEW REQUIRED — calls into custom base modules'),
+        );
+        expect(text, isNot(contains('NO RISK')));
+        expect(text, contains('main.main → custom'));
+      },
+    );
+
+    test('--deny custom trips on the call site', () {
+      final violations = checkPolicy(
+        analyzeCapabilities(buildCustom()),
+        deny: {'custom'},
+      );
+      expect(violations, hasLength(1));
+      expect(
+        violations.single,
+        contains('main.main calls mymodule.exec_shell'),
+      );
+    });
+
+    test('the reachable-only analysis surfaces it too', () {
+      final r = analyzeCapabilitiesReachable(buildCustom());
+      expect(_sum(r)['isPure'], isFalse);
+      expect(
+        (_findCap(r, 'custom')['callSites'] as List).single,
+        containsPair('calleeFunction', 'exec_shell'),
+      );
+    });
+
+    test('a std-only program stays clean (no false custom capability)', () {
+      final r = analyzeCapabilities(
+        _buildMinimal(
+          stdFunctions: [
+            {'name': 'print', 'outputType': 'void'},
+          ],
+          functions: [
+            {
+              'name': 'main',
+              'outputType': 'void',
+              'body': {
+                'call': {
+                  'module': 'std',
+                  'function': 'print',
+                  'input': {
+                    'messageCreation': {
+                      'fields': [
+                        {
+                          'name': 'message',
+                          'value': {
+                            'literal': {'stringValue': 'hi'},
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        ),
+      );
+      expect(
+        _caps(r).map((c) => (c as Map)['capability']),
+        isNot(contains('custom')),
+      );
+      expect(checkPolicy(r, deny: {'custom'}), isEmpty);
+    });
+
+    test('a base function declared in a std module is not custom', () {
+      // The eight universal std modules are the audit's known surface: a base
+      // function declared under one of them is a std function (the capability
+      // table is the authority on what it does), never a host extension.
+      final r = analyzeCapabilities(
+        buildCustom(
+          callModule: 'std_io',
+          callFunction: 'read_line',
+          customModuleName: 'std_io',
+        ),
+      );
+      expect(
+        _caps(r).map((c) => (c as Map)['capability']),
+        isNot(contains('custom')),
+      );
+      expect(_sum(r)['readsStdin'], isTrue);
+    });
+
+    test(
+      'an UNdeclared module is not custom (the declaration is the signal)',
+      () {
+        // Nothing declares `mymodule.helper`, so the call is an ordinary
+        // (unresolved) user call — the audit fails closed rather than inventing a
+        // host extension out of a call-site string.
+        final r = analyzeCapabilities(
+          buildCustom(callFunction: 'helper', declareCustomModule: false),
+        );
+        expect(
+          _caps(r).map((c) => (c as Map)['capability']),
+          isNot(contains('custom')),
+        );
+      },
+    );
+
+    test('the termination analyzer reports the callee as unanalyzable', () {
+      final warnings = analyzeTermination(buildCustom());
+      expect(warnings, hasLength(1));
+      final w = warnings.single as Map;
+      expect(w['severity'], 'info');
+      expect(w['category'], 'unknown_termination');
+      expect(w['location'], 'main.main');
+      expect(w['message'], contains('mymodule.exec_shell'));
+      // Informational only — it must not flip the `--exit-code` error gate.
+      expect(terminationHasErrors(warnings), isFalse);
+      final text = formatTerminationReport(warnings);
+      expect(text, contains('Unknown Termination (1):'));
+      expect(text, contains('main.main: '));
+      expect(text, contains('Total: 0 error(s), 0 warning(s), 1 info(s)'));
+    });
+  });
+
   group('conformance programs', () {
     final conformanceDir = Directory('../../tests/conformance');
     if (!conformanceDir.existsSync()) return;

@@ -93,9 +93,9 @@ static int run_capture(const std::string& cmd, std::string& out) {
 
 // ── Scratch-build knobs (issue #521) ────────────────────────────────────────
 //
-// The scratch sub-project below has one `add_executable` per fixture (~296
+// The scratch sub-project below has one `add_executable` per fixture (~297
 // targets). It used to be configured with only -S/-B/-G and built with a bare
-// `cmake --build`, i.e. ~296 compiles+links run ONE AT A TIME with no compiler
+// `cmake --build`, i.e. ~297 compiles+links run ONE AT A TIME with no compiler
 // cache — 28 of the C++ Windows CI job's 32 minutes. Two env knobs fix that
 // without changing what is tested:
 //
@@ -300,7 +300,7 @@ static bool build_sub_project(const fs::path& proj_dir,
         return false;
     }
 
-    // Build all targets at once, in parallel. The ~296 fixture targets are
+    // Build all targets at once, in parallel. The ~297 fixture targets are
     // fully independent, so this is a straight wall-clock win (issue #521).
     const unsigned jobs = build_jobs();
     std::cout << "Scratch build: " << programs.size() << " target(s), "

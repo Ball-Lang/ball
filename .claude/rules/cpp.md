@@ -246,7 +246,7 @@ Size them against the **cold**-cache run, never the warm one. Warm, the
 Linux/macOS step is 11s / 19s; cold it is 5m19s / 4m57s (run 33698642352, with
 `ccache -s` showing 22 hits of 292 cacheable calls). A cold cache is normal and
 blameless — every PR that touches the Ball->C++ emitter or
-`cpp/shared/include/ball_dyn.h` changes all ~296 generated TUs, as does a cache
+`cpp/shared/include/ball_dyn.h` changes all ~297 generated TUs, as does a cache
 eviction or a first run on a new key — so a budget sized to the warm number
 red-lights a required check on an innocent PR.
 
@@ -258,7 +258,7 @@ over the COLD number and still fails a regression back to the uncached
 behaviour. It stays the
 loosest of the three by measurement, not assumption: each generated fixture is a
 ~278 KB TU pulling 29 standard headers, and MSVC needs ~1000s of front-end CPU
-for ~296 of them when nothing is cached. The generator was never the cost (a
+for ~297 of them when nothing is cached. The generator was never the cost (a
 Ninja scratch build measured 590s against MSBuild's 591s) — it is simply the one
 CMake honours a compiler launcher for.
 

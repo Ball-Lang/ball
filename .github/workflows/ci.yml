@@ -1298,14 +1298,14 @@ jobs:
         run: rm -f cpp/build/test/e2e_coverage.txt
 
       # Step-level budget — the actual ratchet (#521, re-derived in #594).
-      # `Run tests` is dominated by test_e2e, which builds ~296 generated
+      # `Run tests` is dominated by test_e2e, which builds ~297 generated
       # fixture programs in a scratch CMake project. Budget: 13 min on Windows,
       # 8 min on Linux/macOS.
       #
       # A ratchet has to be sized against the SLOWEST healthy run, not the
       # fastest. With the cache warm the Linux/macOS step is 11s / 19s, but a
       # COLD cache is a normal, blameless event: any PR that touches the
-      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~296
+      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~297
       # generated TUs, and an Actions cache eviction or a first run on a new
       # key does the same. #521 measured that case on its run 33698642352 —
       # ubuntu `Run tests` 5m19s with `ccache -s` reporting 22 hits out of 292
@@ -1347,7 +1347,7 @@ jobs:
       # registering the tests would otherwise be indistinguishable from green.
       #
       # BALL_E2E_JOBS / BALL_E2E_LAUNCHER are read by cpp/test/test_e2e.cpp for
-      # the nested scratch project: build the ~296 fixture targets in parallel,
+      # the nested scratch project: build the ~297 fixture targets in parallel,
       # and route their compiles through the same compiler cache as the parent
       # build. The launcher is now set on ALL THREE legs (#594). It used to be
       # Linux/macOS only, because CMake honours <LANG>_COMPILER_LAUNCHER for the

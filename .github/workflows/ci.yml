@@ -409,6 +409,23 @@ jobs:
           bash tools/ci/check_ci_regen_wiring.sh --self-test
           bash tools/ci/check_ci_regen_wiring.sh
 
+      # coverage.yml's Codecov upload must not be able to red a green coverage
+      # measurement (#638). Run 34746079045's `C++ coverage` job passed both
+      # floor steps and then failed on a codecov-action OIDC token-fetch
+      # timeout, so main's coverage history records a red on a commit whose
+      # coverage was fine — and `fail_ci_if_error: false` could not prevent it,
+      # because that input only reaches the action's LAST composite step, not
+      # the un-retried `Get OIDC token` one that timed out. This parses
+      # coverage.yml and asserts measurement and transport are different jobs,
+      # that nothing after a floor step can mask its verdict, that the upload
+      # retries the token fetch and then fails LOUD, and that no
+      # `continue-on-error`/`|| true` is anywhere near it. `--self-test` first:
+      # a guard that stopped asserting must not pass.
+      - name: Coverage upload-isolation wiring guard (#638)
+        run: |
+          bash tools/ci/check_coverage_upload_isolation.sh --self-test
+          bash tools/ci/check_coverage_upload_isolation.sh
+
       # The loop-breaker itself (#625): one auto-push per HUMAN commit. It is the
       # only thing standing between a nondeterministic generator and an infinite
       # push -> run -> drift -> push cycle once REGEN_PAT exists, and — like the

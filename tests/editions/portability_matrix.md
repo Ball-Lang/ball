@@ -34,15 +34,18 @@ the moment the corpus grows, which is exactly what happened here (per the
 project's policy against frozen tallies; `tools/check_conformance_doc_counts.sh`
 and `tools/ci/check_engine_row_docs.sh` are the CI guards that keep this file
 and `conformance-matrix.yml` from drifting apart again — the latter derives the
-engine set from the workflow's `summary.needs` and fails unless **the table
-below** carries a row for every one of them, and unless this file states no
-fixture or engine tally of its own). Read the workflow's `summary` job
-("Parity Matrix") on any run for the live numbers.
+engine set from the **parity table** the workflow's `summary` job prints (the
+`print_row` calls between its box-drawing header and footer, which is where a
+new engine is declared a full-parity row, and which excludes the ratcheted
+compiler and measurement round-trip legs by construction) and fails unless
+**the table below** carries a row for every one of them, unless this file
+states no fixture or engine tally of its own, and unless any row tells a reader
+one of those engines cannot execute a program.
 
-`256_editions_resolver` runs on every full-corpus engine row the workflow's
-`summary` job depends on — one row per language below, each with the matrix
-job(s) that run it (TypeScript's row is covered by more than one job; every
-other language has exactly one):
+`256_editions_resolver` runs on every engine row of the workflow's `summary`
+parity table — one row per language below, each with the matrix job(s) that run
+it (TypeScript's row is covered by more than one job; every other language has
+exactly one):
 
 | Engine | How it runs the program | `conformance-matrix.yml` job(s) |
 |--------|--------------------------|----------------------------------|
@@ -63,11 +66,15 @@ legacy: field_presence=EXPLICIT,enum_type=CLOSED,repeated_field_encoding=EXPANDE
 2023+IMPLICIT: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
 ```
 
-Every row above runs the WHOLE conformance corpus
+Each language's self-hosted row above runs the WHOLE conformance corpus
 (`tests/conformance/*.ball.json`, `256_editions_resolver` included), golden-exact
 — the workflow's `summary` job ("Parity Matrix") fails the moment any of them
 regresses, and `.github/workflows/regression-gates.yml` enforces zero failures
-and zero skips on the Dart/TS/C++ engines specifically.
+and zero skips on the Dart/TS/C++ engines specifically. One TypeScript row is
+narrower than that and says so in the workflow: `ts-compiled-direct` reports
+counts that exclude the fixed host-policy carve-out list
+(`tests/conformance/CARVEOUTS.md`), so read its total against the workflow's own
+definition rather than against the corpus size.
 
 ## Reproduce locally
 

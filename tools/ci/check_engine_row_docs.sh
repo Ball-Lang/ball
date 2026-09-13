@@ -27,15 +27,20 @@
 #      tally ("7 engines", "seven engine rows", "each of the 7 rows above") —
 #      both counts belong to the workflow's own run output, never to frozen
 #      prose.
-#   2. Derives the current "one engine, one row" set MECHANICALLY from
-#      `conformance-matrix.yml`'s `summary` job `needs:` list (every job that
-#      is not a `-compiler`/`-roundtrip` measurement/ratchet leg — those are
-#      explicitly NOT full-parity claims, see the summary job's own comments)
-#      and requires BOTH docs to name every one of those engines by its
-#      language token (the first word of the job's display `name:` — "TS
-#      Self-Hosted Engine"/"TS Compiled Engine"/"TS Compiled (Direct)" all
-#      collapse to one "TS" token, matching the one-row-per-language shape
-#      both docs use).
+#   2. Derives the current "one engine, one row" set MECHANICALLY from the
+#      PARITY TABLE `conformance-matrix.yml`'s `summary` job prints — the
+#      `print_row "<display name>" … needs.<job>.result` calls between its
+#      box-drawing header and footer. That table is where the workflow itself
+#      declares a full-parity row (its "adding a new engine" checklist is
+#      `needs:` + a `print_row` call + a failure check), and the ratcheted
+#      compiler / measurement round-trip legs printed AFTER the footer are
+#      excluded by construction rather than by a name blacklist. The language
+#      token is the first word of the row's display name — "TS Self-Hosted
+#      Engine"/"TS Compiled Engine"/"TS Compiled (Direct)" all collapse to one
+#      "TS" token, matching the one-row-per-language shape both docs use.
+#      `summary.needs` stays a cross-check: a parity row reporting a job the
+#      summary does not depend on can never fail the matrix, so that is a hard
+#      error here.
 #   3. Matches those tokens against the DATA ROWS of each doc's engine TABLE —
 #      never against the whole file. This is the load-bearing detail: a
 #      whole-file name scan is a fake-green gate, because an engine's name
@@ -45,10 +50,21 @@
 #      additionally floored at one data row per derived engine, so an
 #      unrelated table shrink is caught even when every name still appears
 #      inside the surviving rows.
+#   4. Fails any row that tells a reader one of those engines CANNOT EXECUTE a
+#      Ball program. Rules 2 and 3 count rows and names; they cannot see a row
+#      that is present, correctly named, and flatly wrong — which is what #613
+#      actually reported ("**No.** Engine does not execute to golden output
+#      yet"). A language in the parity table runs the whole corpus to a
+#      byte-exact golden on every run, so that claim contradicts the same
+#      source of truth rules 2-3 derive from. Deliberately narrow: only
+#      execution claims, so "Trusted only", "no public constructor" and "no
+#      NuGet package yet" (all currently true, and all about embeddability
+#      rather than execution) keep passing.
 #
 # POSITIVE FLOOR: deriving zero engines, finding the `summary` job absent,
-# finding a doc's engine section absent, and finding that section carrying no
-# table at all are ALL hard errors — never silent agreement.
+# finding its parity table absent, finding a doc's engine section absent, and
+# finding that section carrying no table at all are ALL hard errors — never
+# silent agreement.
 #
 # Usage:
 #   bash tools/ci/check_engine_row_docs.sh                       # gate the repo
@@ -57,7 +73,8 @@
 #
 # Exits 0 when both docs pass; 1 otherwise. Needs bash + python3 (no PyYAML
 # required — the workflow is small enough to parse with a tiny hand-rolled
-# `needs:`/`name:` scanner, so this has no third-party dependency at all).
+# `jobs:`/`needs:`/`print_row` scanner, so this has no third-party dependency
+# at all).
 
 set -uo pipefail
 
@@ -148,21 +165,33 @@ portability_text = read(portability_path, "portability doc")
 embed_text = read(embed_path, "embed skill doc")
 
 # ── Step 1: derive the current engine-row set from conformance-matrix.yml ──
-# Deliberately NOT a full YAML parse (no PyYAML dependency): the workflow's
-# `jobs:` block is a flat mapping of `  <job-id>:\n    name: <display name>`
-# entries, and the `summary` job's `needs: [...]` is a single-line flow list.
-# Both are matched structurally, not by hard-coding job ids.
-job_names = {}
-for m in re.finditer(r"^  ([a-zA-Z0-9_-]+):\s*$", workflow_text, re.MULTILINE):
-    job_id = m.group(1)
-    # Find this job's `name:` line: the first `    name:` after this job
-    # header and before the next job header (or EOF).
-    start = m.end()
-    next_job = re.search(r"^  [a-zA-Z0-9_-]+:\s*$", workflow_text[start:], re.MULTILINE)
-    block = workflow_text[start : start + next_job.start()] if next_job else workflow_text[start:]
-    name_m = re.search(r"^    name:\s*(.+?)\s*$", block, re.MULTILINE)
-    if name_m:
-        job_names[job_id] = name_m.group(1)
+# Deliberately NOT a full YAML parse (no PyYAML dependency), and deliberately
+# NOT a blacklist of job-id suffixes either. The authoritative declaration of
+# "this is a full-parity engine row" is the `summary` job's PARITY TABLE — the
+# `print_row "<Display name>" … needs.<job-id>.result` calls printed between
+# the box-drawing header and footer. The workflow says so itself: its
+# "adding a new engine" checklist is `1. Add "<lang>-engine" to the needs:
+# array / 2. Add a print_row call for the new engine / 3. Add a failure check`,
+# and the compiler/round-trip legs that follow the footer carry the comment
+# "Deliberately NOT part of the parity table above: this leg does not claim
+# full parity". A suffix blacklist got this wrong the moment a non-engine job
+# joined `summary.needs` — #671 added the `changes` classifier to it, which a
+# `-compiler`/`-roundtrip` blacklist happily derived as an engine named
+# "Detect".
+#
+# The language token is the FIRST word of the row's display name: "TS
+# Self-Hosted Engine"/"TS Compiled Engine"/"TS Compiled (Direct)" all collapse
+# to one "TS" token, matching the one-row-per-language shape both docs use.
+#
+# `summary.needs` stays load-bearing as a CROSS-CHECK: a parity row printed for
+# a job the summary does not depend on cannot make the matrix fail, so that is
+# a hard error here rather than a silently weaker gate.
+jobs_m = re.search(r"^jobs:\s*$", workflow_text, re.MULTILINE)
+if not jobs_m:
+    fail(f"{workflow_path}: no top-level `jobs:` block")
+    sys.exit(1)
+jobs_text = workflow_text[jobs_m.end() :]
+job_ids = set(re.findall(r"^  ([a-zA-Z0-9_-]+):\s*$", jobs_text, re.MULTILINE))
 
 needs_m = re.search(r"^  summary:\s*\n(?:.*\n)*?    needs:\s*\[([^\]]*)\]", workflow_text, re.MULTILINE)
 if not needs_m:
@@ -173,27 +202,69 @@ if not needs:
     fail(f"{workflow_path}: the `summary` job's `needs:` list is empty")
     sys.exit(1)
 
-LEG_SUFFIXES = ("-compiler", "-roundtrip")
-engine_job_ids = [j for j in needs if j != "summary" and not any(j.endswith(s) for s in LEG_SUFFIXES)]
-if not engine_job_ids:
-    fail(f"{workflow_path}: derived ZERO full-parity engine jobs from `summary.needs` — refusing to gate on nothing")
+# The parity table proper: everything between the `╠═…╣` header separator and
+# the `╚═…╝` footer of the summary job's first printed box.
+# The table body is what the `summary` step prints between its box-drawing
+# header separator and its footer. Those two glyphs are the only anchor that
+# does not depend on job ids or row wording; the legs printed AFTER the footer
+# are excluded by construction, which is what makes this a parity-only set.
+TABLE_TOP = "\u2560"  # the header separator's leading glyph
+TABLE_BOTTOM = "\u255a"  # the footer's leading glyph
+table_m = re.search(TABLE_TOP + r"[^\n]*\n(.*?)" + TABLE_BOTTOM, workflow_text, re.DOTALL)
+if not table_m:
+    fail(
+        f"{workflow_path}: could not find the `summary` job's parity table "
+        f"(the box-drawing header/footer around its `print_row` calls)"
+    )
     sys.exit(1)
 
-languages = []
-for jid in engine_job_ids:
-    name = job_names.get(jid)
-    if not name:
-        fail(f"{workflow_path}: job `{jid}` (in summary.needs) has no `name:` field to derive a language token from")
+table_body = table_m.group(1)
+# One entry per `print_row` call; a call's arguments run until the NEXT call
+# (or the end of the table), so this does not care whether a call is written
+# on one line or continued over five.
+calls = list(re.finditer(r'print_row\s+"([^"]+)"', table_body))
+parity_rows = []  # (display name, job id)
+for i, m in enumerate(calls):
+    row_name = m.group(1)
+    args = table_body[m.end() : calls[i + 1].start() if i + 1 < len(calls) else len(table_body)]
+    job_m = re.search(r"needs\.([a-zA-Z0-9_-]+)\.result", args)
+    if not job_m:
+        fail(
+            f"{workflow_path}: parity row \"{row_name}\" does not reference a `needs.<job>.result` "
+            f"— cannot tell which job it reports"
+        )
         sys.exit(1)
-    token = name.split()[0]
+    parity_rows.append((row_name, job_m.group(1)))
+
+if not parity_rows:
+    fail(f"{workflow_path}: derived ZERO parity rows from the `summary` job's table — refusing to gate on nothing")
+    sys.exit(1)
+
+for row_name, jid in parity_rows:
+    if jid not in job_ids:
+        fail(f"{workflow_path}: parity row \"{row_name}\" reports job `{jid}`, which is not a job in this workflow")
+        sys.exit(1)
+    if jid not in needs:
+        fail(
+            f"{workflow_path}: parity row \"{row_name}\" reports job `{jid}`, which is NOT in the `summary` job's "
+            f"`needs:` — that row can never fail the matrix"
+        )
+        sys.exit(1)
+
+languages = []
+for row_name, _ in parity_rows:
+    token = row_name.split()[0]
     if token not in languages:
         languages.append(token)
 
 if not languages:
-    fail(f"{workflow_path}: derived zero language tokens from {len(engine_job_ids)} engine job(s)")
+    fail(f"{workflow_path}: derived zero language tokens from {len(parity_rows)} parity row(s)")
     sys.exit(1)
 
-print(f"derived {len(languages)} engine language(s) from {workflow_path}'s summary.needs ({len(engine_job_ids)} job(s)): {', '.join(languages)}")
+print(
+    f"derived {len(languages)} engine language(s) from {workflow_path}'s `summary` parity table "
+    f"({len(parity_rows)} row(s)): {', '.join(languages)}"
+)
 
 
 def aliases(token):
@@ -275,10 +346,63 @@ def gate_engine_table(path, text, heading_pattern, heading_label):
         )
     else:
         ok(f"{path}: the '## {heading_label}' table names all {len(languages)} derived engine(s) (OK)")
+    return rows
+
+
+# A language that appears as a row in the `summary` job's PARITY TABLE runs the
+# whole conformance corpus to a byte-exact golden on every matrix run. So a doc
+# row for that language may not tell an embedder the opposite. This is #613's
+# headline symptom, and the one the row-count/row-presence rules above cannot
+# see: the stale table already HAD a C# row, it just said "**No.** Engine does
+# not execute to golden output yet (`SelfHostPendingException`)" — seven rows,
+# seven names, a flatly false verdict.
+#
+# Deliberately narrow: only claims that the engine cannot EXECUTE A PROGRAM.
+# "Trusted only", "no public constructor", "no NuGet package yet", "does not
+# compile for Flutter web" are all legitimate (and currently true) statements
+# about embeddability and packaging, and must keep passing.
+CANNOT_EXECUTE_RES = (
+    re.compile(r"(?:does|do)\s+not\s+execute", re.IGNORECASE),
+    re.compile(r"can(?:not|'t|’t)\s+execute", re.IGNORECASE),
+    re.compile(r"(?:does|do)\s+not\s+(?:yet\s+)?run\s+(?:a\s+|any\s+)?(?:Ball\s+)?programs?", re.IGNORECASE),
+    re.compile(r"can(?:not|'t|’t)\s+(?:yet\s+)?run\s+(?:a\s+|any\s+)?(?:Ball\s+)?programs?", re.IGNORECASE),
+    re.compile(r"no\s+working\s+engine", re.IGNORECASE),
+)
+
+
+def gate_no_cannot_execute_verdict(path, rows, heading_label):
+    """No row for a language in the parity table may claim its engine cannot
+    run a Ball program. `rows` is the table's data rows (None when the table
+    could not be located — the caller already failed in that case)."""
+    if not rows:
+        return
+    bad = []
+    for row in rows:
+        row_langs = [t for t in languages if bounded_present(row, t)]
+        if not row_langs:
+            continue
+        for rx in CANNOT_EXECUTE_RES:
+            m = rx.search(row)
+            if m:
+                bad.append((", ".join(row_langs), m.group(0)))
+                break
+    if bad:
+        for lang, hit in bad:
+            failures.append(
+                f"{path}: the '## {heading_label}' table's {lang} row claims \"{hit}\" — that language has a row in "
+                f"conformance-matrix.yml's `summary` parity table, i.e. its engine runs the WHOLE corpus to a "
+                f"byte-exact golden on every run (issue #613)"
+            )
+    else:
+        ok(f"{path}: no '## {heading_label}' row claims a parity-table engine cannot execute a program (OK)")
 
 
 # ── Step 2: portability_matrix.md must not freeze a tally in prose ─────────
-count_hits = [m.group(0) for m in re.finditer(r"\d+\s+fixtures\b", portability_text)]
+# `\\d+ fixtures` is the bare shape; the adjectives are the ones this repo
+# actually writes ("351 golden fixtures", "351 conformance fixtures"), and
+# they are the same frozen tally (review round 1, A4b).
+FIXTURE_COUNT_RE = re.compile(r"(?<![A-Za-z0-9_])\d+\s+(?:[A-Za-z][A-Za-z-]*\s+){0,2}fixtures\b")
+count_hits = [m.group(0) for m in FIXTURE_COUNT_RE.finditer(portability_text)]
 if count_hits:
     for hit in count_hits:
         failures.append(
@@ -310,10 +434,12 @@ if tally_hits:
 else:
     ok(f"{portability_path}: no hard-coded engine count found (OK)")
 
-gate_engine_table(portability_path, portability_text, r"Engines\b", "Engines")
+portability_rows = gate_engine_table(portability_path, portability_text, r"Engines\b", "Engines")
+gate_no_cannot_execute_verdict(portability_path, portability_rows, "Engines")
 
 # ── Step 3: the embed skill's per-target table ─────────────────────────────
-gate_engine_table(embed_path, embed_text, r"Per-target honest status", "Per-target honest status")
+embed_rows = gate_engine_table(embed_path, embed_text, r"Per-target honest status", "Per-target honest status")
+gate_no_cannot_execute_verdict(embed_path, embed_rows, "Per-target honest status")
 
 if failures:
     for f in failures:
@@ -337,9 +463,18 @@ self_test() {
   SCRATCH="$(mktemp -d)"
   trap cleanup EXIT
 
+  # The fixture mirrors the real workflow's SHAPE, which is what the guard
+  # parses: a `jobs:` map, and a `summary` job whose parity table is a run of
+  # `print_row "<name>" … needs.<job>.result` calls between the box-drawing
+  # header and footer. `changes` and the compiler/round-trip legs are in
+  # `needs:` but NOT in the parity table — exactly as in the real file — so a
+  # derivation that read `needs:` instead would invent a "Detect"/"C#
+  # Compiler" engine here.
   local wf="$SCRATCH/wf.yml"
   cat >"$wf" <<'YAML'
 jobs:
+  changes:
+    name: Detect matrix rows
   dart-engine:
     name: Dart Engine
   ts-engine:
@@ -364,7 +499,45 @@ jobs:
     name: Rust Round-Trip Leg (measurement)
   summary:
     name: Parity Matrix
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-roundtrip]
+    needs: [changes, dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-roundtrip]
+    steps:
+      - name: Print conformance matrix
+        run: |
+          echo "╔══╦══╗"
+          echo "║ Engine ║"
+          echo "╠══╬══╣"
+
+          print_row "Dart Engine (reference)" \
+            "${{ needs.dart-engine.result }}"
+
+          print_row "TS Self-Hosted Engine" \
+            "${{ needs.ts-engine.result }}"
+
+          print_row "TS Compiled Engine" \
+            "${{ needs.ts-compiled-engine.result }}"
+
+          print_row "TS Compiled (Direct)" \
+            "${{ needs.ts-compiled-direct.result }}"
+
+          print_row "C++ Compiled" \
+            "${{ needs.cpp-compiled.result }}"
+
+          print_row "Rust Self-Hosted Engine" \
+            "${{ needs.rust-engine.result }}"
+
+          print_row "C# Self-Hosted Engine" \
+            "${{ needs.csharp-engine.result }}"
+
+          print_row "Go Self-Hosted Engine" \
+            "${{ needs.go-engine.result }}"
+
+          print_row "Python Self-Hosted Engine" \
+            "${{ needs.python-engine.result }}"
+
+          echo "╚══╩══╝"
+
+          printf "%s" "C# Compiler Leg (ratcheted) ${{ needs.csharp-compiler.result }}"
+          printf "%s" "Rust Round-Trip Leg (measurement) ${{ needs.rust-roundtrip.result }}"
 YAML
 
   local good_portability="$SCRATCH/portability_good.md"
@@ -522,6 +695,29 @@ MD
 Not part of the table. Go and Python are named here too.
 MD
 
+  # #613's HEADLINE symptom, and the one every count/name rule is blind to:
+  # seven rows, seven names, and a C# verdict that flatly contradicts the
+  # parity table the guard derives from.
+  local stale_embed="$SCRATCH/embed_stale_verdict.md"
+  cat >"$stale_embed" <<'MD'
+# Ball Embed
+
+## Per-target honest status
+
+| Target | Embeddable for untrusted input? |
+|---|---|
+| **Dart** | Yes |
+| **TypeScript** | Partial |
+| **Rust** | Trusted only, and `pub fn run(&self)` takes no parameters. |
+| **C++** | Trusted only: no public constructor, and no `ball audit` for C++ at all. |
+| **C#** | **No.** Engine does not execute to golden output yet (`SelfHostPendingException`). Encoder + value model only. |
+| **Go** | Trusted only. No sandbox, no module-allowlist, no NuGet package yet. |
+| **Python** | Trusted only. No sandbox, no module-allowlist, no custom modules. |
+
+## Dangerous assumptions
+Not part of the table.
+MD
+
   local short_embed="$SCRATCH/embed_short.md"
   cat >"$short_embed" <<'MD'
 # Ball Embed
@@ -563,7 +759,7 @@ MD
   # Doubles as the negative control for the two frozen-tally rules: this
   # fixture carries "the 2023 row above" and "the 65 KB … budget", neither of
   # which may be mistaken for an engine tally.
-  expect "both docs clean passes" 0 "Results: 6 passed, 0 failed, 6 total" \
+  expect "both docs clean passes" 0 "Results: 8 passed, 0 failed, 8 total" \
     "$wf" "$good_portability" "$good_embed"
   expect "hard-coded fixture count fails" 1 "hard-coded fixture count \"293 fixtures\"" \
     "$wf" "$counted_portability" "$good_embed"
@@ -586,6 +782,20 @@ MD
     "table is missing row(s) for Go, Python" \
     "$wf" "$good_portability" "$short_embed"
 
+  # The verdict rule. The row COUNT and the row NAMES are both fine here, so
+  # every other rule passes this fixture — which is exactly why #613's first
+  # bullet had no test before.
+  expect "embed row claiming a parity engine cannot execute fails" 1 \
+    "row claims \"does not execute\"" \
+    "$wf" "$good_portability" "$stale_embed"
+
+  # The legitimate vocabulary the verdict rule must NOT eat: "Trusted only",
+  # "no public constructor", "no NuGet package yet" all survive in the clean
+  # fixture above, whose rows carry each of them.
+  expect "embeddability caveats are not execution claims" 0 \
+    "no '## Per-target honest status' row claims a parity-table engine cannot execute a program (OK)" \
+    "$wf" "$good_portability" "$good_embed"
+
   # A workflow with an empty summary.needs must fail loud, not pass trivially.
   local empty_wf="$SCRATCH/wf_empty.yml"
   cat >"$empty_wf" <<'YAML'
@@ -596,6 +806,49 @@ jobs:
 YAML
   expect "empty summary.needs fails loud" 1 "the \`summary\` job's \`needs:\` list is empty" \
     "$empty_wf" "$good_portability" "$good_embed"
+
+  # A parity row reporting a job the summary does NOT depend on can never make
+  # the matrix fail — deriving an engine from it would be a fake green.
+  local orphan_wf="$SCRATCH/wf_orphan_row.yml"
+  cat >"$orphan_wf" <<'YAML'
+jobs:
+  dart-engine:
+    name: Dart Engine
+  zig-engine:
+    name: Zig Self-Hosted Engine
+  summary:
+    name: Parity Matrix
+    needs: [dart-engine]
+    steps:
+      - name: Print conformance matrix
+        run: |
+          echo "╠══╬══╣"
+          print_row "Dart Engine (reference)" "${{ needs.dart-engine.result }}"
+          print_row "Zig Self-Hosted Engine" "${{ needs.zig-engine.result }}"
+          echo "╚══╩══╝"
+YAML
+  expect "parity row outside summary.needs fails loud" 1 \
+    "which is NOT in the \`summary\` job's \`needs:\`" \
+    "$orphan_wf" "$good_portability" "$good_embed"
+
+  # A summary job whose parity table is gone must fail loud, never derive zero
+  # engines and pass both docs trivially.
+  local no_table_wf="$SCRATCH/wf_no_parity_table.yml"
+  cat >"$no_table_wf" <<'YAML'
+jobs:
+  dart-engine:
+    name: Dart Engine
+  summary:
+    name: Parity Matrix
+    needs: [dart-engine]
+    steps:
+      - name: Print conformance matrix
+        run: |
+          echo "the rows moved somewhere else"
+YAML
+  expect "summary job with no parity table fails loud" 1 \
+    "could not find the \`summary\` job's parity table" \
+    "$no_table_wf" "$good_portability" "$good_embed"
 
   # A workflow with no summary job at all must fail loud too.
   local no_summary_wf="$SCRATCH/wf_no_summary.yml"
@@ -608,8 +861,8 @@ YAML
     "$no_summary_wf" "$good_portability" "$good_embed"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 11 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 11) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 15 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 15) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

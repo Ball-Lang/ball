@@ -352,7 +352,18 @@ cargo fmt --check && cargo clippy --workspace
   PACKAGE-ROOT `tests/`/`benches/`/`examples/` directory (a sibling of `src/` —
   a Cargo target; `src/tests/` is NOT one, #637), or one the crate's `mod` graph
   reaches ONLY through a `#[cfg(test)]` module, is excluded from the denominator
-  and counted on the harness's own `excluded (test-only): N` line. That took 34
+  and counted on the harness's own `excluded (test-only): N` line. **The
+  reachability half is anchored on a CRATE ROOT, and a missing anchor is FATAL
+  since #648**: `crate_root()` searches `lib.rs`/`main.rs`/`src/lib.rs`/
+  `src/main.rs` under the studied subtree, and not finding one used to return an
+  empty exclusion set and carry on — switching the only working half of the rule
+  off, readmitting all 34 files, and letting `coverage_table.py` ratchet UP on
+  the jump in `scored`. It now errors, naming every path searched. A subtree that
+  really has no crate root declares it, per pin, with `"crateRoot": "none"` (CLI:
+  `--no-crate-root`); no pin needs it today, and any other value of that key is
+  itself an error. `coverage_table.py` is the second line of defence: `excluded`
+  dropping to 0 while `scored` rises by at least that many files is a breach
+  naming the readmitted population, never a raise. That took 34
   of `bitflags`' files out — all 34 by reachability, since `src/tests.rs` and
   `src/tests/*.rs` alike are only reached through `#[cfg(test)] mod tests;` — so
   the denominator is **77, not the 110 every #491 histogram in this file and in

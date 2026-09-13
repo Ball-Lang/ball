@@ -219,7 +219,8 @@ fn a_cross_file_method_call_is_measured_crate_aware() {
         "a single-file measurement has no crate module"
     );
 
-    let results = ball_rq1_study::study_directory("scratch", &dir.join("src"));
+    let results = ball_rq1_study::study_directory("scratch", &dir.join("src"))
+        .expect("the scratch crate has a crate root");
     let _ = std::fs::remove_dir_all(&dir);
     let caller_result = results
         .iter()
@@ -362,7 +363,9 @@ fn scratch_crate(tag: &str) -> std::path::PathBuf {
 fn test_only_files_are_excluded_counted_and_named() {
     quiet();
     let dir = scratch_crate("classify");
-    let (studied, excluded) = ball_rq1_study::classify_rust_files("scratch", &dir);
+    let (studied, excluded) =
+        ball_rq1_study::classify_rust_files("scratch", &dir, ball_rq1_study::CrateRoot::Required)
+            .expect("the scratch package root resolves src/lib.rs");
 
     let rel = |path: &std::path::Path| {
         path.strip_prefix(&dir)
@@ -455,7 +458,8 @@ fn test_only_files_are_excluded_counted_and_named() {
          cfg(test) rule; got {excluded_rel:?}"
     );
 
-    let results = ball_rq1_study::study_directory("scratch", &dir);
+    let results = ball_rq1_study::study_directory("scratch", &dir)
+        .expect("the scratch package root resolves src/lib.rs");
     assert!(
         results
             .iter()
@@ -485,7 +489,9 @@ fn a_public_src_tests_module_survives_the_pin_shaped_subtree() {
     quiet();
     let dir = scratch_crate("subtree");
     let src = dir.join("src");
-    let (studied, excluded) = ball_rq1_study::classify_rust_files("scratch", &src);
+    let (studied, excluded) =
+        ball_rq1_study::classify_rust_files("scratch", &src, ball_rq1_study::CrateRoot::Required)
+            .expect("the studied src/ subtree resolves lib.rs");
 
     let studied_rel: std::collections::BTreeSet<String> = studied
         .iter()
@@ -636,14 +642,8 @@ fn an_unresolvable_crate_root_fails_the_run() {
          denominator and the ratchet reads that as an improvement (#648).\n\
          stdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    for needle in [
-        "deepcrate",
-        "lib.rs",
-        "main.rs",
-        "src/lib.rs",
-        "src/main.rs",
-        "crateRoot",
-    ] {
+    let expected = ["deepcrate", "lib.rs", "main.rs", "src/lib.rs", "src/main.rs", "crateRoot"];
+    for needle in expected {
         assert!(
             stderr.contains(needle),
             "the failure must name {needle:?} — the searched paths and the opt-in are \

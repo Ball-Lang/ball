@@ -13,6 +13,12 @@
 //! It is how the before/after of a crate-aware change is taken with ONE binary
 //! over ONE checkout, instead of by comparing two builds of the harness.
 //!
+//! `--no-crate-root` (and a pin's `"crateRoot": "none"`) declares a studied
+//! subtree that genuinely has no crate root — a bare directory of `.rs` files.
+//! Without that declaration an unresolvable crate root is FATAL (issue #648):
+//! it is what the `#[cfg(test)]` half of the test-only rule is anchored on, and
+//! running without it publishes a denominator with that half silently off.
+//!
 //! Report-only; the methodology and the load-bearing harness settings are in
 //! `tests/conformance/COVERAGE_STUDY.md`. The one thing that fails here is a
 //! run that scored zero files — a harness/checkout failure, never a 0% result.
@@ -20,9 +26,34 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use ball_rq1_study::{
-    Exclusion, FileResult, classify_rust_files, report, silence_panic_output, study_directory_with,
-};
+use ball_rq1_study::{CrateRoot, Exclusion, FileResult, report, silence_panic_output, study_package};
+
+/// The pin field (and CLI flag) that declares a studied subtree to have no
+/// crate root — issue #648.
+///
+/// Spelled camelCase like every other JSON key this harness reads or writes
+/// (`missingPins`, `excludedTestOnly`, `crateModule`); no sibling pin file in
+/// `tools/coverage-study/packages/` has a multi-word key, so there was no
+/// cross-language convention to keep instead.
+const CRATE_ROOT_KEY: &str = "crateRoot";
+
+/// Reads one pin's [`CrateRoot`] policy.
+///
+/// Absent means [`CrateRoot::Required`] — the anchorless branch is opt-in, never
+/// the fallback. Any value other than `"none"` is an ERROR rather than an
+/// ignored key: a typo that silently re-armed the default would be the same
+/// invisible failure this field exists to end.
+fn crate_root_policy(pin: &serde_json::Value) -> Result<CrateRoot, String> {
+    match pin.get(CRATE_ROOT_KEY) {
+        None => Ok(CrateRoot::Required),
+        Some(serde_json::Value::String(value)) if value == "none" => Ok(CrateRoot::Absent),
+        Some(other) => Err(format!(
+            "pin field \"{CRATE_ROOT_KEY}\" must be the string \"none\" (the only declaration \
+             this harness understands: a studied subtree that genuinely has no crate root); \
+             got {other}"
+        )),
+    }
+}
 
 fn flag(args: &[String], name: &str) -> bool {
     let flag = format!("--{name}");
@@ -75,6 +106,13 @@ fn main() -> ExitCode {
         for pin in packages {
             let name = pin.get("name").and_then(|n| n.as_str()).unwrap_or_default();
             let lib = pin.get("lib").and_then(|l| l.as_str()).unwrap_or("src");
+            let policy = match crate_root_policy(pin) {
+                Ok(policy) => policy,
+                Err(err) => {
+                    eprintln!("ERROR: {pins_path}: {name}: {err}");
+                    return ExitCode::from(2);
+                }
+            };
             let dir = PathBuf::from(&checkouts).join(name).join(lib);
             if !dir.is_dir() {
                 // An unreachable pin is NOT an encoder regression — report it as
@@ -82,8 +120,19 @@ fn main() -> ExitCode {
                 missing_pins.push(name.to_string());
                 continue;
             }
-            excluded.extend(classify_rust_files(name, &dir).1);
-            results.extend(study_directory_with(name, &dir, crate_aware));
+            match study_package(name, &dir, crate_aware, policy) {
+                Ok(study) => {
+                    excluded.extend(study.excluded);
+                    results.extend(study.results);
+                }
+                // A pin the test-only rule cannot anchor on stops the whole run
+                // (#648): measuring on would publish a denominator with one half
+                // of that rule silently switched off.
+                Err(err) => {
+                    eprintln!("ERROR: {err}");
+                    return ExitCode::from(2);
+                }
+            }
         }
     } else if let (Some(package), Some(source_dir)) =
         (arg(&args, "package"), arg(&args, "source-dir"))
@@ -93,12 +142,29 @@ fn main() -> ExitCode {
             eprintln!("--source-dir does not exist: {source_dir}");
             return ExitCode::from(2);
         }
-        excluded.extend(classify_rust_files(&package, dir).1);
-        results.extend(study_directory_with(&package, dir, crate_aware));
+        // The ad-hoc invocation gets the SAME opt-in the pin file does; an
+        // escape hatch that existed only in the pin file would leave the
+        // command a human actually types with the old silent fallback (#648).
+        let policy = if flag(&args, "no-crate-root") {
+            CrateRoot::Absent
+        } else {
+            CrateRoot::Required
+        };
+        match study_package(&package, dir, crate_aware, policy) {
+            Ok(study) => {
+                excluded.extend(study.excluded);
+                results.extend(study.results);
+            }
+            Err(err) => {
+                eprintln!("ERROR: {err}");
+                return ExitCode::from(2);
+            }
+        }
     } else {
         eprintln!(
             "Usage: rq1-study --pins <file> --checkouts <dir> [--json <out>] [--single-file]\n\
-             \x20      rq1-study --package <name> --source-dir <dir> [--json <out>] [--single-file]"
+             \x20      rq1-study --package <name> --source-dir <dir> [--json <out>] \
+             [--single-file] [--no-crate-root]"
         );
         return ExitCode::from(2);
     }

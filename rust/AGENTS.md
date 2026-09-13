@@ -46,6 +46,19 @@ a call into `CrateGraph` — that walk skips `#[cfg(test)]` modules outright (#6
 tell "test-only" from "not reached at all", and an unreferenced *library* leftover must stay
 scored. Neither `clean` nor `encoded` moved in absolute terms; both ratios rose because the
 denominator shrank. See `tests/conformance/COVERAGE_STUDY.md`.
+
+**That reachability walk is anchored on a CRATE ROOT, and a missing anchor is now FATAL (#648).**
+`crate_root()` looks for `lib.rs` / `main.rs` / `src/lib.rs` / `src/main.rs` under the studied
+subtree; until #648, not finding one returned an empty exclusion set and the run carried on, so a
+pin whose `lib` pointed one level too deep, a crate whose root moved, or a refactor of that
+resolver switched the only working half of the rule OFF — all 34 files re-entered the denominator
+and `coverage_table.py` read the jump in `scored` as an improvement to ratchet UP. It is now an
+error naming every path searched, the package root it did find, and the opt-in. A subtree that
+genuinely has no crate root (a bare directory of `.rs` files) is declared, per pin, with
+`"crateRoot": "none"` — or `--no-crate-root` for the ad-hoc `--package/--source-dir` invocation;
+any other value of that key is itself an error. No pin needs it today. The second line of defence
+is in `coverage_table.py`: an `excluded` that drops to 0 while `scored` rises by at least that many
+files is a BREACH naming the readmitted population, not a raise.
 Every other scored file is an `encode-error`: the encoder's documented gaps
 (item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate

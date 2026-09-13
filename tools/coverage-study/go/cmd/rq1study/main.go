@@ -46,6 +46,7 @@ func main() {
 	var (
 		results     []rq1study.FileResult
 		missingPins []string
+		excluded    []rq1study.Exclusion
 	)
 
 	switch {
@@ -76,6 +77,12 @@ func main() {
 				missingPins = append(missingPins, p.Name)
 				continue
 			}
+			_, dropped, classifyErr := rq1study.ClassifyGoFiles(p.Name, dir)
+			if classifyErr != nil {
+				fmt.Fprintln(os.Stderr, classifyErr)
+				os.Exit(2)
+			}
+			excluded = append(excluded, dropped...)
 			r, err := rq1study.StudyDirectory(p.Name, dir)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
@@ -88,6 +95,12 @@ func main() {
 			fmt.Fprintf(os.Stderr, "--source-dir does not exist: %s\n", *sourceDir)
 			os.Exit(2)
 		}
+		_, dropped, classifyErr := rq1study.ClassifyGoFiles(*pkg, *sourceDir)
+		if classifyErr != nil {
+			fmt.Fprintln(os.Stderr, classifyErr)
+			os.Exit(2)
+		}
+		excluded = dropped
 		r, err := rq1study.StudyDirectory(*pkg, *sourceDir)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -108,9 +121,14 @@ func main() {
 		if results == nil {
 			results = []rq1study.FileResult{}
 		}
+		if excluded == nil {
+			excluded = []rq1study.Exclusion{}
+		}
 		blob, err := json.MarshalIndent(map[string]any{
-			"missingPins": missingPins,
-			"files":       results,
+			"missingPins":      missingPins,
+			"files":            results,
+			"excludedTestOnly": len(excluded),
+			"excluded":         excluded,
 		}, "", "  ")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -123,7 +141,7 @@ func main() {
 	}
 
 	var out strings.Builder
-	code, err := rq1study.Report(&out, results, missingPins)
+	code, err := rq1study.Report(&out, results, excluded, missingPins)
 	fmt.Print(out.String())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)

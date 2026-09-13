@@ -197,9 +197,7 @@ void checkTestOnlyExclusion() {
     renderReport(out, results, scan.excluded, const []);
     check(
       'the summary prints the exclusion count, so nothing disappears silently',
-      out.toString().contains(
-        '  excluded (test-only): ${_testOnly.length}\n',
-      ),
+      out.toString().contains('  excluded (test-only): ${_testOnly.length}\n'),
       'summary was:\n$out',
     );
   } finally {

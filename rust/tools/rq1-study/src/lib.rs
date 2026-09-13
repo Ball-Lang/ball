@@ -470,12 +470,268 @@ fn study_file_core(
     }
 }
 
-/// Every `.rs` file under `dir`, sorted.
+/// One file Tier A did not score, and the rule that took it out.
+///
+/// An excluded file is NOT a `skipped` result: it never enters the results list
+/// at all, so it is in neither the numerator nor the denominator. It is
+/// reported on its own line so a denominator that moves because a RULE moved is
+/// visible — which is the entire reason exclusions are named here rather than
+/// silently filtered out of the walk.
+#[derive(Debug, Clone)]
+pub struct Exclusion {
+    pub package: String,
+    pub file: String,
+    pub rule: String,
+}
+
+/// Directory names that are a crate's own tests, benches or examples.
+///
+/// Cargo compiles each of these as its OWN crate against the library's public
+/// API, not as part of the library — `cargo build` builds none of them. A user
+/// encoding a dependency encodes `src/`, never `tests/`.
+const TEST_DIRS: [&str; 3] = ["tests", "benches", "examples"];
+
+/// The PATH half of the Rust test-only rule: the rule excluding
+/// `relative_path`, or `None` when nothing about its path says "test".
+///
+/// Matched on WHOLE path segments, never as a substring: `latest.rs`,
+/// `contest.rs` and `attestation/verify.rs` all contain "test" and are library
+/// code, and excluding them would be exactly the silent denominator shrink this
+/// rule exists to prevent (`tests/self_test.rs` pins all three).
+pub fn test_only_path_rule(relative_path: &str) -> Option<String> {
+    let parts: Vec<&str> = relative_path.split('/').collect();
+    if parts[..parts.len() - 1]
+        .iter()
+        .any(|part| TEST_DIRS.contains(part))
+    {
+        return Some("under a tests/, benches/ or examples/ directory".to_string());
+    }
+    None
+}
+
+/// Every `.rs` file under `dir`, sorted. Includes test-only files — the split
+/// is [`classify_rust_files`]'s job.
 pub fn rust_files_under(dir: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     collect(dir, &mut files);
     files.sort();
     files
+}
+
+/// Splits every `.rs` file under `dir` into the studied set and the test-only
+/// exclusions (the owner's 2026-09-14 methodology decision on issue #491).
+///
+/// Rust's convention has TWO halves and BOTH are needed, because neither
+/// subsumes the other:
+///
+///  1. a PATH rule — `tests/`, `benches/`, `examples/`, which Cargo compiles as
+///     their own crates against the library's public API and which `cargo
+///     build` does not build at all; and
+///  2. a REACHABILITY rule — a file the crate's `mod` graph reaches ONLY by
+///     passing through a `#[cfg(test)]` module. `src/tests.rs` is not under a
+///     `tests/` directory, and a crate may keep its unit tests in a module
+///     named anything at all.
+///
+/// This row is the reason the decision was made: 33 of the 110 scored Rust
+/// files were `bitflags`' `src/tests/*.rs`, declared by
+/// `src/lib.rs`'s `#[cfg(test)] mod tests;`. `crate_graph.rs::walk_items`
+/// deliberately does not walk a `#[cfg(test)]` module (#621, matching `cargo
+/// build`), so those files were measured with NO crate context — the worst of
+/// both worlds, and a third of the denominator.
+///
+/// A file the `mod` graph does not reach AT ALL (an unreferenced leftover) is
+/// **not** excluded: it is still studied, exactly as before. The rule only ever
+/// removes a file it can positively show is test-only, so an unresolvable crate
+/// root or a `#[path]` this walk cannot follow can only ever leave the
+/// denominator too LARGE, never too small.
+pub fn classify_rust_files(package: &str, dir: &Path) -> (Vec<PathBuf>, Vec<Exclusion>) {
+    let cfg_test_only = cfg_test_only_files(dir);
+    let mut studied = Vec::new();
+    let mut excluded = Vec::new();
+    for path in rust_files_under(dir) {
+        let rel = path
+            .strip_prefix(dir)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let rule = test_only_path_rule(&rel).or_else(|| {
+            cfg_test_only
+                .contains(&normalise(&path))
+                .then(|| "reachable only through a #[cfg(test)] module".to_string())
+        });
+        match rule {
+            Some(rule) => excluded.push(Exclusion {
+                package: package.to_string(),
+                file: rel,
+                rule,
+            }),
+            None => studied.push(path),
+        }
+    }
+    (studied, excluded)
+}
+
+/// `std::fs::canonicalize` when it works, the path as given otherwise — the
+/// `mod`-graph walk and the file walk must agree on identity, and a failure to
+/// canonicalise must not silently turn into "not test-only" for one and
+/// "test-only" for the other.
+fn normalise(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// The files the crate rooted at `dir` reaches ONLY through a `#[cfg(test)]`
+/// module.
+///
+/// Walked with `syn` DIRECTLY rather than through `ball_lang_encoder`'s own
+/// `CrateGraph`, for the same reason the declaration inventory is: a harness
+/// that asks the encoder which files matter cannot measure the encoder. It also
+/// could not answer this question through `CrateGraph` even if it wanted to —
+/// that walk skips `#[cfg(test)]` modules outright, so it cannot distinguish
+/// "test-only" from "not reached at all", and those two must not be conflated.
+fn cfg_test_only_files(dir: &Path) -> BTreeSet<PathBuf> {
+    let Some(root) = ["lib.rs", "main.rs"]
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+    else {
+        // No crate root under the studied subtree: nothing can be shown to be
+        // cfg(test)-only, so nothing is excluded by this half.
+        return BTreeSet::new();
+    };
+
+    let mut walk = ModWalk {
+        library: BTreeSet::new(),
+        test: BTreeSet::new(),
+        seen: BTreeSet::new(),
+    };
+    walk.file(&root, dir, false);
+    walk.test.difference(&walk.library).cloned().collect()
+}
+
+struct ModWalk {
+    /// Files reachable without passing through a `#[cfg(test)]` module.
+    library: BTreeSet<PathBuf>,
+    /// Files reachable through one.
+    test: BTreeSet<PathBuf>,
+    /// (file, under_cfg_test) pairs already walked — a crate may declare the
+    /// same file from both sides, and it must be walked once per side.
+    seen: BTreeSet<(PathBuf, bool)>,
+}
+
+impl ModWalk {
+    /// Walks one file. `child_dir` is the directory its `mod name;` children
+    /// resolve in, per the Rust reference's module-file rules.
+    fn file(&mut self, path: &Path, child_dir: &Path, under_cfg_test: bool) {
+        let key = (normalise(path), under_cfg_test);
+        if !self.seen.insert(key.clone()) {
+            return;
+        }
+        if under_cfg_test {
+            self.test.insert(key.0);
+        } else {
+            self.library.insert(key.0);
+        }
+        let Ok(source) = std::fs::read_to_string(path) else {
+            return;
+        };
+        let Ok(ast) = syn::parse_file(&source) else {
+            // An unparseable file blocks the walk below it. That leaves the
+            // denominator too large, never too small — the safe direction.
+            return;
+        };
+        self.items(&ast.items, child_dir, under_cfg_test);
+    }
+
+    fn items(&mut self, items: &[syn::Item], child_dir: &Path, under_cfg_test: bool) {
+        for item in items {
+            let syn::Item::Mod(item_mod) = item else {
+                continue;
+            };
+            let nested_cfg_test = under_cfg_test || is_cfg_test(&item_mod.attrs);
+            let name = item_mod.ident.to_string();
+            if let Some((_, inner)) = &item_mod.content {
+                // An inline `mod a { … }`: its own children resolve one
+                // directory deeper, but no new FILE is involved.
+                self.items(inner, &child_dir.join(&name), nested_cfg_test);
+                continue;
+            }
+            let candidates: Vec<PathBuf> = match path_attr(&item_mod.attrs) {
+                Some(explicit) => vec![child_dir.join(explicit)],
+                None => vec![
+                    child_dir.join(format!("{name}.rs")),
+                    child_dir.join(&name).join("mod.rs"),
+                ],
+            };
+            for candidate in candidates {
+                if !candidate.is_file() {
+                    continue;
+                }
+                let next = if candidate.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
+                    candidate
+                        .parent()
+                        .map(Path::to_path_buf)
+                        .unwrap_or_default()
+                } else {
+                    let stem = candidate
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    candidate
+                        .parent()
+                        .map(|p| p.join(stem))
+                        .unwrap_or_else(|| PathBuf::from(&name))
+                };
+                self.file(&candidate, &next, nested_cfg_test);
+                break;
+            }
+        }
+    }
+}
+
+/// `#[path = "…"]` on a `mod` declaration.
+fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
+    for attr in attrs {
+        if !attr.path().is_ident("path") {
+            continue;
+        }
+        if let syn::Meta::NameValue(nv) = &attr.meta
+            && let syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Str(value),
+                ..
+            }) = &nv.value
+        {
+            return Some(value.value());
+        }
+    }
+    None
+}
+
+/// Whether these attributes gate the item behind `cfg(test)`.
+///
+/// Deliberately the same semantics `rust/encoder/src/crate_graph.rs` documents
+/// and tests for its own walk — `#[cfg(test)]` and `#[cfg(all(test, …))]` are
+/// test-gated; `#[cfg(not(test))]`, `#[cfg(any(test, …))]` and a feature merely
+/// NAMED "testing" are not — but implemented here rather than borrowed, because
+/// a harness that asks the encoder what to measure cannot measure the encoder.
+fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.path().is_ident("cfg")
+            && attr
+                .parse_args::<syn::Meta>()
+                .is_ok_and(|meta| meta_is_test(&meta))
+    })
+}
+
+fn meta_is_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::List(list) if list.path.is_ident("all") => list
+            .parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )
+            .is_ok_and(|nested| nested.iter().any(meta_is_test)),
+        _ => false,
+    }
 }
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -537,7 +793,8 @@ pub fn study_directory_with(package: &str, dir: &Path, crate_aware: bool) -> Vec
             }
         }
     };
-    rust_files_under(dir)
+    classify_rust_files(package, dir)
+        .0
         .into_iter()
         .map(|path| {
             let rel = path
@@ -570,6 +827,7 @@ pub fn study_directory_with(package: &str, dir: &Path, crate_aware: bool) -> Vec
 pub fn report(
     out: &mut String,
     results: &[FileResult],
+    excluded: &[Exclusion],
     missing_pins: &[String],
 ) -> Result<i32, String> {
     use std::collections::BTreeMap;
@@ -595,6 +853,9 @@ pub fn report(
     if skipped > 0 {
         let _ = writeln!(out, "  skipped (no declarations, not scored): {skipped}");
     }
+    // ALWAYS printed, zero included: a missing line is indistinguishable from
+    // an exclusion rule that vanished, and summarize.sh fails the job on it.
+    let _ = writeln!(out, "  excluded (test-only): {}", excluded.len());
     if !missing_pins.is_empty() {
         let _ = writeln!(
             out,

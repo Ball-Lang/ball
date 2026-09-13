@@ -298,7 +298,10 @@ fn scratch_crate(tag: &str) -> std::path::PathBuf {
     }
     write("attestation/mod.rs", "pub mod verify;\n");
     write("attestation/verify.rs", "pub fn ok() -> i64 { 1 }\n");
-    write("internal_tests.rs", "#[test]\nfn works() { assert!(true); }\n");
+    write(
+        "internal_tests.rs",
+        "#[test]\nfn works() { assert!(true); }\n",
+    );
     write("tests/basic.rs", "#[test]\nfn basic() { assert!(true); }\n");
     write("benches/perf.rs", "pub fn bench() {}\n");
     write("examples/demo.rs", "fn main() {}\n");

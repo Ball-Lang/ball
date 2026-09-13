@@ -29,6 +29,15 @@ public sealed record FileResult(
     bool IrStable,
     string Reason);
 
+/// <summary>One file Tier A did not score, and the rule that took it out.
+///
+/// <para>An excluded file is NOT a <c>skipped</c> result: it never enters the
+/// results list at all, so it is in neither the numerator nor the denominator.
+/// It is reported on its own line so a denominator that moves because a RULE
+/// moved is visible — which is the entire reason exclusions are named here
+/// rather than silently filtered out of the walk.</para></summary>
+public sealed record Exclusion(string Package, string File, string Rule);
+
 /// <summary>Tier A of the third-party coverage study — C# port (issue #493).
 ///
 /// <para>For every .cs file of a pinned third-party library, does</para>
@@ -331,21 +340,157 @@ public static class TierA
     }
 
     /// <summary>Every hand-written .cs file under <paramref name="directory"/>,
-    /// sorted. Build outputs and generated/designer files are excluded — they
-    /// are nobody's hand-written library surface.</summary>
+    /// sorted, test-only files excluded. Build outputs and generated/designer
+    /// files are dropped too — they are nobody's hand-written library
+    /// surface, and unlike the test-only exclusion that is not a judgement
+    /// about which population is being measured, so it is not counted.</summary>
     public static List<string> CsFilesUnder(string directory) =>
-        Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
-            .Where(path =>
+        ClassifyCsFiles(string.Empty, directory).Studied;
+
+    private static bool IsHandWrittenSource(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        return !normalized.Contains("/obj/", StringComparison.Ordinal)
+            && !normalized.Contains("/bin/", StringComparison.Ordinal)
+            && !normalized.EndsWith(".Designer.cs", StringComparison.Ordinal)
+            && !normalized.EndsWith(".g.cs", StringComparison.Ordinal)
+            && !normalized.EndsWith(".generated.cs", StringComparison.Ordinal);
+    }
+
+    /// <summary>Directory names that are a package's own test suite.</summary>
+    private static readonly HashSet<string> TestDirs =
+        new(["test", "tests"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Project-name suffixes that declare a test project outright.</summary>
+    private static readonly string[] TestProjectSuffixes = ["Tests", "Test", "Specs", "IntegrationTests"];
+
+    /// <summary>Package ids whose presence in a .csproj makes it a test project
+    /// whatever it is called. Matched as a prefix so
+    /// <c>xunit.runner.visualstudio</c> / <c>NUnit3TestAdapter</c> count.</summary>
+    private static readonly string[] TestPackageMarkers =
+        ["xunit", "NUnit", "MSTest", "Microsoft.NET.Test.Sdk"];
+
+    /// <summary>
+    /// The rule excluding <paramref name="absolutePath"/>, or <c>null</c> when it is library code.
+    ///
+    /// <para>The owner's 2026-09-14 decision on issue #491: Tier A scores the LIBRARY code a
+    /// user would encode, so a package's own test suite is out of the denominator. C#'s
+    /// convention has two halves — a test DIRECTORY, and a test PROJECT (a
+    /// <c>*.Tests.csproj</c>, or any .csproj referencing xunit / NUnit / MSTest, which is the
+    /// half a filename rule alone would miss).</para>
+    ///
+    /// <para>Matched on WHOLE path segments and WHOLE project-name suffixes, never as a
+    /// substring: <c>Latest.cs</c>, <c>Contest.cs</c> and <c>Attestation/Verify.cs</c> all
+    /// contain "test" and are library code, and excluding them would be exactly the silent
+    /// denominator shrink this rule exists to prevent (TierASelfTests pins all three).</para>
+    /// </summary>
+    public static string? TestOnlyRule(string root, string absolutePath, Dictionary<string, bool> projectCache)
+    {
+        var relative = Path.GetRelativePath(root, absolutePath).Replace('\\', '/');
+        var segments = relative.Split('/');
+        if (segments.Take(segments.Length - 1).Any(TestDirs.Contains))
+        {
+            return "under a test/ or tests/ directory";
+        }
+
+        // Walk up to the nearest enclosing .csproj — that is the project this
+        // file compiles into, exactly as MSBuild resolves it.
+        var dir = Path.GetDirectoryName(absolutePath);
+        var stop = Path.GetFullPath(root);
+        while (dir is not null && dir.StartsWith(stop, StringComparison.Ordinal))
+        {
+            if (!projectCache.TryGetValue(dir, out var isTestProject))
             {
-                var normalized = path.Replace('\\', '/');
-                return !normalized.Contains("/obj/", StringComparison.Ordinal)
-                    && !normalized.Contains("/bin/", StringComparison.Ordinal)
-                    && !normalized.EndsWith(".Designer.cs", StringComparison.Ordinal)
-                    && !normalized.EndsWith(".g.cs", StringComparison.Ordinal)
-                    && !normalized.EndsWith(".generated.cs", StringComparison.Ordinal);
-            })
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToList();
+                isTestProject = IsTestProjectDirectory(dir, out var found);
+                if (!found)
+                {
+                    // No project here; keep walking up without caching a
+                    // verdict that belongs to a directory above this one.
+                    dir = Path.GetDirectoryName(dir);
+                    continue;
+                }
+
+                projectCache[dir] = isTestProject;
+            }
+
+            return isTestProject ? "under a test project (*.Tests.csproj, or an xunit/NUnit/MSTest reference)" : null;
+        }
+
+        return null;
+    }
+
+    private static bool IsTestProjectDirectory(string dir, out bool found)
+    {
+        string[] projects;
+        try
+        {
+            projects = Directory.GetFiles(dir, "*.csproj", SearchOption.TopDirectoryOnly);
+        }
+        catch (IOException)
+        {
+            found = false;
+            return false;
+        }
+
+        found = projects.Length > 0;
+        foreach (var project in projects)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            if (TestProjectSuffixes.Any(suffix =>
+                    name.EndsWith("." + suffix, StringComparison.OrdinalIgnoreCase)
+                    || name.Equals(suffix, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            string text;
+            try
+            {
+                text = File.ReadAllText(project);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            if (TestPackageMarkers.Any(marker => text.Contains(marker, StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Splits every hand-written .cs file under
+    /// <paramref name="directory"/> into the studied set and the test-only
+    /// exclusions.</summary>
+    public static (List<string> Studied, List<Exclusion> Excluded) ClassifyCsFiles(string package, string directory)
+    {
+        var studied = new List<string>();
+        var excluded = new List<Exclusion>();
+        var projectCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+        var paths = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
+            .Where(IsHandWrittenSource)
+            .OrderBy(path => path, StringComparer.Ordinal);
+        foreach (var path in paths)
+        {
+            var rule = TestOnlyRule(directory, path, projectCache);
+            if (rule is null)
+            {
+                studied.Add(path);
+            }
+            else
+            {
+                excluded.Add(new Exclusion(
+                    package,
+                    Path.GetRelativePath(directory, path).Replace('\\', '/'),
+                    rule));
+            }
+        }
+
+        return (studied, excluded);
+    }
 
     /// <summary>
     /// Runs Tier A over every .cs file under <paramref name="directory"/>.

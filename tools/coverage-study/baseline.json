@@ -1,5 +1,7 @@
 {
   "$schema-note": "Checked-in ratchet floors for the third-party coverage study (issue #493). Read and enforced by tools/coverage-study/coverage_table.py, which .github/workflows/coverage-study.yml runs after the seven measuring jobs. A run below any row's floor fails the workflow; a run above it raises the floor here and the bot commits the raise, so a gain cannot be given back silently. Seeded from the first all-green run of the full seven-job matrix: https://github.com/Ball-Lang/ball/actions/runs/33953210701 (2026-09-05). To re-seed a row deliberately (a changed pin list changes the denominator, which is a breach by design), edit its numbers in a reviewed commit - never widen a floor to make a red run green.",
+  "$excluded-note": "`excluded` is RECORDED, NOT FLOORED. It is the count of test-only files each Tier A harness takes OUT of the denominator, per that language's own convention (the owner's 2026-09-14 methodology decision on issue #491: Tier A scores the library code a user would encode, and a package's own test suite is a different population). It is not a quality measure - a pin whose own test suite grew moves it up, one that dropped a test moves it down, and neither is a regression - so no floor is applied to it. It lives here so that a ratio which moved because an exclusion RULE moved is visible in the committed diff rather than only inside a job log. A Tier A artifact that carries NO count is a hard failure in coverage_table.py, and summarize.sh fails the job on a missing `excluded (test-only): N` line, because a harness whose rule silently vanished would otherwise publish a denominator nobody can account for.",
+  "$reseeded-note": "The Rust row was re-seeded on 2026-09-14 for that decision: `scored` 110 -> 77, because 34 of the 119 .rs files under the pinned crates' studied subtrees are bitflags' own tests (33 under `src/tests/`, plus `src/tests.rs`, which only the cfg(test)-reachability half of the rule can see). `clean` and `encoded` are unchanged in absolute terms, so both ratios rose. No other row's denominator moved: TypeScript, Python and Go already filtered their test files - silently, with no count printed anywhere, which is what this change ends.",
   "seeded_from_run": "https://github.com/Ball-Lang/ball/actions/runs/33953210701",
   "rows": [
     {
@@ -9,7 +11,8 @@
       "artifact": "coverage-study-tier-a-dart/tier_a.json",
       "scored": 106,
       "clean": 65,
-      "encoded": 106
+      "encoded": 106,
+      "excluded": 0
     },
     {
       "language": "TypeScript",
@@ -18,7 +21,8 @@
       "artifact": "coverage-study-tier-a-typescript/tier_a.json",
       "scored": 48,
       "clean": 4,
-      "encoded": 29
+      "encoded": 29,
+      "excluded": 0
     },
     {
       "language": "C#",
@@ -27,7 +31,8 @@
       "artifact": "coverage-study-tier-a-csharp/tier_a.json",
       "scored": 472,
       "clean": 0,
-      "encoded": 141
+      "encoded": 141,
+      "excluded": 0
     },
     {
       "language": "Python",
@@ -36,16 +41,18 @@
       "artifact": "coverage-study-tier-a-python/tier_a.json",
       "scored": 73,
       "clean": 0,
-      "encoded": 5
+      "encoded": 5,
+      "excluded": 0
     },
     {
       "language": "Rust",
       "tier": "Tier A",
       "kind": "tier-a",
       "artifact": "coverage-study-tier-a-rust/tier_a.json",
-      "scored": 110,
+      "scored": 77,
       "clean": 0,
-      "encoded": 1
+      "encoded": 1,
+      "excluded": 34
     },
     {
       "language": "Go",
@@ -54,7 +61,8 @@
       "artifact": "coverage-study-tier-a-go/tier_a.json",
       "scored": 21,
       "clean": 0,
-      "encoded": 0
+      "encoded": 0,
+      "excluded": 0
     },
     {
       "language": "Dart",

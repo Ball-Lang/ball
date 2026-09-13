@@ -303,7 +303,7 @@ public class TierASelfTests
         ["src/Latest.cs", "src/Contest.cs", "src/Attestation/Verify.cs"];
 
     private static readonly string[] TestOnlyFiles =
-        ["test/Support.cs", "tests/Legacy.cs", "Demo.Tests/CoreTests.cs", "Demo.Spec/SpecTests.cs"];
+        ["test/Support.cs", "tests/Legacy.cs", "Demo.Tests/CoreTests.cs", "Demo.Verification/Cases.cs"];
 
     private static void Write(string root, string rel, string source)
     {
@@ -333,9 +333,9 @@ public class TierASelfTests
         // A project whose FILENAME declares it a test project.
         Write(dir, "Demo.Tests/Demo.Tests.csproj",
             "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
-        // A project whose filename says nothing, but which references xunit —
-        // the half a filename rule alone would miss.
-        Write(dir, "Demo.Spec/Demo.Spec.csproj",
+        // A project whose filename says nothing about tests, but which
+        // references xunit — the half a filename rule alone would miss.
+        Write(dir, "Demo.Verification/Demo.Verification.csproj",
             "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"xunit.v3\" /></ItemGroup></Project>\n");
         // And the library's own project, which must NOT make its files test-only.
         Write(dir, "src/Demo.csproj",

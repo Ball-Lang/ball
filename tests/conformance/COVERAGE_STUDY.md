@@ -103,6 +103,78 @@ keeps every declaration and reaches a fixpoint — it is only wrong once Dart's
 diagnostic diff or Tier B. Do not read a high Tier A number as "the pipeline
 handles real code".
 
+### What Tier A scores: LIBRARY code only (methodology change, 2026-09-14)
+
+Tier A's claim is "this is what happens to real library code a user would
+encode". A package's own **test suite** is a different population: it is written
+against that package's private internals, it is compiled under different
+settings (Rust's `#[cfg(test)]`, a separate C# test project), and nobody encodes
+it. Scoring it does not make the number more honest — it makes it less
+comparable. So since the owner's 2026-09-14 decision on issue #491, every Tier A
+harness **excludes test-only files from the denominator**, by that language's own
+convention.
+
+That decision came from a measured problem, not a preference. 33 of Rust's 110
+scored files were `bitflags`' own `src/tests/*.rs`, reached only through
+`src/lib.rs`'s `#[cfg(test)] mod tests;`. `rust/encoder`'s `crate_graph.rs`
+deliberately does not walk a `#[cfg(test)]` module (#621, matching `cargo
+build`), so those 33 files were measured with **no crate context at all** — a
+third of the denominator, measured the worst possible way, describing code no
+user would ever hand the encoder.
+
+| language | a file is test-only when | rule lives in |
+| --- | --- | --- |
+| Dart | it is under a `test`/`tests`/`integration_test` directory, or its name ends `_test.dart` | `rq1_study.dart::testOnlyRule` |
+| TypeScript | it is under a `test`/`tests`/`__tests__` directory, or its name ends `.test.*` / `.spec.*` / `.bench.*` | `rq1_study_ts.mts::testOnlyRule` |
+| Python | it is under a `test`/`tests` directory, or it is `conftest.py`, `test_*.py` or `*_test.py` | `rq1_study_py.py::test_only_rule` |
+| Go | its name ends `_test.go`, or it is under a `testdata/` directory | `go/rq1study/study.go::TestOnlyRule` |
+| Rust | it is under a `tests`/`benches`/`examples` directory, **or** the crate's `mod` graph reaches it only through a `#[cfg(test)]` module | `rq1-study/src/lib.rs::classify_rust_files` |
+| C# | it is under a `test`/`tests` directory, or under a **test project** (`*.Tests.csproj` &c., or any `.csproj` referencing xunit / NUnit / MSTest) | `TierA.cs::TestOnlyRule` |
+
+Four properties make this a rule rather than a filter, and each is asserted by
+that language's own self-test (all six gated on every PR in `ci.yml`):
+
+1. **It is counted.** Every harness prints `excluded (test-only): N` — *always*,
+   zero included — and writes `excludedTestOnly` into its JSON report.
+   `summarize.sh` FAILS a Tier A job whose log does not carry that line, or
+   whose count is not a bare integer, and `coverage_table.py` fails on a Tier A
+   artifact that does not carry the key. A missing count is indistinguishable
+   from a rule that vanished, and the whole point is that a denominator which
+   moved because a rule moved must be visible.
+2. **It is published.** The README table has an `excluded (test-only)` column and
+   `baseline.json` records the count per row — **recorded, not floored**: a pin
+   whose own test suite grew moves it in either direction and neither is a
+   regression.
+3. **It never excludes library code.** Matching is on whole path segments and
+   whole name suffixes, never substrings. Each self-test carries three library
+   files named `latest`, `contest` and `attestation/verify` — "la-**test**",
+   "con-**test**", "at-**test**-ation" — and asserts they are still *studied*. A
+   sloppy substring rule passes the exclusion half of the test and fails this
+   half, by construction.
+4. **Rust's two halves are both required.** The path rule cannot see
+   `bitflags/src/tests.rs` (not under a `tests/` directory); the reachability
+   rule is what catches it — and did, on the real pins: 33 excluded by path, 1 by
+   `#[cfg(test)]` reachability. The reachability walk is its own `syn` walk in
+   the harness, not a call into `CrateGraph`: that walk skips `#[cfg(test)]`
+   modules outright, so it cannot tell "test-only" from "not reached at all", and
+   conflating those two would exclude an unreferenced *library* leftover. A file
+   the walk cannot resolve is **kept**, so the rule can only ever leave the
+   denominator too large.
+
+Three harnesses were already filtering before this change — TypeScript dropped
+`*.test.ts` / `*.spec.ts` / `*.bench.ts` and three directories, Python dropped
+`test` / `tests`, Go dropped `_test.go` and `testdata/` — and not one of them
+printed a count anywhere. Their denominators are unchanged by this work; what
+changed is that the rule is now stated, tested and reported instead of implicit.
+Dart and C# gained a rule they did not have (no pin trips it today: both pin
+lists point at library subtrees).
+
+**Known limitation, recorded rather than papered over.** Python's `test`/`tests`
+directory rule would over-exclude a package that ships a PUBLIC test subpackage —
+`django.test` is the canonical example. No pin in
+`tools/coverage-study/packages/python.json` does; a pin that did would have to be
+recorded here.
+
 ### Baseline (2026-09-02, five pinned packages, 106 scored files)
 
 | | clean | reasons |

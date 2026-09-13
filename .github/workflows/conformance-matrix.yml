@@ -1016,7 +1016,7 @@ jobs:
       # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
       # fixture-by-fixture to flip. Measured by this very row at 270 (run
       # 34739969708, and 270 again on the run before it), never predicted.
-      CSHARP_COMPILER_FLOOR: "270"
+      CSHARP_COMPILER_FLOOR: "274"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1457,7 +1457,7 @@ jobs:
       # are the two fixtures verified fixture-by-fixture to flip. Measured by
       # this very row at 273 (run 34739969708, and 273 again on the run before
       # it), never predicted.
-      RUST_COMPILER_FLOOR: "273"
+      RUST_COMPILER_FLOOR: "275"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1653,7 +1653,7 @@ jobs:
       # leg (+2); a local before/after per-fixture diff accounted for every
       # change (105, 106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 245, never predicted.
-      PYTHON_COMPILER_FLOOR: "245"
+      PYTHON_COMPILER_FLOOR: "255"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1954,9 +1954,11 @@ jobs:
           # Each ratcheted compile leg self-gates on its own floor (a DROP fails
           # the job), so its RESULT is the whole signal. They are intentionally
           # absent from the failed-count loop below: that loop asserts FULL
-          # PARITY, and none of these four legs has it yet (C# 226/320, Rust
-          # 237, Go 243, Python 238) — feeding those honest failure counts in
-          # there would wire known-red numbers into the parity gate.
+          # PARITY, and none of these four legs has it yet — each still fails
+          # dozens of fixtures, which is exactly what its own
+          # `<LANG>_COMPILER_FLOOR` records. Feeding those honest failure counts
+          # in here would wire known-red numbers into the parity gate; the
+          # floors are where the real numbers live, and they only rise.
           for leg in \
             "C#:${{ needs.csharp-compiler.result }}" \
             "Rust:${{ needs.rust-compiler.result }}" \

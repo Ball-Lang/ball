@@ -33,12 +33,16 @@ current fixture count and pass/fail status** — a hand-copied total goes stale
 the moment the corpus grows, which is exactly what happened here (per the
 project's policy against frozen tallies; `tools/check_conformance_doc_counts.sh`
 and `tools/ci/check_engine_row_docs.sh` are the CI guards that keep this file
-and `conformance-matrix.yml` from drifting apart again). Read the workflow's
-`summary` job ("Parity Matrix") on any run for the live numbers.
+and `conformance-matrix.yml` from drifting apart again — the latter derives the
+engine set from the workflow's `summary.needs` and fails unless **the table
+below** carries a row for every one of them, and unless this file states no
+fixture or engine tally of its own). Read the workflow's `summary` job
+("Parity Matrix") on any run for the live numbers.
 
-`256_editions_resolver` runs on every one of the 7 full-corpus engine rows the
-workflow's `summary` job depends on — one row per language (TypeScript runs it
-on all three of its jobs; the other six languages have one job each):
+`256_editions_resolver` runs on every full-corpus engine row the workflow's
+`summary` job depends on — one row per language below, each with the matrix
+job(s) that run it (TypeScript's row is covered by more than one job; every
+other language has exactly one):
 
 | Engine | How it runs the program | `conformance-matrix.yml` job(s) |
 |--------|--------------------------|----------------------------------|
@@ -50,7 +54,7 @@ on all three of its jobs; the other six languages have one job each):
 | **Go** | self-hosted engine (`compiled_engine.go`, compiled from `engine.ball.json`) | `go-engine` |
 | **Python** | self-hosted engine (`compiled_engine.py`, compiled from `engine.ball.json`) | `python-engine` |
 
-All seven produce identical output:
+Every row above produces identical output:
 
 ```
 2023: field_presence=EXPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
@@ -59,7 +63,7 @@ legacy: field_presence=EXPLICIT,enum_type=CLOSED,repeated_field_encoding=EXPANDE
 2023+IMPLICIT: field_presence=IMPLICIT,enum_type=OPEN,repeated_field_encoding=PACKED,utf8_validation=VERIFY,message_encoding=LENGTH_PREFIXED,json_format=ALLOW
 ```
 
-Each of the 7 rows above runs the WHOLE conformance corpus
+Every row above runs the WHOLE conformance corpus
 (`tests/conformance/*.ball.json`, `256_editions_resolver` included), golden-exact
 — the workflow's `summary` job ("Parity Matrix") fails the moment any of them
 regresses, and `.github/workflows/regression-gates.yml` enforces zero failures
@@ -94,7 +98,7 @@ cd python/engine && python -m ball_engine.regen && python -m conformance.runner
 
 In CI the same coverage runs automatically on every PR that touches a filtered
 path: `.github/workflows/conformance-matrix.yml` runs every
-`tests/conformance/*.ball.json` (256 included) on all 7 engines above, and its
+`tests/conformance/*.ball.json` (256 included) on every engine above, and its
 `summary` job ("Parity Matrix") fails the run if any of them regresses.
 
 ## Notes

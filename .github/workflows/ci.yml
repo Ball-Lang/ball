@@ -414,8 +414,10 @@ jobs:
       # named only 3 of the 7 engines that run `256_editions_resolver`;
       # plugins/ball/skills/embed/SKILL.md's per-target table called C# "No"
       # and had no Go/Python rows. This derives the current engine set from
-      # the workflow's own `summary.needs` and requires both docs to name
-      # every one of them, with no hard-coded fixture count in the first.
+      # the workflow's own `summary.needs` and requires each doc's engine
+      # TABLE — not the file's prose, which keeps naming an engine long after
+      # its row is gone — to carry a row per derived engine, with no frozen
+      # fixture or engine tally in the first.
       # `--self-test` first: a guard that stopped deriving must not pass.
       - name: Engine-row doc drift guard (#610, #613)
         run: |

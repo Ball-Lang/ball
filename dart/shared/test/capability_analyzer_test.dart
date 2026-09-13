@@ -699,6 +699,14 @@ void main() {
       expect(capabilityRisk('custom'), 'unknown');
     });
 
+    test('isKnownBaseModule recognizes exactly the eight std modules', () {
+      for (final m in capabilityModuleNames()) {
+        expect(isKnownBaseModule(m), isTrue, reason: '$m is a std module');
+      }
+      expect(isKnownBaseModule('mymodule'), isFalse);
+      expect(isKnownBaseModule(''), isFalse);
+    });
+
     test('a call into a declared custom base module is never pure', () {
       final r = analyzeCapabilities(buildCustom());
       expect(_sum(r)['isPure'], isFalse);

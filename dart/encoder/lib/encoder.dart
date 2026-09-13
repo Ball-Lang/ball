@@ -3418,26 +3418,36 @@ class DartEncoder {
     // coverage:ignore-end
 
     // ---- Extension override (`Ext(receiver).member`) ----
-    // Dart's explicit extension-override form exists only to DISAMBIGUATE at
-    // compile time which extension's member to call; it evaluates to exactly
-    // the value the plain `receiver.member` produces, so erasing it to its
-    // single argument is semantics-preserving and the enclosing
-    // MethodInvocation/PropertyAccess then encodes as an ordinary member
-    // access on that receiver. Without this case the node fell to the
-    // `/* unsupported: … */` STRING LITERAL below and
-    // `IterableExtension(this).isSorted(compare)` compiled to `isSorted` being
-    // called ON a String (issue #488,
-    // `collection/lib/src/iterable_extensions.dart`).
+    // REPORTED, not encoded — and deliberately NOT erased to the plain member
+    // access (issue #670, measured on `collection`'s own
+    // `lib/src/iterable_extensions.dart` @ 96afcc2).
     //
-    // Only a RESOLVED AST ever contains this node — the parser cannot know an
-    // identifier names an extension — so the syntax-only `encode(String)` path
-    // is unaffected and `dart/self_host/engine.ball.json` is untouched.
+    // An extension override names WHICH extension supplies the member, and it
+    // is written precisely when the plain access would resolve to something
+    // ELSE. `IterableComparableExtension.isSorted([compare])`'s body is
+    // `return IterableExtension(this).isSorted(compare);` — erasing that to
+    // `this.isSorted(compare)` makes the method call ITSELF. Tier B measured
+    // the erasure at `1706 -> 1702 passing, 4 failing` (`.isSorted empty /
+    // single / same`): it turns a loud build error into a SILENTLY wrong
+    // answer, which is the degradation this repository bans outright.
     //
-    // `.single` is deliberate: the grammar gives an override exactly one
-    // argument, so anything else is a shape this encoder must fail loud on
-    // rather than silently degrade to a placeholder.
+    // Encoding it faithfully needs the IR to carry WHICH extension a member
+    // call targets, and every compiler to re-emit the override — a new
+    // capability rather than a dispatch decline, so it is #670's to add. Until
+    // then the node falls through to the `/* unsupported: ... */` placeholder
+    // below, now with a warning that NAMES the construct instead of silence.
+    //
+    // Only a RESOLVED AST ever contains this node (the parser cannot know an
+    // identifier names an extension), so `encode(String)` never reaches here
+    // and `dart/self_host/engine.ball.json` is untouched.
     if (expr is ast.ExtensionOverride) {
-      return _encodeExpr(expr.argumentList.arguments.single.argumentExpression);
+      _warn(
+        'Extension-override syntax is not encodable: it names which extension '
+        'supplies the member, and the Ball IR has no way to carry that '
+        '(issue #670). Encoding it as the plain member access would silently '
+        'resolve to a DIFFERENT member.',
+        source: expr.toSource(),
+      );
     }
 
     // ---- FunctionReference / ConstructorReference (constructor tear-offs) ----
@@ -4028,7 +4038,19 @@ class DartEncoder {
         // NOTE: `reversed` is a Dart *getter* (`list.reversed`, no parens),
         // never a MethodInvocation, so it is NOT routed here — see the
         // PropertyAccess handler in _encodeExpr instead.
-        'toList': ('std_collections', 'list_to_list', 'list', 0, 1),
+        // `(0, 0)`, NOT `(0, 1)` — the same rule as `indexOf` below.
+        // `Iterable.toList({bool growable = true})` has an operand that
+        // `std_collections.list_to_list` does not declare and the compiler
+        // does not emit (`'list_to_list' => '<list>.toList()'`, full stop), so
+        // the window silently DROPPED it: `_base.toList(growable: growable)`
+        // compiled back to `_base.toList()` and the returned list was growable
+        // where the source made it fixed-length. MEASURED on
+        // `collection/lib/src/wrappers.dart` @ 96afcc2 — `MapKeySet with two
+        // elements .toList` and its `MapValueSet` twin both assert
+        // `set.toList(growable: false).add(…)` throws `UnsupportedError`, and
+        // after the drop it silently succeeded. Declining hands the call to
+        // the generic method-call encoding, which re-emits the source verbatim.
+        'toList': ('std_collections', 'list_to_list', 'list', 0, 0),
         'map': ('std_collections', 'list_map', 'list', 1, 1),
         'where': ('std_collections', 'list_filter', 'list', 1, 1),
         'forEach': ('std_collections', 'list_foreach', 'list', 1, 1),

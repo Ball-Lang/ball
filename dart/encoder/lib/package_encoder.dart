@@ -296,6 +296,13 @@ class PackageEncoder {
       }
     }
 
+    // The per-file encoder accumulates its own diagnostics (an unencodable
+    // construct, malformed metadata, …) and they were dropped on the floor
+    // here: a package encode reported only PackageEncoder's OWN resolution
+    // warnings, so every encoder-level warning was invisible to Tier B and to
+    // any other caller of this seam (issue #488 / #670).
+    warnings.addAll(encoder.warnings);
+
     final (:stdModule, :collectionsModule, :protoModule) = encoder
         .buildStdModules();
 

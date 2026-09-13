@@ -165,16 +165,19 @@ avoid constructs that need receiver-type info:
     Measured on `async/lib/src/cancelable_operation.dart`; guarded by
     `dart/encoder/test/null_aware_chain_scope_test.dart` and conformance fixture
     `468_null_aware_chain_scope`. **Syntactic, so it applies to
-    `encode(String)`** — unlike every earlier #488 slice it DOES move
-    `dart/self_host/engine.ball.json`.
-  - **`ExtensionName(receiver).member` erases to `receiver.member`.** An
-    extension override exists only to disambiguate at COMPILE time and
-    evaluates to what the plain member access produces, so `_encodeExpr` now
-    returns its single argument. Without the case the node fell to the
-    last-resort `/* unsupported: … */` STRING LITERAL and the compiled Dart
-    called the member ON a String (`collection/lib/src/iterable_extensions.dart`,
-    `IterableExtension(this).isSorted(…)`). `ast.ExtensionOverride` exists only
-    in a RESOLVED AST, so `encode(String)` never sees one.
+    `encode(String)`** — unlike every earlier #488 slice it CAN move
+    `dart/self_host/engine.ball.json` and the committed TS/Go artifacts. It did
+    not: the engine's own source happens to contain no multi-link `?.` chain
+    today (verified by regenerating all four artifacts). Do not assume that
+    stays true — regenerate rather than reason about it.
+  - **`toList(growable: …)` declines its route** — the last member of the
+    "arity window wider than the std function" family below.
+    `std_collections.list_to_list`'s codegen is `'<list>.toList()'`, full stop,
+    so a `(0, 1)` window could only DROP the operand and hand back a growable
+    list where the source asked for a fixed-length one. Measured on
+    `collection/lib/src/wrappers.dart` (`set.toList(growable: false).add(…)`
+    must throw `UnsupportedError`; after the drop it silently succeeded).
+    Window is now `(0, 0)`; see **#673**.
   - **`std_collections.map_contains_value` had no case in the DART compiler**
     — declared, encoder-routed, engine-implemented and present in every other
     compiler, it alone fell to `_ => '/* unsupported: … */'`, i.e. a COMMENT
@@ -186,15 +189,31 @@ avoid constructs that need receiver-type info:
     unroutable names (11 more in `std_collections`, all of `std_concurrency`)
     are out of that population and tracked by #654.
 
-  Still open, and now its own issue because it is IR-level rather than a
-  dispatch question: `collection/lib/src/list_extensions.dart` — the compiler
-  marks a non-nullable final field `late` whenever it has no inline
-  initializer, which is wrong when the CONSTRUCTOR'S OWN INITIALIZER LIST
-  already assigns it, and the stray `late` then collides with a user-declared
-  setter of the same name (`DUPLICATE_DEFINITION`). Ball's field IR cannot tell
-  "assigned by the initializer list" from "assigned in the constructor body".
-  See **#651** (a sibling of #573: the same "IR too coarse to tell two source
-  shapes apart" family).
+  Still open, each with its own issue and its own measured repro:
+  - `collection/lib/src/list_extensions.dart` — the compiler marks a
+    non-nullable final field `late` whenever it has no inline initializer,
+    which is wrong when the CONSTRUCTOR'S OWN INITIALIZER LIST already assigns
+    it, and the stray `late` then collides with a user-declared setter of the
+    same name (`DUPLICATE_DEFINITION`). Ball's field IR cannot tell "assigned
+    by the initializer list" from "assigned in the constructor body". **#651**
+    (a sibling of #573: the same "IR too coarse to tell two source shapes
+    apart" family).
+  - `collection/lib/src/iterable_extensions.dart` — **`Ext(receiver).member`
+    stays unencodable, and MUST NOT be erased to `receiver.member`.** An
+    extension override is written precisely when the plain access would
+    resolve to something else:
+    `IterableComparableExtension.isSorted([compare])`'s body is
+    `return IterableExtension(this).isSorted(compare);`, and erasing it makes
+    the method call ITSELF. Tier B measured the erasure at `1706 → 1702
+    passing, 4 failing` — a loud build error traded for a silently wrong
+    answer. The encoder now WARNS (it used to drop the node in silence) and
+    still emits the `/* unsupported: … */` placeholder. A real encoding needs
+    the IR to name WHICH extension supplies a member plus a compiler rule to
+    re-emit the override: **#670**.
+  - `collection/lib/src/wrappers.dart` — compiles now, but its own suite
+    still fails on `x.isNotEmpty` being rewritten as `!x.isEmpty`, which a
+    DELEGATING receiver can see (`collection`'s `wrapper_test.dart` records
+    the forwarded `Invocation` symbol): **#674**.
 
 - **The `async` safety return must type-check under `strict-casts`.** Every
   `async`, non-generator, non-`void` function gets a trailing statement so
@@ -218,7 +237,11 @@ avoid constructs that need receiver-type info:
   operands the function models and nothing warns. Four routes had this before
   #488 slice 2: `indexOf` (1,2), `startsWith` (1,2), `lastIndexOf` (1,2) and
   `replaceFirst` (2,3), all now narrowed so the extra-operand form declines to
-  the generic method-call encoding. `indexOf` was the worst: `arg0` and `arg1`
+  the generic method-call encoding — plus `toList` (0,1), the fifth and (as of
+  the #488 wrap-up) last, found the same way and narrowed to (0,0) (#673).
+  Every OTHER variable-arity route was re-audited against its codegen at the
+  same time: `join`, `sublist`, `sort`, `substring`, `padLeft`/`padRight` and
+  `toStringAsExponential` all consume their optional operand. `indexOf` was the worst: `arg0` and `arg1`
   BOTH renamed to `'value'`, so the second overwrote the first in the
   compiler's field map and `path.indexOf('\', 2)` compiled to
   `path.indexOf(2)`. When you add or widen a `collectionRoutes` entry, check

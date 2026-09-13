@@ -1,26 +1,42 @@
-/// Explicit extension-override call syntax (issue #488,
+/// Explicit extension-override call syntax (issue #488 →  #670,
 /// `collection/lib/src/iterable_extensions.dart`).
 ///
-/// `ExtensionName(receiver).member` is Dart's disambiguating call form. It is
-/// a COMPILE-TIME construct only: it selects which extension's member to call
-/// and then evaluates to exactly the same thing the plain `receiver.member`
-/// would have, so erasing it to a plain member access is semantics-preserving.
+/// `ExtensionName(receiver).member` names WHICH extension supplies the member.
+/// It is written precisely when the plain `receiver.member` would resolve to
+/// something ELSE — `collection`'s own source is the canonical case:
 ///
-/// The encoder had no `ast.ExtensionOverride` case at all, so the node fell to
+/// ```dart
+/// extension IterableComparableExtension<T extends Comparable<T>> on Iterable<T> {
+///   bool isSorted([Comparator<T>? compare]) {
+///     if (compare != null) {
+///       return IterableExtension(this).isSorted(compare);   // the OTHER one
+///     }
+///     …
+///   }
+/// }
+/// ```
+///
+/// The encoder has no `ast.ExtensionOverride` case, so the node falls to
 /// `_encodeExpr`'s last-resort `/* unsupported: … */` STRING LITERAL and the
-/// compiled Dart read
-/// `'/* unsupported: ExtensionOverrideImpl: … */'.isSorted(compare)` — a method
-/// call on a `String`. That is the shape `collection`'s
-/// `IterableExtension(this).isSorted(compare)` measured.
+/// compiled Dart calls the member ON a String. The obvious repair — erase the
+/// override to its single argument — is **unsound**, and this suite is the
+/// proof: erasing the snippet above makes `isSorted` call ITSELF. Measured
+/// with the real Tier B harness against `collection@96afcc2`:
+/// `1706 → 1702 passing, 4 failing` (`.isSorted empty` / `single` / `same`).
+/// That trades a loud build error for a silently wrong answer, which is worse.
 ///
-/// An `ast.ExtensionOverride` node only ever exists in a RESOLVED AST (the
-/// parser cannot know `IterableExtension` names an extension), so this suite
-/// drives `PackageEncoder.prepareStaticTypes()`; the syntax-only
-/// `encode(String)` path never builds the node and is unaffected.
+/// So the contract this suite pins is the honest one:
+///   * the encoder must REPORT the construct (a warning naming it), never
+///     drop it silently as it did before;
+///   * it must NOT emit a plain member access, because that can resolve to a
+///     different member than the source named.
+///
+/// Encoding it faithfully needs the IR to carry which extension a member call
+/// targets, plus a compiler rule to re-emit the override — a new capability,
+/// tracked by #670.
 @TestOn('vm')
 library;
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:ball_base/gen/ball/v1/ball.pb.dart';
@@ -28,25 +44,28 @@ import 'package:ball_compiler/compiler.dart';
 import 'package:ball_encoder/package_encoder.dart';
 import 'package:test/test.dart';
 
+/// The shape `collection/lib/src/iterable_extensions.dart` actually uses: two
+/// extensions on the same type declaring the SAME member name, where the
+/// override is the only thing keeping the call from recursing into itself.
 const _sourceUnderTest = r'''
-extension NumberList on List<int> {
-  int get doubledFirst => this[0] * 2;
-  int scaled(int by) => this[0] * by;
+extension ByCompare on List<int> {
+  bool isSorted(int Function(int, int) compare) {
+    for (var i = 1; i < length; i++) {
+      if (compare(this[i - 1], this[i]) > 0) return false;
+    }
+    return true;
+  }
 }
 
-class Holder {
-  final List<int> items = <int>[2, 3];
-
-  int viaOverrideCall() {
-    return NumberList(items).scaled(3);
-  }
-
-  int viaOverrideGetter() {
-    return NumberList(items).doubledFirst;
-  }
-
-  int viaPlainCall() {
-    return items.scaled(3);
+extension Natural on List<int> {
+  bool isSorted([int Function(int, int)? compare]) {
+    if (compare != null) {
+      return ByCompare(this).isSorted(compare);
+    }
+    for (var i = 1; i < length; i++) {
+      if (this[i - 1] > this[i]) return false;
+    }
+    return true;
   }
 }
 ''';
@@ -64,51 +83,19 @@ Directory _scratchPackage(String name, String librarySource) {
   return dir;
 }
 
-/// Every string literal in [root] — where the `/* unsupported: … */`
-/// placeholder lands.
-List<String> _stringLiterals(Expression root) {
-  final out = <String>[];
-  void walk(Expression x) {
-    switch (x.whichExpr()) {
-      case Expression_Expr.literal:
-        if (x.literal.hasStringValue()) out.add(x.literal.stringValue);
-      case Expression_Expr.call:
-        if (x.call.hasInput()) walk(x.call.input);
-      case Expression_Expr.block:
-        for (final s in x.block.statements) {
-          if (s.hasExpression()) walk(s.expression);
-          if (s.hasLet() && s.let.hasValue()) walk(s.let.value);
-        }
-        if (x.block.hasResult()) walk(x.block.result);
-      case Expression_Expr.messageCreation:
-        for (final f in x.messageCreation.fields) {
-          walk(f.value);
-        }
-      case Expression_Expr.fieldAccess:
-        if (x.fieldAccess.hasObject()) walk(x.fieldAccess.object);
-      case Expression_Expr.lambda:
-        if (x.lambda.hasBody()) walk(x.lambda.body);
-      case _:
-        break;
-    }
-  }
-
-  walk(root);
-  return out;
-}
-
 void main() {
   group(
-    'extension-override call syntax (#488)',
+    'extension-override call syntax (#488 / #670)',
     timeout: const Timeout(Duration(minutes: 3)),
     () {
       late Directory pkg;
+      late PackageEncoder encoder;
       late Program program;
       late String compiled;
 
       setUpAll(() async {
         pkg = _scratchPackage('extension_override_probe', _sourceUnderTest);
-        final encoder = PackageEncoder(pkg);
+        encoder = PackageEncoder(pkg);
         await encoder.prepareStaticTypes();
         expect(
           encoder.hasStaticTypes,
@@ -125,81 +112,44 @@ void main() {
         if (pkg.existsSync()) pkg.deleteSync(recursive: true);
       });
 
-      Expression bodyOf(String method) {
-        final subject = program.modules.firstWhere(
-          (m) => m.name == 'lib.subject',
-        );
-        return subject.functions
-            .firstWhere((f) => f.name.endsWith(':Holder.$method'))
-            .body;
-      }
-
-      test('an override CALL encodes to a real call, not a placeholder', () {
+      test('the encoder REPORTS the construct instead of dropping it', () {
         expect(
-          _stringLiterals(bodyOf('viaOverrideCall')),
-          isNot(contains(contains('unsupported:'))),
+          encoder.warnings.where((w) => w.contains('Extension-override')),
+          isNotEmpty,
           reason:
-              '`NumberList(items).scaled(3)` must encode as a call on `items`; '
-              'the unsupported placeholder compiles to a method call on a '
-              'String literal.',
+              'silence is what made this shape invisible to every gate. All '
+              'warnings were: ${encoder.warnings}',
         );
       });
 
-      test(
-        'an override GETTER encodes to a real access, not a placeholder',
-        () {
-          expect(
-            _stringLiterals(bodyOf('viaOverrideGetter')),
-            isNot(contains(contains('unsupported:'))),
-          );
-        },
-      );
-
-      test('the compiled override call names the receiver, not a literal', () {
-        expect(
-          compiled,
-          contains('items.scaled(3)'),
-          reason:
-              'an extension override erases to the plain member access on its '
-              'single argument. Compiled output was:\n$compiled',
+      test('the warning names the offending source and the issue', () {
+        final warning = encoder.warnings.firstWhere(
+          (w) => w.contains('Extension-override'),
         );
-        expect(
-          compiled,
-          contains('items.doubledFirst'),
-          reason: 'compiled output was:\n$compiled',
-        );
+        expect(warning, contains('ByCompare(this)'));
+        expect(warning, contains('#670'));
       });
 
-      test('the compiled Dart passes the real `dart analyze`', () async {
-        final out = _scratchPackage(
-          'extension_override_analyze',
-          'const _ = 0;\n',
-        );
-        addTearDown(() {
-          if (out.existsSync()) out.deleteSync(recursive: true);
-        });
-        File('${out.path}/lib/subject.dart').writeAsStringSync(compiled);
-
-        final analyze = await Process.run(
-          'dart',
-          ['analyze', '--format=machine', out.path],
-          stdoutEncoding: utf8,
-          stderrEncoding: utf8,
-        );
-
-        final errors = const LineSplitter()
-            .convert('${analyze.stdout}\n${analyze.stderr}')
-            .where((l) => l.startsWith('ERROR|'))
-            .toList();
-
+      test('the override is NOT erased into a self-recursive call', () {
+        // `ByCompare(this).isSorted(compare)` erased to `this.isSorted(compare)`
+        // resolves, inside `Natural.isSorted`, to `Natural.isSorted` itself.
+        // Tier B measures that as 4 real test failures on `collection`; here it
+        // is forbidden outright.
         expect(
-          errors,
-          isEmpty,
+          compiled,
+          isNot(contains('this.isSorted(compare)')),
           reason:
-              'dart analyze rejected the compiled-back Dart:\n'
-              '${errors.join('\n')}\n\n'
-              'Compiled source was:\n$compiled',
+              'an erased override calls the WRONG member. Compiled output '
+              'was:\n$compiled',
         );
+        expect(compiled, isNot(contains('return isSorted(compare)')));
+      });
+
+      test('the unencodable node still leaves a visible placeholder', () {
+        // Not an endorsement of the placeholder — a guard that the construct
+        // stays LOUD (it breaks the front end) rather than compiling to
+        // something plausible. #670 replaces this with a real encoding.
+        expect(compiled, contains('unsupported:'));
       });
     },
   );

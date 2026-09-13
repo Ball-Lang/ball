@@ -2117,6 +2117,7 @@ export function _collectUserFunctionNames(modules: any): any {
 }
 
 export function _collectCustomBaseFns(modules: any, table: any): any {
+  let entries = [];
   let keys = [];
   for (const module of modules) {
     let lenient = isKnownBaseModule(module.name);
@@ -2131,12 +2132,34 @@ export function _collectCustomBaseFns(modules: any, table: any): any {
         continue;
       }
       let key = ((__ball_to_string(module.name) + '.') + __ball_to_string(f.name));
-      if (!keys.includes(key)) {
-        keys = (keys.push(key), keys);
+      if (keys.includes(key)) {
+        continue;
+      }
+      keys = (keys.push(key), keys);
+      entries = (entries.push({ ['module']: module.name, ['function']: f.name, ['key']: key }), entries);
+    }
+  }
+  return entries;
+}
+
+export function _resolveCustomBaseFn(customBaseFns: any, module: any, function_: any, userFns: any): any {
+  for (const e of customBaseFns) {
+    if ((__ball_eq(__ball_index(e, 'module'), module) && __ball_eq(__ball_index(e, 'function'), function_))) {
+      return e;
+    }
+  }
+  if (!__ball_eq(userFns, null)) {
+    for (const u of userFns) {
+      if (__ball_eq(u, function_)) {
+        return null;
       }
     }
   }
-  return keys;
+  for (const e of customBaseFns) {
+    if (__ball_eq(__ball_index(e, 'function'), function_)) {
+      return e;
+    }
+  }
 }
 
 export function _detectBaseFnShadows(modules: any, table: any): any {
@@ -2240,9 +2263,11 @@ export function _walkCapCall(ctx: any): any {
   let customBaseFns = __ball_index(ctx, 'customBaseFns');
   let module = ((call.module.length === 0) ? contextModule : call.module);
   let fn = call.function;
-  let isCustom = customBaseFns.includes(((__ball_to_string(module) + '.') + __ball_to_string(fn)));
+  let customEntry = _resolveCustomBaseFn(customBaseFns, module, fn, userFns);
+  let isCustom = !__ball_eq(customEntry, null);
   if (isCustom) {
-    _recordCapSite({ ['cap']: 'custom', ['caps']: caps, ['capSites']: capSites, ['module']: contextModule, ['function']: contextFunction, ['calleeModule']: module, ['calleeFunction']: fn });
+    let resolvedModule = __ball_index(customEntry, 'module');
+    _recordCapSite({ ['cap']: 'custom', ['caps']: caps, ['capSites']: capSites, ['module']: contextModule, ['function']: contextFunction, ['calleeModule']: module, ['calleeFunction']: fn, ['resolvedModule']: resolvedModule });
   }
   let cap = lookupCapability(table, module, fn);
   if ((cap.length === 0)) {
@@ -2288,7 +2313,26 @@ export function _recordCapSite(ctx: any): any {
     sites = [];
     capSites[cap] = sites;
   }
-  sites = (sites.push({ ['module']: __ball_index(ctx, 'module'), ['function']: __ball_index(ctx, 'function'), ['calleeModule']: __ball_index(ctx, 'calleeModule'), ['calleeFunction']: __ball_index(ctx, 'calleeFunction') }), sites);
+  let resolvedModule = '';
+  if (__ball_map_has(ctx, 'map_contains_key', 'resolvedModule')) {
+    resolvedModule = __ball_index(ctx, 'resolvedModule');
+  }
+  sites = (sites.push({ ['module']: __ball_index(ctx, 'module'), ['function']: __ball_index(ctx, 'function'), ['calleeModule']: __ball_index(ctx, 'calleeModule'), ['calleeFunction']: __ball_index(ctx, 'calleeFunction'), ['resolvedModule']: resolvedModule }), sites);
+}
+
+export function _formatCallee(site: any): any {
+  const input = site;
+  let calleeModule = __ball_index(site, 'calleeModule');
+  let calleeFunction = __ball_index(site, 'calleeFunction');
+  let resolved = '';
+  if (__ball_map_has(site, 'map_contains_key', 'resolvedModule')) {
+    resolved = __ball_index(site, 'resolvedModule');
+  }
+  let literal = ((__ball_to_string(calleeModule) + '.') + __ball_to_string(calleeFunction));
+  if (((resolved.length === 0) || __ball_eq(resolved, calleeModule))) {
+    return literal;
+  }
+  return (((((__ball_to_string(resolved) + '.') + __ball_to_string(calleeFunction)) + ' (call site: ') + __ball_to_string(literal)) + ')');
 }
 
 export function _buildReportFromFunctions(programName: any, programVersion: any, functionsOut: any, capSites: any, shadows: any): any {
@@ -2387,7 +2431,7 @@ export function formatCapabilityReport(report: any): any {
     } else {
       let siteStrs = [];
       for (const s of callSites) {
-        siteStrs = (siteStrs.push(((((((__ball_to_string(__ball_index(s, 'module')) + '.') + __ball_to_string(__ball_index(s, 'function'))) + ' \u2192 ') + __ball_to_string(__ball_index(s, 'calleeModule'))) + '.') + __ball_to_string(__ball_index(s, 'calleeFunction')))), siteStrs);
+        siteStrs = (siteStrs.push(((((__ball_to_string(__ball_index(s, 'module')) + '.') + __ball_to_string(__ball_index(s, 'function'))) + ' \u2192 ') + __ball_to_string(_formatCallee(s)))), siteStrs);
       }
       let sites = siteStrs.join(', ');
       lines = (lines.push((((((((('  ' + __ball_to_string(icon)) + ' ') + __ball_to_string(__ball_index(entry, 'capability'))) + ' (') + __ball_to_string(siteCount)) + ' call sites: ') + __ball_to_string(sites)) + ')')), lines);
@@ -2490,7 +2534,7 @@ export function checkPolicyViolations(ctx: any): any {
     if (deny.includes(__ball_index(entry, 'capability'))) {
       let callSites = __ball_index(entry, 'callSites');
       for (const site of callSites) {
-        violations = (violations.push(((((((__ball_to_string(__ball_index(entry, 'capability')) + ': ') + __ball_to_string(__ball_index(site, 'module'))) + '.') + __ball_to_string(__ball_index(site, 'function'))) + ' calls ') + ((__ball_to_string(__ball_index(site, 'calleeModule')) + '.') + __ball_to_string(__ball_index(site, 'calleeFunction'))))), violations);
+        violations = (violations.push(((((((__ball_to_string(__ball_index(entry, 'capability')) + ': ') + __ball_to_string(__ball_index(site, 'module'))) + '.') + __ball_to_string(__ball_index(site, 'function'))) + ' calls ') + __ball_to_string(_formatCallee(site)))), violations);
       }
     }
   }
@@ -2515,7 +2559,7 @@ export function _analyzeTerminationCore(ctx: any): any {
   let modules = __ball_index(ctx, 'modules');
   let baseModules = _identifyBaseModules(modules);
   let warnings = [];
-  let callGraph = _buildCallGraph({ ['modules']: modules, ['baseModules']: baseModules, ['customBaseFns']: _collectCustomBaseFns(modules, buildCapabilityTable()) });
+  let callGraph = _buildCallGraph({ ['modules']: modules, ['baseModules']: baseModules, ['customBaseFns']: _collectCustomBaseFns(modules, buildCapabilityTable()), ['userFns']: _collectUserFunctionNames(modules) });
   _checkLoops({ ['modules']: modules, ['baseModules']: baseModules, ['warnings']: warnings });
   _checkRecursion({ ['modules']: modules, ['callGraph']: callGraph, ['warnings']: warnings });
   _checkUnreachableCode({ ['modules']: modules, ['baseModules']: baseModules, ['warnings']: warnings });
@@ -2609,6 +2653,7 @@ export function _buildCallGraph(ctx: any): any {
   let modules = __ball_index(ctx, 'modules');
   let baseModules = __ball_index(ctx, 'baseModules');
   let customBaseFns = __ball_index(ctx, 'customBaseFns');
+  let userFns = __ball_index(ctx, 'userFns');
   let graph = [];
   for (const module of modules) {
     if (baseModules.includes(module.name)) {
@@ -2624,7 +2669,7 @@ export function _buildCallGraph(ctx: any): any {
       let key = ((__ball_to_string(module.name) + '.') + __ball_to_string(fn.name));
       let callees = [];
       let customCalls = [];
-      _collectCallees({ ['expr']: fn.body, ['contextModule']: module.name, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+      _collectCallees({ ['expr']: fn.body, ['contextModule']: module.name, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
       graph = (graph.push({ ['key']: key, ['callees']: callees, ['customCalls']: customCalls }), graph);
     }
   }
@@ -2651,6 +2696,7 @@ export function _collectCallees(ctx: any): any {
   let callees = __ball_index(ctx, 'callees');
   let customBaseFns = __ball_index(ctx, 'customBaseFns');
   let customCalls = __ball_index(ctx, 'customCalls');
+  let userFns = __ball_index(ctx, 'userFns');
   if (__ball_eq(expr, null)) {
     return;
   }
@@ -2658,9 +2704,12 @@ export function _collectCallees(ctx: any): any {
     let call = expr.call;
     let module = ((call.module.length === 0) ? contextModule : call.module);
     let fn = call.function;
-    let key = ((__ball_to_string(module) + '.') + __ball_to_string(fn));
-    if ((customBaseFns.includes(key) && !customCalls.includes(key))) {
-      customCalls = (customCalls.push(key), customCalls);
+    let customEntry = _resolveCustomBaseFn(customBaseFns, module, fn, userFns);
+    if (!__ball_eq(customEntry, null)) {
+      let customKey = __ball_index(customEntry, 'key');
+      if (!customCalls.includes(customKey)) {
+        customCalls = (customCalls.push(customKey), customCalls);
+      }
     }
     if (!baseModules.includes(module)) {
       let ck = ((__ball_to_string(module) + '.') + __ball_to_string(fn));
@@ -2669,39 +2718,39 @@ export function _collectCallees(ctx: any): any {
       }
     }
     if (hasInput(call)) {
-      _collectCallees({ ['expr']: call.input, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+      _collectCallees({ ['expr']: call.input, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
     }
   } else {
     if (hasBlock(expr)) {
       for (const stmt of expr.block.statements) {
         if (hasLet(stmt)) {
-          _collectCallees({ ['expr']: stmt.let.value, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+          _collectCallees({ ['expr']: stmt.let.value, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
         }
         if (hasExpression(stmt)) {
-          _collectCallees({ ['expr']: stmt.expression, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+          _collectCallees({ ['expr']: stmt.expression, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
         }
       }
       if (hasResult(expr.block)) {
-        _collectCallees({ ['expr']: expr.block.result, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+        _collectCallees({ ['expr']: expr.block.result, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
       }
     } else {
       if (hasLambda(expr)) {
-        _collectCallees({ ['expr']: expr.lambda.body, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+        _collectCallees({ ['expr']: expr.lambda.body, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
       } else {
         if (hasMessageCreation(expr)) {
           for (const field of expr.messageCreation.fields) {
-            _collectCallees({ ['expr']: field.value, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+            _collectCallees({ ['expr']: field.value, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
           }
         } else {
           if (hasFieldAccess(expr)) {
             if (hasObject(expr.fieldAccess)) {
-              _collectCallees({ ['expr']: expr.fieldAccess.object, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+              _collectCallees({ ['expr']: expr.fieldAccess.object, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
             }
           } else {
             if (hasLiteral(expr)) {
               if (hasListValue(expr.literal)) {
                 for (const elem of expr.literal.listValue.elements) {
-                  _collectCallees({ ['expr']: elem, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls });
+                  _collectCallees({ ['expr']: elem, ['contextModule']: contextModule, ['baseModules']: baseModules, ['callees']: callees, ['customBaseFns']: customBaseFns, ['customCalls']: customCalls, ['userFns']: userFns });
                 }
               }
             }

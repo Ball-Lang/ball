@@ -173,6 +173,29 @@ jobs:
       - name: Dart-error rendering tables are closed (#641)
         run: python tools/check_error_rendering_tables.py
 
+      # ball.schema.json is the hand-maintained JSON-Schema mirror of ball.proto
+      # for JSON-only implementers, and docs/BALL_JSON_SPEC.md points machine
+      # outputs at it by $defs ref. Every $defs object sets
+      # additionalProperties:false, so a proto field added WITHOUT the matching
+      # schema edit makes the schema REJECT the very JSON this repo emits —
+      # which is what #609's `CallSite.resolved_module` did to `ball audit
+      # --output`. scripts/validate_ball_schema.py could not see it: it
+      # validates ball.v1.Program documents from the conformance/examples
+      # corpus, and no corpus file is a BallCapabilityReport. This closes it
+      # structurally, for every message, and is stdlib-only so the always-run
+      # job stays hermetic — which is also why `scripts/validate_ball_schema.py`
+      # (the corpus half, `pip install jsonschema`) is NOT wired here: this job
+      # deliberately runs on the image's preinstalled python3 with no
+      # setup-python and no network install, and the python job that has both is
+      # path-filtered to python/**, so it would skip the very changes the corpus
+      # check guards. Self-test first — a checker nobody has watched fail is not
+      # a gate.
+      - name: Proto/JSON-Schema drift self-test (#609)
+        run: python tools/test/test_check_proto_schema_drift.py
+
+      - name: ball.schema.json mirrors ball.proto (#609)
+        run: python tools/check_proto_schema_drift.py
+
       # The vcpkg self-host sidecar (issues #368/#361) is wired across four
       # files that never see each other at runtime: the release workflow that
       # publishes the asset, the portfile that names it, the overlay generator

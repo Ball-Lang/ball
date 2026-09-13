@@ -1,5 +1,3 @@
-//go:build selfhost
-
 package cli
 
 import (
@@ -8,12 +6,12 @@ import (
 	"testing"
 )
 
-// Under the `selfhost` build tag (after regenerating go/engine's
-// compiled_engine.go) `run` executes programs for real via the self-hosted
-// engine. These cases drive whole conformance fixtures through the built CLI and
-// compare stdout to the fixtures' committed goldens — the CLI-level analog of
-// go/engine's conformance sweep. Gated off the default build so a plain `go test
-// ./...` (without the generated engine) stays green.
+// `run` executes programs for real via the self-hosted engine in EVERY build
+// (go/engine/compiled/compiled_engine.go is tracked since #586). These cases
+// drive whole conformance fixtures through the built CLI and compare stdout to
+// the fixtures' committed goldens — the CLI-level analog of go/engine's
+// conformance sweep, and the in-repo half of the assertion
+// tools/go-module-proxy/smoke.sh makes against a `go install`-ed binary.
 func TestRunSelfHostMatchesGolden(t *testing.T) {
 	cases := []struct{ name, golden string }{
 		{"265_enc_hello", "265_enc_hello.expected_output.txt"},

@@ -1,5 +1,3 @@
-//go:build clicore
-
 package compiled
 
 import (

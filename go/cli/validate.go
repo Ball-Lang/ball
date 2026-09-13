@@ -3,6 +3,8 @@ package cli
 import (
 	"flag"
 	"io"
+
+	compiled "github.com/ball-lang/ball/go/cli/compiled"
 )
 
 // cmdValidate implements `ball validate <program.ball.json>` (issue #570):
@@ -28,11 +30,8 @@ func cmdValidate(args []string, w io.Writer) *cliError {
 	if cerr != nil {
 		return cerr
 	}
-	report, ok, cerr := cliCoreValidate(view)
-	if cerr != nil {
-		return cerr
-	}
-	if !ok {
+	report := compiled.ValidateReport(view)
+	if !compiled.ValidateOk(view) {
 		return parseErr("%s", report)
 	}
 	return printLine(w, report)

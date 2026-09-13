@@ -1,5 +1,3 @@
-//go:build selfhost
-
 package conformance
 
 import (
@@ -9,9 +7,10 @@ import (
 )
 
 // TestConformance drives the whole tests/conformance corpus through the compiled
-// self-hosted engine and prints the CI-parseable Results line. Requires
-// `-tags selfhost` (needs the generated compiled_engine.go). Set BALL_FIXTURE to
-// run a single fixture with a full pass/fail dump.
+// self-hosted engine and prints the CI-parseable Results line. Set BALL_FIXTURE
+// to run a single fixture with a full pass/fail dump. Run it with `go test -v`
+// so that Results line reaches stdout (`go test` caches and discards a passing
+// test's output otherwise).
 func TestConformance(t *testing.T) {
 	only := os.Getenv("BALL_FIXTURE")
 	summary, err := RunAll(only)

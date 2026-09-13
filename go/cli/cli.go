@@ -9,10 +9,14 @@
 // core four plus the self-hosted cli-core verbs info / validate / tree / version
 // (issue #570), whose report text is computed by dart/shared/lib/cli_core.dart
 // compiled through the Ball → Go compiler, so every `ball` prints byte-identical
-// reports. Those four are gated behind the `clicore` build tag (the generated
-// go/cli/compiled/compiled_cli.go is a gitignored artifact); a default build
-// still ACCEPTS them and fails loud with a regenerate hint — see
-// cli_core_stub.go and go/cli/AGENTS.md.
+// reports.
+//
+// Every verb works in every build. The two generated artifacts the CLI needs —
+// go/engine/compiled/compiled_engine.go (for `run`) and
+// go/cli/compiled/compiled_cli.go (for the cli-core verbs) — are TRACKED since
+// #586 and carry no build constraint, because `go install` accepts no `-tags`
+// and the module a proxy serves is the repository at the tag. See
+// go/cli/AGENTS.md.
 package cli
 
 import (
@@ -87,7 +91,6 @@ Usage:
 
 Commands:
   run      <program.ball.json>   Execute a Ball program via the self-hosted engine
-                                 (requires a build with -tags selfhost)
   compile  <program.ball.json>   Compile a Ball program to Go source        [-o out.go]
   encode   <source.go>           Encode a Go source file into a Ball program [-lib] [-o out] [-format json|binary]
                                  (-lib: no func main() required; the result is non-runnable)
@@ -96,7 +99,6 @@ Commands:
   validate <program.ball.json>   Validate a program and print the portable report
   tree     <program.ball.json>   Print a program's module/import tree
   version                        Print the CLI version
-                                 (info/validate/tree/version need a build with -tags clicore)
 
 Programs are read as proto3 JSON (.ball.json / .json) or binary protobuf (.bin / .pb),
 sniffed by extension.

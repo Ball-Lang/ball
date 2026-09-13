@@ -275,7 +275,7 @@ func (c *Compiler) compileBaseCall(call *ballv1.FunctionCall) string {
 		}
 		return "ballrt.SetCreate(ballrt.Value(nil))"
 	case "record":
-		return c.compileRecord(f)
+		return c.compileRecord(call)
 	case "spread":
 		return c.arg(f, "value")
 	case "paren", "await", "parenthesized":
@@ -367,11 +367,21 @@ func (c *Compiler) typeName(f map[string]*ballv1.Expression) string {
 }
 
 // compileRecord builds an anonymous record as a *Map of its named fields.
-func (c *Compiler) compileRecord(f map[string]*ballv1.Expression) string {
+//
+// It takes the CALL, not the flattened field map, so the fields are emitted in
+// the encoder's SOURCE order — the order dart/compiler's _compileRecord and
+// rust/compiler's compile_record already preserve, and the order ballrt.Map (an
+// insertion-ordered map) then reports for iteration and printing. Ranging over
+// the flattened map instead made both the emitted source AND the record's
+// runtime field order depend on Go's randomized map iteration, which left
+// go/engine/compiled/compiled_engine.go non-reproducible run to run — fatal for
+// a committed generated artifact that ci.yml's `Ball Artifact Freshness` job
+// regenerates and diffs (issue #586).
+func (c *Compiler) compileRecord(call *ballv1.FunctionCall) string {
 	var b strings.Builder
 	b.WriteString("func() ballrt.Value {\n\t\t__r := ballrt.NewMap()\n")
-	for name, e := range f {
-		fmt.Fprintf(&b, "\t\t__r.Set(%q, %s)\n", name, c.compileExpr(e))
+	for _, fv := range call.GetInput().GetMessageCreation().GetFields() {
+		fmt.Fprintf(&b, "\t\t__r.Set(%q, %s)\n", fv.GetName(), c.compileExpr(fv.GetValue()))
 	}
 	b.WriteString("\t\treturn __r\n\t}()")
 	return b.String()

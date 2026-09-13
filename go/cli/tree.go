@@ -4,6 +4,7 @@ import (
 	"flag"
 	"io"
 
+	compiled "github.com/ball-lang/ball/go/cli/compiled"
 	ballrt "github.com/ball-lang/ball/go/runtime"
 )
 
@@ -19,22 +20,16 @@ func cmdTree(args []string, w io.Writer) *cliError {
 	if cerr != nil {
 		return cerr
 	}
-	report, cerr := cliCoreTree(view)
-	if cerr != nil {
-		return cerr
-	}
-	return printLine(w, report)
+	return printLine(w, compiled.TreeReport(view))
 }
 
 // loadCliCoreView parses the single program-path positional every cli-core verb
 // takes and returns the program's canonical proto3-JSON view — the input the
 // compiled report functions consume.
 //
-// Loading happens BEFORE the cli-core availability check on purpose (see
-// cmdInfo's doc comment): an unreadable file or a malformed program must report
-// its own I/O (3) / parse (2) failure rather than being masked by the build-tag
-// message, which is exactly what rust/cli's `let _engine = load_engine(path)?;`
-// does in its `#[cfg(not(feature = "cli_core"))]` arms.
+// Loading happens BEFORE any report is built: an unreadable file or a malformed
+// program must report its own I/O (3) / parse (2) failure rather than reaching
+// the compiled report functions at all.
 func loadCliCoreView(name, usage string, fs *flag.FlagSet, args []string) (view ballrt.Value, cerr *cliError) {
 	positionals, cerr := parseCommand(fs, name, usage, args)
 	if cerr != nil {

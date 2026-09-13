@@ -1,5 +1,3 @@
-//go:build selfhost
-
 package conformance
 
 import (

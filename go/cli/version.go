@@ -5,6 +5,8 @@ import (
 	"io"
 	"runtime/debug"
 	"strings"
+
+	compiled "github.com/ball-lang/ball/go/cli/compiled"
 )
 
 // moduleVersion is the fallback version `ball version` reports when the binary
@@ -55,9 +57,5 @@ func cmdVersion(args []string, w io.Writer) *cliError {
 	if len(positionals) != 0 {
 		return parseErr("version: takes no arguments (usage: %s)", usage)
 	}
-	line, cerr := cliCoreVersionLine(toolchainVersion())
-	if cerr != nil {
-		return cerr
-	}
-	return printLine(w, line)
+	return printLine(w, compiled.VersionLine(toolchainVersion()))
 }

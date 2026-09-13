@@ -206,8 +206,8 @@ cargo fmt --check && cargo clippy --workspace
   (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
   files), destructuring patterns (`let Pair(a, b) = p;`), a *reference* to a skipped module-scope
   `const`/`static`/`type` alias (the declaration itself is skipped — see below),
-  unmapped macros (the `assert!` family; `write!`/`writeln!` are CLOSED by #630 — next bullet).
-  Each is
+  unmapped macros (the `assert!` family; `write!`/`writeln!` are CLOSED by #630 — see the
+  `write!`/`writeln!` bullet further down this section). Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from

@@ -4772,7 +4772,7 @@ TEST(class_typed_field_receiver_is_recovered_before_member_access) {
 // explicit FieldAccess, so the two spellings of one slot disagreed:
 // `this.leaf.label` compiled, `leaf.label` emitted a member access on the
 // BallDyn member and g++ rejected it with "'class BallDyn' has no member named
-// 'label'". Fixture 468_null_aware_chain_scope's `node?.leaf.value` is the first
+// 'label'". Fixture 470_null_aware_chain_scope's `node?.leaf.value` is the first
 // corpus program to read a class-typed own field this way.
 TEST(unqualified_own_field_receiver_is_recovered_before_member_access) {
     json leaf_meta;

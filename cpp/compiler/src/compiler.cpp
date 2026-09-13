@@ -648,7 +648,7 @@ std::string CppCompiler::receiver_class_of(const ball::ir::Expression& raw) cons
         // of the SAME field disagreed: `this.node.leaf` compiled, `node.leaf`
         // emitted a member access on a BallDyn and g++ rejected it with
         // "'class BallDyn' has no member named 'leaf'" (issue #488's chain
-        // lowering, fixture 468_null_aware_chain_scope, whose `node?.leaf.value`
+        // lowering, fixture 470_null_aware_chain_scope, whose `node?.leaf.value`
         // is the first corpus program to read a class-typed own field this way).
         return declared_field_class_of_own_name(expr.reference->name);
     }

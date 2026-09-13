@@ -10048,6 +10048,62 @@ void main() {
       // would be a behaviour change this issue does not own.)
       expect(await runAndCapture(_encodeMain(src)), ['4']);
     });
+
+    test('an INHERITED final field is found by walking the super chain', () async {
+      const src = '''
+class Base {
+  final int size;
+
+  Base(int n) : size = n;
+
+  set size(int value) {
+    throw UnsupportedError('Base.size is read-only');
+  }
+}
+
+class Child extends Base {
+  Child() : super(4);
+}
+
+void main() {
+  final c = Child();
+  try {
+    c.size = 9;
+    print('setter did not throw');
+  } catch (e) {
+    print('setter threw');
+  }
+  print(c.size);
+}
+''';
+      // `Child` declares no field of its own, so the nearest declaration of
+      // `size` is `Base`'s `final` one — reached only by following `__super__`.
+      // This is the walk's second iteration; the sibling cases above all answer
+      // from the instance's own class.
+      expect(await runAndCapture(_encodeMain(src)), ['setter threw', '4']);
+    });
+
+    test('a field no class declares falls back to the plain write', () async {
+      const src = '''
+class Holder {
+  int _stored = 1;
+
+  set tag(int value) {
+    _stored = value;
+  }
+}
+
+void main() {
+  final h = Holder();
+  h.tag = 6;
+  print(h._stored);
+}
+''';
+      // `tag` is a setter with no field behind it, so the instance never
+      // carries that key and `_trySetterDispatch` runs the setter outright —
+      // the `containsKey` guard, and therefore the finality walk, never fires.
+      expect(await runAndCapture(_encodeMain(src)), ['6']);
+    });
   });
 }
 

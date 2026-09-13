@@ -73,7 +73,7 @@ is semantically identical to the original.
 | `is_mixin_class` | `bool` | Mixin class (Dart 3). |
 | `doc` | `string` | Documentation comment. |
 | `annotations` | `[{name, args?, module?}]` | Class-level annotations. |
-| `fields` | `[{name, type?, is_final?, is_const?, is_late?, is_static?, initializer?}]` | Field metadata for round-trip fidelity. |
+| `fields` | `[{name, type?, is_final?, is_const?, is_late?, is_static?, initializer?}]` | Field metadata for round-trip fidelity. `is_final` additionally participates in **accessor shape** — see "Accessor shape" below. |
 | `values` | `[{name, args?, doc?}]` | Enum value metadata (constructor args). |
 | `rep_type` | `string` | Extension-type representation type (Dart 3 extension types). Only when `kind == "extension_type"`. |
 | `rep_field` | `string` | Extension-type representation field name (Dart 3 extension types). Only when `kind == "extension_type"`. |
@@ -273,6 +273,30 @@ All metadata is cosmetic. The semantic content of a Ball program is:
 
 Everything else (visibility, mutability, annotations, syntax sugar) is metadata.
 A Ball program with all metadata stripped still computes the same result.
+
+### Accessor shape — the one closed family metadata participates in
+
+Accessors are the single place where the rule above needs saying precisely
+rather than loosely. Ball has no accessor node type: a getter and a setter are
+ordinary `FunctionDefinition`s, and the ONLY thing that says `main:Box.value` is
+a setter rather than a method named `value` is `FunctionDefinition.metadata`'s
+`is_getter` / `is_setter`. Strip those and a class has no accessors at all —
+every `obj.x = v` is a plain field write, every `obj.x` a plain field read, and
+the program is still internally consistent. That is the sense in which accessor
+metadata is cosmetic: it never changes what an expression *tree* means, only
+which declaration a field access resolves to.
+
+`fields[].is_final` belongs to that same closed family, and engines read it for
+exactly one decision (issue #664): **does this field's own declaration
+contribute a setter?** A non-`final` field does, so it shadows any setter
+inherited from an ancestor and the write is a plain field write (issue #501). A
+`final` field contributes a getter and nothing else, so a setter declared
+alongside it — legal in Dart, and the shape `collection`'s `ListSlice` uses —
+is the only setter for that name and must run.
+
+Keep the family closed. `is_const` / `is_late` / `is_static` / `visibility`, and
+every other key in this document, stay purely cosmetic; do not widen the set of
+keys an engine dispatches on without amending this section.
 
 ---
 

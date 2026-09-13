@@ -270,6 +270,26 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   at all while `Counter()` worked. It now calls `_initFieldDefaults` like the
   `messageCreation` path does.
 
+- **A field write asks whether the field's own DECLARATION contributes a setter,
+  not whether the instance carries that key (#501 + #664).**
+  `_trySetterDispatch`'s guard used to be a bare
+  `if (object.containsKey(fieldName)) return _sentinel;`. That is right for a
+  NON-final field (it declares its own setter, which overrides an inherited one
+  — fixture `432_shadowed_getter_setter_write`) and wrong for a `final` one,
+  which declares a getter and NOTHING else: a setter written beside it is the
+  only setter for that name, and the guard silently overwrote the `final` field
+  instead of running it (fixture `470_setter_beside_final_field`). Finality is
+  read from `TypeDefinition.metadata['fields'][i]['is_final']` into
+  `_declaredFieldIsFinal`, registered on BOTH module paths (`_buildLookupTables`
+  AND `engine_invocation.dart`'s lazy import resolution — a class reached through
+  a lazily resolved import must answer the same), and
+  `_nearestFieldDeclarationIsFinal` answers from the FIRST class up the
+  `__super__` chain that declares the field. Never consult `is_late`: the Dart
+  COMPILER emits `late final` for a final field the initializer list assigns
+  (#651), so the answer would depend on whether the program had been
+  round-tripped through it. This is metadata the engine DISPATCHES on —
+  deliberate and bounded, see `docs/METADATA_SPEC.md`'s "Accessor shape" and
+  `dart/engine/AGENTS.md`.
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

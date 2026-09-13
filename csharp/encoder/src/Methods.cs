@@ -220,6 +220,32 @@ internal sealed partial class Encoder
     /// out-parameter failure branch would compile, run, and be silently wrong on
     /// bad input — it stays a loud error (and is an <c>out var</c>
     /// <c>DeclarationExpression</c> shape this encoder does not model anyway).</para>
+    ///
+    /// <para><b><c>string.Join(separator, values)</c> (issue #492, bucket k).</b>
+    /// <c>string</c> is a <c>PredefinedTypeSyntax</c> keyword exactly like
+    /// <c>int</c>, so this is the one function a <c>string.Join</c> call can be
+    /// routed from — and a keyword can never be shadowed by a user identifier, so
+    /// (unlike the <c>Debug</c>/<c>ArgumentNullException</c> receivers above) this
+    /// arm needs no same-file-class guard. It routes to the already-declared,
+    /// already-compiled <c>std_collections.string_join</c>, whose
+    /// <c>StringJoinInput</c> field order (<c>list</c>=1, <c>separator</c>=2) is
+    /// INVERTED from C#'s argument order — hence the named, deliberately swapped
+    /// construction below rather than a positional one.</para>
+    ///
+    /// <para>Only the 2-argument spelling is routed: that is the shape every
+    /// occurrence in the Tier A corpus uses (12 of the 19 first-error
+    /// <c>unsupported static call</c> files, all of them
+    /// <c>string.Join(" ", parts)</c>), and the <c>params</c> overloads
+    /// (<c>string.Join(sep, a, b)</c>) keep failing loud rather than being
+    /// approximated. A <c>char</c> separator needs no special case — this encoder
+    /// already encodes a character literal as the one-character string it denotes,
+    /// which is exactly what <c>string_join</c> consumes. The one divergence
+    /// inside the routed shape is a <c>null</c> ELEMENT: C# renders it as the
+    /// empty string while <c>string_join</c> stringifies every element and so
+    /// renders <c>null</c>. That is an element VALUE, invisible to a syntax-only
+    /// encoder, so it is a documented approximation (the same class as
+    /// <see cref="EncodeConsoleCall"/>'s <c>Write</c>), recorded in
+    /// <c>csharp/AGENTS.md</c>.</para>
     /// </summary>
     private Expression EncodePredefinedTypeStaticCall(string keyword, string methodName, List<ExpressionSyntax> argExprs)
     {
@@ -234,11 +260,25 @@ internal sealed partial class Encoder
             }
         }
 
+        if (keyword == "string" && methodName == "Join" && argExprs.Count == 2)
+        {
+            // Swapped on purpose: C# is (separator, values), StringJoinInput is
+            // (list, separator). Named fields, never positional — see the doc
+            // comment and PredefinedTypeCallTests' run-the-output proof.
+            var separator = EncodeExpr(argExprs[0]);
+            var list = EncodeExpr(argExprs[1]);
+            MarkCollectionsUsed();
+            return Builders.CollectionsCall(
+                "string_join",
+                Builders.ArgsMessage(("list", list), ("separator", separator)));
+        }
+
         throw new EncoderException(
             $"ball-encoder: unsupported static call `{keyword}.{methodName}(...)` with " +
-            $"{argExprs.Count} argument(s) (only `Parse` on `int`/`long`/`double`/`float` is " +
-            "modelled — those are the conversions StdModuleBuilders declares; `TryParse` is " +
-            "deliberately not routed, since dropping its failure branch would be silently wrong)");
+            $"{argExprs.Count} argument(s) (only `Parse` on `int`/`long`/`double`/`float` and " +
+            "the 2-argument `string.Join(separator, values)` are modelled — those are the " +
+            "shapes StdModuleBuilders declares a counterpart for; `TryParse` is deliberately " +
+            "not routed, since dropping its failure branch would be silently wrong)");
     }
 
     private Expression EncodeConsoleCall(string methodName, List<ExpressionSyntax> argExprs)

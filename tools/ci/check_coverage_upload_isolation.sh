@@ -140,7 +140,22 @@ ART_PREFIX = "coverage-lcov-"
 
 # Positive floors — see the header. Lower them only when a stack is genuinely
 # retired, and say so in the commit.
-MIN_FLOOR_STEPS = 4
+#
+# MEASURED, not rounded down (#700 item 1). coverage.yml has FIVE floor steps
+# across FOUR measurement jobs: `Dart line coverage ratchet (all packages)`,
+# `C++ line coverage floor`, `C++ per-target coverage floors
+# (compiler/encoder/shared — gated)`, `Rust line coverage floor` and
+# `C# line coverage floor` — the cpp job carries two. At 4, renaming exactly ONE
+# floor step away from the phrase FLOOR_RE matches was absorbed, and every rule
+# below is scoped to the steps that regex found: the renamed step silently left
+# the post-floor, masking and isolation checks with nothing said. The one-rename
+# mutation is a self-test case now, so this number cannot quietly drift below
+# the file again.
+#
+# The `typescript` job measures coverage and uploads it but has no floor of its
+# own, which is why MIN_MEASUREMENT_JOBS is 4 and not 5. When it gains one,
+# raise BOTH numbers in the same commit.
+MIN_FLOOR_STEPS = 5
 MIN_MEASUREMENT_JOBS = 4
 MIN_ARTIFACTS = 4
 MIN_CODECOV_STEPS = 4
@@ -257,7 +272,10 @@ if len(floor_steps) < MIN_FLOOR_STEPS:
     die(
         f"{path} has {len(floor_steps)} coverage floor step(s), fewer than the "
         f"{MIN_FLOOR_STEPS} this guard expects — it refuses to certify a file it "
-        "found nothing to check."
+        "found nothing to check. A floor step this guard cannot see is a floor "
+        "step none of the rules below cover, so the usual cause is a RENAME away "
+        f"from the phrase this guard matches ({FLOOR_RE.pattern!r}): rename it "
+        "back, or retire the stack and lower MIN_FLOOR_STEPS in the same commit."
     )
 if len(measurement_jobs) < MIN_MEASUREMENT_JOBS:
     die(
@@ -828,8 +846,10 @@ on: {push: {branches: [main]}}
 ' "::error::"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 16 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 16) — a self-test that ran nothing is not a passing self-test."
+  # AT the number of cases above, not under it (#700 item 1): a floor with slack
+  # is a floor that absorbs a case quietly disappearing.
+  if [ "$pass" -lt 21 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 21) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

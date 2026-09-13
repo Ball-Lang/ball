@@ -42,6 +42,7 @@ List<Object?> _analyzeTerminationCore(Map ctx) {
   final callGraph = _buildCallGraph({
     'modules': modules,
     'baseModules': baseModules,
+    'customBaseFns': _collectCustomBaseFns(modules),
   });
   _checkLoops({
     'modules': modules,
@@ -63,6 +64,7 @@ List<Object?> _analyzeTerminationCore(Map ctx) {
     'baseModules': baseModules,
     'warnings': warnings,
   });
+  _checkCustomBaseCalls({'callGraph': callGraph, 'warnings': warnings});
   return warnings;
 }
 
@@ -120,6 +122,7 @@ String formatTerminationReport(List warnings) {
 }
 
 String _categoryLabel(String category) {
+  if (category == 'unknown_termination') return 'Unknown Termination';
   if (category == 'infinite_loop') return 'Potential Infinite Loops';
   if (category == 'unbounded_recursion') return 'Unbounded Recursion';
   if (category == 'unreachable_code') return 'Unreachable Code';
@@ -143,6 +146,7 @@ bool terminationHasErrors(List warnings) {
 List<Object?> _buildCallGraph(Map ctx) {
   final modules = ctx['modules'];
   final baseModules = ctx['baseModules'];
+  final customBaseFns = ctx['customBaseFns'];
   final graph = <Object?>[];
   for (final module in modules) {
     if (baseModules.contains(module.name)) continue;
@@ -151,16 +155,44 @@ List<Object?> _buildCallGraph(Map ctx) {
       if (!fn.hasBody()) continue;
       final key = '${module.name}.${fn.name}';
       final callees = <String>[];
+      final customCalls = <String>[];
       _collectCallees({
         'expr': fn.body,
         'contextModule': module.name,
         'baseModules': baseModules,
         'callees': callees,
+        'customBaseFns': customBaseFns,
+        'customCalls': customCalls,
       });
-      graph.add({'key': key, 'callees': callees});
+      graph.add({'key': key, 'callees': callees, 'customCalls': customCalls});
     }
   }
   return graph;
+}
+
+/// Report every call into a base module the program DECLARES itself (issue
+/// #609) as explicitly unanalyzable. The host supplies that function's
+/// implementation (`BallModuleHandler`), so this analysis can bound neither its
+/// termination nor its effects — saying so is the honest answer, and silence
+/// would read as "analyzed, nothing found". Informational severity: it is a
+/// statement about the analysis, not a defect, so it never trips the
+/// error-only `--exit-code` gate ([terminationHasErrors]).
+void _checkCustomBaseCalls(Map ctx) {
+  final List callGraph = ctx['callGraph'];
+  final List warnings = ctx['warnings'];
+  for (final entry in callGraph) {
+    final List customCalls = entry['customCalls'];
+    for (final callee in customCalls) {
+      warnings.add({
+        'severity': 'info',
+        'category': 'unknown_termination',
+        'message':
+            'calls custom base module $callee — its implementation is '
+            'host-supplied, so termination and effects cannot be analyzed',
+        'location': entry['key'],
+      });
+    }
+  }
 }
 
 /// Collect the non-base callee keys reachable from `ctx['expr']`. `ctx` =
@@ -170,12 +202,18 @@ void _collectCallees(Map ctx) {
   final contextModule = ctx['contextModule'];
   final baseModules = ctx['baseModules'];
   final List callees = ctx['callees'];
+  final List customBaseFns = ctx['customBaseFns'];
+  final List customCalls = ctx['customCalls'];
   if (expr == null) return;
 
   if (expr.hasCall()) {
     final call = expr.call;
     final module = call.module.isEmpty ? contextModule : call.module;
     final fn = call.function;
+    final key = '$module.$fn';
+    if (customBaseFns.contains(key) && !customCalls.contains(key)) {
+      customCalls.add(key);
+    }
     if (!baseModules.contains(module)) {
       final ck = '$module.$fn';
       if (!callees.contains(ck)) callees.add(ck);
@@ -186,6 +224,8 @@ void _collectCallees(Map ctx) {
         'contextModule': contextModule,
         'baseModules': baseModules,
         'callees': callees,
+        'customBaseFns': customBaseFns,
+        'customCalls': customCalls,
       });
     }
   } else if (expr.hasBlock()) {
@@ -196,6 +236,8 @@ void _collectCallees(Map ctx) {
           'contextModule': contextModule,
           'baseModules': baseModules,
           'callees': callees,
+          'customBaseFns': customBaseFns,
+          'customCalls': customCalls,
         });
       }
       if (stmt.hasExpression()) {
@@ -204,6 +246,8 @@ void _collectCallees(Map ctx) {
           'contextModule': contextModule,
           'baseModules': baseModules,
           'callees': callees,
+          'customBaseFns': customBaseFns,
+          'customCalls': customCalls,
         });
       }
     }
@@ -213,6 +257,8 @@ void _collectCallees(Map ctx) {
         'contextModule': contextModule,
         'baseModules': baseModules,
         'callees': callees,
+        'customBaseFns': customBaseFns,
+        'customCalls': customCalls,
       });
     }
   } else if (expr.hasLambda()) {
@@ -221,6 +267,8 @@ void _collectCallees(Map ctx) {
       'contextModule': contextModule,
       'baseModules': baseModules,
       'callees': callees,
+      'customBaseFns': customBaseFns,
+      'customCalls': customCalls,
     });
   } else if (expr.hasMessageCreation()) {
     for (final field in expr.messageCreation.fields) {
@@ -229,6 +277,8 @@ void _collectCallees(Map ctx) {
         'contextModule': contextModule,
         'baseModules': baseModules,
         'callees': callees,
+        'customBaseFns': customBaseFns,
+        'customCalls': customCalls,
       });
     }
   } else if (expr.hasFieldAccess()) {
@@ -238,6 +288,8 @@ void _collectCallees(Map ctx) {
         'contextModule': contextModule,
         'baseModules': baseModules,
         'callees': callees,
+        'customBaseFns': customBaseFns,
+        'customCalls': customCalls,
       });
     }
   } else if (expr.hasLiteral()) {
@@ -248,6 +300,8 @@ void _collectCallees(Map ctx) {
           'contextModule': contextModule,
           'baseModules': baseModules,
           'callees': callees,
+          'customBaseFns': customBaseFns,
+          'customCalls': customCalls,
         });
       }
     }

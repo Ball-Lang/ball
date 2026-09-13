@@ -210,8 +210,10 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 7 on 2026-09-13 (the seventh is #632's sibling, the script-mode entry-point IIFE,
-  tracked as #687), and everything else in that file is a flipped, positive assertion.
+  prose** — 9 on 2026-09-14 (three of them are #632 siblings: the script-mode entry-point IIFE,
+  tracked as #687, and the spliced collection-literal lowering's two refusals — `Vec::new()` and
+  `matches!` — tracked as #712 and pinned separately because a `#[should_panic]` observes only the
+  first panic), and everything else in that file is a flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -395,16 +397,32 @@ and its own encoder refuses caps that column no matter how good either half is o
   `ball_message_type_name`, …) that are not user functions, so re-encoding it yields calls that
   resolve to nothing and **re-compiling that is not a fixpoint** — measured, and neither Tier A
   nor this test pretends otherwise. The behavioural half sits beside it, on the constructs
-  themselves: two cases compile the compiler's own output, link it against a hand-written `main`,
-  and RUN it, asserting the thrown message as bytes. A shape assertion alone would pass on a
-  throw carrying the wrong message. Extend THAT test when you add a compiler emission shape; do
-  not add a second, weaker round trip.
+  themselves: three cases compile the compiler's own output, link it against a hand-written
+  `main`, and RUN it, asserting the thrown message as bytes. A shape assertion alone would pass
+  on a throw carrying the wrong message. Extend THAT test when you add a compiler emission shape;
+  do not add a second, weaker round trip.
 - `panic!` encodes to `std.throw` (field `value`), the same shape `dart/encoder`'s
   `ThrowExpression` arm emits and the same one this crate's `encode_unwrap` already used. The two
   really are one mechanism on this target: `runtime.rs::ball_throw` IS `std::panic::panic_any`,
   and `ball_catch_payload` re-wraps a non-Ball payload (what `panic!` carries) as
   `BallValue::String(message)` — so a `catch` binds the identical value either way. A bare
   `panic!()` carries Rust's own `explicit panic` message, never `""`.
+- **`unreachable!` is mapped too, and for the same reason** — it is `panic!` with a fixed prefix
+  (`library/core/src/panic.rs`'s `unreachable_2021` expands to
+  `panic!("internal error: entered unreachable code: {}", format_args!(..))`), and the compiler
+  EMITS it: `base_call.rs::flow_propagation` ends a `try` carrying a `break`/`continue` with no
+  enclosing loop in exactly that macro. It encodes as the same `std.throw`, carrying Rust's whole
+  message — **prefix included**, because that prefix is part of what a `catch` binds, and an
+  encode-only assertion could not see it dropped. `an_unreachable_throws_rusts_own_internal_error_message`
+  is the run-proof; `a_bare_unreachable_encodes_the_message_rust_itself_prints` pins the
+  argument-less form, which must NOT carry a trailing `": "`.
+- **Enumerate what the compiler emits; do not assume it is one construct.** #632 arrived as a
+  single `panic!`. Sweeping `rust/compiler/src` for constructs inside EMITTED string literals
+  finds three more: `unreachable!` (`flow_propagation`), and — in `compile_list_literal`'s
+  imperative lowering, used by EVERY spliced collection literal (`std.spread`, `null_spread`,
+  `collection_if`, `collection_for`) — both `Vec::new()` and `matches!`. Re-run that sweep
+  whenever you add an emission shape; everything past the first was invisible to the issue that
+  named it.
 - The dispatcher fallback's message is **target-neutral** — `no method '<name>' for <type>`,
   byte-identical to `go/compiler/library.go`'s `ballrt.Thrown` and
   `csharp/compiler/src/TypeEmit.cs`'s `BallRuntimeException`. It used to carry a
@@ -417,12 +435,28 @@ and its own encoder refuses caps that column no matter how good either half is o
   funnel, and a lane that wants those numbers up works on stage 1's named reasons
   (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
   the invariant; the third-party funnel is a separate, slower instrument.
-- The same invariant's other OPEN instance is the script-mode entry-point IIFE (`compile()` wraps
-  the entry body in `(|| -> BallValue { … })()`, which the encoder refuses), pinned as
-  `documented_gaps.rs::compiled_entry_point_iife_is_a_documented_gap` and tracked as **#687**. Do
-  not "fix" it by encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return`
-  in the entry body return from the entry body rather than from `main`, and a Ball block's
-  `return` leaves the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
+- The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
+  - the script-mode entry-point IIFE (`compile()` wraps the entry body in
+    `(|| -> BallValue { … })()`, which the encoder refuses),
+    `compiled_entry_point_iife_is_a_documented_gap`, tracked as **#687**. Do not "fix" it by
+    encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return` in the entry
+    body return from the entry body rather than from `main`, and a Ball block's `return` leaves
+    the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
+  - the **spliced collection-literal lowering**, tracked as **#712**, which is the broader of the
+    two: `compile_list_literal` goes imperative the moment any element splices, and emits
+    `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type
+    — measured as the FIRST refusal) and `if !matches!(__sp, BallValue::Null)` behind it. So every
+    library whose output holds a spread, collection-`if` or collection-`for` fails stage 3, not
+    just a null-aware one. Pinned by `compiled_spliced_list_literal_is_a_documented_gap` (driven
+    through the real compiler, asserting BOTH constructs are still emitted) plus
+    `the_matches_macro_is_a_documented_gap` for the second refusal, which a single
+    `#[should_panic]` cannot reach. Do NOT close it by teaching the encoder `Vec::new()`/`matches!`
+    arms: that encodes compiler-internal spellings while still refusing every real-world one,
+    which is what Tier A measures. The fix belongs on the COMPILER side — a plain
+    `ball_is_null(&__sp)` helper and the existing `BallList`/`BallValue::List` vocabulary in place
+    of the bare `Vec`, the same plain-call vocabulary the neighbouring
+    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use, which re-encodes soft instead of
+    aborting the file.
 
 ### Engine
 

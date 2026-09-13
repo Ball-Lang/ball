@@ -405,10 +405,33 @@ instructions.
   runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not user functions, so
   re-encoding it yields calls resolving to nothing and **re-compiling that is not a fixpoint** —
   measured, and neither Tier A nor that test pretends otherwise. The behavioural half sits beside
-  it: two cases compile the compiler's own output, link it against a hand-written `main`, and RUN
-  it, asserting the thrown message as bytes. Extend that test when you add a compiler emission
-  shape; never add a second, weaker round trip. The script-mode entry-point IIFE is the same
-  invariant's other open instance — pinned in `documented_gaps.rs`, tracked as **#687**.
+  it: three cases compile the compiler's own output, link it against a hand-written `main`, and
+  RUN it, asserting the thrown message as bytes. Extend that test when you add a compiler emission
+  shape; never add a second, weaker round trip.
+  **Enumerate what the compiler emits — the issue named one instance and the sweep found more.**
+  Sweeping `rust/compiler/src` for constructs inside EMITTED string literals finds, besides the
+  `panic!` #632 closed: `unreachable!` (`flow_propagation` — a `break`/`continue` in a `try` with
+  no enclosing loop), and, in `compile_list_literal`'s imperative lowering,
+  `let mut __lit: Vec<BallValue> = Vec::new();` together with the null-spread guard
+  `if !matches!(__sp, BallValue::Null)`.
+  `unreachable!` is now MAPPED: it encodes as the same `std.throw`, carrying Rust's own
+  `internal error: entered unreachable code[: …]` message — **prefix included**, since that
+  prefix is part of what a `catch` binds (`library/core/src/panic.rs`'s `unreachable_2021`), and an
+  encode-only assertion could not have seen it dropped.
+  The list-literal pair is **#712**, and is the broader gap of the two open ones: that lowering is
+  used by EVERY spliced collection literal (`std.spread`, `null_spread`, `collection_if`,
+  `collection_for`), so any library whose compiled output holds one fails stage 3 — measured at
+  `Vec::new()` first, with `matches!` behind it. Neither may be closed by widening the encoder:
+  `matches!` is a pattern match over a runtime-crate enum variant and `Vec::new()` an associated fn
+  on a foreign type, so an arm for either would encode a compiler-internal spelling while still
+  refusing every real-world one — which is what Tier A measures. The fix is compiler-side (a plain
+  `ball_is_null(&__sp)` helper plus the existing `BallList`/`BallValue::List` vocabulary), in the
+  same plain-call style the neighbouring `ball_truthy`/`ball_iterate`/`ball_spread_iter` already
+  use, which re-encodes soft instead of aborting the file. Pinned by
+  `compiled_spliced_list_literal_is_a_documented_gap` (driven through the real compiler, asserting
+  both constructs are still emitted) and `the_matches_macro_is_a_documented_gap` (the second
+  refusal, which one `#[should_panic]` cannot reach). The script-mode entry-point IIFE is the
+  invariant's other open instance — also pinned in `documented_gaps.rs`, tracked as **#687**.
   `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
   `ThrowExpression` arm emits: on this target the two are literally one mechanism
   (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a

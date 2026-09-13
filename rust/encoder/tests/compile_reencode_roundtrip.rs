@@ -50,6 +50,31 @@
 //! - `a_formatted_panic_throws_the_message_rust_itself_would_print` does the
 //!   same for the new `panic!` → `std.throw` arm on ordinary user code: the
 //!   caught value must read exactly what the original Rust `panic!` says.
+//! - `an_unreachable_throws_rusts_own_internal_error_message` does it for
+//!   `unreachable!`, the SECOND macro the compiler emits
+//!   (`base_call.rs::flow_propagation`). Its message is not the argument: Rust
+//!   prefixes it with `internal error: entered unreachable code: `, so an
+//!   encode-only assertion would pass on a throw that silently dropped the
+//!   prefix a `catch` actually binds.
+//!
+//! ## Enumerate what the compiler emits — do not assume it is one construct
+//!
+//! #632 was found as a single `panic!`. Sweeping `rust/compiler/src` for
+//! constructs inside EMITTED string literals found three more: `unreachable!`
+//! (`flow_propagation`) and — in `compile_list_literal`'s imperative lowering,
+//! which EVERY spliced collection literal goes through — `Vec::new()` together
+//! with `matches!(__sp, BallValue::Null)`.
+//!
+//! `panic!` and `unreachable!` are mapped, and gated here. The list-literal
+//! pair is not, and must not be: `matches!` is a pattern match over a
+//! runtime-crate enum variant and `Vec::new()` an associated function on a
+//! foreign type, so an encoder arm for either would encode a compiler-internal
+//! spelling while still refusing every real-world occurrence. It is pinned
+//! fail-loud as
+//! `documented_gaps.rs::compiled_spliced_list_literal_is_a_documented_gap` and
+//! tracked as issue #712, whose fix is compiler-side. Re-run that sweep when
+//! you add a compiler emission shape — everything past the first construct was
+//! invisible to the issue that named it.
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -138,6 +163,36 @@ fn main() {
 /// 7` — the whole point of routing the message through `format!`'s own
 /// `std.concat`/`std.to_string` chain rather than dropping it.
 const PANIC_EXPECTED_STDOUT: &str = "boom 7\n";
+
+/// `unreachable!` in ordinary user code. The compiler emits this macro too
+/// (`base_call.rs::flow_propagation`, for a `break`/`continue` inside a `try`
+/// with no enclosing loop), so the round-trip invariant covers it.
+const UNREACHABLE_LIBRARY_SOURCE: &str = r#"
+fn impossible(state: i64) -> i64 {
+    unreachable!("bad state {}", state);
+}
+"#;
+
+/// Calls the compiled `impossible` and prints the value a Ball `catch` binds.
+const UNREACHABLE_DRIVER_MAIN: &str = r#"
+fn main() {
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        impossible(BallValue::Int(9))
+    }));
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("`unreachable!` must still throw after the round trip");
+    println!("{}", ball_to_string(ball_catch_payload(payload)));
+}
+"#;
+
+/// What Rust itself panics with for `unreachable!("bad state {}", 9)`:
+/// `library/core/src/panic.rs`'s `unreachable_2021` expands to
+/// `panic!("internal error: entered unreachable code: {}", format_args!(..))`.
+/// The PREFIX is the part an encode-only assertion cannot see — a throw
+/// carrying just `bad state 9` would look like a clean round trip and would
+/// have changed what a `catch` binds.
+const UNREACHABLE_EXPECTED_STDOUT: &str = "internal error: entered unreachable code: bad state 9\n";
 
 static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -409,5 +464,64 @@ fn a_bare_panic_encodes_the_message_rust_itself_prints() {
     assert!(
         rendered.contains("explicit panic"),
         "a bare `panic!()` must carry Rust's own `explicit panic` message: {rendered}"
+    );
+}
+
+/// `unreachable!` — the compiler's OTHER emitted macro — proven end to end, for
+/// the same reason its `panic!` sibling is: the message must survive, and here
+/// the message is not simply the argument. Rust prefixes it with
+/// `internal error: entered unreachable code: `, and that whole string is what
+/// `ball_catch_payload` hands a Ball `catch`.
+#[test]
+fn an_unreachable_throws_rusts_own_internal_error_message() {
+    let program = ball_lang_encoder::encode_library(UNREACHABLE_LIBRARY_SOURCE);
+
+    let calls = std_calls(&program);
+    assert!(
+        calls.iter().any(|name| name == "throw"),
+        "`unreachable!` must encode as `std.throw`. std calls found: {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|name| name == "concat"),
+        "the prefix and the formatted argument must be joined, not one or the other. \
+         std calls found: {calls:?}"
+    );
+
+    let compiled = Compiler::new(&program).compile_library();
+    let stdout = compile_and_run(
+        "unreachable_macro",
+        &format!("{compiled}\n{UNREACHABLE_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, UNREACHABLE_EXPECTED_STDOUT,
+        "the caught value must read exactly what Rust's own `unreachable!` prints, prefix included"
+    );
+}
+
+/// `unreachable!()` with no arguments carries Rust's fixed message and nothing
+/// else — no stray `": "` separator, which a naive prefix-plus-format encoding
+/// would leave behind.
+#[test]
+fn a_bare_unreachable_encodes_the_message_rust_itself_prints() {
+    let program = ball_lang_encoder::encode_library("fn stop() { unreachable!(); }");
+    let stop = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("encoded program must carry a `main` module")
+        .functions
+        .iter()
+        .find(|f| f.name == "stop")
+        .expect("encoded program must carry `stop`")
+        .clone();
+    let rendered = format!("{:?}", stop.body);
+    assert!(
+        rendered.contains("internal error: entered unreachable code"),
+        "a bare `unreachable!()` must carry Rust's own message: {rendered}"
+    );
+    assert!(
+        !rendered.contains("entered unreachable code: "),
+        "with no arguments there is nothing to append, so the `: ` separator must not appear: \
+         {rendered}"
     );
 }

@@ -25,7 +25,8 @@ Dart → Ball encoder. Parses Dart source with the `analyzer` package and emits 
   - A null-aware receiver (`x?.foo`, `x?.m(…)`) that resolves to something Dart's flow analysis cannot PROMOTE — a field, a top-level variable, a getter — is bound to a temporary local first (`_nullAwareNeedsTemp`). The `std.if(equals(t, null), null, t.foo)` guard names the receiver twice, and Dart rejects the else-branch access outright when `t` is a non-promotable field. The temp-local path already existed for non-`Reference` targets; slice 2 only widened when it is taken.
   - A constructor call whose type arguments the SOURCE elided but the analyzer INFERRED (`StreamController(sync: true)` in a `StreamSink<S>`-returning method) records them through `_inferredTypeArgsSource` (#573). It reuses the explicit-syntax path's own `_setTypeArgsMetadata` / `_setTypeArgsField` pair — no new metadata key, no proto change — and declines twice over: an all-`dynamic` inference adds nothing, and anything that is not plain writable type syntax (function types, record types, `InvalidType`) disqualifies the whole annotation rather than emitting half of one.
   - **Tier B is wired to this seam** (`tools/coverage-study/rq1_tierb.dart`'s `preparePackageCompileBack`). Until #488 slice 2 it called bare `DartEncoder().encode()`, so every receiver-type branch was structurally invisible to the only instrument that measures them. If you add a receiver-type refinement here, Tier B is where it shows up.
-- Encoder changes hit user programs AND the self-hosted engine — verify all three engines, not Dart-only.
+- Encoder changes hit user programs AND the self-hosted engine — verify every engine row of
+  `conformance-matrix.yml`'s `summary` parity table, not Dart-only.
 - Every new emittable construct needs a `tests/conformance/src/*.dart` fixture (gated). See `docs/TESTING_STRATEGY.md`.
 - Tests in `test/`.
 

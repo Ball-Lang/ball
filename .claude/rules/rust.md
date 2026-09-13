@@ -188,7 +188,8 @@ cargo fmt --check && cargo clippy --workspace
   (`impl<I> Trait for (I::Item,)` — `types.rs::type_short_name`, 8 of the 110 scored Tier A
   files), destructuring patterns (`let Pair(a, b) = p;`), a *reference* to a skipped module-scope
   `const`/`static`/`type` alias (the declaration itself is skipped — see below),
-  unmapped macros (`write!` — the measured largest *next* bucket, 9 of the 110 files). Each is
+  unmapped macros (the `assert!` family; `write!`/`writeln!` are CLOSED by #630 — next bullet).
+  Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
@@ -263,6 +264,27 @@ cargo fmt --check && cargo clippy --workspace
   invocation, and the 28-file `TestFlags` bucket is a `#[cfg(test)]`-scoping question, not a
   macro one — expansion moves first blockers, it does not on its own make a file clean. Full
   design record, including the per-class invocation census: `rust/AGENTS.md`.
+- **`write!`/`writeln!` route onto the declared text sink, by SYNTAX alone (#630).** `core` defines
+  `write!($dst, ..)` as `$dst.write_fmt(format_args!(..))` — the destination is a method RECEIVER,
+  so the first argument **is** the sink by construction and `encode_write_macro` consults no type
+  information (6 of the 7 first-blocked Tier A files write through an *unannotated closure
+  parameter*, so any design needing inference is dead on arrival). Two arms: anything that is not a
+  local binding → `std.sink_write{sink, text}`; a bare name bound by a `let` whose initialiser is a
+  `String` constructor → a **re-assignment** `s = std.concat(s, text)` (the `itertools::join`
+  "join-sites" rule — that local is ALSO read as a `String` in the same function, and an opaque
+  sink would silently change those reads); a bare name bound by a `let` of any other shape → a
+  **loud refusal** naming the local and its initialiser, never a guess. `writeln!` is `write!` +
+  `"\n"`, exactly how `core` spells its own no-argument arm. Both arms are wrapped in the unified
+  `Ok(..)` outcome, because `write!` evaluates to a `fmt::Result` that 22 of the 25 corpus sites
+  consume with `?`/`.unwrap()`. Supporting: `Encoder::local_scopes` (a binding-frame stack, one per
+  fn/closure/`impl` method/default-bodied trait method, seeded with that body's parameters, looked
+  up innermost-first so a closure param shadows an enclosing local) is deliberately SEPARATE from
+  `push_fn_scope`, which records parameters only for a 2+-parameter body and is not pushed for an
+  `impl` method at all; and `String::new()`/`String::with_capacity(n)` now encode as the empty
+  string (both were "unsupported call target", so the local-`String` arm would have been
+  unreachable; capacity is an allocation hint with no observable effect). Measured: Tier A
+  `encoded` **1/77 -> 7/77**, `compiled back` 1 -> 7, `clean` unchanged at 0. Proof:
+  `rust/encoder/tests/write_sinks.rs`; design of record `.claude/briefs/W12-B.md`.
 - **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`
   is an identity passthrough (a Ball `List` has no exhausted state); `.is_empty()` lowers to
   `std.equals(std.length(receiver), 0)`, reusing `.len()`'s own universal dispatch, so it needs no
@@ -414,12 +436,15 @@ cargo fmt --check && cargo clippy --workspace
   `src/tests/*.rs` alike are only reached through `#[cfg(test)] mod tests;` — so
   the denominator is **77, not the 110 every #491 histogram in this file and in
   `rust/AGENTS.md` is written against**; read those as history. Honest baseline,
-  **0/77 clean, 1/77 encoded** — the encoders' documented gaps (item-level macro
-  invocations, unmapped macros like `write!`, `impl` self types that are not a
+  **0/77 clean, 7/77 encoded** (1/77 before #630's `write!` slice) — the
+  encoders' documented gaps (proc-macro / `#[derive]` item invocations, the
+  unmapped `assert!` family, `impl` self types that are not a
   plain named type) are in essentially every real crate file, and a file that
   clears one lands on the next. A closed gap category usually moves the
-  histogram, not the aggregate; the crate-aware slice is the first one to move
-  the aggregate at all, and it moved it by one file. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
+  histogram, not the aggregate; the crate-aware slice was the first one to move
+  the aggregate at all, and it moved it by one file, then #630's `write!` slice
+  took it 1 -> 7. `clean` has never moved and #630 did not move it either — its
+  remaining walls are #632 and declaration drift. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
   `strsim` (`tools/coverage-study/packages/rust.json`), not the original 10-crate
   #491 set. **Always point `CARGO_TARGET_DIR` at a path inside the current
   worktree** — a target dir shared with another lane serves a stale `rlib` and

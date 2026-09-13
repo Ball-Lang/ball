@@ -104,6 +104,11 @@ impl Encoder {
             Some(init) => self.encode_expr(&init.expr),
             None => null_literal(),
         };
+        // Record the binding AFTER its initialiser is encoded, so a shadowing
+        // `let s = s;` still reads the OUTER `s` (Rust's own rule). Issue
+        // #630's `write!` destination rule is the only consumer — see
+        // `Encoder::push_locals_frame`.
+        self.record_local(&name, local.init.as_ref().map(|init| init.expr.as_ref()));
         // Cosmetic mutability round-trip (issue #43): `let mut x = ...;` ->
         // `metadata.is_mut = true`; a plain `let x = ...;` (Rust's default,
         // conceptually Dart's `final`) carries no metadata at all — matches

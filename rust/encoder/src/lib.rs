@@ -800,6 +800,94 @@ pub(crate) struct Encoder {
     /// [`Self::unresolved_modules`] because these are RESOLVED: the named
     /// module is part of the same `Program`.
     pub(crate) referenced_crate_modules: BTreeSet<String>,
+    /// One frame per fn/closure/method body currently being encoded, naming
+    /// every binding that body introduces — its parameters (seeded on entry)
+    /// and its `let`s (recorded as they are encoded). Issue #630's `write!`
+    /// destination rule is the only consumer: it must tell a **local
+    /// `String`** (re-assigned in place, so its non-sink reads keep seeing a
+    /// `String`) from **anything else** (a sink, encoded as
+    /// `std.sink_write`). Innermost-first lookup is what makes a closure's own
+    /// parameter shadow a same-named enclosing local, which is not a corner
+    /// case: `heck`'s `|f| write!(f, "-")` closures are 6 of the 7 Tier A
+    /// files this rule exists for.
+    local_scopes: Vec<HashMap<String, LocalKind>>,
+}
+
+/// What a binding in the fn/closure/method body currently being encoded
+/// holds, as far as issue #630's `write!`-destination rule is concerned.
+/// Deliberately a closed three-way split with no "don't know" member: an
+/// unrecorded name is simply absent from [`Encoder::local_scopes`] and is
+/// therefore not a local at all.
+#[derive(Clone, Debug)]
+pub(crate) enum LocalKind {
+    /// A `let` whose initialiser is a `String` constructor — the only shape
+    /// `write!` is allowed to re-assign.
+    LocalString,
+    /// A `let` of some other shape, carrying its initialiser's source text so
+    /// the refusal can name it.
+    Other(String),
+    /// A fn/closure/method parameter. Never a local, so always a sink.
+    Parameter,
+}
+
+/// Is `expr` a `String` constructor — the initialiser set issue #630's
+/// local-`String` arm accepts? Syntax only, deliberately: this encoder has no
+/// semantic model (see the crate doc comment), and a *wider* guess here would
+/// silently turn a non-`String` local into a re-assignment. Anything outside
+/// this list that is a local fails loud instead.
+fn is_string_constructor(expr: &syn::Expr) -> bool {
+    match expr {
+        syn::Expr::Paren(e) => is_string_constructor(&e.expr),
+        syn::Expr::Group(e) => is_string_constructor(&e.expr),
+        // `String::new()` / `String::with_capacity(n)` / `String::from(x)`.
+        syn::Expr::Call(call) => match call.func.as_ref() {
+            syn::Expr::Path(path_expr) => {
+                let segments: Vec<String> = path_expr
+                    .path
+                    .segments
+                    .iter()
+                    .map(|s| s.ident.to_string())
+                    .collect();
+                segments.len() == 2
+                    && segments[0] == "String"
+                    && matches!(segments[1].as_str(), "new" | "with_capacity" | "from")
+            }
+            _ => false,
+        },
+        // `"seed".to_string()` / `"seed".to_owned()` — only on a string
+        // LITERAL receiver. `x.to_owned()` on an unknown receiver proves
+        // nothing (it is `Vec`'s clone just as much as `str`'s).
+        syn::Expr::MethodCall(call) => {
+            call.args.is_empty()
+                && matches!(call.method.to_string().as_str(), "to_string" | "to_owned")
+                && matches!(
+                    call.receiver.as_ref(),
+                    syn::Expr::Lit(syn::ExprLit {
+                        lit: syn::Lit::Str(_),
+                        ..
+                    })
+                )
+        }
+        // `format!(..)` is a `String` by definition.
+        syn::Expr::Macro(mac) => mac.mac.path.is_ident("format"),
+        _ => false,
+    }
+}
+
+/// Strip the borrow/paren/group wrappers a `write!` destination may carry, so
+/// `&mut s`, `(&mut s)` and `s` all classify identically. `core` expands
+/// `write!($dst, ..)` to `$dst.write_fmt(..)`, and a method receiver
+/// auto-refs — which is precisely why both spellings appear in real code.
+pub(crate) fn strip_borrows(expr: &syn::Expr) -> &syn::Expr {
+    let mut current = expr;
+    loop {
+        current = match current {
+            syn::Expr::Reference(e) => &e.expr,
+            syn::Expr::Paren(e) => &e.expr,
+            syn::Expr::Group(e) => &e.expr,
+            other => return other,
+        };
+    }
 }
 
 impl Encoder {
@@ -818,7 +906,57 @@ impl Encoder {
             current_module: module_name.to_string(),
             crate_symbols,
             referenced_crate_modules: BTreeSet::new(),
+            local_scopes: Vec::new(),
         }
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // Local-binding scoping (issue #630's `write!` destination rule)
+    // ════════════════════════════════════════════════════════════
+
+    /// Open a binding frame for a fn/closure/method body, seeded with its
+    /// parameters. Must be paired with [`Self::pop_locals_frame`].
+    ///
+    /// Kept separate from [`Self::push_fn_scope`] on purpose even though the
+    /// two are pushed together for a fn/closure: `push_fn_scope` only records
+    /// parameters for a **2+-parameter** body (its `input`-field aliasing
+    /// rule), and an `impl`-block method pushes no fn scope at all. Both of
+    /// those would leave a parameter looking like a local here, and a
+    /// parameter misread as a local `String` is exactly the silent
+    /// miscompile this frame exists to prevent.
+    pub(crate) fn push_locals_frame(&mut self, params: &[(String, String)]) {
+        let frame = params
+            .iter()
+            .map(|(name, _)| (name.clone(), LocalKind::Parameter))
+            .collect();
+        self.local_scopes.push(frame);
+    }
+
+    pub(crate) fn pop_locals_frame(&mut self) {
+        self.local_scopes.pop();
+    }
+
+    /// Record a `let` binding in the innermost open frame. A re-`let` of the
+    /// same name overwrites, which is Rust's own shadowing rule.
+    pub(crate) fn record_local(&mut self, name: &str, init: Option<&syn::Expr>) {
+        let kind = match init {
+            Some(expr) if is_string_constructor(expr) => LocalKind::LocalString,
+            Some(expr) => LocalKind::Other(quote::quote!(#expr).to_string()),
+            None => LocalKind::Other("<no initialiser>".to_string()),
+        };
+        if let Some(frame) = self.local_scopes.last_mut() {
+            frame.insert(name.to_string(), kind);
+        }
+    }
+
+    /// What `name` binds to, searching innermost frame first (Rust's lexical
+    /// shadowing). `None` when no open frame declares it — a field, a
+    /// module-level item, or a body encoded outside any frame.
+    pub(crate) fn lookup_local(&self, name: &str) -> Option<&LocalKind> {
+        self.local_scopes
+            .iter()
+            .rev()
+            .find_map(|frame| frame.get(name))
     }
 
     // ════════════════════════════════════════════════════════════
@@ -962,6 +1100,9 @@ impl Encoder {
     /// the module doc comment's "one input" section). Must be paired with
     /// [`Self::pop_fn_scope`] once the body has been encoded.
     fn push_fn_scope(&mut self, params: &[(String, String)]) -> Option<Struct> {
+        // A fn/closure body also opens a binding frame (issue #630) — see
+        // [`Self::push_locals_frame`] for why the two are separate.
+        self.push_locals_frame(params);
         if params.len() >= 2 {
             self.scopes
                 .push(params.iter().map(|(name, _)| name.clone()).collect());
@@ -977,6 +1118,7 @@ impl Encoder {
 
     fn pop_fn_scope(&mut self) {
         self.scopes.pop();
+        self.pop_locals_frame();
     }
 
     /// Is `name` one of the **currently-being-encoded** fn/closure's own
@@ -1339,6 +1481,28 @@ impl Encoder {
                             return self.encode_expr(&e.args[0]);
                         }
                     }
+                }
+                // `String::new()` / `String::with_capacity(n)` — both are
+                // *the empty string*. Capacity is an allocation hint with no
+                // observable effect on what the program computes
+                // (<https://doc.rust-lang.org/std/string/struct.String.html#method.with_capacity>:
+                // "the string will be able to hold at least `capacity` bytes
+                // without reallocating"), and Ball has no allocation model to
+                // carry it into, so dropping it cannot change a result.
+                //
+                // Needed by issue #630's local-`String` arm: `write!(&mut s,
+                // ..)` is only allowed to re-assign `s` when `s` is a
+                // provably-local `String`, and these two are exactly the
+                // initialisers that prove it — so the encoder has to be able
+                // to encode them in the first place. Every OTHER
+                // `Type::assoc()` on a foreign type stays the documented gap
+                // the panic below names.
+                if path.segments.len() == 2
+                    && path.segments[0].ident == "String"
+                    && ((last_name == "new" && e.args.is_empty())
+                        || (last_name == "with_capacity" && e.args.len() == 1))
+                {
+                    return string_literal("");
                 }
                 // `Ok(x)` / `Err(x)` / `Some(x)` — the unified
                 // Option/Result "outcome" representation (see the module

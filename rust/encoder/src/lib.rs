@@ -800,9 +800,13 @@ pub(crate) struct Encoder {
     /// [`Self::unresolved_modules`] because these are RESOLVED: the named
     /// module is part of the same `Program`.
     pub(crate) referenced_crate_modules: BTreeSet<String>,
-    /// One frame per fn/closure/method body currently being encoded, naming
-    /// every binding that body introduces — its parameters (seeded on entry)
-    /// and its `let`s (recorded as they are encoded). Issue #630's `write!`
+    /// One frame per binding scope currently being encoded — a fn/closure/
+    /// method body (seeded with its parameters) and every `{ .. }` block
+    /// inside it (see `block.rs::encode_block`) — naming every binding that
+    /// scope introduces: its parameters and its `let`s, recorded as they are
+    /// encoded. A block needs its own frame because its `let`s are gone at the
+    /// closing brace; leaking one past it would leave a shadowed parameter
+    /// looking like a local. Issue #630's `write!`
     /// destination rule is the only consumer: it must tell a **local
     /// `String`** (re-assigned in place, so its non-sink reads keep seeing a
     /// `String`) from **anything else** (a sink, encoded as
@@ -914,8 +918,10 @@ impl Encoder {
     // Local-binding scoping (issue #630's `write!` destination rule)
     // ════════════════════════════════════════════════════════════
 
-    /// Open a binding frame for a fn/closure/method body, seeded with its
-    /// parameters. Must be paired with [`Self::pop_locals_frame`].
+    /// Open a binding frame, seeded with `params`. Called for a fn/closure/
+    /// method body with that body's parameters, and by
+    /// `block.rs::encode_block` with none for every `{ .. }` inside it. Must
+    /// be paired with [`Self::pop_locals_frame`].
     ///
     /// Kept separate from [`Self::push_fn_scope`] on purpose even though the
     /// two are pushed together for a fn/closure: `push_fn_scope` only records

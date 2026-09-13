@@ -297,9 +297,10 @@ cargo fmt --check && cargo clippy --workspace
   **loud refusal** naming the local and its initialiser, never a guess. `writeln!` is `write!` +
   `"\n"`, exactly how `core` spells its own no-argument arm. Both arms are wrapped in the unified
   `Ok(..)` outcome, because `write!` evaluates to a `fmt::Result` that 22 of the 25 corpus sites
-  consume with `?`/`.unwrap()`. Supporting: `Encoder::local_scopes` (a binding-frame stack, one per
-  fn/closure/`impl` method/default-bodied trait method, seeded with that body's parameters, looked
-  up innermost-first so a closure param shadows an enclosing local) is deliberately SEPARATE from
+  consume with `?`/`.unwrap()`. Supporting: `Encoder::local_scopes` (a binding-frame stack — one per
+  fn/closure/`impl` method/default-bodied trait method, seeded with that body's parameters, AND one
+  per `{ .. }` block, since a block's `let`s die at its closing brace; looked up innermost-first so
+  a closure param or a nested block's own binding shadows an enclosing local) is deliberately SEPARATE from
   `push_fn_scope`, which records parameters only for a 2+-parameter body and is not pushed for an
   `impl` method at all; and `String::new()`/`String::with_capacity(n)` now encode as the empty
   string (both were "unsupported call target", so the local-`String` arm would have been

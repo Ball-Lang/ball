@@ -70,13 +70,16 @@ reference-semantic.
 | target | backing |
 |---|---|
 | Dart engine (`engine_std.dart`) — the source all six self-hosted engines are generated from | `__type__`-tagged map, **portable Dart only** (a plain map literal lowers to a by-value `std::map` in the C++ self-host) |
-| Dart compiler | `Map` (a reference type) |
-| TypeScript compiler | plain object, array `__buffer__` |
-| Rust compiler / `ball-lang-shared` | `BallValue::Map` = `Arc<Mutex<IndexMap>>` |
-| C# compiler / `Ball.Shared` | `BallMap` (a reference type) |
-| Go compiler / `ballrt` | `*ballrt.Map` (a **pointer**) |
-| Python compiler / `ballrt` | `dict` |
+| Dart compiler | `Map<String, dynamic>` (a reference type), `_ballSinkCreate` |
+| TypeScript compiler / engine | plain object, `__ball_sink_create` |
+| Rust compiler / `ball-lang-shared` | `BallValue::Map` = `Arc<Mutex<IndexMap>>`, `ball_sink_create` |
+| C# compiler / `Ball.Shared` | `BallMap` (a reference type), `BallRuntime.SinkCreate` |
+| Go compiler / `ballrt` | `*ballrt.Map` (a **pointer**), `ballrt.SinkCreate` |
+| Python compiler / `ballrt` | `dict`, `ballrt.sink_create` |
 | C++ compiler / `ball_dyn.h` | `BallOrderedMap`, `shared_ptr`-wrapped by `BallDyn` |
+
+`__buffer__` is a **`String`** on every target — one shape, so `sink_to_string` is a read rather
+than a per-target join, and so the two incompatible TypeScript registrations of #633 cannot recur.
 
 **Reference semantics is the half that fails silently.** A target backing the sink with a by-value
 type (a bare `String`, a `strings.Builder` *value*, a copied `ostringstream`) loses every append made
@@ -150,14 +153,15 @@ non-outcome value is a silent-degradation seed.
 
 Two supporting mechanisms ship with the rule:
 
-* **`Encoder::local_scopes`** — a stack of binding frames, one per fn / closure / `impl` method /
-  default-bodied trait method body, seeded with that body's parameters and filled with its `let`s as
-  they are encoded (recorded *after* the initialiser, so `let s = s;` still reads the outer `s`).
-  Lookup is innermost-first, so a closure's own `f` shadows a same-named enclosing local. It is
-  deliberately **separate** from `push_fn_scope`: that one records parameters only for a
-  2+-parameter body (its `input`-aliasing rule) and an `impl` method pushes no fn scope at all —
-  either would leave a parameter looking like a local, and a parameter misread as a local `String` is
-  exactly the silent miscompile the frame exists to prevent.
+* **`Encoder::local_scopes`** — a stack of binding frames: one per fn / closure / `impl` method /
+  default-bodied trait method body, seeded with that body's parameters, **and one per `{ .. }`
+  block** inside it, since a block's `let`s are gone at its closing brace. Each frame is filled with
+  its `let`s as they are encoded (recorded *after* the initialiser, so `let s = s;` still reads the
+  outer `s`). Lookup is innermost-first, so a closure's own `f`, or a nested block's own `f`, shadows
+  a same-named enclosing local. It is deliberately **separate** from `push_fn_scope`: that one
+  records parameters only for a 2+-parameter body (its `input`-aliasing rule) and an `impl` method
+  pushes no fn scope at all — either would leave a parameter looking like a local, and a parameter
+  misread as a local `String` is exactly the silent miscompile the frame exists to prevent.
 * **`String::new()` / `String::with_capacity(n)` encode as the empty string.** Both were in the
   encoder's "unsupported call target" bucket, so the local-`String` arm would have been unreachable.
   Capacity is an allocation hint with no observable effect on what a program computes, and Ball has
@@ -169,16 +173,26 @@ that is not a string literal, and a placeholder/argument count mismatch, reuse t
 format-macro refusals; a local destination that is not a `String` constructor panics naming the local
 and its initialiser. Tests: `rust/encoder/tests/write_sinks.rs`.
 
-**Known boundary of the syntax-only rule, and why it is safe.** A local `String` that is handed to
-*another* function which writes into it (`let mut s = String::new(); helper(&mut s);`) splits across
-the two arms: the caller's `s` encodes as a Ball `String` and `helper`'s parameter as a sink, so the
-encoded program passes a string where `std.sink_write` expects a sink. That mismatch is **loud on
+**Known boundary of the syntax-only rule, and why it is safe.** A `String` that reaches a `write!`
+as anything other than a local `let` takes the sink arm. Two shapes: a local handed to *another*
+function which writes into it (`let mut s = String::new(); helper(&mut s);`), where the caller's `s`
+encodes as a Ball `String` and `helper`'s parameter as a sink; and a `String` **field**
+(`write!(self.out, ..)`), which has no `let` to classify. Either way the encoded program passes a
+string where `std.sink_write` expects a sink. That mismatch is **loud on
 every target** — each engine's sink helper proves the value is a tagged sink before touching it
 (`dart/engine/lib/engine_std.dart::_stdSinkBacking`: *"Fail loud rather than fabricating an empty
 sink: silently accepting a non-sink would turn every mis-routed `sink_write` into a discarded
-write"*), and each compiler's runtime does the same. It does not occur in the Tier A corpus. Closing
-it needs cross-function knowledge of how a local is used — a resolution-time question for
-`encode_crate`, not a `write!` question — so it stays a loud refusal rather than a guess.
+write"*), and each compiler's runtime does the same. Neither shape occurs in the Tier A corpus.
+Closing them needs knowledge of how the destination is used *elsewhere* — a resolution-time question
+for `encode_crate`, not a `write!` question — so they stay a loud refusal rather than a guess.
+
+**A second boundary, for the same reason.** A *pattern* binding that shadows an enclosing local
+`String` — a for-loop variable, a `match`-arm or `if let` binding — is not recorded in a frame, so
+the classifier sees the enclosing local instead. Unlike the block case above (a plain scoping bug,
+fixed), this one has no obvious right answer: `for s in writers.iter_mut()` binds a genuine
+`&mut String`, which is **both** a sink and a string, and choosing for it is the same
+representation question the join-sites rule answers for `let`. It is therefore a design question
+left open, not a bug worked around.
 
 ## 6. Options considered, and why they were rejected
 

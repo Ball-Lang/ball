@@ -718,9 +718,11 @@ part (`core` spells its no-argument arm as literally `write!($dst, "\n")`), and 
 wrapped in the unified `Ok(..)` outcome because `write!` evaluates to a `fmt::Result` that 22 of
 the 25 corpus sites consume with `?` or `.unwrap()`.
 
-Two supporting changes ship with it. `Encoder::local_scopes` is a stack of binding frames (one per
-fn / closure / `impl` method / default-bodied trait method, seeded with that body's parameters,
-filled with its `let`s, looked up innermost-first) — deliberately **separate** from
+Two supporting changes ship with it. `Encoder::local_scopes` is a stack of binding frames — one per
+fn / closure / `impl` method / default-bodied trait method, seeded with that body's parameters, and
+one per `{ .. }` block, because a block's `let`s are gone at its closing brace and leaking one past
+it leaves a shadowed parameter looking like a local; each frame is filled with its `let`s and looked
+up innermost-first. It is deliberately **separate** from
 `push_fn_scope`, which records parameters only for a 2+-parameter body and is not pushed at all for
 an `impl` method; either would leave a parameter looking like a local, and a parameter misread as a
 local `String` is the silent miscompile the frame exists to prevent. And `String::new()` /
@@ -751,9 +753,9 @@ and which a plain `Ok(x)` in hand-written source always has been — compiles to
 `{ let mut __ball_map = BallMap::new(); … }`, and `BallMap::new()` is an associated function on a
 foreign type the encoder documents as a permanent gap. Same round-trip-closure class as #632.
 
-Tests: `rust/encoder/tests/write_sinks.rs` (17 cases — every destination shape, the newline rule,
-the join-sites rule, both loud refusals, a real `cargo build` of the compiled-back library, and an
-end-to-end run of the local-`String` arm).
+Tests: `rust/encoder/tests/write_sinks.rs` (19 cases — every destination shape, the newline rule,
+the join-sites rule, the closure- and block-shadowing traps, both loud refusals, a real
+`cargo build` of the compiled-back library, and an end-to-end run of the local-`String` arm).
 
 #### Data-carrying enum variants are deliberately NOT bundled with the above
 

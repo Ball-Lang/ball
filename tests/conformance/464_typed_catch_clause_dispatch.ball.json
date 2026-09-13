@@ -294,48 +294,8 @@
                                                         {
                                                           "name": "message",
                                                           "value": {
-                                                            "call": {
-                                                              "module": "std",
-                                                              "function": "concat",
-                                                              "input": {
-                                                                "messageCreation": {
-                                                                  "typeName": "",
-                                                                  "fields": [
-                                                                    {
-                                                                      "name": "left",
-                                                                      "value": {
-                                                                        "literal": {
-                                                                          "stringValue": "1: wrong (untyped fallback ran) - "
-                                                                        }
-                                                                      }
-                                                                    },
-                                                                    {
-                                                                      "name": "right",
-                                                                      "value": {
-                                                                        "call": {
-                                                                          "module": "std",
-                                                                          "function": "to_string",
-                                                                          "input": {
-                                                                            "messageCreation": {
-                                                                              "typeName": "",
-                                                                              "fields": [
-                                                                                {
-                                                                                  "name": "value",
-                                                                                  "value": {
-                                                                                    "reference": {
-                                                                                      "name": "e"
-                                                                                    }
-                                                                                  }
-                                                                                }
-                                                                              ]
-                                                                            }
-                                                                          }
-                                                                        }
-                                                                      }
-                                                                    }
-                                                                  ]
-                                                                }
-                                                              }
+                                                            "literal": {
+                                                              "stringValue": "1: wrong (untyped fallback ran)"
                                                             }
                                                           }
                                                         }

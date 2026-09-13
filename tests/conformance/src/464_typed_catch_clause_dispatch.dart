@@ -12,7 +12,12 @@ void main() {
   } on StateError catch (e) {
     print('1: right (StateError) - ${e.message}');
   } catch (e) {
-    print('1: wrong (untyped fallback ran) - $e');
+    // Prints a constant, not '$e': a caught exception's string form is not part
+    // of the contract under test, and interpolating it is a separate
+    // cross-target portability question (the C++ compiler has no
+    // `ball_to_string(BallException)` overload, so the emitted program does not
+    // even build).
+    print('1: wrong (untyped fallback ran)');
   }
 
   // 2. No typed clause matches — the untyped catch-all is the fallback.

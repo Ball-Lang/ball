@@ -5885,19 +5885,7 @@ function __isUnknownFnError(e: any): boolean {
     }
   }
 
-  // ── std_memory → TS linear-memory compilation ──────────────────────
-  //
-  // Mirrors the Dart compiler's `_compileMemoryCall` (dart/compiler/lib/
-  // compiler.dart): lowers std_memory base calls to a `ByteData`-backed
-  // linear memory simulation. The `ByteData`/`Endian` shims live in the
-  // runtime preamble (preamble.ts, "dart:typed_data shims"); `compile()`
-  // conditionally emits the `_ballMemory`/`_ballHeapPtr`/`_ballStackFrames`/
-  // `_ballStackPtr` runtime variables only when the program actually
-  // imports `std_memory` (see `usesStdMemory` in `compile()`).
-  //
-  // Every std_memory base function declared in dart/shared/lib/std_memory.dart
-  // MUST have a case below. An unhandled function throws a compile-time
-  // Error naming it — never falls through to a bare/undefined identifier.
+  // ── std_concurrency → TS handle tables ─────────────────────────────
   /**
    * Compiles `std_concurrency` base calls against the handle tables
    * `BALL_CONCURRENCY_RUNTIME` installs (issues #606/#608).
@@ -5942,6 +5930,19 @@ function __isUnknownFnError(e: any): boolean {
     }
   }
 
+  // ── std_memory → TS linear-memory compilation ──────────────────────
+  //
+  // Mirrors the Dart compiler's `_compileMemoryCall` (dart/compiler/lib/
+  // compiler.dart): lowers std_memory base calls to a `ByteData`-backed
+  // linear memory simulation. The `ByteData`/`Endian` shims live in the
+  // runtime preamble (preamble.ts, "dart:typed_data shims"); `compile()`
+  // conditionally emits the `_ballMemory`/`_ballHeapPtr`/`_ballStackFrames`/
+  // `_ballStackPtr` runtime variables only when the program actually
+  // imports `std_memory` (see `usesStdMemory` in `compile()`).
+  //
+  // Every std_memory base function declared in dart/shared/lib/std_memory.dart
+  // MUST have a case below. An unhandled function throws a compile-time
+  // Error naming it — never falls through to a bare/undefined identifier.
   private compileMemoryCall(call: FunctionCall): string {
     const f = fieldMap(call.input?.messageCreation?.fields ?? []);
     const addrExpr = () => {

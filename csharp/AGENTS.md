@@ -778,8 +778,9 @@ never be raised to a number the harness did not print.
 
 `DispatchInstanceOrBuiltinMethod`'s `switch (methodName, argExprs.Count)` is a set of **arity
 windows** per routed name (the `collectionRoutes` pattern of `dart/encoder`, #494/#510).
-`First`/`FirstOrDefault` had both a 1-argument arm (`list_find`) and a 0-argument arm
-(`list_first`); `Any` had only its 1-argument arm (`list_any`), and `Last` had none. So the
+`First` had both a 1-argument arm (`list_find`) and a 0-argument arm
+(`list_first`) — and so did `FirstOrDefault`, until #588 removed it from both (next section);
+`Any` had only its 1-argument arm (`list_any`), and `Last` had none. So the
 0-argument spellings fell through to the same generic `unsupported method call` throw a genuine
 cross-file user call hits — a message that actively mis-describes a plain `List<T>` call.
 
@@ -795,15 +796,13 @@ Both now route to functions `StdModuleBuilders` already declares (the #505 decla
   receiver so the inverted encoding — the easy mistake in a `not`-wrapped pair — fails the
   round-trip proof instead of passing it.
 
-**`LastOrDefault` is deliberately NOT routed**, and that exclusion is itself a flagged defect:
-the neighbouring `("First" or "FirstOrDefault", 0)` arm maps BOTH names to the throwing
-`list_first`, so `.FirstOrDefault()` on an empty list **throws where C# returns `default(T)`** —
-a silent behaviour change that predates this slice. Fixing it needs either a new
-default-returning primitive or an `if (list_is_empty(l)) … else …` composition whose `default(T)`
-is type-dependent (`0` for `int`, `null` for a reference type) and therefore unknowable to a
-syntax-only encoder — a design decision, not a route addition. It is filed as **issue #588** and
-listed under "Still open on #492" below; the rule this slice follows is that a known defect does not get to
-spread to a second name just because the name is adjacent.
+**No `*OrDefault` name is routed.** When this slice landed, `LastOrDefault`'s exclusion was
+itself a flagged defect: the neighbouring `("First" or "FirstOrDefault", …)` arms mapped BOTH
+names to the throwing `list_first`/`list_find`, so `.FirstOrDefault()` **threw where C# returns
+`default(T)`**. That is **issue #588**, closed by the next section — `FirstOrDefault` is unrouted
+at both arities now, so the family is uniform and the rule this slice followed (a known defect
+does not get to spread to a second name just because the name is adjacent) no longer has an
+exception to point at.
 
 **Yield, measured rather than assumed: zero on Tier A.** Running the pinned Tier A sweep on this
 branch before and after the change, `encoded` stayed at **123/472** and `encode-error` at **349**;
@@ -837,6 +836,69 @@ earlier "unsupported top-level declaration" throw. Only `enum` ever reached the
 the throw is now an exhaustiveness guard against a future Roslyn declaration kind rather than a
 reachable path.
 
+### `*OrDefault` LINQ terminals fail loud — `.FirstOrDefault()` un-routed (issue #588)
+
+`DispatchInstanceOrBuiltinMethod` used to carry `case ("First" or "FirstOrDefault", 0) →
+list_first` and `case ("First" or "FirstOrDefault", 1) → list_find`. Both targets **throw** when
+there is nothing to return (`BallRuntime.ListFirst`/`ListFind`; in the Dart reference engine
+`_stdAsList(...)!.first` and a `firstWhere` with no `orElse`, `dart/engine/lib/engine_std.dart`).
+That is the right contract for `.First()`/`.First(pred)`, which throw in C# too. It is the exact
+opposite of `.FirstOrDefault()`, whose whole contract is to return `default(T)` — so the encoded
+program was silently wrong on precisely the input the name exists to handle.
+
+**Both arities were reproduced, not assumed** — encode with the real `ball encode`, run the
+emitted `.ball.json` on the Dart reference engine:
+
+| Source | Real C# | Encoded IR on the Dart engine (before the fix) |
+|---|---|---|
+| `new List<int>().FirstOrDefault()` | `0` | `Bad state: No element` (`engine_std.dart:566`, `list_first`) |
+| `new List<int>{1,2,3}.FirstOrDefault(v => v > 99)` | `0` | `Bad state: No element` (`engine_std.dart:668`, `list_find`) |
+
+So the defect lives in the **encoded IR**, not in one target's runtime — every engine that
+implements `list_first`/`list_find` faithfully reproduces it. The 1-argument arm's C# *compiler*
+leg happens to fail loud today for an unrelated reason (`BaseCall.cs` has no `list_find` case —
+the documented higher-order-callback deferral), which is why it looked benign; the Dart-engine
+run is what shows it is not.
+
+**The fix is a subtraction, and the nullable route was declined on purpose.** `default(T)` is
+`null` for a reference `T` but `0`/`0.0`/`false`/a zeroed struct for a value `T`, and this
+encoder is syntax-only: at `someSequence.FirstOrDefault()` the element type is **not written
+down anywhere**, unlike #578's `default(int)` where the keyword IS the syntax. A hypothetical
+`list_first_or_null` would be byte-exact for a reference `T` and wrong for every value `T`, with
+nothing in the encoded IR or the re-emitted C# to tell the two apart — trading one uniform loud
+failure for a non-uniform silent one, which is what CLAUDE.md's fail-loud invariant rules out.
+Nor can the C# compiler target repair it downstream: every compiled expression is a dynamically
+dispatched `BallValue`, and the Dart/TS/C++/Rust/Go/Python engines that run the same IR have no
+C# type information at all. `FirstOrDefault` therefore joins `LastOrDefault`/`SingleOrDefault` as
+a loud `EncoderException`; `First` keeps **both** of its routes.
+
+**Per-`T` semantics the encoder cannot distinguish** (`new List<T>().FirstOrDefault()`): `int` →
+`0`, `long` → `0`, `double` → `0.0`, `bool` → `false`, a struct → a zeroed struct, a
+class/interface/`T?` → `null`. Only the last row is what any nullable route could produce.
+
+**Measured Tier A effect: zero.** The pinned four-package sweep printed the identical funnel
+before and after (`1 encoded: 123/472`, `scored 472`, `clean 0`). Exactly one file of the 472
+changed at all — `CommandLine/Core/NameLookup.cs`, already an `encode-error` file, whose FIRST
+error moved from `.MatchName(...)` to `.FirstOrDefault(...)`. `tools/coverage-study/baseline.json`
+therefore needs no edit; it must never be lowered to hide a regression nor raised to a number the
+harness did not print.
+
+**Audit of the other encoders, measured not assumed:** `dart/encoder`, `rust/encoder`,
+`ts/encoder`, `go/encoder` and `python/encoder` route *nothing* to `list_first`/`list_last`
+(zero hits each), so #588 is C#-specific in practice — C# is the only encoder with LINQ-shaped
+method names to mis-route. Dart's own `.first`/`.last`/`.firstOrNull` getters are simply not
+routed by `dart/encoder` at all (a different, pre-existing gap).
+
+**Left for its own issue:** `std_collections.list_find`'s no-match contract already DISAGREES
+across engines — the Dart reference engine throws `StateError('No element')`
+(`engine_std.dart`, matching the declaration's "Find first: `list.firstWhere(callback)`"), while
+the TS engine returns `null` (`ts/engine/src/engine_setup.ts`). That predates #588, is not caused
+by any routing choice, and is not touched here — filed as **issue #597**. It matters to this
+section for one reason: `.First(pred)` routes to `list_find` *because* the Dart reference contract
+throws on no match, so if #597 is resolved the other way that route must be revisited. Guards:
+`ZeroArgLinqTerminalTests.OrDefaultTerminalsFailLoud` (all four `*OrDefault` names) and
+`FirstOrDefaultContractTests` (the real C# contract, plus `First`'s two surviving routes).
+
 ### Library mode — `EncodeLibrary` / `ball encode --library` (issue #492, slice 2)
 
 `CSharpEncoder.Encode` requires a `Main` entry point; real class libraries have none, which is
@@ -858,14 +920,13 @@ makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must s
 build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
 attached.
 
-Still open on #492 after slices A, B, C, D, E, 3 and 3b: **cross-file symbol resolution** (bucket d),
-**target-typed `new()`** (bucket f), and the **`FirstOrDefault`-on-empty contract** — the
-`("First" or "FirstOrDefault", 0)` arm routes the default-returning name to the throwing
-`list_first`, so an empty receiver throws where C# returns `default(T)` (**issue #588**). It
-needs a decision
-(a default-returning primitive, or an `if (list_is_empty(l)) … else …` composition whose
-`default(T)` a syntax-only encoder cannot know), not a route; `LastOrDefault`/`SingleOrDefault`
-stay LOUD errors until it is taken (`ZeroArgLinqTerminalTests.LastOrDefaultStillFailsLoud`). A fresh Tier A categorisation taken for slice E also surfaced
+Still open on #492 after slices A, B, C, D, E, 3 and 3b: **cross-file symbol resolution** (bucket d)
+and **target-typed `new()`** (bucket f). The **`FirstOrDefault`-on-empty contract** is CLOSED
+(**issue #588**): the decision was taken — no default-returning primitive, because a syntax-only
+encoder cannot know `T`, so `FirstOrDefault` is unrouted at both arities and every `*OrDefault`
+name is now a loud error (`ZeroArgLinqTerminalTests.OrDefaultTerminalsFailLoud`,
+`FirstOrDefaultContractTests`, and the "`*OrDefault` LINQ terminals fail loud" section above).
+A fresh Tier A categorisation taken for slice E also surfaced
 three expression kinds that are **not in the taxonomy at all** and are together comparable in size
 to what bucket (e) was — `IsPatternExpression` (pattern matching), `DeclarationExpression`
 (`out var`), and `SwitchExpression` — plus `DelegateDeclaration` at the top-level-declaration

@@ -490,10 +490,15 @@ internal sealed partial class Encoder
             case ("All", 1):
                 MarkCollectionsUsed();
                 return Builders.CollectionsCall("list_all", Builders.ArgsMessage(("list", receiver), ("callback", EncodeExpr(argExprs[0]))));
-            case ("First" or "FirstOrDefault", 1):
+            // `First` — and ONLY `First`. `list_find` is Dart's `firstWhere` with no
+            // `orElse` and `list_first` is `.first`: both THROW when there is nothing to
+            // return, exactly as C#'s `.First(pred)`/`.First()` do. `FirstOrDefault`
+            // shared these two arms until issue #588 and is deliberately absent now —
+            // see the `*OrDefault` note below.
+            case ("First", 1):
                 MarkCollectionsUsed();
                 return Builders.CollectionsCall("list_find", Builders.ArgsMessage(("list", receiver), ("callback", EncodeExpr(argExprs[0]))));
-            case ("First" or "FirstOrDefault", 0):
+            case ("First", 0):
                 MarkCollectionsUsed();
                 return Builders.CollectionsCall("list_first", Builders.ArgsMessage(("list", receiver)));
 
@@ -502,11 +507,20 @@ internal sealed partial class Encoder
             // sequence and so does `list_last` (`BallRuntime.ListLast`, `.last` in the
             // Dart reference engine) — the same contract, not an approximation.
             //
-            // `LastOrDefault` is deliberately absent: its contract is "return
-            // `default(T)` on empty", which `list_last` does not model. The
-            // `FirstOrDefault` arm above already makes that trade and is a KNOWN
-            // latent defect (issue #588); a new name does not get to inherit it. Same reasoning as `TryParse`'s exclusion
-            // from `EncodePredefinedTypeStaticCall`.
+            // NO `*OrDefault` name is routed — `FirstOrDefault`, `LastOrDefault`,
+            // `SingleOrDefault` all fall through to the loud throw below. Their contract
+            // is "return `default(T)` instead of throwing", and every tree available here
+            // (`list_first`/`list_last`/`list_find`) throws instead. `FirstOrDefault` used
+            // to share `First`'s two arms and was therefore silently wrong on exactly the
+            // empty/no-match input the name exists to handle (issue #588, reproduced on the
+            // Dart reference engine at BOTH arities); it is unrouted now. Routing it to a
+            // hypothetical nullable primitive would not fix it either: `default(T)` is
+            // `null` for a reference `T` but `0`/`0.0`/`false`/a zeroed struct for a value
+            // `T`, and this encoder is syntax-only — `T` is not written down at a
+            // `.FirstOrDefault()` call site (unlike #578's `default(int)`, where the
+            // keyword IS the syntax), so the result would be right for some `T` and
+            // silently wrong for others. Same reasoning as `TryParse`'s exclusion from
+            // `EncodePredefinedTypeStaticCall`.
             case ("Last", 0):
                 MarkCollectionsUsed();
                 return Builders.CollectionsCall("list_last", Builders.ArgsMessage(("list", receiver)));

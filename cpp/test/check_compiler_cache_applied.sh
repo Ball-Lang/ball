@@ -249,6 +249,53 @@ CCACHE_NEUTRAL_IDS='cache_miss cache_size_kibibyte cleanups_performed
   remote_storage_read_miss remote_storage_timeout remote_storage_write
   stats_updated_timestamp stats_zeroed_timestamp'
 
+# The ccache releases the three id lists above were transcribed from. The
+# runner images are free to move off them at any time — hendrikmuhs/ccache-action
+# installs whatever the OS package manager has and exposes no version input — so
+# the gate reads the version out of the statistics it just collected, prints it,
+# and NAMES it in the unknown/missing-counter failures. It does NOT fail on the
+# version alone: the assertion is that every counter id still classifies, and a
+# gate that reddened on an image bump by itself would be the spurious red #700
+# item 5 exists to remove.
+#
+# KNOWN RESIDUAL: a counter that keeps its id but changes FLAG at a newer
+# release is invisible to a set comparison. The version line in the log is what
+# makes that diagnosable after the fact; re-derive the lists from
+# `k_statistics_fields` whenever this list grows.
+CCACHE_TABLE_VERSIONS='4.9.1 4.14'
+
+# ccache_version_of <stats-file> — the version out of `ccache --version`'s first
+# line, or empty when the statistics carry none (a hand-passed --stats-file;
+# the CI path always records one).
+ccache_version_of() {
+  local v
+  v="$(sed -nE 's/^ccache version ([^ ]+).*/\1/p' "$1")"
+  printf '%s' "${v%%$'\n'*}"
+}
+
+# ccache_version_is_known <version>
+ccache_version_is_known() {
+  local v
+  for v in $CCACHE_TABLE_VERSIONS; do
+    [ "$v" = "$1" ] && return 0
+  done
+  return 1
+}
+
+# ccache_version_verdict <version> — the clause the counter failures embed, so
+# the reader can tell "ccache grew a counter on a newer image" from "the table
+# never covered this one".
+ccache_version_verdict() {
+  if [ -z "$1" ]; then
+    echo "version unrecorded (the statistics carry no \`ccache version\` line)"
+  elif ccache_version_is_known "$1"; then
+    echo "$1 is one of the version(s) this table was derived against ($CCACHE_TABLE_VERSIONS), so this is a counter the table never covered"
+  else
+    echo "$1 is NOT one of the version(s) this table was derived against ($CCACHE_TABLE_VERSIONS) — the runner image moved ccache, which is the usual cause"
+  fi
+}
+
+# parse_ccache_noncacheable <stats-file> <version verdict clause>
 parse_ccache_noncacheable() {
   # The lists are wrapped across lines for readability above; flatten them
   # before they reach `awk -v`, whose handling of a literal newline in an
@@ -257,7 +304,7 @@ parse_ccache_noncacheable() {
   counted="$(printf '%s %s' "$CCACHE_UNCACHEABLE_IDS" "$CCACHE_ERROR_IDS" | tr '\n' ' ')"
   optional="$(printf '%s' "$CCACHE_UNCACHEABLE_IDS_OPTIONAL" | tr '\n' ' ')"
   neutral="$(printf '%s' "$CCACHE_NEUTRAL_IDS" | tr '\n' ' ')"
-  awk -v counted="$counted" -v optional="$optional" -v neutral="$neutral" '
+  awk -v counted="$counted" -v optional="$optional" -v neutral="$neutral" -v verdict="${2:-}" '
     BEGIN {
       n = split(counted, a, / +/)
       for (i = 1; i <= n; i++) if (a[i] != "") { is_counted[a[i]] = 1; required[a[i]] = 1; known[a[i]] = 1 }
@@ -283,7 +330,7 @@ parse_ccache_noncacheable() {
         exit 1
       }
       if (unknown != "") {
-        print "::error::ccache reported counter id(s) this gate does not classify:" unknown " — one of them may be a new uncacheable reason, which would be silently left out of the sum, so this fails rather than guesses. Classify each id into CCACHE_UNCACHEABLE_IDS / CCACHE_ERROR_IDS / CCACHE_NEUTRAL_IDS in cpp/test/check_compiler_cache_applied.sh, per its flags in ccache k_statistics_fields." > "/dev/stderr"
+        print "::error::UNCLASSIFIED CCACHE COUNTER ID(s):" unknown " — ccache " verdict ". One of them may be a new uncacheable reason, which would then be silently left out of the sum and the ceiling would pass while the cache declined, so this fails rather than guesses. REMEDY: classify each id into CCACHE_UNCACHEABLE_IDS / CCACHE_ERROR_IDS / CCACHE_NEUTRAL_IDS in cpp/test/check_compiler_cache_applied.sh per its flags in ccache k_statistics_fields at that version, and add the version to CCACHE_TABLE_VERSIONS. This is a one-line edit, not a cache regression." > "/dev/stderr"
         exit 1
       }
       if (nonint != "") {
@@ -292,7 +339,7 @@ parse_ccache_noncacheable() {
       }
       for (id in required) if (!(id in seen)) missing = missing " " id
       if (missing != "") {
-        print "::error::ccache --print-stats did not report counter id(s) this gate sums:" missing " — the uncacheable total would silently lose those terms." > "/dev/stderr"
+        print "::error::MISSING CCACHE COUNTER ID(s):" missing " — ccache " verdict ". `--print-stats` did not report counter id(s) this gate sums, so the uncacheable total would silently lose those terms. REMEDY: move each id to CCACHE_UNCACHEABLE_IDS_OPTIONAL in cpp/test/check_compiler_cache_applied.sh if that version genuinely dropped it, per k_statistics_fields, and add the version to CCACHE_TABLE_VERSIONS." > "/dev/stderr"
         exit 1
       }
       print total + 0
@@ -419,7 +466,18 @@ run_check() {
       # run its own instrument has not measured anything, and this used to be
       # a cosmetic `::warning::` that let the run limp on to a different,
       # misleading error.
-      if ! ccache -s >"$stats_file" 2>&1; then
+      # WHICH ccache produced these counters (#700 item 5). It goes in FIRST,
+      # so the version and the numbers are read from one collection, and a
+      # `--version` the gate cannot read is a hard failure like the other two
+      # sub-commands: an instrument that will not say what it is cannot have
+      # its counters classified against a version-derived table.
+      if ! ccache --version >"$stats_file" 2>&1; then
+        echo "::error::'ccache --version' failed; the counter classification this gate applies is derived per ccache version ($CCACHE_TABLE_VERSIONS), so an unidentifiable ccache cannot be classified. Its output was:"
+        cat "$stats_file"
+        rm -f "$owned_stats"
+        return 1
+      fi
+      if ! ccache -s >>"$stats_file" 2>&1; then
         echo "::error::'ccache -s' failed; its output was:"
         cat "$stats_file"
         rm -f "$owned_stats"
@@ -435,7 +493,21 @@ run_check() {
     fi
   fi
 
-  local requests hits noncacheable
+  local requests hits noncacheable ccache_ver="" ccache_verdict=""
+  if [ "$tool" = "ccache" ]; then
+    # Recorded on every run, not only on failure: a log that does not say which
+    # ccache produced the counters cannot be re-read a month later.
+    ccache_ver="$(ccache_version_of "$stats_file")"
+    ccache_verdict="$(ccache_version_verdict "$ccache_ver")"
+    if [ -z "$ccache_ver" ]; then
+      echo "ccache version: unrecorded (counter classification derived against: $CCACHE_TABLE_VERSIONS)"
+    elif ccache_version_is_known "$ccache_ver"; then
+      echo "ccache version: $ccache_ver (counter classification derived against: $CCACHE_TABLE_VERSIONS)"
+    else
+      echo "ccache version: $ccache_ver — NOT one of the version(s) this counter classification was derived against ($CCACHE_TABLE_VERSIONS). Not a failure by itself: the assertion is that every counter id still classifies, which is checked below. It is the first line to read if that check fails."
+    fi
+  fi
+
   if [ "$tool" = "sccache" ]; then
     requests="$(parse_sccache_requests "$stats_file")" || requests=""
     hits="$(parse_sccache_hits "$stats_file")" || hits=""
@@ -443,7 +515,7 @@ run_check() {
   else
     requests="$(parse_ccache_requests "$stats_file")" || requests=""
     hits="$(parse_ccache_hits "$stats_file")" || hits=""
-    noncacheable="$(parse_ccache_noncacheable "$stats_file")" || noncacheable=""
+    noncacheable="$(parse_ccache_noncacheable "$stats_file" "$ccache_verdict")" || noncacheable=""
   fi
   [ -n "$owned_stats" ] && rm -f "$owned_stats"
 

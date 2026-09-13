@@ -24,7 +24,7 @@
   "summary": {
     "encoderEmittable": 121,
     "coveredByFixture": 141,
-    "engineImplementedDart": 233,
+    "engineImplementedDart": 234,
     "carvedOut": 0
   },
   "functions": [
@@ -4078,7 +4078,7 @@
       "coveredByFixtures": [
         "466_std_concurrency_handles"
       ],
-      "engineImplementedDart": false,
+      "engineImplementedDart": true,
       "carvedOut": false
     },
     {
@@ -5048,7 +5048,6 @@
     ],
     "notEngineImplementedDart": [
       "address_of",
-      "atomic_create",
       "deref",
       "memory_alloc",
       "memory_compare",

@@ -1029,6 +1029,7 @@ func buildCapabilityTable(input ballrt.Value) (__ret ballrt.Value) {
 		__map1.Set(ballrt.ToStr("std_concurrency.mutex_lock"), "concurrency")
 		__map1.Set(ballrt.ToStr("std_concurrency.mutex_unlock"), "concurrency")
 		__map1.Set(ballrt.ToStr("std_concurrency.scoped_lock"), "concurrency")
+		__map1.Set(ballrt.ToStr("std_concurrency.atomic_create"), "concurrency")
 		__map1.Set(ballrt.ToStr("std_concurrency.atomic_load"), "concurrency")
 		__map1.Set(ballrt.ToStr("std_concurrency.atomic_store"), "concurrency")
 		__map1.Set(ballrt.ToStr("std_concurrency.atomic_compare_exchange"), "concurrency")

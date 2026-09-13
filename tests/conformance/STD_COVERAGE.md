@@ -16,7 +16,7 @@ Every base function across the 8 universal std modules, generated directly from 
 | Total base functions | 272 |
 | Encoder-emittable | 121 |
 | Covered by a conformance fixture | 141 |
-| Dart engine-implemented | 233 |
+| Dart engine-implemented | 234 |
 | Documented carve-outs | 0 |
 
 ## `std` (127 functions)
@@ -337,7 +337,7 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 | Function | Encoder-emittable | Covered by fixture | Dart engine |
 |---|---|---|---|
 | `atomic_compare_exchange` | ❌ | ✅ 1 fixture(s): `466_std_concurrency_handles` | ✅ |
-| `atomic_create` | ❌ | ✅ 1 fixture(s): `466_std_concurrency_handles` | ❌ |
+| `atomic_create` | ❌ | ✅ 1 fixture(s): `466_std_concurrency_handles` | ✅ |
 | `atomic_load` | ❌ | ✅ 1 fixture(s): `466_std_concurrency_handles` | ✅ |
 | `atomic_store` | ❌ | ✅ 1 fixture(s): `466_std_concurrency_handles` | ✅ |
 | `mutex_create` | ❌ | ✅ 1 fixture(s): `466_std_concurrency_handles` | ✅ |
@@ -508,10 +508,9 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_collections.map_contains_value`
 - `std_collections.map_put_if_absent`
 
-### Not Dart engine-implemented (39)
+### Not Dart engine-implemented (38)
 
 - `std_memory.address_of`
-- `std_concurrency.atomic_create`
 - `std_memory.deref`
 - `std_memory.memory_alloc`
 - `std_memory.memory_compare`

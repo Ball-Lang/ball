@@ -2066,6 +2066,33 @@ func _buildStdDispatch(input ballrt.Value) ballrt.Value {
 	panic(ballrt.Thrown{Value: "no method '_buildStdDispatch' for " + __t})
 }
 
+func _concurrencyHandle(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___concurrencyHandle(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_concurrencyHandle' for " + __t})
+}
+
+func _lockMutex(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___lockMutex(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_lockMutex' for " + __t})
+}
+
+func _unlockMutex(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___unlockMutex(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_unlockMutex' for " + __t})
+}
+
 func _trackListCopy(input ballrt.Value) ballrt.Value {
 	self := ballrt.FieldGet(input, "self")
 	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
@@ -3246,7 +3273,9 @@ func BallEngine__new(input ballrt.Value) ballrt.Value {
 	__fields.Set("stdinReader", stdinReader)
 	__fields.Set("_envGet", envGet)
 	__fields.Set("_args", args)
-	__fields.Set("_nextMutexId", int64(0))
+	__fields.Set("_threadJoined", ballrt.NewList())
+	__fields.Set("_mutexLocked", ballrt.NewList())
+	__fields.Set("_atomicCells", ballrt.NewList())
 	__fields.Set("_activeException", ballrt.Value(nil))
 	__fields.Set("_resolver", resolver)
 	__fields.Set("_initialized", ballrt.Value(nil))
@@ -33477,31 +33506,61 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				var body ballrt.Value = ballrt.IndexGet(m, "body")
 				_ = body
 				_ = func() ballrt.Value {
-					if ballrt.Truthy(ballrt.IsType(body, "Function")) {
-						return func() ballrt.Value {
-							var v ballrt.Value = ballrt.CallFunction(body, ballrt.Value(nil))
-							_ = v
-							_ = func() ballrt.Value {
-								if ballrt.Truthy(ballrt.IsType(v, "Future")) {
-									return v
+					if ballrt.Truthy(ballrt.IsNotType(body, "Function")) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("message", ballrt.Concat("std_concurrency.thread_spawn: `body` must be a function, got ", ballrt.ToStr(func() ballrt.Value {
+								if ballrt.Truthy(ballrt.Eq(body, ballrt.Value(nil))) {
+									return "null"
 								}
-								return ballrt.Value(nil)
-							}()
-							return ballrt.Value(nil)
-						}()
+								return ballrt.ToStr(body)
+							}())))
+							return ballrt.NewMessage("main:BallRuntimeError", __m)
+						}())
 					}
 					return ballrt.Value(nil)
 				}()
-				return int64(0)
+				var v ballrt.Value = ballrt.CallFunction(body, ballrt.Value(nil))
+				_ = v
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.IsType(v, "Future")) {
+						return v
+					}
+					return ballrt.Value(nil)
+				}()
+				_ = ballrt.FieldSet(__self, "_threadJoined", ballrt.ListPush(ballrt.FieldGet(__self, "_threadJoined"), false))
+				return ballrt.FieldGet(ballrt.FieldGet(__self, "_threadJoined"), "length")
 			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("thread_join"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
-			ball_blank := input
-			_ = ball_blank
+			i := input
+			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.Value(nil)
+			__ret = func() ballrt.Value {
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "value")
+					__m.Set("arg2", "thread_join")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_threadJoined"), "length"))
+					return __m
+				}(), __self))
+				_ = h
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.IndexGet(ballrt.FieldGet(__self, "_threadJoined"), ballrt.Sub(h, int64(1)))) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("message", ballrt.Concat(ballrt.Concat("std_concurrency.thread_join: thread handle ", ballrt.ToStr(h)), " was already joined"))
+							return ballrt.NewMessage("main:BallRuntimeError", __m)
+						}())
+					}
+					return ballrt.Value(nil)
+				}()
+				_ = ballrt.IndexSet(ballrt.FieldGet(__self, "_threadJoined"), ballrt.Sub(h, int64(1)), true)
+				return ballrt.Value(nil)
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("mutex_create"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -33509,23 +33568,60 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			ball_blank := input
 			_ = ball_blank
 			defer ballrt.CatchReturn(&__ret)
-			__ret = (ballrt.FieldSet(__self, "_nextMutexId", ballrt.Add(ballrt.FieldGet(__self, "_nextMutexId"), int64(1))))
+			__ret = func() ballrt.Value {
+				_ = ballrt.FieldSet(__self, "_mutexLocked", ballrt.ListPush(ballrt.FieldGet(__self, "_mutexLocked"), false))
+				return ballrt.FieldGet(ballrt.FieldGet(__self, "_mutexLocked"), "length")
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("mutex_lock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
-			ball_blank := input
-			_ = ball_blank
+			i := input
+			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.Value(nil)
+			__ret = func() ballrt.Value {
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "value")
+					__m.Set("arg2", "mutex_lock")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_mutexLocked"), "length"))
+					return __m
+				}(), __self))
+				_ = h
+				_ = _lockMutex(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", h)
+					__m.Set("arg1", "mutex_lock")
+					return __m
+				}(), __self))
+				return ballrt.Value(nil)
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("mutex_unlock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
-			ball_blank := input
-			_ = ball_blank
+			i := input
+			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.Value(nil)
+			__ret = func() ballrt.Value {
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "value")
+					__m.Set("arg2", "mutex_unlock")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_mutexLocked"), "length"))
+					return __m
+				}(), __self))
+				_ = h
+				_ = _unlockMutex(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", h)
+					__m.Set("arg1", "mutex_unlock")
+					return __m
+				}(), __self))
+				return ballrt.Value(nil)
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("scoped_lock"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -33536,26 +33632,66 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			__ret = func() ballrt.Value {
 				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
 				_ = m
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "mutex")
+					__m.Set("arg2", "scoped_lock")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_mutexLocked"), "length"))
+					return __m
+				}(), __self))
+				_ = h
 				var body ballrt.Value = ballrt.IndexGet(m, "body")
 				_ = body
 				_ = func() ballrt.Value {
-					if ballrt.Truthy(ballrt.IsType(body, "Function")) {
-						return func() ballrt.Value {
-							var v ballrt.Value = ballrt.CallFunction(body, ballrt.Value(nil))
-							_ = v
-							_ = func() ballrt.Value {
-								if ballrt.Truthy(ballrt.IsType(v, "Future")) {
-									return func() ballrt.Value { __v := v; v = __v; return __v }()
+					if ballrt.Truthy(ballrt.IsNotType(body, "Function")) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("message", ballrt.Concat("std_concurrency.scoped_lock: `body` must be a function, got ", ballrt.ToStr(func() ballrt.Value {
+								if ballrt.Truthy(ballrt.Eq(body, ballrt.Value(nil))) {
+									return "null"
 								}
-								return ballrt.Value(nil)
-							}()
-							_ = ballrt.Return(v)
-							return ballrt.Value(nil)
-						}()
+								return ballrt.ToStr(body)
+							}())))
+							return ballrt.NewMessage("main:BallRuntimeError", __m)
+						}())
 					}
 					return ballrt.Value(nil)
 				}()
-				return ballrt.Value(nil)
+				_ = _lockMutex(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", h)
+					__m.Set("arg1", "scoped_lock")
+					return __m
+				}(), __self))
+				var v ballrt.Value = ballrt.CallFunction(body, ballrt.Value(nil))
+				_ = v
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.IsType(v, "Future")) {
+						return func() ballrt.Value { __v := v; v = __v; return __v }()
+					}
+					return ballrt.Value(nil)
+				}()
+				_ = _unlockMutex(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", h)
+					__m.Set("arg1", "scoped_lock")
+					return __m
+				}(), __self))
+				return v
+			}()
+			return
+		}))
+		__map86.Set(ballrt.ToStr("atomic_create"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
+			_ = input
+			i := input
+			_ = i
+			defer ballrt.CatchReturn(&__ret)
+			__ret = func() ballrt.Value {
+				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
+				_ = m
+				_ = ballrt.FieldSet(__self, "_atomicCells", ballrt.ListPush(ballrt.FieldGet(__self, "_atomicCells"), ballrt.IndexGet(m, "value")))
+				return ballrt.FieldGet(ballrt.FieldGet(__self, "_atomicCells"), "length")
 			}()
 			return
 		}))
@@ -33565,9 +33701,16 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
 			__ret = func() ballrt.Value {
-				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
-				_ = m
-				return ballrt.IndexGet(m, "value")
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "value")
+					__m.Set("arg2", "atomic_load")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_atomicCells"), "length"))
+					return __m
+				}(), __self))
+				_ = h
+				return ballrt.IndexGet(ballrt.FieldGet(__self, "_atomicCells"), ballrt.Sub(h, int64(1)))
 			}()
 			return
 		}))
@@ -33576,7 +33719,21 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			i := input
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.Value(nil)
+			__ret = func() ballrt.Value {
+				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
+				_ = m
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "atomic")
+					__m.Set("arg2", "atomic_store")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_atomicCells"), "length"))
+					return __m
+				}(), __self))
+				_ = h
+				_ = ballrt.IndexSet(ballrt.FieldGet(__self, "_atomicCells"), ballrt.Sub(h, int64(1)), ballrt.IndexGet(m, "value"))
+				return ballrt.Value(nil)
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("atomic_compare_exchange"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -33584,7 +33741,30 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			i := input
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = true
+			__ret = func() ballrt.Value {
+				var m ballrt.Value = ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self)))
+				_ = m
+				var h ballrt.Value = _concurrencyHandle(ballrt.WithSelf(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("arg0", i)
+					__m.Set("arg1", "atomic")
+					__m.Set("arg2", "atomic_compare_exchange")
+					__m.Set("arg3", ballrt.FieldGet(ballrt.FieldGet(__self, "_atomicCells"), "length"))
+					return __m
+				}(), __self))
+				_ = h
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(ballrt.FieldGet(__self, "_atomicCells"), ballrt.Sub(h, int64(1))), ballrt.IndexGet(m, "expected"))) {
+						return func() ballrt.Value {
+							_ = ballrt.IndexSet(ballrt.FieldGet(__self, "_atomicCells"), ballrt.Sub(h, int64(1)), ballrt.IndexGet(m, "value"))
+							_ = ballrt.Return(true)
+							return ballrt.Value(nil)
+						}()
+					}
+					return ballrt.Value(nil)
+				}()
+				return false
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("goto"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -33640,6 +33820,285 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			return
 		}))
 		return __map86
+	}()
+	return
+}
+
+func BallEngine___concurrencyHandle(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	ball_input := ballrt.ArgGet(input, "input", "arg0")
+	_ = ball_input
+	field := ballrt.ArgGet(input, "field", "arg1")
+	_ = field
+	function := ballrt.ArgGet(input, "function", "arg2")
+	_ = function
+	count := ballrt.ArgGet(input, "count", "arg3")
+	_ = count
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
+		_ = m
+		var raw ballrt.Value = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+				return ballrt.Value(nil)
+			}
+			return ballrt.IndexGet(m, field)
+		}()
+		_ = raw
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.IsNotType(raw, "int")) {
+				return ballrt.Throw(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("message", ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat("std_concurrency.", ballrt.ToStr(function)), ": `"), ballrt.ToStr(field)), "` must be an int handle, got "), ballrt.ToStr(func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Eq(raw, ballrt.Value(nil))) {
+							return "null"
+						}
+						return ballrt.ToStr(raw)
+					}())))
+					return ballrt.NewMessage("main:BallRuntimeError", __m)
+				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.Lt(raw, int64(1))) || ballrt.Truthy(ballrt.Gt(raw, count)))) {
+				return ballrt.Throw(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("message", ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat("std_concurrency.", ballrt.ToStr(function)), ": "), ballrt.ToStr(raw)), " is not a live handle; "), ballrt.Concat(ballrt.Concat("handles 1..", ballrt.ToStr(count)), " have been created")))
+					return ballrt.NewMessage("main:BallRuntimeError", __m)
+				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		return raw
+	}()
+	return
+}
+
+func BallEngine___lockMutex(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	handle := ballrt.ArgGet(input, "handle", "arg0")
+	_ = handle
+	function := ballrt.ArgGet(input, "function", "arg1")
+	_ = function
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.IndexGet(ballrt.FieldGet(__self, "_mutexLocked"), ballrt.Sub(handle, int64(1)))) {
+				return ballrt.Throw(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("message", ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat("std_concurrency.", ballrt.ToStr(function)), ": mutex handle "), ballrt.ToStr(handle)), " is already locked — "), "this engine runs single-threaded, so no other thread can ever release "), "it"))
+					return ballrt.NewMessage("main:BallRuntimeError", __m)
+				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = ballrt.IndexSet(ballrt.FieldGet(__self, "_mutexLocked"), ballrt.Sub(handle, int64(1)), true)
+		return ballrt.Value(nil)
+	}()
+	return
+}
+
+func BallEngine___unlockMutex(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	handle := ballrt.ArgGet(input, "handle", "arg0")
+	_ = handle
+	function := ballrt.ArgGet(input, "function", "arg1")
+	_ = function
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Not(ballrt.IndexGet(ballrt.FieldGet(__self, "_mutexLocked"), ballrt.Sub(handle, int64(1))))) {
+				return ballrt.Throw(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("message", ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat("std_concurrency.", ballrt.ToStr(function)), ": mutex handle "), ballrt.ToStr(handle)), " is not locked"))
+					return ballrt.NewMessage("main:BallRuntimeError", __m)
+				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = ballrt.IndexSet(ballrt.FieldGet(__self, "_mutexLocked"), ballrt.Sub(handle, int64(1)), false)
+		return ballrt.Value(nil)
 	}()
 	return
 }

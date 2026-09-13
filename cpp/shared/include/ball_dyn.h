@@ -2476,7 +2476,21 @@ inline BallDyn _ball_exception_to_dyn(const BallException& e) {
     // fields: the caught variable should BE that scalar so a filter like
     // `catch (e) { if (e == "recoverable") ... }` matches Dart semantics
     // (conformance 222). Structured throws keep the reified map shape.
-    if (e.has_payload && e.fields.empty()) {
+    //
+    // Only an UNTYPED throw collapses (issue #616). A TYPED one whose payload
+    // happens to be a scalar -- the engine own
+    // `throw BallException("StateError", "Bad state: No element")` -- lost its
+    // type here: the catch variable became a bare String, so the compiled
+    // engine `e is BallException` test was false, `e.typeName` was unreadable,
+    // and its `on StateError catch` dispatch could not match at all, letting
+    // the exception escape the program own try. The generic Exception tag is
+    // what `std.throw` of a non-message value emits (the compiler fallback
+    // arm of the throw lowering), so conformance 222 is unchanged. Do NOT
+    // spell that emitted call literally in this comment: this header is
+    // SPLICED verbatim into every compiled program, and test_compiler asserts
+    // some emissions are ABSENT from the whole output.
+    const bool untyped = e.type_name.empty() || e.type_name == "Exception";
+    if (untyped && e.has_payload && e.fields.empty()) {
         const std::any& pu = _BallDynUnwrapper::unwrap(e.value);
         if (pu.type() == typeid(std::string) || pu.type() == typeid(int64_t) ||
             pu.type() == typeid(double) || pu.type() == typeid(bool)) {

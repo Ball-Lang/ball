@@ -6255,6 +6255,10 @@ export class BallEngine {
     if ((typeof signal === 'string')) {
       return signal;
     }
+    if (((typeof signal === 'object' && signal !== null && !Array.isArray(signal) && !(signal instanceof BallDouble) && !(signal instanceof Set)) && __ball_eq(__ball_index(signal, 'typeName'), '_FlowSignal'))) {
+      let v = __ball_index(signal, 'value');
+      return ((typeof v === 'string') ? v : null);
+    }
     if (((typeof signal === 'object' && signal !== null && !Array.isArray(signal) && !(signal instanceof BallDouble) && !(signal instanceof Set)) && __ball_eq(__ball_index(signal, 'kind'), 'goto'))) {
       let l = __ball_index(signal, 'label');
       return ((typeof l === 'string') ? l : null);

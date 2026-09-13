@@ -24203,6 +24203,22 @@ func BallEngine___gotoSignalLabel(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(signal, "Map")) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(signal, "typeName"), "_FlowSignal")))) {
+				return func() ballrt.Value {
+					var v ballrt.Value = ballrt.IndexGet(signal, "value")
+					_ = v
+					_ = ballrt.Return(func() ballrt.Value {
+						if ballrt.Truthy(ballrt.IsType(v, "String")) {
+							return v
+						}
+						return ballrt.Value(nil)
+					}())
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
 			if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(signal, "Map")) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(signal, "kind"), "goto")))) {
 				return func() ballrt.Value {
 					var l ballrt.Value = ballrt.IndexGet(signal, "label")

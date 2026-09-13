@@ -98,14 +98,6 @@ inline std::ostream& operator<<(std::ostream& os, const BallException& e) {
     return os << e.what();
 }
 
-// Dart's `catch (e)` binds the caught exception itself, and `to_string(e)` on
-// it must read the canonical `StateError.toString()` string the thrower carried
-// (issue #616). Without this overload the generic `ball_to_string(T)` template
-// instantiated `std::to_string(BallException&)`, which does not compile at all —
-// so a program that printed its caught exception was a BUILD error on this
-// target, not a wrong answer.
-inline std::string ball_to_string(const BallException& e) { return e.what(); }
-
 // Dart-compatible string conversion. Handles bool and doubles so
 // compiled programs produce the same output as the Dart engine
 // (e.g. `true` instead of `1`, `6.0` instead of `6.000000`).

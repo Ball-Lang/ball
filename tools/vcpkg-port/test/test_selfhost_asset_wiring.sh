@@ -237,7 +237,7 @@ else
     "the vcpkg job must generate the sidecar on-runner and hand it to the overlay generator"
 fi
 
-if printf '%s\n' "$JOB" | grep -q 'compile_engine_cpp.dart --monolithic' &&
+if printf '%s\n' "$JOB" | grep -qE 'compile_engine_cpp\.dart *$' &&
   printf '%s\n' "$JOB" | grep -q 'gen_cli_cpp.dart'; then
   ok "ci.yml pre-generates engine_rt.cpp + cli_rt.h in the vcpkg job"
 else

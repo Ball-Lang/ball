@@ -6,13 +6,9 @@
 // Built only when engine_rt was generated (BALL_SELFHOST_AVAILABLE); otherwise
 // cli_run_stub.cpp provides a fail-loud stub.
 
-// Self-hosted engine: multi-TU (namespace ball_rt) or monolithic single .cpp.
-// CMake puts dart/self_host/lib (+ the multi-TU engine_rt/) on the include path.
-#if defined(BALL_SELFHOST_MULTI_TU)
-#include "engine_rt_link.hpp"
-#else
+// Self-hosted engine, the one generated shape (issue #601 removed the multi-TU
+// sibling). CMake puts dart/self_host/lib on the include path.
 #include "engine_rt.cpp"
-#endif
 
 #include <nlohmann/json.hpp>
 

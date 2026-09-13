@@ -194,7 +194,7 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
 
 ### Self-Hosted Engine (`dart/self_host/lib/engine_rt.cpp`)
 - Generated from the Dart reference engine via Ball IR → C++ compiler
-- Regenerate: `cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic`
+- Regenerate: `cd dart && dart run compiler/tool/compile_engine_cpp.dart` — it takes NO arguments. There is exactly ONE self-host C++ emit shape, `engine_rt.cpp`. Issue #601 deleted the multi-TU `--split`/`--shards` emit that used to be this tool's DEFAULT (and `--monolithic`, the flag that opted out of it): that output had never compiled, and `cpp/test/CMakeLists.txt` PREFERRED it whenever it was present, so the documented default handed you an engine that could not build. The `C++ self-host: exactly one emit shape (#601)` step in `regression-gates.yml` keeps it that way — it fails if a `dart/self_host/lib/engine_rt/` tree appears, if the tool names a shape-selecting flag again, or if `cpp/` re-acquires an `engine_rt_common.hpp` preference
 - Conformance: `ctest -L selfhost` — one CTest test per fixture, each run in its own process (a crash/hang fails only that fixture). Run a single fixture directly: `test_selfhost_conformance <fixture_stem>` (the `BALL_TEST_FILTER=<stem>` env var also works)
 
 ## Test Harness

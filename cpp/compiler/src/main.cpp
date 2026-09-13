@@ -83,31 +83,23 @@ static int run_compile(int argc, char** argv) {
         std::cerr << "Usage: " << argv[0]
                   << " <program.ball.json|program.ball.pb> [output.cpp]\n"
                   << "       " << argv[0]
-                  << " <program.ball.pb> --split <dir> [--shards N]\n"
-                  << "       " << argv[0]
                   << " <module.ball.json> --library [--ns <namespace>] [--out <file.h>]\n";
         return 1;
     }
 
     std::string input_path = argv[1];
     std::string output_path;
-    std::string split_dir;
-    int split_shards = 8;
     bool library_mode = false;
     std::string library_ns;
     for (int i = 2; i < argc; ++i) {
         std::string arg = argv[i];
-        if (arg == "--split" && i + 1 < argc) {
-            split_dir = argv[++i];
-        } else if (arg == "--shards" && i + 1 < argc) {
-            split_shards = std::atoi(argv[++i]);
-        } else if (arg == "--library") {
+        if (arg == "--library") {
             library_mode = true;
         } else if (arg == "--ns" && i + 1 < argc) {
             library_ns = argv[++i];
         } else if (arg == "--out" && i + 1 < argc) {
             output_path = argv[++i];
-        } else if (output_path.empty() && split_dir.empty()) {
+        } else if (output_path.empty()) {
             output_path = arg;
         }
     }
@@ -161,14 +153,6 @@ static int run_compile(int argc, char** argv) {
     }
 
     ball::CppCompiler compiler(std::move(program));
-
-    if (!split_dir.empty()) {
-        auto result = compiler.compile_split(split_dir, split_shards);
-        std::cerr << "Compiled split output to " << result.output_dir
-                  << " (" << result.num_shards << " shards, header "
-                  << result.common_header << ")\n";
-        return 0;
-    }
 
     std::string output = compiler.compile();
 

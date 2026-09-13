@@ -119,8 +119,8 @@ jobs:
       - name: Build ball_cpp_compile
         run: cmake --build cpp/build --config Release --target ball_cpp_compile
 
-      - name: Generate engine_rt.cpp (self-hosted engine, monolithic)
-        run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+      - name: Generate engine_rt.cpp (self-hosted engine)
+        run: dart run dart/compiler/tool/compile_engine_cpp.dart
 
       - name: Generate self-hosted CLI core (cli.ball.json + cli_rt.h)
         run: |

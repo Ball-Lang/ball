@@ -76,7 +76,7 @@ vcpkg install 'ball-lang[core]' --overlay-ports=/tmp/overlay --triplet x64-linux
 # Every verb — needs the sidecar, i.e. Dart + a bootstrap ball_cpp_compile:
 cmake -S cpp -B cpp/ci-build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/ci-build --target ball_cpp_compile
-dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+dart run dart/compiler/tool/compile_engine_cpp.dart
 (cd dart && dart run compiler/tool/gen_cli_json.dart && dart run compiler/tool/gen_cli_cpp.dart)
 tar -C dart/self_host/lib -czf /tmp/selfhost.tar.gz cli_rt.h engine_rt.cpp
 python3 tools/vcpkg-port/make_ci_overlay.py /tmp/overlay "$PWD" /tmp/selfhost.tar.gz

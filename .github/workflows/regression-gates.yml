@@ -407,7 +407,7 @@ jobs:
         run: cmake --build cpp/ci-build --config Release --target ball_cpp_compile
 
       - name: Generate engine_rt.cpp
-        run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+        run: dart run dart/compiler/tool/compile_engine_cpp.dart
 
       # Issue #367: the unified `ball` CLI's portable verbs (info/validate/tree/
       # audit/version) are the self-hosted cli_core, library-compiled to
@@ -458,41 +458,41 @@ jobs:
           -L selfhost
           --output-on-failure --no-tests=error
 
-      # ── The tool's DEFAULT emit must compile (issue #601) ──────────────────
-      # dart/compiler/tool/compile_engine_cpp.dart emits the self-hosted engine
-      # in SPLIT multi-TU form BY DEFAULT (`ball_cpp_compile … --split
-      # dart/self_host/lib/engine_rt --shards 8`); only `--monolithic` — which
-      # every CI invocation passes (the step above, ci.yml's vcpkg job,
-      # release-cpp.yml) — selects the single engine_rt.cpp built above. And
-      # cpp/test/CMakeLists.txt PREFERS the split tree whenever
-      # engine_rt_common.hpp exists. So the tool's own default output is
-      # emitted by a supported flag, silently preferred by CMake, and compiled
-      # by NOTHING: a developer who runs the tool the documented way gets an
-      # engine that does not build, and no gate says so.
+      # ── ONE self-host C++ emit shape, and it is the one just built (#601) ──
+      # Until #601, compile_engine_cpp.dart emitted the engine in SPLIT multi-TU
+      # form BY DEFAULT (`ball_cpp_compile … --split dart/self_host/lib/engine_rt
+      # --shards 8`); `--monolithic` — which every CI invocation passed — was the
+      # only way to reach the engine_rt.cpp this job builds and runs above, and
+      # cpp/test/CMakeLists.txt PREFERRED the split tree whenever
+      # engine_rt_common.hpp existed. So the documented default was emitted by a
+      # supported flag, silently preferred by CMake, and compiled by NOTHING; it
+      # had never compiled at all (mid-class shard boundaries, static linkage on
+      # out-of-line member functions, a constructor emitted into two shards).
+      # The split emitter, its CMake preference and its flags are gone.
       #
-      # This step compiles it. It runs LAST, and configures its OWN build dir,
-      # because the split tree lands at exactly the path CMake prefers —
-      # emitting it any earlier would silently retarget the monolithic
-      # conformance build above at these never-compiled sources.
-      - name: "C++ self-host: the tool's default emit must compile (#601)"
+      # This step is what keeps them gone. The emit above ran the tool with NO
+      # flags, so the assertions below describe exactly what a developer
+      # following the docs gets — and the conformance sweep above is the proof
+      # that it builds and runs.
+      - name: "C++ self-host: exactly one emit shape (#601)"
         run: |
           set -euo pipefail
-          rm -rf dart/self_host/lib/engine_rt
-          dart run dart/compiler/tool/compile_engine_cpp.dart
-          common=dart/self_host/lib/engine_rt/engine_rt_common.hpp
-          if [ ! -s "$common" ]; then
-            echo "::error::the default emit produced no $common — it either is not the split path any more or it failed silently"
+          if [ ! -s dart/self_host/lib/engine_rt.cpp ]; then
+            echo "::error::the flagless emit produced no dart/self_host/lib/engine_rt.cpp — the one supported output shape is missing"
             exit 1
           fi
-          shards=0
-          for f in dart/self_host/lib/engine_rt/engine_rt_shard_*.cpp; do
-            [ -e "$f" ] || break
-            shards=$((shards + 1))
-          done
-          if [ "$shards" -lt 2 ]; then
-            echo "::error::the default emit produced $shards shard(s) — fewer than 2 means the multi-TU split never happened, so building it would prove nothing"
+          if [ -e dart/self_host/lib/engine_rt ]; then
+            echo "::error::a split multi-TU tree exists at dart/self_host/lib/engine_rt — the second emit path is back, and CMake would prefer it over the engine this job built"
             exit 1
           fi
-          echo "default emit: $shards shard(s) + $common"
-          cmake -S cpp -B cpp/ci-build-split -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build cpp/ci-build-split --config Release --target test_selfhost_conformance
+          # The flags that used to select between the two shapes must stay gone:
+          # re-adding one silently re-opens the never-compiled path.
+          if grep -q -e '--split' -e '--shards' -e '--monolithic' dart/compiler/tool/compile_engine_cpp.dart; then
+            echo "::error::compile_engine_cpp.dart names --split/--shards/--monolithic again — the self-host emit must take no shape-selecting flags"
+            exit 1
+          fi
+          if grep -rq --include=CMakeLists.txt --include='*.cmake' --include='*.cpp' --include='*.h' --include='*.hpp' 'engine_rt_common\.hpp' cpp/; then
+            echo "::error::cpp/ references engine_rt_common.hpp again — CMake must not have a split-tree preference to fall into"
+            exit 1
+          fi
+          echo "one emit shape: dart/self_host/lib/engine_rt.cpp ($(wc -l < dart/self_host/lib/engine_rt.cpp) lines), no split tree"

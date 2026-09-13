@@ -22,14 +22,6 @@
 
 namespace ball {
 
-// Multi-TU output for parallel MSVC/Ninja builds (self-hosted engine_rt).
-struct CompileSplitResult {
-    std::string output_dir;
-    int num_shards = 0;
-    std::string common_header;   // engine_rt_common.hpp
-    std::vector<std::string> shard_sources;  // engine_rt_shard_NN.cpp paths
-};
-
 // Library compilation result (no main, exported symbols).
 struct CompileLibraryResult {
     std::string header;       // .h content: forward declarations + inline types
@@ -62,12 +54,10 @@ class CppCompiler {
 public:
     explicit CppCompiler(ball::ir::Program program);
 
-    // Compile the entire program to a single C++ source string
+    // Compile the entire program to a single C++ source string. This is the
+    // ONLY whole-program emit shape (issue #601 removed the multi-TU `--split`
+    // sibling, which had never compiled and which CMake silently preferred).
     std::string compile();
-
-    // Emit N translation units + a shared header under output_dir.
-    // Uses namespace ball_rt (not anonymous) so TUs can link together.
-    CompileSplitResult compile_split(const std::string& output_dir, int num_shards);
 
     // Compile a single module (for multi-file output)
     std::string compile_module(const std::string& module_name);
@@ -83,9 +73,6 @@ public:
     static CompileLibraryResult compile_library(
         const ball::ir::Module& facade,
         const std::string& ns_override = "");
-
-    // Namespace used for multi-TU emission (single-TU uses anonymous namespace).
-    static constexpr const char* kSplitNamespace = "ball_rt";
 
     // Stable marker emitted immediately after the spliced shared runtime
     // preamble (BALL_EMIT_RUNTIME_SOURCE + BALL_DYN_SOURCE + the inline
@@ -551,17 +538,10 @@ private:
     // passthrough, and the function returns the collected generator values.
     bool in_generator_ = false;
 
-    // Multi-TU emission state (compile_split only)
-    bool split_mode_ = false;
-    int split_shards_ = 8;
-    int split_next_shard_ = 0;
-    std::vector<std::string> split_pending_;
-
-    void queue_split_definition(std::string definition);
+    // Emitted program body lives in an anonymous namespace (internal linkage)
+    // so a compiled program never exports its helpers.
     void emit_namespace_open();
     void emit_namespace_close();
-    void emit_function_signature_only(const ball::ir::FunctionDefinition& func);
-    void emit_function_body_out_of_line(const ball::ir::FunctionDefinition& func);
 
     void build_lookup_tables();
     std::vector<std::string> extract_params(const nlohmann::json& metadata);
@@ -582,8 +562,7 @@ private:
     void emit_includes();
     // Emits the `std_memory` linear-memory runtime: the backing byte array +
     // heap/stack pointers, plus a native `_ball_<fn>` helper for every
-    // std_memory base function the compiler implements (issue #154). Shared
-    // by compile() and compile_split() so the two codegen paths never drift.
+    // std_memory base function the compiler implements (issue #154).
     void emit_memory_runtime_preamble();
     void emit_forward_decls(const ball::ir::Module& module);
     void emit_struct(const ball::ir::TypeDefinition& td,

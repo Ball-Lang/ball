@@ -2,7 +2,7 @@
 //
 // Equivalent to the standalone `ball_cpp_compile` binary (cpp/compiler/src/
 // main.cpp), which remains as a thin alias. Reads a .ball.json / .ball.pb
-// Program and emits C++ source to --output (or stdout). Library / --split modes
+// Program and emits C++ source to --output (or stdout). Library mode
 // stay on the dedicated ball_cpp_compile binary (they target the engine_rt /
 // ball_protobuf pipelines, not end-user `ball compile`).
 

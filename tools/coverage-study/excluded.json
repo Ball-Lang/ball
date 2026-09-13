@@ -1,0 +1,87 @@
+{
+  "$schema-note": "The committed per-file test-only exclusion list for the third-party coverage study (issue #676): language -> pin -> sorted relative paths. Read and diffed by tools/coverage-study/coverage_table.py, which .github/workflows/coverage-study.yml runs after the measuring jobs. GENERATED \u2014 regenerate it with `coverage_table.py --write` rather than editing it by hand; the renderer rejects an unsorted or duplicated list.",
+  "$why-note": "baseline.json records HOW MANY files each Tier A harness took out of the denominator; this file records WHICH. A count alone cannot state the property that matters: a PARTIAL readmission (34 -> 31, three files back in the denominator) is arithmetically identical to \"the pin's test suite shrank by 3 while its library grew by 3\", so `scored`, `clean`, the stage-1 funnel and the #648 total-collapse check are all satisfied by it, and the run reads as an ordinary raise onto a population nobody chose. Diffing the paths needs no such inference: a path recorded here that a run SCORED was readmitted, and the breach names the file. A path that is merely GONE is not a breach \u2014 the pin may have deleted it \u2014 so only positive evidence fires, the same rule the count-based check follows.",
+  "$workflow-note": "WHEN A PIN'S TEST POPULATION LEGITIMATELY CHANGES: update this file in the SAME reviewed PR that moves the pin, by running the study and committing the regenerated list. That is the whole point of committing it \u2014 the change stops being an invisible arithmetic wobble and becomes a diff a reviewer reads. On main the publish job regenerates and commits it exactly the way it raises baseline.json. A row that excludes nothing is declared as an empty object; an ABSENT language key is a hard failure, because it would leave that row's exclusions diffed against nothing.",
+  "seeded_from_run": "https://github.com/Ball-Lang/ball/actions/runs/34752286828",
+  "$seeded-note": "Seeded from the artifacts of that run \u2014 the last coverage-study run before this file existed, on fix/w12-k-rq1-crate-root-fail-loud @ d705669c, whose content is what merged as PR #649 and is main's current state. The last main-ref run (34130529198) predates the per-file lists entirely and could not seed it.",
+  "languages": {
+    "C#": {},
+    "Dart": {},
+    "Go": {
+      "go-difflib": [
+        "difflib_test.go"
+      ],
+      "go-version": [
+        "constraint_test.go",
+        "version_collection_test.go",
+        "version_test.go"
+      ],
+      "go-wordwrap": [
+        "wordwrap_test.go"
+      ],
+      "levenshtein": [
+        "levenshtein_test.go"
+      ],
+      "uuid": [
+        "json_test.go",
+        "null_test.go",
+        "seq_test.go",
+        "sql_test.go",
+        "time_test.go",
+        "uuid_test.go",
+        "version6_test.go"
+      ]
+    },
+    "Python": {},
+    "Rust": {
+      "bitflags": [
+        "tests.rs",
+        "tests/all.rs",
+        "tests/all_named.rs",
+        "tests/bitflags_match.rs",
+        "tests/bits.rs",
+        "tests/clear.rs",
+        "tests/complement.rs",
+        "tests/contains.rs",
+        "tests/difference.rs",
+        "tests/empty.rs",
+        "tests/eq.rs",
+        "tests/extend.rs",
+        "tests/flag_name.rs",
+        "tests/flags.rs",
+        "tests/fmt.rs",
+        "tests/from_bits.rs",
+        "tests/from_bits_retain.rs",
+        "tests/from_bits_truncate.rs",
+        "tests/from_name.rs",
+        "tests/insert.rs",
+        "tests/intersection.rs",
+        "tests/intersects.rs",
+        "tests/is_all.rs",
+        "tests/is_empty.rs",
+        "tests/iter.rs",
+        "tests/iter_equal_names.rs",
+        "tests/known_bits.rs",
+        "tests/parser.rs",
+        "tests/remove.rs",
+        "tests/symmetric_difference.rs",
+        "tests/truncate.rs",
+        "tests/union.rs",
+        "tests/unknown.rs",
+        "tests/unknown_bits.rs"
+      ]
+    },
+    "TypeScript": {
+      "change-case": [
+        "index.spec.ts",
+        "keys.spec.ts"
+      ],
+      "path-to-regexp": [
+        "cases.spec.ts",
+        "index.bench.ts",
+        "index.spec.ts",
+        "redos.spec.ts"
+      ]
+    }
+  }
+}

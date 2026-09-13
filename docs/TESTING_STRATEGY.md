@@ -393,6 +393,50 @@ place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
 
+### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
+Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
+
+A checker that reports "clean" by **printing nothing** and a checker that
+**could not run at all** produce the same stdout. So a leg shaped like
+
+```bash
+probs=()
+while IFS= read -r line; do probs+=("$line"); done < <(check "$file")   # WRONG
+if [ "${#probs[@]}" -eq 0 ]; then ok "…"; fi
+```
+
+reports PASS — and counts +1 toward its own positive floor — when `python3` is
+absent, an import fails, or the checker dies on a traceback (stderr, not
+stdout). That is issue #694, reproduced in PR #662's round-1 review by taking
+`python3` off PATH: the leg printed `PASS` and the sweep reported its usual
+tally, from a check that never happened — while the sibling `--self-test` step,
+which does let the status through, correctly went exit 127. Reachability is not
+the bar; a gate that can be silently disabled is already broken.
+
+One of these three shapes, always:
+
+1. **The checker's status is the step's status** — make the call the script's
+   last command: `check_file "$WORKFLOW"; exit $?`
+   (`tools/ci/check_matrix_paths.sh`, `tools/ci/check_ci_regen_wiring.sh`, and
+   the trailing `python3 - … <<'PY'` heredoc in
+   `tools/ci/check_required_contexts.sh`).
+2. **Capture both and classify the status** —
+   `out="$(check "$f")"; rc=$?`, then treat every status the checker does not
+   define (anything but its clean/found-problems pair) as a **failure that names
+   the status**. `freshness_paths_findings` in
+   `tools/release/check_go_release_wiring.sh` is the worked example; so is
+   `cpp/test/check_compiler_cache_applied.sh`'s `|| requests=""` + `is_uint`.
+3. **Make empty output fail closed, and say why it is closed** — a positive
+   floor (`[ "$checked" -lt 1 ] && exit 1`), an explicit `[ -n "$x" ]` arm, or a
+   comparison against a non-empty expected value, so "nothing came back" cannot
+   reach the `ok` branch. Never `|| true` on the line the verdict reads.
+
+And the negative control belongs to the **leg**, not just the checker: cases
+that only assert what the checker answers about fabricated inputs cannot see a
+checker that answers nothing. Shadow the dependency (a PATH stub that exits 127)
+and assert the leg reports FAIL, paired with a positive control on the real tree
+so the negative case cannot pass for an unrelated reason.
+
 ### 4. A fixture's name must not overstate its coverage
 Enforced by `dart/encoder/bin/check_fixture_names.dart` (CI): a fixture named
 `*comprehension*` / `*spread*` / `*null_aware*` / `*cascade*` must actually use
@@ -973,6 +1017,7 @@ could not parse a summary at all).
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |
+| **The Go module release lane stays machine-driven, and its own YAML-parsing leg cannot be silently disabled** (#361/#656/#694) | `tools/release/check_go_release_wiring.sh` — 27 legs over the lane's shape (one semantic-release config, the commit carrying every file the bump rewrites, `tag_go_modules.sh` as the single tagging path, no silent v2), of which the go-freshness `pull_request.paths` leg parses YAML rather than grepping because the claim is that a LIST IS EXACTLY A SET. `--self-test` drives 11 cases: 9 on the checker's verdicts (widened, narrowed, unfiltered, `paths-ignore`, no PR trigger, unparseable) and 2 on the **leg**, which run the whole guard with and without a `python3` that works — the §3a control, added after the leg was found reporting PASS with the checker unable to run | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |

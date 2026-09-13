@@ -110,6 +110,12 @@ s_floor="$(floor_for shared)"
 # it, without floating-point arithmetic in bash.
 just_over() { printf '%s\n' "$(($1 + 1))"; }
 just_under() { printf '%s.9\n' "$(($1 - 1))"; }
+# sim_floor <committed floor> — the floor the future-ratchet simulation (case
+# 10) ratchets a scratch copy of build-cov-floor.sh to. DERIVED, never written
+# down: +2 keeps it strictly above the committed floor, so the simulation stays
+# a FUTURE ratchet wherever the table has been ratcheted to, while leaving
+# `just_over` a legal percentage. Case 11 is the control on exactly that.
+sim_floor() { printf '%s\n' "$(($1 + 2))"; }
 
 # 1. Every target above its floor -> exit 0.
 run_case "all targets above their committed floors" 0 \
@@ -207,47 +213,61 @@ run_case "shared a tenth of a point under its committed floor" 1 \
 # sibling wiring test.
 #
 # This is the negative control for that. It ratchets a SCRATCH copy of
-# build-cov-floor.sh to floors that sit ABOVE the numbers case 1 used to
-# hard-code, drops a scratch copy of this very file next to it, and runs it:
-# a suite whose "above floor" inputs are derived from the table it is testing
-# stays green under any ratchet, one that hard-codes them does not.
+# build-cov-floor.sh to floors ABOVE the committed ones, drops a scratch copy
+# of this very file next to it, and runs it: a suite whose "above floor" inputs
+# are derived from the table it is testing stays green under any ratchet, one
+# that hard-codes them does not.
+#
+# The scratch floors are themselves DERIVED (sim_floor = committed + 2), not
+# written down. Hard-coded at 96/98/96, they stopped being a FUTURE ratchet the
+# moment a real ratchet reached them — the same staleness this control exists
+# to forbid, one level up (#700 item 3). Case 11 below is the control on THAT.
 #
 # The scratch run is told not to recurse (it would fork forever otherwise).
 if [ "${BALL_COV_FLOOR_TEST_RATCHET_SIM:-}" != "1" ]; then
-  sim="$(mktemp -d)"
-  mkdir -p "$sim/cpp/test"
-  # Floors chosen to exceed the compiler/shared measurements case 1 used to
-  # hard-code (94.6 / 94.3) while staying low enough that floor+1 is still a
-  # legal percentage for every target.
-  awk '
-    /^[[:space:]]*\[compiler\]=/ { print "  [compiler]=96"; next }
-    /^[[:space:]]*\[encoder\]=/  { print "  [encoder]=98";  next }
-    /^[[:space:]]*\[shared\]=/   { print "  [shared]=96";   next }
-    { print }
-  ' "$SCRIPT" >"$sim/cpp/build-cov-floor.sh"
-  cp "${BASH_SOURCE[0]}" "$sim/cpp/test/test_build_cov_floor_parsing.sh"
-
-  # The rewrite must have actually landed, or this control would "pass"
-  # against the committed floors and prove nothing.
-  sim_floors="$(sed -n '/^declare -A FLOORS=(/,/^)/p' "$sim/cpp/build-cov-floor.sh" |
-    sed -n 's/^[[:space:]]*\[[A-Za-z_]*\]=\(.*\)$/\1/p' | sort -n | tr '\n' ' ')"
-  if [ "$sim_floors" != "96 96 98 " ]; then
+  sim_c="$(sim_floor "$c_floor")"
+  sim_e="$(sim_floor "$e_floor")"
+  sim_s="$(sim_floor "$s_floor")"
+  if [ "$sim_c" -gt 99 ] || [ "$sim_e" -gt 99 ] || [ "$sim_s" -gt 99 ]; then
+    # No silent degradation: without headroom the simulated ratchet would need
+    # an "above floor" input over 100%, and a control that stopped controlling
+    # has to say so rather than quietly pass.
     fail=$((fail + 1))
-    echo "FAIL  future-ratchet simulation: scratch floors are '$sim_floors', expected '96 96 98 '"
+    echo "FAIL  future-ratchet simulation: the committed floors ($c_floor/$e_floor/$s_floor) leave under 2 points of headroom, so the simulated ratchet ($sim_c/$sim_e/$sim_s) would need an 'above floor' input over 100%. Re-derive sim_floor()'s step against a fresh measurement rather than letting this control stop ratcheting."
   else
-    sim_out="$(BALL_COV_FLOOR_TEST_RATCHET_SIM=1 \
-      bash "$sim/cpp/test/test_build_cov_floor_parsing.sh" 2>&1)"
-    sim_rc=$?
-    if [ "$sim_rc" -eq 0 ]; then
-      pass=$((pass + 1))
-      echo "PASS  this suite survives a ratchet to floors 96/98/96 (inputs derived, not hard-coded)"
-    else
+    sim="$(mktemp -d)"
+    mkdir -p "$sim/cpp/test"
+    awk -v c="$sim_c" -v e="$sim_e" -v s="$sim_s" '
+      /^[[:space:]]*\[compiler\]=/ { print "  [compiler]=" c; next }
+      /^[[:space:]]*\[encoder\]=/  { print "  [encoder]=" e;  next }
+      /^[[:space:]]*\[shared\]=/   { print "  [shared]=" s;   next }
+      { print }
+    ' "$SCRIPT" >"$sim/cpp/build-cov-floor.sh"
+    cp "${BASH_SOURCE[0]}" "$sim/cpp/test/test_build_cov_floor_parsing.sh"
+
+    # The rewrite must have actually landed, or this control would "pass"
+    # against the committed floors and prove nothing.
+    sim_want="$(printf '%s\n%s\n%s\n' "$sim_c" "$sim_e" "$sim_s" | sort -n | tr '\n' ' ')"
+    sim_floors="$(sed -n '/^declare -A FLOORS=(/,/^)/p' "$sim/cpp/build-cov-floor.sh" |
+      sed -n 's/^[[:space:]]*\[[A-Za-z_]*\]=\(.*\)$/\1/p' | sort -n | tr '\n' ' ')"
+    if [ "$sim_floors" != "$sim_want" ]; then
       fail=$((fail + 1))
-      echo "FAIL  this suite goes red under a ratchet to floors 96/98/96 — its 'above floor' inputs are hard-coded, not read from the FLOORS table (exit $sim_rc)"
-      printf '  %s\n' "$sim_out"
+      echo "FAIL  future-ratchet simulation: scratch floors are '$sim_floors', expected '$sim_want'"
+    else
+      sim_out="$(BALL_COV_FLOOR_TEST_RATCHET_SIM=1 \
+        bash "$sim/cpp/test/test_build_cov_floor_parsing.sh" 2>&1)"
+      sim_rc=$?
+      if [ "$sim_rc" -eq 0 ]; then
+        pass=$((pass + 1))
+        echo "PASS  this suite survives a ratchet to floors $sim_c/$sim_e/$sim_s (committed $c_floor/$e_floor/$s_floor; inputs derived from the FLOORS table, not hard-coded)"
+      else
+        fail=$((fail + 1))
+        echo "FAIL  this suite goes red under a ratchet to floors $sim_c/$sim_e/$sim_s (committed $c_floor/$e_floor/$s_floor) — its 'above floor' inputs are hard-coded, not read from the FLOORS table (exit $sim_rc)"
+        printf '  %s\n' "$sim_out"
+      fi
     fi
+    rm -rf "$sim"
   fi
-  rm -rf "$sim"
 fi
 
 # ── 11. The ratchet simulation must simulate a FUTURE ratchet (#700 item 3) ─

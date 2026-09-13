@@ -23,7 +23,7 @@
   },
   "summary": {
     "encoderEmittable": 126,
-    "coveredByFixture": 136,
+    "coveredByFixture": 138,
     "engineImplementedDart": 236,
     "carvedOut": 0
   },
@@ -709,6 +709,7 @@
         "437_recursive_ctor_tree",
         "443_nullable_field_chain_member_read",
         "451_thrown_builtin_exception_tearoff",
+        "471_null_aware_chain_scope",
         "48_break_continue",
         "58_mutual_recursion",
         "59_deep_recursion",
@@ -1042,6 +1043,8 @@
         "436_recursive_ctor_named",
         "437_recursive_ctor_tree",
         "451_thrown_builtin_exception_tearoff",
+        "468_map_contains_value",
+        "471_null_aware_chain_scope",
         "48_break_continue",
         "50_if_else_chain",
         "51_nested_if",
@@ -1123,6 +1126,7 @@
         "391_empty_map_literal",
         "393_untyped_empty_braces_map",
         "399_bytes_literal",
+        "469_map_put_if_absent",
         "78_map_operations",
         "80_bubble_sort",
         "81_binary_search",
@@ -1774,6 +1778,7 @@
         "453_ctor_param_shadows_field",
         "455_ctor_field_writes_that_survive",
         "470_setter_beside_final_field",
+        "471_null_aware_chain_scope",
         "49_nested_loops",
         "57_recursion_factorial",
         "60_collatz",
@@ -2362,8 +2367,11 @@
         "465_state_error_message",
         "466_string_sink",
         "467_caught_type_error_to_string",
+        "468_map_contains_value",
+        "469_map_put_if_absent",
         "46_while_loop",
         "470_setter_beside_final_field",
+        "471_null_aware_chain_scope",
         "47_do_while",
         "48_break_continue",
         "49_nested_loops",
@@ -3869,7 +3877,9 @@
       "name": "map_contains_value",
       "inputType": "MapInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "468_map_contains_value"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -3968,7 +3978,9 @@
       "name": "map_put_if_absent",
       "inputType": "MapInput",
       "encoderEmittable": true,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "469_map_put_if_absent"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -5066,10 +5078,7 @@
       "timestamp_ms",
       "year"
     ],
-    "emittableButUncoveredByFixture": [
-      "map_contains_value",
-      "map_put_if_absent"
-    ],
+    "emittableButUncoveredByFixture": [],
     "notEngineImplementedDart": [
       "address_of",
       "deref",

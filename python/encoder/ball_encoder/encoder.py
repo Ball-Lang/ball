@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import ast
 
+from . import ballrt_calls as rt
 from . import builders as b
 
 # Operators handled directly as universal-`std` base functions.
@@ -601,8 +602,14 @@ class _Encoder:
             self.fail("keyword arguments are not supported")
         func = node.func
         if isinstance(func, ast.Attribute):
-            # A method / qualified call (`obj.method(...)`, `fmt.Println(...)`).
-            # Only single-argument prints and free functions are in scope; other
+            # A Ball Python runtime helper (`ballrt.add(...)`) — `python/compiler`
+            # emits every base call as one of these, so recognizing them is what
+            # lets the encoder read the compiler's own output back (issue #642,
+            # see ballrt_calls.py).
+            if isinstance(func.value, ast.Name) and func.value.id == rt.RUNTIME_MODULE:
+                return self.encode_ballrt_call(func.attr, node.args)
+            # Any other method / qualified call (`obj.method(...)`). Only
+            # single-argument prints and free functions are in scope; other
             # method calls need receiver types the syntactic encoder lacks.
             self.fail(f"method call .{func.attr}(...) is not supported")
             return b.null_lit()
@@ -621,6 +628,32 @@ class _Encoder:
                 return b.null_lit()
             return b.std_unary(_BUILTIN_UNARY[name], self.encode_expr(node.args[0]))
         return self.encode_user_call(name, node.args)
+
+    def encode_ballrt_call(self, name: str, args: list[ast.expr]) -> dict:
+        """Encode a ``ballrt.<name>(args…)`` call — one universal ``std`` base
+        call each, per ``ballrt_calls.HELPERS``."""
+        if name == rt.TRUTHY:
+            # Truthiness coercion is implicit at every Ball condition site.
+            if len(args) != 1:
+                self.fail(f"ballrt.{name}() expects exactly one argument")
+                return b.null_lit()
+            return self.encode_expr(args[0])
+        if name == rt.ENTRY_WRAPPER:
+            self.fail(f"ballrt.{name}() is the compiled entry-point wrapper and is "
+                      "encodable only inside an `if __name__ == \"__main__\":` guard "
+                      "alongside the entry function it names")
+            return b.null_lit()
+        entry = rt.HELPERS.get(name)
+        if entry is None:
+            self.fail(f"unsupported runtime helper ballrt.{name}() (ball_encoder/"
+                      "ballrt_calls.py lists the helpers that have a universal std inverse)")
+            return b.null_lit()
+        fn, fields = entry
+        if len(args) != len(fields):
+            self.fail(f"ballrt.{name}() expects {len(fields)} argument(s), got {len(args)}")
+            return b.null_lit()
+        return b.std_call(fn, b.args_message(
+            *((field, self.encode_expr(arg)) for field, arg in zip(fields, args))))
 
     def encode_print(self, args: list[ast.expr]) -> dict:
         # print() → newline only; the runtime's print always appends "\n".

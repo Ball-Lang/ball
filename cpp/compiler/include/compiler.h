@@ -497,6 +497,13 @@ private:
     // access with "'class BallDyn' has no member named '…'".
     bool receiver_is_erased(const ball::ir::Expression& raw) const;
 
+    // #488: the concrete user class an UNQUALIFIED reference to an own instance
+    // field declares — the bare-name spelling of `this.<field>`, which
+    // compile_reference emits as the plain member name. "" when the name is not
+    // such a field (a local shadows it, there is no enclosing class, the member
+    // is an accessor, or its declared type is not a concrete struct).
+    std::string declared_field_class_of_own_name(const std::string& name) const;
+
     // #513: the class a DECLARED Ball type source names once it is stripped of
     // its nullability suffix, when that class is a concrete (struct-emitted)
     // user class; "" for a primitive, a collection, a generic instantiation, a

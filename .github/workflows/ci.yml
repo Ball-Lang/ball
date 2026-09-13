@@ -146,6 +146,18 @@ jobs:
       - name: Conformance-count drift guard test (#519)
         run: bash tools/test/test_check_conformance_doc_counts.sh
 
+      # The four `*-roundtrip` rows in conformance-matrix.yml printed
+      # `Results: 0 passed, N failed, N total` on every run since the day they
+      # shipped and went GREEN every time, because the only assertion was
+      # `total >= 1` (#642). tools/ci/roundtrip_floor.sh is the positive floor +
+      # ratchet that closes that; this proves the gate itself (a flat zero must
+      # be RED, a drop must be RED, an empty/garbage floor must be a hard error
+      # rather than a silently-skipped `[`) AND asserts the wiring — that all
+      # four rows actually invoke it, the hole cpp/test/test_cov_floor_ci_wiring.sh
+      # exists to close for the C++ coverage floor.
+      - name: Round-trip leg floor + ratchet test (#642)
+        run: bash tools/test/test_roundtrip_floor.sh
+
       # Every runtime raises a handful of built-in Dart errors, and each target
       # then has to answer what a CAUGHT one prints as. Four of them answer from
       # an explicit `name -> prefix` table, and those tables were only "closed"
@@ -2658,7 +2670,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 353 passed, 0 failed, 353 total (4 skipped carve-outs)" — the
+      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2853,7 +2865,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 353 passed, 0 failed, 353 total (4 skipped carve-outs)" — the 4
+      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -3008,7 +3020,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 353 passed, 0 failed, 353 total (4 skipped carve-outs)" — the 4
+      # "Results: 356 passed, 0 failed, 356 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

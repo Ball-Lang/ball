@@ -40,10 +40,25 @@ live guard at all:
   2. `clean / scored` — the headline ratio, compared exactly (by
      cross-multiplication, never on the rounded percentage, so a sub-1% drop
      cannot hide inside the rounding).
-  3. `encoded / scored` — Tier A only: how many scored files survived stage 1
-     of the funnel. This is what gives the five 0%-clean rows a live guard.
-     `clean` cannot fall below 0, but "110 Rust files reached stage 1" can, and
-     that is precisely the regression the funnel exists to make visible.
+  3. EVERY funnel stage, as `<stage> / scored` — Tier A only: how many scored
+     files survived stage 1 (`encoded`), stage 2 (`compiledBack`), stage 3
+     (`reencoded`) and stage 4 (`declarationsKept`). This is what gives the
+     five 0%-clean rows a live guard. `clean` cannot fall below 0, but "110
+     Rust files reached stage 1" can, and that is precisely the regression the
+     funnel exists to make visible.
+
+     Stage 3 earns its own floor by name (issue #632): it is the only stage
+     whose INPUT is this repository's own output. Stages 1 and 2 read
+     third-party source and the Ball IR encoded from it, while stage 3
+     re-encodes what this project's compiler just emitted — so a construct the
+     compiler emits that its own encoder refuses lands here and nowhere else,
+     which is how `rust/compiler`'s `panic!` dispatcher arm, refused by
+     `rust/encoder`, went unseen by every other gate the project has. The
+     funnel is monotone (a file that failed stage n cannot pass stage n+1), so
+     every stage's floor also fails when an earlier stage regresses; they are
+     kept separate anyway, because WHERE a row stopped is the whole signal on a
+     pipeline whose round trip is not closed, and a trade (stage 1 up, stage 3
+     down) must not net out to silence.
 
 WHAT IS RECORDED BUT NOT FLOORED. `excluded` — the test-only files each Tier A
 harness takes out of the denominator since the owner's 2026-09-14 methodology
@@ -152,6 +167,11 @@ _TIER_B_TAGS = {
 }
 
 _STAGE_HEADERS = ["1 encoded", "2 compiled back", "3 re-encoded", "4 declarations kept"]
+
+# The baseline key carrying each stage above, index for index. Named rather
+# than positional: a baseline is read as a diff by a human, and `[141, 140, 58,
+# 0]` says which number moved only to a reader who has this file open.
+_STAGE_KEYS = ("encoded", "compiledBack", "reencoded", "declarationsKept")
 
 
 class StudyError(Exception):
@@ -295,10 +315,6 @@ class Measurement:
     excluded_files: dict[str, list[str]] | None = None
     scored_files: frozenset[tuple[str, str]] | None = None
 
-    @property
-    def encoded(self) -> int:
-        return 0 if self.stages is None else self.stages[0]
-
 
 def read_report(path: Path) -> tuple[dict, list[dict]]:
     """One harness report: its top-level object, and its per-file verdicts.
@@ -425,7 +441,10 @@ class BaselineRow:
     artifact: str
     scored: int
     clean: int
-    encoded: int | None
+    # Tier A only: the four funnel stages, index for index with _STAGE_KEYS
+    # (and so with _STAGE_HEADERS and Measurement.stages). `None` on a Tier B
+    # row, which has no funnel at all.
+    funnel: tuple[int, int, int, int] | None
     excluded: int | None
 
     @property
@@ -450,14 +469,31 @@ def load_baseline(path: Path) -> list[BaselineRow]:
         for key in ("language", "tier", "artifact"):
             if not isinstance(entry.get(key), str) or not entry[key]:
                 raise StudyError(f"{where}: '{key}' must be a non-empty string")
-        encoded = None
+        funnel = None
         excluded = None
         if kind == "tier-a":
-            encoded = _require_int(entry.get("encoded"), f"{where} 'encoded'")
+            # Every stage is required. A missing one cannot default to 0 (that
+            # floors the row at nothing) and cannot default to the measured
+            # value (that floors it at whatever this run happened to do), so it
+            # is an error naming the key.
+            funnel = tuple(
+                _require_int(entry.get(key), f"{where} '{key}'") for key in _STAGE_KEYS
+            )
+            for earlier, later in zip(_STAGE_KEYS, _STAGE_KEYS[1:]):
+                if entry[earlier] < entry[later]:
+                    raise StudyError(
+                        f"{where}: funnel stage '{later}' ({entry[later]}) is above "
+                        f"'{earlier}' ({entry[earlier]}) — the funnel is monotone (a "
+                        "file that failed a stage cannot pass the next one), so this "
+                        "row cannot have come from a real run; re-seed it from one"
+                    )
             excluded = _require_int(entry.get("excluded"), f"{where} 'excluded'")
         else:
-            if "encoded" in entry:
-                raise StudyError(f"{where}: a Tier B row has no funnel, so no 'encoded'")
+            for key in _STAGE_KEYS:
+                if key in entry:
+                    raise StudyError(
+                        f"{where}: a Tier B row has no funnel, so no '{key}'"
+                    )
             if "excluded" in entry:
                 raise StudyError(
                     f"{where}: a Tier B row has no test-only exclusion rule, so no 'excluded'"
@@ -470,7 +506,7 @@ def load_baseline(path: Path) -> list[BaselineRow]:
                 artifact=entry["artifact"],
                 scored=_require_int(entry.get("scored"), f"{where} 'scored'"),
                 clean=_require_int(entry.get("clean"), f"{where} 'clean'"),
-                encoded=encoded,
+                funnel=funnel,  # type: ignore[arg-type]
                 excluded=excluded,
             )
         )
@@ -662,15 +698,16 @@ def check_row(
             f"{row.clean}/{row.scored} ({pct(row.clean, row.scored)}%)"
         )
     if row.kind == "tier-a":
-        assert row.encoded is not None and measured.stages is not None
-        if ratio_below(measured.encoded, measured.scored, row.encoded, row.scored):
-            breaches.append(
-                f"{row.label}: funnel stage 1 encoded "
-                f"{measured.encoded}/{measured.scored} "
-                f"({pct(measured.encoded, measured.scored)}%) is below the "
-                f"baseline {row.encoded}/{row.scored} "
-                f"({pct(row.encoded, row.scored)}%)"
-            )
+        assert row.funnel is not None and measured.stages is not None
+        for header, floor, now in zip(_STAGE_HEADERS, row.funnel, measured.stages):
+            if ratio_below(now, measured.scored, floor, row.scored):
+                breaches.append(
+                    f"{row.label}: funnel stage {header} "
+                    f"{now}/{measured.scored} "
+                    f"({pct(now, measured.scored)}%) is below the "
+                    f"baseline {floor}/{row.scored} "
+                    f"({pct(floor, row.scored)}%)"
+                )
         breaches += exclusion_rule_breach(row, measured)
         breaches += readmission_breach(row, measured, committed_excluded)
 
@@ -688,7 +725,7 @@ def check_row(
         or measured.clean != row.clean
         or (
             row.kind == "tier-a"
-            and (measured.encoded != row.encoded or measured.excluded != row.excluded)
+            and (measured.stages != row.funnel or measured.excluded != row.excluded)
         )
     )
     if not raised:
@@ -700,7 +737,7 @@ def check_row(
         artifact=row.artifact,
         scored=measured.scored,
         clean=measured.clean,
-        encoded=measured.encoded if row.kind == "tier-a" else None,
+        funnel=measured.stages if row.kind == "tier-a" else None,
         excluded=measured.excluded if row.kind == "tier-a" else None,
     )
 
@@ -753,7 +790,7 @@ def render_table(rows: list[tuple[BaselineRow, Measurement]]) -> str:
         "that removed is published above rather than applied silently.",
         "",
         "Every row is **floored at the number shown**: the workflow fails on a drop "
-        "in the clean ratio, in the stage-1 funnel ratio, or in the scored "
+        "in the clean ratio, in ANY funnel stage's ratio, or in the scored "
         "denominator, and raises the floor automatically on an improvement "
         "(`tools/coverage-study/baseline.json`). The exclusion count is recorded "
         "there too but is **not** floored — a pin whose own test suite grew moves it "
@@ -809,7 +846,10 @@ def dump_baseline(rows: list[BaselineRow], previous: dict) -> str:
             "scored": row.scored,
             "clean": row.clean,
             **(
-                {"encoded": row.encoded, "excluded": row.excluded}
+                {
+                    **dict(zip(_STAGE_KEYS, row.funnel or ())),
+                    "excluded": row.excluded,
+                }
                 if row.kind == "tier-a"
                 else {}
             ),
@@ -920,7 +960,16 @@ def main(argv: list[str]) -> int:
                 f"{raised.clean}/{raised.scored}"
             )
             if row.kind == "tier-a":
-                detail += f", stage 1 encoded {row.encoded}/{row.scored} -> {raised.encoded}/{raised.scored}"
+                assert row.funnel is not None and raised.funnel is not None
+                moved = [
+                    f"{header} {before}/{row.scored} -> {after}/{raised.scored}"
+                    for header, before, after in zip(
+                        _STAGE_HEADERS, row.funnel, raised.funnel
+                    )
+                    if before != after
+                ]
+                if moved:
+                    detail += ", funnel " + "; ".join(moved)
             raises.append(detail)
         final_rows.append(raised if raised is not None else row)
         status = "BELOW" if row_breaches else ("up" if raised is not None else "at floor")

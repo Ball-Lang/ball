@@ -847,12 +847,29 @@ For each row the floor checks:
 2. **`clean / scored`.** Compared exactly, by cross-multiplication, never on
    the rounded percentage — so a drop smaller than the rounding step still
    fails.
-3. **`encoded / scored`** (Tier A only) — how many scored files survived stage 1
-   of the funnel. This is what gives the four 0%-clean rows a live guard:
-   `clean` cannot fall below 0, but "110 Rust files reached stage 1" can, and
-   that movement is precisely what the funnel exists to show. It is also the
-   answer to the objection this document used to record, that "a ratchet on 0 is
-   meaningless".
+3. **Every funnel stage, as `<stage> / scored`** (Tier A only) — how many
+   scored files survived stage 1 (`encoded`), stage 2 (`compiledBack`), stage 3
+   (`reencoded`) and stage 4 (`declarationsKept`). This is what gives the four
+   0%-clean rows a live guard: `clean` cannot fall below 0, but "110 Rust files
+   reached stage 1" can, and that movement is precisely what the funnel exists
+   to show. It is also the answer to the objection this document used to record,
+   that "a ratchet on 0 is meaningless".
+
+   **Stage 3 earns its own floor by name** (issue #632). It is the only stage
+   whose *input* is this repository's own output: stages 1 and 2 read
+   third-party source and the Ball IR encoded from it, while stage 3 re-encodes
+   what this project's compiler just emitted. So a construct the compiler emits
+   that its own encoder refuses stops there and nowhere else — which is exactly
+   what #632 was (`rust/compiler`'s method-dispatcher `panic!` arm, refused by
+   `rust/encoder`), and no gate in the repository could see it: the compiler's
+   tests assert on emitted source, the encoder's start from hand-written source,
+   and a baseline that floored stage 1 alone was green while stage 3 fell.
+
+   The funnel is monotone — a file that failed stage *n* cannot pass stage
+   *n+1* — so each stage's floor also fails when an earlier stage regresses.
+   They are floored separately anyway, because WHERE a row stopped is the whole
+   signal on a pipeline whose round trip is not closed, and a trade (stage 1 up,
+   stage 3 down) must not net out to silence.
 
 A row whose artifact is **missing**, whose report **scored nothing**, whose
 verdicts are not bools, or whose taxonomy tag is unrecognised is a hard failure.
@@ -884,6 +901,14 @@ that below fails and names both numbers, at passes, above raises, a missing
 artifact fails loud, a non-integer tally fails, a shrinking denominator fails
 even with a better ratio, the funnel floor bites at 0% clean, and that
 regenerating twice is byte-identical.
+
+Since #632 it also asserts the stage-3 floor specifically, on fixtures that hold
+`scored`, `clean` and stage 1 **fixed** so each case can only be failing on the
+stage it names: a stage-3 drop fails and names `3 re-encoded` with both numbers,
+a stage-3 gain raises that floor and names the stage that moved, a Tier A row
+missing any stage key fails loud rather than defaulting it (a defaulted floor is
+no floor), a Tier B row carrying one fails loud, and a baseline funnel that
+rises down the stages — impossible to measure, so hand-written — is rejected.
 
 ## Status and honest limits
 

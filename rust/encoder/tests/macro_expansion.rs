@@ -19,11 +19,19 @@
 //! `mini_bitflags`); the fixture is a stand-in for the general mechanism, never
 //! a special case.
 
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 
+use ball_lang_compiler::Compiler;
 use ball_lang_shared::proto::ball::v1::{Module, Program};
 
 use ball_lang_encoder::{encode, encode_crate, encode_library};
+
+/// Makes every scratch directory this file creates unique, so the test harness
+/// can keep running them in parallel.
+static SCRATCH_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// `rust/encoder/tests/fixtures/macro_crate` — the crate root directory, the
 /// spelling `encode_crate` documents as its entry point.
@@ -86,6 +94,99 @@ fn field_names(module: &Module, type_name: &str) -> Vec<String> {
 /// `<qualified type>.<method>`).
 fn function_names(module: &Module) -> Vec<String> {
     module.functions.iter().map(|f| f.name.clone()).collect()
+}
+
+// ════════════════════════════════════════════════════════════
+// rustc/cargo execution harness (mirrors crate_encoding.rs's)
+// ════════════════════════════════════════════════════════════
+
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("rust/encoder must have a parent directory")
+        .to_path_buf()
+}
+
+/// Build `rust_src` as a one-file cargo package against the workspace's own
+/// `ball-lang-shared`, run it, and return its stdout AS BYTES.
+///
+/// Bytes, not a `String`: the golden comparison must not go through a text
+/// decode that could normalise a line ending. The package/bin name carries a
+/// pid + counter suffix because every fixture in this workspace shares one
+/// `target/` and the harness runs them in parallel — see `end_to_end.rs`'s own
+/// note on why a constant bin name raced.
+fn compile_and_run(fixture_name: &str, rust_src: &str) -> Vec<u8> {
+    let workspace_root = workspace_root();
+    let target_dir = workspace_root.join("target");
+    let unique = SCRATCH_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let slug = format!("{fixture_name}_{}_{unique}", std::process::id());
+    let fixture_dir = std::env::temp_dir().join(format!("ball_macro_rustc_fixture_{slug}"));
+    fs::create_dir_all(&fixture_dir).unwrap_or_else(|err| {
+        panic!(
+            "failed to create fixture dir {}: {err}",
+            fixture_dir.display()
+        )
+    });
+
+    let shared_path = workspace_root.join("shared");
+    let bin_name = format!("ball_macro_fixture_{slug}");
+    let manifest = format!(
+        "[package]\nname = \"{bin_name}\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n\
+         [[bin]]\nname = \"{bin_name}\"\npath = \"main.rs\"\n\n\
+         [dependencies]\nball-lang-shared = {{ path = {shared_path:?} }}\n"
+    );
+    fs::write(fixture_dir.join("Cargo.toml"), manifest)
+        .expect("failed to write fixture Cargo.toml");
+    fs::write(fixture_dir.join("main.rs"), rust_src).expect("failed to write fixture main.rs");
+
+    let build = Command::new("cargo")
+        .args(["build", "--quiet"])
+        .arg("--manifest-path")
+        .arg(fixture_dir.join("Cargo.toml"))
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .output()
+        .expect("failed to spawn `cargo build` — is cargo on PATH?");
+    if !build.status.success() {
+        panic!(
+            "fixture '{fixture_name}' failed to COMPILE.\n--- generated main.rs ---\n{rust_src}\n\
+             --- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&build.stdout),
+            String::from_utf8_lossy(&build.stderr),
+        );
+    }
+
+    let exe = target_dir.join("debug").join(if cfg!(windows) {
+        format!("{bin_name}.exe")
+    } else {
+        bin_name.clone()
+    });
+    let output = Command::new(&exe).output().unwrap_or_else(|err| {
+        panic!(
+            "fixture '{fixture_name}' built but its binary {} could not be run: {err}",
+            exe.display()
+        )
+    });
+
+    let _ = fs::remove_dir_all(&fixture_dir);
+    let _ = fs::remove_file(&exe);
+    for sidecar in ["d", "pdb"] {
+        let _ = fs::remove_file(
+            target_dir
+                .join("debug")
+                .join(format!("{bin_name}.{sidecar}")),
+        );
+    }
+
+    if !output.status.success() {
+        panic!(
+            "fixture '{fixture_name}' failed to run.\n--- generated main.rs ---\n{rust_src}\n\
+             --- stdout ---\n{}\n--- stderr ---\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    output.stdout
 }
 
 // ── The closed gap: a local item-level `macro_rules!` ────────────────────────
@@ -232,11 +333,124 @@ fn a_dependency_macro_in_single_file_mode_names_the_missing_manifest() {
     encode_library(&read_fixture("src/flags.rs"));
 }
 
-/// The same, from crate mode — the goalpost the dependency slice moves.
+/// A crate whose root has no `Cargo.toml` above it — which is exactly what the
+/// Tier A coverage harness points at, since it names `<pkg>/src` rather than
+/// `<pkg>` — cannot have a dependency graph read for it. That is recorded and
+/// raised at the first invocation that needs one, naming the missing manifest;
+/// it is never a silent skip, and it never stops the rest of the crate being
+/// measured.
 #[test]
-#[should_panic(expected = "dependency crates were not consulted")]
-fn the_macro_crate_fixture_still_needs_dependency_macros() {
-    encode_crate(&macro_crate_dir());
+#[should_panic(expected = "no `Cargo.toml` was found at or above")]
+fn a_crate_with_no_manifest_names_the_missing_cargo_toml() {
+    let scratch = std::env::temp_dir().join(format!(
+        "ball_macro_no_manifest_{}_{}",
+        std::process::id(),
+        SCRATCH_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let src = scratch.join("src");
+    std::fs::create_dir_all(&src).expect("scratch dir");
+    for name in ["main.rs", "flags.rs"] {
+        std::fs::write(src.join(name), read_fixture(&format!("src/{name}")))
+            .expect("copy fixture source");
+    }
+    // NOT copied: Cargo.toml. `encode_crate` on the `src` directory is a
+    // documented entry point, so the walk succeeds and only the dependency
+    // macro fails.
+    let result = std::panic::catch_unwind(|| encode_crate(&scratch));
+    let _ = std::fs::remove_dir_all(&scratch);
+    match result {
+        Ok(_) => panic!("a dependency macro with no manifest must not silently resolve"),
+        Err(payload) => std::panic::resume_unwind(payload),
+    }
+}
+
+// ── The dependency-defined macro, end to end ─────────────────────────────────
+
+/// The whole fixture crate: a LOCAL `macro_rules!` at item position in the
+/// crate root, and a DEPENDENCY-defined `#[macro_export]`ed one in `flags.rs`
+/// reached by a two-segment path and resolved through `cargo metadata`.
+///
+/// Nothing in the encoder knows the name `mini_bitflags` (or `bitflags`) — the
+/// resolution is by path segment against the package the dependency graph
+/// names, so this is the general mechanism, exercised.
+#[test]
+fn the_macro_crate_fixture_expands_both_its_local_and_dependency_macros() {
+    let program = encode_crate(&macro_crate_dir());
+
+    let main = module(&program, "main");
+    assert_eq!(type_names(main), vec!["Point".to_string()]);
+    assert_eq!(
+        field_names(main, "Point"),
+        vec!["x".to_string(), "y".to_string()],
+        "the local `make_point!`'s repetition must declare BOTH fields"
+    );
+    assert!(
+        function_names(main)
+            .iter()
+            .any(|n| n.ends_with("Point.total")),
+        "{:?}",
+        function_names(main)
+    );
+
+    let flags = module(&program, "flags");
+    assert_eq!(type_names(flags), vec!["Perms".to_string()]);
+    assert_eq!(field_names(flags, "Perms"), vec!["bits".to_string()]);
+    let flag_fns = function_names(flags);
+    for method in ["Perms.read_bit", "Perms.write_bit", "Perms.sum_bits"] {
+        assert!(
+            flag_fns.iter().any(|n| n.ends_with(method)),
+            "the dependency macro's `{method}` must be declared: {flag_fns:?}"
+        );
+    }
+}
+
+// ── The round trip: encode -> compile -> BUILD -> RUN -> diff bytes ──────────
+
+/// The proof that matters. A structural assertion about a `TypeDefinition`
+/// would pass just as well against a program that does not link, and a hygiene
+/// approximation can produce a tree that round-trips syntactically clean and
+/// computes something different — the #488 class, which Tier A is structural
+/// and cannot see. So this encodes the fixture crate, compiles the Ball program
+/// back to Rust with `ball-lang-compiler`, builds it with cargo, RUNS it, and
+/// diffs stdout against the committed golden **as bytes**.
+///
+/// Bytes, not text: reading a golden as text collapses a semantic lone `\r` and
+/// corrupts the comparison in both directions. Only `\r\n` -> `\n` is
+/// normalised, because the two checkouts differ in line endings and nothing
+/// else.
+#[test]
+fn the_macro_crate_fixture_round_trips_through_the_compiler() {
+    let program = encode_crate(&macro_crate_dir());
+    assert_eq!(
+        program.entry_function, "main",
+        "the fixture's crate root declares `fn main`, so the encoded program is runnable"
+    );
+    let compiled = Compiler::new(&program).compile();
+    let stdout = compile_and_run("macro_crate", &compiled);
+
+    let golden = std::fs::read(macro_crate_dir().join("expected_stdout.txt"))
+        .expect("the fixture golden must exist");
+    assert_eq!(
+        normalise_newlines(&stdout),
+        normalise_newlines(&golden),
+        "the compiled-back crate's stdout must match the fixture's own \
+         `cargo run` output byte for byte.\n--- generated main.rs ---\n{compiled}"
+    );
+}
+
+/// `\r\n` -> `\n`, and nothing else. A lone `\r` is left exactly as it is.
+fn normalise_newlines(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
+            index += 1;
+            continue;
+        }
+        out.push(bytes[index]);
+        index += 1;
+    }
+    out
 }
 
 // ── The fixture's golden ─────────────────────────────────────────────────────

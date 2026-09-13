@@ -87,6 +87,15 @@ dist/
 target/
 
 # ----------------------------------
+# Rust
+# ----------------------------------
+# A per-worktree CARGO_TARGET_DIR. rust/AGENTS.md requires one: a target
+# directory shared between concurrent worktrees/lanes serves a stale rlib from
+# another lane's in-flight edit, producing a red that reproduces nowhere in the
+# affected lane's own diff.
+.cargo-target/
+
+# ----------------------------------
 # C# / .NET
 # ----------------------------------
 csharp/**/bin/

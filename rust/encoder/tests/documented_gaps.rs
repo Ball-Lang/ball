@@ -188,6 +188,28 @@ fn trait_associated_fn_without_receiver_is_a_documented_gap() {
     encode("trait Maker { fn make() -> i32; }\nfn main() {}");
 }
 
+/// **CLOSED** — 3 of the 110 scored files in the live Tier A funnel stopped
+/// FIRST on `encode_item_trait`'s `only method signatures are supported
+/// inside a `trait` block` panic. An associated `const`/`type` inside a
+/// `trait` declares nothing Ball models, exactly like its `impl`-block
+/// sibling, so it is skipped and the block's real methods keep encoding.
+/// Before this slice one associated const aborted the whole file.
+///
+/// This gap had no pin of its own before the PR that closed it — the panic
+/// was reachable only incidentally, through the receiver-less-fn
+/// characterization above, which exercises a *different* failure inside the
+/// same function. A gate nothing observes is a missing-test bug in its own
+/// right, so the pin is added here in the same PR, already flipped. The
+/// encode → compile → run proof lives in
+/// `rust/encoder/tests/mixed_module_items.rs`.
+#[test]
+fn trait_associated_const_and_type_encode() {
+    encode(
+        "trait Shape { const SIDES: i32 = 4; type Unit; fn tag(&self) -> i32 { 1 } }\n\
+         fn main() {}",
+    );
+}
+
 // ── lib.rs: call-target resolution ───────────────────────────────────────────
 
 /// **CLOSED** by issue #491's slice 3 — 15 of 196 study files, per that
@@ -208,12 +230,46 @@ fn cross_file_call_target_encodes() {
 
 // ── lib.rs: item- and macro-level scope ──────────────────────────────────────
 
-/// Item-level `const`/`static`/`type` (and item-position macro invocations)
-/// are outside issue #43's declaration scope.
+/// **CLOSED** for `const`/`static`/`type` alias — 7 of the 110 scored files
+/// in the live Tier A funnel had a top-level `type` alias as their FIRST
+/// blocker. A declaration Ball models nothing for is now SKIPPED rather than
+/// aborting the whole file, mirroring `types.rs::encode_item_impl`'s
+/// identical tolerance for non-`Fn` items one level down. The encode →
+/// compile → run proof lives in `rust/encoder/tests/mixed_module_items.rs`.
+#[test]
+fn top_level_const_static_and_type_alias_encode() {
+    encode(
+        "const LIMIT: i32 = 10;\nstatic GREETING: i32 = 2;\ntype Coord = i32;\n\
+         fn main() { println!(\"{}\", 1); }",
+    );
+}
+
+/// The other half of that closure, and the reason it is safe: skipping the
+/// DECLARATION must never make a *reference* to it silently encode as a read
+/// of a binding nobody declared. A bare `LIMIT` is a single-segment path, so
+/// (unlike an `impl` block's `Self::CAP`, which lands on the two-segment
+/// "unsupported path expression" panic) nothing downstream would have caught
+/// it — `encode_path_expr`'s `reference(name)` fallback would have produced a
+/// dangling reference. The encoder therefore remembers what it skipped and
+/// fails loud at the use site instead.
+#[test]
+#[should_panic(expected = "names a top-level `const`")]
+fn reference_to_a_skipped_top_level_const_is_a_documented_gap() {
+    encode("const LIMIT: i32 = 10;\nfn main() { println!(\"{}\", LIMIT); }");
+}
+
+/// A top-level **macro invocation** is deliberately NOT folded into the skip
+/// above. A macro at item level can be the very thing that DEFINES a type the
+/// rest of the file references — `bitflags::bitflags! { ... }` produces the
+/// `TestFlags` every `bitflags/tests/*.rs` file then calls into, which is 28
+/// of the 110 scored Tier A files. Skipping it would orphan those references
+/// into a confusing downstream panic naming a type that looks like it should
+/// exist, instead of a clean boundary here. Closing this bucket needs macro
+/// *expansion*, a materially bigger feature.
 #[test]
 #[should_panic(expected = "unsupported top-level item")]
-fn top_level_const_is_a_documented_gap() {
-    encode("const LIMIT: i32 = 10;\nfn main() { println!(\"{}\", LIMIT); }");
+fn top_level_macro_invocation_is_a_documented_gap() {
+    encode("some_derive_helper!();\nfn main() { println!(\"{}\", 1); }");
 }
 
 /// 6 of 196 study files. Only `println!`/`format!`/`vec!` are mapped

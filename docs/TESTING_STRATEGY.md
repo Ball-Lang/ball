@@ -274,6 +274,13 @@ too, without a colour-forced CI leg.
 > tracked, one entry, and never `continue-on-error`. Delete both entries and list
 > the name in `cpp/test/e2e_fixture_list.h` the moment #695 lands.
 >
+> C++ is only the loudest target, not the only one:
+> [#706](https://github.com/Ball-Lang/ball/issues/706) carries the same fixture on
+> the Rust, Go, Python and C# COMPILER legs, where Rust and Go build and run it
+> and then read the field back as `null`. Those legs are RATCHETED, so they are
+> green with it failing and will stay green when it is fixed — which is exactly
+> why the per-fixture line, not the leg's colour, is the thing to read.
+>
 > Adding it also surfaced a hole in the per-PR leg itself. `full_e2e.sh` carries
 > a positive floor — `passed == 0 && failed == 0` is a leg that proved nothing,
 > so it exits 1 — and that floor is PER-INVOCATION. ci.yml used to hand it only

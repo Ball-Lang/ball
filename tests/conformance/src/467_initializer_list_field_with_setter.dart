@@ -45,6 +45,15 @@
 // #695 lands. Do not rename or reshape this class to dodge that: the field and
 // its same-named setter ARE the point.
 //
+// The remaining four COMPILER targets do not handle this shape either, with at
+// least three different mechanisms, and that is #706: Rust and Go build and RUN
+// the program and then read `windowSize` back as `null` (the emitted setter
+// shadows the field read — a silent wrong answer, strictly worse than C++'s
+// build failure); Python rejects it loudly at compile time ("setter without
+// matching getter"); C# fails too. All four legs are RATCHETED — they fail only
+// on a DROP — so they are green with this fixture failing, and they will stay
+// green when it is fixed. Read the per-fixture line, never the leg's colour.
+//
 // `elementAt` keeps the second, initializing-formal-assigned field live, so
 // both "definitely assigned" shapes the compiler now recognises are exercised
 // in one class.

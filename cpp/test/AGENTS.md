@@ -47,23 +47,43 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
 | `BALL_E2E_JOBS` | Fixture compiles to run concurrently. Default: `hardware_concurrency()` / `nproc`. `1` restores the old serial behaviour. |
 | `BALL_E2E_LAUNCHER` | Compiler launcher (`ccache`/`sccache`) threaded into the nested configure as `-DCMAKE_{C,CXX}_COMPILER_LAUNCHER` (`test_e2e`) or prefixed to `g++` (the shell harnesses), so an unchanged fixture is a cache hit. Empty/unset = none. |
 
-- CI sets `BALL_E2E_LAUNCHER` on **Linux/macOS only**. CMake honours
-  `<LANG>_COMPILER_LAUNCHER` for the Makefile and Ninja generators; the Visual
-  Studio (MSBuild) generator ignores it. Measured on main run 33673078770: the
-  Windows leg's `Post ccache` reported `Compile requests 0`, so even the parent
-  build's launcher is a no-op there. Windows relies on `--parallel` alone.
+- CI sets `BALL_E2E_LAUNCHER` on **all three legs** (`ccache` on Linux/macOS,
+  `sccache` on Windows) since #594. It was Linux/macOS only until then: CMake
+  honours `<LANG>_COMPILER_LAUNCHER` for the Makefile and Ninja generators, and
+  the Visual Studio (MSBuild) generator ignores it (main run 33673078770's
+  Windows leg reported `Compile requests 0` — even the parent build's launcher
+  was a no-op). ci.yml now configures Windows with `-G Ninja`, which this
+  harness inherits through `BALL_E2E_GENERATOR`.
+- The scratch project is configured with **`-DCMAKE_BUILD_TYPE=`, explicitly
+  empty** (#594). CMake's MSVC module initialises an unset build type to Debug,
+  whose `/Zi` writes a PDB shared by every TU of a target — sccache refuses to
+  cache that ("shared pdb"), and the first Ninja run reported
+  `Non-cacheable compilations 296`, i.e. every fixture. These binaries are only
+  run and diffed, never debugged, so "no configuration-specific flags" (what
+  Linux/macOS always had) is the right setting on every platform. Verified
+  against MSVC 14.50 + sccache 0.14.0: default -> non-cacheable; empty build
+  type -> cacheable, and a fresh scratch build directory is a 100% hit.
+- `ci.yml`'s `Compiler cache applied (#594)` step
+  (`cpp/test/check_compiler_cache_applied.sh`) fails the job when it compiled
+  cacheable TUs and the cache recorded zero requests. If you change how the
+  scratch project is configured, watch `Non-cacheable compilations` in the
+  printed statistics: the gate catches "no cache at all", not "cache silently
+  declined every compile".
 - `ctest` runs with `-j <runner CPUs> --no-tests=error`. Safe because each CTest
   test is its own process with a distinct temp-path prefix, and because this
   build never registers the `selfhost` label (engine_rt is gitignored, no Dart in
   that job). regression-gates.yml's `C++ Self-Host Tally` — which does register
   them — stays deliberately sequential.
-- The `Run tests` step has a **step-level `timeout-minutes`**: 20 (Windows) / 8
+- The `Run tests` step has a **step-level `timeout-minutes`**: 13 (Windows) / 8
   (Linux, macOS), against a pre-fix 28m33s / 12m12s / 9m56s. Treat it as a gate:
   re-measure and update the numbers in the ci.yml comment (with the run id) if
-  you change what the step does. Windows is looser by measurement — each fixture
-  is a ~278 KB TU pulling 29 standard headers, MSVC needs ~1000s of front-end
-  CPU for 269 of them, link is 0.33s each, and the generator is irrelevant (a
-  Ninja scratch build measured 590s vs MSBuild's 591s).
+  you change what the step does. Windows' 13 was re-derived in #594 from that
+  leg's own runs — 14m27s uncached (run 34727102995) -> 8m51s cold with the
+  cache applied (run 34728878760), and 13 is ~47% over the cold number. It is
+  still the loosest of the three by measurement — each fixture is a ~278 KB TU
+  pulling 29 standard headers and MSVC needs ~1000s of front-end CPU for ~296 of
+  them uncached — and the generator was never the cost (a Ninja scratch build
+  measured 590s vs MSBuild's 591s); the cache is.
   **Size these against the COLD-cache run, not the warm one.** Warm, the
   Linux/macOS step is 11s / 19s; cold it is 5m19s / 4m57s (measured on this
   branch's run 33698642352, `ccache -s`: 22 hits of 292 cacheable calls). Cold

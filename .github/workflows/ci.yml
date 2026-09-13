@@ -768,6 +768,17 @@ jobs:
     #   macos-latest    Configure  8s  Build    5s  Run tests  9m56s  job 10m40s
     # The budgets below are the post-fix targets; a regression back to serial,
     # uncached fixture compiles fails the job instead of just slowing it down.
+    #
+    # #594 then removed the second half of the Windows cost: that leg had NO
+    # working compiler cache (the Visual Studio generator ignores
+    # <LANG>_COMPILER_LAUNCHER), so it re-compiled all ~320 TUs on every run —
+    # 19 min of a 20 min PR cycle, permanently under a budget sized for a cold
+    # cache. It now builds with `-G Ninja`, and the `Compiler cache applied`
+    # step below fails the job if the cache ever stops being used again.
+    # Measured on this PR, windows-latest (main run 34109636159 -> runs
+    # 34727960593 cold / 34728878760 parent-cache warm):
+    #   Build all targets  3m24s -> 2m17s cold -> 17s warm
+    #   Run tests         15m42s -> 8m51s with every fixture compile a MISS
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -897,35 +908,41 @@ jobs:
         shell: bash
         run: rm -f cpp/build/test/e2e_coverage.txt
 
-      # Step-level budget — the actual ratchet (#521). `Run tests` is dominated
-      # by test_e2e, which builds ~269 generated fixture programs in a scratch
-      # CMake project. Budget: 20 min on Windows, 8 min on Linux/macOS, against
-      # the pre-fix 28m33s / 12m12s / 9m56s in the job comment above.
+      # Step-level budget — the actual ratchet (#521, re-derived in #594).
+      # `Run tests` is dominated by test_e2e, which builds ~296 generated
+      # fixture programs in a scratch CMake project. Budget: 13 min on Windows,
+      # 8 min on Linux/macOS.
       #
       # A ratchet has to be sized against the SLOWEST healthy run, not the
-      # fastest. With ccache warm the Linux/macOS step is 11s / 19s, but a
+      # fastest. With the cache warm the Linux/macOS step is 11s / 19s, but a
       # COLD cache is a normal, blameless event: any PR that touches the
-      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~269
+      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~296
       # generated TUs, and an Actions cache eviction or a first run on a new
-      # key does the same. This PR measured that case on its own run
-      # 33698642352 — ubuntu `Run tests` 5m19s with `ccache -s` reporting
-      # 22 hits out of 292 cacheable calls, macOS 4m57s. 8 minutes leaves
-      # ~50% headroom over 319s/297s while still failing a regression back to
-      # the pre-fix serial 12m12s (ubuntu) / 9m56s (macOS); 10+ would stop
-      # catching the macOS one. Windows' 20 was derived the same way (13m57s
-      # observed cold, ~43% headroom).
+      # key does the same. #521 measured that case on its run 33698642352 —
+      # ubuntu `Run tests` 5m19s with `ccache -s` reporting 22 hits out of 292
+      # cacheable calls, macOS 4m57s. 8 minutes leaves ~50% headroom over
+      # 319s/297s while still failing a regression back to the pre-fix serial
+      # 12m12s (ubuntu) / 9m56s (macOS); 10+ would stop catching the macOS one.
       #
-      # Windows keeps the loosest budget because MSVC is the outlier, and that
-      # is measured rather than assumed. Reproduced locally against MSVC 14.50
-      # on 4 jobs (the runner's core count): each generated fixture is a ~278 KB
-      # TU pulling 29 standard headers (<regex>, <thread>, ...), the scratch
-      # build costs 591s, link is a rounding error at 0.33s per fixture, and the
-      # generator does not matter — a Ninja scratch build measured 590s against
-      # MSBuild's 591s. ~1000s of compiler front-end CPU spread over 4 cores is
-      # the floor for this design, so parallelism alone cannot reach the issue's
-      # aspirational "windows 6-10 min"; that needs a compiler cache that works
-      # on Windows, or a decision to run a subset of the corpus there. Both are
-      # follow-up work (see #521), not something to smuggle into a timing fix.
+      # Windows is re-derived from #594's own runs, because that leg's cost
+      # changed shape: it now has a compiler cache that is actually applied
+      # (see the Configure step and the "Compiler cache applied" step below).
+      # Measured on this workflow, same fixture corpus, same runner class:
+      #   uncached (MSBuild, the old default)   run 34727102995   14m27s
+      #   cold, cache applied (all 296 misses)  run 34728878760    8m51s
+      # 13 minutes is ~47% over the 531s cold worst case — the same headroom
+      # convention as the Linux/macOS 8 — and still fails a regression back to
+      # the 14m27s uncached behaviour this issue removed. Size any future
+      # change against the COLD number; the warm one is not a budget.
+      #
+      # Windows remains the loosest of the three because MSVC is the outlier,
+      # and that is measured rather than assumed: each generated fixture is a
+      # ~278 KB TU pulling 29 standard headers (<regex>, <thread>, ...), and
+      # ~1000s of compiler front-end CPU spread over 4 cores is the floor for
+      # this design when nothing is cached. The generator is not what fixed it
+      # (a Ninja scratch build measured 590s against MSBuild's 591s) — the
+      # cache is; Ninja is simply the generator CMake honours a compiler
+      # launcher for.
       #
       # `-j`: every CTest test here is its own process, so they parallelise
       # safely (each test binary owns a distinct temp-path prefix). NOTE this
@@ -953,7 +970,7 @@ jobs:
       # through BALL_E2E_GENERATOR, and the "Compiler cache applied" step below
       # fails the job if any of that ever stops being true.
       - name: Run tests
-        timeout-minutes: ${{ runner.os == 'Windows' && 20 || 8 }}
+        timeout-minutes: ${{ runner.os == 'Windows' && 13 || 8 }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
           BALL_E2E_LAUNCHER: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}

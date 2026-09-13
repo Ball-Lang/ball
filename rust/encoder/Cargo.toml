@@ -9,6 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 ball-lang-shared = { workspace = true }
+# `macro_rules!` expansion (issue #629), quarantined in its own crate so no
+# `ra_ap_*` type is ever named here.
+ball-lang-macro-expand = { workspace = true }
 syn = { workspace = true }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }

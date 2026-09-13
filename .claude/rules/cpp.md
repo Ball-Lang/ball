@@ -216,8 +216,10 @@ red-lights a required check on an innocent PR.
 
 Windows' 13 was re-derived the same way in #594, once that leg had a cache that
 is actually applied: **14m27s uncached** (run 34727102995) -> **8m51s cold with
-every fixture compile a miss** (run 34728878760); 13 min is ~47% over the cold
-number and still fails a regression back to the uncached behaviour. It stays the
+every fixture compile a miss** (run 34728878760) -> **1m12s warm** at 318 of 318
+hits (run 34729468858, whole job 2m02s against 19 min on main); 13 min is ~47%
+over the COLD number and still fails a regression back to the uncached
+behaviour. It stays the
 loosest of the three by measurement, not assumption: each generated fixture is a
 ~278 KB TU pulling 29 standard headers, and MSVC needs ~1000s of front-end CPU
 for ~296 of them when nothing is cached. The generator was never the cost (a

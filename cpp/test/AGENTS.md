@@ -79,7 +79,8 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   re-measure and update the numbers in the ci.yml comment (with the run id) if
   you change what the step does. Windows' 13 was re-derived in #594 from that
   leg's own runs — 14m27s uncached (run 34727102995) -> 8m51s cold with the
-  cache applied (run 34728878760), and 13 is ~47% over the cold number. It is
+  cache applied (run 34728878760) -> 1m12s warm at 318/318 hits (run
+  34729468858), and 13 is ~47% over the COLD number. It is
   still the loosest of the three by measurement — each fixture is a ~278 KB TU
   pulling 29 standard headers and MSVC needs ~1000s of front-end CPU for ~296 of
   them uncached — and the generator was never the cost (a Ninja scratch build

@@ -176,7 +176,11 @@ run_check() {
       fi
       cat "$stats_file"
     else
-      ccache -s || true
+      if ! ccache -s; then
+        # Cosmetic only — the parse below reads --print-stats — so a failure
+        # here is reported rather than acted on.
+        echo "::warning::'ccache -s' failed; the machine-readable statistics this gate actually reads follow."
+      fi
       if ! ccache --print-stats >"$stats_file" 2>&1; then
         echo "::error::'ccache --print-stats' failed (needs ccache >= 4.4); its output was:"
         cat "$stats_file"

@@ -321,8 +321,9 @@ cargo fmt --check && cargo clippy --workspace
   except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). Honest baseline **0/321**,
   like the C# leg it mirrors. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
   `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`. Its CI
-  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which has **no `pull_request`
-  trigger** — the row is absent, not green, on a PR; dispatch the workflow and read the run.
+  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** —
+  the row runs automatically on any PR touching a filtered path, gated on harness health (a
+  parseable `Results:` line, integer counts, `total >= 1`), never on the failure count.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

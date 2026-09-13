@@ -31,10 +31,12 @@ mirrors) measures exactly 0. This leg exists to keep that number **live and
 honest**, not to be made green by weakening either side — raising it is
 encoder/compiler work tracked elsewhere.
 
-**No PR gate.** The ``python-roundtrip`` row lives in
-``.github/workflows/conformance-matrix.yml``, which has **no** ``pull_request``
-trigger — it runs on push-to-main, the weekly schedule, or manual dispatch. An
-absent check on a PR is not a green one.
+**A PR gate since #619, on harness health only.** The ``python-roundtrip`` row
+lives in ``.github/workflows/conformance-matrix.yml``, which now has a
+path-filtered ``pull_request`` trigger sharing its ``push`` filter, so the row
+runs on any PR touching ``python/**`` with no dispatch. What it gates is still
+only that the harness produced a parseable ``Results:`` line with integer counts
+and ``total >= 1`` — never the failure count, which is expected to be 0/N.
 
 **Bytes, not text.** Goldens *and* subprocess stdout are read as bytes and only
 ``\\r\\n`` -> ``\\n`` is normalised. Python's text mode would collapse a lone

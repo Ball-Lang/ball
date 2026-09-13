@@ -37,9 +37,11 @@
 //! `#[ignore]` by default (a long, whole-corpus sweep that shells out to Dart),
 //! so `cargo test --workspace` in the PR-gated `Rust` CI job never runs it. Its
 //! CI home is the `rust-roundtrip` row in
-//! `.github/workflows/conformance-matrix.yml`, which has **no** `pull_request`
-//! trigger — it runs on push-to-main, the weekly schedule, or manual dispatch.
-//! An absent check on a PR is not a green one. Run it explicitly:
+//! `.github/workflows/conformance-matrix.yml`, which since #619 has a
+//! path-filtered `pull_request` trigger sharing its `push` filter — so the row
+//! runs on any PR touching `rust/**` with no dispatch. It still gates harness
+//! health only (a parseable `Results:` line, integer counts, `total >= 1`),
+//! never the failure count. Run it explicitly:
 //!
 //! ```bash
 //! cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture

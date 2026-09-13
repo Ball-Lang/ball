@@ -300,6 +300,38 @@ func ListMap(list, fn Value) Value {
 	return &List{Items: out}
 }
 
+// ListForEach is std_collections.list_foreach — Dart's `forEach(fn)`: call `fn`
+// once per element for its side effects and evaluate to null. Every compiled
+// Ball expression yields a Value and `forEach` has no result, so the null is the
+// Ball equivalent of Dart's `void`.
+//
+// It accepts a MAP receiver as well as a list, because the Dart -> Ball encoder
+// is syntactic: `map.forEach((k, v) => ...)` and `list.forEach((e) => ...)` both
+// encode to `std_collections.list_foreach`, with no receiver type to tell them
+// apart (the same polymorphism `StrIsEmpty`/`ListContains` carry — see
+// .claude/rules/go.md). The map arm mirrors the Dart reference engine
+// (engine_std.dart's `list_foreach`) exactly: each entry is passed as one
+// `{key, value, arg0, arg1}` message, so a two-parameter lambda binds its
+// parameters positionally through `ArgGet` whatever it named them.
+func ListForEach(list, fn Value) Value {
+	if m, isMap := unwrap(list).(*Map); isMap {
+		for _, k := range m.keys {
+			v, _ := m.Get(k)
+			arg := NewMap()
+			arg.Set("key", k)
+			arg.Set("value", v)
+			arg.Set("arg0", k)
+			arg.Set("arg1", v)
+			Call(fn, arg)
+		}
+		return nil
+	}
+	for _, it := range asList(list).Items {
+		Call(fn, it)
+	}
+	return nil
+}
+
 // ListFilter returns list.where(fn).toList().
 func ListFilter(list, fn Value) Value {
 	out := NewList()
@@ -452,6 +484,32 @@ func MapContainsValue(m, value Value) Value {
 		}
 	}
 	return false
+}
+
+// MapFromEntries is Dart's `Map.fromEntries(entries)`: build a map from a list
+// of MapEntry-shaped values. It mirrors the Dart reference engine's
+// `std.map_from_entries` (engine_std.dart) field-for-field — each entry's key is
+// `key` or, for the positional MapEntry the encoder emits, `arg0`, and its value
+// is `value` or `arg1`; an entry with no key is skipped, and the key is
+// stringified, because a Ball map is string-keyed.
+func MapFromEntries(entries Value) Value {
+	out := NewMap()
+	for _, e := range Iterate(entries) {
+		em := asMap(e)
+		k, hasKey := em.Get("key")
+		if !hasKey {
+			k, hasKey = em.Get("arg0")
+		}
+		if !hasKey || k == nil {
+			continue
+		}
+		v, hasValue := em.Get("value")
+		if !hasValue {
+			v, _ = em.Get("arg1")
+		}
+		out.Set(ToStr(k), v)
+	}
+	return out
 }
 
 // MapKeys returns map.keys as a list.

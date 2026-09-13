@@ -132,11 +132,14 @@ A second, **measurement-only** sweep lives beside it:
 `rust/engine/tests/roundtrip_conformance.rs` (issue #452 item 3) drives every fixture
 Ball → Rust (`ball-lang-compiler`) → Ball (`ball-lang-encoder`) → the **Dart reference engine**
 → golden diff. Both the compile and the re-encode step are in-process on the emitted Rust as
-*text*, so `rustc` is never invoked per fixture — the whole 321-fixture sweep is ~7 s. Its
-honest baseline is **0/321**, exactly like the C# leg it mirrors: the compiler emits a flat
+*text*, so `rustc` is never invoked per fixture — the whole 321-fixture sweep is ~7 s. It
+measured a flat **0/321** from the day it shipped until issue #642: the compiler emits a flat
 program dispatching through `ball_lang_shared::runtime::*` over `BallValue`, which the syntactic
-`syn` encoder was never built to re-parse. It is `#[ignore]`, so `cargo test --workspace` in the
-PR-gated `Rust` job never runs it:
+`syn` encoder was never built to re-parse — and its row had no floor on `passed`, so that zero
+read green on every run. #642 closed the three shapes that blocked EVERY fixture (the
+unconditional oneof `LazyLock` statics, the entry IIFE, the `BallValue::*` constructors) and put a
+positive floor + ratchet on the row (`RUST_ROUNDTRIP_FLOOR` via `tools/ci/roundtrip_floor.sh`).
+It is `#[ignore]`, so `cargo test --workspace` in the PR-gated `Rust` job never runs it:
 
 ```bash
 cd rust && cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture

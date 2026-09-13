@@ -474,13 +474,26 @@ const ONEOF_DISCRIMINATOR_ENUMS: &[(&str, &[&str])] = &[
 ///
 /// Emitted once at the crate root (before the nested per-module `mod` blocks),
 /// so top-level entry-module code sees them directly and every nested
-/// `mod … { use super::*; }` sees them via its glob import — matching the
-/// TypeScript target's always-present preamble constants (harmless dead code
-/// for a program that never touches the Ball AST; `#![allow(dead_code)]`
-/// already covers it).
-pub(crate) fn oneof_discriminator_enum_defs() -> String {
+/// `mod … { use super::*; }` sees them via its glob import.
+///
+/// Only the namespaces the compiled body actually MENTIONS are emitted, which
+/// `compiled_body` is: the whole emitted program text, compiled first for
+/// exactly this decision. Emitting all five unconditionally put ~40 lines of
+/// dead `LazyLock` statics at the head of every compiled program, a hello-world
+/// included — dead code, and part of what the syntactic `syn` encoder refuses
+/// when it reads the compiler's own output back (issue #642). A bare reference
+/// to one of these resolves by ordinary Rust scoping (there is no
+/// reference-resolution hook to record a use at), so the test is the presence
+/// of the name in the emitted text: conservative in the safe direction — a name
+/// that appears only inside a string literal emits an unused static, which
+/// `#![allow(dead_code)]` already covers, and a name that is genuinely
+/// referenced can never be missed.
+pub(crate) fn oneof_discriminator_enum_defs(compiled_body: &str) -> String {
     let mut out = String::new();
     for (enum_name, members) in ONEOF_DISCRIMINATOR_ENUMS {
+        if !compiled_body.contains(enum_name) {
+            continue;
+        }
         let mut inserts = String::new();
         for member in *members {
             inserts.push_str(&format!(

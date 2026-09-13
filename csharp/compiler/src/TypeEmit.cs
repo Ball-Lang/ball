@@ -58,13 +58,31 @@ public sealed partial class CSharpCompiler
     /// Emit the <see cref="OneofDiscriminators"/> namespace as a top-level
     /// static class <c>BallOneofs</c> whose members are the case-name strings, so
     /// every module's emitted code can read <c>BallOneofs.Expression_Expr</c>.
+    /// <para>Only the discriminators the program actually REFERENCES are emitted,
+    /// and a program that references none gets no class at all. Emitting the
+    /// whole table unconditionally put a dead five-field class into every
+    /// compiled program, a hello-world included — dead code, and part of what the
+    /// syntactic Roslyn encoder refuses when it reads the compiler's own output
+    /// back (issue #642). <c>_usedOneofs</c> is filled by <c>CompileReference</c>,
+    /// the only site that resolves a bare name to one of these, so nothing
+    /// referenced can go unemitted.</para>
     /// </summary>
-    private static string CompileOneofDiscriminators()
+    private string CompileOneofDiscriminators()
     {
+        if (_usedOneofs.Count == 0)
+        {
+            return string.Empty;
+        }
+
         var sb = new StringBuilder();
         sb.Append("\ninternal static class BallOneofs\n{\n");
         foreach (var (enumName, members) in OneofDiscriminators)
         {
+            if (!_usedOneofs.Contains(enumName))
+            {
+                continue;
+            }
+
             var entries = string.Join(", ", members.Select(m => $"[{Naming.StringLiteral(m)}] = Str({Naming.StringLiteral(m)})"));
             sb.Append($"    public static readonly BallValue {Naming.Sanitize(enumName)} = (BallValue)new BallMessage({Naming.StringLiteral(enumName)}, new BallMap {{ {entries} }});\n");
         }

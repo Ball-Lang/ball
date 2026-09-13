@@ -50,7 +50,7 @@ func isExecutionTimeout(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "Execution timeout exceeded")
 }
 
-// Result, Summary, conformanceDir, diffDetail and firstLine are shared with the
+// Result, Summary, conformanceDir, diffDetail and errorDetail are shared with the
 // round-trip leg and live in the untagged support.go, so that leg stays runnable
 // without the compiled engine.
 
@@ -135,7 +135,7 @@ func runOne(name, path, golden string) Result {
 			if isExecutionTimeout(res.err) {
 				return Result{name, "timeout", ""}
 			}
-			return Result{name, "error", firstLine(res.err.Error())}
+			return Result{name, "error", errorDetail(res.err.Error())}
 		}
 		actual := strings.TrimRight(strings.Join(res.out, "\n"), "\n\r")
 		expected := strings.TrimRight(strings.ReplaceAll(golden, "\r\n", "\n"), "\n")

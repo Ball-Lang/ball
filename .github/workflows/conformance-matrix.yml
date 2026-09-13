@@ -1241,7 +1241,7 @@ jobs:
       # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
       # NEVER lower this to turn a red build green; raise it in the SAME PR as
       # the fix that earned it (the job prints the exact new value).
-      RUST_ROUNDTRIP_FLOOR: "1"
+      RUST_ROUNDTRIP_FLOOR: "99"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1446,8 +1446,13 @@ jobs:
       # — exactly 146_nested_try_catch_types flipped to passing, the new
       # 464_typed_catch_clause_dispatch passes, and nothing flipped to failing.
       # Measured by this very row at 283 (run 34739969708, and 283 again on the
-      # run before it), matching the local sweep, never predicted.
-      GO_COMPILER_FLOOR: "283"
+      # run before it), matching the local sweep, never predicted. Raised to 290
+      # by #642's `std_collections.list_foreach` + `Map.fromEntries` slice
+      # (116_map_iteration / 119_nested_maps / 121_map_from_entries had NO
+      # compiler case at all and were refused outright) plus that PR's
+      # use-driven oneof-discriminator change and the corpus's own growth to
+      # 351 — measured by this row at 290 on run 34768892821, never predicted.
+      GO_COMPILER_FLOOR: "290"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

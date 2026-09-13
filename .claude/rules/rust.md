@@ -338,7 +338,7 @@ cargo fmt --check && cargo clippy --workspace
   references: binding it as a value made the write land on a copy, so the borrowed variable never
   changed and every loop whose counter is mutated that way ran forever. Measured: 28 of the
   corpus's loop fixtures re-encoded "clean" and then hung on the Dart reference engine, killed at
-  60 s — worse than a refusal, because `ball check` accepts the Program. `block.rs::encode_local`
+  60 s; fixing it moved the `rust-roundtrip` row 68 -> 99 of 351 and the job from 40 min to 14 — worse than a refusal, because `ball check` accepts the Program. `block.rs::encode_local`
   now records `alias → variable` in a BLOCK-SCOPED table and emits no binding, and
   `encode_path_expr` resolves a read of the alias to the borrowed variable. Deliberately narrow:
   only a borrow of a plain NAMED variable — `&mut v[0]`/`&mut p.x` are left exactly as they were

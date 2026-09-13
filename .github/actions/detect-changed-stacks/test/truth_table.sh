@@ -2,8 +2,9 @@
 # Truth-table test for the detect-changed-stacks composite action (issue #458).
 #
 # Sources ../detect.sh and drives its pure classifier with a synthetic changed-
-# file list per row, asserting EVERY one of the ten outputs
-# (dart/ts/cpp/rust/csharp/go/python/infra/self_host/changed_fixtures) — not
+# file list per row, asserting EVERY one of the twelve outputs
+# (dart/ts/cpp/rust/csharp/go/python/infra/self_host/corpus/dart_core/
+# changed_fixtures) — not
 # just "the script exited 0". The last four rows drive the real entry point,
 # ball_detect_main, once per event that supplies no diff base, to pin the
 # fail-open path itself. Before #458 this test could not exist: the logic
@@ -67,7 +68,7 @@ expect() {
     esac
   done
   local k
-  for k in dart ts cpp rust csharp go python infra self_host; do
+  for k in dart ts cpp rust csharp go python infra self_host corpus dart_core; do
     if [ -n "${t[$k]:-}" ]; then echo "$k=true"; else echo "$k=false"; fi
   done
   echo "changed_fixtures=$fixtures"

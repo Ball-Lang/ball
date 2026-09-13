@@ -407,6 +407,30 @@ jobs:
       - name: Regeneration loop-breaker self-test (#625)
         run: bash tools/ci/regen_loop_breaker.sh --self-test
 
+      # Per-PR job fan-out guard (#666). Runner concurrency is the measured
+      # bottleneck of this repo's PR sweep, and nothing stopped a new job from
+      # joining EVERY pull request unconditionally — the cost of that is one
+      # more `- name:` in a 2900-line file, invisible in review. This asserts
+      # every job reachable on `pull_request` in ci.yml / conformance-matrix.yml
+      # / regression-gates.yml / ball-audit.yml is required, `changes`-
+      # conditioned, inside a `paths:`-filtered workflow, the classifier itself,
+      # or allow-listed WITH A REASON.
+      #
+      # It also carries the correctness half: a required context must APPEAR on
+      # every PR. A job-level `if:` on a MATRIX job whose name interpolates
+      # `${{ matrix.<key> }}` collapses every leg into ONE check run under the
+      # un-expanded name, so the required contexts never report and the PR can
+      # never merge — measured on PR #647 at bc0c367a, where a dart-only diff
+      # turned the `cpp` gate off and produced a lone `C++ (${{ matrix.os }})`
+      # instead of the three required `C++ (<os>)` contexts.
+      #
+      # `--self-test` first: the fabricated-unconditional-job negative control
+      # and the two report-safety controls must still be able to fail.
+      - name: Per-PR job fan-out guard (#666)
+        run: |
+          bash tools/ci/check_pr_job_fanout.sh --self-test
+          bash tools/ci/check_pr_job_fanout.sh
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

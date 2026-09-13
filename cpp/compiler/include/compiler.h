@@ -172,6 +172,14 @@ private:
     // for the backing-member + accessor pair; every other class is emitted
     // byte-identically to before.
     std::unordered_map<std::string, std::unordered_set<std::string>> class_shadowed_fields_;
+    // #664: the subset of class_shadowed_fields_ that is backed for a DIFFERENT
+    // reason — the class declares a SETTER of the field's own name. In Dart that
+    // is legal only for a `final` field (which contributes a getter and nothing
+    // else), so emit_struct synthesizes only the GETTER half of the accessor
+    // pair for these; the declared setter is the write side. Emitting the
+    // implicit setter too would be a redefinition of the user's own member.
+    std::unordered_map<std::string, std::unordered_set<std::string>>
+        class_setter_backed_fields_;
     // Maps a class key to the C++ type each of its shadowing fields must be
     // stored and re-exposed with: the type the SHADOWED ancestor getter is
     // emitted with. Overriding a `virtual T x()` with a `U x()` is a covariant-

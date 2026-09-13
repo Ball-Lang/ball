@@ -20,7 +20,9 @@ Self-hosting validation harness: the Dart engine encoded **as a Ball program**, 
 ## For AI Agents
 - **Everything here except `test/` is a GENERATED artifact — never hand-edit.** Fix the source engine in `dart/engine/lib/engine.dart`, then regenerate.
 - Regen: `engine.ball.json` via `dart run compiler/tool/gen_engine_json.dart`; C++ via `compiler/tool/compile_engine_cpp.dart`; TS per the regen command in `../../CLAUDE.md`. C++ self-host is CI-only (uses the built compiler binary; stale/gitignored locally — trust the "C++ Self-Host Tally" CI check). See `.claude/rules/cpp.md`.
-- A Dart-only engine fix is half a fix — re-run conformance on all three engines.
+- A Dart-only engine fix is half a fix — re-run conformance on every engine row of
+  `conformance-matrix.yml`'s `summary` parity table (the workflow, not a number here, is the
+  source of truth for which those are).
 
 ## Dependencies
 - Internal: `ball_base`, `ball_engine`, `ball_resolver`.

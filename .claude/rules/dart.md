@@ -68,6 +68,25 @@ for the authoritative member set).
   `_stateError`. `tests/conformance/465_state_error_message` is the cross-target
   guard. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. The reference engine has no rendering table either —
+  `_evalLazyTry` binds `e.value` verbatim — so `engine_std.dart`'s `case 'cast'`
+  spells the whole string, using `_typeNameOf(value)` for the runtime type.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
+
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`
 - Uses `analyzer` package to parse Dart AST
@@ -284,6 +303,27 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   field initializers - `Counter.new()` produced an instance with no `n` field
   at all while `Counter()` worked. It now calls `_initFieldDefaults` like the
   `messageCreation` path does.
+
+- **A field write asks whether the field's own DECLARATION contributes a setter,
+  not whether the instance carries that key (#501 + #664).**
+  `_trySetterDispatch`'s guard used to be a bare
+  `if (object.containsKey(fieldName)) return _sentinel;`. That is right for a
+  NON-final field (it declares its own setter, which overrides an inherited one
+  — fixture `432_shadowed_getter_setter_write`) and wrong for a `final` one,
+  which declares a getter and NOTHING else: a setter written beside it is the
+  only setter for that name, and the guard silently overwrote the `final` field
+  instead of running it (fixture `470_setter_beside_final_field`). Finality is
+  read from `TypeDefinition.metadata['fields'][i]['is_final']` into
+  `_declaredFieldIsFinal`, registered on BOTH module paths (`_buildLookupTables`
+  AND `engine_invocation.dart`'s lazy import resolution — a class reached through
+  a lazily resolved import must answer the same), and
+  `_nearestFieldDeclarationIsFinal` answers from the FIRST class up the
+  `__super__` chain that declares the field. Never consult `is_late`: the Dart
+  COMPILER emits `late final` for a final field the initializer list assigns
+  (#651), so the answer would depend on whether the program had been
+  round-tripped through it. This is metadata the engine DISPATCHES on —
+  deliberate and bounded, see `docs/METADATA_SPEC.md`'s "Accessor shape" and
+  `dart/engine/AGENTS.md`.
 
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw

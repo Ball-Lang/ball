@@ -545,15 +545,57 @@ engine._initTopLevelVariables();
 engine.run();
 ```
 
-No `sandbox`/`timeoutMs`/`maxMemoryBytes` is surfaced in this pattern — it runs fully trusted programs only. The least mature embedding target.
+This abbreviated snippet doesn't set them, but `sandbox`/`timeoutMs`/`maxMemoryBytes` ARE real, enforced fields — `engine` above is the SAME `BallEngine` class Dart's `engine.dart` compiles to, so it carries every field Dart's constructor does. `cpp/test/test_selfhost_conformance.cpp:208-231`'s `HostKnob` table sets them per fixture and asserts the exact thrown error (`engine.sandbox = true` → `202_sandbox_mode` throws "Sandbox violation"; `engine.timeoutMs = BallDyn(1)` → `196_timeout` throws "Execution timeout exceeded"; `engine.maxMemoryBytes = BallDyn(1000)` → `197_memory_limit` throws "Memory limit exceeded"). What is genuinely missing is a **public constructor or package**: every field above is set by hand (no `BallEngine(...)` you can call with named arguments), there is no demonstrated way to build a `StdModuleHandler` restricted to a subset (only the full-dispatch form above), and no `ball audit` exists for C++ at all — so treat it as trusted-source-only despite the real sandbox fields.
 
 ---
 
-## C# — not embeddable yet
+## C# — trusted only, and only in a `-p:SelfHost=true` build
 
-`csharp/engine/src/CompiledEngine.cs` is generated only under `-p:SelfHost=true`, and even then does not reach golden output (per `csharp/AGENTS.md`: still short of `hello_world`/`fibonacci`). The default-build wrapper's `BallEngine.Run` throws `SelfHostPendingException`. No C# CI job exists yet. There is no working `.Run()` today.
+`csharp/engine/src/CompiledEngine.cs` is generated only under `-p:SelfHost=true`. In the **default** build, `BallEngine.Run()` unconditionally throws `SelfHostPendingException` (`BallEngine.cs:80-87`) — there is no working `.Run()` at all without that flag. Built WITH the flag, the self-hosted engine runs at Dart parity (`csharp/AGENTS.md`, `Results: 353 passed, 0 failed, 353 total`), but `Run()` still takes **zero parameters**:
 
-What IS real and usable from C#: `Ball.Shared` (proto bindings + `BallValue`/`BallList`/`BallMap`/`BallMessage`/`BallFunction`) and the C#→Ball encoder (`csharp/encoder/`) — useful for *authoring/encoding* Ball programs from C# source, not for running them in a C# host. (Directories such as `csharp/engine/` and `csharp/cli/` exist on the branch but are mid-bootstrap; verify against CI, not prose.)
+```csharp
+using Ball.Engine;
+var engine = BallEngine.FromJson(json);   // or FromBinary(bytes)
+var lines = engine.Run();                  // IReadOnlyList<string>; SelfHostPendingException without -p:SelfHost=true
+```
+
+`RunSelfHosted()` (only compiled under `-p:SelfHost=true`) hard-codes `sandbox=false`, `maxRecursionDepth=100_000`, `maxModules`/`maxExpressionDepth=1_000_000`, and ONE fixed `StdModuleHandler` (`BallEngine.cs:132-147`) — there is no public parameter anywhere to change any of them. **Embedding untrusted programs is not possible via this wrapper**: no sandbox knob, no module allowlist, and no C# CI job publishes it as a package yet (`Ball.Shared`, `Ball.Compiler`, `Ball.Encoder` are usable independently for authoring/encoding, not for running untrusted input).
+
+---
+
+## Go — `go/engine` (module `github.com/ball-lang/ball/go/engine`)
+
+Runs at Dart parity (`Results: 353 passed, 0 failed, 353 total`; committed compiled artifact, no build tags — see `go/AGENTS.md`):
+
+```go
+import ballengine "github.com/ball-lang/ball/go/engine"
+
+eng, err := ballengine.FromJSON(data)   // or FromBinary(bytes)
+eng.TimeoutMs = 5000                     // the ONLY public knob
+lines, err := eng.Run()                  // []string, captured stdout
+```
+
+### Gap: trusted programs only
+
+`BallEngine` (`go/engine/engine.go:29-42`) exposes exactly one public field, `TimeoutMs`. Everything else a Dart/TS caller can configure is hard-coded inside `compiled.RunProgram` (`go/engine/compiled/driver.go:60-80`): `sandbox=false` (line 78), ONE fixed `StdModuleHandler` (line 79), `maxRecursionDepth=1_000_000`, `maxModules`/`maxExpressionDepth=1_000_000`, `maxMemoryBytes`/`maxProgramSizeBytes=nil` — none overridable from outside the package. There is no in-process or CLI audit for Go. Use Go for trusted programs (or a timeout backstop on an already-trusted one); do untrusted-input audit/sandboxing on Dart.
+
+---
+
+## Python — `ball-lang` wheel (PyPI, package `ball_engine`)
+
+Runs at Dart parity (`python/AGENTS.md`, `Results: 353 passed, 0 failed, 353 total`); the wheel ships the engine's Ball SOURCE and compiles it into a per-user cache on first use:
+
+```python
+from ball_engine.driver import run_program_view
+from ball_engine.loader import load_program_view
+
+view = load_program_view("program.ball.json")
+lines = run_program_view(view, timeout_ms=5000)   # timeout_ms is the ONLY public knob
+```
+
+### Gap: trusted programs only
+
+`run_program_view(view, timeout_ms=None)` (`ball_engine/driver.py:71`) exposes exactly one parameter. `run_with_engine` hard-codes everything else (`driver.py:92-109`): `sandbox=False`, ONE fixed `StdModuleHandler()`, `maxRecursionDepth=1_000_000`, `maxModules`/`maxExpressionDepth=1_000_000`, `maxMemoryBytes`/`maxProgramSizeBytes=None` — no public override for any of them, and no in-process or CLI audit for Python. Use Python for trusted programs; do untrusted-input audit/sandboxing on Dart.
 
 ---
 

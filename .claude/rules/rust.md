@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 351 passed, 0 failed, 351 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 353 passed, 0 failed, 353 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -143,6 +143,24 @@ cargo fmt --check && cargo clippy --workspace
   `rust/shared/src/runtime.rs`'s
   `empty_first_last_and_single_throw_a_typed_dart_state_error` is this target's
   half. See `docs/TESTING_STRATEGY.md` §5b.
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. `ball_cast_assert` takes the subject (`&BallValue`) now, and
+  `value.rs`'s `dart_error_to_string` renders `TypeError` with an EMPTY prefix.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
+
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compile_try`
   emits an `if`/`else if` chain over the recovered payload: an `on <Type> catch`
   clause runs only when `ball_catch_matches(&__err, "<Type>")` accepts the thrown
@@ -254,7 +272,10 @@ cargo fmt --check && cargo clippy --workspace
   goes to `methods.rs::encode_macro` as before — which is what keeps issue #630 separately
   trackable; a name nothing in scope defines is left for the encoder's own loud refusal (the
   proc-macro / `#[derive]` / attribute-macro boundary); a name that SHOULD have been reachable
-  and was not is a named `MacroError`, never flattened into "unsupported". **Hygiene is an
+  and was not is a named `MacroError`, never flattened into "unsupported". A dependency source
+  path the walk cannot LOOK at — a subdirectory whose `read_dir` fails, a dangling symlink — is
+  recorded through the same `note_unreadable_source` an unparseable file uses and named in the
+  resulting diagnostic (#678); "not found" and "could not look" are never conflated. **Hygiene is an
   approximation and must be described as one** — origin-tagged α-renaming of definition-origin
   bindings to `<name>__ball_mbe<N>`, not rust-analyzer's `SyntaxContext` transparency chain —
   so it is the one part of this feature that can produce the #488 class of bug (round-trips
@@ -383,7 +404,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 351 passed, 0 failed, 351 total` (the 4
+  whole corpus with Dart-identical output: `Results: 353 passed, 0 failed, 353 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

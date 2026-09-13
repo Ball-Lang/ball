@@ -8,8 +8,24 @@ class BallValue {}
 // mismatch (Dart semantics), it does NOT refute / fall through. Conjoined into a
 // switch-case condition by the compiler; returns true when the type check passed,
 // else throws a catchable error. (conformance 302_cast_patterns)
-function ball_cast_assert(ok: boolean, t: string): boolean {
-  if (!ok) throw new Error('TypeError: type cast failed: not a ' + t);
+//
+// Two things about the throw are load-bearing (issue #641):
+//   - It is the TAGGED {__type__, message} object every emitted typed-catch
+//     guard tests, not a bare JS Error. A plain Error is not an instance of
+//     globalThis.TypeError, so an 'on TypeError catch' clause never matched it.
+//   - The message is Dart's own, verbatim: a _TypeError's toString() IS its
+//     message (no 'TypeError: ' prefix, unlike the other three built-ins) and
+//     it names the VALUE's runtime type before the target type — which is why
+//     the subject is a parameter at all.
+// Guard: conformance 467_caught_type_error_to_string.
+function ball_cast_assert(ok: boolean, v: any, t: string): boolean {
+  if (!ok) {
+    throw {
+      __type__: 'TypeError',
+      message: "type '" + __ball_type_of(v) + "' is not a subtype of type '" + t +
+        "' in type cast",
+    };
+  }
   return true;
 }
 
@@ -261,14 +277,19 @@ function __ball_to_string(v: any): string {
     // "Bad state: No element". The table is EXPLICIT and closed over the type
     // names this compiler throws: a user object that merely carries a
     // message field is not a Dart error and keeps the map form.
+    // The empty prefix is not "unset" -- it is Dart's answer for TypeError: a
+    // _TypeError's toString() IS its message ("type 'int' is not a subtype of
+    // type 'String' in type cast"), with no type-name prefix at all (#641).
     const __ball_err_prefix: Record<string, string> = {
       StateError: 'Bad state',
       FormatException: 'FormatException',
       RangeError: 'RangeError',
+      TypeError: '',
     };
     if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
         && __ball_err_prefix[v['__type__']] !== undefined) {
-      return __ball_err_prefix[v['__type__']] + ': ' + v['message'];
+      const __p = __ball_err_prefix[v['__type__']];
+      return __p === '' ? v['message'] : __p + ': ' + v['message'];
     }
     // A text sink (#630) or the legacy StringBuffer object it replaces:
     // stringify as the accumulated text, never as a map. The declared sink's
@@ -1690,6 +1711,7 @@ export type BallRawMap = Map<string, any>;
 export class BallEngine {
   readonly program: Program;
   readonly _types: Map<string, google.DescriptorProto> = {};
+  readonly _declaredFieldIsFinal: Map<string, Map<string, boolean>> = {};
   readonly _functions: Map<string, FunctionDefinition> = {};
   readonly _getters: any = {};
   readonly _setters: any = {};
@@ -1915,6 +1937,7 @@ export class BallEngine {
             this._types[td.name.substring(__ball_add(tc, 1))] = td.descriptor;
           }
         }
+        this._registerDeclaredFieldFinality(td);
       }
       for (const enumDesc of module.enums) {
         let enumName = enumDesc.name;
@@ -1979,6 +2002,30 @@ export class BallEngine {
     }
   }
 
+  _registerDeclaredFieldFinality(td: any): any {
+    const input = td;
+    if (!hasMetadata(td)) {
+      return;
+    }
+    let fieldsValue = __ball_index(td.metadata.fields, 'fields');
+    if ((__ball_eq(fieldsValue, null) || !__ball_eq(whichKind(fieldsValue), structpb_Value_Kind.listValue))) {
+      return;
+    }
+    let finality = {};
+    for (const entry of fieldsValue.listValue.values) {
+      let fieldMeta = entry.structValue.fields;
+      finality[((() => {
+        let __naa_0 = __ball_index(fieldMeta, 'name');
+        return (__ball_eq(__naa_0, null) ? null : __naa_0.stringValue);
+      })() ?? '')] = _metadataBool(__ball_index(fieldMeta, 'is_final'));
+    }
+    this._declaredFieldIsFinal[td.name] = finality;
+    let tc = td.name.indexOf(':');
+    if (__ball_ge(tc, 0)) {
+      this._declaredFieldIsFinal[td.name.substring(__ball_add(tc, 1))] = finality;
+    }
+  }
+
   static _typeMethodKey(typePrefix: any, methodName: any): any {
     return ((__ball_to_string(typePrefix) + '\u0000') + __ball_to_string(methodName));
   }
@@ -1989,8 +2036,8 @@ export class BallEngine {
     }
     if (hasMetadata(func)) {
       let kind = (() => {
-        let __naa_0 = __ball_index(func.metadata.fields, 'kind');
-        return (__ball_eq(__naa_0, null) ? null : __naa_0.stringValue);
+        let __naa_1 = __ball_index(func.metadata.fields, 'kind');
+        return (__ball_eq(__naa_1, null) ? null : __naa_1.stringValue);
       })();
       if ((__ball_eq(kind, 'top_level_variable') || __ball_eq(kind, 'function'))) {
         (this._topLevelRefs[func.name] ??= ((() => {
@@ -2188,8 +2235,8 @@ export class BallEngine {
 
   async _callFunction(moduleName: any, func: any, input: any): Promise<any> {
     let kind = (hasMetadata(func) ? (() => {
-      let __naa_1 = __ball_index(func.metadata.fields, 'kind');
-      return (__ball_eq(__naa_1, null) ? null : __naa_1.stringValue);
+      let __naa_2 = __ball_index(func.metadata.fields, 'kind');
+      return (__ball_eq(__naa_2, null) ? null : __naa_2.stringValue);
     })() : null);
     if (func.isBase) {
       return this._callBaseFunction(moduleName, func.name, input);
@@ -2456,12 +2503,12 @@ export class BallEngine {
         continue;
       }
       let kind = (() => {
-        let __naa_2 = __ball_index(init.structValue.fields, 'kind');
-        return (__ball_eq(__naa_2, null) ? null : __naa_2.stringValue);
+        let __naa_3 = __ball_index(init.structValue.fields, 'kind');
+        return (__ball_eq(__naa_3, null) ? null : __naa_3.stringValue);
       })();
       let name = (() => {
-        let __naa_3 = __ball_index(init.structValue.fields, 'name');
-        return (__ball_eq(__naa_3, null) ? null : __naa_3.stringValue);
+        let __naa_4 = __ball_index(init.structValue.fields, 'name');
+        return (__ball_eq(__naa_4, null) ? null : __naa_4.stringValue);
       })();
       if ((!__ball_eq(kind, 'field') || __ball_eq(name, null))) {
         continue;
@@ -2604,13 +2651,13 @@ export class BallEngine {
             continue;
           }
           let kind = (() => {
-            let __naa_4 = __ball_index(init.structValue.fields, 'kind');
-            return (__ball_eq(__naa_4, null) ? null : __naa_4.stringValue);
+            let __naa_5 = __ball_index(init.structValue.fields, 'kind');
+            return (__ball_eq(__naa_5, null) ? null : __naa_5.stringValue);
           })();
           if (__ball_eq(kind, 'super')) {
             let argsStr = ((() => {
-              let __naa_5 = __ball_index(init.structValue.fields, 'args');
-              return (__ball_eq(__naa_5, null) ? null : __naa_5.stringValue);
+              let __naa_6 = __ball_index(init.structValue.fields, 'args');
+              return (__ball_eq(__naa_6, null) ? null : __naa_6.stringValue);
             })() ?? '');
             let argNames = this._parseSuperArgs(argsStr);
             let superInput = {};
@@ -3184,6 +3231,7 @@ export class BallEngine {
       if (hasDescriptor(td)) {
         this._types[td.name] = td.descriptor;
       }
+      this._registerDeclaredFieldFinality(td);
     }
     for (const func of module.functions) {
       let key = ((__ball_to_string(module.name) + '.') + __ball_to_string(func.name));
@@ -3251,14 +3299,14 @@ export class BallEngine {
     }
     let s = v.structValue;
     let name = ((() => {
-      let __naa_6 = __ball_index(s.fields, 'name');
-      return (__ball_eq(__naa_6, null) ? null : __naa_6.stringValue);
+      let __naa_7 = __ball_index(s.fields, 'name');
+      return (__ball_eq(__naa_7, null) ? null : __naa_7.stringValue);
     })() ?? '');
     let typeArgsField = __ball_index(s.fields, 'type_args');
     let args = ((!__ball_eq(typeArgsField, null) && hasListValue(typeArgsField)) ? typeArgsField.listValue.values : null);
     let nullable = ((() => {
-      let __naa_7 = __ball_index(s.fields, 'nullable');
-      return (__ball_eq(__naa_7, null) ? null : __naa_7.boolValue);
+      let __naa_8 = __ball_index(s.fields, 'nullable');
+      return (__ball_eq(__naa_8, null) ? null : __naa_8.boolValue);
     })() ?? false);
     let buf = __ball_sink_create(name);
     if ((!__ball_eq(args, null) && !(args.length === 0))) {
@@ -4315,12 +4363,27 @@ export class BallEngine {
     return (!__ball_eq(kind, null) && __ball_eq(kind.stringValue, 'setter'));
   }
 
+  _nearestFieldDeclarationIsFinal(object: any, fieldName: any): any {
+    let current = object;
+    while (!__ball_eq(current, null)) {
+      let typeName = __ball_index(current, '__type__');
+      if ((typeof typeName === 'string')) {
+        let declared = __ball_index(this._declaredFieldIsFinal, typeName);
+        if ((!__ball_eq(declared, null) && __ball_map_has(declared, 'map_contains_key', fieldName))) {
+          return __ball_eq(__ball_index(declared, fieldName), true);
+        }
+      }
+      current = this._asMap(__ball_index(current, '__super__'));
+    }
+    return false;
+  }
+
   async _trySetterDispatch(object: any, fieldName: any, value: any): Promise<any> {
     let typeName = __ball_index(object, '__type__');
     if (__ball_eq(typeName, null)) {
       return _sentinel;
     }
-    if (__ball_map_has(object, 'map_contains_key', fieldName)) {
+    if ((__ball_map_has(object, 'map_contains_key', fieldName) && !this._nearestFieldDeclarationIsFinal(object, fieldName))) {
       return _sentinel;
     }
     let colonIdx = typeName.indexOf(':');
@@ -4611,8 +4674,8 @@ export class BallEngine {
             if (((__ball_eq(f.name, msg.typeName) && !f.isBase) && hasBody(f))) {
               if (hasMetadata(f)) {
                 let k = (() => {
-                  let __naa_8 = __ball_index(f.metadata.fields, 'kind');
-                  return (__ball_eq(__naa_8, null) ? null : __naa_8.stringValue);
+                  let __naa_9 = __ball_index(f.metadata.fields, 'kind');
+                  return (__ball_eq(__naa_9, null) ? null : __naa_9.stringValue);
                 })();
                 if (((__ball_eq(k, 'constructor') || __ball_eq(k, 'top_level_variable')) || __ball_eq(k, 'static_field'))) {
                   continue;
@@ -4657,8 +4720,8 @@ export class BallEngine {
               for (const fv of fieldsMetaVal.listValue.values) {
                 if (__ball_eq(whichKind(fv), structpb_Value_Kind.structValue)) {
                   let fname = (() => {
-                    let __naa_9 = __ball_index(fv.structValue.fields, 'name');
-                    return (__ball_eq(__naa_9, null) ? null : __naa_9.stringValue);
+                    let __naa_10 = __ball_index(fv.structValue.fields, 'name');
+                    return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
                   })();
                   if ((!__ball_eq(fname, null) && !fieldNames.includes(fname))) {
                     fieldNames = (fieldNames.push(fname), fieldNames);
@@ -4685,15 +4748,15 @@ export class BallEngine {
                   continue;
                 }
                 let fname = (() => {
-                  let __naa_10 = __ball_index(fv.structValue.fields, 'name');
-                  return (__ball_eq(__naa_10, null) ? null : __naa_10.stringValue);
+                  let __naa_11 = __ball_index(fv.structValue.fields, 'name');
+                  return (__ball_eq(__naa_11, null) ? null : __naa_11.stringValue);
                 })();
                 if ((__ball_eq(fname, null) || __ball_map_has(fields, 'map_contains_key', fname))) {
                   continue;
                 }
                 let init = (() => {
-                  let __naa_11 = __ball_index(fv.structValue.fields, 'initializer');
-                  return (__ball_eq(__naa_11, null) ? null : __naa_11.stringValue);
+                  let __naa_12 = __ball_index(fv.structValue.fields, 'initializer');
+                  return (__ball_eq(__naa_12, null) ? null : __naa_12.stringValue);
                 })();
                 if (!__ball_eq(init, null)) {
                   fields[fname] = this._parseInitializer(init);
@@ -4906,8 +4969,8 @@ export class BallEngine {
         }
         if (hasMetadata(stmt.let)) {
           let letType = (() => {
-            let __naa_12 = __ball_index(stmt.let.metadata.fields, 'type');
-            return (__ball_eq(__naa_12, null) ? null : __naa_12.stringValue);
+            let __naa_13 = __ball_index(stmt.let.metadata.fields, 'type');
+            return (__ball_eq(__naa_13, null) ? null : __naa_13.stringValue);
           })();
           if ((!__ball_eq(letType, null) && letType.startsWith('Map'))) {
             if ((this._isBallSet(value) && (this._ballSetItems(value).length === 0))) {
@@ -6986,14 +7049,14 @@ export class BallEngine {
         }
         else if ((__sw === 'padLeft')) {
           return self.padStart(this._toInt(arg0), ((() => {
-            let __nac_13 = __ball_index(args, 'arg1');
-            return (__ball_eq(__nac_13, null) ? null : __nac_13.toString());
+            let __nac_14 = __ball_index(args, 'arg1');
+            return (__ball_eq(__nac_14, null) ? null : __nac_14.toString());
           })() ?? ' '));
         }
         else if ((__sw === 'padRight')) {
           return self.padEnd(this._toInt(arg0), ((() => {
-            let __nac_14 = __ball_index(args, 'arg1');
-            return (__ball_eq(__nac_14, null) ? null : __nac_14.toString());
+            let __nac_15 = __ball_index(args, 'arg1');
+            return (__ball_eq(__nac_15, null) ? null : __nac_15.toString());
           })() ?? ' '));
         }
         else if ((__sw === 'toString')) {
@@ -7961,8 +8024,8 @@ export class BallEngine {
         let m = this._stdAsMap(i);
         let list = this._stdAsList(__ball_index(m, 'list'));
         let sep = ((() => {
-          let __nac_15 = __ball_index(m, 'separator');
-          return (__ball_eq(__nac_15, null) ? null : __nac_15.toString());
+          let __nac_16 = __ball_index(m, 'separator');
+          return (__ball_eq(__nac_16, null) ? null : __nac_16.toString());
         })() ?? ',');
         let parts = [];
         for (const e of list) {
@@ -8379,8 +8442,8 @@ export class BallEngine {
       }), ['regex_find']: ((i) => {
         const input = i;
         return this._stdBinaryAny(i, ((a, b) => {
-          let __nac_16 = new RegExp(b).firstMatch(a);
-          return (__ball_eq(__nac_16, null) ? null : __nac_16.group(0));
+          let __nac_17 = new RegExp(b).firstMatch(a);
+          return (__ball_eq(__nac_17, null) ? null : __nac_17.group(0));
         }));
       }), ['regex_find_all']: ((i) => {
         const input = i;
@@ -8546,8 +8609,8 @@ export class BallEngine {
         const input = i;
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
-          let __nac_17 = __ball_index(im, 'message');
-          return (__ball_eq(__nac_17, null) ? null : __nac_17.toString());
+          let __nac_18 = __ball_index(im, 'message');
+          return (__ball_eq(__nac_18, null) ? null : __nac_18.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
       }), ['read_line']: ((_) => {
@@ -8564,8 +8627,8 @@ export class BallEngine {
         this._checkSandbox('panic');
         let im = this._stdAsMap(i);
         let msg = (!__ball_eq(im, null) ? ((() => {
-          let __nac_18 = __ball_index(im, 'message');
-          return (__ball_eq(__nac_18, null) ? null : __nac_18.toString());
+          let __nac_19 = __ball_index(im, 'message');
+          return (__ball_eq(__nac_19, null) ? null : __nac_19.toString());
         })() ?? '') : __ball_to_string(i));
         this.stderr(msg);
         throw new _ExitSignal(1);
@@ -8582,12 +8645,12 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let min = ((() => {
-          let __nac_19 = __ball_index(m, 'min');
-          return (__ball_eq(__nac_19, null) ? null : __nac_19.toInt());
+          let __nac_20 = __ball_index(m, 'min');
+          return (__ball_eq(__nac_20, null) ? null : __nac_20.toInt());
         })() ?? 0);
         let max = ((() => {
-          let __nac_20 = __ball_index(m, 'max');
-          return (__ball_eq(__nac_20, null) ? null : __nac_20.toInt());
+          let __nac_21 = __ball_index(m, 'max');
+          return (__ball_eq(__nac_21, null) ? null : __nac_21.toInt());
         })() ?? 100);
         return __ball_add(min, this._random.nextInt(__ball_add(__ball_sub(max, min), 1)));
       }), ['random_double']: ((_) => {
@@ -8642,8 +8705,8 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let ms = ((() => {
-          let __nac_21 = __ball_index(m, 'timestamp_ms');
-          return (__ball_eq(__nac_21, null) ? null : __nac_21.toInt());
+          let __nac_22 = __ball_index(m, 'timestamp_ms');
+          return (__ball_eq(__nac_22, null) ? null : __nac_22.toInt());
         })() ?? 0);
         let dt = DateTime.fromMillisecondsSinceEpoch(ms, true);
         return dt.toIso8601String();
@@ -9672,7 +9735,7 @@ export class BallEngine {
       else if ((__sw === 'cast')) {
         let typeName = __ball_index(pattern, 'type');
         if ((!__ball_eq(typeName, null) && !this._matchesTypePattern(value, typeName))) {
-          throw new BallException('TypeError', ('type cast failed: not a ' + __ball_to_string(typeName)));
+          throw new BallException('TypeError', ((('type \'' + __ball_to_string(this._typeNameOf(value))) + '\' is not a subtype of ') + (('type \'' + __ball_to_string(typeName)) + '\' in type cast')));
         }
         let subpattern = __ball_index(pattern, 'pattern');
         if ((!__ball_eq(subpattern, null) && !this._matchPattern(value, subpattern, bindings))) {
@@ -9750,8 +9813,8 @@ export class BallEngine {
 
   _matchesObjectType(value: any, patternType: any): any {
     let actual = (() => {
-      let __nac_22 = __ball_index(value, '__type__');
-      return (__ball_eq(__nac_22, null) ? null : __nac_22.toString());
+      let __nac_23 = __ball_index(value, '__type__');
+      return (__ball_eq(__nac_23, null) ? null : __nac_23.toString());
     })();
     if (__ball_eq(actual, null)) {
       return false;

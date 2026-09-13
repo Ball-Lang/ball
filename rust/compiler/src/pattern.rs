@@ -194,9 +194,14 @@ impl Compiler<'_> {
                 PatternMatch {
                     condition: all_of(vec![
                         sub.condition,
+                        // The subject is passed too: Dart's cast-failure message
+                        // names the VALUE's runtime type before the target type
+                        // (issue #641). Borrowed, never cloned — the assert only
+                        // reads it, and only on the failing branch.
                         format!(
-                            "ball_cast_assert({}, {type_name:?})",
-                            type_check(subject, &type_name)
+                            "ball_cast_assert({}, &{}, {type_name:?})",
+                            type_check(subject, &type_name),
+                            subject
                         ),
                     ]),
                     bindings: sub.bindings,

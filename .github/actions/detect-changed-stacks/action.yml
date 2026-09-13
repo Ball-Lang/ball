@@ -45,6 +45,21 @@ outputs:
       cli_core.dart library) — already folded into cpp/rust/csharp/go/python
       above; exposed for observability.
     value: ${{ steps.detect.outputs.self_host }}
+  corpus:
+    description: >-
+      true when the diff touches the conformance fixture corpus
+      (tests/conformance/**, generated programs and their .dart sources alike).
+      Consumed by conformance-matrix.yml, where a corpus change means EVERY row
+      must run (#666).
+    value: ${{ steps.detect.outputs.corpus }}
+  dart_core:
+    description: >-
+      true when the diff touches the Dart sources every self-hosted engine is
+      compiled from — dart/engine, dart/shared, dart/compiler, dart/self_host.
+      Consumed by conformance-matrix.yml, where such a change means EVERY row
+      must run (#666). Strictly wider than `self_host`, strictly narrower than
+      `dart`.
+    value: ${{ steps.detect.outputs.dart_core }}
   changed_fixtures:
     description: >-
       Space-separated stems of added/modified tests/conformance/*.ball.json

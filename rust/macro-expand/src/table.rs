@@ -400,45 +400,49 @@ impl MacroTable {
         match want {
             Expansion::Items => {
                 let mut file = syn::parse2::<syn::File>(tokens.clone()).map_err(not_parseable)?;
-                hygiene::resolve(&mut file, |v, node| syn::visit_mut::visit_file_mut(v, node));
+                hygiene::resolve(&name, &mut file, |v, node| {
+                    syn::visit_mut::visit_file_mut(v, node)
+                })?;
                 Ok(Expanded::Items(file.items))
             }
             Expansion::Expr => {
                 let mut expr = syn::parse2::<syn::Expr>(tokens.clone()).map_err(not_parseable)?;
-                hygiene::resolve(&mut expr, |v, node| syn::visit_mut::visit_expr_mut(v, node));
+                hygiene::resolve(&name, &mut expr, |v, node| {
+                    syn::visit_mut::visit_expr_mut(v, node)
+                })?;
                 Ok(Expanded::Expr(expr))
             }
             Expansion::Stmts => {
                 let mut block = syn::parse2::<BlockBody>(tokens.clone())
                     .map_err(not_parseable)?
                     .0;
-                hygiene::resolve(&mut block, |v, node| {
+                hygiene::resolve(&name, &mut block, |v, node| {
                     for stmt in node.iter_mut() {
                         syn::visit_mut::visit_stmt_mut(v, stmt);
                     }
-                });
+                })?;
                 Ok(Expanded::Stmts(block))
             }
             Expansion::ImplItems => {
                 let mut items = syn::parse2::<ItemList<syn::ImplItem>>(tokens.clone())
                     .map_err(not_parseable)?
                     .0;
-                hygiene::resolve(&mut items, |v, node| {
+                hygiene::resolve(&name, &mut items, |v, node| {
                     for item in node.iter_mut() {
                         syn::visit_mut::visit_impl_item_mut(v, item);
                     }
-                });
+                })?;
                 Ok(Expanded::ImplItems(items))
             }
             Expansion::TraitItems => {
                 let mut items = syn::parse2::<ItemList<syn::TraitItem>>(tokens.clone())
                     .map_err(not_parseable)?
                     .0;
-                hygiene::resolve(&mut items, |v, node| {
+                hygiene::resolve(&name, &mut items, |v, node| {
                     for item in node.iter_mut() {
                         syn::visit_mut::visit_trait_item_mut(v, item);
                     }
-                });
+                })?;
                 Ok(Expanded::TraitItems(items))
             }
         }

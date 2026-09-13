@@ -35,6 +35,16 @@
 //    is right for a non-final shadowing field and wrong for a final one
 //    (#664). Fixtures 104/341/432 already exercise live setter dispatch.
 //
+// A THIRD target gap this shape exposes is #695, and it is the one departure
+// that could NOT be designed around: C++ has a single member namespace, so the
+// emitted data member and the emitted setter collide and the program does not
+// build. That is the Ball -> C++ COMPILER, not this fixture — every engine,
+// including the C++ self-hosted one, runs this program correctly — so the
+// compiled C++ leg carves it out loudly (`CPP_COMPILE_CARVEOUTS` in
+// cpp/test/full_e2e.sh, plus cpp/test/e2e_fixture_list_known_gaps.txt) until
+// #695 lands. Do not rename or reshape this class to dodge that: the field and
+// its same-named setter ARE the point.
+//
 // `elementAt` keeps the second, initializing-formal-assigned field live, so
 // both "definitely assigned" shapes the compiler now recognises are exercised
 // in one class.

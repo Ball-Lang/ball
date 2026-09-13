@@ -65,9 +65,10 @@ func describe(n int) string {
 
 // goBuildLibrary writes goSrc into a throwaway module that replaces the Ball
 // runtime with the local go/runtime (a sibling of go/encoder, zero external
-// deps, so no network or go.sum) and `go build`s it as a LIBRARY package. The
-// `selfhost` build tag is required because CompileLibrary stamps a
-// `//go:build selfhost` constraint onto every library it emits.
+// deps, so no network or go.sum) and `go build`s it as a LIBRARY package. No
+// build tag is involved: CompileLibrary emits an unconstrained library (it
+// stamped `//go:build selfhost` until #586, when both generated artifacts became
+// tracked and had to build everywhere).
 func goBuildLibrary(t *testing.T, goSrc string) {
 	t.Helper()
 	requireGo(t)
@@ -86,7 +87,7 @@ func goBuildLibrary(t *testing.T, goSrc string) {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	cmd := exec.Command("go", "build", "-tags", "selfhost", ".")
+	cmd := exec.Command("go", "build", ".")
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	var stderr strings.Builder

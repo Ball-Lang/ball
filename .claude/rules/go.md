@@ -7,13 +7,17 @@ paths:
 
 Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the `ball`
 CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
-`info`/`validate`/`tree`/`version` behind the off-by-default `clicore` build tag, #570) are all in
-place and tested. The
+`info`/`validate`/`tree`/`version`, #570) are all in place and tested — and since **#586 there are
+no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
+COMMITTED generated artifacts, so every verb works in every build, including the one
+`go install` produces. The
 self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 347 passed,
 0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
-build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance sweep — and the
-`go-engine` row in `conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.
+build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
+conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
+regenerates and diffs those two artifacts, and the `go-engine` row in `conformance-matrix.yml`) and
+`go/AGENTS.md`, not stale prose.
 
 ## Build System
 
@@ -107,23 +111,18 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   universal `std`/`std_collections` — **no `go_std` base module**, ever (the Rust encoder's "no
   rust_std" invariant). `cmd/ballgoenc` is the front-end. Test-only dep on `compiler` for the
   round-trip proof.
-- `go/engine` — self-hosted engine wrapper (`engine.go`/`loader.go` + the `selfhost`-tagged
-  `run_selfhost.go` / untagged `run_stub.go`) driving the generated, gitignored
-  `compiled/compiled_engine.go`. `cmd/regen` regenerates it; `conformance/` is the whole-corpus
-  sweep. See `go/engine/AGENTS.md`.
+- `go/engine` — self-hosted engine wrapper (`engine.go`/`loader.go`) driving the generated,
+  COMMITTED `compiled/compiled_engine.go`. `cmd/regen` regenerates it; `conformance/` is the
+  whole-corpus sweep. See `go/engine/AGENTS.md`.
 - `go/cli` (package `cli`, `cmd/ball`) — the `ball` CLI (#437): `run`/`compile`/`encode`/`check`
   over engine/compiler/encoder plus the self-hosted cli-core verbs
   `info`/`validate`/`tree`/`version` (#570) (the Go sibling of `rust/cli`/`csharp/cli`; no
   package-registry commands, no `audit`). All logic is in package `cli` (`cli.Run`) so tests
-  exercise every verb in-process. `run` inherits the `selfhost` build tag through Go's tag
-  propagation — a default build compiles and returns `ErrSelfHostPending` (exit 1) at runtime, never
-  a silent success; `-tags selfhost` (after regenerating the compiled engine) executes for real.
-  The cli-core verbs sit behind their OWN `clicore` tag (`cmd/regen` -> the gitignored
-  `compiled/compiled_cli.go`), deliberately independent of `selfhost` since they never touch the
-  interpreter — the Go analog of Rust's `cli_core` feature and C#'s `-p:CliCore=true`; both tags
-  combine (`go build -tags "clicore selfhost"`). They are dispatched and listed in `--help` in EVERY
-  build (so `tools/check_cli_verb_parity.py`'s answer never depends on how the binary was built) and
-  fail loud at runtime without the artifact. Exit-code contract mirrors `rust/cli` (0 ok /
+  exercise every verb in-process. **No build tags** (#586): `run` drives the committed compiled
+  engine and the cli-core verbs the committed `compiled/compiled_cli.go`, so a `go install`-ed
+  binary — which can pass no `-tags` — runs programs and prints the portable reports. Rust and C#
+  keep their `self_host`/`cli_core` gates because crates.io/NuGet regenerate at publish time; Go's
+  registry is the git tag itself. Exit-code contract mirrors `rust/cli` (0 ok /
   1 runtime / 2 invalid-or-usage / 3 I/O). See `go/cli/AGENTS.md`.
 
 ## Key Patterns
@@ -170,12 +169,14 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
 - **Status: complete, runs at Dart parity.** `Results: 347 passed, 0 failed, 347 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
-- **Build-tag gating.** `compiled_engine.go` is a gitignored artifact absent from a fresh checkout,
-  so everything that references it (`driver.go`, `run_selfhost.go`, `conformance/runner.go` +
-  `conformance_test.go`) carries `//go:build selfhost`; untagged `doc.go` files keep each package
-  non-empty. A default `go build`/`go test` stays green on the wrapper foundation alone; the
-  compiled engine only participates under `-tags selfhost`. This is the Go analog of Rust's
-  off-by-default `self_host` cargo feature and C#'s `-p:SelfHost=true`.
+- **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
+  constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the
+  real engine. Freshness is gated once, by ci.yml's `Ball Artifact Freshness` job
+  (regenerate + `git diff --exit-code`), the same contract `ts/engine/src/compiled_engine.ts` has.
+  **The regenerator's output must stay byte-reproducible**: anything that emits from a Go map must
+  sort or use the proto's repeated-field order (#586 had to fix `compileRecord`, which ranged over
+  a map and reordered a record's fields — in the emitted source AND at runtime —
+  on every compile; `compileOneofDiscriminators` sorts for the same reason).
 - **Fix compiled-engine behavior in `go/compiler` (a fix + regen) or `go/runtime` (no regen) —
   NEVER hand-edit `compiled_engine.go`.** Common `go/runtime` families: `ball_proto` access
   patterns (`proto.go`), the Dart-SDK method surface (`methods.go`, via `CallMethod`),
@@ -190,8 +191,8 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 ```bash
 cd dart && dart run compiler/tool/gen_engine_json.dart   # writes dart/self_host/engine.ball.json
-cd ../go/engine && go run ./cmd/regen                     # -> compiled/compiled_engine.go
-go test -v -tags selfhost -run TestConformance -timeout 3600s ./conformance/
+cd ../go/engine && go run ./cmd/regen                     # -> compiled/compiled_engine.go (COMMIT it)
+go test -v -run TestConformance -timeout 3600s ./conformance/
 ```
 
 `cmd/regen` prefers `dart/self_host/engine.ball.pb` and falls back to `engine.ball.json` (both
@@ -204,8 +205,9 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
 
 - `go/shared/gen/**` — protobuf bindings (`buf generate proto`, plugin
   `buf.build/protocolbuffers/go`, root `buf.gen.yaml`).
-- `go/engine/compiled/compiled_engine.go` — gitignored, regenerated via `go run ./cmd/regen`. Only
-  participates in the build under `-tags selfhost`.
+- `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` — **committed**
+  (#586), regenerated via `go run ./cmd/regen` in each module and diffed by ci.yml's
+  `Ball Artifact Freshness` job. Regenerate and commit; never hand-edit.
 
 ## Testing
 
@@ -229,19 +231,19 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `tests/conformance/COVERAGE_STUDY.md`.
 
 - `go test ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...`
-  (default, no tag) runs the compiler end-to-end tests, encoder round-trip tests, runtime unit
-  tests, and the CLI's default-build tests (`run`'s honest-failure path), and stays green without
-  the gitignored `compiled_engine.go` (its consumers are `selfhost`-gated).
+  runs the compiler end-to-end tests, encoder round-trip tests, runtime unit tests, the CLI's
+  every-verb tests (including the golden-driven `run` cases and the cli-core parity gate) and the
+  whole-corpus engine sweep — no build tags, nothing to regenerate first.
 - Prefer extending the compiler/encoder e2e fixtures (or `tests/conformance/*.ball.json`) over
   Go-only unit tests, per the repo-wide "prefer conformance tests" rule.
-- `go/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner — the `selfhost`
+- `go/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner — the
   `TestConformance` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained
   count.
 - `go/engine/conformance/roundtrip.go` (`go test -v -run TestRoundTrip ./conformance/`) is a
   **measurement-only** sweep (#452 item 3): Ball → Go → Ball → the **Dart** reference engine →
-  golden diff. Deliberately **untagged** (it never touches the compiled engine — which is why the
-  shared `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in the untagged
-  `support.go`). Honest baseline **0/321**, expected by construction and mirroring
+  golden diff (it needs `dart` on PATH and skips loudly without it; the shared
+  `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in `support.go`). Honest baseline
+  **0/321**, expected by construction and mirroring
   `csharp-roundtrip`; gated only on `total >= 1`, never on the failure count. Its CI home is the
   `go-roundtrip` row in `conformance-matrix.yml`, which has **no `pull_request` trigger** — the row
   is absent, not green, on a PR; dispatch the workflow and read the run.

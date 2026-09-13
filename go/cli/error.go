@@ -8,8 +8,7 @@ import "fmt"
 // the Rust CLI (rust/cli/src/error.rs) so the four Go verbs behave identically:
 //
 //	0  success (the absence of a *cliError — never represented here)
-//	1  runtime error — a program ran but failed, or `run` in a build without
-//	   the self-hosted engine (ErrSelfHostPending)
+//	1  runtime error — a program ran but failed
 //	2  invalid/unparseable program — bad .ball.json/.ball.pb shape, Go source
 //	   `encode` couldn't turn into a program, a loaded program was too malformed
 //	   to compile, or `check` found the program invalid; also usage errors
@@ -39,8 +38,7 @@ func parseErr(format string, args ...any) *cliError {
 	return &cliError{code: 2, msg: fmt.Sprintf(format, args...)}
 }
 
-// runtimeErr — exit 1: a program executed but failed, or `run` cannot run
-// because the self-hosted engine is not built in (ErrSelfHostPending).
+// runtimeErr — exit 1: a program executed but failed.
 func runtimeErr(format string, args ...any) *cliError {
 	return &cliError{code: 1, msg: fmt.Sprintf(format, args...)}
 }

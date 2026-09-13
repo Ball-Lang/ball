@@ -14,7 +14,8 @@
 // skips are the 4 documented golden-less carve-outs (196_timeout, 197_memory_limit,
 // 201_input_validation, 202_sandbox_mode), which every runner in the repo skips.
 //
-// No `selfhost` build tag is needed: this leg never touches the compiled engine.
+// This leg never touches the self-hosted engine: it compiles each fixture with
+// go/compiler and runs the emitted Go directly.
 package conformance
 
 import (

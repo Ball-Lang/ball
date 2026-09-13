@@ -536,7 +536,10 @@ jobs:
   ball-freshness:
     name: Ball Artifact Freshness
     needs: changes
-    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.infra == 'true' }}
+    # `go` is in the trigger set since #586: go/engine/compiled/compiled_engine.go
+    # and go/cli/compiled/compiled_cli.go are committed artifacts diffed below, and
+    # a change to go/compiler's codegen alone invalidates both.
+    if: ${{ needs.changes.outputs.dart == 'true' || needs.changes.outputs.ts == 'true' || needs.changes.outputs.go == 'true' || needs.changes.outputs.infra == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -696,6 +699,43 @@ jobs:
             exit 1
           fi
           echo "Compiled TS CLI core is up to date."
+
+      # go/engine/compiled/compiled_engine.go and go/cli/compiled/compiled_cli.go
+      # are the THIRD and FOURTH committed compiled artifacts (issue #586). They
+      # used to be gitignored and build-tag-gated like the Rust/C#/Python ones,
+      # but Go's registry IS the git tag: `go install` serves the repository at
+      # the tag and accepts no `-tags`, so a `go install`-acquired `ball` could
+      # not run a single program and answered every cli-core verb with an exit-1
+      # "rebuild with -tags …" hint. Committing them is the owner decision on
+      # #586; this is the freshness half of that contract — the SAME job and the
+      # same regenerate-and-diff shape as the two TS artifacts above, because
+      # there is exactly ONE such gate per artifact (see CLAUDE.md 'Build &
+      # Test'). The behavioural half is tools/go-module-proxy/smoke.sh, run by
+      # the `go` job, which executes the go install-ed binary against goldens.
+      #
+      # Both regenerators read dart/self_host/{engine,cli}.ball.{json,pb}, which
+      # the two TS steps above have already produced in this job.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: |
+            go/cli/go.sum
+            go/engine/go.sum
+
+      - name: Regenerate the compiled Go self-hosted engine and CLI core
+        run: |
+          ( cd go/engine && go run ./cmd/regen )
+          ( cd go/cli    && go run ./cmd/regen )
+
+      - name: Assert compiled Go engine and CLI core are up to date
+        run: |
+          if ! git diff --exit-code -- \
+              go/engine/compiled/compiled_engine.go \
+              go/cli/compiled/compiled_cli.go; then
+            echo "::error::A compiled Go artifact is stale. Regenerate with 'cd dart && dart run compiler/tool/gen_engine_json.dart && dart run compiler/tool/gen_cli_json.dart', then 'cd go/engine && go run ./cmd/regen' and 'cd go/cli && go run ./cmd/regen', and commit — these files are generated (see CLAUDE.md 'Regenerate the Go self-hosted engine'), never hand-edited."
+            exit 1
+          fi
+          echo "Compiled Go self-hosted engine and CLI core are up to date."
 
   # ──────────────────────────────────────────────────
   # Protobuf Codegen — the protoc-gen-ball / -connect / -grpc plugins
@@ -1907,11 +1947,13 @@ jobs:
 
       # The six modules are tied by go/go.work. The workspace-root `./...`
       # pattern isn't valid (go/ is not itself a module), so each build/vet/test
-      # enumerates the module subdirs explicitly. The engine's self-host artifact
-      # (compiled/compiled_engine.go) is gitignored + `//go:build selfhost`-gated,
-      # so a default (no-tag) build stays green on the wrapper foundation alone
-      # (go/cli's `run` verb inherits that tag too — a default build compiles and
-      # reports a clear rebuild-with-selfhost error only at runtime).
+      # enumerates the module subdirs explicitly. Since #586 both generated
+      # artifacts (go/engine/compiled/compiled_engine.go and
+      # go/cli/compiled/compiled_cli.go) are COMMITTED and carry no build
+      # constraint, so this default build is the real thing: `ball run` and the
+      # cli-core verbs work in it, and the conformance sweep below runs against
+      # the committed engine rather than one regenerated in-job. Freshness is
+      # gated once, in the `Ball Artifact Freshness` job.
       - name: Build
         run: cd go && go build ./cli/... ./compiler/... ./encoder/... ./engine/... ./runtime/... ./shared/...
 
@@ -2001,61 +2043,26 @@ jobs:
             grep -E '^(Results:|go install |ball check )' /tmp/go-proxy-smoke.log
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ── Self-hosted engine: regenerate + RUN (epic #426 Phase 4) ──
-      # The self-hosted engine is a Ball program (dart/self_host/engine.ball.json,
-      # itself gitignored) compiled through go/compiler into the gitignored
-      # go/engine/compiled/compiled_engine.go. Regenerate both from source, then
-      # run the whole conformance corpus under `-tags selfhost` and assert Dart
-      # parity — the identical regen-then-run shape as the rust/csharp jobs (see
-      # go/engine/AGENTS.md's "Regenerate + run").
-      - name: Setup Dart (for engine.ball.json regeneration)
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
-        with:
-          sdk: stable
-
-      # gen_engine_json.dart writes dart/self_host/engine.ball.json; cmd/regen
-      # reads it (it prefers engine.ball.pb, absent here, and falls back to the
-      # JSON) and compiles it into compiled/compiled_engine.go.
-      - name: Bootstrap Dart workspace
-        uses: ./.github/actions/dart-pub-get
-      - name: Regenerate self-hosted engine
-        run: |
-          cd dart && dart run compiler/tool/gen_engine_json.dart
-          cd ../go/engine && go run ./cmd/regen
-
-      # ── Self-hosted CLI core: regenerate + parity-gate (issue #570) ──
+      # ── Self-hosted CLI core: golden-parity gate (issue #570) ──
       # The portable verbs info/validate/tree/version compute their report text
-      # from dart/shared/lib/cli_core.dart, compiled through go/compiler into the
-      # gitignored go/cli/compiled/compiled_cli.go. gen_cli_json.dart writes
-      # dart/self_host/cli.ball.{json,pb} (a DIFFERENT artifact from the engine's
-      # engine.ball.json above — cli-core is its own Ball program); cmd/regen
-      # compiles it.
+      # from dart/shared/lib/cli_core.dart, compiled through go/compiler into
+      # go/cli/compiled/compiled_cli.go — a COMMITTED artifact since #586, so
+      # nothing is regenerated here and no build tag is involved. Freshness is
+      # gated once, by the `Ball Artifact Freshness` job.
       #
-      # The `clicore` build tag is deliberately independent of `selfhost`: these
-      # verbs never touch the interpreter, so they must not require the engine
-      # artifact. Mirrors Rust's `cli_core` Cargo feature and C#'s
-      # -p:CliCore=true. The DEFAULT build's half of the contract (the verbs
-      # exist, are listed in --help, and fail loud with a regenerate hint) is
-      # already covered by the untagged `Test` step above.
-      - name: Regenerate self-hosted CLI core (#570)
-        run: |
-          cd dart && dart run compiler/tool/gen_cli_json.dart
-          cd ../go/cli && go run ./cmd/regen
-
-      # Golden-parity gate: the built CLI's info/validate/tree stdout must be
+      # The gate itself: the built CLI's info/validate/tree stdout must be
       # byte-identical to the Dart CLI's, over the shared five-fixture golden set
       # in tests/cli_core_goldens/. Positive floor on the count of top-level
-      # tests that actually PASSED, so a build that silently ran nothing (a bad
-      # tag, an empty package) cannot read as green — `-v` is what makes those
-      # `--- PASS:` lines exist, and `-count=1` defeats the test cache.
-      - name: "cli-core parity gate (-tags clicore)"
+      # tests that actually PASSED, so a build that silently ran nothing (an
+      # empty package, a renamed golden dir) cannot read as green — `-v` is what
+      # makes those `--- PASS:` lines exist, and `-count=1` defeats the test
+      # cache.
+      - name: "cli-core parity gate"
         run: |
           set -euo pipefail
           cd go/cli
-          go build -tags clicore ./...
-          go vet -tags clicore ./...
           set +e
-          output=$(go test -count=1 -tags clicore -v ./... 2>&1)
+          output=$(go test -count=1 -v ./... 2>&1)
           exit_code=$?
           set -e
           echo "$output"
@@ -2082,11 +2089,15 @@ jobs:
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
       # REQUIRED: without it `go test` caches and discards a passing test's stdout,
       # so the `Results:` line (a plain fmt.Printf) would never reach the log.
+      #
+      # Since #586 this runs against the COMMITTED compiled_engine.go (no
+      # `-tags selfhost`, nothing regenerated in this job) — i.e. against exactly
+      # the bytes a `go install` consumer receives.
       - name: "Self-host conformance sweep (Results: line)"
         run: |
           cd go/engine
           set +e
-          output=$(go test -v -tags selfhost -run TestConformance -timeout 3600s ./conformance/ 2>&1)
+          output=$(go test -v -count=1 -run TestConformance -timeout 3600s ./conformance/ 2>&1)
           exit_code=$?
           echo "$output"
           passed=$(echo "$output" | grep -oP 'Results: \K\d+(?= passed)')

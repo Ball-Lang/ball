@@ -618,19 +618,11 @@ jobs:
             go/engine/go.sum
             go/shared/go.sum
 
-      # The self-hosted engine is a Ball program compiled through go/compiler, so
-      # regenerate engine.ball.json (Dart) then compiled_engine.go (cmd/regen)
-      # first — same regen chain as ci.yml's go job (see go/engine/AGENTS.md).
-      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
-        with:
-          sdk: stable
-
-      - name: Regenerate self-hosted engine
-        run: |
-          dart pub get
-          cd dart && dart run compiler/tool/gen_engine_json.dart
-          cd ../go/engine && go run ./cmd/regen
-
+      # No regeneration step and no Dart toolchain: since #586 the self-hosted
+      # engine (go/engine/compiled/compiled_engine.go) is a COMMITTED artifact,
+      # so this row measures exactly the bytes in the tree — the same bytes a
+      # `go install` consumer receives. Freshness is gated once, by ci.yml's
+      # `Ball Artifact Freshness` job (see go/engine/AGENTS.md).
       - name: Run conformance tests
         id: conformance
         run: |
@@ -639,7 +631,7 @@ jobs:
           # `-v` is REQUIRED: `go test` caches and discards a passing test's
           # stdout, so the `Results:` line (a plain fmt.Printf) would never reach
           # the log without it.
-          output=$(go test -v -tags selfhost -run TestConformance -timeout 3600s ./conformance/ 2>&1)
+          output=$(go test -v -count=1 -run TestConformance -timeout 3600s ./conformance/ 2>&1)
           exit_code=$?
           echo "$output"
 
@@ -1214,9 +1206,9 @@ jobs:
       - name: Bootstrap Dart workspace (reference engine)
         run: dart pub get
 
-      # No `-tags selfhost` and no engine regeneration: the round-trip leg never
-      # touches the compiled engine (its shared helpers live in the untagged
-      # conformance/support.go for exactly this reason). `-v` is REQUIRED —
+      # No engine regeneration: the round-trip leg never touches the compiled
+      # engine at all (it compiles each fixture and re-encodes it, then runs the
+      # DART reference engine set up above). `-v` is REQUIRED —
       # without it `go test` caches and discards a passing test's stdout, so the
       # `Results:` line this job parses would never reach the log.
       - name: Run round-trip leg

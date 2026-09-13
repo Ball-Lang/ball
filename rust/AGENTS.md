@@ -237,7 +237,7 @@ model unresolved cross-module calls — or (b) accepting it as a boundary, the w
 module doc already names `.next()`/`.unwrap_or_default()` as **permanent** carve-outs. That is an
 owner decision, and it should be sized off its own fresh measurement.
 
-#### Receiver-less associated functions + cross-file calls (#491 slice 3)
+#### Receiver-less associated functions + cross-file calls (PR #526, self-labelled "#491 slice 3")
 
 Two more buckets closed, both encoder-side only (no compiler, proto or self-hosted-engine change):
 
@@ -445,8 +445,9 @@ never in the issue's list. The headings in this file preserve the labels their P
 re-targeted "impl associated fns without a `self` receiver (26 study files)" and "same-file/
 `use`-visible call targets (15 files)" as new work. Both were closed six weeks earlier, by
 **PR #526** (`feat(rust,csharp): encode receiver-less associated functions and cross-file calls`,
-merged 2026-09-03) — a PR whose number appears in the section above as "slice 3" and in no
-"landed" list the dispatch was built from. The row counts in the issue body are from the ORIGINAL
+merged 2026-09-03) — the PR the "Receiver-less associated functions + cross-file calls" section
+above is now explicitly attributed to, and which appeared in no "landed" list the dispatch was
+built from. The row counts in the issue body are from the ORIGINAL
 196-file/10-crate characterisation and were never revised as slices landed, so reading them as a
 worklist re-targets closed work.
 

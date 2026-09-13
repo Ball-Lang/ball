@@ -174,6 +174,8 @@ mod crate_graph;
 mod methods;
 mod types;
 
+mod runtime_helpers;
+
 pub use crate_graph::{CrateGraph, CrateModule, CrateSymbols, encode_crate, encode_crate_library};
 use crate_graph::{ROOT_MODULE, Resolved};
 
@@ -1300,6 +1302,63 @@ impl Encoder {
 
     // ── calls ─────────────────────────────────────────────────
 
+    /// Encode a `ball_<name>(args…)` runtime-helper call — one universal `std`
+    /// base call each, per [`runtime_helpers::runtime_helper`]. An unmapped
+    /// `ball_*` name fails loud rather than becoming a call to a function nobody
+    /// declared (see that module's doc comment).
+    fn encode_runtime_helper_call(
+        &mut self,
+        name: &str,
+        args: &syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>,
+    ) -> Expression {
+        if name == runtime_helpers::BALL_FIELD_GET {
+            // A Ball `field_access` NODE, not a base call. Only the shape the
+            // compiler emits is accepted — a string-literal field name; a
+            // computed one has no Ball node and fails loud below.
+            if args.len() == 2 {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(field),
+                    ..
+                }) = &args[1]
+                {
+                    let object = self.encode_expr(&args[0]);
+                    return field_access(object, field.value());
+                }
+            }
+            panic!(
+                "ball-lang-encoder: {name}(...) is only encodable as                  `{name}(<object>, \"<field>\")` — a computed field name has no Ball                  `field_access` node"
+            );
+        }
+        if name == runtime_helpers::BALL_TRUTHY {
+            assert_eq!(
+                args.len(),
+                1,
+                "ball-lang-encoder: {name}(...) expects exactly one argument, got {}",
+                args.len()
+            );
+            // Truthiness coercion is implicit at every Ball condition site.
+            return self.encode_expr(&args[0]);
+        }
+        let Some((function, field_names)) = runtime_helpers::runtime_helper(name) else {
+            panic!(
+                "ball-lang-encoder: unsupported runtime helper `{name}(...)` —                  rust/encoder/src/runtime_helpers.rs lists the helpers that have a universal                  std inverse. Encoding it as a same-file call would produce a Program that only                  fails at run time"
+            );
+        };
+        assert_eq!(
+            args.len(),
+            field_names.len(),
+            "ball-lang-encoder: {name}(...) expects {} argument(s), got {}",
+            field_names.len(),
+            args.len()
+        );
+        let fields: Vec<(&str, Expression)> = field_names
+            .iter()
+            .zip(args.iter())
+            .map(|(field, arg)| (*field, self.encode_expr(arg)))
+            .collect();
+        std_call(function, Some(args_message(fields)))
+    }
+
     fn encode_call(&mut self, e: &syn::ExprCall) -> Expression {
         // ── An IMMEDIATELY-INVOKED CLOSURE — `(|| -> BallValue { … })()` ──
         //
@@ -1386,6 +1445,24 @@ impl Encoder {
                     let name = ident.to_string();
                     if self.tuple_struct_names.contains(&name) {
                         return self.encode_tuple_struct_creation(&name, &e.args);
+                    }
+                }
+
+                // A Ball Rust runtime helper — `rust/compiler` emits every
+                // base call as one of these free functions, imported by the
+                // compiled program's own `use ball_lang_shared::runtime::*;`
+                // (issue #642, see runtime_helpers.rs). Checked BEFORE the
+                // same-file-function branch, which would otherwise encode
+                // `ball_add(x, y)` as a call to a function nobody declared — a
+                // Program that only fails at RUN time. A file that declares its
+                // own `fn ball_*` still wins, so a real same-file definition is
+                // never shadowed by the table.
+                if let Some(ident) = path.get_ident() {
+                    let name = ident.to_string();
+                    if !self.fn_params.contains_key(&name)
+                        && runtime_helpers::looks_like_runtime_helper(&name)
+                    {
+                        return self.encode_runtime_helper_call(&name, &e.args);
                     }
                 }
 

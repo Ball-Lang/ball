@@ -1,11 +1,14 @@
 //! The encoder must be able to read back what `ball-lang-compiler` EMITS, not
 //! only idiomatic hand-written Rust (issue #642).
 //!
-//! Before this, the compiler's own output tripped three refusals at once — the
+//! Before this, the compiler's own output tripped four failures at once — the
 //! unconditional `pub static Expression_Expr: LazyLock<BallValue>` namespaces,
 //! the `(|| -> BallValue { … })()` IIFE the entry body is wrapped in, and the
 //! `BallValue::String(…)`/`BallValue::Null` value constructors every literal
-//! becomes — so not one of the conformance fixtures could survive
+//! becomes, and — worse than a refusal — the `ball_*` runtime helpers every base
+//! call becomes, which the bare-identifier call path silently encoded as calls to
+//! functions nobody declared (a Program that died at RUN time with
+//! `Function "main.ball_add" not found`) — so not one of the conformance fixtures could survive
 //! Ball → Rust → Ball, and the `rust-roundtrip` matrix row measured a flat 0
 //! while reporting the harness healthy.
 //!
@@ -150,4 +153,47 @@ fn ball_value_null_encodes_as_null_literal() {
         }
         other => panic!("BallValue::Null did not encode as a literal: {other:?}"),
     }
+}
+
+/// A `ball_*` runtime helper encodes to the `std` base call it is the emission
+/// of. Before #642 a bare `ball_add(x, y)` fell through to the same-file-call
+/// path and produced a Program that only failed at RUN time.
+#[test]
+fn runtime_helper_encodes_as_its_std_base_call() {
+    let program = ball_lang_encoder::encode("fn main() { println!(\"{}\", ball_add(1, 2)); }");
+    let std_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "std")
+        .expect("no std module");
+    assert!(
+        std_module.functions.iter().any(|f| f.name == "add"),
+        "ball_add was not recognised as std.add: {std_module:?}"
+    );
+}
+
+/// An UNMAPPED `ball_*` name fails loud. Silently encoding it as a same-file
+/// call is the exact silent degradation issue #55's doctrine forbids.
+#[test]
+#[should_panic(expected = "unsupported runtime helper")]
+fn unmapped_runtime_helper_fails_loud() {
+    ball_lang_encoder::encode("fn main() { ball_no_such_helper(1); }");
+}
+
+/// A file that declares its OWN `fn ball_*` still wins — the table never
+/// shadows a real same-file definition.
+#[test]
+fn same_file_ball_prefixed_fn_is_not_shadowed() {
+    let program = ball_lang_encoder::encode(
+        "fn ball_add(n: i64) -> i64 { n } fn main() { println!(\"{}\", ball_add(1)); }",
+    );
+    let main_module = program
+        .modules
+        .iter()
+        .find(|m| m.name == "main")
+        .expect("no main module");
+    assert!(
+        main_module.functions.iter().any(|f| f.name == "ball_add"),
+        "the file's own ball_add was dropped: {main_module:?}"
+    );
 }

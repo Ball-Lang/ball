@@ -8,6 +8,19 @@ name: Coverage
 # The Dart job ALSO enforces the line-coverage ratchet (floor must never
 # regress; raise toward 100%).
 #
+# WHY THIS DART JOB STILL EXISTS NOW THAT THE RATCHET IS A PR GATE (#605).
+# ci.yml's always-on `Dart Coverage Ratchet` job runs the identical
+# `tools/coverage_dart.dart --floor 99.9` on every pull request, and THAT is
+# what blocks a merge. This job is not a duplicate of it: it owns the **Codecov
+# upload** (OIDC, `flags: dart`) that feeds the cross-stack report — the reason
+# the whole workflow exists — and it is the push-to-main measurement the C++
+# floor derivation and the published numbers read. Keeping the ratchet step here
+# too is deliberate: it costs nothing (the lcov has to be produced for the
+# upload anyway) and it keeps main's own number honest if the PR gate is ever
+# bypassed. The two call sites must stay on the SAME floor; the exclusions are
+# not duplicated at all — `--exclude-tags slow,network` lives inside
+# coverage_dart.dart, so they cannot drift.
+#
 # TRIGGERS. Everything runs on push to main + on demand, as before. The C++ job
 # ALONE additionally runs on cpp-touching pull requests (issue #63): until now
 # the only job in the repo that computes C++ line coverage and fails below a
@@ -101,6 +114,8 @@ jobs:
       # CI by a POSIX chmod test that must skip on Windows — the variance
       # direction is CI ≥ local by construction.
       # Dedicated suites drove the workspace from ~64% → 100%.
+      # Identical invocation to ci.yml's `Dart Coverage Ratchet` job (#605),
+      # which is the PR gate. Keep the two floors in lockstep.
       - name: Dart line coverage ratchet (all packages)
         # Ratcheted 99 -> 99.9 after the #61 close-out wave (engine
         # 99.17% -> 100% via engine_wave8_coverage_test.dart's

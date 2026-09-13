@@ -499,6 +499,21 @@ upward, never down — across **all three stacks**, uploaded to Codecov with
 per-stack flags (`dart`/`typescript`/`cpp`) via OIDC (no token). Gate:
 `.github/workflows/coverage.yml`.
 
+**The Dart ratchet is a PR gate (#605).** `ci.yml`'s always-on `Dart Coverage
+Ratchet` job runs `dart run tools/coverage_dart.dart --floor 99.9` on every pull
+request and blocks the merge when the workspace total drops below the floor. It
+is its OWN job, not a step inside `Dart`, on measured cost: the ratchet re-runs
+every package suite under the VM coverage collector (2m31s on coverage.yml run
+34734567108) while the `Dart` job takes 3m40s end to end, so folding it in would
+have made Dart the PR critical path; as a sibling job it runs in parallel. It
+carries no `needs: changes` filter, deliberately — the measurement is
+whole-workspace, its inputs are not only `dart/**`, and a *skipped* check
+reports **success**, which is the exact failure mode that let the ratchet sit red
+on main for a week (2026-09-06 → 2026-09-13, 17140/17167 = 99.84%) while every
+required check stayed green. `coverage.yml`'s Dart job keeps its own copy of the
+ratchet because it owns the Codecov upload and is the push-to-main measurement;
+the two floors must move together.
+
 **Completeness is the whole point — measure every package and every file, or the
 number lies.** The Dart tool `tools/coverage_dart.dart`:
 
@@ -587,7 +602,8 @@ could not parse a summary at all).
 | **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, and regenerates the README table, committing both to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
 | The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
-| Line coverage ratchet (Dart/TS/Rust/C#) | `coverage.yml` | push to main + manual — **NOT a PR gate** |
+| **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
+| Line coverage ratchet (TS/Rust/C#) + the Dart Codecov upload | `coverage.yml` | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |
 | **The artifact an outside consumer gets, not the checkout** — Python wheel (#496) | `python/tool/wheel_smoke.py` (`python -m build python/`, install into a venv OUTSIDE the repo with no `PYTHONPATH`, run `--version`/`check`/`compile`/`encode`/`run`, `run` diffed against a golden as BYTES) | every PR (`Python`) |

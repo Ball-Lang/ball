@@ -317,6 +317,54 @@ void main() {
         '2',
       );
     });
+    // `lastIndexOf` scans backwards by hand (keeping this file Ball-portable
+    // — a two-argument `lastIndexOf` inside the engine's own source would be
+    // declined when the engine is self-hosted), so BOTH the hit and the
+    // exhausted-scan arms need a case. The miss arm is the one issue #605
+    // found uncovered.
+    test('lastIndexOf finds the LAST occurrence', () async {
+      expect(
+        await evalPrint(
+          method(ints([1, 2, 1, 3]), 'lastIndexOf', arg0: literal(1)),
+        ),
+        '2',
+      );
+    });
+    test('lastIndexOf returns -1 when the element is absent', () async {
+      expect(
+        await evalPrint(
+          method(ints([1, 2, 3]), 'lastIndexOf', arg0: literal(9)),
+        ),
+        '-1',
+      );
+    });
+    test('lastIndexOf with a start index clamps and scans backwards', () async {
+      // `start` beyond the end is clamped to the last index; a hit before it
+      // still wins.
+      expect(
+        await evalPrint(
+          method(
+            ints([1, 2, 1, 3]),
+            'lastIndexOf',
+            arg0: literal(1),
+            arg1: literal(99),
+          ),
+        ),
+        '2',
+      );
+      // A start index BEFORE the last occurrence bounds the scan.
+      expect(
+        await evalPrint(
+          method(
+            ints([1, 2, 1, 3]),
+            'lastIndexOf',
+            arg0: literal(1),
+            arg1: literal(1),
+          ),
+        ),
+        '0',
+      );
+    });
     test('join with separator', () async {
       expect(
         await evalPrintStr(method(ints([1, 2, 3]), 'join', arg0: literal('-'))),
@@ -556,6 +604,41 @@ void main() {
         '2',
       ),
     );
+    // The Dart ENCODER routes the one-argument `lastIndexOf`/`replaceFirst`
+    // forms to `std.string_last_index_of` / `std.string_replace`, so only the
+    // extra-argument forms arrive here from encoded Dart. Every other target's
+    // encoder (and any hand-written Ball program) still reaches the default
+    // arm, which is why it is dispatched here at all — and why issue #605
+    // found it uncovered. Both arms are pinned below.
+    test('lastIndexOf without a start index', () async {
+      expect(
+        await evalPrint(method(s('abcabc'), 'lastIndexOf', arg0: s('b'))),
+        '4',
+      );
+    });
+    test('lastIndexOf with a start index bounds the search start', () async {
+      expect(
+        await evalPrint(
+          method(s('abcabc'), 'lastIndexOf', arg0: s('b'), arg1: literal(2)),
+        ),
+        '1',
+      );
+      // A negative start can never match.
+      expect(
+        await evalPrint(
+          method(s('abcabc'), 'lastIndexOf', arg0: s('b'), arg1: literal(-1)),
+        ),
+        '-1',
+      );
+    });
+    test('replaceFirst without a start index', () async {
+      expect(
+        await evalPrintStr(
+          method(s('aXbXc'), 'replaceFirst', arg0: s('X'), arg1: s('-')),
+        ),
+        'a-bXc',
+      );
+    });
     test(
       'split',
       () async => expect(

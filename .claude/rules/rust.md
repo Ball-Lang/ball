@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 347 passed, 0 failed, 347 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 348 passed, 0 failed, 348 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -99,6 +99,16 @@ cargo fmt --check && cargo clippy --workspace
   base functions, constructors/methods with a real mutating body, class-hierarchy/`is`/`as`
   subtyping, multi-parameter lambdas) — read it before assuming something is a bug vs. a known,
   documented boundary.
+
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `rust/shared/src/runtime.rs`'s `list_find_no_match_throws_a_typed_state_error` (`ball_list_find` uses `ball_throw_typed`, like its `.first`/`list_reduce` neighbours — a bare `panic!(&str)` is recoverable only by an UNTYPED catch) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
 ### Encoder
 
@@ -221,7 +231,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 347 passed, 0 failed, 347 total` (the 4
+  whole corpus with Dart-identical output: `Results: 348 passed, 0 failed, 348 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it

@@ -9,8 +9,8 @@ Go (epic #426) is a **complete pipeline** — compiler, encoder, self-hosted eng
 CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version` behind the off-by-default `clicore` build tag, #570) are all in
 place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 347 passed,
-0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 348 passed,
+0 failed, 348 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test plus the regenerate-then-run self-hosted engine conformance sweep — and the
 `go-engine` row in `conformance-matrix.yml`) and `go/AGENTS.md`, not stale prose.
@@ -141,6 +141,16 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 - **Fail-loud (issue #55):** an unsupported base function / expression shape is a compile error,
   never silent bad code.
 
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `go/runtime/list_find_contract_test.go` (`ListFind` throws via `dartError`, so the payload is a typed `*Message`) and `go/compiler/list_find_contract_test.go` (compiles the fixture and runs it) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder
 
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks declarations → statements →
@@ -168,7 +178,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 347 passed, 0 failed, 347 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 348 passed, 0 failed, 348 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Build-tag gating.** `compiled_engine.go` is a gitignored artifact absent from a fresh checkout,
   so everything that references it (`driver.go`, `run_selfhost.go`, `conformance/runner.go` +

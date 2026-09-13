@@ -1886,6 +1886,12 @@ class Compiler:
             "list_filter": ("list_filter", [lst, lambda: a("value", "callback")]),
             "list_all": ("list_all", [lst, lambda: a("value", "callback")]),
             "list_any": ("list_any", [lst, lambda: a("value", "callback")]),
+            # list_find had no entry until #597, so a program calling it was
+            # REFUSED at compile time ("unsupported base function"). Safe, but a
+            # gap: every self-hosted engine (this one included) runs it fine,
+            # because an engine's own list_find is compiled engine_std.dart, not
+            # this table.
+            "list_find": ("list_find", [lst, lambda: a("value", "callback")]),
             "list_sort": ("list_sort", [lst, lambda: a("value", "compare")]),
             "list_join": ("list_join", [lst, lambda: a("separator")]),
             "list_to_list": ("list_to_list", [lst]),

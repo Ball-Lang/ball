@@ -138,6 +138,28 @@ def list_any(lst, callback):
     return any(ops.truthy(callback(x)) for x in lst)
 
 
+def list_find(lst, callback):
+    """``list.firstWhere(callback)`` — the FIRST element satisfying *callback*.
+
+    No match THROWS a catchable ``StateError`` (issue #597), never ``None``:
+    ``std_collections.list_find`` is Dart's ``Iterable.firstWhere`` WITHOUT
+    ``orElse``, which is what the declaration in
+    ``dart/shared/lib/std_collections.dart`` says ("Find first:
+    list.firstWhere(callback)") and what the Dart reference engine does. The
+    payload is a Dart-shaped ``StateError`` carried by ``BallThrow``, so an
+    interpreted/compiled ``on StateError catch`` sees it — a bare Python
+    ``raise`` would escape the compiled ``try``'s ``except ballrt.BallThrow``
+    entirely.
+    """
+    for x in lst:
+        if ops.truthy(callback(x)):
+            return x
+    from .flow import throw
+    from .selfhost import StateError
+
+    throw(StateError("No element"))
+
+
 def list_join(lst, separator):
     return ops.to_str(separator).join(ops.to_str(x) for x in lst)
 

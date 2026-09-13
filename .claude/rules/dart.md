@@ -27,6 +27,16 @@ for the authoritative member set).
 - Control flow (if, for, while) must use LAZY evaluation — extract expression trees, don't evaluate eagerly
 - Types are emitted from `typeDefs[]` only (a `TypeDefinition` = descriptor + metadata); the legacy `types[]`/`_meta_*` path was removed
 
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `dart/compiler/test/base_calls_test.dart`'s `list_find` group (the compiler lowers it to `.firstWhere(cb)` with NO `orElse`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`
 - Uses `analyzer` package to parse Dart AST

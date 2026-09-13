@@ -326,6 +326,7 @@ inline const std::vector<std::string>& program_names() {
         "460_named_ctor_seeds_inherited_fields",
         "461_named_ctor_super_and_this_formal",
         "462_set_mutation_in_place",
+        "463_list_find_no_match",
     };
     return names;
 }

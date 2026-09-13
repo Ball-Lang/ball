@@ -988,6 +988,12 @@ func (c *Compiler) compileCollectionsCall(call *ballv1.FunctionCall, f map[strin
 		return fmt.Sprintf("ballrt.ListAll(%s, %s)", list(), c.arg(f, "value", "callback"))
 	case "list_any":
 		return fmt.Sprintf("ballrt.ListAny(%s, %s)", list(), c.arg(f, "value", "callback"))
+	// list_find had no case at all until #597, so a program calling it was
+	// REFUSED at compile time ("unsupported base function"). Safe, but a gap:
+	// every self-hosted engine (this one included) executes it fine, because
+	// the engine's own dispatch is compiled engine_std.dart, not this table.
+	case "list_find":
+		return fmt.Sprintf("ballrt.ListFind(%s, %s)", list(), c.arg(f, "value", "callback"))
 	case "list_sort":
 		return fmt.Sprintf("ballrt.ListSort(%s, %s)", list(), c.arg(f, "value", "compare"))
 	case "list_join":

@@ -1314,3 +1314,94 @@ describe("compiler — typed_map throws on a malformed entry instead of silently
     );
   });
 });
+
+describe("compiler — std_collections.list_find THROWS StateError on no match (#597)", () => {
+  // The emitted code used to be a bare `Array.prototype.find`, which yields
+  // `undefined` when nothing matches. `list_find`'s contract is Dart's
+  // `Iterable.firstWhere` WITHOUT `orElse` (see the declaration's own doc
+  // string in dart/shared/lib/std_collections.dart, and the Dart reference
+  // engine): no match THROWS `StateError('No element')`. Nothing in the corpus
+  // observed the no-match branch, and the #545 declared-outputType gate only
+  // ever checks the return type on a HIT, so four targets disagreed silently.
+  //
+  // These are compile → RUN → assert real behaviour, not AST-shape assertions:
+  // a regex against `.find(` would have passed before the fix too.
+  const lf = (list: Expression, cb: Expression): Expression =>
+    call("std_collections", "list_find", { list, callback: cb });
+
+  const pred = (fn: string, right: Expression): Expression => ({
+    lambda: {
+      name: "",
+      body: std(fn, { left: ref("x"), right }),
+      metadata: {
+        kind: "lambda",
+        expression_body: true,
+        has_return: true,
+        params: [{ name: "x" }],
+      },
+    },
+  } as unknown as Expression);
+
+  function runProgram(body: Expression): { stdout: string; failed: boolean } {
+    const program: Program = {
+      name: "list_find_no_match_test",
+      entryModule: "main",
+      entryFunction: "main",
+      modules: [
+        { name: "std", functions: [{ name: "print", isBase: true }] },
+        { name: "std_collections", functions: [{ name: "list_find", isBase: true }] },
+        { name: "main", functions: [{ name: "main", body }] },
+      ],
+    };
+    const tmpPath = join(tmpdir(), `ball_list_find_${process.pid}_${Math.random().toString(36).slice(2)}.ts`);
+    writeFileSync(tmpPath, compile(program));
+    try {
+      const out = execSync(`node --experimental-strip-types "${tmpPath}"`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { stdout: out.trim(), failed: false };
+    } catch (e: any) {
+      return { stdout: String(e.stdout ?? "").trim(), failed: true };
+    } finally {
+      try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    }
+  }
+
+  test("a HIT still returns the matching element", () => {
+    const r = runProgram(block([
+      { expression: std("print", { message: lf(listLit([lit(1), lit(2), lit(3)]), pred("greater_than", lit(2))) }) },
+    ]));
+    assert.equal(r.failed, false);
+    assert.equal(r.stdout, "3");
+  });
+
+  test("a MISS throws instead of printing the JS `undefined`/null placeholder", () => {
+    const r = runProgram(block([
+      { expression: std("print", { message: lf(listLit([lit(1), lit(2), lit(3)]), pred("greater_than", lit(100))) }) },
+    ]));
+    assert.equal(r.failed, true, "the emitted program must exit non-zero, not print a placeholder");
+    assert.equal(r.stdout, "");
+  });
+
+  test("the thrown value is catchable by an `on StateError` clause, and an empty list throws too", () => {
+    // Multi-clause `try`: the first (non-matching) clause must be skipped and
+    // the `StateError` one reached — proof the throw carries a real type, not
+    // an untyped value any catch-all would swallow.
+    const r = runProgram(block([
+      {
+        expression: std("try", {
+          body: block([
+            { expression: std("print", { message: lf(listLit([]), pred("greater_than", lit(0))) }) },
+          ]),
+          catches: listLit([
+            mc({ type: lit("FormatException"), variable: lit("e"), body: std("print", { message: lit("wrong clause") }) }),
+            mc({ type: lit("StateError"), variable: lit("e"), body: std("print", { message: lit("caught StateError") }) }),
+          ]),
+        }),
+      },
+    ]));
+    assert.equal(r.failed, false);
+    assert.equal(r.stdout, "caught StateError");
+  });
+});

@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 347 passed,
-0 failed, 347 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 348 passed,
+0 failed, 348 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -100,6 +100,16 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   wrong answer. Gate it on the already-computed `expr_mode` (issue #470; same defect family as
   `rust/compiler`, same gate as `go/compiler/base_call.go:514-522`).
 
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `python/runtime/ballrt/collections.py`'s `list_find` (a `StateError` payload carried by `BallThrow`) and the `463_list_find_no_match` entry in `python/compiler/tests/test_conformance.py` is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder
 
 - `encode(source)` parses Python with the stdlib `ast` and walks declarations → statements →
@@ -115,7 +125,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 347 passed, 0 failed, 347 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 348 passed, 0 failed, 348 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`

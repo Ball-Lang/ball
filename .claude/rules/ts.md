@@ -193,6 +193,16 @@ const json = toJson(ProgramSchema, program);
   regenerating `compiled_engine.ts`, grep it for an identifier each pass
   injects; fix or delete a pass that no longer fires.
 
+- **`std_collections.list_find` THROWS when nothing matches (#597).** It is Dart's
+  `Iterable.firstWhere` WITHOUT `orElse` — what its own declaration in
+  `dart/shared/lib/std_collections.dart` says ("Find first:
+  list.firstWhere(callback)") and what the Dart reference engine does
+  (`engine_std.dart`: `throw StateError('No element')`). Never a `null`/
+  `undefined`/empty placeholder, and never an untyped throw: the thrown value
+  must carry the type name `StateError` so the program's own `on StateError
+  catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
+  guard; `ts/engine/test/index_wrapper.test.ts` (the engine — `engine_setup.ts` deliberately does NOT override `list_find`, so the compiled engine's own correct handler wins) and `ts/compiler/test/std_call_dispatch.test.ts` (the compiler emits a throwing IIFE, never a bare `Array.prototype.find`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder
 
 - TypeScript → Ball, built on the TypeScript Compiler API (`typescript` package, `ts.SyntaxKind`).

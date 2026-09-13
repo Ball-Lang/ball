@@ -155,7 +155,8 @@ too, without a colour-forced CI leg.
 > *Resolved:* #501 fixed the C++ emitter (a shadowing field now becomes a private
 > renamed backing member plus a public `virtual` accessor pair over a virtualised
 > ancestor getter, so the vtable — not a compile-time type guess — resolves it)
-> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` is still empty.
+> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` was empty at that point
+> (see the #695 note below for its one current entry).
 
 > **One fixture per defect, not one per defect *family*.** 406 exercises only the
 > READ side of a shadowed accessor, through a receiver whose static and runtime
@@ -255,7 +256,23 @@ too, without a colour-forced CI leg.
 > `437_recursive_ctor_tree` were de-carved with #513, and
 > `438_ctor_initializer_list_with_body` with #514. All four are listed in
 > `cpp/test/e2e_fixture_list.h` and run on the compiled leg, and
-> `CPP_COMPILE_CARVEOUTS` is EMPTY again.
+> `CPP_COMPILE_CARVEOUTS` was EMPTY again at that point (see the #695 note
+> below for its one current entry).
+>
+> **A carve-out is the honest disposition when the gap is the TARGET, not the
+> fixture.** #651's fixture — `466_initializer_list_field_with_setter`, a class
+> declaring a `final` field and its OWN setter of the same name — is the
+> counter-case to 406 above. 406 was WITHDRAWN because a different fixture could
+> pin the same Dart-side point; 466 cannot be reshaped, because that exact
+> declaration pair IS #651's mechanism (a spurious `late final` hands the field
+> an implicit setter that collides with the declared one). It runs correctly on
+> every engine — Dart, TS, Rust, C#, Go, Python and the C++ self-host engine —
+> and fails only the Ball → C++ **compiled** leg, because C++ has ONE member
+> namespace and the emitted data member and setter collide. That is a C++ target
+> gap, filed as [#695](https://github.com/Ball-Lang/ball/issues/695) and parked in
+> `CPP_COMPILE_CARVEOUTS` plus `cpp/test/e2e_fixture_list_known_gaps.txt` — loud,
+> tracked, one entry, and never `continue-on-error`. Delete both entries and list
+> the name in `cpp/test/e2e_fixture_list.h` the moment #695 lands.
 >
 > **Name the leg that actually covers it — measure, do not assume.** An earlier
 > draft of the paragraph above also claimed those four fixtures "pass on the

@@ -1646,8 +1646,26 @@ impl Compiler<'_> {
                     td.name
                 ));
             }
+            // The fallback arm is REACHABLE program behaviour, not an internal
+            // assertion: a compiled `try` runs `ball_catch_payload` over the
+            // unwound payload, which turns this `panic!`'s message into the
+            // `BallValue::String` the `catch` binds. So the message is an
+            // observable, and the #616/#641 error-rendering contract says one
+            // program must render one way on every target. Go's dispatcher
+            // (`go/compiler/library.go`) throws `no method '<name>' for <type>`
+            // and C#'s (`csharp/compiler/src/TypeEmit.cs`) throws exactly the
+            // same string; this arm used to prefix it with
+            // `ball-lang-compiler runtime:`, which no other target emits.
+            //
+            // `panic!` — rather than a `ball_throw(...)` call — is also what
+            // keeps the compiler's output re-encodable (issue #632):
+            // `encoder/src/methods.rs::encode_macro` reads a `panic!` back as
+            // `std.throw`, so this arm survives a compile → re-encode round trip
+            // as the same throw of the same message. The two halves are gated
+            // together by `rust/encoder/tests/compile_reencode_roundtrip.rs` —
+            // never change this spelling without re-running it.
             out.push_str(&format!(
-                "        other => panic!(\"ball-lang-compiler runtime: no method '{short}' for type '{{}}'\", other),\n"
+                "        other => panic!(\"no method '{short}' for {{}}\", other),\n"
             ));
             out.push_str("    }\n}\n\n");
         }

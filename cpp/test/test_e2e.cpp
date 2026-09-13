@@ -261,11 +261,29 @@ static bool build_sub_project(const fs::path& proj_dir,
     // Configure. When BALL_E2E_LAUNCHER is set, the fixture compiles go
     // through the same ccache/sccache instance as the parent build instead of
     // being recompiled from scratch every run (issue #521).
+    //
+    // CMAKE_BUILD_TYPE is pinned to EMPTY, explicitly (issue #594). This
+    // harness compiles each fixture only to run it and diff its stdout — it
+    // never debugs or benchmarks the binaries — so the right configuration is
+    // "no configuration-specific flags", which is what the Makefile/Ninja
+    // generators already default to on Linux/macOS. On Windows they do NOT:
+    // CMake's MSVC platform module initialises an unset CMAKE_BUILD_TYPE to
+    // *Debug*, which adds `/Zi /Ob0 /Od /RTC1 /MDd`, and `/Zi` writes a PDB
+    // shared by every TU of a target — a shape sccache explicitly refuses to
+    // cache ("shared pdb"). That is not theoretical: the first Ninja run of
+    // this leg reported `Non-cacheable compilations 296`, i.e. every fixture,
+    // with only the 22 parent-build TUs cached. Reproduced and fixed against
+    // MSVC 14.50 + sccache 0.14.0: default -> 1 non-cacheable compilation;
+    // with the empty build type -> cacheable, and a second scratch build dir
+    // is a 100% cache hit. Passing it is a no-op for the generators that were
+    // already empty, and multi-config generators ignore it (they take the
+    // configuration from `--build --config` below).
     const std::string launcher = env_or_empty("BALL_E2E_LAUNCHER");
     std::string gen_cmd = quote(BALL_E2E_CMAKE) +
                           " -S " + quote(proj_dir.string()) +
                           " -B " + quote(build_dir.string()) +
-                          " -G " + quote(BALL_E2E_GENERATOR);
+                          " -G " + quote(BALL_E2E_GENERATOR) +
+                          " -D" + quote("CMAKE_BUILD_TYPE=");
     if (!launcher.empty()) {
         gen_cmd += " -DCMAKE_C_COMPILER_LAUNCHER=" + quote(launcher) +
                    " -DCMAKE_CXX_COMPILER_LAUNCHER=" + quote(launcher);

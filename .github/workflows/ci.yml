@@ -299,6 +299,15 @@ jobs:
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
 
+      # The cpp job's compiler-cache gate (#594) reads ccache/sccache statistics
+      # and fails when a job compiled cacheable TUs with the cache recording zero
+      # requests. Its whole value is in two parsers and one comparison, and a
+      # gate whose parser silently stopped parsing is worse than no gate — it
+      # reports green forever. Those cases run here, without a compiler or a
+      # cache binary, on every PR (the cpp job itself is path-filtered).
+      - name: Compiler-cache gate self-test (#594)
+        run: bash cpp/test/check_compiler_cache_applied.sh --self-test
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────
@@ -778,6 +787,17 @@ jobs:
           variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
           max-size: 1G
 
+      # Zero the counters so the statistics the gate below reads describe THIS
+      # job and nothing else (issue #594). ccache keeps its counters inside the
+      # cache directory, which the action restores from the Actions cache — so
+      # without this, a leg whose launcher is never applied would still report
+      # the previous run's inherited requests and the gate would pass on
+      # somebody else's numbers. sccache's live in the server process (fresh
+      # per runner), zeroed here too so both legs mean the same thing.
+      - name: Zero compiler-cache statistics
+        shell: bash
+        run: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} --zero-stats
+
       - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
@@ -954,6 +974,33 @@ jobs:
             exit 1
           fi
           echo "C++ e2e coverage OK: $got/$exp fixtures executed."
+
+      # Is the compiler cache this job sets up actually APPLIED? (issue #594)
+      #
+      # Everything above measures TIME or COVERAGE, and neither can see a
+      # launcher that is configured and ignored: a step budget sized against a
+      # cold run cannot tell "cold today" from "no cache, ever", so the Windows
+      # leg sat at a permanently uncached 15-19 min under a 20 min budget while
+      # CI stayed green (main run 33673078770 finished with sccache reporting
+      # `Compile requests 0`). This asserts the one thing that separates the
+      # two: compiled > 0 cacheable TUs AND zero cache requests is a defect.
+      #
+      # Deliberately NOT a hit RATE. A cold cache is blameless and routine (a
+      # new key, an eviction, an emitter change that invalidates every
+      # generated TU) and must stay green.
+      #
+      # It runs AFTER the coverage step on purpose: the coverage assertion is
+      # the stronger invariant and has to report first, and this step reads the
+      # fixture count out of the same file to know how many TUs the nested
+      # scratch build compiled. The script's parsers are unit-tested in the
+      # always-on `proto` job (`--self-test`).
+      - name: "Compiler cache applied (#594)"
+        shell: bash
+        run: |
+          bash cpp/test/check_compiler_cache_applied.sh \
+            --tool ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} \
+            --build-dir cpp/build \
+            --coverage-file cpp/build/test/e2e_coverage.txt
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
       # leg (avoids tripling cost across the 3-OS matrix). The full-corpus

@@ -229,7 +229,7 @@ encoder and compiler (issue #493).
 | **Python** — Tier A | 73 | 0 (0%) | 5 | 5 | 0 | 0 | 0 |
 | **Rust** — Tier A | 77 | 0 (0%) | 1 | 1 | 1 | 0 | 34 |
 | **Go** — Tier A | 21 | 0 (0%) | 0 | 0 | 0 | 0 | 13 |
-| **Dart** — Tier B (per-file) | 106 | 102 (96%) | — | — | — | — | — |
+| **Dart** — Tier B (per-file) | 106 | 103 (97%) | — | — | — | — | — |
 | **Dart** — Tier B (whole-package) | 5 | 3 (60%) | — | — | — | — | — |
 
 Measured over pinned **third-party** packages — code this project did not write — by `.github/workflows/coverage-study.yml` (weekly, plus `workflow_dispatch`). Tier A is structural (encode → compile back → re-encode → declaration inventory → fixpoint); Tier B substitutes the compiled-back file into the package's own test suite, which is the tier that sees a construct that round-trips cleanly but changes what the program computes.

@@ -671,10 +671,19 @@ String classify(
 
 /// Tier B, per-file isolation: substitute ONE file, run the suite, restore,
 /// move on. Never compounds two substitutions.
+///
+/// [substitutions], when supplied, replaces the per-package encode with an
+/// explicit table. It exists for ONE caller — this harness's own self-test —
+/// because the isolation property under test (a file whose substitute breaks
+/// the package must not red its neighbours) needs a *deliberately* broken
+/// substitute, and manufacturing one through the real encoder would make the
+/// negative control hostage to the next encoder fix. Production always passes
+/// `null` and goes through [preparePackageCompileBack].
 Future<TierBPackageResult> studyPackagePerFile(
   String package,
   Directory checkout, {
   TierBOptions options = const TierBOptions(),
+  PackageCompileBack? substitutions,
 }) async {
   final libRoot = Directory('${checkout.path}/${options.libSubdir}');
   if (!libRoot.existsSync()) {
@@ -691,7 +700,8 @@ Future<TierBPackageResult> studyPackagePerFile(
   // AFTER establishBaseline, never before: `prepareStaticTypes()` needs the
   // `.dart_tool/package_config.json` that `pubGet` writes, and resolving a
   // package whose baseline turned out unusable would be wasted analyzer time.
-  final packageCompiled = await preparePackageCompileBack(checkout);
+  final packageCompiled =
+      substitutions ?? await preparePackageCompileBack(checkout);
 
   var candidates = [
     for (final file in dartFilesUnder(libRoot))

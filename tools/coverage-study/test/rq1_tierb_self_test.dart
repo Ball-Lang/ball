@@ -39,6 +39,25 @@
 ///  5. **Positive floor.** At least one file was scored, and a `Results:`-shaped
 ///     line was actually printed. An exit code plus a zero failure count cannot
 ///     distinguish "everything passed" from "nothing ran".
+///  6. **PER-FILE ISOLATION (issue #653).** A package that contains ONE file
+///     whose substitute breaks the build must not score its OTHER files red.
+///     The negative control is a two-file scratch package where `lib/aa_*`'s
+///     substitute does not compile and `lib/bb_*`'s substitute is BYTE-IDENTICAL
+///     to its own source: `bb` cannot possibly change behaviour, so any verdict
+///     other than `clean` is the instrument inventing a finding.
+///
+///     The load-bearing half is the WATCHER. `dart test` builds the whole
+///     package, so a verdict is only about the substituted file if nothing else
+///     in that checkout differs from the pristine tree while the suite runs —
+///     and the checkout is an ordinary directory that a second Tier B process,
+///     a diagnostic script or a re-clone can be walking at the same time. A
+///     poller hashes every `lib/` file throughout the run and must never see a
+///     single byte differ: the harness has to do its substituting somewhere it
+///     owns, not in the tree it was pointed at. That is what produced 8 false
+///     `behavioral-drift` rows on `collection` (12/23 where the same pin
+///     measured 20/23 in CI, with no encoder or compiler change in between),
+///     every one of them carrying a build error anchored in a DIFFERENT file
+///     than the one it says it substituted.
 ///
 /// It also covers the whole-package mode (`rq1_tierb_all.dart`), whose stricter
 /// signal is one verdict per package with no restore between files, and the
@@ -49,6 +68,7 @@
 ///   dart run tools/coverage-study/test/rq1_tierb_self_test.dart
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import '../rq1_study.dart' as tier_a;
@@ -147,6 +167,63 @@ import 'package:test/test.dart';
 void main() {
   test('this package is already broken before any substitution', () {
     expect(1, 2);
+  });
+}
+''';
+
+/// ── The issue-#653 negative control: a two-file scratch package ─────────────
+///
+/// `lib/aa_alpha.dart` sorts FIRST in `dartFilesUnder`'s order, so its
+/// (deliberately unbuildable) substitute is the one that runs before `bb`'s.
+const _isolationPubspec = '''
+name: ball_tierb_isolation
+publish_to: none
+environment:
+  sdk: ^3.9.0
+dev_dependencies:
+  test: any
+''';
+
+const _alphaSource = '''
+class Alpha {
+  int value() {
+    return 1;
+  }
+}
+''';
+
+/// `aa_alpha.dart`'s substitute: it PARSES (so Tier A's stage-2 gate is not
+/// what rejects it) and fails the CFE build the package's own `dart test`
+/// performs — the same shape as the real
+/// `Failed to build test:test: lib/src/list_extensions.dart:114:7: Error: …`.
+const _alphaBrokenSubstitute = '''
+class Alpha {
+  int value() {
+    return undefinedNameThatCannotPossiblyCompile;
+  }
+}
+''';
+
+const _betaSource = '''
+class Beta {
+  int value() {
+    return 2;
+  }
+}
+''';
+
+const _isolationSuite = '''
+import 'package:ball_tierb_isolation/aa_alpha.dart';
+import 'package:ball_tierb_isolation/bb_beta.dart';
+import 'package:test/test.dart';
+
+void main() {
+  test('alpha', () {
+    expect(Alpha().value(), 1);
+  });
+
+  test('beta', () {
+    expect(Beta().value(), 2);
   });
 }
 ''';
@@ -334,6 +411,8 @@ Future<void> main() async {
     tempDir.deleteSync(recursive: true);
   }
 
+  await _perFileIsolation();
+
   final total = _passed + _failed;
   stdout.writeln('Results: $_passed passed, $_failed failed, $total total');
   if (total < 1) {
@@ -341,6 +420,116 @@ Future<void> main() async {
     exit(1);
   }
   if (_failed > 0) exit(1);
+}
+
+/// Issue #653: one broken file must not red the rest of its package.
+///
+/// The substitutions are INJECTED rather than encoded, for two reasons. A
+/// negative control has to be unfalsifiable: `bb_beta.dart`'s substitute is the
+/// byte-identical source, so it cannot change behaviour and `clean` is the only
+/// honest verdict for it — no encoder or compiler change can ever make that
+/// assertion pass or fail for the wrong reason. And `aa_alpha.dart`'s substitute
+/// has to be reliably unbuildable, which is precisely what the pipeline tries
+/// NOT to emit; manufacturing it through the real encoder would leave the
+/// control hostage to the next encoder fix.
+Future<void> _perFileIsolation() async {
+  final dir = Directory.systemTemp.createTempSync('rq1_tierb_isolation');
+  try {
+    Directory('${dir.path}/lib').createSync(recursive: true);
+    Directory('${dir.path}/test').createSync(recursive: true);
+    File('${dir.path}/pubspec.yaml').writeAsStringSync(_isolationPubspec);
+    File('${dir.path}/lib/aa_alpha.dart').writeAsStringSync(_alphaSource);
+    File('${dir.path}/lib/bb_beta.dart').writeAsStringSync(_betaSource);
+    File(
+      '${dir.path}/test/isolation_test.dart',
+    ).writeAsStringSync(_isolationSuite);
+
+    final substitutions = PackageCompileBack({
+      'lib/aa_alpha.dart': _alphaBrokenSubstitute,
+      'lib/bb_beta.dart': _betaSource,
+    }, const []);
+
+    // A second pair of eyes on the checkout for the whole run. Anything that
+    // ever differs from the pristine tree while a verdict is being taken is,
+    // by construction, attributable to the wrong file.
+    final libRoot = Directory('${dir.path}/lib');
+    final pristine = _digests(libRoot);
+    final seenDifferent = <String>{};
+    final watcher = Timer.periodic(const Duration(milliseconds: 25), (_) {
+      for (final file in dartFilesUnder(libRoot)) {
+        try {
+          if (digestOf(file.readAsBytesSync()) != pristine[file.path]) {
+            seenDifferent.add(file.path);
+          }
+        } catch (_) {
+          // Unreadable mid-write is a difference too.
+          seenDifferent.add(file.path);
+        }
+      }
+    });
+
+    final TierBPackageResult run;
+    try {
+      run = await studyPackagePerFile(
+        'isolation',
+        dir,
+        substitutions: substitutions,
+      );
+    } finally {
+      watcher.cancel();
+    }
+
+    check(
+      'ISSUE #653: the pristine checkout is never modified while it is being '
+          'scored — a concurrent reader of that directory sees every lib/ file '
+          'byte-identical for the whole run',
+      seenDifferent.isEmpty,
+      'these files differed from the pristine tree during the run: '
+          '${seenDifferent.map((p) => p.split(Platform.pathSeparator).last).toList()}',
+    );
+
+    check(
+      'the two-file isolation package has a healthy baseline and is scored',
+      run.status == 'scored',
+      'status was "${run.status}"',
+    );
+
+    final alpha = run.files.where((f) => f.file == 'aa_alpha.dart').toList();
+    check(
+      'the file whose substitute does not build is scored behavioral-drift '
+      '(the instrument still reports the TRUE red)',
+      alpha.length == 1 && alpha.single.scored && !alpha.single.clean,
+      alpha.isEmpty ? 'not reported' : 'reason was "${alpha.single.reason}"',
+    );
+
+    final beta = run.files.where((f) => f.file == 'bb_beta.dart').toList();
+    check(
+      'ISSUE #653: the neighbour whose substitute is BYTE-IDENTICAL to its own '
+      'source is scored clean — one broken file cannot red the rest of its '
+      'package',
+      beta.length == 1 && beta.single.clean,
+      beta.isEmpty ? 'not reported' : 'reason was "${beta.single.reason}"',
+    );
+
+    // The other half of the same leak: `dart test` persists its incremental
+    // kernel under the CHECKOUT's `.dart_tool/`, so a substitution can outlive
+    // the harness process itself and poison the very first file of the next
+    // run — which is how files sorting BEFORE `list_extensions.dart` came back
+    // red with an error anchored in it. The untouched checkout is the yardstick
+    // every later verdict is compared against, so prove it is still healthy.
+    final afterwards = await runDartTest(
+      dir,
+      timeout: const Duration(minutes: 5),
+    );
+    check(
+      'ISSUE #653: the UNTOUCHED checkout still builds and passes after the '
+          'run — no substitution survived into the next invocation',
+      afterwards.healthy,
+      'outcome was $afterwards — ${afterwards.detail}',
+    );
+  } finally {
+    dir.deleteSync(recursive: true);
+  }
 }
 
 bool _mapsEqual(Map<String, String> a, Map<String, String> b) {

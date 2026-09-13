@@ -159,7 +159,7 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   **Why one call and not two steps:** `full_e2e.sh`'s positive floor
   (`passed == 0 && failed == 0` ⇒ exit 1, "this leg proved nothing") is
   per-invocation. A PR whose every changed fixture is a tracked
-  `CPP_COMPILE_CARVEOUTS` entry — `468_initializer_list_field_with_setter`
+  `CPP_COMPILE_CARVEOUTS` entry — `472_initializer_list_field_with_setter`
   was exactly that while #695 was open; #680 closed #695, so the list is empty
   again, and the hole is structural rather than tied to any one entry — would
   otherwise select one fixture, skip it as a carve-out, run nothing, and go red

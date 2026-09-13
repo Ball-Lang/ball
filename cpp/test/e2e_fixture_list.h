@@ -331,8 +331,11 @@ inline const std::vector<std::string>& program_names() {
         "465_state_error_message",
         "466_string_sink",
         "467_caught_type_error_to_string",
-        "468_initializer_list_field_with_setter",
+        "468_map_contains_value",
+        "469_map_put_if_absent",
         "470_setter_beside_final_field",
+        "471_null_aware_chain_scope",
+        "472_initializer_list_field_with_setter",
     };
     return names;
 }

@@ -66,6 +66,31 @@ the reverse (every `.ball.json` has a source).
 > name that encoder can emit, then compile each one) plus a documented carve-out
 > file (`ts/encoder/ENCODER_CARVEOUTS.md`). A new language encoder needs both.
 
+> **Scanning the emit SITES is not the whole population (#488).** Until the
+> #488 wrap-up the gate extracted emittable names with two regexes over string
+> literals at the emit call sites — but `encoder.dart` routes a large family
+> through dispatch TABLES (`collectionRoutes`, `unaryRoutes`, `getterRoutes`,
+> `convertTopLevelRoutes`, `cascadeCollectionRoutes`) whose emit site is
+> `..function = fnName`, with `fnName` destructured from the table's tuple
+> VALUE. Every base function reachable only that way was exempt regardless of
+> coverage: `std_collections.map_contains_value` sat in the generated
+> `tests/conformance/std_coverage.json` with `coveredByFixtures: []` and
+> `carvedOut: false` while this gate printed "No completeness gaps."
+> `check_encoder_completeness.dart`'s `_routeTables` now parses those tables'
+> value position, and **exits non-zero if a declared table is not found**, so a
+> rename cannot silently shrink the population back. A new dispatch table must
+> be added to `_routeTables`.
+
+> **Completeness has a COMPILER end too (#488).** A base function the encoder
+> emits but the Dart compiler has no `case` for falls to the default arm, which
+> emits a `/* unsupported: … */` COMMENT where an expression belongs — a build
+> error in the compiled-back file, and nothing audited it.
+> `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the mirror:
+> every `encoderEmittable` name in `std_coverage.json` must have a compiler
+> case, with a positive floor on the population so an inventory shape change
+> cannot pass it vacuously. Declared-but-unroutable names are a different,
+> pre-existing gap tracked by #654.
+
 ### 2b. A name-shape assertion is not a test
 An encoder unit test that asserts `call.function === "list_add"` proves only that
 the encoder is self-consistent. It passes *because* the bug exists, and it makes
@@ -262,10 +287,10 @@ too, without a colour-forced CI leg.
 >
 > **A carve-out is the honest disposition when the gap is the TARGET, not the
 > fixture — and it is a RATCHET, so it comes back out the moment the target
-> catches up.** #651's fixture — `468_initializer_list_field_with_setter`, a
+> catches up.** #651's fixture — `472_initializer_list_field_with_setter`, a
 > class declaring a `final` field and its OWN setter of the same name — is the
 > counter-case to 406 above. 406 was WITHDRAWN because a different fixture could
-> pin the same Dart-side point; 468 cannot be reshaped, because that exact
+> pin the same Dart-side point; 472 cannot be reshaped, because that exact
 > declaration pair IS #651's mechanism (a spurious `late final` hands the field
 > an implicit setter that collides with the declared one). It runs correctly on
 > every engine — Dart, TS, Rust, C#, Go, Python and the C++ self-host engine —
@@ -281,7 +306,7 @@ too, without a colour-forced CI leg.
 > `class_setter_backed_fields_` in `cpp/compiler`, which gives a field declared
 > beside its own same-named setter the #501 backing-member treatment and
 > synthesizes only the GETTER half, leaving the write side to the declared setter.
-> 468 is now listed in `cpp/test/e2e_fixture_list.h` next to
+> 472 is now listed in `cpp/test/e2e_fixture_list.h` next to
 > `470_setter_beside_final_field` (#680's own fixture for the identical
 > declaration pair), and `CPP_COMPILE_CARVEOUTS` is empty. **Re-check a carve-out
 > against `main` on every merge**: a carve-out that outlives its gap is a silent
@@ -1183,6 +1208,8 @@ could not parse a summary at all).
 | **Completeness (§2)** — Dart encoder only | `check_encoder_completeness.dart` | every PR |
 | **Routed-but-undeclared std functions (#505)** — the REVERSE of completeness: every `std`/`std_collections` function `encoder.dart`'s `collectionRoutes` table routes to must be declared by `buildStdModule()`/`buildStdCollectionsModule()` | `dart/shared/test/std_routed_declarations_test.dart` (carries a positive floor so a regex that stops matching cannot pass vacuously) | every PR (`Dart`, `cd dart/shared && dart test`) |
 | **Encoder/compiler std-name consistency (§2)** — TS | `ts/compiler/test/std_name_consistency.test.ts` | every PR (`TypeScript`) |
+| **Compiler-side dispatch completeness (§2, #488)** — every `encoderEmittable` base function in `std_coverage.json` must have a case in `dart/compiler/lib/compiler.dart`, so none can compile to a `/* unsupported: … */` comment | `dart/compiler/test/base_call_dispatch_completeness_test.dart` (positive floor on the emittable population) | every PR (`Dart`, `cd dart/compiler && dart test`) |
+| **Compiled-back code type-checks under NON-DEFAULT analysis options (#488)** — the `async` safety return must be legal under `analyzer: language: strict-casts: true`, which `dart-lang/async`'s own `analysis_options.yaml` sets. No other gate in this repository runs `dart analyze` under anything but the defaults: Tier A and Tier B compile and RUN, never lint | `dart/compiler/test/strict_casts_safety_return_test.dart` — its silence-is-a-pass assertion is preceded by a NEGATIVE CONTROL that feeds the pre-fix line through the same helper and requires the diagnostic back, so a `dart analyze` that never ran cannot pass it vacuously | every PR (`Dart`, `cd dart/compiler && dart test`) |
 | **Constructs are executed, not just named (§2b)** — TS | `ts/encoder/test/roundtrip.test.ts` | every PR (`TypeScript`) |
 | **Self-hosted engine survives a compiler change** — TS | `ts/compiler/test/engine_runtime.test.ts` (regenerates `engine.ball.json` on demand; never skips) | every PR (`TypeScript`) |
 | **The one COMMITTED compiled engine cannot go stale (§5)** | `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` (regenerates `ts/engine/src/compiled_engine.ts` and diffs) + `ts/engine/test/compiled_engine_parity.test.ts` (behavioural half) | every PR (`Ball Artifact Freshness`, `TypeScript`) |

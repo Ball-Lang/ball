@@ -107,7 +107,7 @@ for the authoritative member set).
   legal Dart precisely because a plain `final` field contributes a getter and
   nothing else. `dart/compiler/test/field_finality_test.dart` pins both
   directions and runs a real `dart analyze` over the compiled output;
-  `tests/conformance/468_initializer_list_field_with_setter` is the cross-target
+  `tests/conformance/472_initializer_list_field_with_setter` is the cross-target
   fixture it compiles. Also keep `const`-constructor classes free of `late final`
   (#305) — that carve-out is unchanged.
 
@@ -201,23 +201,114 @@ avoid constructs that need receiver-type info:
     `dart/self_host/engine.ball.json`, `dart/shared/ball_protobuf.json` and the
     conformance corpus are provably byte-identical.
 
-  What #488 still tracks after #573 is a different set of mechanisms again —
-  `collection/lib/src/list_extensions.dart` (implicit-setter conflict),
-  `collection/lib/src/wrappers.dart` (missing explicit return, unmasked once the
-  receiver-type error ahead of it was fixed),
-  `collection/lib/src/iterable_extensions.dart` (extension-override syntax,
-  `IterableExtension(this).isSorted(…)`, encoded as an `unsupported:` placeholder)
-  and `async/lib/src/cancelable_operation.dart` (`x?.a.b(…)` encoded as
-  `(x?.a).b(…)` instead of `x == null ? null : x.a.b(…)` — the short-circuit
-  scope is wrong, which is an ENGINE-semantics risk, not only a Dart-recompile
-  one). None of them shares a mechanism with #573.
+  After #573 the remaining #488 rows shared no mechanism with it, and none of
+  them was a receiver-TYPE question at all — `PackageEncoder
+  .prepareStaticTypes()` had closed every row that was. Three of the four were
+  fixed in the #488 wrap-up slice, and NONE of them is gated on resolved types
+  (the first two are pure syntax; the third is compiler codegen):
+  - **A `?.` in the MIDDLE of a postfix chain guards the WHOLE remainder.**
+    `x?.a.b(c)` is `x == null ? null : x.a.b(c)`, never
+    `(x == null ? null : x.a).b(c)`. `_buildNullAwareAccess`/
+    `_buildNullAwareCall` are leaf-level and cannot see the link that follows,
+    so the guard collapsed one link early and every following link was applied
+    UNCONDITIONALLY to its result — an ENGINE-semantics bug (on a null receiver
+    every engine called the next link on `null`), not only a Dart-recompile one.
+    `_encodeNullAwareChain` now walks the chain outer→inner, hoists the DEEPEST
+    short-circuiting link's guard to cover everything above it, and re-encodes
+    the chain once with that link marked plain (`_hoistedNullAware`) and its
+    receiver bound (`_chainSubstitutions`). One guard is hoisted per pass, so
+    `a?.b?.c.d()` lowers to nested guards, deepest first, and the recursion
+    terminates. A promotable receiver is named directly; a field/getter/call is
+    bound to a `__nachain_N` temporary — the same rule as `_nullAwareNeedsTemp`.
+    Measured on `async/lib/src/cancelable_operation.dart`; guarded by
+    `dart/encoder/test/null_aware_chain_scope_test.dart` and conformance fixture
+    `471_null_aware_chain_scope`. **Syntactic, so it applies to
+    `encode(String)`** — unlike every earlier #488 slice it CAN move
+    `dart/self_host/engine.ball.json` and the committed TS/Go artifacts. It did
+    not: the engine's own source happens to contain no multi-link `?.` chain
+    today (verified by regenerating all four artifacts). Do not assume that
+    stays true — regenerate rather than reason about it.
+  - **`toList(growable: …)` declines its route** — the last member of the
+    "arity window wider than the std function" family below.
+    `std_collections.list_to_list`'s codegen is `'<list>.toList()'`, full stop,
+    so a `(0, 1)` window could only DROP the operand and hand back a growable
+    list where the source asked for a fixed-length one. Measured on
+    `collection/lib/src/wrappers.dart` (`set.toList(growable: false).add(…)`
+    must throw `UnsupportedError`; after the drop it silently succeeded).
+    Window is now `(0, 0)`; see **#673**.
+  - **`std_collections.map_contains_value` had no case in the DART compiler**
+    — declared, encoder-routed, engine-implemented and present in every other
+    compiler, it alone fell to `_ => '/* unsupported: … */'`, i.e. a COMMENT
+    where an expression belongs (`collection/lib/src/wrappers.dart` compiled to
+    `return /* unsupported: std_collections.map_contains_value */;`).
+    `dart/compiler/test/base_call_dispatch_completeness_test.dart` is the new
+    compiler-side mirror of `check_encoder_completeness.dart`: every
+    ENCODER-EMITTABLE base function must have a compiler case. Declared but
+    unroutable names (11 more in `std_collections`, all of `std_concurrency`)
+    are out of that population and tracked by #654.
+
+  Still open, each with its own issue and its own measured repro:
+  - `collection/lib/src/list_extensions.dart` — the compiler marks a
+    non-nullable final field `late` whenever it has no inline initializer,
+    which is wrong when the CONSTRUCTOR'S OWN INITIALIZER LIST already assigns
+    it, and the stray `late` then collides with a user-declared setter of the
+    same name (`DUPLICATE_DEFINITION`). Ball's field IR cannot tell "assigned
+    by the initializer list" from "assigned in the constructor body". **#651**
+    (a sibling of #573: the same "IR too coarse to tell two source shapes
+    apart" family). That file needs a SECOND fix to go green: `ListSlice`
+    declares a `final length` field next to an explicit `set length`, and the
+    engine's `_trySetterDispatch` suppresses the setter whenever the instance
+    carries a field of that name — right for a non-final field (#501, fixture
+    `432_shadowed_getter_setter_write`), wrong for a final one, which
+    contributes no setter of its own: **#664**.
+  - `collection/lib/src/iterable_extensions.dart` — **`Ext(receiver).member`
+    stays unencodable, and MUST NOT be erased to `receiver.member`.** An
+    extension override is written precisely when the plain access would
+    resolve to something else:
+    `IterableComparableExtension.isSorted([compare])`'s body is
+    `return IterableExtension(this).isSorted(compare);`, and erasing it makes
+    the method call ITSELF. Tier B measured the erasure at `1706 → 1702
+    passing, 4 failing` — a loud build error traded for a silently wrong
+    answer. The encoder now WARNS (it used to drop the node in silence) and
+    still emits the `/* unsupported: … */` placeholder. A real encoding needs
+    the IR to name WHICH extension supplies a member plus a compiler rule to
+    re-emit the override: **#670**.
+  - `collection/lib/src/wrappers.dart` — compiles now, but its own suite
+    still fails on `x.isNotEmpty` being rewritten as `!x.isEmpty`, which a
+    DELEGATING receiver can see (`collection`'s `wrapper_test.dart` records
+    the forwarded `Invocation` symbol): **#674**. Same root, other direction:
+    the `.isEmpty` rewrite consults no receiver type at all, so an instance
+    FIELD named `isEmpty` is answered by `std.string_is_empty` on every engine
+    — **#697**, the last member of #488's receiver-type family and the only one
+    outside its 16-file table.
+
+- **The `async` safety return must type-check under `strict-casts`.** Every
+  `async`, non-generator, non-`void` function gets a trailing statement so
+  Dart's flow analysis accepts a body whose Ball IR already returns. It used to
+  be `return null as dynamic;` unconditionally, which
+  `analyzer: language: strict-casts: true` rejects — `dynamic` is not
+  implicitly assignable to a non-dynamic type, and unreachable code is still
+  type-checked (`dart-lang/async`'s own `analysis_options.yaml` sets it, which
+  is how `async/lib/src/stream_queue.dart` and `async/lib/src/async_cache.dart`
+  failed). `_asyncSafetyReturn` now splits the two shapes: a NULLABLE (or
+  `dynamic`) result keeps a plain `return null;` — falling off the end really
+  does produce null there, so a throw would be a behaviour regression — and a
+  NON-NULLABLE result gets a `Never`-typed `throw StateError('unreachable: …')`,
+  which is assignable to every return type and preserves the old line's
+  meaning (it already threw a `TypeError` if reached).
+  `dart/compiler/test/strict_casts_safety_return_test.dart` is the only gate in
+  the repository that runs `dart analyze` under non-default analysis options.
 - **An arity window may never be WIDER than the std function it stands for.**
   A route whose `maxArgs` admits an argument the target function does not
   declare silently DROPS that argument — the compiler emits exactly the
   operands the function models and nothing warns. Four routes had this before
   #488 slice 2: `indexOf` (1,2), `startsWith` (1,2), `lastIndexOf` (1,2) and
   `replaceFirst` (2,3), all now narrowed so the extra-operand form declines to
-  the generic method-call encoding. `indexOf` was the worst: `arg0` and `arg1`
+  the generic method-call encoding — plus `toList` (0,1), the fifth and (as of
+  the #488 wrap-up) last, found the same way and narrowed to (0,0) (#673).
+  Every OTHER variable-arity route was re-audited against its codegen at the
+  same time: `join`, `sublist`, `sort`, `substring`, `padLeft`/`padRight` and
+  `toStringAsExponential` all consume their optional operand. `indexOf` was the worst: `arg0` and `arg1`
   BOTH renamed to `'value'`, so the second overwrote the first in the
   compiler's field map and `path.indexOf('\', 2)` compiled to
   `path.indexOf(2)`. When you add or widen a `collectionRoutes` entry, check

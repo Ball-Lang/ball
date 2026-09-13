@@ -194,7 +194,7 @@ COMPILE_ERR=(); GPP_ERR=(); MISMATCH=(); TIMEOUT=()
 # 455_ctor_field_writes_that_survive, the positive half of the same test design,
 # which passed this leg all along.
 #
-# 468_initializer_list_field_with_setter was carved out here for #695 and is NOT
+# 472_initializer_list_field_with_setter was carved out here for #695 and is NOT
 # any more. #695 was a TARGET gap, not a fixture problem: the class declares a
 # `final` field and its OWN setter of the same name, which is legal Dart (a plain
 # `final` field contributes a getter and nothing else) and which every ENGINE —

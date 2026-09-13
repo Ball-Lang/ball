@@ -135,6 +135,13 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   field literally named `value` / `fields` / `kind` / `values` take the struct
   path — that four-name skip list exists for map-backed proto-shaped receivers,
   not for a concrete class that declares such a field.
+  **Both spellings of a field are the same slot (#488).** Inside its own class a
+  field is normally named BARE (`leaf`, not `this.leaf`) — `compile_reference`
+  emits the plain member name for it — so `receiver_class_of()` /
+  `receiver_is_erased()` answer for that Reference through
+  `declared_field_class_of_own_name()`, with the same getter/shadowed-field
+  refusals the FieldAccess branch uses and `declared_locals_` shadowing first. A
+  local/parameter of that name wins, exactly as in Dart.
 - **`BallDyn` accepts a compiler-emitted struct (#513).** `ball_is_user_struct`
   SFINAEs on the `static __ball_type_name()` every emitted struct carries — no
   standard-library or runtime type has it — so the constructor cannot steal
@@ -464,7 +471,7 @@ leg, which runs after merge. The two live in one invocation because
 `full_e2e.sh`'s positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is
 per-invocation: a PR whose every changed fixture is a tracked
 `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the
-wrong cause. `468_initializer_list_field_with_setter` was that PR while #695 was
+wrong cause. `472_initializer_list_field_with_setter` was that PR while #695 was
 open; #680 closed #695 and `CPP_COMPILE_CARVEOUTS` is empty again, but the hole
 is structural and outlives any one entry, so the widened filter stays. Widen the
 filter — which is what the floor's own error message says — never delete the

@@ -16,7 +16,9 @@
 ///     it by encoding every `src/*.dart` (the corpus is broad) AND by scanning
 ///     the encoder's own source for the names it references at its emit sites
 ///     (`_usedBaseFunctions.add('x')`, `_buildStdCall('x', …)`, `..function =
-///     'x'`), plus a small explicit supplement for names emitted via a variable
+///     'x'`), plus the VALUE position of the encoder's dispatch tables
+///     (`collectionRoutes` and friends — see `_routeTables`, issue #488), plus a
+///     small explicit supplement for names emitted via a variable
 ///     (`spread`/`null_spread`).
 ///   * "Covered" = the union of `isBase` function names declared by every
 ///     encoded `src/*.dart` program. The encoder declares EXACTLY the base
@@ -41,6 +43,80 @@ const _variableEmittedBaseFns = <String>{'spread', 'null_spread'};
 /// pseudo-targets). Empty today; documented here so future additions are
 /// deliberate rather than silent.
 const _notBaseFunctions = <String>{};
+
+/// Dispatch TABLES in `encoder.dart` that name a base function in a map VALUE
+/// rather than at the emit call site (issue #488).
+///
+/// `collectionRoutes`' emit site is `_usedBaseFunctions.add(fnName)` /
+/// `..function = fnName`, where `fnName` is destructured from the table's
+/// tuple value — never a string literal — so the two emit-site regexes above
+/// could not see a single one of these names. Every base function reachable
+/// ONLY through one of these tables was therefore exempt from this gate
+/// regardless of whether any fixture covered it:
+/// `std_collections.map_contains_value` sat in the generated
+/// `tests/conformance/std_coverage.json` with `coveredByFixtures: []` and
+/// `carvedOut: false` while this very gate reported "No completeness gaps."
+///
+/// `valueIndex` is which string of the entry's value holds the base-function
+/// name: `0` for a `<String, String>` table (`'trim': 'string_trim'`), `1` for
+/// a tuple table whose first element is the module
+/// (`'add': ('std_collections', 'list_push', 'list', 1, 1)`).
+///
+/// `protoRoutes` is deliberately absent: it routes into the `ball_proto`
+/// module, which is a protobuf ACCESS-PATTERN surface, not a std base-function
+/// one, and its names are not part of the std inventory this gate measures.
+const _routeTables = <String, int>{
+  'getterRoutes': 0,
+  'convertTopLevelRoutes': 0,
+  'unaryRoutes': 0,
+  'collectionRoutes': 1,
+  'cascadeCollectionRoutes': 1,
+};
+
+/// Extracts the base-function names named in the VALUE position of
+/// [_routeTables]' entries.
+///
+/// Fails loud when a declared table is not found: a rename must not silently
+/// shrink this gate's population back to what it was before #488.
+Set<String> _routedBaseFunctions(String encoderSrc) {
+  final out = <String>{};
+  for (final entry in _routeTables.entries) {
+    final decl = RegExp('${entry.key}\\s*=\\s*<').firstMatch(encoderSrc);
+    if (decl == null) {
+      stderr.writeln(
+        'ERROR: dispatch table `${entry.key}` was not found in encoder.dart. '
+        'It was renamed or removed — update _routeTables, or this gate '
+        'silently stops seeing every base function it routes.',
+      );
+      exit(2);
+    }
+    final body = _braceBody(encoderSrc, decl.end);
+    // Entry values: either `'key': 'fn'` or `'key': ('module', 'fn', …)`.
+    final entryRe = RegExp(r"""'[^']+'\s*:\s*(\(\s*)?((?:'[^']*'\s*,?\s*)+)""");
+    for (final m in entryRe.allMatches(body)) {
+      final strings = RegExp(
+        "'([^']*)'",
+      ).allMatches(m.group(2)!).map((s) => s.group(1)!).toList();
+      if (strings.length > entry.value) out.add(strings[entry.value]);
+    }
+  }
+  return out;
+}
+
+/// The text between the first `{` at or after [from] and its matching `}`.
+String _braceBody(String src, int from) {
+  final open = src.indexOf('{', from);
+  if (open < 0) throw StateError('no map literal after offset $from');
+  var depth = 0;
+  for (var i = open; i < src.length; i++) {
+    if (src[i] == '{') depth++;
+    if (src[i] == '}') {
+      depth--;
+      if (depth == 0) return src.substring(open + 1, i);
+    }
+  }
+  throw StateError('unbalanced map literal at offset $open');
+}
 
 void main() {
   final repoRoot = _findRepoRoot();
@@ -72,6 +148,7 @@ void main() {
   for (final m in functionAssign.allMatches(encoderSrc)) {
     emittable.add(m.group(1)!);
   }
+  emittable.addAll(_routedBaseFunctions(encoderSrc));
   emittable.removeAll(_notBaseFunctions);
 
   // ── Covered: base functions actually emitted by encoding every fixture ──

@@ -533,3 +533,203 @@ fn the_exclusion_count_is_printed_even_when_zero() {
         "a zero exclusion count must still be printed; got:\n{out}"
     );
 }
+
+// ── the crate-root anchor must be DECLARED, never silently absent (#648) ────
+//
+// The `#[cfg(test)]` reachability half above is anchored on a crate root, and
+// on the real pins it is the half that does all the work: all 34 of `bitflags`'
+// exclusions come from it, 0 from the path half. That anchor is resolved by
+// looking for `lib.rs` / `main.rs` / `src/lib.rs` / `src/main.rs` under the
+// STUDIED SUBTREE — so a pin whose `lib` points one level too deep, a crate
+// whose root moved, or a refactor of the resolver leaves it unfound.
+//
+// "Unfound" must not mean "exclude nothing and carry on". That switches the only
+// working half of the rule OFF, every test-only file silently re-enters the
+// denominator, and the published ratchet reads the resulting jump in `scored` as
+// an improvement — it raises the floors on a population nobody chose. The
+// exclusion is opt-out only by an explicit `"crateRoot": "none"` in the pin (the
+// genuinely-anchorless "bare directory of .rs files" case), declared per pin
+// rather than inferred from a failed search.
+
+/// A checkouts directory holding ONE package whose studied subtree contains no
+/// crate root, and whose `#[cfg(test)]`-only module lives inside that subtree.
+///
+/// `src/deep/mod.rs` declares `#[cfg(test)] mod deep_tests;`, so `deep_tests.rs`
+/// IS test-only — but nothing under `src/deep` is a crate root (`mod.rs` is not
+/// one), so the reachability walk has nothing to start from. This is the `lib` /
+/// `--source-dir` "one level too deep" shape, reproduced exactly.
+fn anchorless_checkouts(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "ball_rq1_anchorless_{}_{}_{}",
+        tag,
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let package = dir.join("deepcrate");
+    std::fs::create_dir_all(package.join("src/deep")).expect("failed to create the scratch crate");
+    let write = |rel: &str, source: &str| {
+        std::fs::write(package.join(rel), source).unwrap_or_else(|e| panic!("write {rel}: {e}"));
+    };
+    write(
+        "Cargo.toml",
+        "[package]\nname = \"deepcrate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    write("src/lib.rs", "pub mod deep;\n");
+    write(
+        "src/deep/mod.rs",
+        "pub fn value() -> i64 { 1 }\n#[cfg(test)]\nmod deep_tests;\n",
+    );
+    write(
+        "src/deep/deep_tests.rs",
+        "#[test]\nfn works() { assert!(true); }\n",
+    );
+    dir
+}
+
+/// Writes a pin file naming the one package of [`anchorless_checkouts`], plus
+/// whatever `extra` pin fields the caller wants on it.
+fn anchorless_pins(dir: &std::path::Path, extra: &str) -> std::path::PathBuf {
+    let path = dir.join("pins.json");
+    std::fs::write(
+        &path,
+        format!(
+            "{{\n  \"packages\": [\n    \
+             {{ \"name\": \"deepcrate\", \"lib\": \"src/deep\"{extra} }}\n  ]\n}}\n"
+        ),
+    )
+    .expect("failed to write the pin file");
+    path
+}
+
+fn run_harness(args: &[&str]) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_rq1-study"))
+        .args(args)
+        .output()
+        .expect("failed to run the rq1-study binary")
+}
+
+/// The negative control for #648: a studied subtree with a `#[cfg(test)]`-only
+/// module and NO resolvable crate root must FAIL the run, naming the paths it
+/// searched — never print a note and measure on with the reachability half off.
+#[test]
+fn an_unresolvable_crate_root_fails_the_run() {
+    let dir = anchorless_checkouts("fatal");
+    let pins = anchorless_pins(&dir, "");
+    let json = dir.join("tier_a.json");
+    let out = run_harness(&[
+        "--pins",
+        &pins.to_string_lossy(),
+        "--checkouts",
+        &dir.to_string_lossy(),
+        "--json",
+        &json.to_string_lossy(),
+    ]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        !out.status.success(),
+        "a pin whose crate root does not resolve must FAIL the run — with the \
+         reachability half silently off its #[cfg(test)]-only file re-enters the \
+         denominator and the ratchet reads that as an improvement (#648).\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    for needle in [
+        "deepcrate",
+        "lib.rs",
+        "main.rs",
+        "src/lib.rs",
+        "src/main.rs",
+        "crateRoot",
+    ] {
+        assert!(
+            stderr.contains(needle),
+            "the failure must name {needle:?} — the searched paths and the opt-in are \
+             what make it actionable; got:\n{stderr}"
+        );
+    }
+}
+
+/// …and the opt-out is EXPLICIT and per pin: `"crateRoot": "none"` declares a
+/// subtree that genuinely has no crate root, and the run then proceeds with the
+/// `#[cfg(test)]` module STUDIED — nothing can be shown test-only without an
+/// anchor, and this harness only ever excludes what it can positively show.
+#[test]
+fn the_declared_anchorless_opt_in_lets_the_run_proceed() {
+    let dir = anchorless_checkouts("optin");
+    let pins = anchorless_pins(&dir, ", \"crateRoot\": \"none\"");
+    let json = dir.join("tier_a.json");
+    let out = run_harness(&[
+        "--pins",
+        &pins.to_string_lossy(),
+        "--checkouts",
+        &dir.to_string_lossy(),
+        "--json",
+        &json.to_string_lossy(),
+    ]);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let report = std::fs::read_to_string(&json).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        out.status.success(),
+        "an explicitly anchorless pin must be allowed to run.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("  excluded (test-only): 0\n"),
+        "an anchorless pin excludes nothing, and the count must still be printed; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("2 total"),
+        "both files of the anchorless subtree must be scored, the #[cfg(test)]-only \
+         module included — the rule only removes what it can positively show; got:\n{stdout}"
+    );
+    assert!(
+        report.contains("deep_tests.rs") && report.contains("\"excludedTestOnly\": 0"),
+        "the JSON report must show the cfg(test)-only module studied and nothing \
+         excluded; got:\n{report}"
+    );
+}
+
+/// The same opt-in exists for the one-off `--package/--source-dir` mode, in the
+/// same shape: fatal by default, allowed only when declared. An opt-in that
+/// lived only in the pin file would leave the ad-hoc invocation — the one a
+/// human actually types, and the one the issue's `--source-dir` case names —
+/// with the old silent fallback.
+#[test]
+fn the_source_dir_mode_has_the_same_explicit_opt_in() {
+    let dir = anchorless_checkouts("srcdir");
+    let deep = dir.join("deepcrate/src/deep");
+    let fatal = run_harness(&[
+        "--package",
+        "deepcrate",
+        "--source-dir",
+        &deep.to_string_lossy(),
+    ]);
+    let allowed = run_harness(&[
+        "--package",
+        "deepcrate",
+        "--source-dir",
+        &deep.to_string_lossy(),
+        "--no-crate-root",
+    ]);
+    let fatal_err = String::from_utf8_lossy(&fatal.stderr).into_owned();
+    let allowed_out = String::from_utf8_lossy(&allowed.stdout).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        !fatal.status.success() && fatal_err.contains("--no-crate-root"),
+        "--source-dir must fail on an unresolvable crate root and name its opt-in; \
+         got status {:?}, stderr:\n{fatal_err}",
+        fatal.status.code()
+    );
+    assert!(
+        allowed.status.success() && allowed_out.contains("  excluded (test-only): 0\n"),
+        "--no-crate-root must let the same run proceed; got status {:?}, stdout:\n{allowed_out}",
+        allowed.status.code()
+    );
+}

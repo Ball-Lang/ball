@@ -734,7 +734,7 @@ observable effect and Ball has no allocation model to carry it into.
 are written against), same 5 pins, by the repo's own instrument — a `Coverage Study` dispatch on the
 branch, whose `Tier A (Rust)` job runs the exact `rq1-study` invocation `coverage-study.yml` pins and
 whose `publish` job then checks the raised row against `tools/coverage-study/baseline.json`
-([run 34787000468](https://github.com/Ball-Lang/ball/actions/runs/34787000468)). The "before" column
+([run 34788637747](https://github.com/Ball-Lang/ball/actions/runs/34788637747)). The "before" column
 is that same baseline row, recorded by the last main run:
 
 | funnel stage | before | after |

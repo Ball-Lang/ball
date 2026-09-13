@@ -210,9 +210,18 @@ def newest_matching(
         ]
     if not matching:
         return None
-    # `gh run list` returns newest-first; sort on createdAt anyway so the choice
-    # does not depend on that. ISO-8601 UTC strings sort lexicographically.
-    matching.sort(key=lambda r: r.get("createdAt") or "", reverse=True)
+    # `gh run list` returns newest-first; sort anyway so the choice does not
+    # depend on that. ISO-8601 UTC strings sort lexicographically, and the run id
+    # breaks a tie — `createdAt` has second granularity, so two runs started in
+    # the same second (a re-run storm) would otherwise be ordered by luck.
+    def order(run: dict):
+        run_id = run.get("databaseId")
+        return (
+            run.get("createdAt") or "",
+            run_id if isinstance(run_id, int) and not isinstance(run_id, bool) else -1,
+        )
+
+    matching.sort(key=order, reverse=True)
     return matching[0]
 
 
@@ -612,6 +621,22 @@ def _self_test() -> int:
             no(
                 "a stale row and no new run exhausts the budget and FAILS honestly",
                 f"code={code} calls={calls} elapsed={elapsed}",
+            )
+
+        same_second = newest_matching(
+            [
+                idrow(FRESH_ID, status="completed", conclusion="failure"),
+                idrow(FRESH_ID + 1, status="completed", conclusion="success"),
+            ],
+            REF,
+            after_run_id=STALE_ID,
+        )
+        if same_second is not None and same_second.get("databaseId") == FRESH_ID + 1:
+            ok("two runs created in the same second are ordered by run id, not by luck")
+        else:
+            no(
+                "two runs created in the same second are ordered by run id, not by luck",
+                f"picked {same_second}",
             )
 
         code, calls, _ = drive(

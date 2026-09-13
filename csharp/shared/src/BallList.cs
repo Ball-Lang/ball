@@ -40,7 +40,11 @@ public sealed class BallList : BallValue
     {
         if (_items.Count == 0)
         {
-            throw new BallRuntimeException("removeLast on an empty list");
+            // Dart's `removeLast` on an empty list is StateError('No element'),
+            // and a program's own `on StateError catch` has to be able to see it
+            // (issue #616) — so a catchable, typed BallThrow, never a native
+            // BallRuntimeException that bypasses the compiled `try` entirely.
+            throw new BallThrow("StateError", "No element");
         }
 
         var last = _items[^1];

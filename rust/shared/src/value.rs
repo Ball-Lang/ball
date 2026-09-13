@@ -787,6 +787,9 @@ fn write_entries<'a>(
     entries: impl Iterator<Item = (&'a String, &'a BallValue)>,
 ) -> fmt::Result {
     let entries: Vec<_> = entries.collect();
+    if let Some(rendered) = dart_error_to_string(&entries) {
+        return write!(f, "{rendered}");
+    }
     if let [(key, BallValue::List(items))] = entries.as_slice() {
         if key.as_str() == BALL_SET_TAG {
             write!(f, "{{")?;
@@ -807,6 +810,43 @@ fn write_entries<'a>(
         write!(f, "{key}: {value}")?;
     }
     write!(f, "}}")
+}
+
+/// One of the built-in Dart error/exception values [`ball_throw_typed`] raises,
+/// rendered the way Dart's own `toString()` does — or `None` for anything else
+/// (issue #616).
+///
+/// [`ball_throw_typed`] synthesizes `{'__type__': <name>, 'message': <msg>}`,
+/// which the generic `{key: value, …}` rendering printed verbatim, so a Ball
+/// program that prints its CAUGHT exception read
+/// `{__type__: StateError, message: No element}` where the Dart reference
+/// engine prints `Bad state: No element`.
+///
+/// The table is EXPLICIT and closed, listing exactly the type names
+/// `ball_throw_typed` is called with. Rendering any map that happens to carry a
+/// `message` field would reach straight into user data. `StateError` is the one
+/// whose rendering is not `<Type>: <message>`: Dart spells it
+/// `Bad state: <message>` (verified against the SDK, not assumed).
+///
+/// [`ball_throw_typed`]: crate::runtime::ball_throw_typed
+fn dart_error_to_string(entries: &[(&String, &BallValue)]) -> Option<String> {
+    let mut type_name: Option<&str> = None;
+    let mut message: Option<&str> = None;
+    for (key, value) in entries {
+        match (key.as_str(), value) {
+            ("__type__", BallValue::String(v)) => type_name = Some(v),
+            ("message", BallValue::String(v)) => message = Some(v),
+            _ => {}
+        }
+    }
+    let prefix = match type_name? {
+        "StateError" => "Bad state",
+        "FormatException" => "FormatException",
+        "RangeError" => "RangeError",
+        "TypeError" => "TypeError",
+        _ => return None,
+    };
+    Some(format!("{prefix}: {}", message?))
 }
 
 /// The marker key of the portable ordered-set value (`{'__ball_set__': [...]}`).

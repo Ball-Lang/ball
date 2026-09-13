@@ -56,6 +56,21 @@ func dartError(typeName, message string) {
 	panic(Thrown{Value: &Message{TypeName: typeName, Fields: fields}})
 }
 
+// stateError throws Dart's StateError — an empty `.first`/`.last`/`.single`/
+// `removeLast`/`reduce`, or a `firstWhere` with no match and no orElse.
+//
+// It exists so every such site agrees on BOTH halves of the contract (issue
+// #616): the thrown value is TYPED `StateError`, so a program's own
+// `on StateError catch` can see it, AND it stringifies as Dart's own
+// `StateError.toString()` — `Bad state: <message>` — so `to_string(e)` in the
+// catch body reads the same here as on the Dart reference engine. Several of
+// these sites used to `panic(Thrown{Value: "Bad state: No element"})`: the
+// STRING was already right, but a plain-string Thrown reports runtimeType
+// "String" and matches no typed clause (see dartError's doc comment), and
+// `ListFind` had the mirror-image bug — typed, but stringifying as
+// "StateError" because its message read `No element` with no prefix.
+func stateError(message string) { dartError("StateError", message) }
+
 // Return implements std.return: unwind to the enclosing function wrapper,
 // yielding v. Typed as Value so it fits any expression position the compiler
 // emits it in; it never actually returns (it panics).

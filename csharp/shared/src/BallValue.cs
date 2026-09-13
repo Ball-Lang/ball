@@ -195,6 +195,46 @@ public abstract class BallValue
             ? m.Get("value") ?? BallNull.Instance
             : null;
     }
+
+    /// <summary>
+    /// One of the built-in Dart error/exception objects <see cref="BallThrow"/>
+    /// raises, rendered the way Dart's own <c>toString()</c> does — or
+    /// <c>null</c> if <paramref name="value"/> is not one (issue #616).
+    ///
+    /// <para>Without it every such payload rendered as the generic map form
+    /// <c>{message: No element}</c>, so a Ball program that prints its caught
+    /// exception read something no other target produced; the Dart reference
+    /// engine prints <c>Bad state: No element</c>.</para>
+    ///
+    /// <para>The table is EXPLICIT and closed, listing exactly the type names
+    /// <see cref="BallThrow"/>'s typed constructor is called with. Rendering any
+    /// message that happens to carry a <c>message</c> field would reach straight
+    /// into user classes — a Ball class declaring a <c>message</c> field is not a
+    /// Dart error. <c>StateError</c> is the one whose rendering is not
+    /// <c>&lt;Type&gt;: &lt;message&gt;</c>: Dart spells it
+    /// <c>Bad state: &lt;message&gt;</c>.</para>
+    /// </summary>
+    internal static string? DartErrorToString(BallValue value)
+    {
+        if (value is not BallMessage m)
+        {
+            return null;
+        }
+
+        var name = m.TypeName;
+        var shortName = name.Contains(':') ? name[(name.LastIndexOf(':') + 1)..] : name;
+        var prefix = shortName switch
+        {
+            "StateError" => "Bad state",
+            "FormatException" => "FormatException",
+            "RangeError" => "RangeError",
+            _ => null,
+        };
+
+        return prefix is null || m.Get("message") is not BallString message
+            ? null
+            : prefix + ": " + message.Value;
+    }
 }
 
 /// <summary>Ball's <c>null</c>.</summary>

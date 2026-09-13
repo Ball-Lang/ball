@@ -219,7 +219,7 @@ func CallMethod(name string, input Value) Value {
 	case "reduce":
 		items := Iterate(self)
 		if len(items) == 0 {
-			panic(Thrown{Value: "Bad state: No element"})
+			stateError("No element")
 		}
 		acc := items[0]
 		for _, it := range items[1:] {
@@ -598,5 +598,6 @@ func whereFirst(self, pred, orElse Value, last bool) Value {
 	if orElse != nil {
 		return Call(orElse, nil)
 	}
-	panic(Thrown{Value: "Bad state: No element"})
+	stateError("No element")
+	return nil // unreachable: stateError always panics.
 }

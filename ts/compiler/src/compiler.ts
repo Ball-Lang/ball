@@ -5416,13 +5416,21 @@ function __isUnknownFnError(e: any): boolean {
         const list = f.get("list") ?? f.get("value");
         return list ? `(${this.expr(list)}.length === 0)` : "true";
       }
+      // `.first`/`.last` on an EMPTY list THROW Dart's StateError (issue #616).
+      // A bare `[0]` / `[length - 1]` yields `undefined` — the same silent
+      // placeholder `list_find` handed back before #597 — so an
+      // `on StateError catch` in the source program never ran. The thrown shape
+      // is the tagged object literal every emitted typed-`catch` guard already
+      // tests for, exactly as `list_find` below throws it.
       case "list_first": {
         const list = f.get("list");
-        return list ? `${this.expr(list)}[0]` : "undefined";
+        if (!list) return "undefined";
+        return `((__ball_lfst) => { if (__ball_lfst.length === 0) throw {'__type__': 'StateError', 'message': 'No element'}; return __ball_lfst[0]; })(${this.expr(list)})`;
       }
       case "list_last": {
         const list = f.get("list");
-        return list ? `${this.expr(list)}[${this.expr(list)}.length - 1]` : "undefined";
+        if (!list) return "undefined";
+        return `((__ball_llst) => { if (__ball_llst.length === 0) throw {'__type__': 'StateError', 'message': 'No element'}; return __ball_llst[__ball_llst.length - 1]; })(${this.expr(list)})`;
       }
       case "list_contains": {
         const list = f.get("list");

@@ -163,9 +163,13 @@ public class ZeroArgLinqTerminalTests
                 Console.WriteLine(empty.Last());
             """)));
 
-        var ex = Assert.Throws<BallRuntimeException>(() => CSharpRunner.Run(compiled));
+        // Since #616 that throw is a TYPED, catchable BallThrow carrying Dart's
+        // StateError — not the native BallRuntimeException it used to be, which
+        // sailed straight past a compiled program's own `catch (BallThrow …)`.
+        var ex = Assert.Throws<BallThrow>(() => CSharpRunner.Run(compiled));
 
-        Assert.Contains("last on an empty list", ex.Message);
+        Assert.Equal("StateError", ex.TypeName);
+        Assert.Equal("Bad state: No element", ex.Payload.ToString());
     }
 
     /// <summary>A <c>List&lt;T&gt;</c> declared and filled through the routed collection ops

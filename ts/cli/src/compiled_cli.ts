@@ -277,8 +277,8 @@ export function __ball_to_string(v: any): string {
     // "Bad state: No element". The table is EXPLICIT and closed over the type
     // names this compiler throws: a user object that merely carries a
     // message field is not a Dart error and keeps the map form.
-    // The empty prefix is not "unset" -- it is Dart answer for TypeError: a
-    // _TypeError toString() IS its message ("type 'int' is not a subtype of
+    // The empty prefix is not "unset" -- it is Dart's answer for TypeError: a
+    // _TypeError's toString() IS its message ("type 'int' is not a subtype of
     // type 'String' in type cast"), with no type-name prefix at all (#641).
     const __ball_err_prefix: Record<string, string> = {
       StateError: 'Bad state',

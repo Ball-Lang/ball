@@ -1130,7 +1130,7 @@ pub(crate) fn ball_runtime_type_name(value: &BallValue) -> String {
 ///
 /// The message is Dart's own, verbatim (issue #641) — it names the VALUE's
 /// runtime type before the target type, which is why the subject is a parameter
-/// at all. Guard: conformance `466_caught_type_error_to_string`.
+/// at all. Guard: conformance `467_caught_type_error_to_string`.
 pub fn ball_cast_assert(matched: bool, value: &BallValue, type_name: &str) -> bool {
     if !matched {
         ball_throw_typed(
@@ -1971,6 +1971,95 @@ fn set_backing(set: &BallValue) -> BallList {
         },
         BallValue::List(items) => items.clone(),
         other => panic!("ball-lang-compiler runtime: set op on a non-set value: {other:?}"),
+    }
+}
+
+// ── The declared text sink (issue #630) ─────────────────────────────────────
+//
+// A sink is a `__type__`-tagged `BallMap` carrying its accumulated text under
+// `__buffer__`, NOT a bare `String`. Two properties depend on that, and both
+// fail SILENTLY when a target gets them wrong:
+//
+//  * `ball_type_of` answers `"Sink"`, because it already reads a map's
+//    `__type__` tag. A bare `String` backing would answer `"String"` here and
+//    `"StringBuilder"`/`"Builder"`/`"StringIO"` on the other targets, so a Ball
+//    program branching on `type_of` would take a different arm per target.
+//  * `BallMap` is `Arc<Mutex<IndexMap>>`-backed, so an append performed inside
+//    a callee is visible to the caller. This crate already had to learn that
+//    for `BallList` — issue #300, where a by-value `Vec<BallValue>` clone lost
+//    every append — which is why the sink is not a `String` field.
+
+/// The `__type__` tag of a text sink. `ball_type_of` strips the module prefix,
+/// so a sink reports `"Sink"`.
+const BALL_SINK_TAG: &str = "std:Sink";
+const BALL_SINK_BUFFER: &str = "__buffer__";
+
+/// `std.sink_create(initial?)` — a new text sink, optionally seeded.
+pub fn ball_sink_create(initial: BallValue) -> BallValue {
+    let map = BallMap::new();
+    map.insert("__type__", BallValue::String(BALL_SINK_TAG.to_string()));
+    let seed = match initial {
+        BallValue::Null => String::new(),
+        other => sink_text(&other),
+    };
+    map.insert(BALL_SINK_BUFFER, BallValue::String(seed));
+    BallValue::Map(map)
+}
+
+/// `std.sink_write(sink, text)` — append `text`. Returns null: the observable
+/// effect is the in-place mutation, which is what makes the sink
+/// reference-semantic.
+pub fn ball_sink_write(sink: BallValue, text: BallValue) -> BallValue {
+    let map = sink_backing(&sink, "sink_write");
+    let existing = match map.get(BALL_SINK_BUFFER) {
+        Some(BallValue::String(s)) => s,
+        _ => String::new(),
+    };
+    map.insert(
+        BALL_SINK_BUFFER,
+        BallValue::String(existing + &sink_text(&text)),
+    );
+    BallValue::Null
+}
+
+/// `std.sink_to_string(sink)` — the accumulated text, in write order.
+pub fn ball_sink_to_string(sink: BallValue) -> BallValue {
+    let map = sink_backing(&sink, "sink_to_string");
+    match map.get(BALL_SINK_BUFFER) {
+        Some(BallValue::String(s)) => BallValue::String(s),
+        _ => BallValue::String(String::new()),
+    }
+}
+
+/// A sink operand's text form. `sink_write` takes TEXT and every encoder wraps
+/// a non-string operand in `std.to_string` first, but a bare value still
+/// stringifies rather than panicking — matching Dart's `StringBuffer.write`.
+fn sink_text(value: &BallValue) -> String {
+    match value {
+        BallValue::String(s) => s.clone(),
+        other => match ball_to_string(other.clone()) {
+            BallValue::String(s) => s,
+            v => v.to_string(),
+        },
+    }
+}
+
+/// The live backing map of a sink, or a loud panic. Never fabricate an empty
+/// sink: silently accepting a non-sink turns every mis-routed `sink_write` into
+/// a discarded write (issue #55's silent-degradation shape).
+fn sink_backing(sink: &BallValue, function: &str) -> BallMap {
+    match sink {
+        BallValue::Map(map) => match map.get("__type__") {
+            Some(BallValue::String(tag)) if tag == BALL_SINK_TAG => map.clone(),
+            _ => panic!(
+                "ball-lang-compiler runtime: std.{function} expected a sink \
+                 (std.sink_create), got a plain map"
+            ),
+        },
+        other => panic!(
+            "ball-lang-compiler runtime: std.{function} expected a sink \
+             (std.sink_create), got {other:?}"
+        ),
     }
 }
 
@@ -4124,6 +4213,39 @@ mod dartsdk {
 mod tests {
     use super::*;
 
+    // ── the declared text sink (issue #630) ──
+
+    /// Both properties that fail SILENTLY when a target gets the sink wrong.
+    ///
+    /// 1. `std.type_of` answers `"Sink"` — never the host type. A backing of a
+    ///    bare `String` would answer `"String"` and a program branching on
+    ///    `type_of` would take a different arm here than on every other target.
+    /// 2. The sink is REFERENCE-SEMANTIC: appending inside a callee is visible
+    ///    to the caller. This crate already had to learn that for `BallList`
+    ///    (issue #300 — a by-value `Vec<BallValue>` clone lost every append),
+    ///    which is why the backing is a `BallMap` and not a `String` field.
+    #[test]
+    fn sink_is_a_tagged_reference_value() {
+        let sink = ball_sink_create(BallValue::Null);
+        assert_eq!(ball_type_of(sink.clone()), BallValue::String("Sink".into()));
+
+        ball_sink_write(sink.clone(), BallValue::String("a".into()));
+        // The by-value trap: hand the sink to a callee and append there.
+        fn append(s: BallValue) {
+            ball_sink_write(s, BallValue::String("b".into()));
+        }
+        append(sink.clone());
+
+        assert_eq!(ball_sink_to_string(sink), BallValue::String("ab".into()));
+    }
+
+    #[test]
+    fn sink_create_seeds_from_initial() {
+        let sink = ball_sink_create(BallValue::String("x".into()));
+        ball_sink_write(sink.clone(), BallValue::String("y".into()));
+        assert_eq!(ball_sink_to_string(sink), BallValue::String("xy".into()));
+    }
+
     // ── arithmetic ──
     #[test]
     fn add_promotes_int_and_double() {
@@ -4685,7 +4807,7 @@ mod tests {
     /// saw the subject at all, and `dart_error_to_string` rendered the result
     /// as `TypeError: …`. Two wrongs that no fixture could see, because
     /// `302_cast_patterns` prints a hardcoded literal from its catch body.
-    /// The cross-target guard is `466_caught_type_error_to_string`.
+    /// The cross-target guard is `467_caught_type_error_to_string`.
     #[test]
     fn a_failed_cast_assert_is_typed_and_stringifies_like_dart() {
         fn assert_type_error(want: &str, value: BallValue, type_name: &str) {

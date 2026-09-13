@@ -14,7 +14,7 @@ import "testing"
 //     `TypeError: …`. `dartErrorToString` had no TypeError arm, so a caught
 //     one stringified as the bare type tag "TypeError".
 //
-// The cross-target guard is conformance fixture 466_caught_type_error_to_string
+// The cross-target guard is conformance fixture 467_caught_type_error_to_string
 // (compiled and RUN by go/compiler/type_error_contract_test.go); this is the Go
 // runtime half.
 func TestCastAssertIsTypedAndStringifiesLikeDart(t *testing.T) {

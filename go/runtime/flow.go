@@ -83,7 +83,7 @@ func stateError(message string) { dartError("StateError", message) }
 // built-ins — and it names the VALUE's runtime type before the target type,
 // which is why the subject is a parameter at all. The compiler used to inline
 // this and spell `type cast failed: not a int`, which no other target and no
-// real Dart produced. Guard: conformance 466_caught_type_error_to_string.
+// real Dart produced. Guard: conformance 467_caught_type_error_to_string.
 func CastAssert(matched bool, v Value, typeName string) bool {
 	if !matched {
 		dartError("TypeError", "type '"+typeOfName(v)+"' is not a subtype of type '"+

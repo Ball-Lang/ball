@@ -157,6 +157,38 @@ func _kBallSetTag(input ballrt.Value) ballrt.Value {
 	return _kBallSetTag__val
 }
 
+var _kBallSinkTag__val ballrt.Value
+var _kBallSinkTag__init bool
+
+func _kBallSinkTag(input ballrt.Value) ballrt.Value {
+	_ = input
+	if !_kBallSinkTag__init {
+		_kBallSinkTag__init = true
+		_kBallSinkTag__val = func() (__ret ballrt.Value) {
+			defer ballrt.CatchReturn(&__ret)
+			__ret = "std:Sink"
+			return
+		}()
+	}
+	return _kBallSinkTag__val
+}
+
+var _kBallSinkBuffer__val ballrt.Value
+var _kBallSinkBuffer__init bool
+
+func _kBallSinkBuffer(input ballrt.Value) ballrt.Value {
+	_ = input
+	if !_kBallSinkBuffer__init {
+		_kBallSinkBuffer__init = true
+		_kBallSinkBuffer__val = func() (__ret ballrt.Value) {
+			defer ballrt.CatchReturn(&__ret)
+			__ret = "__buffer__"
+			return
+		}()
+	}
+	return _kBallSinkBuffer__val
+}
+
 func _ballValueIsSet(input ballrt.Value) (__ret ballrt.Value) {
 	_ = input
 	v := input
@@ -2199,6 +2231,42 @@ func _stdNullAwareCall(input ballrt.Value) ballrt.Value {
 		return BallEngine___stdNullAwareCall(input)
 	}
 	panic(ballrt.Thrown{Value: "no method '_stdNullAwareCall' for " + __t})
+}
+
+func _stdSinkCreate(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___stdSinkCreate(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_stdSinkCreate' for " + __t})
+}
+
+func _stdSinkWrite(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___stdSinkWrite(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_stdSinkWrite' for " + __t})
+}
+
+func _stdSinkToString(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___stdSinkToString(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_stdSinkToString' for " + __t})
+}
+
+func _stdSinkBacking(input ballrt.Value) ballrt.Value {
+	self := ballrt.FieldGet(input, "self")
+	__t := ballrt.ToStr(ballrt.MessageTypeName(self))
+	if __t == "main:BallEngine" || __t == "BallEngine" {
+		return BallEngine___stdSinkBacking(input)
+	}
+	panic(ballrt.Thrown{Value: "no method '_stdSinkBacking' for " + __t})
 }
 
 func _stdTypeCheck(input ballrt.Value) ballrt.Value {
@@ -8859,35 +8927,21 @@ func _typeRefValueToString(input ballrt.Value) (__ret ballrt.Value) {
 			return false
 		}()
 		_ = nullable
-		var buf ballrt.Value = func() ballrt.Value {
-			__m := ballrt.NewMap()
-			__m.Set("arg0", name)
-			return ballrt.NewMessage("main:StringBuffer", __m)
-		}()
+		var buf ballrt.Value = ballrt.SinkCreate(name)
 		_ = buf
 		_ = func() ballrt.Value {
 			if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(args, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(args))))) {
-				return ballrt.CallMethod("write", func() ballrt.Value {
-					__m := ballrt.NewMap()
-					__m.Set("self", buf)
-					__m.Set("arg0", ballrt.Concat(ballrt.Concat("<", ballrt.ToStr(ballrt.ListJoin(ballrt.ListMap(args, ballrt.Fn("_typeRefValueToString", _typeRefValueToString)), ", "))), ">"))
-					return __m
-				}())
+				return ballrt.SinkWrite(buf, ballrt.Concat(ballrt.Concat("<", ballrt.ToStr(ballrt.ListJoin(ballrt.ListMap(args, ballrt.Fn("_typeRefValueToString", _typeRefValueToString)), ", "))), ">"))
 			}
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(nullable) {
-				return ballrt.CallMethod("write", func() ballrt.Value {
-					__m := ballrt.NewMap()
-					__m.Set("self", buf)
-					__m.Set("arg0", "?")
-					return __m
-				}())
+				return ballrt.SinkWrite(buf, "?")
 			}
 			return ballrt.Value(nil)
 		}()
-		return ballrt.ToStr(buf)
+		return ballrt.SinkToString(buf)
 	}()
 	return
 }
@@ -26838,7 +26892,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 					var typeName ballrt.Value = ballrt.AsType(ballrt.IndexGet(selfMap, "__type__"), "String?")
 					_ = typeName
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeName, ballrt.Value(nil))) && ballrt.Truthy((ballrt.Truthy(ballrt.StrEndsWith(typeName, ":StringBuffer")) || ballrt.Truthy(ballrt.Eq(typeName, "StringBuffer")))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeName, ballrt.Value(nil))) && ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Eq(typeName, _kBallSinkTag(ballrt.Value(nil)))) || ballrt.Truthy(ballrt.StrEndsWith(typeName, ":StringBuffer")))) || ballrt.Truthy(ballrt.Eq(typeName, "StringBuffer")))))) {
 							return func() ballrt.Value {
 								_ = func() ballrt.Value {
 									__subj78 := method
@@ -26879,12 +26933,7 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 													return __l
 												}
 												return ""
-											}(), ballrt.CallMethod("fromCharCode", func() ballrt.Value {
-												__m := ballrt.NewMap()
-												__m.Set("self", ballrt.TypeLiteral("String"))
-												__m.Set("arg0", _toInt(ballrt.Arg0WithSelf(arg0, __self)))
-												return __m
-											}())))
+											}(), ballrt.StrFromCharCode(_toInt(ballrt.Arg0WithSelf(arg0, __self)))))
 											_ = ballrt.Return(ballrt.Value(nil))
 											return ballrt.Value(nil)
 										}()
@@ -31829,12 +31878,7 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 					v := input
 					_ = v
 					defer ballrt.CatchReturn(&__ret)
-					__ret = ballrt.CallMethod("fromCharCode", func() ballrt.Value {
-						__m := ballrt.NewMap()
-						__m.Set("self", ballrt.TypeLiteral("String"))
-						__m.Set("arg0", ballrt.AsType(v, "int"))
-						return __m
-					}())
+					__ret = ballrt.StrFromCharCode(ballrt.AsType(v, "int"))
 					return
 				}))
 				return __m
@@ -32093,6 +32137,9 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			}(), __self))
 			return
 		}))
+		__map86.Set(ballrt.ToStr("sink_create"), ballrt.Fn("_stdSinkCreate", func(__arg ballrt.Value) ballrt.Value { return _stdSinkCreate(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map86.Set(ballrt.ToStr("sink_write"), ballrt.Fn("_stdSinkWrite", func(__arg ballrt.Value) ballrt.Value { return _stdSinkWrite(ballrt.Arg0WithSelf(__arg, __self)) }))
+		__map86.Set(ballrt.ToStr("sink_to_string"), ballrt.Fn("_stdSinkToString", func(__arg ballrt.Value) ballrt.Value { return _stdSinkToString(ballrt.Arg0WithSelf(__arg, __self)) }))
 		__map86.Set(ballrt.ToStr("regex_match"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
 			_ = input
 			i := input
@@ -34472,9 +34519,9 @@ func BallEngine___ballToStringAsync(input ballrt.Value) (__ret ballrt.Value) {
 					var typeName ballrt.Value = ballrt.AsType(ballrt.IndexGet(ball_map, "__type__"), "String?")
 					_ = typeName
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeName, ballrt.Value(nil))) && ballrt.Truthy((ballrt.Truthy(ballrt.StrEndsWith(typeName, ":StringBuffer")) || ballrt.Truthy(ballrt.Eq(typeName, "StringBuffer")))))) {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(typeName, ballrt.Value(nil))) && ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Eq(typeName, _kBallSinkTag(ballrt.Value(nil)))) || ballrt.Truthy(ballrt.StrEndsWith(typeName, ":StringBuffer")))) || ballrt.Truthy(ballrt.Eq(typeName, "StringBuffer")))))) {
 							return ballrt.Return(func() ballrt.Value {
-								__l := ballrt.AsType(ballrt.IndexGet(ball_map, "__buffer__"), "String?")
+								__l := ballrt.AsType(ballrt.IndexGet(ball_map, _kBallSinkBuffer(ballrt.Value(nil))), "String?")
 								if __l != nil {
 									return __l
 								}
@@ -35623,6 +35670,366 @@ func BallEngine___stdNullAwareCall(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		return ballrt.Value(nil)
+	}()
+	return
+}
+
+func BallEngine___stdSinkCreate(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	ball_input := ballrt.ArgGet(input, "input", "arg0")
+	_ = ball_input
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
+		_ = m
+		var seed ballrt.Value = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+				return ballrt.Value(nil)
+			}
+			return ballrt.IndexGet(m, "initial")
+		}()
+		_ = seed
+		var sink ballrt.Value = _ballUserMap(ballrt.Value(nil))
+		_ = sink
+		_ = ballrt.IndexSet(sink, "__type__", _kBallSinkTag(ballrt.Value(nil)))
+		_ = ballrt.IndexSet(sink, _kBallSinkBuffer(ballrt.Value(nil)), func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(seed, ballrt.Value(nil))) {
+				return ""
+			}
+			return _ballToStringAsync(ballrt.Arg0WithSelf(seed, __self))
+		}())
+		return func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("entries", ballrt.CallMethod("cast", func() ballrt.Value {
+				__m := ballrt.NewMap()
+				__m.Set("self", sink)
+				return __m
+			}()))
+			return ballrt.NewMessage("main:BallMap", __m)
+		}()
+	}()
+	return
+}
+
+func BallEngine___stdSinkWrite(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	ball_input := ballrt.ArgGet(input, "input", "arg0")
+	_ = ball_input
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
+		_ = m
+		var sink ballrt.Value = _stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("arg0", func() ballrt.Value {
+				if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+					return ballrt.Value(nil)
+				}
+				return ballrt.IndexGet(m, "sink")
+			}())
+			__m.Set("arg1", "sink_write")
+			return __m
+		}(), __self))
+		_ = sink
+		var text ballrt.Value = _ballToStringAsync(ballrt.Arg0WithSelf(func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+				return ballrt.Value(nil)
+			}
+			return ballrt.IndexGet(m, "text")
+		}(), __self))
+		_ = text
+		_ = ballrt.IndexSet(sink, _kBallSinkBuffer(ballrt.Value(nil)), ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))), ballrt.ToStr(text)))
+		return ballrt.Value(nil)
+	}()
+	return
+}
+
+func BallEngine___stdSinkToString(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	ball_input := ballrt.ArgGet(input, "input", "arg0")
+	_ = ball_input
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var m ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(ball_input, __self))
+		_ = m
+		var sink ballrt.Value = _stdSinkBacking(ballrt.WithSelf(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("arg0", func() ballrt.Value {
+				if ballrt.Truthy(ballrt.Eq(m, ballrt.Value(nil))) {
+					return ballrt.Value(nil)
+				}
+				return ballrt.IndexGet(m, "sink")
+			}())
+			__m.Set("arg1", "sink_to_string")
+			return __m
+		}(), __self))
+		_ = sink
+		return ballrt.IndexGet(sink, _kBallSinkBuffer(ballrt.Value(nil)))
+	}()
+	return
+}
+
+func BallEngine___stdSinkBacking(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	__self := ballrt.FieldGet(input, "self")
+	_ = __self
+	program := ballrt.FieldGet(__self, "program")
+	_ = program
+	_types := ballrt.FieldGet(__self, "_types")
+	_ = _types
+	_functions := ballrt.FieldGet(__self, "_functions")
+	_ = _functions
+	_getters := ballrt.FieldGet(__self, "_getters")
+	_ = _getters
+	_setters := ballrt.FieldGet(__self, "_setters")
+	_ = _setters
+	_globalScope := ballrt.FieldGet(__self, "_globalScope")
+	_ = _globalScope
+	stdout := ballrt.FieldGet(__self, "stdout")
+	_ = stdout
+	_paramCache := ballrt.FieldGet(__self, "_paramCache")
+	_ = _paramCache
+	_callCache := ballrt.FieldGet(__self, "_callCache")
+	_ = _callCache
+	_typeMethodDispatch := ballrt.FieldGet(__self, "_typeMethodDispatch")
+	_ = _typeMethodDispatch
+	_instanceMethodCache := ballrt.FieldGet(__self, "_instanceMethodCache")
+	_ = _instanceMethodCache
+	_topLevelRefs := ballrt.FieldGet(__self, "_topLevelRefs")
+	_ = _topLevelRefs
+	_staticFieldRefs := ballrt.FieldGet(__self, "_staticFieldRefs")
+	_ = _staticFieldRefs
+	_enumValues := ballrt.FieldGet(__self, "_enumValues")
+	_ = _enumValues
+	_constructors := ballrt.FieldGet(__self, "_constructors")
+	_ = _constructors
+	maxRecursionDepth := ballrt.FieldGet(__self, "maxRecursionDepth")
+	_ = maxRecursionDepth
+	timeoutMs := ballrt.FieldGet(__self, "timeoutMs")
+	_ = timeoutMs
+	maxMemoryBytes := ballrt.FieldGet(__self, "maxMemoryBytes")
+	_ = maxMemoryBytes
+	maxModules := ballrt.FieldGet(__self, "maxModules")
+	_ = maxModules
+	maxExpressionDepth := ballrt.FieldGet(__self, "maxExpressionDepth")
+	_ = maxExpressionDepth
+	maxProgramSizeBytes := ballrt.FieldGet(__self, "maxProgramSizeBytes")
+	_ = maxProgramSizeBytes
+	sandbox := ballrt.FieldGet(__self, "sandbox")
+	_ = sandbox
+	moduleHandlers := ballrt.FieldGet(__self, "moduleHandlers")
+	_ = moduleHandlers
+	_random := ballrt.FieldGet(__self, "_random")
+	_ = _random
+	stderr := ballrt.FieldGet(__self, "stderr")
+	_ = stderr
+	stdinReader := ballrt.FieldGet(__self, "stdinReader")
+	_ = stdinReader
+	_envGet := ballrt.FieldGet(__self, "_envGet")
+	_ = _envGet
+	_args := ballrt.FieldGet(__self, "_args")
+	_ = _args
+	_resolver := ballrt.FieldGet(__self, "_resolver")
+	_ = _resolver
+	value := ballrt.ArgGet(input, "value", "arg0")
+	_ = value
+	function := ballrt.ArgGet(input, "function", "arg1")
+	_ = function
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var ball_map ballrt.Value = _stdAsMap(ballrt.Arg0WithSelf(value, __self))
+		_ = ball_map
+		_ = func() ballrt.Value {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(ball_map, ballrt.Value(nil))) || ballrt.Truthy(ballrt.Neq(ballrt.IndexGet(ball_map, "__type__"), _kBallSinkTag(ballrt.Value(nil)))))) {
+				return ballrt.Throw(func() ballrt.Value {
+					__m := ballrt.NewMap()
+					__m.Set("message", ballrt.Concat(ballrt.Concat(ballrt.Concat("std.", ballrt.ToStr(function)), ": expected a sink (std.sink_create), got "), ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(value, __self)))))
+					return ballrt.NewMessage("main:BallRuntimeError", __m)
+				}())
+			}
+			return ballrt.Value(nil)
+		}()
+		return ball_map
 	}()
 	return
 }

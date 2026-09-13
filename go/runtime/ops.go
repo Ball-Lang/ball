@@ -309,7 +309,7 @@ func dartErrorToString(m *Message) (string, bool) {
 	// type cast"), with no type-name prefix at all, so this arm was MISSING
 	// rather than merely different: a caught failed cast printed the bare type
 	// tag "TypeError" (issue #641). Verified against the SDK; guard: conformance
-	// 466_caught_type_error_to_string.
+	// 467_caught_type_error_to_string.
 	case "TypeError":
 		prefix = ""
 	default:

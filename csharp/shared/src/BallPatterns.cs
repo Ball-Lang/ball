@@ -119,7 +119,7 @@ public static partial class BallRuntime
     /// target type, which is why the subject is a parameter at all. It used to
     /// spell <c>type cast failed: not a int</c>, which no other target and no real
     /// Dart produced. Guard:
-    /// <c>tests/conformance/466_caught_type_error_to_string</c>.</para>
+    /// <c>tests/conformance/467_caught_type_error_to_string</c>.</para>
     /// </summary>
     public static bool PatternCastAssert(bool matched, BallValue value, string typeName) =>
         matched

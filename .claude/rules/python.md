@@ -8,8 +8,8 @@ paths:
 Python (epic #445) is a **complete pipeline** — compiler, encoder, self-hosted engine, and the
 `ball` CLI (`run`/`compile`/`encode`/`check`, plus the self-hosted cli-core verbs
 `info`/`validate`/`tree`/`version`, #570) are all in place and tested. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 351 passed,
-0 failed, 351 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 352 passed,
+0 failed, 352 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `python`
 job — compiler/encoder/CLI pytest + `compileall` plus the regenerate-then-run self-hosted engine
 conformance sweep — and the `python-engine` row in `conformance-matrix.yml`) and `python/AGENTS.md`,
@@ -110,6 +110,21 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `python/runtime/ballrt/collections.py`'s `list_find` (a `StateError` payload carried by `BallThrow`) and the `463_list_find_no_match` entry in `python/compiler/tests/test_conformance.py` is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **The declared text sink `std.sink_create` / `sink_write` / `sink_to_string`
+  (#630).** A sink is a **`__type__`-tagged, REFERENCE-semantic value** carrying
+  its accumulated text under `__buffer__` — never a bare host builder. Two
+  properties are normative on every target and both fail SILENTLY when a target
+  gets them wrong: `std.type_of(sink)` must answer `"Sink"` (a host builder
+  answers its own type name, so a program branching on `type_of` takes a
+  different arm per target), and an append performed inside a CALLEE must be
+  visible to the caller (a by-value backing loses exactly that append — the
+  shape of issue #300). `writeln` desugars to `sink_write` + `"\n"`,
+  `writeCharCode` to `sink_write` + `string_from_char_code`, and
+  `.length`/`.isEmpty`/`.isNotEmpty` to the existing string ops over
+  `sink_to_string`, so three declarations are the whole abstraction. Guards:
+  `tests/conformance/466_string_sink` (its `appendWord(out, 'c')` line is the
+  reference-semantics leg) plus this target's own tag test — `python/compiler/tests/test_sink.py`, plus the `466_string_sink` entry in `python/compiler/tests/test_conformance.py`'s `PROVEN` list (compile + run + golden diff).
+  Backing: `ballrt.sink_create`/`sink_write`/`sink_to_string` (`python/runtime/ballrt/sink.py`), over a plain `dict` — a reference, and the shape `ballrt.type_of` already reads a `__type__` tag from. An `io.StringIO` would answer `StringIO`.
 - **Every Dart `StateError` site goes through `ballrt.flow.state_error` (#616).**
   `list_first`/`list_last`/`list_pop` and the `.first`/`.last` field getters used
   to let Python's NATIVE `IndexError` escape — not a `BallThrow` at all, so the
@@ -135,7 +150,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
   must add one whose `toString` is the MESSAGE ALONE, never the base classes'
   generic `<Type>: <message>`. `python/compiler/tests/test_runtime.py` pins the
   three renderings this runtime does produce.
-  `tests/conformance/466_caught_type_error_to_string` is the cross-target guard,
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
   and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
   own self-test) is the structural one: it asserts every Dart error name this
   runtime RAISES has an entry in this runtime's table and that every entry's
@@ -157,7 +172,7 @@ python -m compileall python/runtime/ballrt python/compiler/ball_compiler \
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#/Go: compile
   `dart/self_host/engine.ball.json` through `python/compiler` (**library mode**) into
   `ball_engine/compiled_engine.py`.
-- **Status: complete, runs at Dart parity** — `Results: 351 passed, 0 failed, 351 total (4 skipped
+- **Status: complete, runs at Dart parity** — `Results: 352 passed, 0 failed, 352 total (4 skipped
   carve-outs)`, matching Dart byte-for-byte.
 - **Fix compiled-engine behavior in `python/compiler` (a fix + regen) or `python/runtime` (no
   regen) — NEVER hand-edit `compiled_engine.py`.** Common `python/runtime` families: `ball_proto`

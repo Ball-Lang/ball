@@ -234,7 +234,7 @@ public abstract class BallValue
             // at all, so this arm was MISSING rather than merely different: a
             // caught failed cast printed the raw map form (issue #641). Verified
             // against the SDK; guard:
-            // `tests/conformance/466_caught_type_error_to_string`.
+            // `tests/conformance/467_caught_type_error_to_string`.
             "TypeError" => "",
             _ => null,
         };

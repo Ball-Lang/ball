@@ -848,7 +848,7 @@ fn dart_error_to_string(entries: &[(&String, &BallValue)]) -> Option<String> {
         // 'String' in type cast`), with no type-name prefix at all, so rendering
         // it like its three siblings was wrong rather than merely different
         // (issue #641). Verified against the SDK; guard:
-        // `tests/conformance/466_caught_type_error_to_string`.
+        // `tests/conformance/467_caught_type_error_to_string`.
         "TypeError" => "",
         _ => return None,
     };

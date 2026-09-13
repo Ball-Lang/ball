@@ -1379,6 +1379,11 @@ extension BallEngineStd on BallEngine {
       'string_pad_left': (i) => _stdStringPad(i, true),
       'string_pad_right': (i) => _stdStringPad(i, false),
 
+      // ── Text sink (issue #630) ───────────────────────────────────
+      'sink_create': _stdSinkCreate,
+      'sink_write': _stdSinkWrite,
+      'sink_to_string': _stdSinkToString,
+
       // ── Regex ────────────────────────────────────────────────────
       'regex_match': (i) =>
           _stdBinaryAny(i, (a, b) => RegExp(b as String).hasMatch(a as String)),
@@ -1792,9 +1797,13 @@ extension BallEngineStd on BallEngine {
     final map = _stdAsMap(v);
     if (map != null) {
       final typeName = map['__type__'] as String?;
+      // A text sink (issue #630) and the legacy `StringBuffer` instance map it
+      // replaces both stringify as their accumulated text, not as a map.
       if (typeName != null &&
-          (typeName.endsWith(':StringBuffer') || typeName == 'StringBuffer')) {
-        return (map['__buffer__'] as String?) ?? '';
+          (typeName == _kBallSinkTag ||
+              typeName.endsWith(':StringBuffer') ||
+              typeName == 'StringBuffer')) {
+        return (map[_kBallSinkBuffer] as String?) ?? '';
       }
       if (typeName != null) {
         // Exception-typed objects: return the message field directly.
@@ -1980,6 +1989,88 @@ extension BallEngineStd on BallEngine {
     if (target == null) return null;
     // In the interpreter, method calls are resolved through function lookup
     return null;
+  }
+
+  // ── Text sink (issue #630) ──────────────────────────────────────────
+  //
+  // A sink is a `__type__`-tagged map carrying its accumulated text under
+  // `__buffer__`. Written in PORTABLE Dart only (map create, string concat,
+  // map read) because this file is `part of engine.dart` and is therefore
+  // compiled into every self-hosted engine — a host `StringBuffer` here would
+  // not survive that trip, and would make `std.type_of` answer the host type
+  // rather than "Sink".
+  //
+  // The map comes from `_ballUserMap()`, not a literal: a plain map literal
+  // lowers to a BY-VALUE `std::map` in the C++ self-host, so an append
+  // performed inside a callee would hit a throwaway copy and be lost (the same
+  // failure `_evalMessageCreation`'s instance-map fallthrough documents, and
+  // the same shape as issue #300's lost `BallList` appends). Reference
+  // semantics are the property that fails SILENTLY, so they are pinned by
+  // engine_test.dart's function-boundary test and by conformance fixture
+  // `466_string_sink`.
+
+  /// `std.sink_create` — a new text sink, optionally seeded with `initial`.
+  ///
+  /// PORTABILITY: every field read below is an explicit `m == null ? …` test,
+  /// never a null-aware index (`m?['initial']`). This file is `part of
+  /// engine.dart`, so it is encoded to Ball and compiled into every
+  /// self-hosted engine, and `?.[]` encodes to `std.null_aware_index` — a base
+  /// function the Rust target does not implement. It cost three fixtures on the
+  /// `rust-engine` matrix row before the explicit form went back in (the
+  /// "engine code must be self-host-portable" rule, docs/TESTING_STRATEGY.md
+  /// §6).
+  Future<Object?> _stdSinkCreate(Object? input) async {
+    final m = _stdAsMap(input);
+    final seed = m == null ? null : m['initial'];
+    final sink = _ballUserMap();
+    sink['__type__'] = _kBallSinkTag;
+    sink[_kBallSinkBuffer] = seed == null ? '' : await _ballToStringAsync(seed);
+    return BallMap(sink.cast<String, Object?>());
+  }
+
+  /// `std.sink_write` — append `text` to `sink`. Returns null: the observable
+  /// effect is the mutation, which is what makes the sink reference-semantic.
+  ///
+  /// `text` goes through the same `_ballToStringAsync` every other stringifying
+  /// op uses, so `sink.write(3)` matches Dart's `StringBuffer.write(3)` without
+  /// this file re-deriving a second, divergent number/bool rendering.
+  Future<Object?> _stdSinkWrite(Object? input) async {
+    final m = _stdAsMap(input);
+    final sink = _stdSinkBacking(m == null ? null : m['sink'], 'sink_write');
+    final text = await _ballToStringAsync(m == null ? null : m['text']);
+    sink[_kBallSinkBuffer] = '${sink[_kBallSinkBuffer]}$text';
+    return null;
+  }
+
+  /// `std.sink_to_string` — the text accumulated in `sink`, in write order.
+  ///
+  /// Reads the buffer directly: `_stdSinkBacking` has already proven the value
+  /// is a sink, and a sink's `__buffer__` is a String from the moment
+  /// `sink_create` seeds it, so there is no "missing buffer" case to invent a
+  /// default for.
+  Object? _stdSinkToString(Object? input) {
+    final m = _stdAsMap(input);
+    final sink = _stdSinkBacking(
+      m == null ? null : m['sink'],
+      'sink_to_string',
+    );
+    return sink[_kBallSinkBuffer];
+  }
+
+  /// The live backing map of [value], or a loud error when it is not a sink.
+  ///
+  /// Fail loud rather than fabricating an empty sink: silently accepting a
+  /// non-sink would turn every mis-routed `sink_write` into a discarded write
+  /// (issue #55's silent-degradation shape).
+  Map<String, Object?> _stdSinkBacking(Object? value, String function) {
+    final map = _stdAsMap(value);
+    if (map == null || map['__type__'] != _kBallSinkTag) {
+      throw BallRuntimeError(
+        'std.$function: expected a sink (std.sink_create), got '
+        '${_typeNameOf(value)}',
+      );
+    }
+    return map;
   }
 
   Object? _stdTypeCheck(Object? input) {
@@ -2516,7 +2607,7 @@ extension BallEngineStd on BallEngine {
           // other three built-ins — and it names the VALUE's runtime type before
           // the target type. `_evalLazyTry` binds `e.value` verbatim, so this
           // string is what every engine's catch variable reads, self-hosted ones
-          // included. Guard: conformance 466_caught_type_error_to_string, whose
+          // included. Guard: conformance 467_caught_type_error_to_string, whose
           // golden is produced by running its Dart source on the SDK.
           throw BallException(
             'TypeError',

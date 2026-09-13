@@ -23,8 +23,8 @@ import (
 // and roundtrip.go re-encodes and runs on DART), so without it the compiler's
 // own route stays unexercised by the corpus.
 func TestTypeErrorMessageContract(t *testing.T) {
-	fixture := filepath.Join("..", "..", "tests", "conformance", "466_caught_type_error_to_string.ball.json")
-	golden := filepath.Join("..", "..", "tests", "conformance", "466_caught_type_error_to_string.expected_output.txt")
+	fixture := filepath.Join("..", "..", "tests", "conformance", "467_caught_type_error_to_string.ball.json")
+	golden := filepath.Join("..", "..", "tests", "conformance", "467_caught_type_error_to_string.expected_output.txt")
 
 	prog := load(t, fixture)
 	src := compileFmt(t, prog)

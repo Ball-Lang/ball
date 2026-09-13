@@ -10,9 +10,9 @@
     "package:ball_base buildStdTimeModule()",
     "package:ball_base buildStdConcurrencyModule()"
   ],
-  "totalFunctions": 271,
+  "totalFunctions": 274,
   "functionsByModule": {
-    "std": 127,
+    "std": 130,
     "std_collections": 59,
     "std_concurrency": 9,
     "std_convert": 6,
@@ -22,9 +22,9 @@
     "std_time": 12
   },
   "summary": {
-    "encoderEmittable": 121,
-    "coveredByFixture": 131,
-    "engineImplementedDart": 233,
+    "encoderEmittable": 126,
+    "coveredByFixture": 136,
+    "engineImplementedDart": 236,
     "carvedOut": 0
   },
   "functions": [
@@ -545,7 +545,8 @@
         "444_inline_constructed_call_argument",
         "451_thrown_builtin_exception_tearoff",
         "464_typed_catch_clause_dispatch",
-        "466_caught_type_error_to_string",
+        "466_string_sink",
+        "467_caught_type_error_to_string",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -1859,6 +1860,7 @@
         "34_boolean_logic",
         "350_set_value",
         "416_user_method_name_arity_collision",
+        "466_string_sink",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2356,7 +2358,8 @@
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
-        "466_caught_type_error_to_string",
+        "466_string_sink",
+        "467_caught_type_error_to_string",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -2533,7 +2536,7 @@
         "397_map_values",
         "437_recursive_ctor_tree",
         "451_thrown_builtin_exception_tearoff",
-        "466_caught_type_error_to_string",
+        "467_caught_type_error_to_string",
         "52_max_of_three",
         "54_abs_value",
         "57_recursion_factorial",
@@ -2559,6 +2562,46 @@
         "284_enc_bitwise",
         "381_unsigned_right_shift",
         "61_bitwise_ops"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "sink_create",
+      "inputType": "SinkCreateInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "150_state_machine",
+        "466_string_sink"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "sink_to_string",
+      "inputType": "SinkToStringInput",
+      "outputType": "String",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "150_state_machine",
+        "466_string_sink"
+      ],
+      "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std",
+      "name": "sink_write",
+      "inputType": "SinkWriteInput",
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "150_state_machine",
+        "466_string_sink"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -2628,8 +2671,11 @@
       "module": "std",
       "name": "string_from_char_code",
       "inputType": "UnaryInput",
-      "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "140_caesar_cipher",
+        "466_string_sink"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -2660,6 +2706,7 @@
         "262_getter_properties",
         "350_set_value",
         "416_user_method_name_arity_collision",
+        "466_string_sink",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2681,8 +2728,10 @@
       "module": "std",
       "name": "string_length",
       "inputType": "UnaryInput",
-      "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "encoderEmittable": true,
+      "coveredByFixtures": [
+        "466_string_sink"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -2971,7 +3020,7 @@
         "396_switch_case_fallthrough",
         "400_switch_continue_label",
         "442_switch_goto_fallthrough_guard_or_pattern",
-        "466_caught_type_error_to_string"
+        "467_caught_type_error_to_string"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3067,7 +3116,6 @@
         "125_group_by",
         "127_zip_lists",
         "139_decimal_to_binary",
-        "140_caesar_cipher",
         "141_palindrome_number",
         "142_armstrong_number",
         "143_perfect_number",
@@ -3202,7 +3250,8 @@
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
-        "466_caught_type_error_to_string",
+        "466_string_sink",
+        "467_caught_type_error_to_string",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -3302,7 +3351,7 @@
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
-        "466_caught_type_error_to_string",
+        "467_caught_type_error_to_string",
         "53_try_catch_finally",
         "84_exception_chain",
         "91_nested_try_catch"
@@ -5004,10 +5053,8 @@
       "string_char_code_at",
       "string_concat",
       "string_contains",
-      "string_from_char_code",
       "string_index_of",
       "string_join",
-      "string_length",
       "string_repeat",
       "thread_join",
       "thread_spawn",

@@ -329,7 +329,8 @@ inline const std::vector<std::string>& program_names() {
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
-        "466_caught_type_error_to_string",
+        "466_string_sink",
+        "467_caught_type_error_to_string",
     };
     return names;
 }

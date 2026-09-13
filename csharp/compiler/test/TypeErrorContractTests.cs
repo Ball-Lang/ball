@@ -20,7 +20,7 @@ namespace Ball.Compiler.Tests;
 /// RUNTIME type before the target type:
 /// <c>type 'String' is not a subtype of type 'int' in type cast</c>. Measured
 /// against the Dart SDK, and reproduced by the golden of conformance fixture
-/// <c>466_caught_type_error_to_string</c> (which <c>generate_conformance.dart</c>
+/// <c>467_caught_type_error_to_string</c> (which <c>generate_conformance.dart</c>
 /// captures by RUNNING the Dart source, so the reference is real Dart).</para>
 ///
 /// <para><b>Why the tests did not catch it.</b> <c>302_cast_patterns</c> proves

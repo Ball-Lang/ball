@@ -95,6 +95,11 @@ class DartEncoder {
   /// refer to the cascade receiver.
   bool _inCascadeSection = false;
 
+  /// Whether the enclosing cascade's target is a text sink (issue #630), so a
+  /// null-target cascade section routes to `std.sink_*` rather than to a
+  /// generic method call on the tagged map.
+  bool _cascadeSelfIsSink = false;
+
   static Expression get _cascadeSelfExpr =>
       Expression()..reference = (Reference()..name = '__cascade_self__');
 
@@ -998,7 +1003,9 @@ class DartEncoder {
     }
     final def = FunctionDefinition()..name = '$className.$methodName';
 
-    final returnType = member.returnType?.toSource();
+    final returnType = member.returnType == null
+        ? null
+        : _portableTypeSource(member.returnType!.toSource());
     if (returnType != null) {
       def.outputType = returnType;
     }
@@ -1007,7 +1014,7 @@ class DartEncoder {
     if (params != null && params.parameters.isNotEmpty) {
       final first = params.parameters.first;
       if (first is ast.RegularFormalParameter && first.type != null) {
-        def.inputType = first.type!.toSource();
+        def.inputType = _portableTypeSource(first.type!.toSource());
       }
     }
 
@@ -1568,7 +1575,9 @@ class DartEncoder {
     final def = FunctionDefinition()..name = decl.name.lexeme;
 
     final returnTypeNode = decl.returnType;
-    final returnType = returnTypeNode?.toSource();
+    final returnType = returnTypeNode == null
+        ? null
+        : _portableTypeSource(returnTypeNode.toSource());
     if (returnType != null) {
       def.outputType = returnType;
     }
@@ -1577,7 +1586,7 @@ class DartEncoder {
     if (params != null && params.parameters.isNotEmpty) {
       final first = params.parameters.first;
       if (first is ast.RegularFormalParameter && first.type != null) {
-        def.inputType = first.type!.toSource();
+        def.inputType = _portableTypeSource(first.type!.toSource());
       }
     }
 
@@ -1997,7 +2006,9 @@ class DartEncoder {
     }
     if (stmt.variables.isLate) meta['is_late'] = true;
     final typeNode = stmt.variables.type;
-    if (typeNode != null) meta['type'] = typeNode.toSource();
+    if (typeNode != null) {
+      meta['type'] = _portableTypeSource(typeNode.toSource());
+    }
     if (meta.isNotEmpty) let.metadata = _toStruct(meta);
 
     return Statement()..let = let;
@@ -2031,7 +2042,9 @@ class DartEncoder {
         meta['keyword'] = 'var';
       }
       final typeNode = declList.type;
-      if (typeNode != null) meta['type'] = typeNode.toSource();
+      if (typeNode != null) {
+        meta['type'] = _portableTypeSource(typeNode.toSource());
+      }
       if (meta.isNotEmpty) let.metadata = _toStruct(meta);
 
       block.statements.add(Statement()..let = let);
@@ -3004,6 +3017,16 @@ class DartEncoder {
           ..reference = (Reference()..name = '$prefixName.$member');
       }
 
+      // Text sink (#630): `sb.length` / `.isEmpty` / `.isNotEmpty` read the
+      // BUFFER, never the tag map itself.
+      if (_isSinkReceiver(expr.prefix)) {
+        final routed = _encodeSinkGetter(
+          member,
+          Expression()..reference = (Reference()..name = prefixName),
+        );
+        if (routed != null) return routed;
+      }
+
       // Well-known getter properties on a simple identifier receiver
       // (e.g. `x.sign`, `nan.isNaN`). Same routes as the PropertyAccess path.
       const getterRoutes = <String, String>{
@@ -3648,6 +3671,16 @@ class DartEncoder {
 
     // Cascade section method call: `..doSomething()` has null target.
     if (target == null && _inCascadeSection) {
+      // Text sink (#630): the receiver is the cascade's target, not this node.
+      if (_cascadeSelfIsSink) {
+        final routed = _encodeSinkMethod(
+          methodName,
+          _cascadeSelfExpr,
+          expr.argumentList,
+          args,
+        );
+        if (routed != null) return routed;
+      }
       final call = FunctionCall()..function = methodName;
       final methodArgs = <FieldValuePair>[
         FieldValuePair()
@@ -3716,6 +3749,9 @@ class DartEncoder {
       // (`_helper()`, `_putAll()`) as a constructor and emit a bogus
       // MessageCreation instead of a function call. `_Foo()` (private class)
       // still resolves to a constructor; `_foo()` (private function) does not.
+      // `StringBuffer(...)` — a construction, but a DECLARED one (#630).
+      if (methodName == 'StringBuffer') return _buildSinkCreate(args);
+
       if (_looksLikeTypeName(methodName)) {
         final fullTypeName = '$_moduleName:$methodName';
         final msg = MessageCreation()
@@ -3746,6 +3782,19 @@ class DartEncoder {
       return Expression()..call = call;
     }
 
+    // Text sink (#630): a method call on a syntactically proven sink.
+    // Null-aware (`sb?.write(x)`) is excluded — its short-circuit is not part
+    // of the routing, and a nullable sink is not what the corpus writes.
+    if (!isNullAware && _isSinkReceiver(target)) {
+      final routed = _encodeSinkMethod(
+        methodName,
+        _encodeExpr(target),
+        expr.argumentList,
+        args,
+      );
+      if (routed != null) return routed;
+    }
+
     // Static method call: int.parse(...), double.parse(...)
     if (target is ast.SimpleIdentifier) {
       final typeName = target.name;
@@ -3756,6 +3805,21 @@ class DartEncoder {
       if (typeName == 'double' && methodName == 'parse') {
         _usedBaseFunctions.add('string_to_double');
         return _buildUnaryStdCall('string_to_double', args.first.value);
+      }
+      // `String.fromCharCode(n)` — the declared `std.string_from_char_code`.
+      //
+      // This closes a round-trip hole: the Dart COMPILER emits exactly this
+      // spelling for `string_from_char_code`, and without a route back the
+      // compile → re-encode → engine leg turned it into a generic method call
+      // carrying `self: reference("String")`, which no engine can resolve
+      // ("Undefined variable: String"). The same shape as the `panic!` defect
+      // the #630 design record flags for the Rust compiler (§7-R1): a compiler
+      // emitting a construct its own encoder cannot read back.
+      if (typeName == 'String' &&
+          methodName == 'fromCharCode' &&
+          args.length == 1) {
+        _usedBaseFunctions.add('string_from_char_code');
+        return _buildUnaryStdCall('string_from_char_code', args.first.value);
       }
       // dart:convert codecs: utf8.encode/decode, base64.encode/decode.
       // `utf8`/`base64` are dart:convert top-level consts, so without type
@@ -4259,6 +4323,224 @@ class DartEncoder {
     return isMatch(type) || type.allSupertypes.any(isMatch);
   }
 
+  // ── Text sink (issue #630) ──────────────────────────────────────────
+  //
+  // `StringBuffer` routes onto the declared `std.sink_create` / `sink_write` /
+  // `sink_to_string` base functions. Before #630 it encoded as a generic
+  // constructor + generic method calls that the Dart and TS ENGINES then
+  // special-cased by name — divergently (issue #633) — and that the Rust/C#/Go/
+  // Python/C++ compilers did not implement at all.
+  //
+  // The decision is SYNTACTIC, because it has to be: `generate_conformance.dart`
+  // and every self-host regeneration parse with `parseString`, which leaves
+  // `staticType` null, so #488's receiver-type gate is unavailable here. A
+  // receiver counts as a sink only when the nearest enclosing scope declares
+  // that exact name as a `StringBuffer`/`StringSink` — by type annotation, by a
+  // `StringBuffer(...)` initializer, or as a formal parameter of that type.
+  // Anything else falls through to the encoding it has always had.
+
+  static const _sinkTypeNames = <String>{'StringBuffer', 'StringSink'};
+
+  /// Whether [target] is a syntactically provable text sink.
+  static bool _isSinkReceiver(ast.Expression? target) {
+    if (target is! ast.SimpleIdentifier) return false;
+    final name = target.name;
+    ast.AstNode? node = target.parent;
+    while (node != null) {
+      // A local declared earlier in an enclosing block.
+      if (node is ast.Block) {
+        for (final s in node.statements) {
+          if (s is! ast.VariableDeclarationStatement) continue;
+          for (final v in s.variables.variables) {
+            if (v.name.lexeme == name) {
+              return _declaresSink(s.variables.type, v.initializer);
+            }
+          }
+        }
+      }
+      // A formal parameter of any enclosing function/method/constructor. A
+      // lambda that does not declare the name closes over its enclosing scope,
+      // so a miss keeps walking rather than deciding.
+      final params = _formalParametersOf(node);
+      if (params != null) {
+        for (final p in params.parameters) {
+          if (p.name?.lexeme != name) continue;
+          return p is ast.RegularFormalParameter &&
+              _isSinkTypeAnnotation(p.type);
+        }
+      }
+      node = node.parent;
+    }
+    return false;
+  }
+
+  static ast.FormalParameterList? _formalParametersOf(ast.AstNode node) {
+    if (node is ast.FunctionExpression) return node.parameters;
+    if (node is ast.MethodDeclaration) return node.parameters;
+    if (node is ast.ConstructorDeclaration) return node.parameters;
+    return null;
+  }
+
+  static bool _isSinkTypeAnnotation(ast.TypeAnnotation? type) {
+    if (type == null) return false;
+    return _sinkTypeNames.contains(type.toSource().replaceAll('?', ''));
+  }
+
+  /// A declared type annotation as it should be RECORDED in Ball metadata.
+  ///
+  /// `StringBuffer`/`StringSink` no longer name a target type: since #630 the
+  /// value is a `std.sink_*` sink — a `__type__`-tagged map on every target —
+  /// so recording the Dart spelling would make the compiled-back Dart (and any
+  /// other target that renders declared types) annotate a sink as a
+  /// `StringBuffer` and fail to type-check. Metadata is cosmetic (invariant
+  /// #2), so widening to `dynamic` is legal, and it is the honest rendering.
+  static String _portableTypeSource(String source) =>
+      _sinkTypeNames.contains(source.replaceAll('?', '')) ? 'dynamic' : source;
+
+  /// Whether a variable declared with [type] and [init] holds a text sink.
+  static bool _declaresSink(ast.TypeAnnotation? type, ast.Expression? init) {
+    if (type != null) return _isSinkTypeAnnotation(type);
+    return _isStringBufferConstruction(init);
+  }
+
+  /// Whether [expr] is a `StringBuffer(...)` construction. `parseString`
+  /// without resolution produces a `MethodInvocation` for the `new`-less form
+  /// and an `InstanceCreationExpression` only when `new` is written.
+  static bool _isStringBufferConstruction(ast.Expression? expr) {
+    if (expr is ast.MethodInvocation) {
+      return expr.target == null && expr.methodName.name == 'StringBuffer';
+    }
+    if (expr is ast.InstanceCreationExpression) {
+      return expr.constructorName.type.toSource() == 'StringBuffer';
+    }
+    // `var sb = StringBuffer()..write('a');` — a cascade EVALUATES to its
+    // target, so the binding still holds a sink and `sb.toString()` must route.
+    if (expr is ast.CascadeExpression) {
+      return _isStringBufferConstruction(expr.target) ||
+          _isSinkReceiver(expr.target);
+    }
+    return false;
+  }
+
+  /// `std.sink_create(initial?)` for a `StringBuffer(...)` construction.
+  Expression _buildSinkCreate(List<FieldValuePair> args) {
+    _usedBaseFunctions.add('sink_create');
+    return _buildStdCall('sink_create', [
+      if (args.isNotEmpty)
+        FieldValuePair()
+          ..name = 'initial'
+          ..value = args.first.value,
+    ]);
+  }
+
+  /// `std.sink_write(sink, text)`.
+  Expression _buildSinkWrite(Expression sink, Expression text) {
+    _usedBaseFunctions.add('sink_write');
+    return _buildStdCall('sink_write', [
+      FieldValuePair()
+        ..name = 'sink'
+        ..value = sink,
+      FieldValuePair()
+        ..name = 'text'
+        ..value = text,
+    ]);
+  }
+
+  /// `std.sink_to_string(sink)`.
+  Expression _buildSinkToString(Expression sink) {
+    _usedBaseFunctions.add('sink_to_string');
+    return _buildStdCall('sink_to_string', [
+      FieldValuePair()
+        ..name = 'sink'
+        ..value = sink,
+    ]);
+  }
+
+  Expression _stringLiteral(String value) =>
+      Expression()..literal = (Literal()..stringValue = value);
+
+  /// A sink operand rendered as TEXT. `StringBuffer.write(x)` writes `'$x'`, so
+  /// a non-string operand goes through `std.to_string`; a literal string is
+  /// already text and is passed through unwrapped.
+  Expression _sinkTextOperand(ast.Argument arg, Expression encoded) {
+    if (arg.argumentExpression is ast.StringLiteral) return encoded;
+    _usedBaseFunctions.add('to_string');
+    return _buildUnaryStdCall('to_string', encoded);
+  }
+
+  /// Routes a method call on a proven sink receiver, or null to fall through.
+  ///
+  /// Only the members with an exact desugaring are routed. `clear()` and
+  /// `writeAll()` deliberately fall through to the generic method encoding and
+  /// stay on the engines' Dart-SDK method surface (brief §7-R4): they have no
+  /// declared std function, and inventing a silent approximation for them is
+  /// exactly the failure mode #630 exists to remove.
+  Expression? _encodeSinkMethod(
+    String methodName,
+    Expression sink,
+    ast.ArgumentList argumentList,
+    List<FieldValuePair> args,
+  ) {
+    final argNodes = argumentList.arguments;
+    switch (methodName) {
+      case 'write':
+        if (args.length != 1) return null;
+        return _buildSinkWrite(
+          sink,
+          _sinkTextOperand(argNodes.first, args.first.value),
+        );
+      case 'writeln':
+        // `writeln([x])` is `write(x)` + "\n" — Rust `core` defines
+        // `writeln!($dst)` as literally `write!($dst, "\n")`, and Dart's
+        // `StringSink.writeln` is documented the same way.
+        if (args.length > 1) return null;
+        final head = args.isEmpty
+            ? _stringLiteral('')
+            : _sinkTextOperand(argNodes.first, args.first.value);
+        final text = args.isEmpty
+            ? _stringLiteral('\n')
+            : _buildConcatChain([head, _stringLiteral('\n')]);
+        return _buildSinkWrite(sink, text);
+      case 'writeCharCode':
+        if (args.length != 1) return null;
+        _usedBaseFunctions.add('string_from_char_code');
+        return _buildSinkWrite(
+          sink,
+          _buildUnaryStdCall('string_from_char_code', args.first.value),
+        );
+      case 'toString':
+        if (args.isNotEmpty) return null;
+        return _buildSinkToString(sink);
+      default:
+        return null;
+    }
+  }
+
+  /// Routes a getter read on a proven sink receiver, or null to fall through.
+  ///
+  /// Without this, `sb.length` encodes as a `fieldAccess` that every target
+  /// answers with the TAG MAP's key count (2), and `sb.isEmpty` asks the map
+  /// rather than the buffer — silently wrong answers, which is what the
+  /// conformance fixture caught at the base commit.
+  Expression? _encodeSinkGetter(String member, Expression sink) {
+    switch (member) {
+      case 'length':
+        _usedBaseFunctions.add('string_length');
+        return _buildUnaryStdCall('string_length', _buildSinkToString(sink));
+      case 'isEmpty':
+        _usedBaseFunctions.add('string_is_empty');
+        return _buildUnaryStdCall('string_is_empty', _buildSinkToString(sink));
+      case 'isNotEmpty':
+        _usedBaseFunctions.addAll(['string_is_empty', 'not']);
+        return _buildUnaryStdCall(
+          'not',
+          _buildUnaryStdCall('string_is_empty', _buildSinkToString(sink)),
+        );
+      default:
+        return null;
+    }
+  }
+
   /// Whether [name] syntactically looks like a type/constructor name rather
   /// than a function: its first letter (after any leading private `_`) is an
   /// upper-cased character. Returns false for all-underscore names and for
@@ -4331,6 +4613,14 @@ class DartEncoder {
     final namedType = expr.constructorName.type;
     final importPrefix = namedType.importPrefix?.name.lexeme;
     final bareTypeName = namedType.name.lexeme;
+
+    // `new StringBuffer(...)` — the explicit-`new` spelling of the sink
+    // construction the `MethodInvocation` path routes (#630).
+    if (importPrefix == null &&
+        bareTypeName == 'StringBuffer' &&
+        expr.constructorName.name == null) {
+      return _buildSinkCreate(_encodeArgList(expr.argumentList));
+    }
 
     // Without type resolution, `parseString` may misinterpret a named
     // constructor like `const SpanStatus.internalError()` as having an
@@ -4438,13 +4728,32 @@ class DartEncoder {
 
     // Expand cascade to Block: let __cascade_self__ = target; sections; result.
     final wasInCascade = _inCascadeSection;
+    final wasCascadeSelfSink = _cascadeSelfIsSink;
     _inCascadeSection = true;
+    // Text sink (#630): `sb..write('a')..write('b')` reaches the sections with
+    // a NULL target, so `_isSinkReceiver` cannot see it — the receiver is the
+    // cascade's own target. Carry that one bit so each section still routes to
+    // `std.sink_write`/`sink_to_string`. Without it a cascade on a sink emitted
+    // a generic `write` method call on the tagged map, which no compiled target
+    // implements.
+    final targetIsSink =
+        _isStringBufferConstruction(expr.target) ||
+        _isSinkReceiver(expr.target);
+    _cascadeSelfIsSink = targetIsSink;
     final sections = expr.cascadeSections.map(_encodeExpr).toList();
     _inCascadeSection = wasInCascade;
+    _cascadeSelfIsSink = wasCascadeSelfSink;
 
     final targetExpr = _encodeExpr(expr.target);
+    // A sink cascade (#630) deliberately drops the `cascade` tag — see
+    // `_encodeSinkMethod`. The compiler's `..`-syntax recognition re-applies
+    // each section as a method call on the bound name, but a sink section is a
+    // free-function `std.sink_write` call, so tagging it would emit
+    // `.._ballSinkWrite(__cascade_self__, …)`: a leaked binding and invalid
+    // target source. The untagged Block lowers to the ordinary
+    // evaluate-and-return-the-receiver form, which is correct for both.
     final metaFields = <String, structpb.Value>{
-      'kind': structpb.Value()..stringValue = 'cascade',
+      if (!targetIsSink) 'kind': structpb.Value()..stringValue = 'cascade',
     };
     if (expr.isNullAware) {
       metaFields['null_aware'] = structpb.Value()..boolValue = true;
@@ -6010,7 +6319,7 @@ class DartEncoder {
     for (final p in params.parameters) {
       final pm = <String, Object>{'name': p.name?.lexeme ?? '_'};
       if (p is ast.RegularFormalParameter && p.type != null) {
-        pm['type'] = p.type!.toSource();
+        pm['type'] = _portableTypeSource(p.type!.toSource());
       }
       // analyzer 13 removed DefaultFormalParameter; an optional parameter's
       // default value now lives on the FormalParameter's `defaultClause`
@@ -6022,7 +6331,8 @@ class DartEncoder {
       }
       if (p is ast.FieldFormalParameter) {
         pm['is_this'] = true;
-        if (p.type != null) pm['type'] = p.type!.toSource();
+        final t = p.type;
+        if (t != null) pm['type'] = _portableTypeSource(t.toSource());
       }
       if (p is ast.SuperFormalParameter) {
         pm['is_super'] = true;

@@ -72,23 +72,28 @@ module commits a `go.sum` (except `runtime`, which is stdlib-only).
 **No `go/*/go.mod` may carry a `replace` directive** — the Go module proxy serves
 a nested module as its own directory tree only (never its siblings), and
 `go install` refuses a module whose go.mod has one. Each module therefore
-`require`s its intra-repo dependencies at the real published version (`v0.1.0`),
-and the local pins live in `go/go.work`'s **versioned** `replace ... v0.1.0 =>
-./<dep>` block, which is never published. A bare `use` block is not enough: Go
-still loads the module graph, so an unpublished `require` fails with
-`unknown revision go/<m>/v0.1.0` even inside the workspace.
+`require`s its intra-repo dependencies at the real published version (**`v0.2.0`**
+since #586), and the local pins live in `go/go.work`'s **versioned**
+`replace ... vX.Y.Z => ./<dep>` block, which is never published. A bare `use`
+block is not enough: Go still loads the module graph, so an unpublished
+`require` fails with `unknown revision go/<m>/vX.Y.Z` even inside the workspace.
 
 ```bash
 bash tools/go-module-proxy/smoke.sh   # the gate ci.yml's `go` job runs
 ```
 
-It synthesizes the `file://` proxy the `go/<module>/v0.1.0` tags will produce
-(from this commit's tracked files, so the module hashes match what
-proxy.golang.org will compute), builds each module standalone with no `go.work`
-and no siblings, then `go install`s `.../go/cli/cmd/ball@v0.1.0` into a clean
-GOPATH and runs the binary. Off the *public* proxy this resolves only once the
-six `go/<module>/v0.1.0` tags are pushed on one commit — and **as of v1.64.0 they
-have not been**, so `go install …@latest` still does not resolve. Those tags come
+It synthesizes the `file://` proxy the `go/<module>/vX.Y.Z` tags will produce
+(from this commit's **tracked** files, so the module hashes match what
+proxy.golang.org will compute — and so the two committed artifacts of #586 are
+inside the zips), builds each module standalone with no `go.work` and no
+siblings, then `go install`s `.../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and
+**runs** the binary: `ball run` over conformance fixtures plus `ball info` and
+`ball version`, byte-compared against the same goldens the in-repo sweeps use.
+Off the *public* proxy this resolves only once the six `go/<module>/vX.Y.Z` tags
+are pushed on one commit. The `v0.1.0` tags exist but predate #586, so a binary
+installed from them still cannot run a program; **`v0.2.0` is the first line that
+carries the committed engine and CLI core**, and its six tags are cut by the same
+workflow. Those tags come
 from `.github/workflows/tag-go-modules.yml`, which `release.yml` dispatches on
 every release (`gh workflow run tag-go-modules.yml --ref vX.Y.Z`); the releases
 that shipped before that wiring existed need a one-time maintainer backfill
@@ -96,8 +101,8 @@ that shipped before that wiring existed need a one-time maintainer backfill
 "Go modules lane".
 
 **Both legs run against a fresh `GOMODCACHE`** — leg 1 gained one while landing
-#537. `v0.1.0` names a tag, not a commit, so a warm module cache already holding
-`go/<m>@v0.1.0` serves that older content and the sweep measures stale code: a
+#537. The module line names a tag, not a commit, so a warm module cache already
+holding `go/<m>@vX.Y.Z` serves that older content and the sweep measures stale code: a
 false red when the tree just gained an API the cached copy lacks, and a false
 green when a change breaks external resolution but the cached copy still builds.
 `actions/setup-go` restores `GOMODCACHE` across CI runs keyed only on the
@@ -106,9 +111,40 @@ committed `go.sum` files, so this affected CI too. Do not remove it.
 Before it builds anything, the script asserts the version story is internally
 consistent: every intra-repo `require` names the same version, no `go.mod` has a
 `replace`, and `go/go.work`'s versioned pins name that same version and cover
-every required module. So a version bump is a single lockstep edit across
-`go/*/go.mod` + `go/go.work`, and a half-bump fails here instead of surfacing
-later as `unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step.
+every required module — and the synthesized proxy's version must EQUAL that
+derived version (`--version` is a cross-check, never an override), so the proxy
+CI proves is by construction the one the tags will publish.
+
+**Never bump the version by hand.** The same number lives in nine places — six
+`go/*/go.mod` `require` blocks, `go/go.work`'s five `replace` pins,
+`tools/coverage-study/go/go.mod`, and `go/cli/version.go`'s `moduleVersion`
+fallback (unprefixed, what `ball version` prints from a checkout build). Use:
+
+```bash
+bash tools/go-module-proxy/bump_go_modules.sh v0.3.0   # ONE idempotent, self-verifying action
+```
+
+It refuses a non-semver version and a major >= 2 (the module paths carry no
+`/vN` suffix, which Go requires from v2 on —
+<https://go.dev/ref/mod#major-version-suffixes>, so the line stays 0.x/1.x until
+the paths themselves are renamed), rewrites every site, asserts nothing still
+names the old version, and re-derives through `--print-version`.
+`tools/test/test_bump_go_modules.sh` (ci.yml's always-on `proto` job) proves both
+the rewriter and every assertion on a scratch tree. A half-bump fails there —
+and in `smoke.sh` — instead of surfacing later as
+`unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step, or (worse) as a
+silent fall-through to the PUBLIC proxy that measures released code while
+reading green.
+
+Tags are immutable once fetched through `proxy.golang.org`/`sum.golang.org` — a
+moved tag is a checksum mismatch for every consumer that already has it — so a
+released line is never re-cut in place: a change ships as a NEW version.
+
+`go/go.work.sum` is deliberately **gitignored**, not committed: it holds only
+"hashes used by the workspace that are not in collective workspace modules'
+go.sum files" (<https://go.dev/ref/mod#go-work-sum>), every dependency here is
+already in a committed `go.sum`, and `go build`/`go test`/`go work sync` across
+all six modules produce no such file at all.
 
 ## Encoder design (see `go/encoder/encoder.go` doc comment)
 - `Encode(source string) (*ballv1.Program, error)` parses Go and walks

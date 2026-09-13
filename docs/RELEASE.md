@@ -374,8 +374,13 @@ the `go/*/go.mod` requires (`tools/go-module-proxy/build_local_proxy.py
 --print-version`, which also asserts all six agree and that no go.mod carries a
 `replace` directive). It is idempotent when the tags already exist and refuses to
 act on a half-tagged set. Note the Go module version is its OWN line (`v0.1.0`
-first) — it is not the repo's `vX.Y.Z` release version, which only selects the
-commit the tags land on.
+first, `v0.2.0` since #586) — it is not the repo's `vX.Y.Z` release version,
+which only selects the commit the tags land on. Move that line ONLY with
+`tools/go-module-proxy/bump_go_modules.sh vX.Y.Z` (it owns all nine sites the
+version lives in and re-verifies through `--print-version`); a `chore(go):` bump
+PR is not itself a repo release — the tags are cut when the next semantic-release
+tag dispatches this workflow, or by a manual
+`gh workflow run tag-go-modules.yml --ref main`.
 
 **Why the explicit dispatch** — same reason as npm and C++ above, and this lane
 learned it the expensive way. The job originally lived in `release-tag.yml`
@@ -389,14 +394,19 @@ merely the job's `if:`. No run row is created at all, so the dead channel read a
 `tools/release/check_release_dispatch_wiring.sh` (ci.yml's `Proto Checks` job) now
 pins the dispatch contract for all three channels so this cannot recur.
 
-**Status: no `go/` tags exist yet.** As of v1.64.0 the public proxy has nothing
-to serve, so `go install github.com/ball-lang/ball/go/cli/cmd/ball@latest` does
-**not** resolve — the Go modules remain clone-and-build in practice. The dispatch
-wiring above only covers releases from here on; the already-shipped ones need a
-one-time maintainer backfill:
+**Status: the six `go/<module>/v0.1.0` tags exist** (backfilled by #556, all on
+`08599a51`) — but they predate #586, when the compiled engine and CLI core were
+still gitignored and build-tag-gated. A `ball` installed from them can only
+`compile`/`encode`/`check`; it cannot run a program or answer `info`/`validate`/
+`tree`/`version`. Go module tags are **immutable** once fetched through
+`proxy.golang.org`/`sum.golang.org` (a moved tag is a checksum mismatch for every
+consumer that already has it — <https://go.dev/ref/mod#version-queries>), so they
+are **not** re-cut. **`v0.2.0` is the first Go module line that carries the
+committed artifacts**; its six tags are cut by the same workflow on the next
+release, or on demand:
 
 ```sh
-gh workflow run tag-go-modules.yml --ref main   # creates the six go/<module>/v0.1.0 tags
+gh workflow run tag-go-modules.yml --ref main   # creates the six go/<module>/v0.2.0 tags
 ```
 
 `tools/go-module-proxy/smoke.sh` (gating in ci.yml's `go` job) proves `go install

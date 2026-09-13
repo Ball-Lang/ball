@@ -169,3 +169,20 @@ skills-lock.json
 .cursor/
 .gemini/
 .claude/skills/gitlab-*
+
+# ----------------------------------
+# Go workspace sum file (issue #586)
+# ----------------------------------
+# go.work.sum "keeps track of hashes used by the workspace that are not in
+# collective workspace modules' go.sum files"
+# (https://go.dev/ref/mod#go-work-sum). Every external dependency of every
+# module under go/ is already recorded in that module's COMMITTED go.sum, so
+# there is nothing left for this file to hold: verified 2026-09-13 — `go build`,
+# `go test` and `go work sync` across all six modules produce no
+# go/go.work.sum at all. It is therefore IGNORED rather than committed: a
+# derived, machine-local byproduct with no freshness gate behind it, and
+# go.work is never published (the module a proxy serves is the repository at
+# the `go/<module>/vX.Y.Z` tag, and go.mod/go.sum are what a consumer verifies
+# against). Should a workspace-only hash ever appear, this keeps it out of the
+# tree instead of letting it drift in untracked.
+go/go.work.sum

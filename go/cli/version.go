@@ -24,7 +24,7 @@ import (
 // TestModuleVersionMatchesGoMod (version_test.go) is the drift guard: it parses
 // go/cli/go.mod's own require block and fails if this constant and the published
 // module version disagree, so a version bump cannot land here half-applied.
-const moduleVersion = "0.1.0"
+const moduleVersion = "0.2.0"
 
 // toolchainVersion is the version string handed to cli_core.versionLine.
 //

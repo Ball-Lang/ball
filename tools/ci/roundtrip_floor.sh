@@ -13,7 +13,7 @@
 #
 # Contract:
 #
-#   roundtrip_floor.sh <label> <floor> <leg-exit-code> <output-file> [note-file]
+#   roundtrip_floor.sh <label> <floor> <leg-exit-code> <output-file> [note-file] [fail-pattern]
 #
 #   label           human name for the row, e.g. "C#".
 #   floor           the per-target ratchet constant. MUST be an integer >= 1:
@@ -24,7 +24,15 @@
 #                   is the expected state until every target round-trips the
 #                   whole corpus.
 #   output-file     a file holding the leg's combined stdout+stderr.
-#   note-file       optional markdown appended to the GitHub step summary.
+#   note-file       optional markdown appended to the GitHub step summary. It is
+#                   where the row NAMES its remaining gap and the issue tracking
+#                   it — a row that still fails most of the corpus must say so
+#                   with an issue number, never "expected baseline".
+#   fail-pattern    optional ERE matching the leg's per-fixture failure lines;
+#                   defaults to Go/Python/Rust's shared `FAILING [name] …`
+#                   shape. The FIRST match is echoed verbatim, to stdout and to
+#                   the step summary, so the row's log always carries one real,
+#                   unabridged diagnosis of the gap rather than a bare count.
 #
 # Gates, in order:
 #   1. the floor itself is a bare integer >= 1;
@@ -47,6 +55,10 @@ floor=${2:-}
 leg_exit=${3:-}
 output_file=${4:-}
 note_file=${5:-}
+# Go, Python and Rust all print `FAILING [name] status detail`; C#'s harness
+# prints `  <name>: ERROR: …` under a `--- failures ---` header, so that row
+# passes its own pattern.
+fail_pattern=${6:-'^FAILING \['}
 
 if [ -z "$label" ] || [ -z "$output_file" ]; then
   echo "::error::roundtrip_floor.sh: usage: roundtrip_floor.sh <label> <floor> <leg-exit-code> <output-file> [note-file]"
@@ -110,10 +122,21 @@ if [ -n "${GITHUB_OUTPUT:-}" ]; then
   } >> "$GITHUB_OUTPUT"
 fi
 
+# ── 3. The first still-failing fixture, verbatim ────────────────────────────
+# A count alone cannot be acted on, and these rows fail most of the corpus by
+# construction. Echoing one real, unabridged failure line into the log AND the
+# step summary is what keeps "it is a gap" an inspectable claim instead of an
+# assertion — and, at `passed = 0`, what stops the row reading healthy while
+# measuring nothing.
+first_failure=$(grep -E "$fail_pattern" "$output_file" | head -1 || true)
+
 echo ""
 echo "=== $label Round-Trip Leg (floored + ratcheted) ==="
 echo "Results: $passed passed, $failed failed, $total total (floor: $floor)"
 echo "round-trip leg exit code: $leg_exit (non-zero is expected while any fixture still fails)"
+if [ -n "$first_failure" ]; then
+  echo "first still-failing fixture: $first_failure"
+fi
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
@@ -121,6 +144,14 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo ""
     echo "**$passed/$total** fixtures round-trip Ball -> $label -> Ball -> Dart engine."
     echo ""
+    if [ -n "$first_failure" ]; then
+      echo "First still-failing fixture:"
+      echo ""
+      echo '```'
+      echo "$first_failure"
+      echo '```'
+      echo ""
+    fi
     if [ -n "$note_file" ] && [ -f "$note_file" ]; then
       cat "$note_file"
       echo ""
@@ -128,19 +159,19 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
-# ── 3. Harness health ────────────────────────────────────────────────────────
+# ── 4. Harness health ────────────────────────────────────────────────────────
 if [ "$total" -lt 1 ]; then
   echo "::error::The $label round-trip leg reported no fixtures (total=$total) — it measured nothing. Leg exit code was $leg_exit."
   exit 1
 fi
 
-# ── 4. Positive floor (#642) ─────────────────────────────────────────────────
+# ── 5. Positive floor (#642) ─────────────────────────────────────────────────
 if [ "$passed" -lt 1 ]; then
   echo "::error::The $label round-trip leg round-tripped ZERO of $total fixtures. A measurement leg that cannot pass a single fixture is not measuring — fix the instrument or name the gap with its issue number, never leave the row green on a flat zero (issue #642)."
   exit 1
 fi
 
-# ── 5. Ratchet ───────────────────────────────────────────────────────────────
+# ── 6. Ratchet ───────────────────────────────────────────────────────────────
 if [ "$passed" -lt "$floor" ]; then
   echo "::error::$label round-trip leg REGRESSED: $passed passed, below the floor of $floor — a fixture that used to round-trip no longer does."
   exit 1

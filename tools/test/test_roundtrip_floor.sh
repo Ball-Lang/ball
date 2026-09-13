@@ -32,9 +32,9 @@ trap 'rm -rf "$work"' EXIT
 ran=0
 failures=0
 
-# run_case <name> <expected-exit> <floor> <leg-exit> <output-text> [expect-substring]
+# run_case <name> <expected-exit> <floor> <leg-exit> <output-text> [expect-substring] [fail-pattern]
 run_case() {
-  local name=$1 want_exit=$2 floor=$3 leg_exit=$4 text=$5 expect=${6:-}
+  local name=$1 want_exit=$2 floor=$3 leg_exit=$4 text=$5 expect=${6:-} pattern=${7:-}
   ran=$((ran + 1))
 
   local out_file="$work/$name.out"
@@ -46,7 +46,11 @@ run_case() {
   : > "$GITHUB_STEP_SUMMARY"
 
   local got
-  got=$(bash "$script" "TestLang" "$floor" "$leg_exit" "$out_file" 2>&1)
+  if [ -n "$pattern" ]; then
+    got=$(bash "$script" "TestLang" "$floor" "$leg_exit" "$out_file" "" "$pattern" 2>&1)
+  else
+    got=$(bash "$script" "TestLang" "$floor" "$leg_exit" "$out_file" 2>&1)
+  fi
   local got_exit=$?
 
   if [ "$got_exit" != "$want_exit" ]; then
@@ -154,6 +158,40 @@ else
   failures=$((failures + 1))
 fi
 
+# ── The first still-failing fixture is echoed VERBATIM ───────────────────────
+# A bare count cannot be acted on. These rows fail most of the corpus by
+# construction, so one real, unabridged failure line has to reach the log and the
+# step summary — that is what makes "it is a gap, not a broken instrument" an
+# inspectable claim. Go/Python/Rust share the `FAILING [name] …` shape.
+run_case first_failure_is_echoed 0 2 1 \
+  "FAILING [100_complex_control_flow] encode-error go->ball: 2 unsupported construct(s): / - a bullet
+FAILING [101_simple_class] encode-error go->ball: 34 unsupported construct(s):
+Results: 2 passed, 347 failed, 349 total (4 skipped carve-outs)" \
+  "first still-failing fixture: FAILING [100_complex_control_flow] encode-error go->ball: 2 unsupported construct(s): / - a bullet"
+
+ran=$((ran + 1))
+if grep -qF "FAILING [100_complex_control_flow]" "$work/first_failure_is_echoed.gh_summary"; then
+  echo "ok   [first_failure_is_echoed:in step summary]"
+else
+  echo "FAIL [first_failure_is_echoed]: the failure line is missing from the step summary"
+  cat "$work/first_failure_is_echoed.gh_summary"
+  failures=$((failures + 1))
+fi
+
+# C#'s harness prints its own shape, so that row passes its own pattern.
+run_case custom_fail_pattern_is_honoured 0 1 1 \
+  "--- failures ---
+  101_simple_class: ERROR: re-encode: ball-encoder: unsupported runtime helper \`BallRuntime.FieldGet(...)\`
+Results: 1 passed, 348 failed, 349 total (4 skipped carve-outs)" \
+  "first still-failing fixture:   101_simple_class: ERROR: re-encode" \
+  "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)"
+
+# A leg with nothing matching the pattern still reports normally — the echo is
+# additive, never a new way for the gate to fail.
+run_case no_failure_line_is_fine 0 3 0 \
+  "Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)" \
+  "Results: 349 passed, 0 failed, 349 total (floor: 3)"
+
 # ── The wiring: every round-trip row must actually CALL this script ──────────
 # A parser test that runs the script directly cannot notice that the workflow
 # re-implements the comparison inline and never invokes it — the exact hole
@@ -178,6 +216,27 @@ for row in CSHARP PYTHON GO RUST; do
   fi
 done
 
+# Each row must NAME the gap it still has, with an issue number, in the note it
+# appends to the step summary. "No floor is enforced: 0/N is the expected
+# baseline" — what the C# row used to write — is exactly the wording that let a
+# flat zero read as healthy for as long as these rows existed (#642).
+ran=$((ran + 1))
+gap_notes=$(grep -cE 'Gap, tracked in #[0-9]+' "$matrix" || true)
+if [ "$gap_notes" -eq 4 ]; then
+  echo "ok   [wiring:all 4 rows name their gap issue]"
+else
+  echo "FAIL [wiring]: expected 4 'Gap, tracked in #<n>' notes in $matrix, found $gap_notes"
+  failures=$((failures + 1))
+fi
+
+ran=$((ran + 1))
+if grep -qE 'is the expected baseline' "$matrix"; then
+  echo "FAIL [wiring]: a row still declares a count \"is the expected baseline\" in $matrix"
+  failures=$((failures + 1))
+else
+  echo "ok   [wiring:no row calls its count an expected baseline]"
+fi
+
 ran=$((ran + 1))
 invocations=$(grep -cF 'bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh"' "$matrix" || true)
 if [ "$invocations" -eq 4 ]; then
@@ -191,7 +250,7 @@ fi
 # An exit code plus a failure count cannot tell "all passed" from "nothing ran".
 echo ""
 echo "Results: $((ran - failures)) passed, $failures failed, $ran total"
-if [ "$ran" -lt 20 ]; then
+if [ "$ran" -lt 28 ]; then
   echo "FAIL: only $ran assertions ran — this self-test measured almost nothing"
   exit 1
 fi

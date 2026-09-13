@@ -331,6 +331,21 @@ cargo fmt --check && cargo clippy --workspace
   `cargo build` → run, prints `12`). Like every #491 slice so far, this did **not** move the Tier A
   aggregate (`0 passed, 110 failed, 110 total`) — a default-bodied *receiver-less* trait fn is a
   narrow idiom; state that plainly rather than implying a moved floor.
+- **A `&mut` ALIAS binding is resolved, not copied (#642/#693) — the one shape whose mis-encoding
+  is silent.** `let slot: &mut T = &mut place;` is what `rust/compiler`'s
+  `lvalue.rs::emit_mutation` emits for EVERY Ball `assign`
+  (`let __slot: &mut BallValue = (&mut i); ...; *__slot = __new.clone();`), and Ball has no
+  references: binding it as a value made the write land on a copy, so the borrowed variable never
+  changed and every loop whose counter is mutated that way ran forever. Measured: 28 of the
+  corpus's loop fixtures re-encoded "clean" and then hung on the Dart reference engine, killed at
+  60 s — worse than a refusal, because `ball check` accepts the Program. `block.rs::encode_local`
+  now records `alias → variable` in a BLOCK-SCOPED table and emits no binding, and
+  `encode_path_expr` resolves a read of the alias to the borrowed variable. Deliberately narrow:
+  only a borrow of a plain NAMED variable — `&mut v[0]`/`&mut p.x` are left exactly as they were
+  rather than guessed at, and a `&mut` passed to a callee is still the wider, open
+  reference-semantics gap. Guards: `rust/encoder/tests/compiler_output.rs`'s
+  `mutation_through_a_mut_alias_targets_the_borrowed_variable` and
+  `a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias`.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -457,8 +472,10 @@ cargo fmt --check && cargo clippy --workspace
   #642**: harness health PLUS `passed >= 1` PLUS `passed >= RUST_ROUNDTRIP_FLOOR`, enforced by
   `tools/ci/roundtrip_floor.sh`. Still NOT a parity gate — but a flat zero is red, and the floor
   only rises. **Raise it in the SAME PR as the fix that earned it**; the job prints the exact new
-  value. The remaining gap is the rest of the `ball_lang_shared::runtime::*` dispatch surface, plus
-  the method-dispatcher `panic!` sub-case tracked in #632.
+  value. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
+  `BallMap::new()`/`BallList::new()` and the class-registry helpers), never as an "expected
+  baseline"; the method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A,
+  not this leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

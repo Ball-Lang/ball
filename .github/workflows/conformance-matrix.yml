@@ -1068,13 +1068,17 @@ jobs:
           cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "Remaining gap: the Ball -> C# compiler emits a flat class dispatching"
-            echo "through \`BallRuntime.*\` calls over \`BallValue\`; the syntactic Roslyn"
-            echo "encoder targets idiomatic hand-written C#. Closing that for the whole"
-            echo "corpus is encoder feature work tracked in #452 / #492."
+            echo "**Gap, tracked in #689.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> C# compiler dispatches through \`BallRuntime.*\` over"
+            echo "\`BallValue\`, and the syntactic Roslyn encoder reads idiomatic"
+            echo "hand-written C#. #689 carries the measured first blocker"
+            echo "(\`BallRuntime.FieldGet\`) and the smallest next step."
           } > "$RUNNER_TEMP/roundtrip.note"
 
-          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
+          # C#'s harness prints `  <fixture>: ERROR: …` under `--- failures ---`
+          # rather than the `FAILING [name] …` the other three share, so this row
+          # passes its own pattern for the verbatim first-failure echo.
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note" "^ +[0-9A-Za-z_]+: (ERROR|FAIL|TIMEOUT)"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
@@ -1160,10 +1164,11 @@ jobs:
           cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "Remaining gap: the Ball -> Python compiler emits a flat module dispatching"
-            echo "through \`ballrt.*\` helpers; the syntactic \`ast\` encoder targets idiomatic"
-            echo "hand-written Python. Closing that for the whole corpus is encoder feature"
-            echo "work tracked in #452."
+            echo "**Gap, tracked in #690.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> Python compiler dispatches through \`ballrt.*\` helpers, and"
+            echo "the syntactic \`ast\` encoder reads idiomatic hand-written Python. #690"
+            echo "carries the measured first blockers (\`try\`, top-level classes, the"
+            echo "unmapped \`ballrt.math_*\` helpers) and the smallest next step."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
@@ -1213,10 +1218,11 @@ jobs:
           cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "Remaining gap: the Ball -> Go compiler emits a flat package dispatching"
-            echo "through \`ballrt.*\` helpers over \`ballrt.Value\`; the syntactic \`go/ast\`"
-            echo "encoder targets idiomatic hand-written Go. Closing that for the whole"
-            echo "corpus is encoder feature work tracked in #452."
+            echo "**Gap, tracked in #691.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> Go compiler dispatches through \`ballrt.*\` helpers over"
+            echo "\`ballrt.Value\`, and the syntactic \`go/ast\` encoder reads idiomatic"
+            echo "hand-written Go. #691 carries the measured first blocker (no"
+            echo "\`std_collections\` helper has an inverse yet) and the smallest next step."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
@@ -1273,11 +1279,12 @@ jobs:
           cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "Remaining gap: the Ball -> Rust compiler emits a flat program dispatching"
-            echo "through \`ball_lang_shared::runtime::*\` helpers over \`BallValue\`; the"
-            echo "syntactic \`syn\` encoder targets idiomatic hand-written Rust. Closing that"
-            echo "for the whole corpus is encoder feature work tracked in #452, with the"
-            echo "method-dispatcher \`panic!\` sub-case tracked separately in #632."
+            echo "**Gap, tracked in #692.** The rest of the corpus does not round-trip:"
+            echo "the Ball -> Rust compiler dispatches through"
+            echo "\`ball_lang_shared::runtime::*\` over \`BallValue\`, and the syntactic"
+            echo "\`syn\` encoder reads idiomatic hand-written Rust. #692 carries the"
+            echo "measured first blocker (\`BallMap::new()\`) and the smallest next step;"
+            echo "the method-dispatcher \`panic!\` sub-case is #632, a different metric."
           } > "$RUNNER_TEMP/roundtrip.note"
 
           bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
@@ -1709,26 +1716,32 @@ jobs:
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Compiler (Ball -> Python)" "${{ needs.python-compiler.outputs.passed }}" "${{ needs.python-compiler.outputs.failed }}" "${{ needs.python-compiler.outputs.total }}" "${{ needs.python-compiler.outputs.floor }}" "$python_status"
           echo ""
 
-          # -- Measurement legs, NO floor ----------------------------------
-          # Not a parity claim and not a ratchet: the count is reported so it
-          # stays live instead of decaying into a doc comment. STATUS here means
-          # "the harness ran and reported a trustworthy count", NOT "the leg
-          # passes" — 0/320 is the expected baseline for the round trip (#452).
-          echo "Measurement legs (no floor - the count is the product)"
+          # -- Round-trip measurement legs, FLOORED + RATCHETED (#642) ------
+          # Not a parity claim: none of these four round-trips the whole corpus,
+          # and each row's own step summary names its remaining gap with the
+          # issue tracking it (#689 C#, #690 Python, #691 Go, #692 Rust). But the
+          # count is no longer unfloored: every row fails on `passed < 1` and on
+          # a DROP below its measured floor (tools/ci/roundtrip_floor.sh), so a
+          # regression is red. STATUS is the row's own result, which now carries
+          # the floor — it is no longer "the harness ran" alone. These rows
+          # printed `0 passed` on every run and read OK for as long as they
+          # existed; that is the hole #642 closed, so never reintroduce an
+          # "expected baseline" framing here.
+          echo "Round-trip legs (floored + ratcheted - not parity)"
           echo ""
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "HARNESS"
-          csrt_status="OK"
-          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "$csrt_status"
-          pyrt_status="OK"
-          if [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Python Round-Trip (Ball -> Py -> Ball)" "${{ needs.python-roundtrip.outputs.passed }}" "${{ needs.python-roundtrip.outputs.failed }}" "${{ needs.python-roundtrip.outputs.total }}" "$pyrt_status"
-          gort_status="OK"
-          if [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Go Round-Trip (Ball -> Go -> Ball)" "${{ needs.go-roundtrip.outputs.passed }}" "${{ needs.go-roundtrip.outputs.failed }}" "${{ needs.go-roundtrip.outputs.total }}" "$gort_status"
-          rsrt_status="OK"
-          if [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="BROKEN"; fi
-          printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Rust Round-Trip (Ball -> Rust -> Ball)" "${{ needs.rust-roundtrip.outputs.passed }}" "${{ needs.rust-roundtrip.outputs.failed }}" "${{ needs.rust-roundtrip.outputs.total }}" "$rsrt_status"
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "FLOOR" "STATUS"
+          csrt_status="PASS"
+          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "${{ needs.csharp-roundtrip.outputs.floor }}" "$csrt_status"
+          pyrt_status="PASS"
+          if [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Round-Trip (Ball -> Py -> Ball)" "${{ needs.python-roundtrip.outputs.passed }}" "${{ needs.python-roundtrip.outputs.failed }}" "${{ needs.python-roundtrip.outputs.total }}" "${{ needs.python-roundtrip.outputs.floor }}" "$pyrt_status"
+          gort_status="PASS"
+          if [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Go Round-Trip (Ball -> Go -> Ball)" "${{ needs.go-roundtrip.outputs.passed }}" "${{ needs.go-roundtrip.outputs.failed }}" "${{ needs.go-roundtrip.outputs.total }}" "${{ needs.go-roundtrip.outputs.floor }}" "$gort_status"
+          rsrt_status="PASS"
+          if [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="FAIL"; fi
+          printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Rust Round-Trip (Ball -> Rust -> Ball)" "${{ needs.rust-roundtrip.outputs.passed }}" "${{ needs.rust-roundtrip.outputs.failed }}" "${{ needs.rust-roundtrip.outputs.total }}" "${{ needs.rust-roundtrip.outputs.floor }}" "$rsrt_status"
           echo ""
 
           # Fail the summary if any engine job did not succeed (primary gate).

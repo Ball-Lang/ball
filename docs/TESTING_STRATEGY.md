@@ -375,12 +375,57 @@ because for four of the five ports the clean number is 0% and the information is
 entirely in *where* files stop: the Rust/C#/Go/Python compilers emit
 runtime-call-shaped source their syntactic encoders were never built to read
 back, so stage 3 (re-encode) is a wall — the same wall the `*-roundtrip` rows
-already report as an honest 0/32x on the project's own corpus. A bare 0% would
+report on the project's own corpus. Those rows read a flat `0 passed` for as long
+as they existed and went green every time, because nothing floored the count
+(#642); each one now carries a measured floor and a ratchet (see the table
+below), and the remaining gap is named per target with the issue tracking it
+(#689 C#, #690 Python, #691 Go, #692 Rust). A bare 0% would
 hide the difference between "the encoder rejected the file outright" (Rust, Go:
 0 files even encode) and "58 of 472 files got all the way to the declaration
 diff" (C#). TypeScript is the one port with a non-zero first number (4/48), and
 its failures are spread across every stage rather than piled on one.
 
+
+### 2c. A measurement leg is floored the moment it measures anything (#642)
+
+The four `*-roundtrip` rows (`conformance-matrix.yml`: Ball fixture →
+`<lang>` compiler → that language's own encoder → the **Dart** reference engine →
+golden diff) are the repo's hardest legs by construction, and for as long as they
+existed every one of them printed
+
+```
+Results: 0 passed, 349 failed, 349 total (4 skipped carve-outs)
+```
+
+and reported the row healthy. The only assertion was `total >= 1` — the harness
+ran — so an honest "it has always been 0" was indistinguishable from a future
+regression, and the rows could not have noticed one.
+
+The rule this repo now follows on any measurement leg:
+
+1. **No positive floor while the leg genuinely passes nothing.** Adding
+   `passed >= 1` to a row measuring 0 makes it permanently red for a pre-existing
+   gap, and invites the one thing a floor must never buy — a special-cased
+   fixture or a weakened fail-loud check, just to clear it. The floor lands in
+   the SAME PR as the first passing fixture, never before.
+2. **A row at zero must not report "OK".** Until the floor can land, the row
+   prints the first failing fixture's error VERBATIM and names its gap with an
+   issue number in the step summary. "Expected baseline" is not a status.
+3. **Once it measures something, the floor is set AT the measured count** — the
+   number that row's own CI job printed, never a prediction, never an
+   aspiration — and only ever rises, in the same PR as the fix that earned it.
+   `tools/ci/roundtrip_floor.sh` prints the exact new value on an improvement.
+4. **The gate is a script, and the script has its own test.** Inline workflow
+   bash cannot be unit-tested, and a `[ "$passed" -lt "$floor" ]` with an empty
+   or multiline operand exits 2 — which, inside an `if`, SKIPS the branch and
+   falls through to a green exit. `tools/test/test_roundtrip_floor.sh` runs on
+   every PR and pins all of it, the wiring included.
+
+Measured on PR #646's own matrix (run 34755669293), after teaching each encoder
+its own compiler's dispatch shape: C# **76**, Rust **68**, Python **41**, Go
+**31** of 350. Those are the floors. None of the four is a parity gate — most of
+the corpus still does not round-trip anywhere — but a flat zero is red, and a
+drop is red.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not

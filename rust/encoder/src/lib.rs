@@ -802,6 +802,16 @@ pub(crate) struct Encoder {
     /// [`Self::unresolved_modules`] because these are RESOLVED: the named
     /// module is part of the same `Program`.
     pub(crate) referenced_crate_modules: BTreeSet<String>,
+    /// `let slot: &mut T = &mut place;` bindings in scope, as alias name → the
+    /// variable they borrow (issue #642). Ball has no references: a `let` copies
+    /// its initializer, so encoding the binding literally makes every later
+    /// write THROUGH the alias land on a copy and the borrowed variable never
+    /// change — a program that round-trips clean and then loops forever.
+    /// [`Self::encode_local`] records the alias and emits no binding instead,
+    /// and [`Self::encode_path_expr`] resolves a read of it back to the borrowed
+    /// variable, which IS what the Rust means. Block-scoped: saved and restored
+    /// around every block (see `block.rs`).
+    pub(crate) ref_aliases: HashMap<String, String>,
 }
 
 impl Encoder {
@@ -820,6 +830,7 @@ impl Encoder {
             current_module: module_name.to_string(),
             crate_symbols,
             referenced_crate_modules: BTreeSet::new(),
+            ref_aliases: HashMap::new(),
         }
     }
 
@@ -1117,9 +1128,15 @@ impl Encoder {
 
     fn encode_path_expr(&mut self, path: &syn::Path) -> Expression {
         if let Some(ident) = path.get_ident() {
-            let name = ident.to_string();
+            let mut name = ident.to_string();
             if name == "None" {
                 return option_result_message(true, null_literal());
+            }
+            // A `&mut` alias reads as the variable it borrows (issue #642).
+            // Checked FIRST: the alias is a local binding this encoder chose
+            // not to emit, so nothing else can legitimately claim the name.
+            if let Some(target) = self.ref_aliases.get(&name) {
+                name = target.clone();
             }
             if self.is_current_multi_param(&name) {
                 return field_access(reference("input"), name);

@@ -197,3 +197,163 @@ fn same_file_ball_prefixed_fn_is_not_shadowed() {
         "the file's own ball_add was dropped: {main_module:?}"
     );
 }
+
+/// The compiler's own MUTATION idiom must write through to the variable it
+/// borrows — the one shape whose mis-encoding is silent (issue #642).
+///
+/// `lvalue.rs::emit_mutation` lowers every Ball `assign` to
+/// `{ let __val = ...; let __slot: &mut BallValue = (&mut i); ...;
+/// *__slot = __new.clone(); __new }`. Ball has no references, so binding
+/// `__slot` as a VALUE made the write land on a copy: `i` never changed, and
+/// every loop whose counter is mutated that way ran forever. That is worse than
+/// a refusal — the Program round-tripped "clean" and then hung, which is what 28
+/// of the corpus's loop fixtures did on the Dart reference engine (killed after
+/// 60 s) once the leg got far enough to run them.
+#[test]
+fn mutation_through_a_mut_alias_targets_the_borrowed_variable() {
+    let program = ball_lang_encoder::encode(
+        "fn main() { let mut i = BallValue::Int(0i64); \
+         { let __val = ball_add(i.clone(), BallValue::Int(1i64)); \
+           let __slot: &mut BallValue = (&mut i); \
+           let __old = __slot.clone(); let __new = __val; \
+           *__slot = __new.clone(); __new }; \
+         println!(\"{}\", i); }",
+    );
+
+    let targets = assign_targets(&program);
+    assert_eq!(
+        targets,
+        vec!["i".to_string()],
+        "the assign must target the borrowed variable, not the alias binding: {targets:?}"
+    );
+    assert!(
+        !declared_let_names(&program).iter().any(|n| n == "__slot"),
+        "the `&mut` alias must not be emitted as a value binding: {:?}",
+        declared_let_names(&program)
+    );
+}
+
+/// A borrow of anything OTHER than a plain named variable is not an alias this
+/// encoder models, and is left exactly as it was — never guessed at.
+#[test]
+fn a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias() {
+    let program = ball_lang_encoder::encode(
+        "fn main() { let p = make(); let slot = &mut p.field; println!(\"{}\", slot); } \
+         fn make() -> i64 { 1 }",
+    );
+    assert!(
+        declared_let_names(&program).iter().any(|n| n == "slot"),
+        "a `&mut <field>` binding must still be emitted: {:?}",
+        declared_let_names(&program)
+    );
+}
+
+/// Every `std.assign` target name in the program, in encounter order.
+fn assign_targets(program: &Program) -> Vec<String> {
+    let mut found = Vec::new();
+    for module in &program.modules {
+        for function in &module.functions {
+            if let Some(body) = &function.body {
+                collect_assign_targets(body, &mut found);
+            }
+        }
+    }
+    found
+}
+
+fn collect_assign_targets(expr: &Expression, out: &mut Vec<String>) {
+    match expr.expr.as_ref() {
+        Some(Expr::Call(call)) => {
+            if call.function == "assign" {
+                if let Some(input) = &call.input {
+                    if let Some(Expr::MessageCreation(message)) = input.expr.as_ref() {
+                        for field in &message.fields {
+                            if field.name == "target" {
+                                if let Some(Expr::Reference(reference)) =
+                                    field.value.as_ref().and_then(|v| v.expr.as_ref())
+                                {
+                                    out.push(reference.name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(input) = &call.input {
+                collect_assign_targets(input, out);
+            }
+        }
+        Some(Expr::Block(block)) => {
+            for statement in &block.statements {
+                match statement.stmt.as_ref() {
+                    Some(Stmt::Expression(inner)) => collect_assign_targets(inner, out),
+                    Some(Stmt::Let(binding)) => {
+                        if let Some(value) = &binding.value {
+                            collect_assign_targets(value, out);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(result) = &block.result {
+                collect_assign_targets(result, out);
+            }
+        }
+        Some(Expr::MessageCreation(message)) => {
+            for field in &message.fields {
+                if let Some(value) = &field.value {
+                    collect_assign_targets(value, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Every `let` binding name the program declares, in encounter order.
+fn declared_let_names(program: &Program) -> Vec<String> {
+    let mut found = Vec::new();
+    for module in &program.modules {
+        for function in &module.functions {
+            if let Some(body) = &function.body {
+                collect_let_names(body, &mut found);
+            }
+        }
+    }
+    found
+}
+
+fn collect_let_names(expr: &Expression, out: &mut Vec<String>) {
+    match expr.expr.as_ref() {
+        Some(Expr::Block(block)) => {
+            for statement in &block.statements {
+                match statement.stmt.as_ref() {
+                    Some(Stmt::Let(binding)) => {
+                        out.push(binding.name.clone());
+                        if let Some(value) = &binding.value {
+                            collect_let_names(value, out);
+                        }
+                    }
+                    Some(Stmt::Expression(inner)) => collect_let_names(inner, out),
+                    _ => {}
+                }
+            }
+            if let Some(result) = &block.result {
+                collect_let_names(result, out);
+            }
+        }
+        Some(Expr::Call(call)) => {
+            if let Some(input) = &call.input {
+                collect_let_names(input, out);
+            }
+        }
+        Some(Expr::MessageCreation(message)) => {
+            for field in &message.fields {
+                if let Some(value) = &field.value {
+                    collect_let_names(value, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}

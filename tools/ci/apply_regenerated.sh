@@ -142,7 +142,12 @@ done
 apply_from_dir() {
   local src="$1" root="$2"
   [ -d "$src" ] || die "not a directory: $src"
-  [ -d "$root/.git" ] || die "not a git checkout: $root"
+  # `git rev-parse`, NOT `[ -d "$root/.git" ]`: in a git WORKTREE (which is how
+  # every lane in this repo works) `.git` is a FILE pointing at the real
+  # gitdir, and the directory test refuses a perfectly good checkout. That is
+  # not hypothetical — it is what this script did on its first real run.
+  git -C "$root" rev-parse --git-dir >/dev/null 2>&1 ||
+    die "not a git checkout: $root"
 
   local files=()
   local rel
@@ -306,6 +311,26 @@ self_test() {
     echo "FAIL a non-git destination is refused"
   fi
 
+  # 5b. a git WORKTREE is accepted. Its `.git` is a FILE, not a directory, so a
+  #     `[ -d .git ]` test rejects it — which is exactly how this script failed
+  #     on its first real invocation, inside the very worktree it was written in.
+  local wt="$SCRATCH/wt"
+  rc=0
+  if (cd "$checkout" && git worktree add -q -b apply-selftest-wt "$wt") >/dev/null 2>&1; then
+    out="$(apply_from_dir "$art" "$wt" 2>&1)" || rc=$?
+    if [ "$rc" -eq 0 ] && [ ! -d "$wt/.git" ] && [ -f "$wt/.git" ]; then
+      pass=$((pass + 1))
+      echo "PASS a git WORKTREE (.git is a file) is accepted"
+    else
+      fail=$((fail + 1))
+      echo "FAIL a git WORKTREE (.git is a file) is accepted (exit $rc)"
+      echo "$out" | sed 's/^/    | /'
+    fi
+  else
+    fail=$((fail + 1))
+    echo "FAIL could not create a scratch worktree for the .git-is-a-file case"
+  fi
+
   # 6. the head-SHA guard: a run computed from another commit is refused, and
   #    the whole --from-dir flow honours it. BALL_APPLY_RUN_HEAD_SHA is the
   #    injection seam the real `gh run view` fills in.
@@ -372,8 +397,8 @@ self_test() {
   fi
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 10 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 10) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 11 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 11) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

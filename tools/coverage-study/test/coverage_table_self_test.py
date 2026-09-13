@@ -43,6 +43,16 @@ function of the artifacts:
    a denominator nobody can explain is the silent-filter failure the decision
    exists to end. It is RECORDED, NOT FLOORED: a pin whose own test suite grew
    moves that count in either direction and neither is a regression.
+10. the COMMITTED per-file excluded list (issue #676) is diffed, not just the
+    count: a path the committed list excludes and the artifact SCORES is a
+    breach that names the file, even when `scored`, `clean`, the funnel and the
+    count-based #648 check all pass — which is exactly the partial-drop shape
+    (3 of 34) no arithmetic can distinguish from "the test suite shrank by 3
+    while the library grew by 3". Its negative controls are here too: an
+    unchanged list with the same totals is no breach, a newly excluded path is
+    reported and regenerated rather than failed, and a legitimate change to a
+    pin's test population passes once the committed list records it in the same
+    commit.
 
 WHAT THIS DOES NOT PROVE. Nothing here is a regression test for any encoder or
 compiler defect. It validates the INSTRUMENT: the harnesses' own self-tests
@@ -89,7 +99,11 @@ def tier_a_artifact(
     encode_errors: int,
     skipped: int = 0,
     excluded: int = 0,
+    excluded_entries: list[tuple[str, str]] | None = None,
+    scored_entries: list[tuple[str, str]] | None = None,
     omit_excluded: bool = False,
+    omit_excluded_list: bool = False,
+    excluded_count_override: int | None = None,
     pascal_case: bool = False,
 ) -> dict:
     """A synthetic Tier A report in the shape every harness writes.
@@ -104,6 +118,15 @@ def tier_a_artifact(
     writes a report WITHOUT that key — the shape a harness would produce if its
     exclusion rule silently vanished, which must fail rather than render a blank
     column.
+
+    ``excluded_entries`` and ``scored_entries`` name (package, path) pairs
+    explicitly instead of generating them, which is what the issue #676 cases
+    below need: a readmission is only visible as the SAME path moving from the
+    excluded list into the scored set, so both halves have to be addressable by
+    name. ``omit_excluded_list`` keeps the count but drops the per-file list (a
+    harness that regressed to the pre-#635 shape), and
+    ``excluded_count_override`` makes the count disagree with the list it is
+    supposed to summarise.
     """
     files = []
     for i in range(clean):
@@ -114,22 +137,33 @@ def tier_a_artifact(
         files.append({"package": "p", "file": f"enc{i}.x", "scored": True, "clean": False, "irStable": False, "reason": "encode-error: unsupported construct"})
     for i in range(skipped):
         files.append({"package": "p", "file": f"skip{i}.x", "scored": False, "clean": False, "irStable": False, "reason": "skipped: no declarations"})
-    dropped = [
-        {"package": "p", "file": f"x_test{i}.x", "rule": "test-only convention"}
-        for i in range(excluded)
-    ]
+    for package, name in scored_entries or []:
+        files.append({"package": package, "file": name, "scored": True, "clean": False, "irStable": False, "reason": "encode-error: unsupported construct"})
+    if excluded_entries is None:
+        dropped = [
+            {"package": "p", "file": f"x_test{i}.x", "rule": "test-only convention"}
+            for i in range(excluded)
+        ]
+    else:
+        dropped = [
+            {"package": package, "file": name, "rule": "test-only convention"}
+            for package, name in excluded_entries
+        ]
+    count = len(dropped) if excluded_count_override is None else excluded_count_override
     if pascal_case:
         files = [{k[0].upper() + k[1:]: v for k, v in f.items()} for f in files]
         dropped = [{k[0].upper() + k[1:]: v for k, v in d.items()} for d in dropped]
         report = {"MissingPins": [], "Files": files}
         if not omit_excluded:
-            report["ExcludedTestOnly"] = excluded
-            report["Excluded"] = dropped
+            report["ExcludedTestOnly"] = count
+            if not omit_excluded_list:
+                report["Excluded"] = dropped
         return report
     report = {"missingPins": [], "files": files}
     if not omit_excluded:
-        report["excludedTestOnly"] = excluded
-        report["excluded"] = dropped
+        report["excludedTestOnly"] = count
+        if not omit_excluded_list:
+            report["excluded"] = dropped
     return report
 
 
@@ -190,6 +224,7 @@ class Case:
         self.artifacts = self.dir / "artifacts"
         self.artifacts.mkdir(parents=True)
         self.baseline = self.dir / "baseline.json"
+        self.excluded_list = self.dir / "excluded.json"
         self.readme = self.dir / "README.md"
         self.readme.write_text(README_TEMPLATE, encoding="utf-8")
 
@@ -203,7 +238,22 @@ class Case:
             json.dumps({"rows": rows}, indent=2) + "\n", encoding="utf-8"
         )
 
+    def put_excluded(self, languages: dict[str, dict[str, list[str]]]) -> None:
+        """The committed per-file excluded list this case is checked against."""
+        self.excluded_list.write_text(
+            json.dumps({"languages": languages}, indent=2) + "\n", encoding="utf-8"
+        )
+
     def run(self, *extra: str) -> subprocess.CompletedProcess:
+        # Every Tier A row must carry a key in the committed list — a row with
+        # no entry would be guarded by nothing. Cases that do not care about the
+        # list get an empty entry per Tier A language, so they assert what they
+        # claim to assert rather than tripping over the list's own shape check.
+        if not self.excluded_list.is_file():
+            rows = json.loads(self.baseline.read_text(encoding="utf-8"))["rows"]
+            self.put_excluded(
+                {row["language"]: {} for row in rows if row.get("kind") == "tier-a"}
+            )
         return subprocess.run(
             [
                 sys.executable,
@@ -212,6 +262,8 @@ class Case:
                 str(self.artifacts),
                 "--baseline",
                 str(self.baseline),
+                "--excluded-list",
+                str(self.excluded_list),
                 "--readme",
                 str(self.readme),
                 *extra,
@@ -695,6 +747,257 @@ def main() -> int:
             "check mode still exits 0 when only the published table is stale",
             got.returncode == 0,
             f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
+        )
+
+        # ── 16. the committed per-file excluded list (issue #676) ───────────
+        # 14f catches a TOTAL exclusion collapse by arithmetic. A PARTIAL one
+        # cannot be caught that way: "3 files stopped being excluded" and "the
+        # pin's test suite shrank by 3 while its library grew by 3" produce the
+        # SAME counts, so the fixtures below hold every total fixed — scored,
+        # clean and the funnel are all identical to the baseline — and differ
+        # only in WHICH paths are in the denominator. The list is the only
+        # instrument that can tell them apart, and it names the files.
+        #
+        # Shaped after the real Rust row: 34 `bitflags` files excluded by the
+        # `#[cfg(test)]` reachability half of the rule.
+        bitflags = ["src/tests.rs"] + [f"src/tests/a{i:02d}.rs" for i in range(33)]
+        readmitted = bitflags[:3]
+        kept = [path for path in bitflags if path not in readmitted]
+        rust_row = baseline_row(
+            language="Rust",
+            artifact="coverage-study-tier-a-rust/tier_a.json",
+            scored=10,
+            clean=2,
+            encoded=4,
+            excluded=34,
+        )
+
+        # ── 16a. three of thirty-four readmitted, every total unchanged ─────
+        partial = Case(tmp, "partial")
+        partial.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=3,
+                excluded_entries=[("bitflags", path) for path in kept],
+                scored_entries=[("bitflags", path) for path in readmitted],
+            ),
+        )
+        partial.put_baseline([rust_row])
+        partial.put_excluded({"Rust": {"bitflags": bitflags}})
+        before_excluded = partial.excluded_list.read_text(encoding="utf-8")
+        before_baseline = partial.baseline.read_text(encoding="utf-8")
+        got = partial.run("--write")
+        message = got.stdout + got.stderr
+        check(
+            "a path the committed list excludes but the artifact SCORES is a breach",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "that breach names every readmitted file, not just the count",
+            all(path in message for path in readmitted),
+            message,
+        )
+        check(
+            "that breach names the row it belongs to",
+            "Rust" in message,
+            message,
+        )
+        check(
+            "the committed excluded list is NOT rewritten on that breach",
+            partial.excluded_list.read_text(encoding="utf-8") == before_excluded,
+            partial.excluded_list.read_text(encoding="utf-8"),
+        )
+        check(
+            "the baseline is NOT re-floored on that breach either",
+            partial.baseline.read_text(encoding="utf-8") == before_baseline,
+            partial.baseline.read_text(encoding="utf-8"),
+        )
+
+        # ── 16b. the negative control: the same totals, the list unchanged ──
+        # Without this, 16a would be satisfied by a check that fails any run
+        # whose numbers match these — the list has to be what decides.
+        steady = Case(tmp, "steady")
+        steady.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=6,
+                excluded_entries=[("bitflags", path) for path in bitflags],
+            ),
+        )
+        steady.put_baseline([rust_row])
+        steady.put_excluded({"Rust": {"bitflags": bitflags}})
+        got = steady.run("--write")
+        message = got.stdout + got.stderr
+        check(
+            "an unchanged excluded list with the same totals is no breach",
+            got.returncode == 0,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "and it is reported as zero breaches, not as an unchecked row",
+            "Rows checked: 1, breaches: 0" in got.stdout,
+            got.stdout,
+        )
+
+        # ── 16c. a legitimate test-population change, declared in the PR ────
+        # The documented workflow: a pin really did drop those three test files
+        # from its own suite, so the committed list is updated in the SAME
+        # commit. The identical artifact that breached in 16a now passes,
+        # because the intent is recorded where a reviewer sees it.
+        declared = Case(tmp, "declared")
+        declared.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=3,
+                excluded_entries=[("bitflags", path) for path in kept],
+                scored_entries=[("bitflags", path) for path in readmitted],
+            ),
+        )
+        declared.put_baseline([rust_row])
+        declared.put_excluded({"Rust": {"bitflags": kept}})
+        got = declared.run("--write")
+        message = got.stdout + got.stderr
+        check(
+            "the same artifact passes once the committed list records the change",
+            got.returncode == 0,
+            f"exit={got.returncode}\n{message}",
+        )
+
+        # ── 16d. a newly excluded path is reported and regenerated ──────────
+        # The other direction is not a breach — a pin that ADDED a test file
+        # takes it out of the denominator, which is the rule working. It is
+        # still reported and committed, the same way `baseline.json` is, so the
+        # movement lands in a reviewable diff.
+        grew = Case(tmp, "grew")
+        grew.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=6,
+                excluded_entries=[
+                    ("bitflags", path) for path in bitflags + ["src/tests/new.rs"]
+                ],
+            ),
+        )
+        grew.put_baseline([rust_row])
+        grew.put_excluded({"Rust": {"bitflags": bitflags}})
+        got = grew.run("--write")
+        message = got.stdout + got.stderr
+        check(
+            "a newly excluded path passes",
+            got.returncode == 0,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "a newly excluded path is reported by name",
+            "src/tests/new.rs" in message,
+            message,
+        )
+        check(
+            "--write regenerates the committed list, sorted",
+            json.loads(grew.excluded_list.read_text(encoding="utf-8"))["languages"]["Rust"]["bitflags"]
+            == sorted(bitflags + ["src/tests/new.rs"]),
+            grew.excluded_list.read_text(encoding="utf-8"),
+        )
+
+        # ── 16e. a count with no list behind it fails loud ──────────────────
+        # A harness that reports `excludedTestOnly: 34` and no per-file list is
+        # back to the state this whole check exists to leave: a number nothing
+        # can diff. Reading that as "nothing was excluded" would disarm 16a
+        # silently, which is the failure mode this project keeps getting bitten
+        # by, so it is an error rather than a default.
+        listless = Case(tmp, "listless")
+        listless.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=6,
+                excluded_entries=[("bitflags", path) for path in bitflags],
+                omit_excluded_list=True,
+            ),
+        )
+        listless.put_baseline([rust_row])
+        listless.put_excluded({"Rust": {"bitflags": bitflags}})
+        got = listless.run()
+        message = got.stdout + got.stderr
+        check(
+            "a Tier A artifact with a count but no per-file list fails loud",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "that failure names the missing list",
+            "excluded" in message,
+            message,
+        )
+
+        # ── 16f. the count and the list must agree ──────────────────────────
+        # They are two views of one population written by one harness; a
+        # disagreement means one of them is stale, and neither can be trusted to
+        # stand for the other.
+        mismatch = Case(tmp, "mismatch")
+        mismatch.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=6,
+                excluded_entries=[("bitflags", path) for path in bitflags],
+                excluded_count_override=30,
+            ),
+        )
+        mismatch.put_baseline([rust_row])
+        mismatch.put_excluded({"Rust": {"bitflags": bitflags}})
+        got = mismatch.run()
+        message = got.stdout + got.stderr
+        check(
+            "a count that disagrees with its own per-file list fails loud",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "that failure names both numbers",
+            "30" in message and "34" in message,
+            message,
+        )
+
+        # ── 16g. a Tier A row absent from the committed list fails loud ─────
+        # An entry that quietly disappears would leave that row's exclusions
+        # diffed against nothing — 16a's check would pass vacuously for it. An
+        # empty object is how a row with no exclusions is declared; an ABSENT
+        # key is not a way to say anything.
+        unlisted = Case(tmp, "unlisted")
+        unlisted.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(
+                clean=2,
+                drift=2,
+                encode_errors=6,
+                excluded_entries=[("bitflags", path) for path in bitflags],
+            ),
+        )
+        unlisted.put_baseline([rust_row])
+        unlisted.put_excluded({})
+        got = unlisted.run()
+        message = got.stdout + got.stderr
+        check(
+            "a Tier A row with no entry in the committed excluded list fails loud",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "that failure names the row whose entry is missing",
+            "Rust" in message,
+            message,
         )
 
     total = _passed + _failed

@@ -403,7 +403,10 @@ The tree carries exactly **three** exclusion sites, all added by that audit and
 all **dominated dead code** — unreachable in every build, not merely outside
 self-host. Each one is named here so this rule can be checked against the tree
 (`grep -n LCOV_EXCL cpp/shared/include/ball_dyn.h cpp/encoder/src/encoder.cpp`
-must return these three and nothing else):
+must return these three and nothing else). The line numbers below were
+re-derived from the `file_report` at main @ `07344ca9`, where both files' miss
+totals are still the audited 246 and 96 — always re-derive rather than reusing
+these:
 
 | site | dominating guard | missed lines excluded |
 |---|---|---|

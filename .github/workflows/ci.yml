@@ -526,6 +526,93 @@ jobs:
         run: dart run tools/coverage-study/test/rq1_tierb_self_test.dart
 
   # ──────────────────────────────────────────────────
+  # Dart line coverage ratchet — the PR GATE (#605)
+  #
+  # The ratchet itself is not new: coverage.yml has run
+  # `tools/coverage_dart.dart --floor 99.9` since the #61 close-out wave. What
+  # was missing is a CONSUMER of its verdict. coverage.yml's Dart job is
+  # push-to-main-only, so a PR that added uncovered Dart lines passed every
+  # check, and the regression only became visible AFTER the merge — to whoever
+  # happened to open the coverage workflow. It sat red on main for a week
+  # (2026-09-06 → 2026-09-13, 17140/17167 = 99.84% vs the 99.90% floor) and
+  # blocked nothing. This job is that missing consumer.
+  #
+  # WHY ITS OWN JOB rather than one more step in `Dart`: measured cost. On
+  # coverage.yml run 34734567108 (job 103663524217) the `Dart line coverage
+  # ratchet (all packages)` step took 2m31s (03:04:42Z → 03:07:13Z) — it
+  # re-runs EVERY package suite under the VM's coverage collector. The `Dart`
+  # job on the same commit took 3m40s end to end, so folding the ratchet into
+  # it would have serialized to ~6m10s and made Dart the PR's critical path.
+  # As a sibling job it runs in parallel and costs ~0 extra wall clock.
+  #
+  # WHY ALWAYS-ON (deliberately no `needs: changes` filter): the measurement is
+  # whole-workspace and its inputs are not only `dart/**`. The regenerated
+  # shared artifacts below, `tools/coverage_dart.dart` itself, and the
+  # ts/compiler build the Dart compiler suite shells out to all move the
+  # number. More importantly a skipped check REPORTS SUCCESS — which is exactly
+  # the "nothing gates on it" failure mode this job exists to remove.
+  #
+  # coverage.yml's Dart job STAYS: it owns the Codecov upload (OIDC,
+  # `flags: dart`) that feeds the cross-stack report, and keeps its own copy of
+  # the ratchet so every push to main is measured. This job is what makes the
+  # verdict block a merge.
+  # ──────────────────────────────────────────────────
+  dart-coverage:
+    name: Dart Coverage Ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Cache Dart pub
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('dart/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      # The compiler suite shells out to @ball-lang/compiler (the Dart-side
+      # TsCompiler wrapper), so Node + the built TS compiler are required or
+      # that package's suite fails and its coverage is UNDER-counted — which
+      # would redden this gate for the wrong reason.
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/compiler/package-lock.json
+
+      - name: Install dependencies
+        uses: ./.github/actions/dart-pub-get
+        with:
+          working-directory: dart
+
+      - name: Install & build @ball-lang/compiler
+        run: cd ts/compiler && npm ci && npm run build
+
+      # Some package suites read the generated shared artifacts (e.g.
+      # ball_protobuf's facade test reads ball_protobuf.json). Regenerate them
+      # first — mirrors coverage.yml's Dart job and ci.yml's ball-freshness
+      # setup — so coverage runs against a correctly-built workspace.
+      - name: Regenerate shared Ball artifacts
+        run: |
+          ( cd dart/shared  && dart run bin/gen_std.dart . )
+          ( cd dart/shared  && dart run bin/gen_ball_proto.dart . )
+          ( cd dart/encoder && dart run bin/gen_ball_protobuf.dart ../shared )
+
+      # Identical invocation to coverage.yml's `Dart line coverage ratchet (all
+      # packages)` step — same floor, and the `--exclude-tags slow,network`
+      # exclusions live inside coverage_dart.dart itself, so the two cannot
+      # drift apart. Prints the per-package table and fails when TOTAL drops
+      # below the floor; RAISE the floor toward 100% as tests are added (see
+      # docs/TESTING_STRATEGY.md), never lower it without justification.
+      - name: Dart line coverage ratchet (all packages)
+        run: dart run tools/coverage_dart.dart --floor 99.9
+
+  # ──────────────────────────────────────────────────
   # Ball artifact freshness — every committed Ball artifact must be GENERATED
   # from its Dart source, never hand-edited. Regenerate the deterministic shared
   # artifacts and fail if any drifted from the checked-in copy. The .json (text)

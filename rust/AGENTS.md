@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 346 passed, 0
-failed, 346 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 347 passed, 0
+failed, 347 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -46,7 +46,7 @@ absent, not green, on a PR; it is floored by ratchet in that workflow's
 
 | Crate | Path | Purpose | Status |
 |-------|------|---------|--------|
-| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders (a PORT of `dart/shared/lib/std*.dart`, gated name-for-name by `src/std_dart_parity.rs` — port every `_fn(...)` change in the same PR, #505) + `runtime::*` base-op helpers | Complete (#34, #35) |
+| `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders (a PORT of `dart/shared/lib/std*.dart`, gated name-for-name AND `outputType`-for-`outputType` by `src/std_dart_parity.rs` — port every `_fn(...)` change in the same PR, #505/#557) + `runtime::*` base-op helpers | Complete (#34, #35) |
 | `ball-lang-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
 | `ball-lang-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
 | `ball-lang-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
@@ -140,8 +140,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 346 passed, 0 failed,
-346 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 347 passed, 0 failed,
+347 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it

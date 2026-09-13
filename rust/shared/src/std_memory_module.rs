@@ -345,4 +345,15 @@ mod tests {
         let names: Vec<String> = module.functions.iter().map(|f| f.name.clone()).collect();
         crate::std_dart_parity::assert_matches_dart_source("std_memory", &names);
     }
+
+    #[test]
+    fn function_output_types_match_dart_source() {
+        // A declared `outputType` is a cross-target contract, and the name gate
+        // above cannot see it drift (issue #545/#557).
+        let module = build_std_memory_module();
+        crate::std_dart_parity::assert_output_types_match_dart_source(
+            "std_memory",
+            &module.functions,
+        );
+    }
 }

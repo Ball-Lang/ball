@@ -294,6 +294,28 @@ public class BallRuntimeTests
     }
 
     [Fact]
+    public void SetAnswersBallRawMapEvenThoughItIsNotAMap()
+    {
+        // The two questions the self-hosted engine has to keep apart (issue #557).
+        // `is Map` is the USER-FACING one and stays set-excluded (#528/#553);
+        // `is BallRawMap` is the engine's own "is this the raw map my
+        // representation is built out of?" and must answer TRUE for a tagged set,
+        // or the compiled engine's `_ballValueIsSet` is permanently false and
+        // every in-place set mutation it performs goes to a throwaway copy.
+        var set = OneTwoSet();
+        Assert.Equal(BallValue.Bool(false), BallRuntime.IsType(set, "Map"));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.IsType(set, "BallRawMap"));
+
+        // A plain map answers both; a non-map answers neither.
+        var map = new BallMap();
+        BallRuntime.MapSet(map, BallValue.Str("k"), BallValue.Int(1));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.IsType(map, "Map"));
+        Assert.Equal(BallValue.Bool(true), BallRuntime.IsType(map, "BallRawMap"));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.IsType(BallValue.Int(1), "BallRawMap"));
+        Assert.Equal(BallValue.Bool(false), BallRuntime.IsType(new BallList(), "BallRawMap"));
+    }
+
+    [Fact]
     public void SetMutationIsObservedThroughEveryAlias()
     {
         // Reference semantics: `set.add(x)` through one binding must be visible

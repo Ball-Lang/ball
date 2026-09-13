@@ -325,6 +325,7 @@ inline const std::vector<std::string>& program_names() {
         "459_set_add_remove_bool",
         "460_named_ctor_seeds_inherited_fields",
         "461_named_ctor_super_and_this_formal",
+        "462_set_mutation_in_place",
     };
     return names;
 }

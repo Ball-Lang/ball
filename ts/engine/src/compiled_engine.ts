@@ -1634,6 +1634,7 @@ function __isUnknownFnError(e: any): boolean {
   return m.startsWith('Unknown std function:') || m.startsWith('Unknown base module:');
 }
 export type BallCallable = any;
+export type BallRawMap = Map<string, any>;
 
 export class BallEngine {
   readonly program: Program;
@@ -7049,6 +7050,16 @@ export class BallEngine {
   _ballSetItems(v: any): any {
     const input = v;
     if (_ballValueIsSet(v)) {
+      if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
+        let raw = __ball_index(v, _kBallSetTag);
+        if (false /* BallList is List in TS */) {
+          return raw.items;
+        }
+        if (Array.isArray(raw)) {
+          return raw;
+        }
+        return [];
+      }
       let setMap = v;
       let raw = __ball_index(setMap, _kBallSetTag);
       if (false /* BallList is List in TS */) {
@@ -10567,7 +10578,13 @@ function _ballToDouble(value: any): any {
 
 function _ballValueIsSet(v: any): any {
   const input = v;
-  return ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set)) && __ball_map_has(v, 'map_contains_key', _kBallSetTag));
+  if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
+    return __ball_map_has(v, 'map_contains_key', _kBallSetTag);
+  }
+  if ((typeof v === 'object' && v !== null && !Array.isArray(v) && !(v instanceof BallDouble) && !(v instanceof Set))) {
+    return __ball_map_has(v, 'map_contains_key', _kBallSetTag);
+  }
+  return false;
 }
 
 function _ballIsInt(v: any): any {

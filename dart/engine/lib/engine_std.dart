@@ -106,6 +106,19 @@ extension BallEngineStd on BallEngine {
     // (contains/add/union/intersection/difference/length/printing/toList)
     // routes through it.
     if (_ballValueIsSet(v)) {
+      // Read the tag through the [BallRawMap] promotion, NOT through `v as Map`
+      // (issue #557). On Rust and C# an `as` cast is CHECKED against the same
+      // set-excluding `is Map` answer (`ball_as` / `BallRuntime.AsType` throw on
+      // a mismatch), so once `_ballValueIsSet` correctly says "yes, a tagged
+      // set" there, `v as Map` would throw on the very value it just
+      // identified. The `is BallRawMap` test that already gates this read is
+      // exactly the promotion the index needs.
+      if (v is BallRawMap) {
+        final raw = v[_kBallSetTag];
+        if (raw is BallList) return raw.items;
+        if (raw is List) return raw as List<Object?>;
+        return <Object?>[];
+      }
       final setMap = v as Map;
       final raw = setMap[_kBallSetTag];
       if (raw is BallList) return raw.items;

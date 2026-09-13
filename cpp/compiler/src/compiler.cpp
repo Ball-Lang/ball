@@ -3344,6 +3344,13 @@ static std::string _typeCheckCondition(const std::string& typeName, const std::s
         // map) from a `Map` type pattern — a set is not a Map (issue #68).
         return "((ball_is_map_dyn(" + subject + ") || ball_object_type_matches(" + subject + ", \"BallMap\"s)) && !ball_is_ball_set(BallDyn(" + subject + ")))";
     }
+    if (typeName == "BallRawMap") {
+        // The engine's raw-map representation probe — see the `BallRawMap` arm
+        // in the `is`/`is_not` codegen below (issue #557). No set exclusion:
+        // this asks "is this the raw map my representation is built out of?",
+        // not "is this a `Map` to a user program?".
+        return "ball_is_map_dyn(BallDyn(" + subject + "))";
+    }
     return "ball_object_type_matches(" + subject + ", \"" + typeName + "\"s)";
 }
 
@@ -5496,6 +5503,17 @@ std::string CppCompiler::compile_std_call(const std::string& fn,
         // this must NOT fall through to the `ball_object_type_matches` default
         // below (that always returned false for `x is Set`).
         else if (tn == "Set") ck = "ball_is_ball_set(BallDyn(" + val + "))";
+        // The self-hosted engine's own name for the RAW string-keyed map its
+        // portable ordered-set value is BUILT OUT OF (`BallRawMap`, a typedef in
+        // dart/engine/lib/engine_types.dart). Deliberately WITHOUT the `Map`
+        // arm's `!ball_is_ball_set` exclusion above: that exclusion answers the
+        // user-facing question (`{1,2} is Map` must be false, issue #68/#528),
+        // and answering it for the engine's internal representation probe too is
+        // what made `_ballValueIsSet` permanently false in the compiled
+        // self-hosted engine — so it could never reach a set's live backing list
+        // and every in-place set mutation it performed was lost (issue #557,
+        // conformance fixture `462_set_mutation_in_place`).
+        else if (tn == "BallRawMap") ck = "ball_is_map_dyn(BallDyn(" + val + "))";
         else ck = "ball_object_type_matches(" + val + ", \"" + tn + "\"s)";
         // For reified generics on user types (e.g. `x is Box<int>`), also check
         // that the object's __type_args__ field matches the expected type args.

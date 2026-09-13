@@ -1,0 +1,16 @@
+# A tiny, hermetic stand-in for the real `bitflags` crate (issue #629).
+#
+# It exists to give `rust/encoder/tests/fixtures/macro_crate` a DEPENDENCY-
+# DEFINED `#[macro_export] macro_rules!` to invoke, so the encoder's
+# `cargo metadata`-driven dependency-macro collection is exercised for real.
+#
+# It is a PATH dependency, never a registry one, on purpose: `cargo metadata`
+# resolves the dev-dependencies of every dependency, so a registry dependency
+# needs the network (an `--offline` run of it fails outright against the
+# coverage corpus). A path dependency needs no registry at all, and
+# `cargo metadata` reports its `manifest_path`/`src_path` identically.
+[package]
+name = "mini_bitflags"
+version = "0.1.0"
+edition = "2021"
+publish = false

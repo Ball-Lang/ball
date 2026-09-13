@@ -18,9 +18,17 @@ members = [
 # manifest inside a workspace directory is otherwise an error ("current package
 # believes it's in a workspace when it's not"). Excluding them says so
 # explicitly instead of leaving cargo to guess.
+# `macro_crate` + `mini_bitflags` (issue #629) are the same idea one step
+# further: `macro_crate` carries a real PATH dependency on `mini_bitflags`,
+# because the dependency is the point — `mini_bitflags` is the
+# `#[macro_export] macro_rules!`-exporting crate the encoder must locate
+# through `cargo metadata`. Both need their own `exclude` entry; excluding a
+# parent directory does not exclude a sibling package beside it.
 exclude = [
     "encoder/tests/fixtures/counter_crate",
     "encoder/tests/fixtures/modgraph_crate",
+    "encoder/tests/fixtures/macro_crate",
+    "encoder/tests/fixtures/mini_bitflags",
 ]
 
 # Phase 1a scaffold (issue #33): no Ball logic yet — just a compiling workspace

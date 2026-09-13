@@ -1857,6 +1857,7 @@
         "34_boolean_logic",
         "350_set_value",
         "416_user_method_name_arity_collision",
+        "465_string_sink",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -2353,6 +2354,7 @@
         "462_set_mutation_in_place",
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
+        "465_string_sink",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -2655,6 +2657,7 @@
         "262_getter_properties",
         "350_set_value",
         "416_user_method_name_arity_collision",
+        "465_string_sink",
         "97_stack_operations",
         "98_string_tokenizer"
       ],
@@ -3195,6 +3198,7 @@
         "462_set_mutation_in_place",
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
+        "465_string_sink",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",

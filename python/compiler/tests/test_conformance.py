@@ -65,6 +65,12 @@ PROVEN = [
     # compiler's dispatch table. This is the ONLY leg that compiles a
     # conformance fixture to Python, so the route is otherwise unexercised.
     "463_list_find_no_match",
+    # The declared text sink (issue #630). Before it, `grep -r __buffer__
+    # python/` found nothing: a Ball program using a `StringBuffer` was REFUSED
+    # by this compiler even though every self-hosted engine runs one. The
+    # fixture's `appendWord(out, 'c')` is the reference-semantics leg — a
+    # by-value backing loses that append and nothing else.
+    "465_string_sink",
 ]
 
 

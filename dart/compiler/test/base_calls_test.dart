@@ -788,4 +788,46 @@ void main() {
       }
     });
   });
+
+  // ── The declared text sink (issue #630) ──────────────────────────────
+  //
+  // Before #630 Ball had no declared sink; `StringBuffer` was an undeclared
+  // `__type__`/`__buffer__` map special-cased by NAME in the Dart and TS
+  // engines and implemented in no other compiler at all (`grep -r __buffer__`
+  // found nothing under rust/, csharp/, go/ or python/). The three declared
+  // base functions replace it, and every target must back them with a
+  // REFERENCE-SEMANTIC, `__type__`-tagged value so `std.type_of` answers
+  // "Sink" and an append performed inside a callee is visible to the caller.
+  group('std text sink (#630)', () {
+    test('sink_create / sink_write / sink_to_string emit the helpers', () {
+      expect(
+        _compileFlat(_call('std', 'sink_create', [])),
+        contains('_ballSinkCreate('),
+      );
+      expect(
+        _compileFlat(
+          _call('std', 'sink_write', [
+            _field('sink', _ref('sb')),
+            _field('text', _strLit('a')),
+          ]),
+        ),
+        contains("_ballSinkWrite(sb, 'a')"),
+      );
+      expect(
+        _compileFlat(
+          _call('std', 'sink_to_string', [_field('sink', _ref('sb'))]),
+        ),
+        contains('_ballSinkToString(sb)'),
+      );
+    });
+
+    test('sink_create carries an `initial` seed', () {
+      expect(
+        _compileFlat(
+          _call('std', 'sink_create', [_field('initial', _strLit('x'))]),
+        ),
+        contains("_ballSinkCreate('x')"),
+      );
+    });
+  });
 }

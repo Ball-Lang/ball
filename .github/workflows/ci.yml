@@ -299,6 +299,15 @@ jobs:
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
 
+      # The cpp job's compiler-cache gate (#594) reads ccache/sccache statistics
+      # and fails when a job compiled cacheable TUs with the cache recording zero
+      # requests. Its whole value is in two parsers and one comparison, and a
+      # gate whose parser silently stopped parsing is worse than no gate — it
+      # reports green forever. Those cases run here, without a compiler or a
+      # cache binary, on every PR (the cpp job itself is path-filtered).
+      - name: Compiler-cache gate self-test (#594)
+        run: bash cpp/test/check_compiler_cache_applied.sh --self-test
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────
@@ -759,6 +768,18 @@ jobs:
     #   macos-latest    Configure  8s  Build    5s  Run tests  9m56s  job 10m40s
     # The budgets below are the post-fix targets; a regression back to serial,
     # uncached fixture compiles fails the job instead of just slowing it down.
+    #
+    # #594 then removed the second half of the Windows cost: that leg had NO
+    # working compiler cache (the Visual Studio generator ignores
+    # <LANG>_COMPILER_LAUNCHER), so it re-compiled all ~320 TUs on every run —
+    # 19 min of a 20 min PR cycle, permanently under a budget sized for a cold
+    # cache. It now builds with `-G Ninja`, and the `Compiler cache applied`
+    # step below fails the job if the cache ever stops being used again.
+    # Measured on this PR, windows-latest (main run 34109636159 -> runs
+    # 34727960593 cold / 34728878760 cold fixtures / 34729468858 warm):
+    #   Build all targets  3m24s -> 2m17s cold ->    7s warm
+    #   Run tests         15m42s -> 8m51s cold -> 1m12s warm (318/318 hits)
+    #   whole job            19m -> 9m57s cold -> 2m02s warm
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -778,6 +799,17 @@ jobs:
           variant: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
           max-size: 1G
 
+      # Zero the counters so the statistics the gate below reads describe THIS
+      # job and nothing else (issue #594). ccache keeps its counters inside the
+      # cache directory, which the action restores from the Actions cache — so
+      # without this, a leg whose launcher is never applied would still report
+      # the previous run's inherited requests and the gate would pass on
+      # somebody else's numbers. sccache's live in the server process (fresh
+      # per runner), zeroed here too so both legs mean the same thing.
+      - name: Zero compiler-cache statistics
+        shell: bash
+        run: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} --zero-stats
+
       - name: Install nlohmann-json (Ubuntu)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y nlohmann-json3-dev
@@ -788,6 +820,18 @@ jobs:
 
       # Windows: nlohmann-json is fetched by CMake FetchContent
 
+      # Windows only, and the reason the whole leg can use its compiler cache
+      # (#594): with `-G Ninja` CMake needs cl.exe plus the INCLUDE/LIB/PATH
+      # environment on its own — the Visual Studio generator located the
+      # toolchain for itself, Ninja does not. Without this, `cmake -G Ninja`
+      # fails at compiler detection (loudly, never silently). `ninja` itself is
+      # preinstalled on the runner image, so nothing is installed here:
+      # actions/runner-images `images/windows/Windows2025-VS2026-Readme.md`
+      # (the image `windows-latest` points at) lists "Ninja 1.13.2" under Tools.
+      - name: Set up the MSVC environment (Windows, for -G Ninja)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
       # -DBALL_BUILD_PROTOBUF_RT=ON builds Ball's own compiled protobuf runtime
       # (cpp/shared/ball_protobuf_rt.h) plus a smoke driver that round-trips
       # real values through it, as a standalone, dependency-free proof target —
@@ -797,8 +841,17 @@ jobs:
       # (g++) only for now: that's the toolchain the target has been verified
       # against; extend to macOS (AppleClang) / Windows (MSVC) once each is
       # confirmed green — a broken canary must never take the whole job red.
+      #
+      # `-G Ninja` on Windows (#594): CMake honours <LANG>_COMPILER_LAUNCHER for
+      # the Makefile and Ninja generators only, and windows-latest defaults to
+      # the Visual Studio (MSBuild) generator — which silently ignored the
+      # launcher below, so this leg compiled everything uncached. The generator
+      # itself is NOT the win (a Ninja scratch build measured 590s against
+      # MSBuild's 591s); making sccache real is. It also makes the generator the
+      # same single-config shape the Linux/macOS legs already use, which is what
+      # `test_e2e`'s nested scratch project inherits via BALL_E2E_GENERATOR.
       - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'Linux' && '-DBALL_BUILD_PROTOBUF_RT=ON' || '' }} -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+        run: cmake -S cpp -B cpp/build ${{ runner.os == 'Windows' && '-G Ninja' || '' }} -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'Linux' && '-DBALL_BUILD_PROTOBUF_RT=ON' || '' }} -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release
@@ -856,35 +909,42 @@ jobs:
         shell: bash
         run: rm -f cpp/build/test/e2e_coverage.txt
 
-      # Step-level budget — the actual ratchet (#521). `Run tests` is dominated
-      # by test_e2e, which builds ~269 generated fixture programs in a scratch
-      # CMake project. Budget: 20 min on Windows, 8 min on Linux/macOS, against
-      # the pre-fix 28m33s / 12m12s / 9m56s in the job comment above.
+      # Step-level budget — the actual ratchet (#521, re-derived in #594).
+      # `Run tests` is dominated by test_e2e, which builds ~296 generated
+      # fixture programs in a scratch CMake project. Budget: 13 min on Windows,
+      # 8 min on Linux/macOS.
       #
       # A ratchet has to be sized against the SLOWEST healthy run, not the
-      # fastest. With ccache warm the Linux/macOS step is 11s / 19s, but a
+      # fastest. With the cache warm the Linux/macOS step is 11s / 19s, but a
       # COLD cache is a normal, blameless event: any PR that touches the
-      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~269
+      # Ball->C++ emitter or cpp/shared/include/ball_dyn.h changes all ~296
       # generated TUs, and an Actions cache eviction or a first run on a new
-      # key does the same. This PR measured that case on its own run
-      # 33698642352 — ubuntu `Run tests` 5m19s with `ccache -s` reporting
-      # 22 hits out of 292 cacheable calls, macOS 4m57s. 8 minutes leaves
-      # ~50% headroom over 319s/297s while still failing a regression back to
-      # the pre-fix serial 12m12s (ubuntu) / 9m56s (macOS); 10+ would stop
-      # catching the macOS one. Windows' 20 was derived the same way (13m57s
-      # observed cold, ~43% headroom).
+      # key does the same. #521 measured that case on its run 33698642352 —
+      # ubuntu `Run tests` 5m19s with `ccache -s` reporting 22 hits out of 292
+      # cacheable calls, macOS 4m57s. 8 minutes leaves ~50% headroom over
+      # 319s/297s while still failing a regression back to the pre-fix serial
+      # 12m12s (ubuntu) / 9m56s (macOS); 10+ would stop catching the macOS one.
       #
-      # Windows keeps the loosest budget because MSVC is the outlier, and that
-      # is measured rather than assumed. Reproduced locally against MSVC 14.50
-      # on 4 jobs (the runner's core count): each generated fixture is a ~278 KB
-      # TU pulling 29 standard headers (<regex>, <thread>, ...), the scratch
-      # build costs 591s, link is a rounding error at 0.33s per fixture, and the
-      # generator does not matter — a Ninja scratch build measured 590s against
-      # MSBuild's 591s. ~1000s of compiler front-end CPU spread over 4 cores is
-      # the floor for this design, so parallelism alone cannot reach the issue's
-      # aspirational "windows 6-10 min"; that needs a compiler cache that works
-      # on Windows, or a decision to run a subset of the corpus there. Both are
-      # follow-up work (see #521), not something to smuggle into a timing fix.
+      # Windows is re-derived from #594's own runs, because that leg's cost
+      # changed shape: it now has a compiler cache that is actually applied
+      # (see the Configure step and the "Compiler cache applied" step below).
+      # Measured on this workflow, same fixture corpus, same runner class:
+      #   uncached (MSBuild, the old default)   run 34727102995   14m27s
+      #   cold, cache applied (all 296 misses)  run 34728878760    8m51s
+      #   warm (318 of 318 compiles are hits)   run 34729468858    1m12s
+      # 13 minutes is ~47% over the 531s cold worst case — the same headroom
+      # convention as the Linux/macOS 8 — and still fails a regression back to
+      # the 14m27s uncached behaviour this issue removed. Size any future
+      # change against the COLD number; the warm one is not a budget.
+      #
+      # Windows remains the loosest of the three because MSVC is the outlier,
+      # and that is measured rather than assumed: each generated fixture is a
+      # ~278 KB TU pulling 29 standard headers (<regex>, <thread>, ...), and
+      # ~1000s of compiler front-end CPU spread over 4 cores is the floor for
+      # this design when nothing is cached. The generator is not what fixed it
+      # (a Ninja scratch build measured 590s against MSBuild's 591s) — the
+      # cache is; Ninja is simply the generator CMake honours a compiler
+      # launcher for.
       #
       # `-j`: every CTest test here is its own process, so they parallelise
       # safely (each test binary owns a distinct temp-path prefix). NOTE this
@@ -901,23 +961,21 @@ jobs:
       # BALL_E2E_JOBS / BALL_E2E_LAUNCHER are read by cpp/test/test_e2e.cpp for
       # the nested scratch project: build the ~269 fixture targets in parallel,
       # and route their compiles through the same compiler cache as the parent
-      # build. The launcher is Linux/macOS only ON PURPOSE — CMake honours
-      # <LANG>_COMPILER_LAUNCHER for the Makefile and Ninja generators but the
-      # Visual Studio (MSBuild) generator ignores it, so setting it on Windows
-      # would claim a cache that is not there. (Measured: the Windows leg of
-      # run 33673078770 finished with sccache reporting `Compile requests 0`
-      # for the same reason — the parent build's launcher is a no-op there too.
-      # Moving the Windows leg to `-G Ninja` would fix both; tracked as
-      # follow-up work, deliberately out of scope here.)
+      # build. The launcher is now set on ALL THREE legs (#594). It used to be
+      # Linux/macOS only, because CMake honours <LANG>_COMPILER_LAUNCHER for the
+      # Makefile and Ninja generators but the Visual Studio (MSBuild) generator
+      # ignores it — so on the Windows default generator it would have claimed a
+      # cache that was not there (measured: run 33673078770's Windows leg
+      # finished with sccache reporting `Compile requests 0`, the parent build's
+      # launcher being a no-op for the same reason). The Configure step above now
+      # passes `-G Ninja` on Windows, the scratch project inherits that generator
+      # through BALL_E2E_GENERATOR, and the "Compiler cache applied" step below
+      # fails the job if any of that ever stops being true.
       - name: Run tests
-        timeout-minutes: ${{ runner.os == 'Windows' && 20 || 8 }}
+        timeout-minutes: ${{ runner.os == 'Windows' && 13 || 8 }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
-          # NB: written as `!= 'Windows' && 'ccache' || ''` on purpose — an
-          # empty string is FALSY in a GitHub expression, so the intuitive
-          # `== 'Windows' && '' || 'ccache'` would fall through to 'ccache' on
-          # Windows and claim a cache MSBuild cannot use.
-          BALL_E2E_LAUNCHER: ${{ runner.os != 'Windows' && 'ccache' || '' }}
+          BALL_E2E_LAUNCHER: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
         run: ctest --test-dir cpp/build --output-on-failure -C Release -j ${{ steps.jobs.outputs.n }} --no-tests=error
 
       # Make the e2e coverage number VISIBLE on a green run, and re-assert it
@@ -954,6 +1012,33 @@ jobs:
             exit 1
           fi
           echo "C++ e2e coverage OK: $got/$exp fixtures executed."
+
+      # Is the compiler cache this job sets up actually APPLIED? (issue #594)
+      #
+      # Everything above measures TIME or COVERAGE, and neither can see a
+      # launcher that is configured and ignored: a step budget sized against a
+      # cold run cannot tell "cold today" from "no cache, ever", so the Windows
+      # leg sat at a permanently uncached 15-19 min under a 20 min budget while
+      # CI stayed green (main run 33673078770 finished with sccache reporting
+      # `Compile requests 0`). This asserts the one thing that separates the
+      # two: compiled > 0 cacheable TUs AND zero cache requests is a defect.
+      #
+      # Deliberately NOT a hit RATE. A cold cache is blameless and routine (a
+      # new key, an eviction, an emitter change that invalidates every
+      # generated TU) and must stay green.
+      #
+      # It runs AFTER the coverage step on purpose: the coverage assertion is
+      # the stronger invariant and has to report first, and this step reads the
+      # fixture count out of the same file to know how many TUs the nested
+      # scratch build compiled. The script's parsers are unit-tested in the
+      # always-on `proto` job (`--self-test`).
+      - name: "Compiler cache applied (#594)"
+        shell: bash
+        run: |
+          bash cpp/test/check_compiler_cache_applied.sh \
+            --tool ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} \
+            --build-dir cpp/build \
+            --coverage-file cpp/build/test/e2e_coverage.txt
 
       # Lean per-PR conformance gate for NEW/CHANGED fixtures only, on the Linux
       # leg (avoids tripling cost across the 3-OS matrix). The full-corpus

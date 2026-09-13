@@ -1,3 +1,10 @@
+# [1.72.0](https://github.com/Ball-Lang/ball/compare/v1.71.1...v1.72.0) (2026-09-13)
+
+
+### Features
+
+* **csharp:** route the 2-argument `string.Join` through `std_collections.string_join` (advances [#492](https://github.com/Ball-Lang/ball/issues/492)) ([#596](https://github.com/Ball-Lang/ball/issues/596)) ([78bdc1d](https://github.com/Ball-Lang/ball/commit/78bdc1d5bbfb42e977012a1f8b2cfa54079adcd3)), closes [#505](https://github.com/Ball-Lang/ball/issues/505)
+
 ## [1.71.1](https://github.com/Ball-Lang/ball/compare/v1.71.0...v1.71.1) (2026-09-06)
 
 

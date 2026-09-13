@@ -41,7 +41,11 @@
 # the lane fire without a human, not the incidental shape of the YAML and JSON
 # around them, so a legitimate refactor does not false-red.
 #
-# Usage: bash tools/release/check_go_release_wiring.sh
+# Usage:
+#   bash tools/release/check_go_release_wiring.sh              # gate the repo
+#   bash tools/release/check_go_release_wiring.sh --self-test  # the go-freshness
+#                                                              # paths leg's own
+#                                                              # negative controls
 
 set -uo pipefail
 

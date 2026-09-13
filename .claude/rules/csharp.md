@@ -376,6 +376,24 @@ compile items so the sibling projects never double-compile each other's files.
   workflow with no `pull_request` trigger. A rule that depends on a specific IR shape needs a
   targeted test (`AccessorEdgeCaseTests.cs`, #461, is the worked example — both its shapes are
   unreachable from any generated fixture).
+- **Captured stdout is per-execution-context — never `Console.SetOut` (#611).** `CSharpRunner.Run`
+  (`csharp/compiler/test/TestSupport.cs`, LINKED into `encoder/test/`) captures a compiled
+  program's stdout through `ConsoleCapture.Capture`: `Console.Out` is swapped **once** for a router
+  that forwards each write to the capture registered for the CALLING execution context
+  (`AsyncLocal<TextWriter?>`), else to the real console. The old spelling — a global
+  `Console.SetOut(stringWriter)` behind a `lock` — captured every write in the process, and a lock
+  cannot restrain a writer that never takes it: `RealWorldSweepTests`' bare `Console.Write(report)`
+  (a different class, therefore a different xUnit collection, therefore parallel by default —
+  <https://xunit.net/docs/running-tests-in-parallel>) landed inside
+  `BucketIFixtureEncodesCompilesAndRuns`'s capture, which expected `"BALL\n"` and got
+  `"Results: 9 passed, 2 failed, 11 total\n…"` (CI run 34732470492). Do NOT "fix" a future
+  collision with `[Collection]` + `DisableParallelization` (opt-in per class — it serialises the
+  suite and leaves the hole open for the next Console writer) and never hand a test a bare
+  `Console.SetOut`. `ConsoleCaptureIsolationTests` (linked into both test assemblies) is the guard;
+  it FORCES the interleaving with a file handshake, because a plain stress loop reproduced this 0
+  times in 20 runs. `csharp/engine/conformance/CSharpRunner.cs` keeps a global redirect on purpose
+  — that harness is single-threaded; port `ConsoleCapture` there before running any leg
+  concurrently.
 - `csharp/engine/conformance/` is the committed `tests/conformance/*.ball.json` runner (#384) —
   the `engine` leg is what CI gates on; quote its `Results:` line, not a hand-maintained count.
   Its mismatch reporting goes through `Fixtures.DescribeMismatch` (first **differing** line, never

@@ -34,9 +34,15 @@
     <!-- LINKED, not copied: `CSharpRunner` (compile emitted C# in-memory, run it,
          capture stdout) is the compiler suite's harness and is single-sourced
          there. Duplicating it would let the two drift — notably its
-         process-global Console.Out lock and its trusted-platform-assembly
+         execution-context-scoped stdout capture and its trusted-platform-assembly
          reference set. -->
     <Compile Include="../../compiler/test/TestSupport.cs" Link="TestSupport.cs" />
+    <!-- The harness's own isolation guard (issue #611), linked for the same
+         single-source reason AND because THIS is the assembly the collision was
+         observed in: `RealWorldSweepTests` writes its summary straight to
+         `Console` while a sibling class is capturing a compiled program's stdout.
+         Running the guard here is what keeps that specific process honest. -->
+    <Compile Include="../../compiler/test/ConsoleCaptureIsolationTests.cs" Link="ConsoleCaptureIsolationTests.cs" />
   </ItemGroup>
 
   <!-- The real-world sweep's fixtures are DATA, not part of this assembly: they

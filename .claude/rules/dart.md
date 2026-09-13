@@ -324,6 +324,7 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   round-tripped through it. This is metadata the engine DISPATCHES on —
   deliberate and bounded, see `docs/METADATA_SPEC.md`'s "Accessor shape" and
   `dart/engine/AGENTS.md`.
+
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

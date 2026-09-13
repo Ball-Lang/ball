@@ -116,9 +116,18 @@ internal static class ProjectCompilationBuilder
 
     /// <summary>
     /// Every hand-written <c>.cs</c> file under <paramref name="directory"/>, sorted ordinal so
-    /// the encode is deterministic. The filter mirrors <c>csharp/coverage-study</c>'s own
-    /// <c>CsFilesUnder</c> exactly, so the Tier A instrument and this seam sweep the same set:
-    /// build output plus the generated-file suffixes nobody hand-wrote.
+    /// the encode is deterministic. Excluded: build output, plus the generated-file suffixes
+    /// nobody hand-wrote.
+    ///
+    /// <para><b>This set deliberately INCLUDES a project's own tests, and Tier A's scored set
+    /// deliberately does not.</b> They answer different questions. This sweep decides what goes
+    /// into the <see cref="Microsoft.CodeAnalysis.CSharp.CSharpCompilation"/>, and a semantic
+    /// model resolves best over the whole project — dropping the test files could only make a
+    /// symbol harder to resolve, never easier. <c>csharp/coverage-study</c>'s
+    /// <c>ClassifyCsFiles</c> decides which files get a per-file VERDICT, and since the owner's
+    /// 2026-09-14 methodology decision on issue #491 that is library code only. The two used to
+    /// be the same filter and are no longer; keeping the difference explicit here is what stops
+    /// someone "restoring" the symmetry and silently narrowing the compilation.</para>
     /// </summary>
     internal static List<string> EnumerateSources(string directory, ProjectEncodeOptions options)
     {

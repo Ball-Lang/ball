@@ -55,9 +55,13 @@ public sealed record ProjectEncodeOptions
     public IReadOnlyList<string> ExcludeDirectories { get; init; } = ["bin", "obj"];
 
     /// <summary>
-    /// Filename suffixes excluded as generated, not hand-written, source. Mirrors
-    /// <c>csharp/coverage-study</c>'s own <c>CsFilesUnder</c> filter exactly, so the Tier A
-    /// instrument and this seam sweep the same file set.
+    /// Filename suffixes excluded as generated, not hand-written, source.
+    ///
+    /// <para>Note that this sweep INCLUDES a project's own tests while Tier A's scored set
+    /// excludes them (issue #491, 2026-09-14). That is deliberate and the two are not meant to
+    /// match: the compilation wants the whole project so its semantic model resolves as much as
+    /// possible, and the scored population wants library code only. See
+    /// <c>ProjectCompilationBuilder.EnumerateSources</c>.</para>
     /// </summary>
     public IReadOnlyList<string> ExcludeSuffixes { get; init; } =
         [".Designer.cs", ".g.cs", ".generated.cs"];

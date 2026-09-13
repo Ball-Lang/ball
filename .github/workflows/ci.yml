@@ -2528,6 +2528,20 @@ jobs:
       - name: "Coverage-table renderer + floor self-test (issue #493)"
         run: python tools/coverage-study/test/coverage_table_self_test.py
 
+      # ── summarize.sh self-test (issues #493, #491) ──
+      # summarize.sh is the only thing a report-only coverage-study job still
+      # FAILS on: the positive floor (a run that scored zero files is a
+      # harness/checkout failure, never a 0% result) and — since the owner's
+      # 2026-09-14 methodology decision on #491 — the REQUIRED
+      # `excluded (test-only): N` line, which is the provenance for a
+      # denominator that no longer contains a package's own tests. It is shell,
+      # and a shell gate can disable itself silently (a failing `[` inside an
+      # `if` skips the branch and falls through to exit 0), so it is gated here
+      # by exit code. Language-agnostic, hence this job rather than a per-
+      # language one; it is bash either way.
+      - name: "Coverage-study summarize.sh self-test (issues #493, #491)"
+        run: bash tools/coverage-study/test/summarize_self_test.sh
+
       # Runs BEFORE the self-host regen below, so compiled_engine.py is absent
       # here and the CLI's honest-failure `run` path (exit 1 + regenerate hint)
       # is actually exercised — the natural state of a fresh checkout.

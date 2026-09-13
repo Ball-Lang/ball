@@ -20,7 +20,9 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use ball_rq1_study::{FileResult, report, silence_panic_output, study_directory_with};
+use ball_rq1_study::{
+    Exclusion, FileResult, classify_rust_files, report, silence_panic_output, study_directory_with,
+};
 
 fn flag(args: &[String], name: &str) -> bool {
     let flag = format!("--{name}");
@@ -45,6 +47,7 @@ fn main() -> ExitCode {
     let crate_aware = !flag(&args, "single-file");
     let mut results: Vec<FileResult> = Vec::new();
     let mut missing_pins: Vec<String> = Vec::new();
+    let mut excluded: Vec<Exclusion> = Vec::new();
 
     if let Some(pins_path) = arg(&args, "pins") {
         let Some(checkouts) = arg(&args, "checkouts") else {
@@ -79,6 +82,7 @@ fn main() -> ExitCode {
                 missing_pins.push(name.to_string());
                 continue;
             }
+            excluded.extend(classify_rust_files(name, &dir).1);
             results.extend(study_directory_with(name, &dir, crate_aware));
         }
     } else if let (Some(package), Some(source_dir)) =
@@ -89,6 +93,7 @@ fn main() -> ExitCode {
             eprintln!("--source-dir does not exist: {source_dir}");
             return ExitCode::from(2);
         }
+        excluded.extend(classify_rust_files(&package, dir).1);
         results.extend(study_directory_with(&package, dir, crate_aware));
     } else {
         eprintln!(
@@ -102,6 +107,15 @@ fn main() -> ExitCode {
         let blob = serde_json::json!({
             "missingPins": missing_pins,
             "files": results.iter().map(FileResult::to_json).collect::<Vec<_>>(),
+            "excludedTestOnly": excluded.len(),
+            "excluded": excluded
+                .iter()
+                .map(|e| serde_json::json!({
+                    "package": e.package,
+                    "file": e.file,
+                    "rule": e.rule,
+                }))
+                .collect::<Vec<_>>(),
         });
         let rendered = serde_json::to_string_pretty(&blob).unwrap_or_else(|err| {
             eprintln!("could not render the JSON report: {err}");
@@ -114,7 +128,7 @@ fn main() -> ExitCode {
     }
 
     let mut out = String::new();
-    match report(&mut out, &results, &missing_pins) {
+    match report(&mut out, &results, &excluded, &missing_pins) {
         Ok(code) => {
             print!("{out}");
             if code != 0 {

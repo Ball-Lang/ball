@@ -337,8 +337,15 @@ cargo fmt --check && cargo clippy --workspace
   encoded with the crate's symbol table in hand (`rq1-study --single-file`
   turns that off and reproduces the older per-file measurement, so a
   before/after is one binary over one checkout; each JSON row's `crateModule`
-  says which way that file was measured). Honest baseline, **0/110 clean,
-  1/110 encoded** — the encoders' documented gaps (item-level macro
+  says which way that file was measured). **Tier A scores LIBRARY code only
+  since 2026-09-14** (the owner's methodology decision on #491): a file under
+  `tests/`/`benches/`/`examples/`, or one the crate's `mod` graph reaches ONLY
+  through a `#[cfg(test)]` module, is excluded from the denominator and counted
+  on the harness's own `excluded (test-only): N` line. That took 34 of
+  `bitflags`' files out (33 by path, 1 — `src/tests.rs` — by reachability), so
+  the denominator is **77, not the 110 every #491 histogram in this file and in
+  `rust/AGENTS.md` is written against**; read those as history. Honest baseline,
+  **0/77 clean, 1/77 encoded** — the encoders' documented gaps (item-level macro
   invocations, unmapped macros like `write!`, `impl` self types that are not a
   plain named type) are in essentially every real crate file, and a file that
   clears one lands on the next. A closed gap category usually moves the

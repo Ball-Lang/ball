@@ -22,9 +22,19 @@
 # that stopped calling the loop-breaker would all sit there unnoticed until the
 # day they mattered. This parses the workflow and asserts the shape on every PR.
 #
+# THE FAMILY SET IS DERIVED, NOT LISTED (#655). A hardcoded tuple of the six ids
+# that exist today would let a SEVENTH regenerate-and-diff family be added
+# tomorrow, unwired, with this guard still green. So the set is derived from the
+# predicate that actually defines a family — an `Assert …` step whose `run`
+# contains `git diff --exit-code` — and every derived id must appear in all three
+# gates AND own a pathspec block in the collect step's table. The six are kept as
+# a positive floor: the derived set must be a superset of them, so a predicate
+# that stopped matching fails loud instead of shrinking what is checked.
+#
 # POSITIVE FLOOR: a guard that asserted nothing must not report success. The
-# checker refuses a job with fewer than 6 `Assert …` steps, refuses an empty
-# required-id set, and the self-test refuses to pass on fewer than 10 cases.
+# checker refuses a job with fewer than 6 `Assert …` steps, refuses a derived set
+# that does not cover the floor tuple, refuses to pass on fewer than 10 live
+# assertions, and the self-test refuses to pass on fewer than 18 cases.
 #
 # Usage:
 #   bash tools/ci/check_ci_regen_wiring.sh                # gate the repo
@@ -57,7 +67,7 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   -h | --help)
-    sed -n '2,40p' "${BASH_SOURCE[0]}"
+    sed -n '2,46p' "${BASH_SOURCE[0]}"
     exit 0
     ;;
   *)
@@ -85,10 +95,22 @@ except ImportError:  # pragma: no cover - the runner image ships PyYAML
 path = sys.argv[1]
 JOB = "ball-freshness"
 
-# Every artifact family the job regenerates, and the `id` its `git diff
-# --exit-code` gate must carry. Adding a family here without wiring its id into
-# the three conditions below is the failure this guard exists to make loud.
-REQUIRED_ASSERT_IDS = (
+# An artifact family is DERIVED, not listed (#655): it is an `Assert …` step
+# whose `run` regenerate-and-diffs a committed file, i.e. contains
+# `git diff --exit-code`. The job's other `Assert …` steps are checkers that own
+# no artifact (assert-fixture-sources, assert-encoder-completeness,
+# assert-fixture-names, assert-node-shapes) and must NOT be wired into the
+# collect/upload/push flow. Deriving the set is what makes a SEVENTH family fail
+# loud on the day it is added rather than on the day it matters — a hardcoded
+# tuple stays green while an unwired family silently collects nothing.
+DIFF_PREDICATE = "git diff --exit-code"
+
+# …and the six that exist today are kept as a POSITIVE FLOOR. A derivation that
+# stopped deriving (a predicate that no longer matches, a step renamed out of
+# `Assert …`) would otherwise quietly shrink the set every gate is checked
+# against — the exact "nothing ran reads as all passed" failure. The derived set
+# must be a SUPERSET of this tuple.
+FLOOR_ASSERT_IDS = (
     "assert-shared",
     "assert-corpus",
     "assert-std-coverage",
@@ -181,12 +203,34 @@ if missing_id:
 else:
     ok("every `Assert …` step carries an `id`")
 
-ids = {str(s.get("id")) for s in asserts if s.get("id")}
-absent = [i for i in REQUIRED_ASSERT_IDS if i not in ids]
-if absent:
-    bad("missing required Assert step id(s): " + ", ".join(absent))
+# 3. DERIVE the artifact-family set, then floor it against the literal tuple.
+#    An id that is derived but not in the floor is a NEW family — it must still
+#    be wired everywhere below. An id in the floor that is no longer derived
+#    means the predicate stopped matching, which would silently shrink every
+#    check that follows; both directions fail loud.
+derived_ids = [
+    str(s.get("id")) for s in asserts if s.get("id") and DIFF_PREDICATE in body(s)
+]
+derived = set(derived_ids)
+lost = [i for i in FLOOR_ASSERT_IDS if i not in derived]
+if lost:
+    bad(
+        "the artifact-family set is derived from `Assert …` steps whose `run` "
+        f"contains `{DIFF_PREDICATE}`, and that derivation no longer yields: "
+        + ", ".join(lost)
+        + " — either the step lost its regenerate-and-diff gate or it was renamed "
+        "out of the derivation. A shrunken set silently stops checking those "
+        "families (#655)."
+    )
 else:
-    ok("all " + str(len(REQUIRED_ASSERT_IDS)) + " artifact-family Assert ids are present")
+    ok(
+        f"{len(derived)} artifact famil(ies) derived from the `{DIFF_PREDICATE}` "
+        f"predicate, covering the {len(FLOOR_ASSERT_IDS)}-id floor"
+    )
+
+# Every check below is over the UNION, so a floor id the derivation lost is
+# still reported as unwired rather than quietly dropped.
+GATE_IDS = sorted(derived | set(FLOOR_ASSERT_IDS))
 
 
 def find_step(pred, label):
@@ -218,7 +262,7 @@ def assert_gated(step, label, extra=()):
         return
     missing = [
         i
-        for i in REQUIRED_ASSERT_IDS
+        for i in GATE_IDS
         if not re.search(
             r"steps\." + re.escape(i) + r"\.outcome\s*==\s*'failure'", expr
         )
@@ -234,7 +278,7 @@ def assert_gated(step, label, extra=()):
         if needle not in expr:
             bad(f"{label}'s `if:` is missing `{needle}`")
             return
-    ok(f"{label} is gated on all {len(REQUIRED_ASSERT_IDS)} Assert outcomes")
+    ok(f"{label} is gated on all {len(GATE_IDS)} Assert outcomes")
 
 
 assert_gated(collect, "the collect step")
@@ -249,7 +293,92 @@ assert_gated(
     ),
 )
 
-# 3. The loop-breaker (#625): the push step must ask whether the PR head commit
+# 4. The collect step's PATHSPEC TABLE (#655). The `if:` above proves the step
+#    RUNS for a given family; the table inside its `run:` decides which files it
+#    actually copies. They are two independent lists, and only the first was
+#    gated: a family whose gate names its id but whose table forgot a path would
+#    collect strictly less than it should, and the step's `exit 1` only covers
+#    the case where NO family matched at all. So walk the table.
+#
+#    The id -> shell-variable mapping is the step's own `env:` block
+#    (`ASSERT_GO: ${{ steps.assert-go.outcome }}`), never a naming convention —
+#    the workflow is the source of truth for its own spelling.
+if collect is not None:
+    collect_env = collect.get("env")
+    collect_env = collect_env if isinstance(collect_env, dict) else {}
+    run = body(collect)
+
+    var_for_id = {}
+    for var, value in collect_env.items():
+        m = re.search(r"steps\.([A-Za-z0-9_.-]+)\.outcome", str(value))
+        if m:
+            var_for_id[m.group(1)] = str(var)
+
+    no_env = [i for i in GATE_IDS if i not in var_for_id]
+    if no_env:
+        bad(
+            "the collect step has no `env:` entry carrying `steps.<id>.outcome` for: "
+            + ", ".join(no_env)
+            + " — without it the step's pathspec table cannot see whether that "
+            "family drifted, so its files are never collected (#655)"
+        )
+
+    stale = sorted(i for i in var_for_id if i not in set(GATE_IDS))
+    if stale:
+        bad(
+            "the collect step's `env:` gates on "
+            + ", ".join(f"`steps.{i}.outcome` (as ${var_for_id[i]})" for i in stale)
+            + ", which is not an artifact-family `Assert …` step — the table and the "
+            "job have drifted apart, and that variable is never set (#655)"
+        )
+
+    tableless = []
+    pathless = []
+    for i in GATE_IDS:
+        var = var_for_id.get(i)
+        if var is None:
+            continue
+        v = re.escape(var)
+        block = re.search(
+            r'if\s+\[\s+"\$(?:\{' + v + r"(?::-)?\}|" + v + r')"\s*=\s*"failure"\s*\]'
+            r"\s*;\s*then(.*?)^\s*fi\s*$",
+            run,
+            re.S | re.M,
+        )
+        if block is None:
+            tableless.append(f"{i} (as ${var})")
+            continue
+        add = re.search(r"pathspec\+=\(([^)]*)\)", block.group(1), re.S)
+        paths = []
+        if add is not None:
+            for line in add.group(1).splitlines():
+                line = line.split("#", 1)[0]
+                paths.extend(line.split())
+        if not paths:
+            pathless.append(f"{i} (as ${var})")
+
+    if tableless:
+        bad(
+            "the collect step's pathspec table has no `if [ \"$VAR\" = \"failure\" ]` "
+            "block for: "
+            + ", ".join(tableless)
+            + " — the gate lists the family but the `run:` never collects its files, "
+            "so a real drift uploads a PARTIAL fix (#655)"
+        )
+    if pathless:
+        bad(
+            "the collect step's pathspec table has a block for "
+            + ", ".join(pathless)
+            + " that adds no path at all — an empty `pathspec+=()` collects nothing "
+            "while looking wired (#655)"
+        )
+    if not (no_env or stale or tableless or pathless):
+        ok(
+            f"the collect step's pathspec table covers all {len(GATE_IDS)} artifact "
+            "families, and nothing else"
+        )
+
+# 5. The loop-breaker (#625): the push step must ask whether the PR head commit
 #    is itself an auto-push, and must take the marker trailer FROM the script
 #    rather than spelling a second copy of the literal.
 if push is not None:
@@ -271,7 +400,7 @@ if push is not None:
     else:
         ok("the push step consults the loop-breaker and sources the marker from it")
 
-# 4. Every `${{ … }}` placeholder in the job must be WELL FORMED. GitHub parses
+# 6. Every `${{ … }}` placeholder in the job must be WELL FORMED. GitHub parses
 #    expressions only when it creates a run, and a workflow that fails to parse
 #    produces NO CHECKS AT ALL — and an absent check reads as green. PyYAML is
 #    perfectly happy with `${{{{ … }}}}` (a stray brace pair from a templating
@@ -301,7 +430,7 @@ if placeholder_errors:
 else:
     ok("every `${{ … }}` placeholder in the job is well formed")
 
-# 5. No escape hatches anywhere in the job. A `continue-on-error` on any step
+# 7. No escape hatches anywhere in the job. A `continue-on-error` on any step
 #    here would turn the whole regenerate-and-diff contract green-by-default.
 hatches = []
 if job.get("continue-on-error"):
@@ -321,7 +450,7 @@ print(f"Results: {passed} passed, {len(failures)} failed, {total} total")
 if failures:
     print(f"::error::{path}: the `{JOB}` regeneration wiring is broken (see the FAIL lines above; issue #625).")
     sys.exit(1)
-if passed < 7:
+if passed < 10:
     print(
         f"::error::{path}: only {passed} assertion(s) ran — a guard that checked "
         "almost nothing is not a passing guard."

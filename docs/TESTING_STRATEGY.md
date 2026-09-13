@@ -410,7 +410,7 @@ the corpus is generated from Dart by the Dart encoder, so it only ever emits the
 Ball shapes that encoder produces, and a semantic change the corpus does not
 happen to exercise leaves every sweep green while the TS engine disagrees with
 the Dart reference engine (this is exactly how a stale `_isBareSelfConstruction`
-guard shipped under #499 with all 18 checks green). Two gates close it:
+guard shipped under #499 with every required check green). Two gates close it:
 `Ball Artifact Freshness`'s `Assert compiled TS engine is up to date` step
 regenerates and diffs the artifact, and
 `ts/engine/test/compiled_engine_parity.test.ts` locks the behaviour with
@@ -623,10 +623,15 @@ That job regenerates every committed Ball artifact (`std.json`, `ball_proto.json
 `ball_protobuf.json`, the conformance corpus, `std_coverage.json` +
 `STD_COVERAGE.md`, `compiled_engine.ts`, `compiled_cli.ts`, `compiled_engine.go`,
 `compiled_cli.go`) and `git diff --exit-code`s each family. The gates are
-unchanged — same fail-loud shape, same exit 1 — but on failure the job now
-uploads the regenerated files, at their exact repo-relative paths, as the
-`regenerated-artifacts` workflow artifact. Applying them needs **no Dart/TS/Go
-toolchain**:
+unchanged — same fail-loud shape, same exit 1 — but when an **`Assert …` gate**
+fails the job uploads the regenerated files, at their exact repo-relative paths,
+as the `regenerated-artifacts` workflow artifact. Only from an Assert gate: a
+failed *Regenerate* step means a generator died part-way under `set -euo
+pipefail`, so the file it was writing may be truncated, and uploading that would
+hand you a corrupt artifact labelled "the fix" (#625). Each step's `if:` names
+the per-artifact `steps.<assert-id>.outcome`, and the collect step builds its
+pathspec list from the same outcomes, so a Regenerate failure contributes no
+paths at all. Applying them needs **no Dart/TS/Go toolchain**:
 
 ```bash
 bash tools/ci/apply_regenerated.sh <pr-number>     # or: --run <run-id>
@@ -648,8 +653,10 @@ fork (`github.event.pull_request.head.repo.full_name == github.repository`).
 
 It must be a PAT, not `GITHUB_TOKEN`: *"When you use the repository's
 GITHUB_TOKEN to perform tasks, events triggered by the GITHUB_TOKEN will not
-create a new workflow run"* (with only `workflow_dispatch` / `repository_dispatch`
-excepted) —
+create a new workflow run, with the following exceptions"* — `workflow_dispatch`
+and `repository_dispatch` always create a run, and `pull_request`
+opened/synchronize/reopened creates one in an **approval-required** state. Neither
+exception covers a push to a branch, which is what this step does —
 [Triggering a workflow](https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow).
 A `GITHUB_TOKEN` push would leave the PR sitting on a commit with **no CI at
 all**: a PR that looks settled and was never checked.
@@ -658,6 +665,51 @@ all**: a PR that looks settled and was never checked.
 this repository only, with Repository permissions → **Contents: Read and write**,
 then `gh secret set REGEN_PAT --repo Ball-Lang/ball`. (`RELEASE_PAT` no longer
 exists in this repo's secrets; do not reuse that name.)
+
+**Auto-push loop-breaker (#625).** A PAT push triggers CI *by design*, so the job
+that produced the regeneration commit runs again on it. `git diff --cached
+--quiet` stops only the identical-bytes case; a **nondeterministic** generator
+would drift, push and re-trigger forever. The regeneration commit therefore
+carries a `Ball-Regen-Autopush: ball-artifact-freshness` trailer, and
+`tools/ci/regen_loop_breaker.sh` refuses to push onto a head that already has it:
+**one auto-push per human commit**, then a loud failing job summary naming the
+nondeterministic generator as the thing to fix. `tools/ci/check_ci_regen_wiring.sh`
+keeps that wiring honest — it parses the job and asserts the collect/upload/push
+steps gate on `steps.<assert-id>.outcome == 'failure'` (never a bare `failure()`,
+which cannot tell a stale artifact from a generator that died mid-write) and that
+the push still consults the loop-breaker. Both run on every PR from `Proto
+Checks`, self-test first.
+
+## The required status checks
+
+The list is not a convention: since 2026-09-14 it is enforced by the
+repository's `Protect main` ruleset, whose **19 required status check contexts** are
+(see the #59 comment of that date):
+
+- `Ball Artifact Freshness`
+- `C#`
+- `C++ (macos-latest)`
+- `C++ (ubuntu-latest)`
+- `C++ (windows-latest)`
+- `C++ Self-Host Tally (every fixture must pass)`
+- `CLI Verb Parity`
+- `Dart`
+- `Dart Coverage Ratchet`
+- `Dart Regression Gate (engine + encoder + compiler)`
+- `Detect changed stacks`
+- `Go`
+- `Proto Checks`
+- `Protobuf Codegen (gen + rpc)`
+- `Python`
+- `Rust`
+- `TS Regression Gate (engine + compiler)`
+- `TypeScript`
+- `Upstream Conformance (Editions)`
+
+A PR is BLOCKED until all 19 report success, so "the checks are green" is a
+mechanical statement about that list, not a judgement call. `Dart Coverage
+Ratchet` is on it too — it is easy to overlook because it lives in
+`coverage.yml`, not `ci.yml`.
 
 ## Adding a language construct (the required workflow)
 

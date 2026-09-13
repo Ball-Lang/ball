@@ -34,14 +34,31 @@ arrived with the crate-aware slice below; every #491 slice before it left the ag
 that number — read those histograms as history, not as today's totals.** Per the owner's
 methodology decision on #491, Tier A now scores LIBRARY code only: 34 of the 119 `.rs` files
 under the pinned subtrees are `bitflags`' own tests and are excluded, so `scored` is **77** and
-the harness prints `excluded (test-only): 34`. Rust's rule has two halves, and both fire on the
-real pins — 33 files under a `tests/` directory, plus `bitflags/src/tests.rs`, which is NOT under
-one and is caught only by the second half: a file the crate's `mod` graph reaches *only* through a
-`#[cfg(test)]` module. That second half is `classify_rust_files`' own `syn` walk, deliberately not
+the harness prints `excluded (test-only): 34`. Rust's rule has two halves, and on the real pins
+all 34 come from the second one: a file the crate's `mod` graph reaches *only* through a
+`#[cfg(test)]` module. The path half covers the PACKAGE-ROOT `tests/`, `benches/` and `examples/`
+Cargo targets — siblings of `src/`, which the pins (`lib` = `src`) never even walk — and
+deliberately not `src/tests/`, which is an ordinary module directory whose contents can be public
+library code (#637). `bitflags/src/tests.rs` and its 33 `src/tests/*.rs` children are all declared
+by `src/lib.rs`'s `#[cfg(test)] mod tests;`, so reachability is what reports them. That second half
+is `classify_rust_files`' own `syn` walk, deliberately not
 a call into `CrateGraph` — that walk skips `#[cfg(test)]` modules outright (#621), so it cannot
 tell "test-only" from "not reached at all", and an unreferenced *library* leftover must stay
 scored. Neither `clean` nor `encoded` moved in absolute terms; both ratios rose because the
 denominator shrank. See `tests/conformance/COVERAGE_STUDY.md`.
+
+**That reachability walk is anchored on a CRATE ROOT, and a missing anchor is now FATAL (#648).**
+`crate_root()` looks for `lib.rs` / `main.rs` / `src/lib.rs` / `src/main.rs` under the studied
+subtree; until #648, not finding one returned an empty exclusion set and the run carried on, so a
+pin whose `lib` pointed one level too deep, a crate whose root moved, or a refactor of that
+resolver switched the only working half of the rule OFF — all 34 files re-entered the denominator
+and `coverage_table.py` read the jump in `scored` as an improvement to ratchet UP. It is now an
+error naming every path searched, the package root it did find, and the opt-in. A subtree that
+genuinely has no crate root (a bare directory of `.rs` files) is declared, per pin, with
+`"crateRoot": "none"` — or `--no-crate-root` for the ad-hoc `--package/--source-dir` invocation;
+any other value of that key is itself an error. No pin needs it today. The second line of defence
+is in `coverage_table.py`: an `excluded` that drops to 0 while `scored` rises by at least that many
+files is a BREACH naming the readmitted population, not a raise.
 Every other scored file is an `encode-error`: the encoder's documented gaps
 (item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate
@@ -80,6 +97,7 @@ absent, not green, on a PR; it is floored by ratchet in that workflow's
 | `ball-lang-shared` | `rust/shared/` | Protobuf bindings (`prost`/`prost-reflect`) + runtime value types (`BallValue`/`BallList`/`BallMap`/`BallFunction`/`BallMessage`) + universal std module builders (a PORT of `dart/shared/lib/std*.dart`, gated name-for-name AND `outputType`-for-`outputType` by `src/std_dart_parity.rs` — port every `_fn(...)` change in the same PR, #505/#557) + `runtime::*` base-op helpers | Complete (#34, #35) |
 | `ball-lang-compiler` | `rust/compiler/` | Ball → Rust compiler | Complete (#36-38) |
 | `ball-lang-encoder` | `rust/encoder/` | Rust (`syn` AST) → Ball encoder | Complete (#42-43) |
+| `ball-lang-macro-expand` | `rust/macro-expand/` | `macro_rules!` expansion for the encoder, quarantining rust-analyzer's `ra_ap_mbe` behind a four-item API | Complete (#629) — see "`macro_rules!` expansion" below |
 | `ball-lang-engine` | `rust/engine/` | Self-hosted Ball engine (compiled from `dart/self_host/engine.ball.json`) | **Complete** (#39/#300) — runs the corpus at Dart parity (319/319), see below |
 | `ball-engine-regen` | `rust/engine/tool/` | Internal helper crate: regenerates `rust/engine/src/compiled_engine.rs` | Complete, run manually |
 | `ball-lang-cli` | `rust/cli/` | `ball run`/`compile`/`encode`/`check`/`info`/`validate`/`tree`/`version` CLI | Complete (#41/#304, #365) — clap subcommands; `run` behind `self_host`, `info`/`validate`/`tree` behind `cli_core` (no `audit` — #362 residual) |
@@ -168,8 +186,134 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 - `indexmap = "2"` — backs `BallMap` (`IndexMap<String, BallValue>`) so map iteration order
   matches every other engine's insertion-ordered map (Dart's `LinkedHashMap`-backed `Map`, C++'s
   `BallOrderedMap`). Do NOT use `HashMap` for anything Ball-value-shaped.
-- `syn = "2"` (`features = ["full", "extra-traits"]`) + `proc-macro2` + `quote` — the encoder's
-  Rust source parser, the Rust analog of Dart's `analyzer` / TS's TS-Compiler-API.
+- `syn = "2"` (`features = ["full", "extra-traits", "visit-mut"]`) + `proc-macro2` + `quote` —
+  the encoder's Rust source parser, the Rust analog of Dart's `analyzer` / TS's
+  TS-Compiler-API. `visit-mut` is what `ball-lang-macro-expand`'s hygiene pass and the
+  encoder's expansion driver walk the tree with.
+- `ra_ap_mbe` / `ra_ap_tt` / `ra_ap_span` / `ra_ap_intern`, all `= "=0.0.351"`, plus
+  `salsa = "0.28"` and `serde_json = "1"` — **only** in `ball-lang-macro-expand`. The `=` pins
+  are mandatory, not cautious: `ra_ap_mbe` pins its own siblings with `=`, so a mixed set does
+  not resolve at all. **Dependabot's `cargo-minor-patch` group will file no-op PRs against
+  these**; bump all four together, deliberately, when rust-analyzer's weekly release is worth
+  taking. See "`macro_rules!` expansion" below.
+
+## `macro_rules!` expansion (issue #629)
+
+### The design of record, in one paragraph
+
+`rust/encoder` used to refuse an item-level macro loudly, because a macro at item position can
+be the very thing that DEFINES a type the rest of a file calls into — skipping it orphans those
+references. Closing that needs real expansion, and the owner's 2026-09-14 decision was to use
+**rust-analyzer's own macro-by-example engine**, published for stable toolchains as
+`ra_ap_mbe`, rather than a per-macro desugaring (there is no `bitflags`-shaped special case
+anywhere — grep for it) or a hand-written matcher/transcriber. The engine and its
+`ra_ap_*`/salsa stack are confined to **`rust/macro-expand/`**, so `ball-lang-encoder` names no
+`ra_ap_*` type and a later engine swap is a one-crate change.
+
+### What was MEASURED, and what it is worth
+
+Against the pinned Tier A corpus (`tools/coverage-study/packages/rust.json`, 5 crates, 119
+files, 110 scored), by macro class over the scored files:
+
+| class | invocations | scored files touched |
+|---|---:|---:|
+| builtin / std-prelude family (`assert_eq!`, `write!`, `vec!`, …) | 401 | 71 |
+| local `macro_rules!` (same crate) | 225 | 22 |
+| dependency-defined `macro_rules!` | 2 | 1 |
+| proc-macro (function-like or attribute) | **0** | 0 |
+
+Restricted to what `EncodeCrate` actually walks, **only 4 of the 110 scored files are
+first-blocked by a `macro_rules!` invocation** (`itertools/cons_tuples_impl.rs`,
+`itertools/unziptuple.rs`, `bitflags/tests/bitflags_match.rs`,
+`bitflags/tests/iter_equal_names.rs`). The 28-file `TestFlags` bucket #629's prose attributes to
+macros is **not** a macro bucket: `TestFlags` comes from a `bitflags!` invocation inside
+`#[cfg(test)] mod tests`, which `crate_graph.rs` deliberately does not walk (#621), and those
+files then need generic bounds, associated-type paths and `impl Trait` parameters as well. So
+expansion moves first blockers; on its own it converts no additional file to clean. Say that
+plainly rather than implying a moved floor.
+
+Zero non-builtin attribute macros and zero function-like proc-macros occur in the corpus, so
+keeping proc-macros out of scope and loud costs it nothing.
+
+### How it works
+
+- **Token bridge, never text** (`macro-expand/src/bridge.rs`). `syn` already holds the tokens,
+  so the bridge walks `ItemMacro.mac.tokens` / `Macro.tokens` straight into `ra_ap_tt` and back.
+  Measured reasons not to go through text: `ra_ap_syntax_bridge::parse_to_token_tree` **panics**
+  on a doc comment, and `SyntaxNode::to_string()` on an expansion emits no whitespace at all.
+  Two pitfalls are encoded there: a `LitKind::Str`'s `text()` is unquoted-but-still-escaped (so
+  `Literal::string(text)` double-escapes), and `Spacing::JointHidden` maps to `Joint`.
+- **Two fixed span anchors**: file 0 for every token of a DEFINITION, file 1 for every token of
+  an INVOCATION. That is all the engine needs, and it makes every output token's origin
+  recoverable — the only reason a hygiene approximation is possible.
+- **One `salsa::DatabaseImpl` per `MacroTable`**, created once and reused, exactly as
+  rust-analyzer's own `crates/mbe` tests do.
+- **Resolution** (`macro-expand/src/table.rs`): a 2+-segment path names a crate and requires an
+  `#[macro_export]`ed definition; a builtin name is routed away untouched; an alias recorded from
+  `use dep::{mac as alias};` is followed; a single segment is looked up crate-wide, and two
+  definitions of one name with **differing rules** are a loud ambiguity rather than a silent
+  first-wins (identical redefinitions — `heck` defines `t!` once per test module — are not).
+- **Dependency definitions** (`macro-expand/src/deps.rs`): `cargo metadata --format-version 1`
+  gives `resolve.nodes[].deps[]` (with `deps[].name` being the alias the code writes) and
+  `packages[].targets[].src_path`. Every `.rs` file under a direct dependency's lib source
+  directory is parsed and its `#[macro_export] macro_rules!` items collected — the whole
+  directory rather than the `mod` graph, because `#[macro_export]` hoists to the crate root
+  whatever module declares it. `proc-macro` targets are skipped by design.
+- **The driver** (`encoder/src/macro_expand.rs`) runs as a **pre-pass**, before the encoder's own
+  `fn_params`/`enum_names`/`method_params` collection and before `collect_symbols`, because an
+  expansion introduces declarations those passes must see. It iterates to a **fixed point** (a
+  self-recursive macro comes back partly expanded — measured), with a **depth limit of 128**
+  matching rustc's default `recursion_limit`. Item, `impl`-item, `trait`-item, statement and
+  expression positions are all handled; `macro_rules!` definitions are removed from the item list.
+- **Hygiene is approximated, and says so** (`macro-expand/src/hygiene.rs`). `ra_ap_mbe` is not
+  hygienic on its own: `($e:expr) => {{ let x = 1; $e + x }}` invoked with `x` expands to
+  `{ let x = 1 ; x + x }`. Definition-origin identifiers are marked in the token stream on the
+  way out, then every marked identifier in a binding/variable/label position whose name is bound
+  by the expansion is α-renamed to `<name>__ball_mbe<N>`; call-origin identifiers are never
+  touched. Keywords are left unmarked (marking `let` would make the expansion unparseable) and
+  raw identifiers keep their raw-ness through a second prefix.
+- **`$crate`** is rewritten to `crate` for a local definition and to the dependency's name for a
+  dependency one. Never dropped.
+
+### Deviations, each deliberate
+
+- **Editions**: `Edition::CURRENT` is used uniformly for both the definition's context edition
+  and the expansion. `ra_ap_mbe`'s edition sensitivity is confined to `expr` fragment handling
+  and raw-ident rules, and this is what rust-analyzer's own tests do.
+- **Textual scope is approximated by a crate-wide lookup.** The ambiguity check above is what
+  keeps that honest.
+- **Mixed-site hygiene is approximated, not implemented.** Real mixed-site hygiene lives in
+  rust-analyzer's `hir-expand` `SyntaxContext` transparency chain, which needs a populated salsa
+  database of `MacroCallLoc`s the expander alone does not give you. A definition-origin binding
+  whose name also appears inside a nested, not-yet-expanded macro invocation's opaque token soup
+  is a loud `UnclassifiedHygiene`, never a guess.
+- **Every call into the engine sits behind `catch_unwind`** and re-raises as a named
+  `MacroError::EnginePanic`. These are rust-analyzer's internal crates, published for reuse but
+  written to `unwrap()` — a bare panic reaching the Tier A harness would be scored as a Ball
+  encode error with an inscrutable message.
+
+### Failure modes — all loud, each named
+
+| situation | behaviour |
+|---|---|
+| name not resolvable | left in place for the encoder's own loud refusal (the proc-macro boundary) |
+| definition fails to parse | `DefinitionNotParseable`, naming the module |
+| invocation matches no rule / leftover tokens | `NoExpansion`, quoting the arguments |
+| expansion does not re-parse as `syn` | `NotParseable`, quoting the emitted tokens |
+| depth > 128 | `DepthLimit`, naming the chain |
+| same name, differing rules | `Ambiguous`, listing the origins |
+| dependency graph unreadable | `DependenciesUnavailable`, naming the crate and the reason |
+| a dependency source `syn` cannot parse | recorded, and named in the diagnostic of any macro that then fails to resolve |
+| engine panic | `EnginePanic`, with the payload |
+| proc-macro / `#[derive]` / attribute macro | unchanged — the encoder's existing loud panic |
+| builtin the encoder does not model | unchanged — keeps issue #630 separately trackable |
+
+### Publishing
+
+`ball-lang-macro-expand` is **published** like the other members. `cargo publish --workspace`
+refuses a `publish = false` dependency of a published crate, so a `publish = false` quarantine
+was not an option; it carries `version.workspace = true` and sits in the publish DAG ahead of
+`ball-lang-encoder`.
 
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
@@ -743,8 +887,16 @@ order itself and waits for each crate to be index-available before its
 dependents publish (no hand-rolled sleeps, no crates.io index-propagation race):
 
 ```
-ball-lang-shared → ball-lang-compiler / ball-lang-encoder → ball-lang-engine → ball-lang-cli
+ball-lang-shared / ball-lang-macro-expand
+    → ball-lang-compiler / ball-lang-encoder
+    → ball-lang-engine
+    → ball-lang-cli
 ```
+
+`ball-lang-macro-expand` (issue #629) depends on nothing in this workspace, so cargo is free to
+publish it first; `ball-lang-encoder` depends on it. It is published rather than
+`publish = false` because `cargo publish --workspace` **refuses a `publish = false` dependency
+of a published crate** — the quarantine is an API boundary, not a distribution one.
 
 `ball-engine-regen` and `ball-cli-regen` carry `publish = false` and are skipped
 automatically. `ball run`'s binary is `ball` (via `[[bin]]`), unrelated to the

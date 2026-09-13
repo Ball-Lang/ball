@@ -128,8 +128,8 @@ user would ever hand the encoder.
 | TypeScript | it is under a `test`/`tests`/`__tests__` directory, or its name ends `.test.*` / `.spec.*` / `.bench.*` | `rq1_study_ts.mts::testOnlyRule` |
 | Python | it is under a `test`/`tests` directory, or it is `conftest.py`, `test_*.py` or `*_test.py` | `rq1_study_py.py::test_only_rule` |
 | Go | its name ends `_test.go`, or it is under a `testdata/` directory | `go/rq1study/study.go::TestOnlyRule` |
-| Rust | it is under a `tests`/`benches`/`examples` directory, **or** the crate's `mod` graph reaches it only through a `#[cfg(test)]` module | `rq1-study/src/lib.rs::classify_rust_files` |
-| C# | it is under a `test`/`tests` directory, or under a **test project** (`*.Tests.csproj` &c., or any `.csproj` referencing xunit / NUnit / MSTest) | `TierA.cs::TestOnlyRule` |
+| Rust | it is under a **package-root** `tests`/`benches`/`examples` directory (a sibling of `src/` — a Cargo target), **or** the crate's `mod` graph reaches it only through a `#[cfg(test)]` module | `rq1-study/src/lib.rs::classify_rust_files` |
+| C# | it is under a `test`/`tests` directory, or under a **test project** (`*.Tests.csproj` &c., or a `.csproj` whose **parsed manifest** carries a test-framework `<PackageReference Include="…"/>` or `<IsTestProject>true</IsTestProject>`) | `TierA.cs::TestOnlyRule` |
 
 Four properties make this a rule rather than a filter, and each is asserted by
 that language's own self-test (all six gated on every PR in `ci.yml`):
@@ -146,20 +146,56 @@ that language's own self-test (all six gated on every PR in `ci.yml`):
    whose own test suite grew moves it in either direction and neither is a
    regression.
 3. **It never excludes library code.** Matching is on whole path segments and
-   whole name suffixes, never substrings. Each self-test carries three library
-   files named `latest`, `contest` and `attestation/verify` — "la-**test**",
-   "con-**test**", "at-**test**-ation" — and asserts they are still *studied*. A
-   sloppy substring rule passes the exclusion half of the test and fails this
-   half, by construction.
-4. **Rust's two halves are both required.** The path rule cannot see
-   `bitflags/src/tests.rs` (not under a `tests/` directory); the reachability
-   rule is what catches it — and did, on the real pins: 33 excluded by path, 1 by
-   `#[cfg(test)]` reachability. The reachability walk is its own `syn` walk in
-   the harness, not a call into `CrateGraph`: that walk skips `#[cfg(test)]`
-   modules outright, so it cannot tell "test-only" from "not reached at all", and
-   conflating those two would exclude an unreferenced *library* leftover. A file
-   the walk cannot resolve is **kept**, so the rule can only ever leave the
-   denominator too large.
+   whole name suffixes, never substrings — and, since #637, never on a file's
+   raw text either. Each self-test carries three library files named `latest`,
+   `contest` and `attestation/verify` — "la-**test**", "con-**test**",
+   "at-**test**-ation" — and asserts they are still *studied*. Rust's adds a
+   PUBLIC `src/tests/foo.rs` (declared `pub mod tests;`) and C#'s two library
+   projects whose `.csproj` merely *mentions* xunit — in an XML comment, and
+   behind an unevaluated `Condition`. A sloppy rule passes the exclusion half of
+   the test and fails this half, by construction.
+4. **Rust's two halves are both required, and the working one's anchor must be
+   declared.** The path rule cannot see `bitflags/src/tests.rs` or
+   `bitflags/src/tests/*.rs` — neither is under a *package-root* `tests/`
+   directory; the reachability rule is what catches them, and on the real pins it
+   catches all 34 (0 by path, 34 by `#[cfg(test)]` reachability). The
+   reachability walk is its own `syn` walk in the harness, not a call into
+   `CrateGraph`: that walk skips `#[cfg(test)]` modules outright, so it cannot
+   tell "test-only" from "not reached at all", and conflating those two would
+   exclude an unreferenced *library* leftover. A file the walk cannot resolve is
+   **kept**, so the rule can only ever leave the denominator too large.
+
+   That walk starts from a **crate root** resolved under the studied subtree
+   (`lib.rs` / `main.rs` / `src/lib.rs` / `src/main.rs`). Until #648 a failed
+   search returned an empty exclusion set and the run continued: a pin whose
+   `lib` pointed one level too deep, a crate whose root moved, or a refactor of
+   the resolver turned the only working half of the rule OFF, all 34 files
+   re-entered the denominator, and `coverage_table.py` read the jump in `scored`
+   as an improvement to ratchet UP. "Too large" is the safe direction for one
+   unresolvable *file*; it is not safe for the *anchor* of the whole rule. So
+   there are now two controls, and both are negative controls with fixtures:
+
+   - **The harness fails loud.** No crate root under the studied subtree is an
+     ERROR naming every path searched, the package root it did find, and the
+     opt-in — never a note. A subtree that genuinely has no crate root (a bare
+     directory of `.rs` files) is declared, per pin, with `"crateRoot": "none"`
+     (CLI: `--no-crate-root`); any other value for that key is itself an error,
+     so a typo cannot silently re-arm the default. `self_test.rs`'s
+     `an_unresolvable_crate_root_fails_the_run` builds a package whose
+     `src/deep/mod.rs` declares `#[cfg(test)] mod deep_tests;` and points the pin
+     at `src/deep` — the "one level too deep" shape exactly — and asserts the run
+     fails; `the_declared_anchorless_opt_in_lets_the_run_proceed` asserts the
+     declared pin runs with that module *studied* and `excluded (test-only): 0`,
+     which is what keeps the fix from making every anchorless subtree fatal.
+   - **The published ratchet reads the signature.** `coverage_table.py` treats a
+     row whose `excluded` drops to 0 from a baseline above it *while `scored`
+     rises by at least that many files* as a **breach** naming that cause — the
+     whole excluded population was readmitted — and does not raise the baseline.
+     None of the three floors can see that on their own: the denominator GREW,
+     and if the readmitted files happen to be clean every ratio improves too.
+     The same drop with an **unchanged** denominator stays an ordinary raise (a
+     pin that dropped its own tests readmits nothing). Both shapes are asserted
+     in `tools/coverage-study/test/coverage_table_self_test.py` (14f and 14g).
 
 Three harnesses were already filtering before this change — TypeScript dropped
 `*.test.ts` / `*.spec.ts` / `*.bench.ts` and three directories, Python dropped
@@ -174,6 +210,31 @@ directory rule would over-exclude a package that ships a PUBLIC test subpackage 
 `django.test` is the canonical example. No pin in
 `tools/coverage-study/packages/python.json` does; a pin that did would have to be
 recorded here.
+
+**Two rules that had the same shape were tightened instead (#637).** PR #635's
+review recorded both as advisories — no pin tripped either — and #637 closed
+them, test-first, rather than leaving them as documented risk:
+
+- **Rust's path half matched every parent segment**, so a PUBLIC `src/tests/`
+  module was excluded as if it were a Cargo target. It is not: `tests/`,
+  `benches/` and `examples/` are separate crates only as siblings of `src/`
+  ([Cargo's project layout](https://doc.rust-lang.org/cargo/guide/project-layout.html)),
+  and `cargo build` builds `src/tests/foo.rs` like any other module. The rule
+  now resolves the package root (the nearest `Cargo.toml`) and matches only the
+  FIRST segment relative to it; with no manifest anywhere above the studied
+  subtree the path half does not fire at all, since there is no anchor to be
+  sure about. The pins are unaffected: `bitflags`' 34 files are test-only by
+  `#[cfg(test)]` reachability, which is now the half that reports them.
+- **C#'s test-project marker was a raw-text substring search** over the
+  `.csproj`, so a library project that merely mentioned xunit in a comment (or
+  behind a `Condition` MSBuild never evaluates in that build) was classified
+  test-only. The manifest is now PARSED (`System.Xml.Linq`) and only a real
+  `<PackageReference Include="…"/>` naming a test framework, or
+  `<IsTestProject>true</IsTestProject>`, counts — matched on local element and
+  attribute names, case-insensitively, so an old-style project in the 2003
+  MSBuild namespace reads the same. A conditioned reference does not count, and
+  an unparseable manifest excludes nothing: both are "cannot tell", which always
+  means KEEP.
 
 ### Baseline (2026-09-02, five pinned packages, 106 scored files)
 
@@ -605,6 +666,11 @@ node --experimental-strip-types tools/coverage-study/rq1_study_ts.mts \
   --pins tools/coverage-study/packages/ts.json --checkouts /tmp/co
 
 # Every harness also takes --package <name> --source-dir <dir> for a one-off.
+# The Rust one refuses a --source-dir with no crate root under it (#648) — that
+# is the anchor of the `#[cfg(test)]` half of its test-only rule. Point it at
+# the crate's source root, or declare the subtree anchorless:
+cd rust && cargo run -p ball-rq1-study --bin rq1-study -- \
+  --package bare --source-dir /tmp/loose-rs-files --no-crate-root
 
 # ── Tier B (Dart) ──────────────────────────────────────────────────────────
 # Its self-test is gated in ci.yml's Dart job too.

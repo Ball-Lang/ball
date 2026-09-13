@@ -385,10 +385,22 @@ push to main
                       ├─ prepareCmd: bump_go_modules.sh vA.B.C   ← the 9 sites
                       ├─ @semantic-release/git: "chore(release): go vA.B.C [skip ci]"
                       ├─ core creates+pushes the tag  go-modules/vA.B.C
-                      └─ publishCmd → gh workflow run tag-go-modules.yml
+                      └─ publishCmd → await_workflow_run.py --dispatch
+                                        --workflow tag-go-modules.yml
                                         --ref go-modules/vA.B.C
-                           └► tag-go-modules.yml: ONE `git push` creating all six
-                              go/<module>/vA.B.C tags on the bump commit
+                           ├► tag-go-modules.yml: ONE `git push` creating all six
+                           │  go/<module>/vA.B.C tags on the bump commit
+                           └─ …and the publishCmd WAITS for that run (30 s apart,
+                              20 min budget) and fails the release on any
+                              non-success conclusion            ← AWAITED (#627)
+
+weekly, independently
+  └► go-freshness.yml → check_go_freshness.sh
+       for each of the six modules:
+         GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org
+           go list -m -versions github.com/ball-lang/ball/go/<module>
+       must list the version main's go.mod files name, tolerating a tag
+       younger than MAX_LAG_MINUTES (60) — the proxy index lag
 ```
 
 **What used to be manual, and why nothing caught it.** Tagging has been
@@ -405,6 +417,19 @@ part green, the channel shipping nothing, because the one human step stopped
 happening. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`
 job) now pins the lane's shape the way `check_pubdev_release_wiring.sh` pins
 pub.dev's.
+
+**And the shape is not the outcome (#627).** #623 left two ways for this lane to
+report success while shipping nothing, both of which the shape guard is blind to
+by construction. First, `publishCmd` was a bare `gh workflow run`, which returns
+the moment GitHub *accepts* the dispatch — a tagger run that then failed, was
+cancelled, hit its half-tagged refusal, or never started left the `go-release`
+run green. It now goes through `tools/release/await_workflow_run.py`, which polls
+the dispatched run (30 s apart, 20 min budget — `tag-go-modules.yml`'s own job
+timeout is 15) and fails the publish step on any non-`success` conclusion, on the
+budget running out, and on the dispatch itself failing. Second, nothing anywhere
+asked the *registry* whether it serves what the tree names;
+`.github/workflows/go-freshness.yml` is that alarm, and it is the Go sibling of
+`pubdev-freshness.yml`.
 
 **`tag_go_modules.sh` is still the single tagging path.** It owns the invariant
 that makes the lane safe: all six tags on ONE commit in ONE push (a dependent
@@ -689,11 +714,23 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   `GOPROXY=direct GONOSUMCHECK=1 go install …` (which reads the tag from GitHub
   and skips the cached negative). Nothing to fix or re-run.
 - **A release cut the Go version but no `go/**` tags appeared:** the
-  `publishCmd` dispatch failed after the commit and channel tag landed. The
-  state is consistent, just untagged — re-dispatch the tagger at the channel tag
-  that release created: `gh workflow run tag-go-modules.yml --ref
-  go-modules/vX.Y.Z`. It derives the version from that ref's `go.mod` files, so
-  the tags land on the right commit.
+  `publishCmd` dispatch failed after the commit and channel tag landed. Since
+  #627 this cannot happen quietly — `await_workflow_run.py` reddens the
+  `go-release` run with the tagger run's URL and conclusion, or with
+  `did not complete within 1200s`. The state is consistent, just untagged:
+  re-dispatch the tagger at the channel tag that release created,
+  `gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z`. It derives the
+  version from that ref's `go.mod` files, so the tags land on the right commit.
+- **`go-freshness.yml` red with `proxy.golang.org serves … and NOT vX.Y.Z`:** the
+  six tags for main's module line are either missing (`UNTAGGED` — the tagger
+  never cut them; check `go-release.yml`'s and `tag-go-modules.yml`'s recent
+  runs) or cut long enough ago that index lag cannot explain it (`MISSING` —
+  confirm with `curl -s
+  https://proxy.golang.org/github.com/ball-lang/ball/go/cli/@v/list`). A verdict
+  of `UNKNOWN` means the sweep learned nothing (an empty version list, which is
+  also what a `go.work` in scope produces) and is a failure for that reason, not
+  an absence. A freshly pushed tag is tolerated for `MAX_LAG_MINUTES` (60 by
+  default, dispatch input); the observed index lag was ~25 min.
 
 ## The guards, and what each one can and cannot see
 
@@ -705,7 +742,9 @@ another.
 |---|---|---|---|
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
 | `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, the lockstep wiring (#566) going missing, and a dry run losing the ability to rehearse the branch it was dispatched for | whether a release was actually cut — it is entirely static |
-| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / bump / commit / dispatch disagree, a file the bump rewrites that the release commit does not carry, a second tagger next to `tag_go_modules.sh`, the driver losing its dry-run rehearsal, and the two main-pushing lanes drifting out of one concurrency group. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
+| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / bump / commit / dispatch disagree, a file the bump rewrites that the release commit does not carry, a second tagger next to `tag_go_modules.sh`, the driver losing its dry-run rehearsal, the two main-pushing lanes drifting out of one concurrency group, a `publishCmd` that dispatches the tagger without awaiting it, and (#627) a `tag-go-modules.yml` header that claims `release.yml` dispatches it. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
+| `tools/release/await_workflow_run.py` | every PR (`--self-test`, `Proto Checks`) + every Go release's `publishCmd` | a **tag cut that did not happen**: `gh workflow run` returns as soon as GitHub accepts the dispatch, so before #627 a `tag-go-modules.yml` run that failed, was cancelled, hit its half-tagged refusal or never started left the `go-release` run green. It polls the dispatched run to completion (30 s apart, 20 min budget) and fails on any non-`success` conclusion | whether the tags it waited for are *reachable* — that is the freshness alarm's job |
+| `.github/workflows/go-freshness.yml` | weekly + dispatch | the **module proxy falling behind main**: `proxy.golang.org` not listing the version `main`'s six `go.mod` files name, for a tag older than the (default 60 min) index-lag window, or for a version never tagged at all. The Go sibling of `pubdev-freshness.yml`, and the only guard in this table that leaves the repository | a lane that broke in the last hour (the lag window is deliberately generous), and anything about *which* commit the tags sit on |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
 | `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |
@@ -716,6 +755,12 @@ The 30-day staleness bound is a judgement call, not a release cadence: it says
 "if this package's code has been moving for over a month and pub.dev has not,
 someone should look". Tune it with `MAX_STALE_DAYS` (env, or the workflow's
 dispatch input).
+
+The Go lane's 60-minute bound is a *measurement*, not a judgement:
+`proxy.golang.org` does not serve a tag the instant it is pushed, and its index
+lag was observed at ~25 minutes on 2026-09-05 and again on 2026-09-14. The window
+sits at more than twice the worst observation so a healthy release is never
+reported as a failure. Tune it with `MAX_LAG_MINUTES`.
 
 ---
 
@@ -854,10 +899,24 @@ seeded packages it is fast.)
    cutover. If a package's admin page ever shows this **disabled**, its next
    publish fails with "publishing from github is not enabled"; re-enable it and
    re-dispatch `gh workflow run release-publish.yml --ref <pkg>-v<version>`.
-3. **crates.io** (issue #366): done. The `ball-lang-*` crates were bootstrapped at
-   0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is now configured for all
-   five and the token fallback has been removed (OIDC is the only auth path), so
-   the `CARGO_REGISTRY_TOKEN` secret can be deleted.
+3. **crates.io** (issue #366): done for the original five. The `ball-lang-*` crates
+   were bootstrapped at 0.1.0 with `CARGO_REGISTRY_TOKEN`; Trusted Publishing is
+   configured for those five and the token fallback has been removed (OIDC is the
+   only auth path).
+
+   **Open item — a SIXTH crate now exists.** Issue #629 added
+   `ball-lang-macro-expand` (`rust/macro-expand/`), which `ball-lang-encoder`
+   depends on and which `cargo publish --workspace` therefore must publish.
+   crates.io only lets a Trusted Publisher be configured **after** a crate's first
+   publish (RFC 3691) — the same chicken-and-egg the other five hit at 0.1.0 — so
+   the **next `rust-crates/vX.Y.Z` run will fail on that crate under OIDC-only
+   auth** until a maintainer bootstraps it once. Two ways, either acceptable:
+   restore `CARGO_REGISTRY_TOKEN` for that one run, or `cargo publish -p
+   ball-lang-macro-expand` once by hand from a maintainer account. Then add its
+   Trusted Publisher entry (repo `Ball-Lang/ball`, workflow
+   `publish-crates.yml`) and the OIDC-only path covers all six. Do **not**
+   reintroduce a silent token fallback in the workflow to paper over this — that
+   is exactly the lying-gate shape the OIDC-only decision removed.
 4. **Confirm the release bot may push** `chore(release): … [skip ci]` commits +
    tags to `main` with `GITHUB_TOKEN` (the live npm semantic-release already
    does, and since #551 so does the Dart lane). **`RELEASE_PAT` is now

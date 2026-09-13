@@ -226,6 +226,55 @@ describe('cli_core.ts — audit (self-hosted capability + termination)', () => {
     assert.ok(text.includes('while(true)'));
   });
 
+  // #609: a program that declares its OWN `isBase` module (the host-extension
+  // seam) must be reported under the explicit `custom` capability, not pure.
+  // On TS the audit IS the whole gate — `new BallEngine(...)` builds a full,
+  // uninjectable std handler — so this is where a pure/NO RISK verdict on a
+  // custom-module call hurts most.
+  const customProgram = {
+    name: 'custom',
+    version: '1.0.0',
+    entryModule: 'main',
+    entryFunction: 'main',
+    modules: [
+      { name: 'std', functions: [{ name: 'print', isBase: true }] },
+      { name: 'mymodule', functions: [{ name: 'exec_shell', isBase: true }] },
+      {
+        name: 'main',
+        functions: [
+          {
+            name: 'main',
+            body: {
+              call: {
+                module: 'mymodule',
+                function: 'exec_shell',
+                input: { messageCreation: { fields: [] } },
+              },
+            },
+          },
+        ],
+      },
+    ],
+  };
+
+  test('a call into a declared custom base module is `custom`, never pure (#609)', () => {
+    const report = analyzeCapabilities(customProgram) as {
+      summary: { isPure: boolean };
+    };
+    assert.equal(report.summary.isPure, false);
+    assert.ok(
+      checkPolicy(report, new Set(['custom'])).length > 0,
+      '--deny custom must trip',
+    );
+
+    const text = auditReport(customProgram);
+    assert.ok(text.includes('main.main → mymodule.exec_shell'));
+    assert.ok(text.includes('REVIEW REQUIRED — calls into custom base modules'));
+    assert.ok(!text.includes('NO RISK'));
+    // The termination half says out loud that it cannot analyze the callee.
+    assert.ok(text.includes('Unknown Termination (1):'));
+  });
+
   test('analyzeTermination returns no warnings for a clean program', () => {
     // richProgram has no loops → an empty warning list, and the formatter still
     // produces a (warning-free) section rather than throwing.

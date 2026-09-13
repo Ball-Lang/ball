@@ -19,7 +19,8 @@ self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not s
 - `rust-toolchain.toml` (`rust/rust-toolchain.toml`) pins `channel = "stable"` with `rustfmt` +
   `clippy` components — a bare `cargo` inside `rust/` auto-selects it via `rustup`.
 - Cargo workspace root is `rust/Cargo.toml` (`resolver = "3"`), members:
-  `shared`, `compiler`, `encoder`, `engine`, `engine/tool`, `cli`, `cli/tool`. Shared
+  `shared`, `compiler`, `encoder`, `macro-expand`, `engine`, `engine/tool`, `cli`, `cli/tool`,
+  `tools/rq1-study`. Shared
   version/edition/license/dependency versions live in `[workspace.package]` /
   `[workspace.dependencies]` — member crates reference them with `{ workspace = true }`, never a
   repeated version string.
@@ -42,8 +43,13 @@ cargo fmt --check && cargo clippy --workspace
   `ball_lang_shared::runtime`); `lvalue.rs` handles assignment/mutation; `type_emit.rs` handles
   `typeDefs[]` → struct/trait/enum + multi-module output.
 - `ball-lang-encoder` (`rust/encoder/`) — Rust → Ball via `syn` 2.x (`features = ["full",
-  "extra-traits"]`). Routes every construct through universal `std`/`std_collections` — **no
-  `rust_std` base module**, ever.
+  "extra-traits", "visit-mut"]`). Routes every construct through universal `std`/`std_collections`
+  — **no `rust_std` base module**, ever.
+- `ball-lang-macro-expand` (`rust/macro-expand/`) — `macro_rules!` expansion (#629). Quarantines
+  `ra_ap_mbe` + `ra_ap_tt`/`ra_ap_span`/`ra_ap_intern` (all `=0.0.351`) + salsa + `serde_json`
+  behind `MacroTable`/`MacroError`/`Expansion`/`Route`, so `ball-lang-encoder` names no `ra_ap_*`
+  type. PUBLISHED, not `publish = false` — `cargo publish --workspace` refuses a
+  `publish = false` dependency of a published crate.
 - `ball-lang-engine` (`rust/engine/`) — self-hosted engine wrapper (`loader.rs`/`scope.rs`/
   `ball_proto.rs`) + generated, gitignored `src/compiled_engine.rs`. See
   `rust/engine/AGENTS.md` for the full self-host gap list; the compiled-engine driver is behind
@@ -211,12 +217,36 @@ cargo fmt --check && cargo clippy --workspace
   `const` is referenced as a bare `LIMIT` — a single-segment path the same function would pass
   through its `reference(name)` fallback, emitting a read of a binding nobody declared. So pass 1
   records the names in `Encoder::skipped_item_names` and `encode_path_expr` panics at the USE
-  site, naming the declaration. A top-level **macro invocation** stays a loud panic on purpose: it
-  can be the thing that DEFINES a type the file references (`bitflags!` → `TestFlags`, 28 of the
-  110 files), so skipping it would orphan the references into a worse error; that needs macro
-  expansion. Proof: `rust/encoder/tests/mixed_module_items.rs`. Like every #491 slice, the Tier A
+  site, naming the declaration. A top-level **macro invocation** is still never *skipped*: it
+  can be the thing that DEFINES a type the file references (`bitflags!` → `TestFlags`), so
+  skipping it would orphan the references into a worse error. Since #629 a `macro_rules!` one is
+  *expanded* instead (next bullet); a macro nothing in scope defines still panics.
+  Proof: `rust/encoder/tests/mixed_module_items.rs`. Like every #491 slice, the Tier A
   **aggregate did not move** (`0 passed, 110 failed, 110 total`, `encoded 0/110` before and
   after) — only the first-blocker histogram did; `baseline.json`'s Rust row is unchanged.
+- **`macro_rules!` EXPANSION (#629).** `encoder/src/macro_expand.rs` is a **pre-pass** — it runs
+  before `fn_params`/`enum_names`/`method_params` collection and before
+  `crate_graph::collect_symbols`, because an expansion introduces declarations those passes must
+  see. It iterates to a **fixed point** (a self-recursive macro comes back partly expanded —
+  measured) with a **depth limit of 128** (rustc's own default `recursion_limit`), handles item /
+  `impl`-item / `trait`-item / statement / expression positions, and removes `macro_rules!`
+  definitions from the item list. The engine is rust-analyzer's `ra_ap_mbe`, quarantined in
+  `ball-lang-macro-expand`; **there is no per-macro special case anywhere — grep for `bitflags`
+  in `rust/` and you will find only prose.** Three routes, deliberately distinct: a builtin
+  (`println!`/`vec!`/`assert!`/`write!`, with or without a `std::`/`core::`/`alloc::` qualifier)
+  goes to `methods.rs::encode_macro` as before — which is what keeps issue #630 separately
+  trackable; a name nothing in scope defines is left for the encoder's own loud refusal (the
+  proc-macro / `#[derive]` / attribute-macro boundary); a name that SHOULD have been reachable
+  and was not is a named `MacroError`, never flattened into "unsupported". **Hygiene is an
+  approximation and must be described as one** — origin-tagged α-renaming of definition-origin
+  bindings to `<name>__ball_mbe<N>`, not rust-analyzer's `SyntaxContext` transparency chain —
+  so it is the one part of this feature that can produce the #488 class of bug (round-trips
+  clean, changes behaviour), which Tier A is structural and cannot see; the run-and-diff-bytes
+  round trip in `rust/encoder/tests/macro_expansion.rs` is what does. **Measured yield, stated
+  plainly:** only 4 of the 110 scored Tier A files are first-blocked by a `macro_rules!`
+  invocation, and the 28-file `TestFlags` bucket is a `#[cfg(test)]`-scoping question, not a
+  macro one — expansion moves first blockers, it does not on its own make a file clean. Full
+  design record, including the per-class invocation census: `rust/AGENTS.md`.
 - **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`
   is an identity passthrough (a Ball `List` has no exhausted state); `.is_empty()` lowers to
   `std.equals(std.length(receiver), 0)`, reusing `.len()`'s own universal dispatch, so it needs no
@@ -348,11 +378,24 @@ cargo fmt --check && cargo clippy --workspace
   turns that off and reproduces the older per-file measurement, so a
   before/after is one binary over one checkout; each JSON row's `crateModule`
   says which way that file was measured). **Tier A scores LIBRARY code only
-  since 2026-09-14** (the owner's methodology decision on #491): a file under
-  `tests/`/`benches/`/`examples/`, or one the crate's `mod` graph reaches ONLY
-  through a `#[cfg(test)]` module, is excluded from the denominator and counted
-  on the harness's own `excluded (test-only): N` line. That took 34 of
-  `bitflags`' files out (33 by path, 1 — `src/tests.rs` — by reachability), so
+  since 2026-09-14** (the owner's methodology decision on #491): a file under a
+  PACKAGE-ROOT `tests/`/`benches/`/`examples/` directory (a sibling of `src/` —
+  a Cargo target; `src/tests/` is NOT one, #637), or one the crate's `mod` graph
+  reaches ONLY through a `#[cfg(test)]` module, is excluded from the denominator
+  and counted on the harness's own `excluded (test-only): N` line. **The
+  reachability half is anchored on a CRATE ROOT, and a missing anchor is FATAL
+  since #648**: `crate_root()` searches `lib.rs`/`main.rs`/`src/lib.rs`/
+  `src/main.rs` under the studied subtree, and not finding one used to return an
+  empty exclusion set and carry on — switching the only working half of the rule
+  off, readmitting all 34 files, and letting `coverage_table.py` ratchet UP on
+  the jump in `scored`. It now errors, naming every path searched. A subtree that
+  really has no crate root declares it, per pin, with `"crateRoot": "none"` (CLI:
+  `--no-crate-root`); no pin needs it today, and any other value of that key is
+  itself an error. `coverage_table.py` is the second line of defence: `excluded`
+  dropping to 0 while `scored` rises by at least that many files is a breach
+  naming the readmitted population, never a raise. That took 34
+  of `bitflags`' files out — all 34 by reachability, since `src/tests.rs` and
+  `src/tests/*.rs` alike are only reached through `#[cfg(test)] mod tests;` — so
   the denominator is **77, not the 110 every #491 histogram in this file and in
   `rust/AGENTS.md` is written against**; read those as history. Honest baseline,
   **0/77 clean, 1/77 encoded** — the encoders' documented gaps (item-level macro
@@ -432,5 +475,10 @@ cargo fmt --check && cargo clippy --workspace
 - `indexmap = "2"` — backs `BallMap`; insertion-ordered like every other engine's map type
   (Dart's `LinkedHashMap`, C++'s `BallOrderedMap`). Never substitute `HashMap` for Ball-value
   maps.
-- `syn = "2"` (`features = ["full", "extra-traits"]`) + `proc-macro2` + `quote` — encoder's Rust
-  parser.
+- `syn = "2"` (`features = ["full", "extra-traits", "visit-mut"]`) + `proc-macro2` + `quote` —
+  encoder's Rust parser. `visit-mut` drives the macro-expansion pre-pass and the hygiene rename.
+- `ra_ap_mbe` / `ra_ap_tt` / `ra_ap_span` / `ra_ap_intern`, all `"=0.0.351"`, plus `salsa = "0.28"`
+  and `serde_json = "1"` — **`ball-lang-macro-expand` only** (#629). The `=` pins are mandatory:
+  `ra_ap_mbe` pins its own siblings with `=`, so a mixed set does not resolve. These republish
+  weekly with rust-analyzer, so **dependabot's `cargo-minor-patch` group will file no-op PRs
+  against them**; bump all four together and deliberately, never one at a time.

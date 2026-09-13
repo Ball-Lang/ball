@@ -484,29 +484,110 @@ pub struct Exclusion {
     pub rule: String,
 }
 
-/// Directory names that are a crate's own tests, benches or examples.
+/// Directory names that are a crate's own tests, benches or examples — as
+/// PACKAGE-ROOT directories, siblings of `src/`.
 ///
 /// Cargo compiles each of these as its OWN crate against the library's public
 /// API, not as part of the library — `cargo build` builds none of them. A user
-/// encoding a dependency encodes `src/`, never `tests/`.
+/// encoding a dependency encodes `src/`, never `tests/`. That is true only of
+/// the package-root directories: `src/tests/` is an ordinary module directory,
+/// and `src/tests/foo.rs` declared `pub mod tests;` is public library code
+/// `cargo build` builds like any other file (see [`test_only_path_rule`]).
 const TEST_DIRS: [&str; 3] = ["tests", "benches", "examples"];
 
 /// The PATH half of the Rust test-only rule: the rule excluding
-/// `relative_path`, or `None` when nothing about its path says "test".
+/// `package_relative_path`, or `None` when nothing about its path says "test".
+///
+/// The argument is the path relative to the PACKAGE ROOT (the directory holding
+/// `Cargo.toml`), and only its FIRST segment is matched, because that is the
+/// only place a Cargo test/bench/example target can live
+/// (<https://doc.rust-lang.org/cargo/guide/project-layout.html>). Matching every
+/// parent segment instead — as this rule did until #637 — also excluded a
+/// PUBLIC `src/tests/foo.rs` module, which is library code by every measure
+/// that matters here: `cargo build` builds it, `mod`-graph reachability keeps
+/// it, and a user encoding the crate encodes it. The `#[cfg(test)]`
+/// REACHABILITY half is what removes a `src/tests/` that really is test-only
+/// (that is how all 34 of `bitflags`' test files are now caught), and it can
+/// tell the two apart where a path rule cannot.
 ///
 /// Matched on WHOLE path segments, never as a substring: `latest.rs`,
 /// `contest.rs` and `attestation/verify.rs` all contain "test" and are library
 /// code, and excluding them would be exactly the silent denominator shrink this
 /// rule exists to prevent (`tests/self_test.rs` pins all three).
-pub fn test_only_path_rule(relative_path: &str) -> Option<String> {
-    let parts: Vec<&str> = relative_path.split('/').collect();
-    if parts[..parts.len() - 1]
-        .iter()
-        .any(|part| TEST_DIRS.contains(part))
-    {
-        return Some("under a tests/, benches/ or examples/ directory".to_string());
+pub fn test_only_path_rule(package_relative_path: &str) -> Option<String> {
+    let mut parts = package_relative_path.split('/');
+    let first = parts.next()?;
+    // `parts.next()` must also be present: the first segment has to be a
+    // DIRECTORY containing the file, not the file itself.
+    if parts.next().is_some() && TEST_DIRS.contains(&first) {
+        return Some("under a package-root tests/, benches/ or examples/ directory".to_string());
     }
     None
+}
+
+/// The package root of `dir`: the nearest ancestor — `dir` itself included —
+/// that holds a `Cargo.toml`.
+///
+/// `None` when there is none, and that is deliberately load-bearing: without a
+/// manifest there is no way to know which directory a `tests/` segment would be
+/// a Cargo target OF, so [`classify_rust_files`] applies no path rule at all
+/// and leaves those files in the denominator. Every exclusion this harness
+/// makes must be one it can positively show, so "cannot tell" always means
+/// KEEP.
+pub fn package_root(dir: &Path) -> Option<PathBuf> {
+    normalise(dir)
+        .ancestors()
+        .find(|ancestor| ancestor.join("Cargo.toml").is_file())
+        .map(Path::to_path_buf)
+}
+
+/// Where a crate root may live, relative to a STUDIED SUBTREE.
+///
+/// A pin's studied subtree is normally the crate's `src/` (`lib` defaults to
+/// "src"), where the root is `lib.rs` or `main.rs` — but the package ROOT is
+/// studied directly too (by `--source-dir`, and by this crate's own self-test),
+/// and there it is `src/lib.rs` or `src/main.rs`. Looking in only one of the two
+/// places would silently switch the reachability half OFF for the other.
+pub const CRATE_ROOT_CANDIDATES: [&str; 4] = ["lib.rs", "main.rs", "src/lib.rs", "src/main.rs"];
+
+/// The crate root of a studied subtree: the first of [`CRATE_ROOT_CANDIDATES`]
+/// that exists under `dir`, or `None`.
+///
+/// `None` is never a quiet answer — see [`CrateRoot`] and
+/// [`classify_rust_files`]: without a root the `#[cfg(test)]` REACHABILITY half
+/// of the test-only rule has nothing to walk from, and that half is the one
+/// doing all the work on the real pins (34 exclusions by reachability, 0 by
+/// path).
+pub fn crate_root(dir: &Path) -> Option<PathBuf> {
+    CRATE_ROOT_CANDIDATES
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|candidate| candidate.is_file())
+}
+
+/// Whether a studied subtree is CLAIMED to have a crate root (issue #648).
+///
+/// The `#[cfg(test)]` reachability half is anchored on a crate root found under
+/// the studied subtree. Before #648 a failed search returned an empty exclusion
+/// set and the run continued, so a pin whose `lib` pointed one level too deep, a
+/// crate whose root moved, or a refactor of this resolver turned the only
+/// working half of the rule OFF — every test-only file re-entered the
+/// denominator with nothing saying so, and `coverage_table.py` read the
+/// resulting jump in `scored` as an improvement to ratchet UP.
+///
+/// So the anchorless branch is now declared, per pin, rather than inferred from
+/// a failed search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CrateRoot {
+    /// The default: the studied subtree must contain one of
+    /// [`CRATE_ROOT_CANDIDATES`], and not finding one is an error.
+    #[default]
+    Required,
+    /// The pin declared `"crateRoot": "none"` (or the CLI was given
+    /// `--no-crate-root`): a bare directory of `.rs` files with no crate root to
+    /// walk. Nothing can be shown `#[cfg(test)]`-only there, so nothing is
+    /// excluded by that half — which is safe only because it was ASKED for.
+    Absent,
 }
 
 /// Every `.rs` file under `dir`, sorted. Includes test-only files — the split
@@ -524,28 +605,61 @@ pub fn rust_files_under(dir: &Path) -> Vec<PathBuf> {
 /// Rust's convention has TWO halves and BOTH are needed, because neither
 /// subsumes the other:
 ///
-///  1. a PATH rule — `tests/`, `benches/`, `examples/`, which Cargo compiles as
-///     their own crates against the library's public API and which `cargo
-///     build` does not build at all; and
+///  1. a PATH rule — the PACKAGE-ROOT `tests/`, `benches/`, `examples/`
+///     directories, which Cargo compiles as their own crates against the
+///     library's public API and which `cargo build` does not build at all; and
 ///  2. a REACHABILITY rule — a file the crate's `mod` graph reaches ONLY by
 ///     passing through a `#[cfg(test)]` module. `src/tests.rs` is not under a
 ///     `tests/` directory, and a crate may keep its unit tests in a module
 ///     named anything at all.
 ///
-/// This row is the reason the decision was made: 33 of the 110 scored Rust
-/// files were `bitflags`' `src/tests/*.rs`, declared by
+/// This row is the reason the decision was made: 34 of the 110 scored Rust
+/// files were `bitflags`' `src/tests.rs` and `src/tests/*.rs`, declared by
 /// `src/lib.rs`'s `#[cfg(test)] mod tests;`. `crate_graph.rs::walk_items`
 /// deliberately does not walk a `#[cfg(test)]` module (#621, matching `cargo
 /// build`), so those files were measured with NO crate context — the worst of
-/// both worlds, and a third of the denominator.
+/// both worlds, and a third of the denominator. All 34 are caught by the
+/// REACHABILITY half; the path half never sees them, because `src/tests/` is
+/// not a package-root Cargo target (#637).
 ///
 /// A file the `mod` graph does not reach AT ALL (an unreferenced leftover) is
 /// **not** excluded: it is still studied, exactly as before. The rule only ever
-/// removes a file it can positively show is test-only, so an unresolvable crate
-/// root or a `#[path]` this walk cannot follow can only ever leave the
+/// removes a file it can positively show is test-only, so a package root this
+/// walk cannot locate or a `#[path]` it cannot follow can only ever leave the
 /// denominator too LARGE, never too small.
-pub fn classify_rust_files(package: &str, dir: &Path) -> (Vec<PathBuf>, Vec<Exclusion>) {
-    let cfg_test_only = cfg_test_only_files(dir);
+///
+/// An unresolvable CRATE ROOT is the one case where "too large" is not safe
+/// enough to pass over quietly, and since #648 it is an error rather than an
+/// empty exclusion set: it disables the half of the rule that does all the work,
+/// and the denominator jump it produces is indistinguishable downstream from a
+/// corpus that grew. `crate_root_policy` is how a genuinely anchorless subtree
+/// declares itself — see [`CrateRoot`].
+pub fn classify_rust_files(
+    package: &str,
+    dir: &Path,
+    crate_root_policy: CrateRoot,
+) -> Result<(Vec<PathBuf>, Vec<Exclusion>), String> {
+    let root = crate_root(dir);
+    if root.is_none() && crate_root_policy == CrateRoot::Required {
+        return Err(crate_root_error(package, dir));
+    }
+    let cfg_test_only = match root.as_deref() {
+        Some(root) => cfg_test_only_files(root),
+        // Only reachable under `CrateRoot::Absent`: the pin DECLARED that there
+        // is nothing to anchor on, so this half of the rule excludes nothing.
+        None => BTreeSet::new(),
+    };
+    // The path half is anchored at the package root, so the studied subtree's
+    // own position inside the package has to be known: `<checkout>/src` and
+    // `<checkout>` must agree that `<checkout>/tests` is the Cargo target and
+    // `<checkout>/src/tests` is not. `None` (no manifest anywhere above) turns
+    // the path half OFF rather than guessing an anchor.
+    let package_prefix = package_root(dir).and_then(|root| {
+        normalise(dir)
+            .strip_prefix(&root)
+            .ok()
+            .map(|inside| inside.to_string_lossy().replace('\\', "/"))
+    });
     let mut studied = Vec::new();
     let mut excluded = Vec::new();
     for path in rust_files_under(dir) {
@@ -554,7 +668,15 @@ pub fn classify_rust_files(package: &str, dir: &Path) -> (Vec<PathBuf>, Vec<Excl
             .unwrap_or(&path)
             .to_string_lossy()
             .replace('\\', "/");
-        let rule = test_only_path_rule(&rel).or_else(|| {
+        let path_rule = package_prefix.as_deref().and_then(|prefix| {
+            let package_rel = if prefix.is_empty() {
+                rel.clone()
+            } else {
+                format!("{prefix}/{rel}")
+            };
+            test_only_path_rule(&package_rel)
+        });
+        let rule = path_rule.or_else(|| {
             cfg_test_only
                 .contains(&normalise(&path))
                 .then(|| "reachable only through a #[cfg(test)] module".to_string())
@@ -568,7 +690,34 @@ pub fn classify_rust_files(package: &str, dir: &Path) -> (Vec<PathBuf>, Vec<Excl
             None => studied.push(path),
         }
     }
-    (studied, excluded)
+    Ok((studied, excluded))
+}
+
+/// The message a missing crate root fails with: every path searched, the
+/// package root it DID find (or did not), and the one way to declare the
+/// subtree genuinely anchorless.
+///
+/// A failure a reader cannot act on gets muted, so this names all three.
+fn crate_root_error(package: &str, dir: &Path) -> String {
+    let searched = CRATE_ROOT_CANDIDATES.join(", ");
+    let manifest = match package_root(dir) {
+        Some(root) => format!(
+            "The package root (nearest Cargo.toml) is {}.",
+            root.display()
+        ),
+        None => "No Cargo.toml was found at or above it either.".to_string(),
+    };
+    format!(
+        "{package}: no crate root under {}: searched {searched} (relative to that \
+         directory). {manifest} The #[cfg(test)] reachability half of the test-only rule is \
+         anchored on the crate root — without one it can show NOTHING to be test-only, so \
+         every test-only file silently re-enters the denominator and the published ratchet \
+         reads that jump in `scored` as an improvement (issue #648). Point the pin's `lib` \
+         (or --source-dir) at the crate's source root; if this really is a bare directory of \
+         .rs files with no crate root, declare it — \"crateRoot\": \"none\" in the pin, or \
+         --no-crate-root on the command line.",
+        dir.display()
+    )
 }
 
 /// `std::fs::canonicalize` when it works, the path as given otherwise — the
@@ -579,7 +728,7 @@ fn normalise(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// The files the crate rooted at `dir` reaches ONLY through a `#[cfg(test)]`
+/// The files the crate rooted at `root` reaches ONLY through a `#[cfg(test)]`
 /// module.
 ///
 /// Walked with `syn` DIRECTLY rather than through `ball_lang_encoder`'s own
@@ -588,23 +737,18 @@ fn normalise(path: &Path) -> PathBuf {
 /// could not answer this question through `CrateGraph` even if it wanted to —
 /// that walk skips `#[cfg(test)]` modules outright, so it cannot distinguish
 /// "test-only" from "not reached at all", and those two must not be conflated.
-fn cfg_test_only_files(dir: &Path) -> BTreeSet<PathBuf> {
-    let Some(root) = ["lib.rs", "main.rs"]
-        .iter()
-        .map(|name| dir.join(name))
-        .find(|path| path.is_file())
-    else {
-        // No crate root under the studied subtree: nothing can be shown to be
-        // cfg(test)-only, so nothing is excluded by this half.
-        return BTreeSet::new();
-    };
-
+///
+/// The root is resolved by [`crate_root`] and passed IN, so the "no root at
+/// all" case is decided once, by [`classify_rust_files`], where it can fail
+/// loud — never here, where an empty return would read as "nothing is
+/// test-only" (#648).
+fn cfg_test_only_files(root: &Path) -> BTreeSet<PathBuf> {
     let mut walk = ModWalk {
         library: BTreeSet::new(),
         test: BTreeSet::new(),
         seen: BTreeSet::new(),
     };
-    walk.file(&root, false);
+    walk.file(root, false);
     walk.test.difference(&walk.library).cloned().collect()
 }
 
@@ -776,21 +920,50 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 /// whose callee lives in a sibling file resolve instead of failing loud. A file
 /// the walk did not reach (a `#[cfg(test)]` module, an unreferenced leftover)
 /// is still measured, with no crate context, exactly as before; so is every
-/// file of a package whose crate root or `mod` graph could not be resolved at
-/// all. Both cases are visible per file in the JSON report's `crateModule`,
-/// never silently folded into the crate-aware count.
-pub fn study_directory(package: &str, dir: &Path) -> Vec<FileResult> {
-    study_directory_with(package, dir, true)
+/// file of a package whose `mod` graph could not be walked at all. Both cases
+/// are visible per file in the JSON report's `crateModule`, never silently
+/// folded into the crate-aware count. A package whose CRATE ROOT does not
+/// resolve is a different matter and stops the run — see [`CrateRoot`].
+pub fn study_directory(package: &str, dir: &Path) -> Result<Vec<FileResult>, String> {
+    study_directory_with(package, dir, true, CrateRoot::Required)
 }
 
 /// [`study_directory`], with the crate walk switchable off (`rq1-study
-/// --single-file`).
+/// --single-file`) and the crate-root policy declared (`--no-crate-root`).
 ///
-/// This exists so the before/after of issue #491's crate-aware slice is
-/// reproducible **with one binary over one checkout**, rather than by
+/// The switchable walk exists so the before/after of issue #491's crate-aware
+/// slice is reproducible **with one binary over one checkout**, rather than by
 /// comparing two builds of the harness and hoping nothing else moved. Off, it
 /// is exactly the measurement this harness made before `encode_crate` existed.
-pub fn study_directory_with(package: &str, dir: &Path, crate_aware: bool) -> Vec<FileResult> {
+pub fn study_directory_with(
+    package: &str,
+    dir: &Path,
+    crate_aware: bool,
+    crate_root_policy: CrateRoot,
+) -> Result<Vec<FileResult>, String> {
+    Ok(study_package(package, dir, crate_aware, crate_root_policy)?.results)
+}
+
+/// One package's whole Tier A outcome: what was scored, and what the test-only
+/// rule took out of the denominator.
+///
+/// The two travel together because they come from ONE
+/// [`classify_rust_files`] pass — classifying twice would walk the `mod` graph
+/// twice and, worse, could report an exclusion set that does not match the
+/// files actually measured.
+pub struct PackageStudy {
+    pub results: Vec<FileResult>,
+    pub excluded: Vec<Exclusion>,
+}
+
+/// [`study_directory_with`], keeping the exclusions the same pass produced.
+pub fn study_package(
+    package: &str,
+    dir: &Path,
+    crate_aware: bool,
+    crate_root_policy: CrateRoot,
+) -> Result<PackageStudy, String> {
+    let (studied, excluded) = classify_rust_files(package, dir, crate_root_policy)?;
     let graph = if !crate_aware {
         None
     } else {
@@ -809,8 +982,7 @@ pub fn study_directory_with(package: &str, dir: &Path, crate_aware: bool) -> Vec
             }
         }
     };
-    classify_rust_files(package, dir)
-        .0
+    let results = studied
         .into_iter()
         .map(|path| {
             let rel = path
@@ -834,7 +1006,8 @@ pub fn study_directory_with(package: &str, dir: &Path, crate_aware: bool) -> Vec
                 Err(err) => verdict(package, &rel, format!("read-error: {err}")),
             }
         })
-        .collect()
+        .collect();
+    Ok(PackageStudy { results, excluded })
 }
 
 /// Prints the same summary shape as every other Tier A harness into `out` and

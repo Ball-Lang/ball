@@ -219,7 +219,8 @@ fn a_cross_file_method_call_is_measured_crate_aware() {
         "a single-file measurement has no crate module"
     );
 
-    let results = ball_rq1_study::study_directory("scratch", &dir.join("src"));
+    let results = ball_rq1_study::study_directory("scratch", &dir.join("src"))
+        .expect("the scratch crate has a crate root");
     let _ = std::fs::remove_dir_all(&dir);
     let caller_result = results
         .iter()
@@ -259,19 +260,30 @@ fn an_empty_run_is_a_harness_failure_not_a_zero_percent_result() {
 // `crate_graph.rs::walk_items` deliberately does not walk (#621), so they were
 // measured with no crate context at all and dragged the whole row down.
 //
-// Rust's convention has TWO halves and both are needed: a path rule
-// (`tests/`, `benches/`, `examples/`) and a REACHABILITY rule (a file the mod
-// graph reaches only by passing through a `#[cfg(test)]` module). Neither
-// subsumes the other — `src/tests.rs` is not under a `tests/` directory, and a
-// crate may keep unit tests in a directory named anything at all.
+// Rust's convention has TWO halves and both are needed: a path rule (the
+// PACKAGE-ROOT `tests/`, `benches/`, `examples/` Cargo targets) and a
+// REACHABILITY rule (a file the mod graph reaches only by passing through a
+// `#[cfg(test)]` module). Neither subsumes the other — `src/tests.rs` is not
+// under a package-root `tests/` directory, and a crate may keep unit tests in a
+// directory named anything at all.
 //
-// The negative control is load-bearing: a library file whose NAME merely
-// contains "test" ("la-test", "con-test", "at-test-ation") must still be
-// studied. A sloppy substring rule passes the exclusion half and fails this
-// half, which is the point.
+// The negative control is load-bearing, and it has two forms: a library file
+// whose NAME merely contains "test" ("la-test", "con-test", "at-test-ation"),
+// and a library DIRECTORY literally called `tests` that is not a Cargo target
+// (`src/tests/`, declared `pub mod tests;`). Both must still be studied. A
+// sloppy substring rule fails the first; a path rule that matches any `tests`
+// segment rather than a package-root one fails the second.
 
-/// Builds a scratch crate with library files, path-excluded test trees and a
-/// `#[cfg(test)]`-only module, and returns its root.
+/// Builds a scratch **package** — a real Cargo layout, not a bare `src/` tree —
+/// and returns its root.
+///
+/// The layout matters, because the path half of the rule is about the PACKAGE
+/// ROOT: `tests/`, `benches/` and `examples/` are separate Cargo targets only
+/// as SIBLINGS of `src/`. `src/tests/` is none of those — it is an ordinary
+/// module directory, and here it is PUBLIC library code (`pub mod tests;` from
+/// `lib.rs`, the shape every crate that ships its fixtures as API takes). A
+/// path rule that matched any `tests` segment would take it out of the
+/// denominator, which is the silent shrink this rule exists to prevent.
 fn scratch_crate(tag: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "ball_rq1_exclusion_{}_{}_{}",
@@ -280,20 +292,31 @@ fn scratch_crate(tag: &str) -> std::path::PathBuf {
         line!()
     ));
     let _ = std::fs::remove_dir_all(&dir);
-    let src = dir.join("src");
-    for sub in ["attestation", "tests", "benches", "examples"] {
-        std::fs::create_dir_all(src.join(sub)).expect("failed to create the scratch crate");
+    for sub in [
+        "src/attestation",
+        "src/tests",
+        "tests",
+        "benches",
+        "examples",
+    ] {
+        std::fs::create_dir_all(dir.join(sub)).expect("failed to create the scratch package");
     }
 
     let write = |rel: &str, source: &str| {
-        std::fs::write(src.join(rel), source).unwrap_or_else(|e| panic!("write {rel}: {e}"));
+        std::fs::write(dir.join(rel), source).unwrap_or_else(|e| panic!("write {rel}: {e}"));
     };
+    // The manifest is what says where the package root IS; without it the path
+    // half has no anchor and must not fire at all.
     write(
-        "lib.rs",
-        "pub mod core;\npub mod latest;\npub mod contest;\npub mod attestation;\n\
+        "Cargo.toml",
+        "[package]\nname = \"scratch\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    write(
+        "src/lib.rs",
+        "pub mod core;\npub mod latest;\npub mod contest;\npub mod attestation;\npub mod tests;\n\
          #[cfg(test)]\nmod internal_tests;\n",
     );
-    for rel in ["core.rs", "latest.rs"] {
+    for rel in ["src/core.rs", "src/latest.rs"] {
         write(rel, "pub fn value() -> i64 { 1 }\n");
     }
     // `contest.rs` is a NON-mod-rs file, and its `#[path]` sits outside any
@@ -303,40 +326,49 @@ fn scratch_crate(tag: &str) -> std::path::PathBuf {
     // candidate miss, the module go unwalked, and `relocated_tests.rs` stay in
     // the denominator, so this fixture is what keeps the two apart.
     write(
-        "contest.rs",
+        "src/contest.rs",
         "pub fn value() -> i64 { 1 }\n\
          #[cfg(test)]\n#[path = \"relocated_tests.rs\"]\nmod relocated;\n",
     );
-    write("attestation/mod.rs", "pub mod verify;\n");
-    write("attestation/verify.rs", "pub fn ok() -> i64 { 1 }\n");
+    write("src/attestation/mod.rs", "pub mod verify;\n");
+    write("src/attestation/verify.rs", "pub fn ok() -> i64 { 1 }\n");
+    // PUBLIC library code that happens to live in a directory called `tests`:
+    // `lib.rs` declares it with a plain `pub mod tests;`, so `cargo build`
+    // builds it and a user encoding this crate encodes it.
+    write("src/tests/mod.rs", "pub mod foo;\n");
+    write("src/tests/foo.rs", "pub fn fixture() -> i64 { 1 }\n");
     write(
-        "internal_tests.rs",
+        "src/internal_tests.rs",
         "#[test]\nfn works() { assert!(true); }\n",
     );
     // Reached only through `contest.rs`'s `#[cfg(test)] #[path] mod`, and
     // living beside it in `src/` — not under `src/contest/`.
     write(
-        "relocated_tests.rs",
+        "src/relocated_tests.rs",
         "#[test]\nfn relocated() { assert!(true); }\n",
     );
+    // The package-root Cargo targets: their own crates, which `cargo build`
+    // does not build and nobody encodes.
     write("tests/basic.rs", "#[test]\nfn basic() { assert!(true); }\n");
     write("benches/perf.rs", "pub fn bench() {}\n");
     write("examples/demo.rs", "fn main() {}\n");
     dir
 }
 
-/// Every library file — including the three whose names merely contain "test" —
-/// is studied, and every test-only file is excluded WITH the rule that excluded
-/// it.
+/// The package-root files under `tests/`, `benches/` and `examples/` plus the
+/// two `#[cfg(test)]`-only modules are excluded WITH the rule that excluded
+/// them; every library file — the three whose names merely contain "test" and
+/// the public `src/tests/` module among them — is studied.
 #[test]
 fn test_only_files_are_excluded_counted_and_named() {
     quiet();
     let dir = scratch_crate("classify");
-    let src = dir.join("src");
-    let (studied, excluded) = ball_rq1_study::classify_rust_files("scratch", &src);
+    let (studied, excluded) =
+        ball_rq1_study::classify_rust_files("scratch", &dir, ball_rq1_study::CrateRoot::Required)
+            .expect("the scratch package root resolves src/lib.rs");
 
     let rel = |path: &std::path::Path| {
-        path.strip_prefix(&src)
+        path.strip_prefix(&dir)
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/")
@@ -346,12 +378,14 @@ fn test_only_files_are_excluded_counted_and_named() {
         excluded.iter().map(|e| e.file.clone()).collect();
 
     let library = [
-        "lib.rs",
-        "core.rs",
-        "latest.rs",
-        "contest.rs",
-        "attestation/mod.rs",
-        "attestation/verify.rs",
+        "src/lib.rs",
+        "src/core.rs",
+        "src/latest.rs",
+        "src/contest.rs",
+        "src/attestation/mod.rs",
+        "src/attestation/verify.rs",
+        "src/tests/mod.rs",
+        "src/tests/foo.rs",
     ];
     for name in library {
         assert!(
@@ -367,8 +401,8 @@ fn test_only_files_are_excluded_counted_and_named() {
     );
 
     for name in [
-        "internal_tests.rs",
-        "relocated_tests.rs",
+        "src/internal_tests.rs",
+        "src/relocated_tests.rs",
         "tests/basic.rs",
         "benches/perf.rs",
         "examples/demo.rs",
@@ -387,11 +421,23 @@ fn test_only_files_are_excluded_counted_and_named() {
         excluded.iter().all(|e| !e.rule.is_empty()),
         "every exclusion must name the rule that made it"
     );
+    // The path half is a PACKAGE-ROOT rule: the `tests/` Cargo target is
+    // excluded by it, and the public `src/tests/` module is not excluded at all.
+    let path_rule = excluded
+        .iter()
+        .find(|e| e.file == "tests/basic.rs")
+        .expect("the package-root tests/ target is excluded")
+        .rule
+        .clone();
+    assert!(
+        path_rule.contains("package-root"),
+        "the package-root Cargo target must be excluded BY the path rule; got {path_rule:?}"
+    );
     // The cfg(test) half is a REACHABILITY rule, not a path rule: nothing about
     // `internal_tests.rs` looks like a test directory.
     let cfg_rule = excluded
         .iter()
-        .find(|e| e.file == "internal_tests.rs")
+        .find(|e| e.file == "src/internal_tests.rs")
         .expect("the cfg(test)-only module is excluded")
         .rule
         .clone();
@@ -407,12 +453,13 @@ fn test_only_files_are_excluded_counted_and_named() {
     assert!(
         excluded
             .iter()
-            .any(|e| e.file == "relocated_tests.rs" && e.rule.contains("cfg(test)")),
+            .any(|e| e.file == "src/relocated_tests.rs" && e.rule.contains("cfg(test)")),
         "a `#[cfg(test)] #[path = \"…\"] mod` must resolve and be excluded by the \
          cfg(test) rule; got {excluded_rel:?}"
     );
 
-    let results = ball_rq1_study::study_directory("scratch", &src);
+    let results = ball_rq1_study::study_directory("scratch", &dir)
+        .expect("the scratch package root resolves src/lib.rs");
     assert!(
         results
             .iter()
@@ -431,6 +478,54 @@ fn test_only_files_are_excluded_counted_and_named() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The shape every pin actually uses: `lib` is `src`, so the studied subtree is
+/// the crate's `src/` and the package-root Cargo targets are not even walked.
+///
+/// A public `src/tests/` module must survive THIS invocation too — it is the
+/// one the published numbers come from — and the `#[cfg(test)]` reachability
+/// half must still find the crate root.
+#[test]
+fn a_public_src_tests_module_survives_the_pin_shaped_subtree() {
+    quiet();
+    let dir = scratch_crate("subtree");
+    let src = dir.join("src");
+    let (studied, excluded) =
+        ball_rq1_study::classify_rust_files("scratch", &src, ball_rq1_study::CrateRoot::Required)
+            .expect("the studied src/ subtree resolves lib.rs");
+
+    let studied_rel: std::collections::BTreeSet<String> = studied
+        .iter()
+        .map(|path| {
+            path.strip_prefix(&src)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    let excluded_rel: std::collections::BTreeSet<String> =
+        excluded.iter().map(|e| e.file.clone()).collect();
+
+    for name in ["tests/mod.rs", "tests/foo.rs"] {
+        assert!(
+            studied_rel.contains(name),
+            "the PUBLIC src/{name} module was not studied — the path half is matching a \
+             `tests` segment that is not a package-root Cargo target (studied: {studied_rel:?})"
+        );
+    }
+    assert_eq!(
+        excluded_rel,
+        [
+            "internal_tests.rs".to_string(),
+            "relocated_tests.rs".to_string()
+        ]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<String>>(),
+        "only the cfg(test)-only modules are test-only inside src/; got {excluded_rel:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A run that excluded nothing STILL prints the line: a missing line is
 /// indistinguishable from a rule that vanished, and `summarize.sh` fails on it.
 #[test]
@@ -442,5 +537,206 @@ fn the_exclusion_count_is_printed_even_when_zero() {
     assert!(
         out.contains("  excluded (test-only): 0\n"),
         "a zero exclusion count must still be printed; got:\n{out}"
+    );
+}
+
+// ── the crate-root anchor must be DECLARED, never silently absent (#648) ────
+//
+// The `#[cfg(test)]` reachability half above is anchored on a crate root, and
+// on the real pins it is the half that does all the work: all 34 of `bitflags`'
+// exclusions come from it, 0 from the path half. That anchor is resolved by
+// looking for `lib.rs` / `main.rs` / `src/lib.rs` / `src/main.rs` under the
+// STUDIED SUBTREE — so a pin whose `lib` points one level too deep, a crate
+// whose root moved, or a refactor of the resolver leaves it unfound.
+//
+// "Unfound" must not mean "exclude nothing and carry on". That switches the only
+// working half of the rule OFF, every test-only file silently re-enters the
+// denominator, and the published ratchet reads the resulting jump in `scored` as
+// an improvement — it raises the floors on a population nobody chose. The
+// exclusion is opt-out only by an explicit `"crateRoot": "none"` in the pin (the
+// genuinely-anchorless "bare directory of .rs files" case), declared per pin
+// rather than inferred from a failed search.
+
+/// A checkouts directory holding ONE package whose studied subtree contains no
+/// crate root, and whose `#[cfg(test)]`-only module lives inside that subtree.
+///
+/// `src/deep/mod.rs` declares `#[cfg(test)] mod deep_tests;`, so `deep_tests.rs`
+/// IS test-only — but nothing under `src/deep` is a crate root (`mod.rs` is not
+/// one), so the reachability walk has nothing to start from. This is the `lib` /
+/// `--source-dir` "one level too deep" shape, reproduced exactly.
+fn anchorless_checkouts(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "ball_rq1_anchorless_{}_{}_{}",
+        tag,
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let package = dir.join("deepcrate");
+    std::fs::create_dir_all(package.join("src/deep")).expect("failed to create the scratch crate");
+    let write = |rel: &str, source: &str| {
+        std::fs::write(package.join(rel), source).unwrap_or_else(|e| panic!("write {rel}: {e}"));
+    };
+    write(
+        "Cargo.toml",
+        "[package]\nname = \"deepcrate\"\nversion = \"0.0.0\"\nedition = \"2021\"\n",
+    );
+    write("src/lib.rs", "pub mod deep;\n");
+    write(
+        "src/deep/mod.rs",
+        "pub fn value() -> i64 { 1 }\n#[cfg(test)]\nmod deep_tests;\n",
+    );
+    write(
+        "src/deep/deep_tests.rs",
+        "#[test]\nfn works() { assert!(true); }\n",
+    );
+    dir
+}
+
+/// Writes a pin file naming the one package of [`anchorless_checkouts`], plus
+/// whatever `extra` pin fields the caller wants on it.
+fn anchorless_pins(dir: &std::path::Path, extra: &str) -> std::path::PathBuf {
+    let path = dir.join("pins.json");
+    std::fs::write(
+        &path,
+        format!(
+            "{{\n  \"packages\": [\n    \
+             {{ \"name\": \"deepcrate\", \"lib\": \"src/deep\"{extra} }}\n  ]\n}}\n"
+        ),
+    )
+    .expect("failed to write the pin file");
+    path
+}
+
+fn run_harness(args: &[&str]) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_rq1-study"))
+        .args(args)
+        .output()
+        .expect("failed to run the rq1-study binary")
+}
+
+/// The negative control for #648: a studied subtree with a `#[cfg(test)]`-only
+/// module and NO resolvable crate root must FAIL the run, naming the paths it
+/// searched — never print a note and measure on with the reachability half off.
+#[test]
+fn an_unresolvable_crate_root_fails_the_run() {
+    let dir = anchorless_checkouts("fatal");
+    let pins = anchorless_pins(&dir, "");
+    let json = dir.join("tier_a.json");
+    let out = run_harness(&[
+        "--pins",
+        &pins.to_string_lossy(),
+        "--checkouts",
+        &dir.to_string_lossy(),
+        "--json",
+        &json.to_string_lossy(),
+    ]);
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        !out.status.success(),
+        "a pin whose crate root does not resolve must FAIL the run — with the \
+         reachability half silently off its #[cfg(test)]-only file re-enters the \
+         denominator and the ratchet reads that as an improvement (#648).\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let expected = [
+        "deepcrate",
+        "lib.rs",
+        "main.rs",
+        "src/lib.rs",
+        "src/main.rs",
+        "crateRoot",
+    ];
+    for needle in expected {
+        assert!(
+            stderr.contains(needle),
+            "the failure must name {needle:?} — the searched paths and the opt-in are \
+             what make it actionable; got:\n{stderr}"
+        );
+    }
+}
+
+/// …and the opt-out is EXPLICIT and per pin: `"crateRoot": "none"` declares a
+/// subtree that genuinely has no crate root, and the run then proceeds with the
+/// `#[cfg(test)]` module STUDIED — nothing can be shown test-only without an
+/// anchor, and this harness only ever excludes what it can positively show.
+#[test]
+fn the_declared_anchorless_opt_in_lets_the_run_proceed() {
+    let dir = anchorless_checkouts("optin");
+    let pins = anchorless_pins(&dir, ", \"crateRoot\": \"none\"");
+    let json = dir.join("tier_a.json");
+    let out = run_harness(&[
+        "--pins",
+        &pins.to_string_lossy(),
+        "--checkouts",
+        &dir.to_string_lossy(),
+        "--json",
+        &json.to_string_lossy(),
+    ]);
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
+    let report = std::fs::read_to_string(&json).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        out.status.success(),
+        "an explicitly anchorless pin must be allowed to run.\n\
+         stdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stdout.contains("  excluded (test-only): 0\n"),
+        "an anchorless pin excludes nothing, and the count must still be printed; got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("2 total"),
+        "both files of the anchorless subtree must be scored, the #[cfg(test)]-only \
+         module included — the rule only removes what it can positively show; got:\n{stdout}"
+    );
+    assert!(
+        report.contains("deep_tests.rs") && report.contains("\"excludedTestOnly\": 0"),
+        "the JSON report must show the cfg(test)-only module studied and nothing \
+         excluded; got:\n{report}"
+    );
+}
+
+/// The same opt-in exists for the one-off `--package/--source-dir` mode, in the
+/// same shape: fatal by default, allowed only when declared. An opt-in that
+/// lived only in the pin file would leave the ad-hoc invocation — the one a
+/// human actually types, and the one the issue's `--source-dir` case names —
+/// with the old silent fallback.
+#[test]
+fn the_source_dir_mode_has_the_same_explicit_opt_in() {
+    let dir = anchorless_checkouts("srcdir");
+    let deep = dir.join("deepcrate/src/deep");
+    let fatal = run_harness(&[
+        "--package",
+        "deepcrate",
+        "--source-dir",
+        &deep.to_string_lossy(),
+    ]);
+    let allowed = run_harness(&[
+        "--package",
+        "deepcrate",
+        "--source-dir",
+        &deep.to_string_lossy(),
+        "--no-crate-root",
+    ]);
+    let fatal_err = String::from_utf8_lossy(&fatal.stderr).into_owned();
+    let allowed_out = String::from_utf8_lossy(&allowed.stdout).into_owned();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        !fatal.status.success() && fatal_err.contains("--no-crate-root"),
+        "--source-dir must fail on an unresolvable crate root and name its opt-in; \
+         got status {:?}, stderr:\n{fatal_err}",
+        fatal.status.code()
+    );
+    assert!(
+        allowed.status.success() && allowed_out.contains("  excluded (test-only): 0\n"),
+        "--no-crate-root must let the same run proceed; got status {:?}, stdout:\n{allowed_out}",
+        allowed.status.code()
     );
 }

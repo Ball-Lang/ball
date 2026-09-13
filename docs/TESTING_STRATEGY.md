@@ -808,8 +808,108 @@ repository's `Protect main` ruleset, whose **19 required status check contexts**
 
 A PR is BLOCKED until all 19 report success, so "the checks are green" is a
 mechanical statement about that list, not a judgement call. `Dart Coverage
-Ratchet` is on it too — it is easy to overlook because it lives in
-`coverage.yml`, not `ci.yml`.
+Ratchet` is on it too — it is easy to overlook because it is an independent job
+(`dart-coverage` in `ci.yml`) rather than part of the `Dart` job; the
+`coverage.yml` workflow next to it owns NO required context.
+
+### Per-PR job fan-out (issue #666)
+
+Runner concurrency is the measured bottleneck of this repo's PR sweep. The org
+is on the GitHub Free plan — **20 concurrent jobs, 5 of them macOS**
+(<https://docs.github.com/en/actions/reference/limits>) — and on 2026-09-13, with
+a dozen lanes in flight, `gh run list --status queued` showed **30 runs queued
+and 0 in progress**. Every workflow already carries a `concurrency` group with
+`cancel-in-progress`, so nothing superseded is wasting a slot: the fan-out
+itself is the cost.
+
+**The policy.** Every job reachable on `pull_request` in `ci.yml`,
+`conformance-matrix.yml`, `regression-gates.yml`, `ball-audit.yml` and
+`coverage.yml` must be one of:
+
+1. the owner of one of the 19 required contexts — it has to report anyway;
+2. conditioned by a job-level `if:` on a `changes` output (the
+   `./.github/actions/detect-changed-stacks` composite action, single source of
+   truth since #458);
+3. inside a workflow whose `pull_request:` trigger carries a `paths:` filter;
+4. the `changes` classifier itself;
+5. listed in `tools/ci/pr_job_fanout_allowlist.txt` **with a reason**.
+
+`tools/ci/check_pr_job_fanout.sh` enforces it from the always-on `Proto Checks`
+job, and its `--self-test` drives a fabricated unconditional job as the negative
+control. An exemption without a stated reason is rejected.
+
+**A required context must APPEAR, and a skipped MATRIX job does not report
+one.** This is the sharp edge of "never require path-filtered jobs" above, and
+it is not hypothetical. A job-level `if:` that evaluates false normally still
+satisfies a required check — GitHub records the check as skipped. But when the
+job is a MATRIX job whose `name:` interpolates `${{ matrix.<key> }}`, GitHub
+emits exactly ONE check run, under the **un-expanded** name. `ci.yml`'s `cpp`
+job carried such an `if:`, so a diff that touched neither `cpp/**` nor `infra`
+produced a lone `C++ (${{ matrix.os }})` and **none** of the three required
+`C++ (ubuntu-latest)` / `(windows-latest)` / `(macos-latest)` contexts —
+measured on PR #647 at `bc0c367a`, whose check-run set is exactly that. Such a
+PR can never merge. The fix is to gate the **steps**, never the job: every leg
+starts, reports under its real name, and costs ~20 s when there is nothing to
+do. The guard fails the build if a job-level `if:` is put back on a required
+matrix job.
+
+**What is conditioned on what.**
+
+| Workflow | Conditioning | Notes |
+| --- | --- | --- |
+| `ci.yml` | per-job `if:` on `changes` outputs; `cpp` gates its STEPS | `changes`, `proto`, `cli-verb-parity`, `dart-coverage` are always-on and each owns a required context |
+| `conformance-matrix.yml` | workflow `paths:` filter **and**, since #666, a per-row `if:` | PR runs only the rows the diff can move; push/schedule/dispatch still run the FULL matrix |
+| `regression-gates.yml` | per-job `if:` on `changes` outputs | already so before #666 |
+| `ball-audit.yml` | workflow `paths:` (`**.ball.json`, `**.ball.bin`) | owns no required context |
+| `coverage.yml` | workflow `paths:` (`cpp/**`) + `github.event_name != 'pull_request'` on the other four | owns no required context |
+
+**The conformance matrix's per-row conditions.** Each row runs when the diff
+touches `tests/conformance/**` (`corpus`), any of
+`dart/{engine,shared,compiler,self_host}/**` (`dart_core` — the Dart sources
+every self-hosted engine is compiled from), or that row's own language dir.
+Measured on PR #644 (`d853854b`): 18 matrix jobs ran, 15 of them for languages
+the diff did not touch. The `infra` fail-safe is deliberately NOT part of those
+conditions — it is true for any file outside the language dirs (docs, `tools/`,
+`ci.yml`), which would put all 18 rows back on every CI-lane PR. Leaving it out
+is safe **here and only here** because this workflow's trigger is already
+`paths:`-filtered, so every file that can start it maps onto one of those
+signals. The per-row conditions are all
+`github.event_name != 'pull_request' || …`, so the post-merge and weekly
+full-matrix safety net does not move.
+
+**"Every filter path maps onto a row signal" is a correctness invariant, and it
+is guarded twice.** Leaving `infra` out of the row conditions is only safe while
+that holds. An entry in the filter that lights up no signal a row reads is
+SILENTLY GREEN: the workflow starts (the path matched), all 17 rows evaluate
+false, and a summary that correctly treats `skipped` as benign prints a full
+table of SKIPs and exits 0 — a green Conformance Matrix that executed zero rows.
+So:
+
+- **Statically**, `tools/ci/check_matrix_paths.sh` (always-on `proto` job) now
+  does more than compare the two triggers' lists. For each entry in the filter
+  it synthesizes a concrete path that entry matches, runs the REAL
+  `detect-changed-stacks` classifier over it, and fails unless at least one
+  signal some row's `if:` reads comes back `true`. The signal set is scraped out
+  of `conformance-matrix.yml` itself (`needs.<classifier>.outputs.<name>`), so
+  there is no second table to keep in sync, and `--self-test` drives the
+  negative control — adding `proto/**` to the filter is RED.
+- **At run time**, `conformance-matrix.yml`'s `Parity Matrix` fails a
+  `pull_request` run that executed ZERO engine rows, whatever the cause (an
+  unmapped filter path, a row condition that stopped matching, a classifier that
+  returned all-false). Push, schedule and dispatch runs are exempt because their
+  rows are unconditional. `tools/test/test_parity_matrix_floor.py` (also the
+  `proto` job) renders that summary step out of the workflow and executes it
+  under bash across eight scenarios, including a negative control that strips
+  the floor and asserts the same all-skipped run then goes green.
+
+The detect-changed-stacks truth table pins `corpus`/`dart_core` themselves.
+
+**Known residual.** A PR whose ONLY change is `conformance-matrix.yml` does not
+start that workflow at all — its own path is not in the filter. That predates
+#666 and is unchanged by it. Note the two guards above are what make adding it
+a real decision rather than a one-line edit: `.github/workflows/**` sets only
+`infra`, which no row reads, so adding that path to the filter is RED until it
+is given a signal or an existing signal is added to the row conditions.
 
 **That list is gated, not trusted** (issue #655). It used to be hand-copied
 prose about a setting edited in a web UI: it matched the live ruleset on
@@ -1014,6 +1114,8 @@ could not parse a summary at all).
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
+| **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
+| **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 8 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |

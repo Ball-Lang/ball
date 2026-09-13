@@ -1,0 +1,17 @@
+# Per-PR job fan-out allow-list (issue #666).
+#
+# Read by tools/ci/check_pr_job_fanout.sh. One entry per line:
+#
+#   <workflow-file>:<job-id>  # <reason this job may run on every PR>
+#
+# An entry WITHOUT a `# reason` is rejected — an exemption nobody had to justify
+# is how the fan-out grew in the first place. Blank lines and `#` comments are
+# ignored.
+#
+# Prefer a real condition over an entry here. A job belongs on this list only
+# when it can neither own a required context nor be conditioned on a `changes`
+# output nor be gated by its workflow's `paths:` filter.
+#
+# EMPTY ON PURPOSE, and it should stay that way: every job in ci.yml,
+# conformance-matrix.yml, regression-gates.yml and ball-audit.yml today is
+# required, `changes`-conditioned, or inside a `paths:`-filtered workflow.

@@ -202,6 +202,24 @@ compile items so the sibling projects never double-compile each other's files.
   declares; `float` widening to a double is a documented approximation). Anything else on a
   keyword type throws loud NAMING the receiver. `TryParse` is deliberately not routed — dropping
   its out-parameter failure branch would compile, run, and be silently wrong.
+- **`string.Join(separator, values)`** (#492 slice 4): the same function's second arm — `string`
+  is a `PredefinedTypeSyntax` keyword exactly like `int`, and a keyword can never be shadowed, so
+  this arm needs no `DeclaresSameFileStatic` guard. The **2-argument** shape routes to the
+  already-declared/compiled/interpreted `std_collections.string_join` (call `MarkCollectionsUsed()`
+  like every other `std_collections` route). **The field order is INVERTED** — C# is
+  `(separator, values)`, `StringJoinInput` is `list` = 1, `separator` = 2 — so build it with
+  NAMED fields; a positional build still "encodes" and joins with the wrong operand. `params`
+  overloads (3+ args) and the 1-arg spelling stay LOUD; a `char` separator needs no special case
+  (a character literal already encodes as its one-character string). A `null` ELEMENT is a
+  documented approximation (C# renders empty, `string_join` renders `null`) — an element value, not
+  a syntax shape. Measured yield: stage 1 stayed 123/472, the `unsupported static call` bucket fell
+  **19 → 8** and all 12 files advanced to a different first error.
+- **`.Equals(a, b)` is NOT routed and that is deliberate** (#492 slice 4): every measured
+  2-argument occurrence carries an `IEqualityComparer`/`StringComparison`, and no `std` function
+  models a comparer, so a bare `std.equals` would silently drop the semantics. Zero comparer-free
+  occurrences exist, so there is nothing to partially route. Same for the 2-arg
+  `ArgumentNullException.ThrowIfNull(value, paramName)`: zero occurrences, so the `nameof` model it
+  needs buys no verified yield.
 - **BCL static guard calls** (#492 slice 3): `ArgumentNullException.ThrowIfNull(x)` →
   `std.assert(std.not_equals(x, null), "<x> must not be null")`, `Debug.Assert(cond[, msg])` →
   `std.assert` 1:1 (1-arg and 2-arg as separate arity arms). `std.assert` was already declared,
@@ -304,8 +322,8 @@ compile items so the sibling projects never double-compile each other's files.
   compile back, 58 re-encode**, and the wall is stage 4 (`declaration-drift`) — the
   furthest any port gets. (Re-measured at `origin/main` @ `9ede6466`; the earlier
   "74/73/58" sentence had gone stale.) Tier A reports only a file's FIRST error, so
-  a correct per-shape fix routinely leaves stage 1 unchanged — #578 and #492 slice 3
-  each did — while the file advances to its next gap. Verify a shape with a
+  a correct per-shape fix routinely leaves stage 1 unchanged — #578 and #492 slices 3,
+  3b and 4 each did — while the file advances to its next gap. Verify a shape with a
   targeted test, and only ever move `tools/coverage-study/baseline.json`'s floor to
   a number the harness actually printed. `dotnet test csharp/coverage-study/test/...` (the harness's own
   self-test) IS gated on every PR in the `csharp` job; the RUN is the

@@ -29,7 +29,7 @@ Honest baseline, **still 0/110 clean, 0 files even encoded** (the 5 crates pinne
 `strsim`**, not the original 10-crate set the #491 prose below narrates) after every #491 slice
 merged so far.
 Every scored file is an `encode-error`: the encoder's documented gaps
-(item-level `const`/`static`/`type`, `write!` and other unmapped macros,
+(item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate
 file, and a file that clears one gap lands on the next. That is the honest
 number, not a cherry-picked one — do not "improve" it by changing the pin list,

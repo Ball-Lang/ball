@@ -53,8 +53,9 @@ The `Capability` enum (`capability_table.dart`) — these are the values `--deny
 | `process` | high | `std_io.exit`/`panic` |
 | `memory` | high | every `std_memory.*` (alloc/free/read/write/ptr/stack) |
 | `network` | high | **none — see below** |
+| `custom` | unknown | every call into a base module the PROGRAM declares outside the eight universal `std*` modules (#609) |
 
-For untrusted input, a typical hard deny is `fs,process,memory,concurrency` (and `io`/`time`/`random` if the program should be purely computational).
+For untrusted input, a typical hard deny is `custom,fs,process,memory,concurrency` (and `io`/`time`/`random` if the program should be purely computational).
 
 > **`std.print` is category `io`.** Denying `io` therefore rejects an otherwise-harmless `print`-only program — a real, silent policy bug seen in evaluation (deny set too broad → the legitimate program is refused). Pick deny sets deliberately: too broad is an availability bug, too narrow a security hole. If you want to *allow* console output but nothing else effectful, deny `fs,process,memory,concurrency,time,random` and leave `io` permitted.
 

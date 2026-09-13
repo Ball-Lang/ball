@@ -549,7 +549,7 @@ This abbreviated snippet doesn't set them, but `sandbox`/`timeoutMs`/`maxMemoryB
 
 ## C# — trusted only, and only in a `-p:SelfHost=true` build
 
-`csharp/engine/src/CompiledEngine.cs` is generated only under `-p:SelfHost=true`. In the **default** build, `BallEngine.Run()` unconditionally throws `SelfHostPendingException` (`BallEngine.cs:70-72`) — there is no working `.Run()` at all without that flag. Built WITH the flag, the self-hosted engine runs at Dart parity (`csharp/AGENTS.md`, `Results: 350 passed, 0 failed, 350 total`), but `Run()` still takes **zero parameters**:
+`csharp/engine/src/CompiledEngine.cs` is generated only under `-p:SelfHost=true`. In the **default** build, `BallEngine.Run()` unconditionally throws `SelfHostPendingException` (`BallEngine.cs:80-87`) — there is no working `.Run()` at all without that flag. Built WITH the flag, the self-hosted engine runs at Dart parity (`csharp/AGENTS.md`, `Results: 350 passed, 0 failed, 350 total`), but `Run()` still takes **zero parameters**:
 
 ```csharp
 using Ball.Engine;
@@ -557,7 +557,7 @@ var engine = BallEngine.FromJson(json);   // or FromBinary(bytes)
 var lines = engine.Run();                  // IReadOnlyList<string>; SelfHostPendingException without -p:SelfHost=true
 ```
 
-`RunSelfHosted()` (only compiled under `-p:SelfHost=true`) hard-codes `sandbox=false`, `maxRecursionDepth=100_000`, `maxModules`/`maxExpressionDepth=1_000_000`, and ONE fixed `StdModuleHandler` (`BallEngine.cs:118-134`) — there is no public parameter anywhere to change any of them. **Embedding untrusted programs is not possible via this wrapper**: no sandbox knob, no module allowlist, and no C# CI job publishes it as a package yet (`Ball.Shared`, `Ball.Compiler`, `Ball.Encoder` are usable independently for authoring/encoding, not for running untrusted input).
+`RunSelfHosted()` (only compiled under `-p:SelfHost=true`) hard-codes `sandbox=false`, `maxRecursionDepth=100_000`, `maxModules`/`maxExpressionDepth=1_000_000`, and ONE fixed `StdModuleHandler` (`BallEngine.cs:132-147`) — there is no public parameter anywhere to change any of them. **Embedding untrusted programs is not possible via this wrapper**: no sandbox knob, no module allowlist, and no C# CI job publishes it as a package yet (`Ball.Shared`, `Ball.Compiler`, `Ball.Encoder` are usable independently for authoring/encoding, not for running untrusted input).
 
 ---
 

@@ -2350,8 +2350,14 @@ func _formatCallee(input ballrt.Value) (__ret ballrt.Value) {
 		_ = calleeModule
 		var calleeFunction ballrt.Value = ballrt.IndexGet(site, "calleeFunction")
 		_ = calleeFunction
-		var resolved ballrt.Value = ballrt.IndexGet(site, "resolvedModule")
+		var resolved ballrt.Value = ""
 		_ = resolved
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.MapContainsKey(site, "resolvedModule")) {
+				return func() ballrt.Value { __v := ballrt.IndexGet(site, "resolvedModule"); resolved = __v; return __v }()
+			}
+			return ballrt.Value(nil)
+		}()
 		var literal ballrt.Value = ballrt.Concat(ballrt.Concat(ballrt.ToStr(calleeModule), "."), ballrt.ToStr(calleeFunction))
 		_ = literal
 		_ = func() ballrt.Value {

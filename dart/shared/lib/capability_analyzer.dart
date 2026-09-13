@@ -647,10 +647,17 @@ void _recordCapSite(Map ctx) {
 /// parentheses: an unqualified or benign-looking call site must not be able to
 /// hide which host module the call actually reaches, and a reader still needs
 /// to see what the program wrote (issue #609).
+/// A site Map built by hand (or decoded from a report that predates
+/// `resolvedModule`) may not carry the key at all; that is read as "the call
+/// site named the declaring module", the same meaning `''` carries — never a
+/// crash inside the renderer, and never a fabricated module name.
 String _formatCallee(Map site) {
   final String calleeModule = site['calleeModule'];
   final String calleeFunction = site['calleeFunction'];
-  final String resolved = site['resolvedModule'];
+  var resolved = '';
+  if (site.containsKey('resolvedModule')) {
+    resolved = site['resolvedModule'];
+  }
   final literal = '$calleeModule.$calleeFunction';
   if (resolved.isEmpty || resolved == calleeModule) return literal;
   return '$resolved.$calleeFunction (call site: $literal)';

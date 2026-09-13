@@ -189,20 +189,6 @@ TEST(compile_library_mode_rejects_program_file) {
     ASSERT_TRUE(out.find("Library mode expects a Module") != std::string::npos);
 }
 
-TEST(compile_split_mode_writes_directory) {
-    std::string program = std::string(BALL_CONFORMANCE_DIR) + "/202_sandbox_mode.ball.json";
-    fs::path split_dir = fs::temp_directory_path() / "ball_cli_test_split";
-    std::error_code ec;
-    fs::remove_all(split_dir, ec);
-    std::string out;
-    std::string cmd = compile_exe() + " " + quote(program) + " --split " +
-                       quote(split_dir.string()) + " --shards 2";
-    int rc = run_capture(cmd, out);
-    ASSERT_TRUE(rc == 0);
-    ASSERT_TRUE(out.find("Compiled split output to") != std::string::npos);
-    fs::remove_all(split_dir, ec);
-}
-
 // ================================================================
 // ball_cpp_encode — usage / error / success / --normalize / --binary.
 // ================================================================

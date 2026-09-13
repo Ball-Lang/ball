@@ -44,22 +44,15 @@ else()
 endif()
 
 # ── run (self-hosted engine_rt) ───────────────────────────────────────────────
-# Mirror cpp/test/CMakeLists.txt's detection: prefer the multi-TU engine_rt/
-# object library (ball_selfhost_engine, built by the test subdir), else the
-# monolithic engine_rt.cpp (#included by cli_run.cpp), else a fail-loud stub.
-set(_rt_multi "${_selfhost_dir}/engine_rt/engine_rt_common.hpp")
+# Mirror cpp/test/CMakeLists.txt's detection: the generated engine_rt.cpp
+# (#included by cli_run.cpp), else a fail-loud stub. One emit shape only —
+# issue #601 removed the multi-TU engine_rt/ sibling this used to prefer.
 set(_rt_mono "${_selfhost_dir}/engine_rt.cpp")
 set(_have_run FALSE)
-set(_run_multi_tu FALSE)
-if(EXISTS "${_rt_multi}" AND TARGET ball_selfhost_engine)
-    set(_have_run TRUE)
-    set(_run_multi_tu TRUE)
-    list(APPEND _cli_sources src/cli_run.cpp)
-    message(STATUS "ball CLI: run ENABLED (multi-TU engine_rt)")
-elseif(EXISTS "${_rt_mono}")
+if(EXISTS "${_rt_mono}")
     set(_have_run TRUE)
     list(APPEND _cli_sources src/cli_run.cpp)
-    message(STATUS "ball CLI: run ENABLED (monolithic engine_rt.cpp)")
+    message(STATUS "ball CLI: run ENABLED (engine_rt.cpp)")
 else()
     list(APPEND _cli_sources src/cli_run_stub.cpp)
     message(STATUS "ball CLI: run stubbed (engine_rt absent)")
@@ -83,11 +76,6 @@ target_compile_definitions(ball PRIVATE BALL_CLI_VERSION="${BALL_CLI_VERSION}")
 # self-host dir; both are heavy template TUs that need /bigobj on MSVC.
 if(_have_verbs OR _have_run)
     target_include_directories(ball PRIVATE "${_selfhost_dir}")
-endif()
-if(_run_multi_tu)
-    target_include_directories(ball PRIVATE "${_selfhost_dir}/engine_rt")
-    target_sources(ball PRIVATE $<TARGET_OBJECTS:ball_selfhost_engine>)
-    target_compile_definitions(ball PRIVATE BALL_SELFHOST_MULTI_TU=1)
 endif()
 target_compile_options(ball PRIVATE
     $<$<CXX_COMPILER_ID:MSVC>:/bigobj>)

@@ -2475,51 +2475,13 @@ TEST(method_list_of_from_copy) {
         "std::vector<std::any>(");
 }
 
-// ── CLI-mode entry points: compile_split / compile_module / compile_library ──
-// Never reached by the single-TU compile() the numbered e2e corpus uses; the
-// CLI drives them for multi-TU (self-host engine_rt) and library output.
+// ── CLI-mode entry points: compile_module / compile_library ──
+// Never reached by the whole-program compile() the numbered e2e corpus uses;
+// the CLI drives them for per-module and library output.
 
 namespace covfs = std::filesystem;
 
 static covfs::path conformance_dir() { return covfs::path(BALL_CONFORMANCE_DIR); }
-
-static std::string read_text(const covfs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-TEST(compile_split_focused_class_program) {
-    auto prog = ball::LoadProgram(
-        (conformance_dir() / "101_simple_class.ball.json").string());
-    CppCompiler compiler(std::move(prog));
-    auto tmp = covfs::temp_directory_path() / "ball_cov_split_focused";
-    auto result = compiler.compile_split(tmp.string(), 3);
-    ASSERT_TRUE(result.num_shards == 3);
-    ASSERT_TRUE(result.shard_sources.size() == 3);
-    ASSERT_TRUE(covfs::exists(result.common_header));
-    auto common = read_text(result.common_header);
-    ASSERT_CONTAINS(common, "multi-TU");
-    ASSERT_CONTAINS(common, "namespace ball_rt");
-    // Every emitted shard #includes the shared header.
-    for (const auto& shard : result.shard_sources) {
-        ASSERT_TRUE(covfs::exists(shard));
-        ASSERT_CONTAINS(read_text(shard), "engine_rt_common.hpp");
-    }
-    // The link/consumer header is also written.
-    ASSERT_TRUE(covfs::exists((tmp / "engine_rt_link.hpp").string()));
-}
-
-TEST(compile_split_clamps_shard_count) {
-    auto prog = ball::LoadProgram(
-        (conformance_dir() / "100_complex_control_flow.ball.json").string());
-    CppCompiler compiler(std::move(prog));
-    auto tmp = covfs::temp_directory_path() / "ball_cov_split_clamp";
-    auto result = compiler.compile_split(tmp.string(), 0);
-    ASSERT_TRUE(result.num_shards == 1);
-    ASSERT_TRUE(result.shard_sources.size() == 1);
-}
 
 TEST(compile_module_focused_and_missing) {
     auto prog = ball::LoadProgram(
@@ -2538,14 +2500,13 @@ TEST(compile_module_focused_and_missing) {
     ASSERT_TRUE(threw);
 }
 
-// Drive compile_split + compile_module across the whole corpus so their
-// class/enum/top-level-var/standalone orchestration branches (never reached
-// by single-TU compile()) are all exercised. Tolerant per-fixture (some
-// corpus entries are Module files or use shapes the split path rejects);
-// asserts a high success floor so a real regression still trips it.
-TEST(compile_split_and_module_corpus_smoke) {
-    int split_ok = 0, module_ok = 0, programs = 0;
-    auto tmp = covfs::temp_directory_path() / "ball_cov_split_smoke";
+// Drive compile_module across the whole corpus so its class/enum/
+// top-level-var/standalone orchestration branches (never reached by the
+// whole-program compile()) are all exercised. Per-fixture tolerance covers the
+// corpus entries that are Module files rather than Programs; the success floor
+// still trips on a real regression.
+TEST(compile_module_corpus_smoke) {
+    int module_ok = 0, programs = 0;
     for (const auto& e : covfs::directory_iterator(conformance_dir())) {
         auto p = e.path();
         auto s = p.string();
@@ -2560,24 +2521,12 @@ TEST(compile_split_and_module_corpus_smoke) {
         programs++;
         std::string entry_mod = prog.entryModule;
         CppCompiler compiler(std::move(prog));
-        try {
-            compiler.compile_split(tmp.string(), 2);
-            split_ok++;
-        } catch (const std::exception&) {
-            // Tolerated: a few corpus shapes the multi-TU path rejects; the
-            // success-floor assert below still catches a real regression.
-        }
-        try {
-            auto m = compiler.compile_module(entry_mod);
-            if (!m.empty()) module_ok++;
-        } catch (const std::exception&) {
-            // Tolerated per-fixture (see above); floor-asserted below.
-        }
+        auto m = compiler.compile_module(entry_mod);
+        if (!m.empty()) module_ok++;
     }
     // The corpus is large and overwhelmingly Program envelopes; require the
-    // bulk to round-trip through both CLI paths.
+    // bulk to round-trip through the per-module CLI path.
     ASSERT_TRUE(programs > 200);
-    ASSERT_TRUE(split_ok > 200);
     ASSERT_TRUE(module_ok > 200);
 }
 
@@ -3099,21 +3048,6 @@ TEST(ctor_non_block_body_statement_is_emitted) {
     auto named_out =
         compile_program(cov_class_program({std::move(td)}, {std::move(named)}));
     ASSERT_CONTAINS(named_out, "ball_assign(__obj.label, (__obj.label + \"?\"s));");
-}
-
-TEST(emit_struct_split_mode_out_of_line) {
-    // compile_split moves method/ctor bodies OUT OF LINE into shards — a path
-    // never reached by single-TU compile(). Drive the same rich class through
-    // it and assert the out-of-line class member definitions land in a shard.
-    CppCompiler compiler(ball::ir::parseProgram(cov_rich_class_program()));
-    auto tmp = covfs::temp_directory_path() / "ball_cov_class_split";
-    auto result = compiler.compile_split(tmp.string(), 2);
-    std::string all;
-    for (const auto& s : result.shard_sources) all += read_text(s);
-    ASSERT_CONTAINS(all, "Foo::Foo(auto name, auto count) {");   // split ctor body
-    ASSERT_CONTAINS(all, "Foo::operator int64_t() {");           // split conv op
-    ASSERT_CONTAINS(all, "void Foo::greet() {");                 // split void method
-    ASSERT_CONTAINS(all, "Foo Foo::clone() {");                  // split method
 }
 
 // #561: a PLAIN (non-`this.`-formal) constructor parameter must never be

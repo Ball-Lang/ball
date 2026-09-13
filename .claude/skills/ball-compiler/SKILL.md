@@ -64,7 +64,7 @@ std.assign    → target = value
 4. Add interpretation logic in the engine's std dispatcher
 5. Add test in `dart/engine/test/engine_test.dart`
 6. If C++ is affected: implement in `cpp/compiler/src/`, then regenerate the self-hosted engine
-   `dart/self_host/lib/engine_rt.cpp` (`cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic`)
+   `dart/self_host/lib/engine_rt.cpp` (`cd dart && dart run compiler/tool/compile_engine_cpp.dart` — no arguments; one emit shape since #601)
    and re-run C++ self-host conformance. (There is no native `cpp/engine/` — the engine is self-hosted.)
 
 ## Control Flow — MUST Use Lazy Evaluation

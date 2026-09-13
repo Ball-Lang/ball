@@ -4,8 +4,15 @@
 /// Writes:
 ///   - dart/self_host/engine.ball.pb (binary-encoded program, since
 ///     JSON exceeds protobuf's 100-nesting default)
-///   - dart/self_host/lib/engine_rt/ (multi-TU emitted C++, default)
-///     or dart/self_host/lib/engine_rt.cpp when --monolithic is passed
+///   - dart/self_host/lib/engine_rt.cpp (the emitted C++)
+///
+/// There is exactly ONE output shape, and it takes no flags. Issue #601
+/// removed the multi-TU `--split`/`--shards` emit that used to be the DEFAULT
+/// (and with it `--monolithic`, the flag that selected this path): that emit
+/// had never compiled, yet `cpp/test/CMakeLists.txt` preferred its output
+/// whenever it was present — so running this tool the documented way handed a
+/// developer an engine that could not build, and every CI invocation opted out
+/// of it.
 ///
 /// Whether the emitted C++ actually compiles under MSVC/GCC/Clang is
 /// a separate concern — this tool only runs the Ball → C++ emit.
@@ -61,12 +68,17 @@ String _findCppCompiler(String root) {
 }
 
 Future<void> main(List<String> args) async {
-  final monolithic = args.contains('--monolithic');
-  var shardCount = 8;
-  for (var i = 0; i < args.length; i++) {
-    if (args[i] == '--shards' && i + 1 < args.length) {
-      shardCount = int.parse(args[i + 1]);
-    }
+  // Fail loud on any argument. The removed `--monolithic` / `--split` /
+  // `--shards` flags CHOSE between two emit shapes; silently ignoring one
+  // would leave a caller believing it still selected something.
+  if (args.isNotEmpty) {
+    stderr.writeln(
+      'compile_engine_cpp.dart takes no arguments (got: ${args.join(' ')}).\n'
+      'The --monolithic / --split / --shards flags were removed together with '
+      'the multi-TU emit in issue #601; there is one output shape, '
+      'dart/self_host/lib/engine_rt.cpp.',
+    );
+    exit(64); // EX_USAGE
   }
   final root = _findRepoRoot();
   stdout.writeln('Compile engine.dart → C++ via existing cpp/compiler');
@@ -99,51 +111,24 @@ Future<void> main(List<String> args) async {
 
   // Run the cpp compiler.
   final cppCompiler = _findCppCompiler(root);
-  if (monolithic) {
-    final outCpp = '$root/dart/self_host/lib/engine_rt.cpp';
-    // Ensure the output directory exists — lib/ holds only generated
-    // (gitignored) artifacts, so it is absent in a fresh checkout and the
-    // C++ compiler would fail with "Could not open output file".
-    File(outCpp).parent.createSync(recursive: true);
-    stdout.writeln('\nRunning $cppCompiler (monolithic) ...');
-    final result = await Process.run(cppCompiler, [
-      pbPath,
-      outCpp,
-    ], runInShell: true);
-    if (result.exitCode != 0) {
-      stdout.writeln('! cpp compiler reported errors:');
-      stdout.writeln(result.stderr);
-      exit(result.exitCode);
-    }
-    stdout.writeln(result.stdout);
-    final lines = File(outCpp).readAsLinesSync().length;
-    stdout.writeln('✓ Emitted ${outCpp.replaceAll('\\', '/')} ($lines lines)');
-  } else {
-    final outDir = '$root/dart/self_host/lib/engine_rt';
-    Directory(outDir).createSync(recursive: true);
-    stdout.writeln(
-      '\nRunning $cppCompiler --split $outDir --shards $shardCount ...',
-    );
-    final result = await Process.run(cppCompiler, [
-      pbPath,
-      '--split',
-      outDir,
-      '--shards',
-      '$shardCount',
-    ], runInShell: true);
-    if (result.exitCode != 0) {
-      stdout.writeln('! cpp compiler reported errors:');
-      stdout.writeln(result.stderr);
-      exit(result.exitCode);
-    }
-    stdout.writeln(result.stdout);
-    final shards = Directory(
-      outDir,
-    ).listSync().whereType<File>().where((f) => f.path.endsWith('.cpp')).length;
-    stdout.writeln(
-      '✓ Emitted $outDir ($shards shard .cpp files + engine_rt_common.hpp)',
-    );
+  final outCpp = '$root/dart/self_host/lib/engine_rt.cpp';
+  // Ensure the output directory exists — lib/ holds only generated
+  // (gitignored) artifacts, so it is absent in a fresh checkout and the
+  // C++ compiler would fail with "Could not open output file".
+  File(outCpp).parent.createSync(recursive: true);
+  stdout.writeln('\nRunning $cppCompiler ...');
+  final result = await Process.run(cppCompiler, [
+    pbPath,
+    outCpp,
+  ], runInShell: true);
+  if (result.exitCode != 0) {
+    stdout.writeln('! cpp compiler reported errors:');
+    stdout.writeln(result.stderr);
+    exit(result.exitCode);
   }
+  stdout.writeln(result.stdout);
+  final lines = File(outCpp).readAsLinesSync().length;
+  stdout.writeln('✓ Emitted ${outCpp.replaceAll('\\', '/')} ($lines lines)');
   stdout.writeln(
     '\nNote: this tool only verifies the Ball → C++ emit step. '
     'Whether the emitted C++ compiles under MSVC/GCC/Clang requires '

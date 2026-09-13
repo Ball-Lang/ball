@@ -522,7 +522,7 @@ pub enum EngineError { Parse(String), Runtime(String), SelfHostPending(String) }
 
 ## C++ — `engine_rt` (vendored, no package)
 
-There is no C++ engine package (no vcpkg/Conan artifact; `cpp/AGENTS.md`: "prototype-quality code, not production-ready"). The engine is `dart/self_host/lib/engine_rt.cpp`, a **generated, gitignored** artifact. To embed it you must vendor the Ball repo, run the Dart toolchain to regenerate it (`dart run compiler/tool/compile_engine_cpp.dart --monolithic`), and literally `#include "engine_rt.cpp"` into a translation unit (as `cpp/cli/src/cli_run.cpp` does).
+There is no C++ engine package (no vcpkg/Conan artifact; `cpp/AGENTS.md`: "prototype-quality code, not production-ready"). The engine is `dart/self_host/lib/engine_rt.cpp`, a **generated, gitignored** artifact. To embed it you must vendor the Ball repo, run the Dart toolchain to regenerate it (`dart run compiler/tool/compile_engine_cpp.dart`), and literally `#include "engine_rt.cpp"` into a translation unit (as `cpp/cli/src/cli_run.cpp` does).
 
 Embedding is raw struct manipulation (real code from `cmd_run`), abbreviated:
 

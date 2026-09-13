@@ -14,8 +14,8 @@ A single `ball` binary with subcommands, the C++ analogue of `dart/cli`
 | `ball version`                  | `cli_core.versionLine` / single-sourced fallback     |
 
 The standalone `ball_cpp_compile` / `ball_cpp_encode` binaries are **kept** as
-thin aliases (they also drive the engine_rt / ball_protobuf `--split` /
-`--library` pipelines the end-user `ball compile` does not expose).
+thin aliases (they also drive the ball_protobuf `--library` pipeline the
+end-user `ball compile` does not expose).
 
 ## Generated inputs (gitignored, CI-regenerated)
 
@@ -28,8 +28,8 @@ The portable verbs and `run` are **self-hosted**: they execute Ball's own
 cd dart && dart run compiler/tool/gen_cli_json.dart        # → cli.ball.json / .pb
 # 2. cli_core → callable C++ header (library-compiled via ball_cpp_compile)
 cd dart && dart run compiler/tool/gen_cli_cpp.dart          # → lib/cli_rt.h (+ cli_module.ball.json)
-# 3. self-hosted engine → C++ (monolithic, matches CI)
-cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic  # → lib/engine_rt.cpp
+# 3. self-hosted engine → C++ (takes no flags; one emit shape since #601)
+cd dart && dart run compiler/tool/compile_engine_cpp.dart  # → lib/engine_rt.cpp
 ```
 
 `gen_cli_cpp.dart` extracts the `main` module of `cli.ball.json` — the whole
@@ -53,9 +53,9 @@ no generated artifacts):
 * `cli_rt.h` present → real verbs (`cli_verbs.cpp`); else fail-loud stub
   (`cli_verbs_stub.cpp`). `version` works either way (single-sourced from
   `dart/cli/pubspec.yaml`).
-* `engine_rt.cpp` (or the multi-TU `engine_rt/` + `ball_selfhost_engine`
-  object lib) present → real `run` (`cli_run.cpp`); else stub
-  (`cli_run_stub.cpp`).
+* `engine_rt.cpp` present → real `run` (`cli_run.cpp`); else stub
+  (`cli_run_stub.cpp`). One emit shape only — #601 removed the multi-TU
+  `engine_rt/` sibling this used to prefer.
 
 The full CLI (real verbs + `run`) plus the parity gate build in the
 `cpp-selfhost-tally` CI job (`.github/workflows/regression-gates.yml`), which

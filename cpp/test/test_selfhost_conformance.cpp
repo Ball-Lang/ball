@@ -11,12 +11,9 @@
 //   3. Construct BallEngine, run, capture stdout
 //   4. Compare against .expected_output.txt
 
-// Self-hosted engine: multi-TU (ball_rt namespace) or legacy single .cpp include.
-#if defined(BALL_SELFHOST_MULTI_TU)
-#include "engine_rt_link.hpp"
-#else
+// Self-hosted engine, the one generated shape (issue #601 removed the multi-TU
+// sibling).
 #include "../../dart/self_host/lib/engine_rt.cpp"
-#endif
 
 // #18 Stage 5: no libprotobuf. Ball programs are parsed straight from
 // proto3-JSON (nlohmann/json) into the BallDyn map tree the engine expects —

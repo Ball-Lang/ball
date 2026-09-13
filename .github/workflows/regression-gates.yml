@@ -407,7 +407,7 @@ jobs:
         run: cmake --build cpp/ci-build --config Release --target ball_cpp_compile
 
       - name: Generate engine_rt.cpp
-        run: dart run dart/compiler/tool/compile_engine_cpp.dart --monolithic
+        run: dart run dart/compiler/tool/compile_engine_cpp.dart
 
       # Issue #367: the unified `ball` CLI's portable verbs (info/validate/tree/
       # audit/version) are the self-hosted cli_core, library-compiled to
@@ -457,3 +457,49 @@ jobs:
           ctest --test-dir cpp/ci-build -C Release
           -L selfhost
           --output-on-failure --no-tests=error
+
+      # ── ONE self-host C++ emit shape, and it is the one just built (#601) ──
+      # Until #601, compile_engine_cpp.dart emitted the engine in SPLIT multi-TU
+      # form BY DEFAULT (`ball_cpp_compile … --split dart/self_host/lib/engine_rt
+      # --shards 8`); `--monolithic` — which every CI invocation passed — was the
+      # only way to reach the engine_rt.cpp this job builds and runs above, and
+      # cpp/test/CMakeLists.txt PREFERRED the split tree whenever
+      # engine_rt_common.hpp existed. So the documented default was emitted by a
+      # supported flag, silently preferred by CMake, and compiled by NOTHING; it
+      # had never compiled at all (mid-class shard boundaries, static linkage on
+      # out-of-line member functions, a constructor emitted into two shards).
+      # The split emitter, its CMake preference and its flags are gone.
+      #
+      # This step is what keeps them gone. The emit above ran the tool with NO
+      # flags, so the assertions below describe exactly what a developer
+      # following the docs gets — and the conformance sweep above is the proof
+      # that it builds and runs.
+      - name: "C++ self-host: exactly one emit shape (#601)"
+        run: |
+          set -euo pipefail
+          if [ ! -s dart/self_host/lib/engine_rt.cpp ]; then
+            echo "::error::the flagless emit produced no dart/self_host/lib/engine_rt.cpp — the one supported output shape is missing"
+            exit 1
+          fi
+          if [ -e dart/self_host/lib/engine_rt ]; then
+            echo "::error::a split multi-TU tree exists at dart/self_host/lib/engine_rt — the second emit path is back, and CMake would prefer it over the engine this job built"
+            exit 1
+          fi
+          # The flags that used to select between the two shapes must stay gone.
+          # Asserted by BEHAVIOUR, not by grep: the tool's own doc comment and
+          # usage error name all three (that is how a developer finds out they
+          # were removed), so a text search would flag its own explanation.
+          # What must never come back is ACCEPTING one — each of these has to
+          # exit non-zero, which the flagless tool does with EX_USAGE before it
+          # touches anything.
+          for flag in --monolithic --split --shards; do
+            if dart run dart/compiler/tool/compile_engine_cpp.dart "$flag" >/dev/null 2>&1; then
+              echo "::error::compile_engine_cpp.dart accepted $flag — a shape-selecting flag is back, and with it a second emit path no gate compiles"
+              exit 1
+            fi
+          done
+          if grep -rq --include=CMakeLists.txt --include='*.cmake' --include='*.cpp' --include='*.h' --include='*.hpp' 'engine_rt_common\.hpp' cpp/; then
+            echo "::error::cpp/ references engine_rt_common.hpp again — CMake must not have a split-tree preference to fall into"
+            exit 1
+          fi
+          echo "one emit shape: dart/self_host/lib/engine_rt.cpp ($(wc -l < dart/self_host/lib/engine_rt.cpp) lines), no split tree"

@@ -15,7 +15,7 @@ int cmd_run(const std::vector<std::string>&) {
     std::cerr << "ball run: unavailable — this `ball` was built without the "
                  "self-hosted engine (engine_rt).\n"
               << "Regenerate it and rebuild:\n"
-              << "  cd dart && dart run compiler/tool/compile_engine_cpp.dart --monolithic\n"
+              << "  cd dart && dart run compiler/tool/compile_engine_cpp.dart\n"
               << "  cmake -S cpp -B cpp/build && cmake --build cpp/build --target ball\n";
     return 2;
 }

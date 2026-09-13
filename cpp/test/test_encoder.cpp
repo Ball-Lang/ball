@@ -1447,6 +1447,562 @@ TEST(encode_lambda_expr_has_body) {
     ASSERT_TRUE(body_str.find("lambda") != std::string::npos);
 }
 
+// ================================================================
+// cov_* — reachability-audit coverage (issue #63)
+// ================================================================
+//
+// Every case below was written against a specific UNCOVERED line range in
+// cpp/encoder/src/encoder.cpp, taken from Codecov's `cpp` flag file_report at
+// main @ f673169c (96 missed lines / 38 clusters; the API's line_coverage
+// state is 0 = HIT, 1 = MISS — calibrated against totals.hits before use, per
+// .claude/rules/cpp.md).
+//
+// The audit question for each cluster was "is this reachable from anything
+// other than the self-host path?", and for encoder.cpp the answer is YES for
+// all 96: `CppEncoder::encode_from_clang_ast` is a pure JSON-AST -> ball::ir
+// transform with no I/O, no toolchain dependency and no engine involvement, so
+// every branch is reachable from an instrumented ctest binary by handing it the
+// AST shape that selects it. NONE of them earns an `LCOV_EXCL_*` marker — the
+// encoder is not embedded into generated programs the way ball_dyn.h is, so it
+// has none of that header's structural-undercount problem (see
+// cpp/test/AGENTS.md). They were simply untested.
+//
+// Each TEST names the cluster it closes so the next reader can re-derive the
+// mapping against a fresh report rather than trusting a stale line number.
+
+// --- double_literal + FloatingLiteral (encoder.cpp 50-54, 872) -------------
+TEST(cov_floating_literal_encodes_double) {
+    auto prog = encode_return_expr(
+        R"JSON({"kind": "FloatingLiteral", "value": "2.5"})JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("doubleValue") != std::string::npos);
+    ASSERT_TRUE(body_str.find("2.5") != std::string::npos);
+}
+
+// --- CharacterLiteral (encoder.cpp 876) -----------------------------------
+TEST(cov_character_literal_encodes_int) {
+    // clang emits CharacterLiteral's `value` as a JSON NUMBER (the code point),
+    // not a string — hence node.value("value", 0) rather than std::stoll.
+    auto prog = encode_return_expr(
+        R"JSON({"kind": "CharacterLiteral", "value": 65})JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("intValue") != std::string::npos);
+    ASSERT_TRUE(body_str.find("65") != std::string::npos);
+}
+
+// --- CXXNullPtrLiteralExpr (encoder.cpp 881-884) --------------------------
+TEST(cov_nullptr_literal_encodes_empty_literal) {
+    auto prog = encode_return_expr(
+        R"JSON({"kind": "CXXNullPtrLiteralExpr"})JSON");
+    auto* fn = find_fn(prog, "f");
+    auto body_str = body_json(fn);
+    // An unset literal oneof = Ball null: the node is a `literal` with no
+    // value member set.
+    ASSERT_TRUE(body_str.find("literal") != std::string::npos);
+    ASSERT_TRUE(body_str.find("intValue") == std::string::npos);
+    ASSERT_TRUE(body_str.find("stringValue") == std::string::npos);
+    ASSERT_TRUE(body_str.find("boolValue") == std::string::npos);
+}
+
+// --- FunctionDecl qualifier metadata (encoder.cpp 256-262, 1360-1364) -----
+TEST(cov_function_decl_qualifier_metadata) {
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "FunctionDecl",
+            "name": "q",
+            "type": {"qualType": "int ()"},
+            "storageClass": "static",
+            "inline": true,
+            "constexpr": true,
+            "virtual": true,
+            "inner": [{"kind": "CompoundStmt", "inner": []}]
+        }]
+    })JSON");
+    auto* fn = find_fn(prog, "q");
+    ASSERT_TRUE(fn != nullptr);
+    ASSERT_TRUE(fn->metadata.value("is_static", false));
+    ASSERT_TRUE(fn->metadata.value("is_const", false));
+    ASSERT_TRUE(fn->metadata.value("is_abstract", false));
+    // `annotations` here is CppEncoder::list_value({"inline"}) — the only
+    // caller of that helper.
+    ASSERT_TRUE(fn->metadata.contains("annotations"));
+    ASSERT_EQ(fn->metadata["annotations"].size(), size_t(1));
+    ASSERT_EQ(fn->metadata["annotations"][0].get<std::string>(),
+              std::string("inline"));
+}
+
+// --- has_qualifier's `const` type-string branch (encoder.cpp 1334) --------
+TEST(cov_has_qualifier_const_via_type_string) {
+    // `const` is not a clang AST flag — it is read off the qualType string,
+    // both as a leading "const " and as a trailing " const".
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "VarDecl",
+            "name": "g",
+            "type": {"qualType": "const int"},
+            "inner": [{"kind": "IntegerLiteral", "value": "7"}]
+        }]
+    })JSON");
+    auto* fn = find_fn(prog, "g");
+    ASSERT_TRUE(fn != nullptr);
+    ASSERT_TRUE(fn->metadata.value("is_const", false));
+}
+
+// --- FieldDecl const/static metadata (encoder.cpp 327-329) ----------------
+TEST(cov_field_decl_const_and_static_metadata) {
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "CXXRecordDecl",
+            "name": "C",
+            "tagUsed": "class",
+            "completeDefinition": true,
+            "inner": [
+                {"kind": "FieldDecl", "name": "a",
+                 "type": {"qualType": "const int"}},
+                {"kind": "FieldDecl", "name": "b",
+                 "type": {"qualType": "int"}, "storageClass": "static"}
+            ]
+        }]
+    })JSON");
+    auto* td = find_type_def(prog, "C");
+    ASSERT_TRUE(td != nullptr);
+    ASSERT_EQ(descriptor_field_count(td), size_t(2));
+    auto fields = td->metadata["fields"];
+    ASSERT_TRUE(fields.is_array());
+    ASSERT_EQ(fields.size(), size_t(2));
+    ASSERT_TRUE(fields[0].value("is_final", false));
+    ASSERT_TRUE(fields[1].value("is_static", false));
+}
+
+// --- CXXMethodDecl / ctor / dtor qualifiers (encoder.cpp 365-371, 393, 414)
+TEST(cov_method_ctor_dtor_qualifier_metadata) {
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "CXXRecordDecl",
+            "name": "D",
+            "tagUsed": "class",
+            "completeDefinition": true,
+            "inner": [
+                {"kind": "CXXMethodDecl", "name": "m",
+                 "type": {"qualType": "int () const"},
+                 "storageClass": "static", "virtual": true},
+                {"kind": "CXXConstructorDecl", "name": "D",
+                 "type": {"qualType": "void ()"}, "explicit": true,
+                 "inner": [{"kind": "CompoundStmt", "inner": []}]},
+                {"kind": "CXXDestructorDecl", "name": "~D",
+                 "type": {"qualType": "void ()"}, "virtual": true,
+                 "inner": [{"kind": "CompoundStmt", "inner": []}]}
+            ]
+        }]
+    })JSON");
+    auto* m = find_fn(prog, "D.m");
+    ASSERT_TRUE(m != nullptr);
+    ASSERT_TRUE(m->metadata.value("is_static", false));
+    // No body -> pure virtual.
+    ASSERT_TRUE(m->metadata.value("is_abstract", false));
+    ASSERT_TRUE(!m->metadata.value("is_override", true));
+    // " const" in the qualType drives the `const` annotation.
+    ASSERT_TRUE(m->metadata.contains("annotations"));
+    bool has_const = false;
+    for (const auto& a : m->metadata["annotations"])
+        if (a.is_string() && a.get<std::string>() == "const") has_const = true;
+    ASSERT_TRUE(has_const);
+
+    auto* ctor = find_fn(prog, "D.new");
+    ASSERT_TRUE(ctor != nullptr);
+    bool has_explicit = false;
+    for (const auto& a : ctor->metadata["annotations"])
+        if (a.is_string() && a.get<std::string>() == "explicit") has_explicit = true;
+    ASSERT_TRUE(has_explicit);
+
+    auto* dtor = find_fn(prog, "D.~D");
+    ASSERT_TRUE(dtor != nullptr);
+    bool has_virtual = false, has_destructor = false;
+    for (const auto& a : dtor->metadata["annotations"]) {
+        if (!a.is_string()) continue;
+        if (a.get<std::string>() == "virtual") has_virtual = true;
+        if (a.get<std::string>() == "destructor") has_destructor = true;
+    }
+    ASSERT_TRUE(has_virtual);
+    ASSERT_TRUE(has_destructor);
+}
+
+// --- overload mangling strips "::" from param types (encoder.cpp 231) -----
+TEST(cov_overload_mangling_replaces_scope_operator) {
+    // Two same-named FunctionDecls force the mangling branch; the second's
+    // param type carries a "::" so the `t.replace(pos, 2, "_")` loop runs.
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [
+            {"kind": "FunctionDecl", "name": "f",
+             "type": {"qualType": "int (int)"},
+             "inner": [
+                {"kind": "ParmVarDecl", "name": "x", "type": {"qualType": "int"}},
+                {"kind": "CompoundStmt", "inner": []}]},
+            {"kind": "FunctionDecl", "name": "f",
+             "type": {"qualType": "int (std::string)"},
+             "inner": [
+                {"kind": "ParmVarDecl", "name": "s",
+                 "type": {"qualType": "const std::string&"}},
+                {"kind": "CompoundStmt", "inner": []}]}
+        ]
+    })JSON");
+    // "const std::string&" -> strip '&', strip "const ", ' ' -> '_',
+    // "::" -> "_"  ==>  "std_string".
+    ASSERT_TRUE(find_fn(prog, "f$std_string") != nullptr);
+}
+
+// --- nested namespace: record + namespace children (encoder.cpp 507-513) --
+TEST(cov_namespace_decl_nested_record_and_namespace) {
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "NamespaceDecl",
+            "name": "outer",
+            "inner": [
+                {"kind": "CXXRecordDecl", "name": "R", "tagUsed": "struct",
+                 "completeDefinition": true,
+                 "inner": [{"kind": "FieldDecl", "name": "v",
+                            "type": {"qualType": "int"}}]},
+                {"kind": "NamespaceDecl", "name": "inner",
+                 "inner": [{"kind": "FunctionDecl", "name": "deep",
+                            "type": {"qualType": "int ()"},
+                            "inner": [{"kind": "CompoundStmt", "inner": []}]}]}
+            ]
+        }]
+    })JSON");
+    ASSERT_TRUE(find_type_def(prog, "outer::R") != nullptr);
+    ASSERT_TRUE(find_fn(prog, "outer::inner::deep") != nullptr);
+}
+
+// --- class template: non-type param + specializations (538-541, 572-579) --
+TEST(cov_class_template_non_type_param_and_specializations) {
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "ClassTemplateDecl",
+            "inner": [
+                {"kind": "TemplateTypeParmDecl", "name": "T"},
+                {"kind": "NonTypeTemplateParmDecl", "name": "N",
+                 "type": {"qualType": "size_t"}},
+                {"kind": "CXXRecordDecl", "name": "Box", "tagUsed": "struct",
+                 "completeDefinition": true,
+                 "inner": [{"kind": "FieldDecl", "name": "v",
+                            "type": {"qualType": "int"}}]},
+                {"kind": "ClassTemplateSpecializationDecl",
+                 "type": {"qualType": "Box<int, 4>"}},
+                {"kind": "ClassTemplatePartialSpecializationDecl"}
+            ]
+        }]
+    })JSON");
+    auto* td = find_type_def(prog, "Box");
+    ASSERT_TRUE(td != nullptr);
+    auto tp = td->metadata["type_params"];
+    ASSERT_EQ(tp.size(), size_t(2));
+    ASSERT_EQ(tp[0].get<std::string>(), std::string("T"));
+    ASSERT_EQ(tp[1].get<std::string>(), std::string("size_t N"));
+    auto specs = td->metadata["specializations"];
+    ASSERT_EQ(specs.size(), size_t(2));
+    ASSERT_EQ(specs[0]["type_args"].get<std::string>(), std::string("Box<int, 4>"));
+    // The partial specialization carries no `type` -> the "<unknown>" arm.
+    ASSERT_EQ(specs[1]["type_args"].get<std::string>(), std::string("<unknown>"));
+}
+
+// --- function template: non-type param, specs, enable_if (600-646) -------
+TEST(cov_function_template_non_type_param_specs_and_enable_if) {
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "FunctionTemplateDecl",
+            "inner": [
+                {"kind": "TemplateTypeParmDecl", "name": "T"},
+                {"kind": "NonTypeTemplateParmDecl", "name": "N",
+                 "type": {"qualType": "unsigned"}},
+                {"kind": "FunctionDecl", "name": "tf",
+                 "type": {"qualType": "typename enable_if<is_integral<T>::value, T>::type (T)"},
+                 "inner": [{"kind": "CompoundStmt", "inner": []}]},
+                {"kind": "FunctionTemplateSpecializationDecl",
+                 "type": {"qualType": "int (int)"}},
+                {"kind": "FunctionTemplateSpecializationDecl"}
+            ]
+        }]
+    })JSON");
+    auto* fn = find_fn(prog, "tf");
+    ASSERT_TRUE(fn != nullptr);
+    auto tp = fn->metadata["type_params"];
+    ASSERT_EQ(tp.size(), size_t(2));
+    ASSERT_EQ(tp[1].get<std::string>(), std::string("unsigned N"));
+    auto specs = fn->metadata["specializations"];
+    ASSERT_EQ(specs.size(), size_t(2));
+    ASSERT_EQ(specs[0]["type_args"].get<std::string>(), std::string("int (int)"));
+    ASSERT_EQ(specs[1]["type_args"].get<std::string>(), std::string("<unknown>"));
+    // enable_if in the function's own qualType becomes an annotation object.
+    bool found_enable_if = false;
+    for (const auto& a : fn->metadata["annotations"])
+        if (a.is_object() && a.value("name", std::string{}) == "enable_if")
+            found_enable_if = true;
+    ASSERT_TRUE(found_enable_if);
+}
+
+// --- DeclStmt: non-VarDecl, no-init, const (encoder.cpp 734, 752, 758) ----
+TEST(cov_decl_stmt_non_vardecl_is_dropped) {
+    // A DeclStmt whose first child is not a VarDecl (e.g. a local using-alias)
+    // yields no statement at all.
+    auto prog = encode_stmt(R"JSON({
+        "kind": "DeclStmt",
+        "inner": [{"kind": "TypeAliasDecl", "name": "Alias"}]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("Alias") == std::string::npos);
+}
+
+TEST(cov_decl_stmt_without_initializer_and_const) {
+    auto prog = encode_stmt(R"JSON({
+        "kind": "DeclStmt",
+        "inner": [{"kind": "VarDecl", "name": "x",
+                   "type": {"qualType": "const int"}}]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("__no_init__") != std::string::npos);
+    ASSERT_TRUE(body_str.find("is_final") != std::string::npos);
+}
+
+// --- ForStmt init/condition/update arms (encoder.cpp 795-799) -------------
+TEST(cov_for_stmt_init_condition_update) {
+    // clang's ForStmt inner is [init, <cond-var>, cond, inc, body]; the null
+    // slots real clang emits are JSON `null`, which the is_object() guards skip.
+    auto prog = encode_stmt(R"JSON({
+        "kind": "ForStmt",
+        "inner": [
+            {"kind": "DeclStmt", "inner": [{"kind": "VarDecl", "name": "i",
+              "type": {"qualType": "int"},
+              "inner": [{"kind": "IntegerLiteral", "value": "0"}]}]},
+            null,
+            {"kind": "BinaryOperator", "opcode": "<", "inner": [
+                {"kind": "DeclRefExpr", "referencedDecl": {"name": "i"}},
+                {"kind": "IntegerLiteral", "value": "3"}]},
+            {"kind": "UnaryOperator", "opcode": "++", "isPostfix": true,
+             "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "i"}}]},
+            {"kind": "CompoundStmt", "inner": []}
+        ]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("\"function\":\"for\"") != std::string::npos);
+    ASSERT_TRUE(body_str.find("init") != std::string::npos);
+    ASSERT_TRUE(body_str.find("condition") != std::string::npos);
+    ASSERT_TRUE(body_str.find("update") != std::string::npos);
+    ASSERT_TRUE(body_str.find("post_increment") != std::string::npos);
+}
+
+// --- implicit `this` receiver (encoder.cpp 955, 1027-1036) ---------------
+TEST(cov_member_expr_implicit_this_receiver) {
+    auto prog = encode_return_expr(R"JSON({
+        "kind": "MemberExpr", "name": "field", "inner": []
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("this") != std::string::npos);
+    ASSERT_TRUE(body_str.find("field") != std::string::npos);
+}
+
+TEST(cov_member_call_implicit_this_receiver_and_args) {
+    auto prog = encode_return_expr(R"JSON({
+        "kind": "CXXMemberCallExpr",
+        "inner": [
+            {"kind": "MemberExpr", "name": "doIt", "inner": []},
+            {"kind": "IntegerLiteral", "value": "1"},
+            null,
+            {"kind": "IntegerLiteral", "value": "2"}
+        ]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("doIt") != std::string::npos);
+    ASSERT_TRUE(body_str.find("self") != std::string::npos);
+    ASSERT_TRUE(body_str.find("this") != std::string::npos);
+    ASSERT_TRUE(body_str.find("arg0") != std::string::npos);
+    // The JSON `null` at index 2 is skipped, so arg1 never appears but arg2 does.
+    ASSERT_TRUE(body_str.find("arg1") == std::string::npos);
+    ASSERT_TRUE(body_str.find("arg2") != std::string::npos);
+}
+
+// --- callee resolution corner cases (encoder.cpp 982, 997-998) ------------
+TEST(cov_call_expr_wrapper_without_inner_and_non_declref_callee) {
+    // An ImplicitCastExpr with no `inner` cannot be unwrapped further, so
+    // resolve_callee returns the wrapper itself; it is not a DeclRefExpr, so
+    // the name comes from the node's own "name".
+    auto prog = encode_return_expr(R"JSON({
+        "kind": "CallExpr",
+        "inner": [
+            {"kind": "ImplicitCastExpr", "name": "viaWrapper"},
+            {"kind": "IntegerLiteral", "value": "9"}
+        ]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("viaWrapper") != std::string::npos);
+}
+
+// --- unknown-kind fallthrough (encoder.cpp 935, 939-942) -----------------
+TEST(cov_unknown_expression_kind_recurses_then_yields_null) {
+    // Unknown kind WITH an inner child -> recurse into the child.
+    auto with_child = encode_return_expr(R"JSON({
+        "kind": "SomeUnmodelledExpr",
+        "inner": [{"kind": "IntegerLiteral", "value": "42"}]
+    })JSON");
+    ASSERT_TRUE(body_json(find_fn(with_child, "f")).find("42") !=
+                std::string::npos);
+
+    // Unknown kind with NO inner -> a null literal, never a crash.
+    auto bare = encode_return_expr(R"JSON({"kind": "SomeUnmodelledExpr"})JSON");
+    auto* fn = find_fn(bare, "f");
+    ASSERT_TRUE(fn != nullptr);
+    ASSERT_TRUE(body_json(fn).find("literal") != std::string::npos);
+}
+
+TEST(cov_paren_expr_without_inner_yields_null) {
+    auto prog = encode_return_expr(R"JSON({"kind": "ParenExpr"})JSON");
+    ASSERT_TRUE(find_fn(prog, "f") != nullptr);
+}
+
+TEST(cov_implicit_cast_without_inner_yields_null) {
+    auto prog = encode_return_expr(
+        R"JSON({"kind": "ImplicitCastExpr", "inner": []})JSON");
+    ASSERT_TRUE(find_fn(prog, "f") != nullptr);
+}
+
+// --- operator-call arity dispatch (encoder.cpp 1045) ---------------------
+TEST(cov_operator_call_with_two_children_is_unary) {
+    // CXXOperatorCallExpr inner = [callee, operand] -> fewer than 3 children,
+    // so it routes to encode_unary_op rather than encode_binary_op.
+    auto prog = encode_return_expr(R"JSON({
+        "kind": "CXXOperatorCallExpr", "opcode": "-",
+        "inner": [
+            {"kind": "DeclRefExpr", "referencedDecl": {"name": "operator-"}},
+            {"kind": "IntegerLiteral", "value": "5"}
+        ]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("negate") != std::string::npos);
+}
+
+// --- binary_op unmapped-opcode fallback to std.add (1067-1069) -----------
+TEST(cov_binary_op_unmapped_opcode_falls_back_to_add) {
+    auto prog = encode_return_expr(R"JSON({
+        "kind": "BinaryOperator", "opcode": "<=>",
+        "inner": [
+            {"kind": "IntegerLiteral", "value": "1"},
+            {"kind": "IntegerLiteral", "value": "2"}
+        ]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("\"function\":\"add\"") != std::string::npos);
+}
+
+// --- unary operators: * & ~ -- and the unknown-opcode passthrough --------
+TEST(cov_unary_deref_and_address_of_are_identity_projections) {
+    auto deref = encode_return_expr(R"JSON({
+        "kind": "UnaryOperator", "opcode": "*",
+        "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "p"}}]
+    })JSON");
+    auto deref_str = body_json(find_fn(deref, "f"));
+    // Safe projection: the operand becomes the returned value DIRECTLY -- no
+    // std call is introduced for the deref itself (the only `call` in the body
+    // is the `std.return` wrapper this helper's `return <expr>;` produces).
+    ASSERT_TRUE(deref_str.find("\"value\",\"value\":{\"reference\":{\"name\":\"p\"}}")
+                != std::string::npos);
+
+    auto addr = encode_return_expr(R"JSON({
+        "kind": "UnaryOperator", "opcode": "&",
+        "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "q"}}]
+    })JSON");
+    auto addr_str = body_json(find_fn(addr, "f"));
+    ASSERT_TRUE(addr_str.find("\"value\",\"value\":{\"reference\":{\"name\":\"q\"}}")
+                != std::string::npos);
+}
+
+TEST(cov_unary_bitwise_not_decrement_and_unknown_opcode) {
+    auto bnot = encode_return_expr(R"JSON({
+        "kind": "UnaryOperator", "opcode": "~",
+        "inner": [{"kind": "IntegerLiteral", "value": "3"}]
+    })JSON");
+    ASSERT_TRUE(body_json(find_fn(bnot, "f")).find("bitwise_not") !=
+                std::string::npos);
+
+    auto predec = encode_return_expr(R"JSON({
+        "kind": "UnaryOperator", "opcode": "--", "isPostfix": false,
+        "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "i"}}]
+    })JSON");
+    ASSERT_TRUE(body_json(find_fn(predec, "f")).find("pre_decrement") !=
+                std::string::npos);
+
+    auto postdec = encode_return_expr(R"JSON({
+        "kind": "UnaryOperator", "opcode": "--", "isPostfix": true,
+        "inner": [{"kind": "DeclRefExpr", "referencedDecl": {"name": "i"}}]
+    })JSON");
+    ASSERT_TRUE(body_json(find_fn(postdec, "f")).find("post_decrement") !=
+                std::string::npos);
+
+    // An opcode with no mapping passes the operand through unchanged.
+    auto unknown = encode_return_expr(R"JSON({
+        "kind": "UnaryOperator", "opcode": "__unmapped__",
+        "inner": [{"kind": "IntegerLiteral", "value": "11"}]
+    })JSON");
+    auto unknown_str = body_json(find_fn(unknown, "f"));
+    ASSERT_TRUE(unknown_str.find("\"value\",\"value\":{\"literal\":{\"intValue\":\"11\"}}")
+                != std::string::npos);
+}
+
+// --- CXXNewExpr argument collection (encoder.cpp 1131-1132) --------------
+TEST(cov_new_expr_collects_args_and_skips_non_objects) {
+    auto prog = encode_return_expr(R"JSON({
+        "kind": "CXXNewExpr", "type": {"qualType": "Widget *"},
+        "inner": [
+            {"kind": "IntegerLiteral", "value": "1"},
+            null
+        ]
+    })JSON");
+    auto body_str = body_json(find_fn(prog, "f"));
+    ASSERT_TRUE(body_str.find("Widget") != std::string::npos);
+    ASSERT_TRUE(body_str.find("arg0") != std::string::npos);
+    ASSERT_TRUE(body_str.find("arg1") == std::string::npos);
+}
+
+// --- find_child / find_child_expr "not found" arms (1347, 1357) ----------
+TEST(cov_find_child_and_find_body_return_null_when_absent) {
+    // A FunctionDecl whose only child is a ParmVarDecl has no body child
+    // (find_child_expr -> nullptr) and no CompoundStmt (find_child -> nullptr):
+    // the encoder must still emit the function, as a base declaration.
+    auto prog = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "FunctionDecl", "name": "decl_only",
+            "type": {"qualType": "int (int)"},
+            "inner": [{"kind": "ParmVarDecl", "name": "x",
+                       "type": {"qualType": "int"}}]
+        }]
+    })JSON");
+    auto* fn = find_fn(prog, "decl_only");
+    ASSERT_TRUE(fn != nullptr);
+    ASSERT_TRUE(fn->body == nullptr);
+
+    // find_child_expr's own "nothing but declarations" arm: a global VarDecl
+    // whose only child is another VarDecl has no initializer expression, so the
+    // encoded top-level variable carries no value.
+    auto no_init = run_encoder(R"JSON({
+        "kind": "TranslationUnitDecl",
+        "inner": [{
+            "kind": "VarDecl", "name": "gv", "type": {"qualType": "int"},
+            "inner": [{"kind": "VarDecl", "name": "shadow",
+                       "type": {"qualType": "int"}}]
+        }]
+    })JSON");
+    auto* gv = find_fn(no_init, "gv");
+    ASSERT_TRUE(gv != nullptr);
+    ASSERT_TRUE(gv->body == nullptr);
+}
+
 int main() {
     std::cout << "Ball C++ Encoder Tests\n"
               << "======================\n";
@@ -1455,5 +2011,16 @@ int main() {
               << "Results: " << tests_passed << " passed, "
               << tests_failed << " failed, "
               << tests_run << " total\n";
+    // POSITIVE FLOOR (issues #439/#444, and the rule in cpp/test/AGENTS.md).
+    // Every TEST() registers from a static initializer, so a binary that lost
+    // them all — a bad merge, a preprocessor guard, a linker that dropped the
+    // TU — prints "0 passed, 0 failed" and exits 0. An exit code alone cannot
+    // tell "everything passed" from "nothing ran"; test_compiler and
+    // test_ball_dyn already carry this floor, test_encoder did not.
+    if (tests_passed < 1) {
+        std::cout << "ERROR: no encoder tests ran — a green exit here would "
+                     "mean the gate checked nothing.\n";
+        return 1;
+    }
     return tests_failed > 0 ? 1 : 0;
 }

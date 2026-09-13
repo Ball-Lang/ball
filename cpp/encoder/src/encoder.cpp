@@ -1333,8 +1333,15 @@ bool CppEncoder::has_qualifier(const json& node, const std::string& qualifier) {
         if (type.find("const ") == 0 || type.find(" const") != std::string::npos)
             return true;
     }
+    // REACHABILITY (issue #63 audit): dominated by the first line of this
+    // function -- `node.value("storageClass", "") == qualifier` already returns
+    // true for exactly this case (qualifier "static", storageClass "static"),
+    // so control can never reach the test below with it true. Dead by
+    // domination; excluded per site with the proof rather than tested. The
+    // redundant clause should simply be deleted, but that is an encoder
+    // behaviour change and belongs in its own reviewable commit.
     if (qualifier == "static" && node.value("storageClass", "") == "static")
-        return true;
+        return true;  // LCOV_EXCL_LINE
     return false;
 }
 

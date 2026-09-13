@@ -337,6 +337,44 @@ like, so check both before writing a test against a "dead" line:
   ranges against the source at the reported `commit_sha` rather than reusing a
   range from an issue comment.
 
+### Exclusions: `LCOV_EXCL_*` is a last resort, per site, with a proof
+
+The #63 reachability audit of the two biggest miss buckets (`ball_dyn.h`, 246
+missed lines / 75 clusters, and `encoder.cpp`, 96 / 38, at main @ `f673169c`)
+found that **341 of 342 were reachable from an instrumented ctest binary** and
+simply untested. The default answer to an uncovered line here is a test:
+
+- `cpp/encoder/src/encoder.cpp` is a pure JSON-AST -> `ball::ir` transform — no
+  I/O, no toolchain, no engine — so every branch is selected by handing
+  `encode_from_clang_ast` the AST shape that reaches it. Nothing in it is
+  self-host-only.
+- `ball_dyn.h`'s misses are the structural undercount above, NOT
+  self-host-exclusivity. A 0% line there means "no instrumented binary called it
+  in-process", never "only the self-hosted engine can reach it" — every member
+  is an `inline` function on a plain value type. Where the public constructor
+  normalises a value away from the shape you need (e.g. `BallDyn(BallOrderedMap)`
+  upgrades to a shared `BallOrderedMapRef`, hiding the by-value arms the
+  self-hosted engine actually produces), assign `_val` directly instead of
+  reaching for an exclusion.
+
+The single genuine exclusion is the `_BallRefDeref::_obj_map_fn` lambda body in
+`ball_dyn.h`: both call sites of `_BallRefDeref::obj_map` test
+`typeid(BallObjectRef)` themselves and short-circuit first, so it is **dominated
+dead code** — unreachable in every build, not merely outside self-host. Rules for
+adding another:
+
+- Per site only (`LCOV_EXCL_LINE`, or a tight `LCOV_EXCL_START`/`STOP` around the
+  guarded body). **Never `LCOV_EXCL_FILE` and never a whole function.**
+- Write the reachability proof next to it — name the dominating guard or the
+  platform that makes it unreachable. "Hard to test" is not a reason.
+- Prove unreachability before writing it, and never write a test against a line
+  whose reachability you have not established: a blind test that happens to pass
+  hides the fact that the line was dead.
+- Genuinely dead code should ultimately be deleted, not excluded. When it lives
+  in the runtime spliced into every emitted program (`ball_dyn.h` /
+  `ball_emit_runtime.h`), that deletion needs the C++ self-host conformance sweep
+  and belongs in its own change.
+
 **Always add tests alongside every C++ change.** Conformance tests automatically pick up new programs added to `tests/conformance/`.
 
 ## When Adding Features

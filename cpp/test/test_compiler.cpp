@@ -2483,13 +2483,6 @@ namespace covfs = std::filesystem;
 
 static covfs::path conformance_dir() { return covfs::path(BALL_CONFORMANCE_DIR); }
 
-static std::string read_text(const covfs::path& p) {
-    std::ifstream f(p, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
 TEST(compile_module_focused_and_missing) {
     auto prog = ball::LoadProgram(
         (conformance_dir() / "100_complex_control_flow.ball.json").string());

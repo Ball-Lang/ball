@@ -2510,7 +2510,19 @@ extension BallEngineStd on BallEngine {
           // Cast patterns ASSERT: `value as T` throws on a type mismatch — it
           // does NOT refute / fall through to the next case. Match native Dart
           // semantics across every target. (conformance 302_cast_patterns)
-          throw BallException('TypeError', 'type cast failed: not a $typeName');
+          //
+          // The MESSAGE is Dart's own, verbatim (issue #641): a `_TypeError`'s
+          // `toString()` IS its message — no `TypeError: ` prefix, unlike the
+          // other three built-ins — and it names the VALUE's runtime type before
+          // the target type. `_evalLazyTry` binds `e.value` verbatim, so this
+          // string is what every engine's catch variable reads, self-hosted ones
+          // included. Guard: conformance 466_caught_type_error_to_string, whose
+          // golden is produced by running its Dart source on the SDK.
+          throw BallException(
+            'TypeError',
+            "type '${_typeNameOf(value)}' is not a subtype of "
+                "type '$typeName' in type cast",
+          );
         }
         final subpattern = pattern['pattern'];
         if (subpattern != null && !_matchPattern(value, subpattern, bindings)) {

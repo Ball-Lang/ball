@@ -71,6 +71,27 @@ func dartError(typeName, message string) {
 // "StateError" because its message read `No element` with no prefix.
 func stateError(message string) { dartError("StateError", message) }
 
+// CastAssert is a cast pattern's assertion (`case var x as int:`): the pattern
+// ASSERTS its type rather than refuting the case, so a mismatch THROWS instead
+// of falling through to the next arm (conformance 302_cast_patterns). It answers
+// true so it can sit as a conjunct in the pattern's `&&` chain, where its
+// position — after the sub-pattern's own condition — is what keeps
+// `[var x as int]` from throwing on a subject that isn't even a 2-element list.
+//
+// The message is Dart's own, verbatim (issue #641): a `_TypeError`'s
+// `toString()` IS its message — no `TypeError: ` prefix, unlike the other three
+// built-ins — and it names the VALUE's runtime type before the target type,
+// which is why the subject is a parameter at all. The compiler used to inline
+// this and spell `type cast failed: not a int`, which no other target and no
+// real Dart produced. Guard: conformance 466_caught_type_error_to_string.
+func CastAssert(matched bool, v Value, typeName string) bool {
+	if !matched {
+		dartError("TypeError", "type '"+typeOfName(v)+"' is not a subtype of type '"+
+			typeName+"' in type cast")
+	}
+	return true
+}
+
 // Return implements std.return: unwind to the enclosing function wrapper,
 // yielding v. Typed as Value so it fits any expression position the compiler
 // emits it in; it never actually returns (it panics).

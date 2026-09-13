@@ -228,12 +228,23 @@ public abstract class BallValue
             "StateError" => "Bad state",
             "FormatException" => "FormatException",
             "RangeError" => "RangeError",
+            // The empty prefix is not "unset" — it is Dart's answer. A
+            // `_TypeError`'s `toString()` IS its message ("type 'int' is not a
+            // subtype of type 'String' in type cast"), with no type-name prefix
+            // at all, so this arm was MISSING rather than merely different: a
+            // caught failed cast printed the raw map form (issue #641). Verified
+            // against the SDK; guard:
+            // `tests/conformance/466_caught_type_error_to_string`.
+            "TypeError" => "",
             _ => null,
         };
 
-        return prefix is null || m.Get("message") is not BallString message
-            ? null
-            : prefix + ": " + message.Value;
+        if (prefix is null || m.Get("message") is not BallString message)
+        {
+            return null;
+        }
+
+        return prefix.Length == 0 ? message.Value : prefix + ": " + message.Value;
     }
 }
 

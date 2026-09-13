@@ -8,7 +8,7 @@ namespace Ball.Compiler.Tests;
 ///
 /// <para><b>The bug.</b> #616 gave three of the four built-in Dart errors a
 /// rendering entry in <c>BallValue.DartErrorToString</c> and left the fourth
-/// out — while <c>BallPatterns.PatternCastAssert</c> raises exactly that fourth
+/// out — while <c>BallRuntime.PatternCastAssert</c> raises exactly that fourth
 /// one for every failed cast pattern. So a caught failed cast printed the raw
 /// map form <c>{message: type cast failed: not a int}</c>, where Rust printed
 /// <c>TypeError: type cast failed: not a int</c> and the Dart reference engine
@@ -43,7 +43,7 @@ public class TypeErrorContractTests
     public void AFailedCastAssert_IsTypedAndReadsAsDartsToString(
         BallValue value, string typeName, string expected)
     {
-        var ex = Assert.Throws<BallThrow>(() => BallPatterns.PatternCastAssert(false, value, typeName));
+        var ex = Assert.Throws<BallThrow>(() => BallRuntime.PatternCastAssert(false, value, typeName));
 
         Assert.Equal("TypeError", ex.TypeName);
         Assert.Equal(expected, ex.Payload.ToString());
@@ -53,7 +53,7 @@ public class TypeErrorContractTests
     [Fact]
     public void AMatchingCastAssert_PassesThrough()
     {
-        Assert.True(BallPatterns.PatternCastAssert(true, BallValue.Int(42), "int"));
+        Assert.True(BallRuntime.PatternCastAssert(true, BallValue.Int(42), "int"));
     }
 
     /// <summary>

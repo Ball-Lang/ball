@@ -146,12 +146,21 @@ def main() -> int:
          "raise-site extractor stopped matching")
 
     def _break_table_shape(root: pathlib.Path) -> None:
+        # Re-quote every entry so the extractor's `name: 'prefix',` pattern
+        # matches nothing. The table is still THERE and still correct — this is
+        # the "my regex quietly stopped seeing it" failure mode, which must be a
+        # red, not a silent 0-entry pass.
         path = root / "ts/compiler/src/preamble.ts"
-        path.write_text(
-            path.read_text(encoding="utf-8").replace(
-                "__ball_err_prefix: Record<string, string> = {",
-                "__ball_err_prefix: Record<string, string> = { /*", 1),
-            encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
+        for name, prefix in (("StateError", "Bad state"),
+                             ("FormatException", "FormatException"),
+                             ("RangeError", "RangeError"),
+                             ("TypeError", "")):
+            old = f"      {name}: '{prefix}',"
+            if old not in text:
+                raise SystemExit(f"self-test: table entry not found: {old!r}")
+            text = text.replace(old, f'      {name}: "{prefix}",', 1)
+        path.write_text(text, encoding="utf-8")
 
     case("an unparseable table is a failure, not a pass", _break_table_shape, 1,
          "table extractor stopped matching")

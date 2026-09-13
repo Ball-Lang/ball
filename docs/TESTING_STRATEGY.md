@@ -593,6 +593,41 @@ probe, and write the fixture so the value is PRINTED, not discarded. When it can
 FAIL to produce a result, write the fixture so the failure is OBSERVED, not
 assumed — and observed means printing what the catch variable holds.
 
+#### A rendering TABLE is only closed when a TEST says so (#641)
+
+#616's per-target fix left each compiled runtime with an explicit
+`name -> prefix` table (`dart_error_to_string` / `dartErrorToString` /
+`DartErrorToString` / `__ball_err_prefix`) whose doc comment asserts it is
+"EXPLICIT and closed over the type names this runtime raises". That claim was
+prose. Three of the four tables had no `TypeError` arm while every one of those
+runtimes raises a `TypeError` for a failed cast, and the fourth rendered it with
+a prefix Dart does not spell — so the same caught cast read four different ways,
+and no gate could see it, because the only fixture that reaches a cast pattern
+(`302_cast_patterns`) prints a hardcoded literal from its catch body.
+
+Two instruments close it, and they are different in kind:
+
+* `tests/conformance/466_caught_type_error_to_string` — the cross-target
+  observable, printing `$e` / `e.toString()` / an interpolated form after a
+  failed cast pattern, and ending with an `on TypeError catch` clause so a
+  target whose cast throws something untyped fails too.
+* `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR) — the
+  STRUCTURAL half a fixture cannot supply. It extracts, per target, the Dart
+  error names that target raises as a Ball throw and the names its table covers,
+  then asserts closure, coverage and prefix agreement, with positive floors so a
+  regex that stops matching fails instead of passing vacuously. Its own
+  self-test (`tools/test/test_check_error_rendering_tables.py`) runs first.
+
+The canonical string comes from **real Dart**, and that is a property of how the
+corpus is built rather than a preference: `dart/encoder/bin/generate_conformance.dart`
+captures `dart run <source>`'s stdout, so any fixture generated from
+`tests/conformance/src/` is golden-locked to the SDK's own answer — here
+`type 'String' is not a subtype of type 'int' in type cast`, with **no**
+`TypeError: ` prefix, because `_TypeError.toString()` IS its message. When a new
+built-in error becomes reachable from a Ball program, measure its `toString()`
+against the SDK, add it to the checker's contract, and add its arm to every
+table — the checker fails until all of that is done.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -835,6 +870,7 @@ could not parse a summary at all).
 | **No false coverage (§4)** | `check_fixture_names.dart` | every PR |
 | **A base function's NO-MATCH branch is observed (§5b, #597)** — `std_collections.list_find` throws a catchable `StateError` when nothing matches, on every engine and every direct compiler; no target may answer `null`/`undefined`/an empty value, and none may refuse to compile it | `tests/conformance/463_list_find_no_match` (cross-target) + per-runtime tests: `dart/compiler/test/base_calls_test.dart`, `ts/engine/test/index_wrapper.test.ts`, `ts/compiler/test/std_call_dispatch.test.ts`, `cpp/test/test_compiler.cpp`, `csharp/compiler/test/ListFindContractTests.cs`, `rust/shared/src/runtime.rs`, `go/runtime/list_find_contract_test.go` + `go/compiler/list_find_contract_test.go`, `python/compiler/tests/test_conformance.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
+| **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/466_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |

@@ -843,10 +843,21 @@ fn dart_error_to_string(entries: &[(&String, &BallValue)]) -> Option<String> {
         "StateError" => "Bad state",
         "FormatException" => "FormatException",
         "RangeError" => "RangeError",
-        "TypeError" => "TypeError",
+        // The empty prefix is not "unset" — it is Dart's answer. A `_TypeError`'s
+        // `toString()` IS its message (`type 'int' is not a subtype of type
+        // 'String' in type cast`), with no type-name prefix at all, so rendering
+        // it like its three siblings was wrong rather than merely different
+        // (issue #641). Verified against the SDK; guard:
+        // `tests/conformance/466_caught_type_error_to_string`.
+        "TypeError" => "",
         _ => return None,
     };
-    Some(format!("{prefix}: {}", message?))
+    let message = message?;
+    Some(if prefix.is_empty() {
+        message.to_string()
+    } else {
+        format!("{prefix}: {message}")
+    })
 }
 
 /// The marker key of the portable ordered-set value (`{'__ball_set__': [...]}`).

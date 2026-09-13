@@ -305,7 +305,7 @@ cargo fmt --check && cargo clippy --workspace
   string (both were "unsupported call target", so the local-`String` arm would have been
   unreachable; capacity is an allocation hint with no observable effect). Measured: Tier A
   `encoded` **1/77 -> 7/77**, `compiled back` 1 -> 7, `clean` unchanged at 0. Proof:
-  `rust/encoder/tests/write_sinks.rs`; design of record `.claude/briefs/W12-B.md`.
+  `rust/encoder/tests/write_sinks.rs`; design record `docs/SINK_DESIGN.md`.
 - **`.fuse()`/`.is_empty()` (#491 slice 6), and the permanent carve-outs beside them.** `.fuse()`
   is an identity passthrough (a Ball `List` has no exhausted state); `.is_empty()` lowers to
   `std.equals(std.length(receiver), 0)`, reusing `.len()`'s own universal dispatch, so it needs no

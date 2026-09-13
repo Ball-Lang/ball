@@ -690,7 +690,7 @@ that closes one must not imply that it is.
 
 #### `write!`/`writeln!` and the declared text sink (issue #630)
 
-The design of record is `.claude/briefs/W12-B.md`; the owner approved it on 2026-09-13. PR #636
+The design record is `docs/SINK_DESIGN.md`; the owner approved it on 2026-09-13. PR #636
 landed the three declarations `std.sink_create`/`sink_write`/`sink_to_string` (a `__type__`-tagged,
 reference-semantic value — see `.claude/rules/rust.md`); the encoder half is this slice.
 

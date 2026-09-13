@@ -7,7 +7,7 @@
 //! desugar into `std.print`/string-concatenation/list-literal trees; and
 //! `write!`/`writeln!` desugar into `std.sink_write` against the declared text
 //! sink, or into a re-assignment of a provably-local `String` (issue #630 —
-//! design of record `.claude/briefs/W12-B.md`, tests
+//! design record `docs/SINK_DESIGN.md`, tests
 //! `rust/encoder/tests/write_sinks.rs`).
 //!
 //! **No `rust_std` module**: every arm below routes through `std`/
@@ -417,8 +417,8 @@ impl Encoder {
     }
 
     /// Which of issue #630's two arms a `write!` destination takes — decided
-    /// by syntax, with no type information (the design of record,
-    /// `.claude/briefs/W12-B.md` §3.4).
+    /// by syntax, with no type information (the design record,
+    /// `docs/SINK_DESIGN.md` §5).
     ///
     /// A destination that is a bare name bound by a `let` in the body being
     /// encoded is a **local**: if its initialiser proves it is a `String` it

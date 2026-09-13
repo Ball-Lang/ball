@@ -18,7 +18,7 @@
 //! parameter* (`|f| write!(f, "-")`), which no amount of type inference could
 //! resolve.
 //!
-//! ## The two arms (design of record: `.claude/briefs/W12-B.md` §3.4)
+//! ## The two arms (design record: `docs/SINK_DESIGN.md` §5)
 //!
 //! * **arm (b)** — any destination that is not a provably-local `String`:
 //!   `std.sink_write{sink, text}` against the declared, tagged,

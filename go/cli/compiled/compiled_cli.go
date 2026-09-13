@@ -1593,6 +1593,8 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 	_ = modules
 	defer ballrt.CatchReturn(&__ret)
 	__ret = func() ballrt.Value {
+		var entries ballrt.Value = ballrt.NewList()
+		_ = entries
 		var keys ballrt.Value = ballrt.NewList()
 		_ = keys
 		_ = func() ballrt.Value {
@@ -1626,10 +1628,25 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 										var key ballrt.Value = ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.FieldGet(module, "name")), "."), ballrt.ToStr(ballrt.FieldGet(f, "name")))
 										_ = key
 										_ = func() ballrt.Value {
-											if ballrt.Truthy(ballrt.Not(ballrt.ListContains(keys, key))) {
-												return func() ballrt.Value { __v := ballrt.ListPush(keys, key); keys = __v; return __v }()
+											if ballrt.Truthy(ballrt.ListContains(keys, key)) {
+												return func() ballrt.Value {
+													_ = ballrt.Continue("")
+													return ballrt.Value(nil)
+												}()
 											}
 											return ballrt.Value(nil)
+										}()
+										_ = func() ballrt.Value { __v := ballrt.ListPush(keys, key); keys = __v; return __v }()
+										_ = func() ballrt.Value {
+											__v := ballrt.ListPush(entries, func() ballrt.Value {
+												__map13 := ballrt.NewMap()
+												__map13.Set(ballrt.ToStr("module"), ballrt.FieldGet(module, "name"))
+												__map13.Set(ballrt.ToStr("function"), ballrt.FieldGet(f, "name"))
+												__map13.Set(ballrt.ToStr("key"), key)
+												return __map13
+											}())
+											entries = __v
+											return __v
 										}()
 										return ballrt.Value(nil)
 									}()
@@ -1647,7 +1664,80 @@ func _collectCustomBaseFns(input ballrt.Value) (__ret ballrt.Value) {
 			}
 			return ballrt.Value(nil)
 		}()
-		return keys
+		return entries
+	}()
+	return
+}
+
+func _resolveCustomBaseFn(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	customBaseFns := ballrt.ArgGet(input, "customBaseFns", "arg0")
+	_ = customBaseFns
+	module := ballrt.ArgGet(input, "module", "arg1")
+	_ = module
+	function := ballrt.ArgGet(input, "function", "arg2")
+	_ = function
+	userFns := ballrt.ArgGet(input, "userFns", "arg3")
+	_ = userFns
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		_ = func() ballrt.Value {
+			for _, e := range ballrt.Iterate(customBaseFns) {
+				_ = e
+				if ballrt.RunLoopBody("", func() {
+					_ = func() ballrt.Value {
+						if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(e, "module"), module)) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(e, "function"), function)))) {
+							return ballrt.Return(e)
+						}
+						return ballrt.Value(nil)
+					}()
+				}) {
+					break
+				}
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.Neq(userFns, ballrt.Value(nil))) {
+				return func() ballrt.Value {
+					_ = func() ballrt.Value {
+						for _, u := range ballrt.Iterate(userFns) {
+							_ = u
+							if ballrt.RunLoopBody("", func() {
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Eq(u, function)) {
+										return ballrt.Return(ballrt.Value(nil))
+									}
+									return ballrt.Value(nil)
+								}()
+							}) {
+								break
+							}
+						}
+						return ballrt.Value(nil)
+					}()
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
+			for _, e := range ballrt.Iterate(customBaseFns) {
+				_ = e
+				if ballrt.RunLoopBody("", func() {
+					_ = func() ballrt.Value {
+						if ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(e, "function"), function)) {
+							return ballrt.Return(e)
+						}
+						return ballrt.Value(nil)
+					}()
+				}) {
+					break
+				}
+			}
+			return ballrt.Value(nil)
+		}()
+		return ballrt.Value(nil)
 	}()
 	return
 }
@@ -1733,18 +1823,18 @@ func _detectBaseFnShadows(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value { __v := ballrt.ListPush(seen, key); seen = __v; return __v }()
 										_ = func() ballrt.Value {
 											__v := ballrt.ListPush(shadows, func() ballrt.Value {
-												__map13 := ballrt.NewMap()
-												__map13.Set(ballrt.ToStr("module"), ballrt.FieldGet(module, "name"))
-												__map13.Set(ballrt.ToStr("function"), name)
-												__map13.Set(ballrt.ToStr("baseModule"), lookupBaseModuleByName(func() ballrt.Value {
+												__map14 := ballrt.NewMap()
+												__map14.Set(ballrt.ToStr("module"), ballrt.FieldGet(module, "name"))
+												__map14.Set(ballrt.ToStr("function"), name)
+												__map14.Set(ballrt.ToStr("baseModule"), lookupBaseModuleByName(func() ballrt.Value {
 													__m := ballrt.NewMap()
 													__m.Set("arg0", table)
 													__m.Set("arg1", name)
 													return __m
 												}()))
-												__map13.Set(ballrt.ToStr("capability"), cap)
-												__map13.Set(ballrt.ToStr("riskLevel"), capabilityRisk(cap))
-												return __map13
+												__map14.Set(ballrt.ToStr("capability"), cap)
+												__map14.Set(ballrt.ToStr("riskLevel"), capabilityRisk(cap))
+												return __map14
 											}())
 											shadows = __v
 											return __v
@@ -1806,17 +1896,17 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.HasField(expr, "call")) {
 				return _walkCapCall(func() ballrt.Value {
-					__map14 := ballrt.NewMap()
-					__map14.Set(ballrt.ToStr("call"), ballrt.FieldGet(expr, "call"))
-					__map14.Set(ballrt.ToStr("module"), module)
-					__map14.Set(ballrt.ToStr("function"), function)
-					__map14.Set(ballrt.ToStr("caps"), caps)
-					__map14.Set(ballrt.ToStr("capSites"), capSites)
-					__map14.Set(ballrt.ToStr("table"), table)
-					__map14.Set(ballrt.ToStr("callees"), callees)
-					__map14.Set(ballrt.ToStr("userFns"), userFns)
-					__map14.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-					return __map14
+					__map15 := ballrt.NewMap()
+					__map15.Set(ballrt.ToStr("call"), ballrt.FieldGet(expr, "call"))
+					__map15.Set(ballrt.ToStr("module"), module)
+					__map15.Set(ballrt.ToStr("function"), function)
+					__map15.Set(ballrt.ToStr("caps"), caps)
+					__map15.Set(ballrt.ToStr("capSites"), capSites)
+					__map15.Set(ballrt.ToStr("table"), table)
+					__map15.Set(ballrt.ToStr("callees"), callees)
+					__map15.Set(ballrt.ToStr("userFns"), userFns)
+					__map15.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+					return __map15
 				}())
 			}
 			return func() ballrt.Value {
@@ -1832,17 +1922,17 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 											_ = elem
 											if ballrt.RunLoopBody("", func() {
 												_ = _walkCap(func() ballrt.Value {
-													__map15 := ballrt.NewMap()
-													__map15.Set(ballrt.ToStr("expr"), elem)
-													__map15.Set(ballrt.ToStr("module"), module)
-													__map15.Set(ballrt.ToStr("function"), function)
-													__map15.Set(ballrt.ToStr("caps"), caps)
-													__map15.Set(ballrt.ToStr("capSites"), capSites)
-													__map15.Set(ballrt.ToStr("table"), table)
-													__map15.Set(ballrt.ToStr("callees"), callees)
-													__map15.Set(ballrt.ToStr("userFns"), userFns)
-													__map15.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-													return __map15
+													__map16 := ballrt.NewMap()
+													__map16.Set(ballrt.ToStr("expr"), elem)
+													__map16.Set(ballrt.ToStr("module"), module)
+													__map16.Set(ballrt.ToStr("function"), function)
+													__map16.Set(ballrt.ToStr("caps"), caps)
+													__map16.Set(ballrt.ToStr("capSites"), capSites)
+													__map16.Set(ballrt.ToStr("table"), table)
+													__map16.Set(ballrt.ToStr("callees"), callees)
+													__map16.Set(ballrt.ToStr("userFns"), userFns)
+													__map16.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+													return __map16
 												}())
 											}) {
 												break
@@ -1869,26 +1959,8 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 											_ = func() ballrt.Value {
 												if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 													return _walkCap(func() ballrt.Value {
-														__map16 := ballrt.NewMap()
-														__map16.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-														__map16.Set(ballrt.ToStr("module"), module)
-														__map16.Set(ballrt.ToStr("function"), function)
-														__map16.Set(ballrt.ToStr("caps"), caps)
-														__map16.Set(ballrt.ToStr("capSites"), capSites)
-														__map16.Set(ballrt.ToStr("table"), table)
-														__map16.Set(ballrt.ToStr("callees"), callees)
-														__map16.Set(ballrt.ToStr("userFns"), userFns)
-														__map16.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-														return __map16
-													}())
-												}
-												return ballrt.Value(nil)
-											}()
-											_ = func() ballrt.Value {
-												if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
-													return _walkCap(func() ballrt.Value {
 														__map17 := ballrt.NewMap()
-														__map17.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+														__map17.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
 														__map17.Set(ballrt.ToStr("module"), module)
 														__map17.Set(ballrt.ToStr("function"), function)
 														__map17.Set(ballrt.ToStr("caps"), caps)
@@ -1898,6 +1970,24 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 														__map17.Set(ballrt.ToStr("userFns"), userFns)
 														__map17.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
 														return __map17
+													}())
+												}
+												return ballrt.Value(nil)
+											}()
+											_ = func() ballrt.Value {
+												if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
+													return _walkCap(func() ballrt.Value {
+														__map18 := ballrt.NewMap()
+														__map18.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+														__map18.Set(ballrt.ToStr("module"), module)
+														__map18.Set(ballrt.ToStr("function"), function)
+														__map18.Set(ballrt.ToStr("caps"), caps)
+														__map18.Set(ballrt.ToStr("capSites"), capSites)
+														__map18.Set(ballrt.ToStr("table"), table)
+														__map18.Set(ballrt.ToStr("callees"), callees)
+														__map18.Set(ballrt.ToStr("userFns"), userFns)
+														__map18.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+														return __map18
 													}())
 												}
 												return ballrt.Value(nil)
@@ -1913,17 +2003,17 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 							_ = func() ballrt.Value {
 								if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 									return _walkCap(func() ballrt.Value {
-										__map18 := ballrt.NewMap()
-										__map18.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-										__map18.Set(ballrt.ToStr("module"), module)
-										__map18.Set(ballrt.ToStr("function"), function)
-										__map18.Set(ballrt.ToStr("caps"), caps)
-										__map18.Set(ballrt.ToStr("capSites"), capSites)
-										__map18.Set(ballrt.ToStr("table"), table)
-										__map18.Set(ballrt.ToStr("callees"), callees)
-										__map18.Set(ballrt.ToStr("userFns"), userFns)
-										__map18.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-										return __map18
+										__map19 := ballrt.NewMap()
+										__map19.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+										__map19.Set(ballrt.ToStr("module"), module)
+										__map19.Set(ballrt.ToStr("function"), function)
+										__map19.Set(ballrt.ToStr("caps"), caps)
+										__map19.Set(ballrt.ToStr("capSites"), capSites)
+										__map19.Set(ballrt.ToStr("table"), table)
+										__map19.Set(ballrt.ToStr("callees"), callees)
+										__map19.Set(ballrt.ToStr("userFns"), userFns)
+										__map19.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+										return __map19
 									}())
 								}
 								return ballrt.Value(nil)
@@ -1934,17 +2024,17 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 					return func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 							return _walkCap(func() ballrt.Value {
-								__map19 := ballrt.NewMap()
-								__map19.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-								__map19.Set(ballrt.ToStr("module"), module)
-								__map19.Set(ballrt.ToStr("function"), function)
-								__map19.Set(ballrt.ToStr("caps"), caps)
-								__map19.Set(ballrt.ToStr("capSites"), capSites)
-								__map19.Set(ballrt.ToStr("table"), table)
-								__map19.Set(ballrt.ToStr("callees"), callees)
-								__map19.Set(ballrt.ToStr("userFns"), userFns)
-								__map19.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-								return __map19
+								__map20 := ballrt.NewMap()
+								__map20.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+								__map20.Set(ballrt.ToStr("module"), module)
+								__map20.Set(ballrt.ToStr("function"), function)
+								__map20.Set(ballrt.ToStr("caps"), caps)
+								__map20.Set(ballrt.ToStr("capSites"), capSites)
+								__map20.Set(ballrt.ToStr("table"), table)
+								__map20.Set(ballrt.ToStr("callees"), callees)
+								__map20.Set(ballrt.ToStr("userFns"), userFns)
+								__map20.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+								return __map20
 							}())
 						}
 						return func() ballrt.Value {
@@ -1955,17 +2045,17 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 											_ = field
 											if ballrt.RunLoopBody("", func() {
 												_ = _walkCap(func() ballrt.Value {
-													__map20 := ballrt.NewMap()
-													__map20.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-													__map20.Set(ballrt.ToStr("module"), module)
-													__map20.Set(ballrt.ToStr("function"), function)
-													__map20.Set(ballrt.ToStr("caps"), caps)
-													__map20.Set(ballrt.ToStr("capSites"), capSites)
-													__map20.Set(ballrt.ToStr("table"), table)
-													__map20.Set(ballrt.ToStr("callees"), callees)
-													__map20.Set(ballrt.ToStr("userFns"), userFns)
-													__map20.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-													return __map20
+													__map21 := ballrt.NewMap()
+													__map21.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+													__map21.Set(ballrt.ToStr("module"), module)
+													__map21.Set(ballrt.ToStr("function"), function)
+													__map21.Set(ballrt.ToStr("caps"), caps)
+													__map21.Set(ballrt.ToStr("capSites"), capSites)
+													__map21.Set(ballrt.ToStr("table"), table)
+													__map21.Set(ballrt.ToStr("callees"), callees)
+													__map21.Set(ballrt.ToStr("userFns"), userFns)
+													__map21.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+													return __map21
 												}())
 											}) {
 												break
@@ -1981,17 +2071,17 @@ func _walkCap(input ballrt.Value) (__ret ballrt.Value) {
 									return func() ballrt.Value {
 										if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 											return _walkCap(func() ballrt.Value {
-												__map21 := ballrt.NewMap()
-												__map21.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-												__map21.Set(ballrt.ToStr("module"), module)
-												__map21.Set(ballrt.ToStr("function"), function)
-												__map21.Set(ballrt.ToStr("caps"), caps)
-												__map21.Set(ballrt.ToStr("capSites"), capSites)
-												__map21.Set(ballrt.ToStr("table"), table)
-												__map21.Set(ballrt.ToStr("callees"), callees)
-												__map21.Set(ballrt.ToStr("userFns"), userFns)
-												__map21.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-												return __map21
+												__map22 := ballrt.NewMap()
+												__map22.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+												__map22.Set(ballrt.ToStr("module"), module)
+												__map22.Set(ballrt.ToStr("function"), function)
+												__map22.Set(ballrt.ToStr("caps"), caps)
+												__map22.Set(ballrt.ToStr("capSites"), capSites)
+												__map22.Set(ballrt.ToStr("table"), table)
+												__map22.Set(ballrt.ToStr("callees"), callees)
+												__map22.Set(ballrt.ToStr("userFns"), userFns)
+												__map22.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+												return __map22
 											}())
 										}
 										return ballrt.Value(nil)
@@ -2042,21 +2132,36 @@ func _walkCapCall(input ballrt.Value) (__ret ballrt.Value) {
 		_ = module
 		var fn ballrt.Value = ballrt.FieldGet(call, "function")
 		_ = fn
-		var isCustom ballrt.Value = ballrt.ListContains(customBaseFns, ballrt.Concat(ballrt.Concat(ballrt.ToStr(module), "."), ballrt.ToStr(fn)))
+		var customEntry ballrt.Value = _resolveCustomBaseFn(func() ballrt.Value {
+			__m := ballrt.NewMap()
+			__m.Set("arg0", customBaseFns)
+			__m.Set("arg1", module)
+			__m.Set("arg2", fn)
+			__m.Set("arg3", userFns)
+			return __m
+		}())
+		_ = customEntry
+		var isCustom ballrt.Value = ballrt.Neq(customEntry, ballrt.Value(nil))
 		_ = isCustom
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(isCustom) {
-				return _recordCapSite(func() ballrt.Value {
-					__map22 := ballrt.NewMap()
-					__map22.Set(ballrt.ToStr("cap"), "custom")
-					__map22.Set(ballrt.ToStr("caps"), caps)
-					__map22.Set(ballrt.ToStr("capSites"), capSites)
-					__map22.Set(ballrt.ToStr("module"), contextModule)
-					__map22.Set(ballrt.ToStr("function"), contextFunction)
-					__map22.Set(ballrt.ToStr("calleeModule"), module)
-					__map22.Set(ballrt.ToStr("calleeFunction"), fn)
-					return __map22
-				}())
+				return func() ballrt.Value {
+					var resolvedModule ballrt.Value = ballrt.IndexGet(customEntry, "module")
+					_ = resolvedModule
+					_ = _recordCapSite(func() ballrt.Value {
+						__map23 := ballrt.NewMap()
+						__map23.Set(ballrt.ToStr("cap"), "custom")
+						__map23.Set(ballrt.ToStr("caps"), caps)
+						__map23.Set(ballrt.ToStr("capSites"), capSites)
+						__map23.Set(ballrt.ToStr("module"), contextModule)
+						__map23.Set(ballrt.ToStr("function"), contextFunction)
+						__map23.Set(ballrt.ToStr("calleeModule"), module)
+						__map23.Set(ballrt.ToStr("calleeFunction"), fn)
+						__map23.Set(ballrt.ToStr("resolvedModule"), resolvedModule)
+						return __map23
+					}())
+					return ballrt.Value(nil)
+				}()
 			}
 			return ballrt.Value(nil)
 		}()
@@ -2120,25 +2225,25 @@ func _walkCapCall(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(cap))) {
 				return _recordCapSite(func() ballrt.Value {
-					__map23 := ballrt.NewMap()
-					__map23.Set(ballrt.ToStr("cap"), cap)
-					__map23.Set(ballrt.ToStr("caps"), caps)
-					__map23.Set(ballrt.ToStr("capSites"), capSites)
-					__map23.Set(ballrt.ToStr("module"), contextModule)
-					__map23.Set(ballrt.ToStr("function"), contextFunction)
-					__map23.Set(ballrt.ToStr("calleeModule"), module)
-					__map23.Set(ballrt.ToStr("calleeFunction"), fn)
-					return __map23
+					__map24 := ballrt.NewMap()
+					__map24.Set(ballrt.ToStr("cap"), cap)
+					__map24.Set(ballrt.ToStr("caps"), caps)
+					__map24.Set(ballrt.ToStr("capSites"), capSites)
+					__map24.Set(ballrt.ToStr("module"), contextModule)
+					__map24.Set(ballrt.ToStr("function"), contextFunction)
+					__map24.Set(ballrt.ToStr("calleeModule"), module)
+					__map24.Set(ballrt.ToStr("calleeFunction"), fn)
+					return __map24
 				}())
 			}
 			return func() ballrt.Value {
 				if ballrt.Truthy((ballrt.Truthy(ballrt.Not(isCustom)) && ballrt.Truthy(ballrt.Neq(callees, ballrt.Value(nil))))) {
 					return func() ballrt.Value {
 						__v := ballrt.ListPush(callees, func() ballrt.Value {
-							__map24 := ballrt.NewMap()
-							__map24.Set(ballrt.ToStr("module"), module)
-							__map24.Set(ballrt.ToStr("function"), fn)
-							return __map24
+							__map25 := ballrt.NewMap()
+							__map25.Set(ballrt.ToStr("module"), module)
+							__map25.Set(ballrt.ToStr("function"), fn)
+							return __map25
 						}())
 						callees = __v
 						return __v
@@ -2150,17 +2255,17 @@ func _walkCapCall(input ballrt.Value) (__ret ballrt.Value) {
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.HasField(call, "input")) {
 				return _walkCap(func() ballrt.Value {
-					__map25 := ballrt.NewMap()
-					__map25.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
-					__map25.Set(ballrt.ToStr("module"), contextModule)
-					__map25.Set(ballrt.ToStr("function"), contextFunction)
-					__map25.Set(ballrt.ToStr("caps"), caps)
-					__map25.Set(ballrt.ToStr("capSites"), capSites)
-					__map25.Set(ballrt.ToStr("table"), table)
-					__map25.Set(ballrt.ToStr("callees"), callees)
-					__map25.Set(ballrt.ToStr("userFns"), userFns)
-					__map25.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-					return __map25
+					__map26 := ballrt.NewMap()
+					__map26.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
+					__map26.Set(ballrt.ToStr("module"), contextModule)
+					__map26.Set(ballrt.ToStr("function"), contextFunction)
+					__map26.Set(ballrt.ToStr("caps"), caps)
+					__map26.Set(ballrt.ToStr("capSites"), capSites)
+					__map26.Set(ballrt.ToStr("table"), table)
+					__map26.Set(ballrt.ToStr("callees"), callees)
+					__map26.Set(ballrt.ToStr("userFns"), userFns)
+					__map26.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+					return __map26
 				}())
 			}
 			return ballrt.Value(nil)
@@ -2209,19 +2314,53 @@ func _recordCapSite(input ballrt.Value) (__ret ballrt.Value) {
 				return ballrt.Value(nil)
 			}()
 		}()
+		var resolvedModule ballrt.Value = ""
+		_ = resolvedModule
+		_ = func() ballrt.Value {
+			if ballrt.Truthy(ballrt.MapContainsKey(ctx, "resolvedModule")) {
+				return func() ballrt.Value { __v := ballrt.IndexGet(ctx, "resolvedModule"); resolvedModule = __v; return __v }()
+			}
+			return ballrt.Value(nil)
+		}()
 		_ = func() ballrt.Value {
 			__v := ballrt.ListPush(sites, func() ballrt.Value {
-				__map26 := ballrt.NewMap()
-				__map26.Set(ballrt.ToStr("module"), ballrt.IndexGet(ctx, "module"))
-				__map26.Set(ballrt.ToStr("function"), ballrt.IndexGet(ctx, "function"))
-				__map26.Set(ballrt.ToStr("calleeModule"), ballrt.IndexGet(ctx, "calleeModule"))
-				__map26.Set(ballrt.ToStr("calleeFunction"), ballrt.IndexGet(ctx, "calleeFunction"))
-				return __map26
+				__map27 := ballrt.NewMap()
+				__map27.Set(ballrt.ToStr("module"), ballrt.IndexGet(ctx, "module"))
+				__map27.Set(ballrt.ToStr("function"), ballrt.IndexGet(ctx, "function"))
+				__map27.Set(ballrt.ToStr("calleeModule"), ballrt.IndexGet(ctx, "calleeModule"))
+				__map27.Set(ballrt.ToStr("calleeFunction"), ballrt.IndexGet(ctx, "calleeFunction"))
+				__map27.Set(ballrt.ToStr("resolvedModule"), resolvedModule)
+				return __map27
 			}())
 			sites = __v
 			return __v
 		}()
 		return ballrt.Value(nil)
+	}()
+	return
+}
+
+func _formatCallee(input ballrt.Value) (__ret ballrt.Value) {
+	_ = input
+	site := input
+	_ = site
+	defer ballrt.CatchReturn(&__ret)
+	__ret = func() ballrt.Value {
+		var calleeModule ballrt.Value = ballrt.IndexGet(site, "calleeModule")
+		_ = calleeModule
+		var calleeFunction ballrt.Value = ballrt.IndexGet(site, "calleeFunction")
+		_ = calleeFunction
+		var resolved ballrt.Value = ballrt.IndexGet(site, "resolvedModule")
+		_ = resolved
+		var literal ballrt.Value = ballrt.Concat(ballrt.Concat(ballrt.ToStr(calleeModule), "."), ballrt.ToStr(calleeFunction))
+		_ = literal
+		_ = func() ballrt.Value {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.StrIsEmpty(resolved)) || ballrt.Truthy(ballrt.Eq(resolved, calleeModule)))) {
+				return ballrt.Return(literal)
+			}
+			return ballrt.Value(nil)
+		}()
+		return ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(resolved), "."), ballrt.ToStr(calleeFunction)), " (call site: "), ballrt.ToStr(literal)), ")")
 	}()
 	return
 }
@@ -2339,11 +2478,11 @@ func _buildReportFromFunctions(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									_ = func() ballrt.Value {
 										__v := ballrt.ListPush(capabilitiesOut, func() ballrt.Value {
-											__map27 := ballrt.NewMap()
-											__map27.Set(ballrt.ToStr("capability"), cap)
-											__map27.Set(ballrt.ToStr("riskLevel"), capabilityRisk(cap))
-											__map27.Set(ballrt.ToStr("callSites"), ballrt.NewList())
-											return __map27
+											__map28 := ballrt.NewMap()
+											__map28.Set(ballrt.ToStr("capability"), cap)
+											__map28.Set(ballrt.ToStr("riskLevel"), capabilityRisk(cap))
+											__map28.Set(ballrt.ToStr("callSites"), ballrt.NewList())
+											return __map28
 										}())
 										capabilitiesOut = __v
 										return __v
@@ -2358,11 +2497,11 @@ func _buildReportFromFunctions(input ballrt.Value) (__ret ballrt.Value) {
 							if ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(sites))) {
 								return func() ballrt.Value {
 									__v := ballrt.ListPush(capabilitiesOut, func() ballrt.Value {
-										__map28 := ballrt.NewMap()
-										__map28.Set(ballrt.ToStr("capability"), cap)
-										__map28.Set(ballrt.ToStr("riskLevel"), capabilityRisk(cap))
-										__map28.Set(ballrt.ToStr("callSites"), sites)
-										return __map28
+										__map29 := ballrt.NewMap()
+										__map29.Set(ballrt.ToStr("capability"), cap)
+										__map29.Set(ballrt.ToStr("riskLevel"), capabilityRisk(cap))
+										__map29.Set(ballrt.ToStr("callSites"), sites)
+										return __map29
 									}())
 									capabilitiesOut = __v
 									return __v
@@ -2451,35 +2590,35 @@ func _buildReportFromFunctions(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		var summary ballrt.Value = func() ballrt.Value {
-			__map29 := ballrt.NewMap()
-			__map29.Set(ballrt.ToStr("isPure"), isPure)
-			__map29.Set(ballrt.ToStr("readsFilesystem"), ballrt.ListContains(allCaps, "fs"))
-			__map29.Set(ballrt.ToStr("writesFilesystem"), ballrt.ListContains(allCaps, "fs"))
-			__map29.Set(ballrt.ToStr("readsStdin"), readsStdin)
-			__map29.Set(ballrt.ToStr("writesStdout"), writesStdout)
-			__map29.Set(ballrt.ToStr("writesStderr"), writesStderr)
-			__map29.Set(ballrt.ToStr("readsEnvironment"), readsEnvironment)
-			__map29.Set(ballrt.ToStr("controlsProcess"), ballrt.ListContains(allCaps, "process"))
-			__map29.Set(ballrt.ToStr("usesMemory"), ballrt.ListContains(allCaps, "memory"))
-			__map29.Set(ballrt.ToStr("usesTime"), ballrt.ListContains(allCaps, "time"))
-			__map29.Set(ballrt.ToStr("usesRandom"), ballrt.ListContains(allCaps, "random"))
-			__map29.Set(ballrt.ToStr("usesConcurrency"), ballrt.ListContains(allCaps, "concurrency"))
-			__map29.Set(ballrt.ToStr("usesNetwork"), ballrt.ListContains(allCaps, "network"))
-			__map29.Set(ballrt.ToStr("totalFunctions"), totalFns)
-			__map29.Set(ballrt.ToStr("pureFunctions"), pureFns)
-			__map29.Set(ballrt.ToStr("effectfulFunctions"), effectfulFns)
-			return __map29
+			__map30 := ballrt.NewMap()
+			__map30.Set(ballrt.ToStr("isPure"), isPure)
+			__map30.Set(ballrt.ToStr("readsFilesystem"), ballrt.ListContains(allCaps, "fs"))
+			__map30.Set(ballrt.ToStr("writesFilesystem"), ballrt.ListContains(allCaps, "fs"))
+			__map30.Set(ballrt.ToStr("readsStdin"), readsStdin)
+			__map30.Set(ballrt.ToStr("writesStdout"), writesStdout)
+			__map30.Set(ballrt.ToStr("writesStderr"), writesStderr)
+			__map30.Set(ballrt.ToStr("readsEnvironment"), readsEnvironment)
+			__map30.Set(ballrt.ToStr("controlsProcess"), ballrt.ListContains(allCaps, "process"))
+			__map30.Set(ballrt.ToStr("usesMemory"), ballrt.ListContains(allCaps, "memory"))
+			__map30.Set(ballrt.ToStr("usesTime"), ballrt.ListContains(allCaps, "time"))
+			__map30.Set(ballrt.ToStr("usesRandom"), ballrt.ListContains(allCaps, "random"))
+			__map30.Set(ballrt.ToStr("usesConcurrency"), ballrt.ListContains(allCaps, "concurrency"))
+			__map30.Set(ballrt.ToStr("usesNetwork"), ballrt.ListContains(allCaps, "network"))
+			__map30.Set(ballrt.ToStr("totalFunctions"), totalFns)
+			__map30.Set(ballrt.ToStr("pureFunctions"), pureFns)
+			__map30.Set(ballrt.ToStr("effectfulFunctions"), effectfulFns)
+			return __map30
 		}()
 		_ = summary
 		return func() ballrt.Value {
-			__map30 := ballrt.NewMap()
-			__map30.Set(ballrt.ToStr("programName"), programName)
-			__map30.Set(ballrt.ToStr("programVersion"), programVersion)
-			__map30.Set(ballrt.ToStr("capabilities"), capabilitiesOut)
-			__map30.Set(ballrt.ToStr("functions"), functionsOut)
-			__map30.Set(ballrt.ToStr("shadows"), shadows)
-			__map30.Set(ballrt.ToStr("summary"), summary)
-			return __map30
+			__map31 := ballrt.NewMap()
+			__map31.Set(ballrt.ToStr("programName"), programName)
+			__map31.Set(ballrt.ToStr("programVersion"), programVersion)
+			__map31.Set(ballrt.ToStr("capabilities"), capabilitiesOut)
+			__map31.Set(ballrt.ToStr("functions"), functionsOut)
+			__map31.Set(ballrt.ToStr("shadows"), shadows)
+			__map31.Set(ballrt.ToStr("summary"), summary)
+			return __map31
 		}()
 	}()
 	return
@@ -2547,7 +2686,7 @@ func formatCapabilityReport(input ballrt.Value) (__ret ballrt.Value) {
 										_ = s
 										if ballrt.RunLoopBody("", func() {
 											_ = func() ballrt.Value {
-												__v := ballrt.ListPush(siteStrs, ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(s, "module")), "."), ballrt.ToStr(ballrt.IndexGet(s, "function"))), " → "), ballrt.ToStr(ballrt.IndexGet(s, "calleeModule"))), "."), ballrt.ToStr(ballrt.IndexGet(s, "calleeFunction"))))
+												__v := ballrt.ListPush(siteStrs, ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(s, "module")), "."), ballrt.ToStr(ballrt.IndexGet(s, "function"))), " → "), ballrt.ToStr(_formatCallee(s))))
 												siteStrs = __v
 												return __v
 											}()
@@ -2802,10 +2941,10 @@ func checkPolicy(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		return checkPolicyViolations(func() ballrt.Value {
-			__map31 := ballrt.NewMap()
-			__map31.Set(ballrt.ToStr("report"), report)
-			__map31.Set(ballrt.ToStr("deny"), denyList)
-			return __map31
+			__map32 := ballrt.NewMap()
+			__map32.Set(ballrt.ToStr("report"), report)
+			__map32.Set(ballrt.ToStr("deny"), denyList)
+			return __map32
 		}())
 	}()
 	return
@@ -2839,7 +2978,7 @@ func checkPolicyViolations(input ballrt.Value) (__ret ballrt.Value) {
 										_ = site
 										if ballrt.RunLoopBody("", func() {
 											_ = func() ballrt.Value {
-												__v := ballrt.ListPush(violations, ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(entry, "capability")), ": "), ballrt.ToStr(ballrt.IndexGet(site, "module"))), "."), ballrt.ToStr(ballrt.IndexGet(site, "function"))), " calls "), ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(site, "calleeModule")), "."), ballrt.ToStr(ballrt.IndexGet(site, "calleeFunction")))))
+												__v := ballrt.ListPush(violations, ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.IndexGet(entry, "capability")), ": "), ballrt.ToStr(ballrt.IndexGet(site, "module"))), "."), ballrt.ToStr(ballrt.IndexGet(site, "function"))), " calls "), ballrt.ToStr(_formatCallee(site))))
 												violations = __v
 												return __v
 											}()
@@ -2871,9 +3010,9 @@ func analyzeTermination(input ballrt.Value) (__ret ballrt.Value) {
 	_ = program
 	defer ballrt.CatchReturn(&__ret)
 	__ret = _analyzeTerminationCore(func() ballrt.Value {
-		__map32 := ballrt.NewMap()
-		__map32.Set(ballrt.ToStr("modules"), ballrt.FieldGet(program, "modules"))
-		return __map32
+		__map33 := ballrt.NewMap()
+		__map33.Set(ballrt.ToStr("modules"), ballrt.FieldGet(program, "modules"))
+		return __map33
 	}())
 	return
 }
@@ -2898,9 +3037,9 @@ func analyzeModuleTermination(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		return _analyzeTerminationCore(func() ballrt.Value {
-			__map33 := ballrt.NewMap()
-			__map33.Set(ballrt.ToStr("modules"), modules)
-			return __map33
+			__map34 := ballrt.NewMap()
+			__map34.Set(ballrt.ToStr("modules"), modules)
+			return __map34
 		}())
 	}()
 	return
@@ -2919,46 +3058,47 @@ func _analyzeTerminationCore(input ballrt.Value) (__ret ballrt.Value) {
 		var warnings ballrt.Value = ballrt.NewList()
 		_ = warnings
 		var callGraph ballrt.Value = _buildCallGraph(func() ballrt.Value {
-			__map34 := ballrt.NewMap()
-			__map34.Set(ballrt.ToStr("modules"), modules)
-			__map34.Set(ballrt.ToStr("baseModules"), baseModules)
-			__map34.Set(ballrt.ToStr("customBaseFns"), _collectCustomBaseFns(modules))
-			return __map34
-		}())
-		_ = callGraph
-		_ = _checkLoops(func() ballrt.Value {
 			__map35 := ballrt.NewMap()
 			__map35.Set(ballrt.ToStr("modules"), modules)
 			__map35.Set(ballrt.ToStr("baseModules"), baseModules)
-			__map35.Set(ballrt.ToStr("warnings"), warnings)
+			__map35.Set(ballrt.ToStr("customBaseFns"), _collectCustomBaseFns(modules))
+			__map35.Set(ballrt.ToStr("userFns"), _collectUserFunctionNames(modules))
 			return __map35
 		}())
-		_ = _checkRecursion(func() ballrt.Value {
+		_ = callGraph
+		_ = _checkLoops(func() ballrt.Value {
 			__map36 := ballrt.NewMap()
 			__map36.Set(ballrt.ToStr("modules"), modules)
-			__map36.Set(ballrt.ToStr("callGraph"), callGraph)
+			__map36.Set(ballrt.ToStr("baseModules"), baseModules)
 			__map36.Set(ballrt.ToStr("warnings"), warnings)
 			return __map36
 		}())
-		_ = _checkUnreachableCode(func() ballrt.Value {
+		_ = _checkRecursion(func() ballrt.Value {
 			__map37 := ballrt.NewMap()
 			__map37.Set(ballrt.ToStr("modules"), modules)
-			__map37.Set(ballrt.ToStr("baseModules"), baseModules)
+			__map37.Set(ballrt.ToStr("callGraph"), callGraph)
 			__map37.Set(ballrt.ToStr("warnings"), warnings)
 			return __map37
 		}())
-		_ = _checkOrphanedLabels(func() ballrt.Value {
+		_ = _checkUnreachableCode(func() ballrt.Value {
 			__map38 := ballrt.NewMap()
 			__map38.Set(ballrt.ToStr("modules"), modules)
 			__map38.Set(ballrt.ToStr("baseModules"), baseModules)
 			__map38.Set(ballrt.ToStr("warnings"), warnings)
 			return __map38
 		}())
-		_ = _checkCustomBaseCalls(func() ballrt.Value {
+		_ = _checkOrphanedLabels(func() ballrt.Value {
 			__map39 := ballrt.NewMap()
-			__map39.Set(ballrt.ToStr("callGraph"), callGraph)
+			__map39.Set(ballrt.ToStr("modules"), modules)
+			__map39.Set(ballrt.ToStr("baseModules"), baseModules)
 			__map39.Set(ballrt.ToStr("warnings"), warnings)
 			return __map39
+		}())
+		_ = _checkCustomBaseCalls(func() ballrt.Value {
+			__map40 := ballrt.NewMap()
+			__map40.Set(ballrt.ToStr("callGraph"), callGraph)
+			__map40.Set(ballrt.ToStr("warnings"), warnings)
+			return __map40
 		}())
 		return warnings
 	}()
@@ -2993,8 +3133,8 @@ func formatTerminationReport(input ballrt.Value) (__ret ballrt.Value) {
 		var categoryOrder ballrt.Value = ballrt.NewList()
 		_ = categoryOrder
 		var byCategory ballrt.Value = func() ballrt.Value {
-			__map40 := ballrt.NewMap()
-			return __map40
+			__map41 := ballrt.NewMap()
+			return __map41
 		}()
 		_ = byCategory
 		_ = func() ballrt.Value {
@@ -3207,6 +3347,8 @@ func _buildCallGraph(input ballrt.Value) (__ret ballrt.Value) {
 		_ = baseModules
 		var customBaseFns ballrt.Value = ballrt.IndexGet(ctx, "customBaseFns")
 		_ = customBaseFns
+		var userFns ballrt.Value = ballrt.IndexGet(ctx, "userFns")
+		_ = userFns
 		var graph ballrt.Value = ballrt.NewList()
 		_ = graph
 		_ = func() ballrt.Value {
@@ -3253,22 +3395,23 @@ func _buildCallGraph(input ballrt.Value) (__ret ballrt.Value) {
 										var customCalls ballrt.Value = ballrt.NewList()
 										_ = customCalls
 										_ = _collectCallees(func() ballrt.Value {
-											__map41 := ballrt.NewMap()
-											__map41.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
-											__map41.Set(ballrt.ToStr("contextModule"), ballrt.FieldGet(module, "name"))
-											__map41.Set(ballrt.ToStr("baseModules"), baseModules)
-											__map41.Set(ballrt.ToStr("callees"), callees)
-											__map41.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-											__map41.Set(ballrt.ToStr("customCalls"), customCalls)
-											return __map41
+											__map42 := ballrt.NewMap()
+											__map42.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
+											__map42.Set(ballrt.ToStr("contextModule"), ballrt.FieldGet(module, "name"))
+											__map42.Set(ballrt.ToStr("baseModules"), baseModules)
+											__map42.Set(ballrt.ToStr("callees"), callees)
+											__map42.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+											__map42.Set(ballrt.ToStr("customCalls"), customCalls)
+											__map42.Set(ballrt.ToStr("userFns"), userFns)
+											return __map42
 										}())
 										_ = func() ballrt.Value {
 											__v := ballrt.ListPush(graph, func() ballrt.Value {
-												__map42 := ballrt.NewMap()
-												__map42.Set(ballrt.ToStr("key"), key)
-												__map42.Set(ballrt.ToStr("callees"), callees)
-												__map42.Set(ballrt.ToStr("customCalls"), customCalls)
-												return __map42
+												__map43 := ballrt.NewMap()
+												__map43.Set(ballrt.ToStr("key"), key)
+												__map43.Set(ballrt.ToStr("callees"), callees)
+												__map43.Set(ballrt.ToStr("customCalls"), customCalls)
+												return __map43
 											}())
 											graph = __v
 											return __v
@@ -3317,12 +3460,12 @@ func _checkCustomBaseCalls(input ballrt.Value) (__ret ballrt.Value) {
 								if ballrt.RunLoopBody("", func() {
 									_ = func() ballrt.Value {
 										__v := ballrt.ListPush(warnings, func() ballrt.Value {
-											__map43 := ballrt.NewMap()
-											__map43.Set(ballrt.ToStr("severity"), "info")
-											__map43.Set(ballrt.ToStr("category"), "unknown_termination")
-											__map43.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat("calls custom base module ", ballrt.ToStr(callee)), " — its implementation is "), "host-supplied, so termination and effects cannot be analyzed"))
-											__map43.Set(ballrt.ToStr("location"), ballrt.IndexGet(entry, "key"))
-											return __map43
+											__map44 := ballrt.NewMap()
+											__map44.Set(ballrt.ToStr("severity"), "info")
+											__map44.Set(ballrt.ToStr("category"), "unknown_termination")
+											__map44.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat("calls custom base module ", ballrt.ToStr(callee)), " — its implementation is "), "host-supplied, so termination and effects cannot be analyzed"))
+											__map44.Set(ballrt.ToStr("location"), ballrt.IndexGet(entry, "key"))
+											return __map44
 										}())
 										warnings = __v
 										return __v
@@ -3364,6 +3507,8 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 		_ = customBaseFns
 		var customCalls ballrt.Value = ballrt.IndexGet(ctx, "customCalls")
 		_ = customCalls
+		var userFns ballrt.Value = ballrt.IndexGet(ctx, "userFns")
+		_ = userFns
 		_ = func() ballrt.Value {
 			if ballrt.Truthy(ballrt.Eq(expr, ballrt.Value(nil))) {
 				return func() ballrt.Value {
@@ -3387,11 +3532,28 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 					_ = module
 					var fn ballrt.Value = ballrt.FieldGet(call, "function")
 					_ = fn
-					var key ballrt.Value = ballrt.Concat(ballrt.Concat(ballrt.ToStr(module), "."), ballrt.ToStr(fn))
-					_ = key
+					var customEntry ballrt.Value = _resolveCustomBaseFn(func() ballrt.Value {
+						__m := ballrt.NewMap()
+						__m.Set("arg0", customBaseFns)
+						__m.Set("arg1", module)
+						__m.Set("arg2", fn)
+						__m.Set("arg3", userFns)
+						return __m
+					}())
+					_ = customEntry
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.ListContains(customBaseFns, key)) && ballrt.Truthy(ballrt.Not(ballrt.ListContains(customCalls, key))))) {
-							return func() ballrt.Value { __v := ballrt.ListPush(customCalls, key); customCalls = __v; return __v }()
+						if ballrt.Truthy(ballrt.Neq(customEntry, ballrt.Value(nil))) {
+							return func() ballrt.Value {
+								var customKey ballrt.Value = ballrt.IndexGet(customEntry, "key")
+								_ = customKey
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Not(ballrt.ListContains(customCalls, customKey))) {
+										return func() ballrt.Value { __v := ballrt.ListPush(customCalls, customKey); customCalls = __v; return __v }()
+									}
+									return ballrt.Value(nil)
+								}()
+								return ballrt.Value(nil)
+							}()
 						}
 						return ballrt.Value(nil)
 					}()
@@ -3414,14 +3576,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(call, "input")) {
 							return _collectCallees(func() ballrt.Value {
-								__map44 := ballrt.NewMap()
-								__map44.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
-								__map44.Set(ballrt.ToStr("contextModule"), contextModule)
-								__map44.Set(ballrt.ToStr("baseModules"), baseModules)
-								__map44.Set(ballrt.ToStr("callees"), callees)
-								__map44.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-								__map44.Set(ballrt.ToStr("customCalls"), customCalls)
-								return __map44
+								__map45 := ballrt.NewMap()
+								__map45.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
+								__map45.Set(ballrt.ToStr("contextModule"), contextModule)
+								__map45.Set(ballrt.ToStr("baseModules"), baseModules)
+								__map45.Set(ballrt.ToStr("callees"), callees)
+								__map45.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+								__map45.Set(ballrt.ToStr("customCalls"), customCalls)
+								__map45.Set(ballrt.ToStr("userFns"), userFns)
+								return __map45
 							}())
 						}
 						return ballrt.Value(nil)
@@ -3440,14 +3603,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 												return _collectCallees(func() ballrt.Value {
-													__map45 := ballrt.NewMap()
-													__map45.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-													__map45.Set(ballrt.ToStr("contextModule"), contextModule)
-													__map45.Set(ballrt.ToStr("baseModules"), baseModules)
-													__map45.Set(ballrt.ToStr("callees"), callees)
-													__map45.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-													__map45.Set(ballrt.ToStr("customCalls"), customCalls)
-													return __map45
+													__map46 := ballrt.NewMap()
+													__map46.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+													__map46.Set(ballrt.ToStr("contextModule"), contextModule)
+													__map46.Set(ballrt.ToStr("baseModules"), baseModules)
+													__map46.Set(ballrt.ToStr("callees"), callees)
+													__map46.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+													__map46.Set(ballrt.ToStr("customCalls"), customCalls)
+													__map46.Set(ballrt.ToStr("userFns"), userFns)
+													return __map46
 												}())
 											}
 											return ballrt.Value(nil)
@@ -3455,14 +3619,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 												return _collectCallees(func() ballrt.Value {
-													__map46 := ballrt.NewMap()
-													__map46.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-													__map46.Set(ballrt.ToStr("contextModule"), contextModule)
-													__map46.Set(ballrt.ToStr("baseModules"), baseModules)
-													__map46.Set(ballrt.ToStr("callees"), callees)
-													__map46.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-													__map46.Set(ballrt.ToStr("customCalls"), customCalls)
-													return __map46
+													__map47 := ballrt.NewMap()
+													__map47.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+													__map47.Set(ballrt.ToStr("contextModule"), contextModule)
+													__map47.Set(ballrt.ToStr("baseModules"), baseModules)
+													__map47.Set(ballrt.ToStr("callees"), callees)
+													__map47.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+													__map47.Set(ballrt.ToStr("customCalls"), customCalls)
+													__map47.Set(ballrt.ToStr("userFns"), userFns)
+													return __map47
 												}())
 											}
 											return ballrt.Value(nil)
@@ -3478,14 +3643,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 						_ = func() ballrt.Value {
 							if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 								return _collectCallees(func() ballrt.Value {
-									__map47 := ballrt.NewMap()
-									__map47.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-									__map47.Set(ballrt.ToStr("contextModule"), contextModule)
-									__map47.Set(ballrt.ToStr("baseModules"), baseModules)
-									__map47.Set(ballrt.ToStr("callees"), callees)
-									__map47.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-									__map47.Set(ballrt.ToStr("customCalls"), customCalls)
-									return __map47
+									__map48 := ballrt.NewMap()
+									__map48.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+									__map48.Set(ballrt.ToStr("contextModule"), contextModule)
+									__map48.Set(ballrt.ToStr("baseModules"), baseModules)
+									__map48.Set(ballrt.ToStr("callees"), callees)
+									__map48.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+									__map48.Set(ballrt.ToStr("customCalls"), customCalls)
+									__map48.Set(ballrt.ToStr("userFns"), userFns)
+									return __map48
 								}())
 							}
 							return ballrt.Value(nil)
@@ -3496,14 +3662,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 				return func() ballrt.Value {
 					if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 						return _collectCallees(func() ballrt.Value {
-							__map48 := ballrt.NewMap()
-							__map48.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-							__map48.Set(ballrt.ToStr("contextModule"), contextModule)
-							__map48.Set(ballrt.ToStr("baseModules"), baseModules)
-							__map48.Set(ballrt.ToStr("callees"), callees)
-							__map48.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-							__map48.Set(ballrt.ToStr("customCalls"), customCalls)
-							return __map48
+							__map49 := ballrt.NewMap()
+							__map49.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+							__map49.Set(ballrt.ToStr("contextModule"), contextModule)
+							__map49.Set(ballrt.ToStr("baseModules"), baseModules)
+							__map49.Set(ballrt.ToStr("callees"), callees)
+							__map49.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+							__map49.Set(ballrt.ToStr("customCalls"), customCalls)
+							__map49.Set(ballrt.ToStr("userFns"), userFns)
+							return __map49
 						}())
 					}
 					return func() ballrt.Value {
@@ -3514,14 +3681,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _collectCallees(func() ballrt.Value {
-												__map49 := ballrt.NewMap()
-												__map49.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map49.Set(ballrt.ToStr("contextModule"), contextModule)
-												__map49.Set(ballrt.ToStr("baseModules"), baseModules)
-												__map49.Set(ballrt.ToStr("callees"), callees)
-												__map49.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-												__map49.Set(ballrt.ToStr("customCalls"), customCalls)
-												return __map49
+												__map50 := ballrt.NewMap()
+												__map50.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map50.Set(ballrt.ToStr("contextModule"), contextModule)
+												__map50.Set(ballrt.ToStr("baseModules"), baseModules)
+												__map50.Set(ballrt.ToStr("callees"), callees)
+												__map50.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+												__map50.Set(ballrt.ToStr("customCalls"), customCalls)
+												__map50.Set(ballrt.ToStr("userFns"), userFns)
+												return __map50
 											}())
 										}) {
 											break
@@ -3537,14 +3705,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _collectCallees(func() ballrt.Value {
-											__map50 := ballrt.NewMap()
-											__map50.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map50.Set(ballrt.ToStr("contextModule"), contextModule)
-											__map50.Set(ballrt.ToStr("baseModules"), baseModules)
-											__map50.Set(ballrt.ToStr("callees"), callees)
-											__map50.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-											__map50.Set(ballrt.ToStr("customCalls"), customCalls)
-											return __map50
+											__map51 := ballrt.NewMap()
+											__map51.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map51.Set(ballrt.ToStr("contextModule"), contextModule)
+											__map51.Set(ballrt.ToStr("baseModules"), baseModules)
+											__map51.Set(ballrt.ToStr("callees"), callees)
+											__map51.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+											__map51.Set(ballrt.ToStr("customCalls"), customCalls)
+											__map51.Set(ballrt.ToStr("userFns"), userFns)
+											return __map51
 										}())
 									}
 									return ballrt.Value(nil)
@@ -3560,14 +3729,15 @@ func _collectCallees(input ballrt.Value) (__ret ballrt.Value) {
 														_ = elem
 														if ballrt.RunLoopBody("", func() {
 															_ = _collectCallees(func() ballrt.Value {
-																__map51 := ballrt.NewMap()
-																__map51.Set(ballrt.ToStr("expr"), elem)
-																__map51.Set(ballrt.ToStr("contextModule"), contextModule)
-																__map51.Set(ballrt.ToStr("baseModules"), baseModules)
-																__map51.Set(ballrt.ToStr("callees"), callees)
-																__map51.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
-																__map51.Set(ballrt.ToStr("customCalls"), customCalls)
-																return __map51
+																__map52 := ballrt.NewMap()
+																__map52.Set(ballrt.ToStr("expr"), elem)
+																__map52.Set(ballrt.ToStr("contextModule"), contextModule)
+																__map52.Set(ballrt.ToStr("baseModules"), baseModules)
+																__map52.Set(ballrt.ToStr("callees"), callees)
+																__map52.Set(ballrt.ToStr("customBaseFns"), customBaseFns)
+																__map52.Set(ballrt.ToStr("customCalls"), customCalls)
+																__map52.Set(ballrt.ToStr("userFns"), userFns)
+																return __map52
 															}())
 														}) {
 															break
@@ -3643,12 +3813,12 @@ func _checkLoops(input ballrt.Value) (__ret ballrt.Value) {
 											return ballrt.Value(nil)
 										}()
 										_ = _checkLoopsInExpr(func() ballrt.Value {
-											__map52 := ballrt.NewMap()
-											__map52.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
-											__map52.Set(ballrt.ToStr("moduleName"), ballrt.FieldGet(module, "name"))
-											__map52.Set(ballrt.ToStr("fnName"), ballrt.FieldGet(fn, "name"))
-											__map52.Set(ballrt.ToStr("warnings"), warnings)
-											return __map52
+											__map53 := ballrt.NewMap()
+											__map53.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
+											__map53.Set(ballrt.ToStr("moduleName"), ballrt.FieldGet(module, "name"))
+											__map53.Set(ballrt.ToStr("fnName"), ballrt.FieldGet(fn, "name"))
+											__map53.Set(ballrt.ToStr("warnings"), warnings)
+											return __map53
 										}())
 										return ballrt.Value(nil)
 									}()
@@ -3711,36 +3881,36 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(callModule, "std")) && ballrt.Truthy(ballrt.Eq(callFn, "while")))) {
 							return _checkWhileLoop(func() ballrt.Value {
-								__map53 := ballrt.NewMap()
-								__map53.Set(ballrt.ToStr("call"), call)
-								__map53.Set(ballrt.ToStr("moduleName"), moduleName)
-								__map53.Set(ballrt.ToStr("fnName"), fnName)
-								__map53.Set(ballrt.ToStr("warnings"), warnings)
-								__map53.Set(ballrt.ToStr("kind"), "while")
-								return __map53
+								__map54 := ballrt.NewMap()
+								__map54.Set(ballrt.ToStr("call"), call)
+								__map54.Set(ballrt.ToStr("moduleName"), moduleName)
+								__map54.Set(ballrt.ToStr("fnName"), fnName)
+								__map54.Set(ballrt.ToStr("warnings"), warnings)
+								__map54.Set(ballrt.ToStr("kind"), "while")
+								return __map54
 							}())
 						}
 						return func() ballrt.Value {
 							if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(callModule, "std")) && ballrt.Truthy(ballrt.Eq(callFn, "do_while")))) {
 								return _checkWhileLoop(func() ballrt.Value {
-									__map54 := ballrt.NewMap()
-									__map54.Set(ballrt.ToStr("call"), call)
-									__map54.Set(ballrt.ToStr("moduleName"), moduleName)
-									__map54.Set(ballrt.ToStr("fnName"), fnName)
-									__map54.Set(ballrt.ToStr("warnings"), warnings)
-									__map54.Set(ballrt.ToStr("kind"), "do-while")
-									return __map54
+									__map55 := ballrt.NewMap()
+									__map55.Set(ballrt.ToStr("call"), call)
+									__map55.Set(ballrt.ToStr("moduleName"), moduleName)
+									__map55.Set(ballrt.ToStr("fnName"), fnName)
+									__map55.Set(ballrt.ToStr("warnings"), warnings)
+									__map55.Set(ballrt.ToStr("kind"), "do-while")
+									return __map55
 								}())
 							}
 							return func() ballrt.Value {
 								if ballrt.Truthy((ballrt.Truthy(ballrt.Eq(callModule, "std")) && ballrt.Truthy(ballrt.Eq(callFn, "for")))) {
 									return _checkForLoop(func() ballrt.Value {
-										__map55 := ballrt.NewMap()
-										__map55.Set(ballrt.ToStr("call"), call)
-										__map55.Set(ballrt.ToStr("moduleName"), moduleName)
-										__map55.Set(ballrt.ToStr("fnName"), fnName)
-										__map55.Set(ballrt.ToStr("warnings"), warnings)
-										return __map55
+										__map56 := ballrt.NewMap()
+										__map56.Set(ballrt.ToStr("call"), call)
+										__map56.Set(ballrt.ToStr("moduleName"), moduleName)
+										__map56.Set(ballrt.ToStr("fnName"), fnName)
+										__map56.Set(ballrt.ToStr("warnings"), warnings)
+										return __map56
 									}())
 								}
 								return ballrt.Value(nil)
@@ -3750,12 +3920,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(call, "input")) {
 							return _checkLoopsInExpr(func() ballrt.Value {
-								__map56 := ballrt.NewMap()
-								__map56.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
-								__map56.Set(ballrt.ToStr("moduleName"), moduleName)
-								__map56.Set(ballrt.ToStr("fnName"), fnName)
-								__map56.Set(ballrt.ToStr("warnings"), warnings)
-								return __map56
+								__map57 := ballrt.NewMap()
+								__map57.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
+								__map57.Set(ballrt.ToStr("moduleName"), moduleName)
+								__map57.Set(ballrt.ToStr("fnName"), fnName)
+								__map57.Set(ballrt.ToStr("warnings"), warnings)
+								return __map57
 							}())
 						}
 						return ballrt.Value(nil)
@@ -3774,12 +3944,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 												return _checkLoopsInExpr(func() ballrt.Value {
-													__map57 := ballrt.NewMap()
-													__map57.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-													__map57.Set(ballrt.ToStr("moduleName"), moduleName)
-													__map57.Set(ballrt.ToStr("fnName"), fnName)
-													__map57.Set(ballrt.ToStr("warnings"), warnings)
-													return __map57
+													__map58 := ballrt.NewMap()
+													__map58.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+													__map58.Set(ballrt.ToStr("moduleName"), moduleName)
+													__map58.Set(ballrt.ToStr("fnName"), fnName)
+													__map58.Set(ballrt.ToStr("warnings"), warnings)
+													return __map58
 												}())
 											}
 											return ballrt.Value(nil)
@@ -3787,12 +3957,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 												return _checkLoopsInExpr(func() ballrt.Value {
-													__map58 := ballrt.NewMap()
-													__map58.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-													__map58.Set(ballrt.ToStr("moduleName"), moduleName)
-													__map58.Set(ballrt.ToStr("fnName"), fnName)
-													__map58.Set(ballrt.ToStr("warnings"), warnings)
-													return __map58
+													__map59 := ballrt.NewMap()
+													__map59.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+													__map59.Set(ballrt.ToStr("moduleName"), moduleName)
+													__map59.Set(ballrt.ToStr("fnName"), fnName)
+													__map59.Set(ballrt.ToStr("warnings"), warnings)
+													return __map59
 												}())
 											}
 											return ballrt.Value(nil)
@@ -3808,12 +3978,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 						_ = func() ballrt.Value {
 							if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 								return _checkLoopsInExpr(func() ballrt.Value {
-									__map59 := ballrt.NewMap()
-									__map59.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-									__map59.Set(ballrt.ToStr("moduleName"), moduleName)
-									__map59.Set(ballrt.ToStr("fnName"), fnName)
-									__map59.Set(ballrt.ToStr("warnings"), warnings)
-									return __map59
+									__map60 := ballrt.NewMap()
+									__map60.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+									__map60.Set(ballrt.ToStr("moduleName"), moduleName)
+									__map60.Set(ballrt.ToStr("fnName"), fnName)
+									__map60.Set(ballrt.ToStr("warnings"), warnings)
+									return __map60
 								}())
 							}
 							return ballrt.Value(nil)
@@ -3824,12 +3994,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 				return func() ballrt.Value {
 					if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 						return _checkLoopsInExpr(func() ballrt.Value {
-							__map60 := ballrt.NewMap()
-							__map60.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-							__map60.Set(ballrt.ToStr("moduleName"), moduleName)
-							__map60.Set(ballrt.ToStr("fnName"), fnName)
-							__map60.Set(ballrt.ToStr("warnings"), warnings)
-							return __map60
+							__map61 := ballrt.NewMap()
+							__map61.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+							__map61.Set(ballrt.ToStr("moduleName"), moduleName)
+							__map61.Set(ballrt.ToStr("fnName"), fnName)
+							__map61.Set(ballrt.ToStr("warnings"), warnings)
+							return __map61
 						}())
 					}
 					return func() ballrt.Value {
@@ -3840,12 +4010,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _checkLoopsInExpr(func() ballrt.Value {
-												__map61 := ballrt.NewMap()
-												__map61.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map61.Set(ballrt.ToStr("moduleName"), moduleName)
-												__map61.Set(ballrt.ToStr("fnName"), fnName)
-												__map61.Set(ballrt.ToStr("warnings"), warnings)
-												return __map61
+												__map62 := ballrt.NewMap()
+												__map62.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map62.Set(ballrt.ToStr("moduleName"), moduleName)
+												__map62.Set(ballrt.ToStr("fnName"), fnName)
+												__map62.Set(ballrt.ToStr("warnings"), warnings)
+												return __map62
 											}())
 										}) {
 											break
@@ -3861,12 +4031,12 @@ func _checkLoopsInExpr(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _checkLoopsInExpr(func() ballrt.Value {
-											__map62 := ballrt.NewMap()
-											__map62.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map62.Set(ballrt.ToStr("moduleName"), moduleName)
-											__map62.Set(ballrt.ToStr("fnName"), fnName)
-											__map62.Set(ballrt.ToStr("warnings"), warnings)
-											return __map62
+											__map63 := ballrt.NewMap()
+											__map63.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map63.Set(ballrt.ToStr("moduleName"), moduleName)
+											__map63.Set(ballrt.ToStr("fnName"), fnName)
+											__map63.Set(ballrt.ToStr("warnings"), warnings)
+											return __map63
 										}())
 									}
 									return ballrt.Value(nil)
@@ -3924,17 +4094,17 @@ func _checkWhileLoop(input ballrt.Value) (__ret ballrt.Value) {
 		var fields ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields")
 		_ = fields
 		var condition ballrt.Value = _getFieldValue(func() ballrt.Value {
-			__map63 := ballrt.NewMap()
-			__map63.Set(ballrt.ToStr("fields"), fields)
-			__map63.Set(ballrt.ToStr("name"), "condition")
-			return __map63
+			__map64 := ballrt.NewMap()
+			__map64.Set(ballrt.ToStr("fields"), fields)
+			__map64.Set(ballrt.ToStr("name"), "condition")
+			return __map64
 		}())
 		_ = condition
 		var body ballrt.Value = _getFieldValue(func() ballrt.Value {
-			__map64 := ballrt.NewMap()
-			__map64.Set(ballrt.ToStr("fields"), fields)
-			__map64.Set(ballrt.ToStr("name"), "body")
-			return __map64
+			__map65 := ballrt.NewMap()
+			__map65.Set(ballrt.ToStr("fields"), fields)
+			__map65.Set(ballrt.ToStr("name"), "body")
+			return __map65
 		}())
 		_ = body
 		_ = func() ballrt.Value {
@@ -3951,32 +4121,32 @@ func _checkWhileLoop(input ballrt.Value) (__ret ballrt.Value) {
 		var condVars ballrt.Value = ballrt.NewList()
 		_ = condVars
 		_ = _collectReferencedVars(func() ballrt.Value {
-			__map65 := ballrt.NewMap()
-			__map65.Set(ballrt.ToStr("expr"), condition)
-			__map65.Set(ballrt.ToStr("vars"), condVars)
-			return __map65
+			__map66 := ballrt.NewMap()
+			__map66.Set(ballrt.ToStr("expr"), condition)
+			__map66.Set(ballrt.ToStr("vars"), condVars)
+			return __map66
 		}())
 		var hasExit ballrt.Value = _exprHasExitSignal(body)
 		_ = hasExit
 		var mutatedVars ballrt.Value = ballrt.NewList()
 		_ = mutatedVars
 		_ = _collectMutatedVars(func() ballrt.Value {
-			__map66 := ballrt.NewMap()
-			__map66.Set(ballrt.ToStr("expr"), body)
-			__map66.Set(ballrt.ToStr("vars"), mutatedVars)
-			return __map66
+			__map67 := ballrt.NewMap()
+			__map67.Set(ballrt.ToStr("expr"), body)
+			__map67.Set(ballrt.ToStr("vars"), mutatedVars)
+			return __map67
 		}())
 		_ = func() ballrt.Value {
 			if ballrt.Truthy((ballrt.Truthy(isLiteralTrue) && ballrt.Truthy(ballrt.Not(hasExit)))) {
 				return func() ballrt.Value {
 					_ = func() ballrt.Value {
 						__v := ballrt.ListPush(warnings, func() ballrt.Value {
-							__map67 := ballrt.NewMap()
-							__map67.Set(ballrt.ToStr("severity"), "warning")
-							__map67.Set(ballrt.ToStr("category"), "infinite_loop")
-							__map67.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.ToStr(kind), "(true) loop without break or return in body"))
-							__map67.Set(ballrt.ToStr("location"), location)
-							return __map67
+							__map68 := ballrt.NewMap()
+							__map68.Set(ballrt.ToStr("severity"), "warning")
+							__map68.Set(ballrt.ToStr("category"), "infinite_loop")
+							__map68.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.ToStr(kind), "(true) loop without break or return in body"))
+							__map68.Set(ballrt.ToStr("location"), location)
+							return __map68
 						}())
 						warnings = __v
 						return __v
@@ -4009,12 +4179,12 @@ func _checkWhileLoop(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Truthy((ballrt.Truthy((ballrt.Truthy((ballrt.Truthy(ballrt.Not(isLiteralTrue)) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(condVars))))) && ballrt.Truthy(ballrt.Not(hasExit)))) && ballrt.Truthy(ballrt.Not(intersects)))) {
 				return func() ballrt.Value {
 					__v := ballrt.ListPush(warnings, func() ballrt.Value {
-						__map68 := ballrt.NewMap()
-						__map68.Set(ballrt.ToStr("severity"), "warning")
-						__map68.Set(ballrt.ToStr("category"), "infinite_loop")
-						__map68.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(kind), " loop condition references "), ballrt.ToStr(ballrt.ListJoin(condVars, ", "))), " but body "), "does not modify any of them and has no break/return"))
-						__map68.Set(ballrt.ToStr("location"), location)
-						return __map68
+						__map69 := ballrt.NewMap()
+						__map69.Set(ballrt.ToStr("severity"), "warning")
+						__map69.Set(ballrt.ToStr("category"), "infinite_loop")
+						__map69.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(kind), " loop condition references "), ballrt.ToStr(ballrt.ListJoin(condVars, ", "))), " but body "), "does not modify any of them and has no break/return"))
+						__map69.Set(ballrt.ToStr("location"), location)
+						return __map69
 					}())
 					warnings = __v
 					return __v
@@ -4066,17 +4236,17 @@ func _checkForLoop(input ballrt.Value) (__ret ballrt.Value) {
 		var fields ballrt.Value = ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields")
 		_ = fields
 		var update ballrt.Value = _getFieldValue(func() ballrt.Value {
-			__map69 := ballrt.NewMap()
-			__map69.Set(ballrt.ToStr("fields"), fields)
-			__map69.Set(ballrt.ToStr("name"), "update")
-			return __map69
+			__map70 := ballrt.NewMap()
+			__map70.Set(ballrt.ToStr("fields"), fields)
+			__map70.Set(ballrt.ToStr("name"), "update")
+			return __map70
 		}())
 		_ = update
 		var body ballrt.Value = _getFieldValue(func() ballrt.Value {
-			__map70 := ballrt.NewMap()
-			__map70.Set(ballrt.ToStr("fields"), fields)
-			__map70.Set(ballrt.ToStr("name"), "body")
-			return __map70
+			__map71 := ballrt.NewMap()
+			__map71.Set(ballrt.ToStr("fields"), fields)
+			__map71.Set(ballrt.ToStr("name"), "body")
+			return __map71
 		}())
 		_ = body
 		var hasUpdate ballrt.Value = (ballrt.Truthy(ballrt.Neq(update, ballrt.Value(nil))) && ballrt.Truthy(_exprIsSet(update)))
@@ -4087,12 +4257,12 @@ func _checkForLoop(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Truthy((ballrt.Truthy(ballrt.Not(hasUpdate)) && ballrt.Truthy(ballrt.Not(hasExit)))) {
 				return func() ballrt.Value {
 					__v := ballrt.ListPush(warnings, func() ballrt.Value {
-						__map71 := ballrt.NewMap()
-						__map71.Set(ballrt.ToStr("severity"), "warning")
-						__map71.Set(ballrt.ToStr("category"), "infinite_loop")
-						__map71.Set(ballrt.ToStr("message"), "for loop without update expression and no break/return in body")
-						__map71.Set(ballrt.ToStr("location"), location)
-						return __map71
+						__map72 := ballrt.NewMap()
+						__map72.Set(ballrt.ToStr("severity"), "warning")
+						__map72.Set(ballrt.ToStr("category"), "infinite_loop")
+						__map72.Set(ballrt.ToStr("message"), "for loop without update expression and no break/return in body")
+						__map72.Set(ballrt.ToStr("location"), location)
+						return __map72
 					}())
 					warnings = __v
 					return __v
@@ -4118,9 +4288,9 @@ func _checkRecursion(input ballrt.Value) (__ret ballrt.Value) {
 		var warnings ballrt.Value = ballrt.IndexGet(ctx, "warnings")
 		_ = warnings
 		var cycles ballrt.Value = _findCycles(func() ballrt.Value {
-			__map72 := ballrt.NewMap()
-			__map72.Set(ballrt.ToStr("callGraph"), callGraph)
-			return __map72
+			__map73 := ballrt.NewMap()
+			__map73.Set(ballrt.ToStr("callGraph"), callGraph)
+			return __map73
 		}())
 		_ = cycles
 		_ = func() ballrt.Value {
@@ -4136,10 +4306,10 @@ func _checkRecursion(input ballrt.Value) (__ret ballrt.Value) {
 								if ballrt.RunLoopBody("", func() {
 									_ = func() ballrt.Value {
 										if ballrt.Truthy(ballrt.Not(_hasBaseCase(func() ballrt.Value {
-											__map73 := ballrt.NewMap()
-											__map73.Set(ballrt.ToStr("modules"), modules)
-											__map73.Set(ballrt.ToStr("fnKey"), fnKey)
-											return __map73
+											__map74 := ballrt.NewMap()
+											__map74.Set(ballrt.ToStr("modules"), modules)
+											__map74.Set(ballrt.ToStr("fnKey"), fnKey)
+											return __map74
 										}()))) {
 											return func() ballrt.Value {
 												var cycleDesc ballrt.Value = func() ballrt.Value {
@@ -4151,12 +4321,12 @@ func _checkRecursion(input ballrt.Value) (__ret ballrt.Value) {
 												_ = cycleDesc
 												_ = func() ballrt.Value {
 													__v := ballrt.ListPush(warnings, func() ballrt.Value {
-														__map74 := ballrt.NewMap()
-														__map74.Set(ballrt.ToStr("severity"), "warning")
-														__map74.Set(ballrt.ToStr("category"), "unbounded_recursion")
-														__map74.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.ToStr(cycleDesc), " without conditional return (no base case detected)"))
-														__map74.Set(ballrt.ToStr("location"), fnKey)
-														return __map74
+														__map75 := ballrt.NewMap()
+														__map75.Set(ballrt.ToStr("severity"), "warning")
+														__map75.Set(ballrt.ToStr("category"), "unbounded_recursion")
+														__map75.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.ToStr(cycleDesc), " without conditional return (no base case detected)"))
+														__map75.Set(ballrt.ToStr("location"), fnKey)
+														return __map75
 													}())
 													warnings = __v
 													return __v
@@ -4207,14 +4377,14 @@ func _findCycles(input ballrt.Value) (__ret ballrt.Value) {
 				_ = entry
 				if ballrt.RunLoopBody("", func() {
 					_ = _dfsCycles(func() ballrt.Value {
-						__map75 := ballrt.NewMap()
-						__map75.Set(ballrt.ToStr("callGraph"), callGraph)
-						__map75.Set(ballrt.ToStr("visited"), visited)
-						__map75.Set(ballrt.ToStr("stack"), stack)
-						__map75.Set(ballrt.ToStr("cycles"), cycles)
-						__map75.Set(ballrt.ToStr("reportedCycles"), reportedCycles)
-						__map75.Set(ballrt.ToStr("node"), ballrt.IndexGet(entry, "key"))
-						return __map75
+						__map76 := ballrt.NewMap()
+						__map76.Set(ballrt.ToStr("callGraph"), callGraph)
+						__map76.Set(ballrt.ToStr("visited"), visited)
+						__map76.Set(ballrt.ToStr("stack"), stack)
+						__map76.Set(ballrt.ToStr("cycles"), cycles)
+						__map76.Set(ballrt.ToStr("reportedCycles"), reportedCycles)
+						__map76.Set(ballrt.ToStr("node"), ballrt.IndexGet(entry, "key"))
+						return __map76
 					}())
 				}) {
 					break
@@ -4318,14 +4488,14 @@ func _dfsCycles(input ballrt.Value) (__ret ballrt.Value) {
 						return func() ballrt.Value {
 							if ballrt.Truthy(ballrt.Not(ballrt.ListContains(visited, neighbor))) {
 								return _dfsCycles(func() ballrt.Value {
-									__map76 := ballrt.NewMap()
-									__map76.Set(ballrt.ToStr("callGraph"), callGraph)
-									__map76.Set(ballrt.ToStr("visited"), visited)
-									__map76.Set(ballrt.ToStr("stack"), stack)
-									__map76.Set(ballrt.ToStr("cycles"), cycles)
-									__map76.Set(ballrt.ToStr("reportedCycles"), reportedCycles)
-									__map76.Set(ballrt.ToStr("node"), neighbor)
-									return __map76
+									__map77 := ballrt.NewMap()
+									__map77.Set(ballrt.ToStr("callGraph"), callGraph)
+									__map77.Set(ballrt.ToStr("visited"), visited)
+									__map77.Set(ballrt.ToStr("stack"), stack)
+									__map77.Set(ballrt.ToStr("cycles"), cycles)
+									__map77.Set(ballrt.ToStr("reportedCycles"), reportedCycles)
+									__map77.Set(ballrt.ToStr("node"), neighbor)
+									return __map77
 								}())
 							}
 							return ballrt.Value(nil)
@@ -4439,17 +4609,17 @@ func _exprContainsConditionalReturn(input ballrt.Value) (__ret ballrt.Value) {
 									if ballrt.Truthy(ballrt.HasField(callInput, "messageCreation")) {
 										return func() ballrt.Value {
 											var thenBranch ballrt.Value = _getFieldValue(func() ballrt.Value {
-												__map77 := ballrt.NewMap()
-												__map77.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
-												__map77.Set(ballrt.ToStr("name"), "then")
-												return __map77
+												__map78 := ballrt.NewMap()
+												__map78.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
+												__map78.Set(ballrt.ToStr("name"), "then")
+												return __map78
 											}())
 											_ = thenBranch
 											var elseBranch ballrt.Value = _getFieldValue(func() ballrt.Value {
-												__map78 := ballrt.NewMap()
-												__map78.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
-												__map78.Set(ballrt.ToStr("name"), "else")
-												return __map78
+												__map79 := ballrt.NewMap()
+												__map79.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
+												__map79.Set(ballrt.ToStr("name"), "else")
+												return __map79
 											}())
 											_ = elseBranch
 											_ = func() ballrt.Value {
@@ -4825,12 +4995,12 @@ func _checkUnreachableCode(input ballrt.Value) (__ret ballrt.Value) {
 											return ballrt.Value(nil)
 										}()
 										_ = _checkUnreachableInExpr(func() ballrt.Value {
-											__map79 := ballrt.NewMap()
-											__map79.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
-											__map79.Set(ballrt.ToStr("moduleName"), ballrt.FieldGet(module, "name"))
-											__map79.Set(ballrt.ToStr("fnName"), ballrt.FieldGet(fn, "name"))
-											__map79.Set(ballrt.ToStr("warnings"), warnings)
-											return __map79
+											__map80 := ballrt.NewMap()
+											__map80.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
+											__map80.Set(ballrt.ToStr("moduleName"), ballrt.FieldGet(module, "name"))
+											__map80.Set(ballrt.ToStr("fnName"), ballrt.FieldGet(fn, "name"))
+											__map80.Set(ballrt.ToStr("warnings"), warnings)
+											return __map80
 										}())
 										return ballrt.Value(nil)
 									}()
@@ -4880,12 +5050,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Truthy(ballrt.HasField(expr, "block")) {
 				return func() ballrt.Value {
 					_ = _checkBlockUnreachable(func() ballrt.Value {
-						__map80 := ballrt.NewMap()
-						__map80.Set(ballrt.ToStr("block"), ballrt.FieldGet(expr, "block"))
-						__map80.Set(ballrt.ToStr("moduleName"), moduleName)
-						__map80.Set(ballrt.ToStr("fnName"), fnName)
-						__map80.Set(ballrt.ToStr("warnings"), warnings)
-						return __map80
+						__map81 := ballrt.NewMap()
+						__map81.Set(ballrt.ToStr("block"), ballrt.FieldGet(expr, "block"))
+						__map81.Set(ballrt.ToStr("moduleName"), moduleName)
+						__map81.Set(ballrt.ToStr("fnName"), fnName)
+						__map81.Set(ballrt.ToStr("warnings"), warnings)
+						return __map81
 					}())
 					_ = func() ballrt.Value {
 						for _, stmt := range ballrt.Iterate(ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "statements")) {
@@ -4895,12 +5065,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 									_ = func() ballrt.Value {
 										if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 											return _checkUnreachableInExpr(func() ballrt.Value {
-												__map81 := ballrt.NewMap()
-												__map81.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-												__map81.Set(ballrt.ToStr("moduleName"), moduleName)
-												__map81.Set(ballrt.ToStr("fnName"), fnName)
-												__map81.Set(ballrt.ToStr("warnings"), warnings)
-												return __map81
+												__map82 := ballrt.NewMap()
+												__map82.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+												__map82.Set(ballrt.ToStr("moduleName"), moduleName)
+												__map82.Set(ballrt.ToStr("fnName"), fnName)
+												__map82.Set(ballrt.ToStr("warnings"), warnings)
+												return __map82
 											}())
 										}
 										return ballrt.Value(nil)
@@ -4908,12 +5078,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 									_ = func() ballrt.Value {
 										if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 											return _checkUnreachableInExpr(func() ballrt.Value {
-												__map82 := ballrt.NewMap()
-												__map82.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-												__map82.Set(ballrt.ToStr("moduleName"), moduleName)
-												__map82.Set(ballrt.ToStr("fnName"), fnName)
-												__map82.Set(ballrt.ToStr("warnings"), warnings)
-												return __map82
+												__map83 := ballrt.NewMap()
+												__map83.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+												__map83.Set(ballrt.ToStr("moduleName"), moduleName)
+												__map83.Set(ballrt.ToStr("fnName"), fnName)
+												__map83.Set(ballrt.ToStr("warnings"), warnings)
+												return __map83
 											}())
 										}
 										return ballrt.Value(nil)
@@ -4929,12 +5099,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 							return _checkUnreachableInExpr(func() ballrt.Value {
-								__map83 := ballrt.NewMap()
-								__map83.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-								__map83.Set(ballrt.ToStr("moduleName"), moduleName)
-								__map83.Set(ballrt.ToStr("fnName"), fnName)
-								__map83.Set(ballrt.ToStr("warnings"), warnings)
-								return __map83
+								__map84 := ballrt.NewMap()
+								__map84.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+								__map84.Set(ballrt.ToStr("moduleName"), moduleName)
+								__map84.Set(ballrt.ToStr("fnName"), fnName)
+								__map84.Set(ballrt.ToStr("warnings"), warnings)
+								return __map84
 							}())
 						}
 						return ballrt.Value(nil)
@@ -4947,12 +5117,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 					return func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "call"), "input")) {
 							return _checkUnreachableInExpr(func() ballrt.Value {
-								__map84 := ballrt.NewMap()
-								__map84.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "call"), "input"))
-								__map84.Set(ballrt.ToStr("moduleName"), moduleName)
-								__map84.Set(ballrt.ToStr("fnName"), fnName)
-								__map84.Set(ballrt.ToStr("warnings"), warnings)
-								return __map84
+								__map85 := ballrt.NewMap()
+								__map85.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "call"), "input"))
+								__map85.Set(ballrt.ToStr("moduleName"), moduleName)
+								__map85.Set(ballrt.ToStr("fnName"), fnName)
+								__map85.Set(ballrt.ToStr("warnings"), warnings)
+								return __map85
 							}())
 						}
 						return ballrt.Value(nil)
@@ -4961,12 +5131,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 				return func() ballrt.Value {
 					if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 						return _checkUnreachableInExpr(func() ballrt.Value {
-							__map85 := ballrt.NewMap()
-							__map85.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-							__map85.Set(ballrt.ToStr("moduleName"), moduleName)
-							__map85.Set(ballrt.ToStr("fnName"), fnName)
-							__map85.Set(ballrt.ToStr("warnings"), warnings)
-							return __map85
+							__map86 := ballrt.NewMap()
+							__map86.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+							__map86.Set(ballrt.ToStr("moduleName"), moduleName)
+							__map86.Set(ballrt.ToStr("fnName"), fnName)
+							__map86.Set(ballrt.ToStr("warnings"), warnings)
+							return __map86
 						}())
 					}
 					return func() ballrt.Value {
@@ -4977,12 +5147,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _checkUnreachableInExpr(func() ballrt.Value {
-												__map86 := ballrt.NewMap()
-												__map86.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map86.Set(ballrt.ToStr("moduleName"), moduleName)
-												__map86.Set(ballrt.ToStr("fnName"), fnName)
-												__map86.Set(ballrt.ToStr("warnings"), warnings)
-												return __map86
+												__map87 := ballrt.NewMap()
+												__map87.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map87.Set(ballrt.ToStr("moduleName"), moduleName)
+												__map87.Set(ballrt.ToStr("fnName"), fnName)
+												__map87.Set(ballrt.ToStr("warnings"), warnings)
+												return __map87
 											}())
 										}) {
 											break
@@ -4998,12 +5168,12 @@ func _checkUnreachableInExpr(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _checkUnreachableInExpr(func() ballrt.Value {
-											__map87 := ballrt.NewMap()
-											__map87.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map87.Set(ballrt.ToStr("moduleName"), moduleName)
-											__map87.Set(ballrt.ToStr("fnName"), fnName)
-											__map87.Set(ballrt.ToStr("warnings"), warnings)
-											return __map87
+											__map88 := ballrt.NewMap()
+											__map88.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map88.Set(ballrt.ToStr("moduleName"), moduleName)
+											__map88.Set(ballrt.ToStr("fnName"), fnName)
+											__map88.Set(ballrt.ToStr("warnings"), warnings)
+											return __map88
 										}())
 									}
 									return ballrt.Value(nil)
@@ -5053,12 +5223,12 @@ func _checkBlockUnreachable(input ballrt.Value) (__ret ballrt.Value) {
 									_ = unreachableCount
 									_ = func() ballrt.Value {
 										__v := ballrt.ListPush(warnings, func() ballrt.Value {
-											__map88 := ballrt.NewMap()
-											__map88.Set(ballrt.ToStr("severity"), "warning")
-											__map88.Set(ballrt.ToStr("category"), "unreachable_code")
-											__map88.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(unreachableCount), " statement(s) after "), ballrt.ToStr(_terminatingCallName(stmt))), " are unreachable"))
-											__map88.Set(ballrt.ToStr("location"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(moduleName), "."), ballrt.ToStr(fnName)), ":stmt["), ballrt.ToStr(ballrt.Add(i, int64(1)))), "]"))
-											return __map88
+											__map89 := ballrt.NewMap()
+											__map89.Set(ballrt.ToStr("severity"), "warning")
+											__map89.Set(ballrt.ToStr("category"), "unreachable_code")
+											__map89.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(unreachableCount), " statement(s) after "), ballrt.ToStr(_terminatingCallName(stmt))), " are unreachable"))
+											__map89.Set(ballrt.ToStr("location"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.ToStr(moduleName), "."), ballrt.ToStr(fnName)), ":stmt["), ballrt.ToStr(ballrt.Add(i, int64(1)))), "]"))
+											return __map89
 										}())
 										warnings = __v
 										return __v
@@ -5203,18 +5373,18 @@ func _checkOrphanedLabels(input ballrt.Value) (__ret ballrt.Value) {
 										var definedLabels ballrt.Value = ballrt.NewList()
 										_ = definedLabels
 										_ = _collectDefinedLabels(func() ballrt.Value {
-											__map89 := ballrt.NewMap()
-											__map89.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
-											__map89.Set(ballrt.ToStr("labels"), definedLabels)
-											return __map89
+											__map90 := ballrt.NewMap()
+											__map90.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
+											__map90.Set(ballrt.ToStr("labels"), definedLabels)
+											return __map90
 										}())
 										var usedLabels ballrt.Value = ballrt.NewList()
 										_ = usedLabels
 										_ = _collectLabelUsages(func() ballrt.Value {
-											__map90 := ballrt.NewMap()
-											__map90.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
-											__map90.Set(ballrt.ToStr("usages"), usedLabels)
-											return __map90
+											__map91 := ballrt.NewMap()
+											__map91.Set(ballrt.ToStr("expr"), ballrt.FieldGet(fn, "body"))
+											__map91.Set(ballrt.ToStr("usages"), usedLabels)
+											return __map91
 										}())
 										_ = func() ballrt.Value {
 											for _, usage := range ballrt.Iterate(usedLabels) {
@@ -5227,12 +5397,12 @@ func _checkOrphanedLabels(input ballrt.Value) (__ret ballrt.Value) {
 															if ballrt.Truthy((ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(label))) && ballrt.Truthy(ballrt.Not(ballrt.ListContains(definedLabels, label))))) {
 																return func() ballrt.Value {
 																	__v := ballrt.ListPush(warnings, func() ballrt.Value {
-																		__map91 := ballrt.NewMap()
-																		__map91.Set(ballrt.ToStr("severity"), "error")
-																		__map91.Set(ballrt.ToStr("category"), "orphaned_label")
-																		__map91.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat("std.", ballrt.ToStr(ballrt.IndexGet(usage, "kind"))), "(label: \""), ballrt.ToStr(label)), "\") references "), ballrt.Concat(ballrt.Concat("undefined label \"", ballrt.ToStr(label)), "\"")))
-																		__map91.Set(ballrt.ToStr("location"), ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.FieldGet(module, "name")), "."), ballrt.ToStr(ballrt.FieldGet(fn, "name"))))
-																		return __map91
+																		__map92 := ballrt.NewMap()
+																		__map92.Set(ballrt.ToStr("severity"), "error")
+																		__map92.Set(ballrt.ToStr("category"), "orphaned_label")
+																		__map92.Set(ballrt.ToStr("message"), ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat(ballrt.Concat("std.", ballrt.ToStr(ballrt.IndexGet(usage, "kind"))), "(label: \""), ballrt.ToStr(label)), "\") references "), ballrt.Concat(ballrt.Concat("undefined label \"", ballrt.ToStr(label)), "\"")))
+																		__map92.Set(ballrt.ToStr("location"), ballrt.Concat(ballrt.Concat(ballrt.ToStr(ballrt.FieldGet(module, "name")), "."), ballrt.ToStr(ballrt.FieldGet(fn, "name"))))
+																		return __map92
 																	}())
 																	warnings = __v
 																	return __v
@@ -5309,10 +5479,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 									if ballrt.Truthy(ballrt.HasField(callInput, "messageCreation")) {
 										return func() ballrt.Value {
 											var name ballrt.Value = _getStringFieldValue(func() ballrt.Value {
-												__map92 := ballrt.NewMap()
-												__map92.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
-												__map92.Set(ballrt.ToStr("name"), "name")
-												return __map92
+												__map93 := ballrt.NewMap()
+												__map93.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
+												__map93.Set(ballrt.ToStr("name"), "name")
+												return __map93
 											}())
 											_ = name
 											_ = func() ballrt.Value {
@@ -5339,10 +5509,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(call, "input")) {
 							return _collectDefinedLabels(func() ballrt.Value {
-								__map93 := ballrt.NewMap()
-								__map93.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
-								__map93.Set(ballrt.ToStr("labels"), labels)
-								return __map93
+								__map94 := ballrt.NewMap()
+								__map94.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
+								__map94.Set(ballrt.ToStr("labels"), labels)
+								return __map94
 							}())
 						}
 						return ballrt.Value(nil)
@@ -5361,10 +5531,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 												return _collectDefinedLabels(func() ballrt.Value {
-													__map94 := ballrt.NewMap()
-													__map94.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-													__map94.Set(ballrt.ToStr("labels"), labels)
-													return __map94
+													__map95 := ballrt.NewMap()
+													__map95.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+													__map95.Set(ballrt.ToStr("labels"), labels)
+													return __map95
 												}())
 											}
 											return ballrt.Value(nil)
@@ -5372,10 +5542,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 												return _collectDefinedLabels(func() ballrt.Value {
-													__map95 := ballrt.NewMap()
-													__map95.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-													__map95.Set(ballrt.ToStr("labels"), labels)
-													return __map95
+													__map96 := ballrt.NewMap()
+													__map96.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+													__map96.Set(ballrt.ToStr("labels"), labels)
+													return __map96
 												}())
 											}
 											return ballrt.Value(nil)
@@ -5391,10 +5561,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 						_ = func() ballrt.Value {
 							if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 								return _collectDefinedLabels(func() ballrt.Value {
-									__map96 := ballrt.NewMap()
-									__map96.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-									__map96.Set(ballrt.ToStr("labels"), labels)
-									return __map96
+									__map97 := ballrt.NewMap()
+									__map97.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+									__map97.Set(ballrt.ToStr("labels"), labels)
+									return __map97
 								}())
 							}
 							return ballrt.Value(nil)
@@ -5405,10 +5575,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 				return func() ballrt.Value {
 					if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 						return _collectDefinedLabels(func() ballrt.Value {
-							__map97 := ballrt.NewMap()
-							__map97.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-							__map97.Set(ballrt.ToStr("labels"), labels)
-							return __map97
+							__map98 := ballrt.NewMap()
+							__map98.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+							__map98.Set(ballrt.ToStr("labels"), labels)
+							return __map98
 						}())
 					}
 					return func() ballrt.Value {
@@ -5419,10 +5589,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _collectDefinedLabels(func() ballrt.Value {
-												__map98 := ballrt.NewMap()
-												__map98.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map98.Set(ballrt.ToStr("labels"), labels)
-												return __map98
+												__map99 := ballrt.NewMap()
+												__map99.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map99.Set(ballrt.ToStr("labels"), labels)
+												return __map99
 											}())
 										}) {
 											break
@@ -5438,10 +5608,10 @@ func _collectDefinedLabels(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _collectDefinedLabels(func() ballrt.Value {
-											__map99 := ballrt.NewMap()
-											__map99.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map99.Set(ballrt.ToStr("labels"), labels)
-											return __map99
+											__map100 := ballrt.NewMap()
+											__map100.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map100.Set(ballrt.ToStr("labels"), labels)
+											return __map100
 										}())
 									}
 									return ballrt.Value(nil)
@@ -5498,20 +5668,20 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 									if ballrt.Truthy(ballrt.HasField(callInput, "messageCreation")) {
 										return func() ballrt.Value {
 											var label ballrt.Value = _getStringFieldValue(func() ballrt.Value {
-												__map100 := ballrt.NewMap()
-												__map100.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
-												__map100.Set(ballrt.ToStr("name"), "label")
-												return __map100
+												__map101 := ballrt.NewMap()
+												__map101.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
+												__map101.Set(ballrt.ToStr("name"), "label")
+												return __map101
 											}())
 											_ = label
 											_ = func() ballrt.Value {
 												if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(label, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(label))))) {
 													return func() ballrt.Value {
 														__v := ballrt.ListPush(usages, func() ballrt.Value {
-															__map101 := ballrt.NewMap()
-															__map101.Set(ballrt.ToStr("kind"), ballrt.FieldGet(call, "function"))
-															__map101.Set(ballrt.ToStr("label"), label)
-															return __map101
+															__map102 := ballrt.NewMap()
+															__map102.Set(ballrt.ToStr("kind"), ballrt.FieldGet(call, "function"))
+															__map102.Set(ballrt.ToStr("label"), label)
+															return __map102
 														}())
 														usages = __v
 														return __v
@@ -5532,10 +5702,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(call, "input")) {
 							return _collectLabelUsages(func() ballrt.Value {
-								__map102 := ballrt.NewMap()
-								__map102.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
-								__map102.Set(ballrt.ToStr("usages"), usages)
-								return __map102
+								__map103 := ballrt.NewMap()
+								__map103.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
+								__map103.Set(ballrt.ToStr("usages"), usages)
+								return __map103
 							}())
 						}
 						return ballrt.Value(nil)
@@ -5554,10 +5724,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 												return _collectLabelUsages(func() ballrt.Value {
-													__map103 := ballrt.NewMap()
-													__map103.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-													__map103.Set(ballrt.ToStr("usages"), usages)
-													return __map103
+													__map104 := ballrt.NewMap()
+													__map104.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+													__map104.Set(ballrt.ToStr("usages"), usages)
+													return __map104
 												}())
 											}
 											return ballrt.Value(nil)
@@ -5565,10 +5735,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 												return _collectLabelUsages(func() ballrt.Value {
-													__map104 := ballrt.NewMap()
-													__map104.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-													__map104.Set(ballrt.ToStr("usages"), usages)
-													return __map104
+													__map105 := ballrt.NewMap()
+													__map105.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+													__map105.Set(ballrt.ToStr("usages"), usages)
+													return __map105
 												}())
 											}
 											return ballrt.Value(nil)
@@ -5584,10 +5754,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 						_ = func() ballrt.Value {
 							if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 								return _collectLabelUsages(func() ballrt.Value {
-									__map105 := ballrt.NewMap()
-									__map105.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-									__map105.Set(ballrt.ToStr("usages"), usages)
-									return __map105
+									__map106 := ballrt.NewMap()
+									__map106.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+									__map106.Set(ballrt.ToStr("usages"), usages)
+									return __map106
 								}())
 							}
 							return ballrt.Value(nil)
@@ -5598,10 +5768,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 				return func() ballrt.Value {
 					if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 						return _collectLabelUsages(func() ballrt.Value {
-							__map106 := ballrt.NewMap()
-							__map106.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-							__map106.Set(ballrt.ToStr("usages"), usages)
-							return __map106
+							__map107 := ballrt.NewMap()
+							__map107.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+							__map107.Set(ballrt.ToStr("usages"), usages)
+							return __map107
 						}())
 					}
 					return func() ballrt.Value {
@@ -5612,10 +5782,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _collectLabelUsages(func() ballrt.Value {
-												__map107 := ballrt.NewMap()
-												__map107.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map107.Set(ballrt.ToStr("usages"), usages)
-												return __map107
+												__map108 := ballrt.NewMap()
+												__map108.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map108.Set(ballrt.ToStr("usages"), usages)
+												return __map108
 											}())
 										}) {
 											break
@@ -5631,10 +5801,10 @@ func _collectLabelUsages(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _collectLabelUsages(func() ballrt.Value {
-											__map108 := ballrt.NewMap()
-											__map108.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map108.Set(ballrt.ToStr("usages"), usages)
-											return __map108
+											__map109 := ballrt.NewMap()
+											__map109.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map109.Set(ballrt.ToStr("usages"), usages)
+											return __map109
 										}())
 									}
 									return ballrt.Value(nil)
@@ -5805,10 +5975,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 					return func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "call"), "input")) {
 							return _collectReferencedVars(func() ballrt.Value {
-								__map109 := ballrt.NewMap()
-								__map109.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "call"), "input"))
-								__map109.Set(ballrt.ToStr("vars"), vars)
-								return __map109
+								__map110 := ballrt.NewMap()
+								__map110.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "call"), "input"))
+								__map110.Set(ballrt.ToStr("vars"), vars)
+								return __map110
 							}())
 						}
 						return ballrt.Value(nil)
@@ -5825,10 +5995,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 											_ = func() ballrt.Value {
 												if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 													return _collectReferencedVars(func() ballrt.Value {
-														__map110 := ballrt.NewMap()
-														__map110.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-														__map110.Set(ballrt.ToStr("vars"), vars)
-														return __map110
+														__map111 := ballrt.NewMap()
+														__map111.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+														__map111.Set(ballrt.ToStr("vars"), vars)
+														return __map111
 													}())
 												}
 												return ballrt.Value(nil)
@@ -5836,10 +6006,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 											_ = func() ballrt.Value {
 												if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 													return _collectReferencedVars(func() ballrt.Value {
-														__map111 := ballrt.NewMap()
-														__map111.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-														__map111.Set(ballrt.ToStr("vars"), vars)
-														return __map111
+														__map112 := ballrt.NewMap()
+														__map112.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+														__map112.Set(ballrt.ToStr("vars"), vars)
+														return __map112
 													}())
 												}
 												return ballrt.Value(nil)
@@ -5855,10 +6025,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 							_ = func() ballrt.Value {
 								if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 									return _collectReferencedVars(func() ballrt.Value {
-										__map112 := ballrt.NewMap()
-										__map112.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-										__map112.Set(ballrt.ToStr("vars"), vars)
-										return __map112
+										__map113 := ballrt.NewMap()
+										__map113.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+										__map113.Set(ballrt.ToStr("vars"), vars)
+										return __map113
 									}())
 								}
 								return ballrt.Value(nil)
@@ -5874,10 +6044,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _collectReferencedVars(func() ballrt.Value {
-												__map113 := ballrt.NewMap()
-												__map113.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map113.Set(ballrt.ToStr("vars"), vars)
-												return __map113
+												__map114 := ballrt.NewMap()
+												__map114.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map114.Set(ballrt.ToStr("vars"), vars)
+												return __map114
 											}())
 										}) {
 											break
@@ -5893,10 +6063,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _collectReferencedVars(func() ballrt.Value {
-											__map114 := ballrt.NewMap()
-											__map114.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map114.Set(ballrt.ToStr("vars"), vars)
-											return __map114
+											__map115 := ballrt.NewMap()
+											__map115.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map115.Set(ballrt.ToStr("vars"), vars)
+											return __map115
 										}())
 									}
 									return ballrt.Value(nil)
@@ -5905,10 +6075,10 @@ func _collectReferencedVars(input ballrt.Value) (__ret ballrt.Value) {
 							return func() ballrt.Value {
 								if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 									return _collectReferencedVars(func() ballrt.Value {
-										__map115 := ballrt.NewMap()
-										__map115.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-										__map115.Set(ballrt.ToStr("vars"), vars)
-										return __map115
+										__map116 := ballrt.NewMap()
+										__map116.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+										__map116.Set(ballrt.ToStr("vars"), vars)
+										return __map116
 									}())
 								}
 								return ballrt.Value(nil)
@@ -5963,10 +6133,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 									if ballrt.Truthy(ballrt.HasField(callInput, "messageCreation")) {
 										return func() ballrt.Value {
 											var target ballrt.Value = _getFieldValue(func() ballrt.Value {
-												__map116 := ballrt.NewMap()
-												__map116.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
-												__map116.Set(ballrt.ToStr("name"), "target")
-												return __map116
+												__map117 := ballrt.NewMap()
+												__map117.Set(ballrt.ToStr("fields"), ballrt.FieldGet(ballrt.FieldGet(callInput, "messageCreation"), "fields"))
+												__map117.Set(ballrt.ToStr("name"), "target")
+												return __map117
 											}())
 											_ = target
 											_ = func() ballrt.Value {
@@ -5997,10 +6167,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 					_ = func() ballrt.Value {
 						if ballrt.Truthy(ballrt.HasField(call, "input")) {
 							return _collectMutatedVars(func() ballrt.Value {
-								__map117 := ballrt.NewMap()
-								__map117.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
-								__map117.Set(ballrt.ToStr("vars"), vars)
-								return __map117
+								__map118 := ballrt.NewMap()
+								__map118.Set(ballrt.ToStr("expr"), ballrt.FieldGet(call, "input"))
+								__map118.Set(ballrt.ToStr("vars"), vars)
+								return __map118
 							}())
 						}
 						return ballrt.Value(nil)
@@ -6019,10 +6189,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "let")) {
 												return _collectMutatedVars(func() ballrt.Value {
-													__map118 := ballrt.NewMap()
-													__map118.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
-													__map118.Set(ballrt.ToStr("vars"), vars)
-													return __map118
+													__map119 := ballrt.NewMap()
+													__map119.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(stmt, "let"), "value"))
+													__map119.Set(ballrt.ToStr("vars"), vars)
+													return __map119
 												}())
 											}
 											return ballrt.Value(nil)
@@ -6030,10 +6200,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 										_ = func() ballrt.Value {
 											if ballrt.Truthy(ballrt.HasField(stmt, "expression")) {
 												return _collectMutatedVars(func() ballrt.Value {
-													__map119 := ballrt.NewMap()
-													__map119.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
-													__map119.Set(ballrt.ToStr("vars"), vars)
-													return __map119
+													__map120 := ballrt.NewMap()
+													__map120.Set(ballrt.ToStr("expr"), ballrt.FieldGet(stmt, "expression"))
+													__map120.Set(ballrt.ToStr("vars"), vars)
+													return __map120
 												}())
 											}
 											return ballrt.Value(nil)
@@ -6049,10 +6219,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 						_ = func() ballrt.Value {
 							if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "block"), "result")) {
 								return _collectMutatedVars(func() ballrt.Value {
-									__map120 := ballrt.NewMap()
-									__map120.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
-									__map120.Set(ballrt.ToStr("vars"), vars)
-									return __map120
+									__map121 := ballrt.NewMap()
+									__map121.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "block"), "result"))
+									__map121.Set(ballrt.ToStr("vars"), vars)
+									return __map121
 								}())
 							}
 							return ballrt.Value(nil)
@@ -6063,10 +6233,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 				return func() ballrt.Value {
 					if ballrt.Truthy(ballrt.HasField(expr, "lambda")) {
 						return _collectMutatedVars(func() ballrt.Value {
-							__map121 := ballrt.NewMap()
-							__map121.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
-							__map121.Set(ballrt.ToStr("vars"), vars)
-							return __map121
+							__map122 := ballrt.NewMap()
+							__map122.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "lambda"), "body"))
+							__map122.Set(ballrt.ToStr("vars"), vars)
+							return __map122
 						}())
 					}
 					return func() ballrt.Value {
@@ -6077,10 +6247,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 										_ = field
 										if ballrt.RunLoopBody("", func() {
 											_ = _collectMutatedVars(func() ballrt.Value {
-												__map122 := ballrt.NewMap()
-												__map122.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
-												__map122.Set(ballrt.ToStr("vars"), vars)
-												return __map122
+												__map123 := ballrt.NewMap()
+												__map123.Set(ballrt.ToStr("expr"), ballrt.FieldGet(field, "value"))
+												__map123.Set(ballrt.ToStr("vars"), vars)
+												return __map123
 											}())
 										}) {
 											break
@@ -6096,10 +6266,10 @@ func _collectMutatedVars(input ballrt.Value) (__ret ballrt.Value) {
 								return func() ballrt.Value {
 									if ballrt.Truthy(ballrt.HasField(ballrt.FieldGet(expr, "fieldAccess"), "object")) {
 										return _collectMutatedVars(func() ballrt.Value {
-											__map123 := ballrt.NewMap()
-											__map123.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
-											__map123.Set(ballrt.ToStr("vars"), vars)
-											return __map123
+											__map124 := ballrt.NewMap()
+											__map124.Set(ballrt.ToStr("expr"), ballrt.FieldGet(ballrt.FieldGet(expr, "fieldAccess"), "object"))
+											__map124.Set(ballrt.ToStr("vars"), vars)
+											return __map124
 										}())
 									}
 									return ballrt.Value(nil)

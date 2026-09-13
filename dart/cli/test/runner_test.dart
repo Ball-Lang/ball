@@ -651,6 +651,21 @@ void main() {
       ]);
       expect(code, 1);
       expect(err, contains('mymodule.exec_shell'));
+
+      // The machine-readable report must not be weaker than the text one: an
+      // automated consumer reading `--output` JSON has to see the declaring
+      // module too, or the call-site spelling misleads it just as it did the
+      // human report before this fix.
+      final report = p('custom_unqualified_report.json');
+      final (jsonCode, _, _) = await run(['audit', path, '--output', report]);
+      expect(jsonCode, 0);
+      final decoded = jsonDecode(File(report).readAsStringSync()) as Map;
+      final caps = decoded['capabilities'] as List;
+      final custom =
+          caps.firstWhere((c) => (c as Map)['capability'] == 'custom') as Map;
+      final site = (custom['callSites'] as List).single as Map;
+      expect(site['calleeFunction'], 'exec_shell');
+      expect(site['resolvedModule'], 'mymodule');
     });
 
     test('--deny without --exit-code still returns 0 but reports', () async {

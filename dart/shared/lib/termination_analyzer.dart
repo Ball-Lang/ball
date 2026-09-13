@@ -43,6 +43,10 @@ List<Object?> _analyzeTerminationCore(Map ctx) {
     'modules': modules,
     'baseModules': baseModules,
     'customBaseFns': _collectCustomBaseFns(modules),
+    // The same fail-closed guard the capability analyzer applies: a bare name a
+    // non-base user function also declares is never resolved to a custom base
+    // function (issue #609 / `_resolveCustomBaseFn`).
+    'userFns': _collectUserFunctionNames(modules),
   });
   _checkLoops({
     'modules': modules,
@@ -147,6 +151,7 @@ List<Object?> _buildCallGraph(Map ctx) {
   final modules = ctx['modules'];
   final baseModules = ctx['baseModules'];
   final customBaseFns = ctx['customBaseFns'];
+  final userFns = ctx['userFns'];
   final graph = <Object?>[];
   for (final module in modules) {
     if (baseModules.contains(module.name)) continue;
@@ -163,6 +168,7 @@ List<Object?> _buildCallGraph(Map ctx) {
         'callees': callees,
         'customBaseFns': customBaseFns,
         'customCalls': customCalls,
+        'userFns': userFns,
       });
       graph.add({'key': key, 'callees': callees, 'customCalls': customCalls});
     }
@@ -204,15 +210,25 @@ void _collectCallees(Map ctx) {
   final List callees = ctx['callees'];
   final List customBaseFns = ctx['customBaseFns'];
   final List customCalls = ctx['customCalls'];
+  final userFns = ctx['userFns'];
   if (expr == null) return;
 
   if (expr.hasCall()) {
     final call = expr.call;
     final module = call.module.isEmpty ? contextModule : call.module;
     final fn = call.function;
-    final key = '$module.$fn';
-    if (customBaseFns.contains(key) && !customCalls.contains(key)) {
-      customCalls.add(key);
+    // Resolved by function identity, exactly as the capability analyzer does —
+    // an unqualified or benign-looking call site reaches the same host handler,
+    // so it is just as unanalyzable (issue #609).
+    final customEntry = _resolveCustomBaseFn(
+      customBaseFns,
+      module,
+      fn,
+      userFns,
+    );
+    if (customEntry != null) {
+      final String customKey = customEntry['key'];
+      if (!customCalls.contains(customKey)) customCalls.add(customKey);
     }
     if (!baseModules.contains(module)) {
       final ck = '$module.$fn';
@@ -226,6 +242,7 @@ void _collectCallees(Map ctx) {
         'callees': callees,
         'customBaseFns': customBaseFns,
         'customCalls': customCalls,
+        'userFns': userFns,
       });
     }
   } else if (expr.hasBlock()) {
@@ -238,6 +255,7 @@ void _collectCallees(Map ctx) {
           'callees': callees,
           'customBaseFns': customBaseFns,
           'customCalls': customCalls,
+          'userFns': userFns,
         });
       }
       if (stmt.hasExpression()) {
@@ -248,6 +266,7 @@ void _collectCallees(Map ctx) {
           'callees': callees,
           'customBaseFns': customBaseFns,
           'customCalls': customCalls,
+          'userFns': userFns,
         });
       }
     }
@@ -259,6 +278,7 @@ void _collectCallees(Map ctx) {
         'callees': callees,
         'customBaseFns': customBaseFns,
         'customCalls': customCalls,
+        'userFns': userFns,
       });
     }
   } else if (expr.hasLambda()) {
@@ -269,6 +289,7 @@ void _collectCallees(Map ctx) {
       'callees': callees,
       'customBaseFns': customBaseFns,
       'customCalls': customCalls,
+      'userFns': userFns,
     });
   } else if (expr.hasMessageCreation()) {
     for (final field in expr.messageCreation.fields) {
@@ -279,6 +300,7 @@ void _collectCallees(Map ctx) {
         'callees': callees,
         'customBaseFns': customBaseFns,
         'customCalls': customCalls,
+        'userFns': userFns,
       });
     }
   } else if (expr.hasFieldAccess()) {
@@ -290,6 +312,7 @@ void _collectCallees(Map ctx) {
         'callees': callees,
         'customBaseFns': customBaseFns,
         'customCalls': customCalls,
+        'userFns': userFns,
       });
     }
   } else if (expr.hasLiteral()) {
@@ -302,6 +325,7 @@ void _collectCallees(Map ctx) {
           'callees': callees,
           'customBaseFns': customBaseFns,
           'customCalls': customCalls,
+          'userFns': userFns,
         });
       }
     }

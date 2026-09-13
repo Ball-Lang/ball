@@ -260,22 +260,76 @@ List<String> _collectUserFunctionNames(dynamic modules) {
 /// audit simply missed it: the `(module, function)` lookup failed, the #402
 /// bare-name fallback failed too (the name is in no std module), the call was
 /// filed as an ordinary user call, and the program read **pure / NO RISK**.
-/// Every key returned here is classified `'custom'` instead — never pure.
+/// Every entry returned here is classified `'custom'` instead — never pure.
 ///
 /// The DECLARATION is the signal, never the (spoofable) call-site string: a
 /// call naming an undeclared module resolves to nothing and stays an ordinary
 /// user call, so this can only ever add a capability a program really declared.
-List<String> _collectCustomBaseFns(dynamic modules) {
+///
+/// Each entry is `{module, function, key}` (`key` = `'<module>.<function>'`).
+/// The module and function are kept apart so [_resolveCustomBaseFn] can match a
+/// bare name EXACTLY, the way the engine's own resolution scan does — splitting
+/// the joined key back apart would mis-read a dotted module or method name.
+List<Object?> _collectCustomBaseFns(dynamic modules) {
+  final entries = <Object?>[];
   final keys = <String>[];
   for (final module in modules) {
     if (isKnownBaseModule(module.name)) continue;
     for (final f in module.functions) {
       if (!f.isBase) continue;
       final key = '${module.name}.${f.name}';
-      if (!keys.contains(key)) keys.add(key);
+      if (keys.contains(key)) continue;
+      keys.add(key);
+      entries.add({'module': module.name, 'function': f.name, 'key': key});
     }
   }
-  return keys;
+  return entries;
+}
+
+/// The declaring `'<module>.<function>'` key of the custom base function a call
+/// to ([module], [function]) actually reaches, or `''` when it reaches none.
+///
+/// The engine dispatches a base call by function IDENTITY, not by the call-site
+/// module string: `_resolveAndCallFunction` falls back to a bare-name scan
+/// across every module when the exact `<module>.<function>` key misses, and a
+/// declared custom base function is reached by that scan just like a std one.
+/// So `{module: "", function: "exec_shell"}` and `{module: "harmless_looking",
+/// function: "exec_shell"}` both run the host's `mymodule.exec_shell`. Matching
+/// only the truthfully qualified spelling left both of those auditing as
+/// `NO RISK — pure computation only` — the hole #402 closed for std base
+/// functions, still open for the host-extension seam (issue #609).
+///
+/// Exact match first, so a program declaring the same bare name in two custom
+/// modules still attributes a qualified call to the module it named. The
+/// bare-name pass then mirrors [lookupCapabilityByName], with the same
+/// fail-closed property: an unrecognized name yields `''` and the call stays an
+/// ordinary user call. [userFns] blocks the bare-name pass for a name a
+/// non-base user function also declares, because the engine refuses to dispatch
+/// that case at all (the #420 `sawBase && sawUser` ambiguity guard throws), so
+/// there is no host call to report; the qualified spelling still resolves
+/// exactly, so a real host call is never lost.
+///
+/// Returns the matching `{module, function, key}` entry `Map`, or `null` for
+/// none. Typed `dynamic` (not `Object?`) so callers read its fields directly —
+/// the engine-safe authoring style the rest of this part uses.
+dynamic _resolveCustomBaseFn(
+  List customBaseFns,
+  String module,
+  String function,
+  dynamic userFns,
+) {
+  for (final e in customBaseFns) {
+    if (e['module'] == module && e['function'] == function) return e;
+  }
+  if (userFns != null) {
+    for (final u in userFns) {
+      if (u == function) return null;
+    }
+  }
+  for (final e in customBaseFns) {
+    if (e['function'] == function) return e;
+  }
+  return null;
 }
 
 /// Detect non-base user functions whose bare name collides with a base
@@ -470,8 +524,17 @@ void _walkCapCall(Map ctx) {
   // an ordinary user call is what made `mymodule.exec_shell` read as pure.
   // It is recorded IN ADDITION to any std capability the name resolves to, so
   // a declared custom `mutex_create` is reported as both.
-  final isCustom = customBaseFns.contains('$module.$fn');
+  //
+  // Resolution is by function IDENTITY, not by the call-site module string —
+  // see [_resolveCustomBaseFn]: an unqualified or benign-looking call site
+  // reaches the very same host handler, so it must audit the same way.
+  final customEntry = _resolveCustomBaseFn(customBaseFns, module, fn, userFns);
+  final isCustom = customEntry != null;
   if (isCustom) {
+    // `resolvedModule` names the DECLARING module, which the call site may not
+    // have. It is echoed by the report and the `--deny` violation whenever it
+    // differs from the call-site spelling, so a reader sees both.
+    final resolvedModule = customEntry['module'];
     _recordCapSite({
       'cap': 'custom',
       'caps': caps,
@@ -480,6 +543,7 @@ void _walkCapCall(Map ctx) {
       'function': contextFunction,
       'calleeModule': module,
       'calleeFunction': fn,
+      'resolvedModule': resolvedModule,
     });
   }
 
@@ -544,7 +608,11 @@ void _walkCapCall(Map ctx) {
 
 /// Add `ctx['cap']` to the function's capability list and — for anything but
 /// `'pure'` — record the call site under it. `ctx` = `{cap, caps, capSites,
-/// module, function, calleeModule, calleeFunction}`. Single-arg (engine-safe).
+/// module, function, calleeModule, calleeFunction}`, optionally
+/// `resolvedModule` (the module that DECLARES the callee, when the call site
+/// named a different one — see [_resolveCustomBaseFn]). Single-arg
+/// (engine-safe): `resolvedModule` is always stored, `''` when absent, so every
+/// site Map keeps one shape.
 void _recordCapSite(Map ctx) {
   final String cap = ctx['cap'];
   final List caps = ctx['caps'];
@@ -558,12 +626,33 @@ void _recordCapSite(Map ctx) {
     sites = <Object?>[];
     capSites[cap] = sites;
   }
+  var resolvedModule = '';
+  if (ctx.containsKey('resolvedModule')) {
+    resolvedModule = ctx['resolvedModule'];
+  }
   sites.add({
     'module': ctx['module'],
     'function': ctx['function'],
     'calleeModule': ctx['calleeModule'],
     'calleeFunction': ctx['calleeFunction'],
+    'resolvedModule': resolvedModule,
   });
+}
+
+/// Render a recorded call site's callee as `<module>.<function>`.
+///
+/// When the site carries a `resolvedModule` that differs from the call-site
+/// module, the DECLARING module leads and the call-site spelling follows in
+/// parentheses: an unqualified or benign-looking call site must not be able to
+/// hide which host module the call actually reaches, and a reader still needs
+/// to see what the program wrote (issue #609).
+String _formatCallee(Map site) {
+  final String calleeModule = site['calleeModule'];
+  final String calleeFunction = site['calleeFunction'];
+  final String resolved = site['resolvedModule'];
+  final literal = '$calleeModule.$calleeFunction';
+  if (resolved.isEmpty || resolved == calleeModule) return literal;
+  return '$resolved.$calleeFunction (call site: $literal)';
 }
 
 /// Assemble the final report [Map] from the per-function capability list and
@@ -700,9 +789,7 @@ String formatCapabilityReport(Map report) {
     } else {
       final siteStrs = <String>[];
       for (final s in callSites) {
-        siteStrs.add(
-          '${s['module']}.${s['function']} → ${s['calleeModule']}.${s['calleeFunction']}',
-        );
+        siteStrs.add('${s['module']}.${s['function']} → ${_formatCallee(s)}');
       }
       final sites = siteStrs.join(', ');
       lines.add(
@@ -823,7 +910,7 @@ List<String> checkPolicyViolations(Map ctx) {
       for (final site in callSites) {
         violations.add(
           '${entry['capability']}: ${site['module']}.${site['function']} calls '
-          '${site['calleeModule']}.${site['calleeFunction']}',
+          '${_formatCallee(site)}',
         );
       }
     }

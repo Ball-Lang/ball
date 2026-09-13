@@ -357,39 +357,40 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
       "\007summary\"\202\001\n\017CapabilityEntry\022\036\n\ncapabili" +
       "ty\030\001 \001(\tR\ncapability\022\035\n\nrisk_level\030\002 \001(\t" +
       "R\triskLevel\0220\n\ncall_sites\030\003 \003(\0132\021.ball.v" +
-      "1.CallSiteR\tcallSites\"\214\001\n\010CallSite\022\026\n\006mo" +
+      "1.CallSiteR\tcallSites\"\265\001\n\010CallSite\022\026\n\006mo" +
       "dule\030\001 \001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010fu" +
       "nction\022#\n\rcallee_module\030\003 \001(\tR\014calleeMod" +
       "ule\022\'\n\017callee_function\030\004 \001(\tR\016calleeFunc" +
-      "tion\"l\n\022FunctionCapability\022\026\n\006module\030\001 \001" +
-      "(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022\"" +
-      "\n\014capabilities\030\003 \003(\tR\014capabilities\"\365\004\n\021C" +
-      "apabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006isPur" +
-      "e\022)\n\020reads_filesystem\030\002 \001(\010R\017readsFilesy" +
-      "stem\022+\n\021writes_filesystem\030\003 \001(\010R\020writesF" +
-      "ilesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nreadsStd" +
-      "in\022#\n\rwrites_stdout\030\005 \001(\010R\014writesStdout\022" +
-      "#\n\rwrites_stderr\030\006 \001(\010R\014writesStderr\022+\n\021" +
-      "reads_environment\030\007 \001(\010R\020readsEnvironmen" +
-      "t\022)\n\020controls_process\030\010 \001(\010R\017controlsPro" +
-      "cess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemory\022\033\n" +
-      "\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_rando" +
-      "m\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurrency\030" +
-      "\014 \001(\010R\017usesConcurrency\022!\n\014uses_network\030\r" +
-      " \001(\010R\013usesNetwork\022\'\n\017total_functions\030\016 \001" +
-      "(\005R\016totalFunctions\022%\n\016pure_functions\030\017 \001" +
-      "(\005R\rpureFunctions\022/\n\023effectful_functions" +
-      "\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Registry\022" +
-      "\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGISTRY_PU" +
-      "B\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_NUGET\020" +
-      "\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_PYPI\020\005" +
-      "\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncoding\022\037" +
-      "\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025MODUL" +
-      "E_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODING_JS" +
-      "ON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6githu" +
-      "b.com/ball-lang/ball/go/shared/gen/ball/" +
-      "v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023Ba" +
-      "ll\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto3"
+      "tion\022\'\n\017resolved_module\030\005 \001(\tR\016resolvedM" +
+      "odule\"l\n\022FunctionCapability\022\026\n\006module\030\001 " +
+      "\001(\tR\006module\022\032\n\010function\030\002 \001(\tR\010function\022" +
+      "\"\n\014capabilities\030\003 \003(\tR\014capabilities\"\365\004\n\021" +
+      "CapabilitySummary\022\027\n\007is_pure\030\001 \001(\010R\006isPu" +
+      "re\022)\n\020reads_filesystem\030\002 \001(\010R\017readsFiles" +
+      "ystem\022+\n\021writes_filesystem\030\003 \001(\010R\020writes" +
+      "Filesystem\022\037\n\013reads_stdin\030\004 \001(\010R\nreadsSt" +
+      "din\022#\n\rwrites_stdout\030\005 \001(\010R\014writesStdout" +
+      "\022#\n\rwrites_stderr\030\006 \001(\010R\014writesStderr\022+\n" +
+      "\021reads_environment\030\007 \001(\010R\020readsEnvironme" +
+      "nt\022)\n\020controls_process\030\010 \001(\010R\017controlsPr" +
+      "ocess\022\037\n\013uses_memory\030\t \001(\010R\nusesMemory\022\033" +
+      "\n\tuses_time\030\n \001(\010R\010usesTime\022\037\n\013uses_rand" +
+      "om\030\013 \001(\010R\nusesRandom\022)\n\020uses_concurrency" +
+      "\030\014 \001(\010R\017usesConcurrency\022!\n\014uses_network\030" +
+      "\r \001(\010R\013usesNetwork\022\'\n\017total_functions\030\016 " +
+      "\001(\005R\016totalFunctions\022%\n\016pure_functions\030\017 " +
+      "\001(\005R\rpureFunctions\022/\n\023effectful_function" +
+      "s\030\020 \001(\005R\022effectfulFunctions*\227\001\n\010Registry" +
+      "\022\030\n\024REGISTRY_UNSPECIFIED\020\000\022\020\n\014REGISTRY_P" +
+      "UB\020\001\022\020\n\014REGISTRY_NPM\020\002\022\022\n\016REGISTRY_NUGET" +
+      "\020\003\022\022\n\016REGISTRY_CARGO\020\004\022\021\n\rREGISTRY_PYPI\020" +
+      "\005\022\022\n\016REGISTRY_MAVEN\020\006*f\n\016ModuleEncoding\022" +
+      "\037\n\033MODULE_ENCODING_UNSPECIFIED\020\000\022\031\n\025MODU" +
+      "LE_ENCODING_PROTO\020\001\022\030\n\024MODULE_ENCODING_J" +
+      "SON\020\002B\215\001\n\013com.ball.v1B\tBallProtoP\001Z6gith" +
+      "ub.com/ball-lang/ball/go/shared/gen/ball" +
+      "/v1;ballv1\242\002\003BXX\252\002\007Ball.V1\312\002\007Ball\\V1\342\002\023B" +
+      "all\\V1\\GPBMetadata\352\002\010Ball::V1b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -594,7 +595,7 @@ public final class BallProto extends com.google.protobuf.GeneratedFile {
     internal_static_ball_v1_CallSite_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_ball_v1_CallSite_descriptor,
-        new java.lang.String[] { "Module", "Function", "CalleeModule", "CalleeFunction", });
+        new java.lang.String[] { "Module", "Function", "CalleeModule", "CalleeFunction", "ResolvedModule", });
     internal_static_ball_v1_FunctionCapability_descriptor =
       getDescriptor().getMessageType(32);
     internal_static_ball_v1_FunctionCapability_fieldAccessorTable = new

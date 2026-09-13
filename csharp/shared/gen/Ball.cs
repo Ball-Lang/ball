@@ -155,35 +155,36 @@ namespace Ball.V1 {
             "B3N1bW1hcnkiggEKD0NhcGFiaWxpdHlFbnRyeRIeCgpjYXBhYmlsaXR5GAEg",
             "ASgJUgpjYXBhYmlsaXR5Eh0KCnJpc2tfbGV2ZWwYAiABKAlSCXJpc2tMZXZl",
             "bBIwCgpjYWxsX3NpdGVzGAMgAygLMhEuYmFsbC52MS5DYWxsU2l0ZVIJY2Fs",
-            "bFNpdGVzIowBCghDYWxsU2l0ZRIWCgZtb2R1bGUYASABKAlSBm1vZHVsZRIa",
+            "bFNpdGVzIrUBCghDYWxsU2l0ZRIWCgZtb2R1bGUYASABKAlSBm1vZHVsZRIa",
             "CghmdW5jdGlvbhgCIAEoCVIIZnVuY3Rpb24SIwoNY2FsbGVlX21vZHVsZRgD",
             "IAEoCVIMY2FsbGVlTW9kdWxlEicKD2NhbGxlZV9mdW5jdGlvbhgEIAEoCVIO",
-            "Y2FsbGVlRnVuY3Rpb24ibAoSRnVuY3Rpb25DYXBhYmlsaXR5EhYKBm1vZHVs",
-            "ZRgBIAEoCVIGbW9kdWxlEhoKCGZ1bmN0aW9uGAIgASgJUghmdW5jdGlvbhIi",
-            "CgxjYXBhYmlsaXRpZXMYAyADKAlSDGNhcGFiaWxpdGllcyL1BAoRQ2FwYWJp",
-            "bGl0eVN1bW1hcnkSFwoHaXNfcHVyZRgBIAEoCFIGaXNQdXJlEikKEHJlYWRz",
-            "X2ZpbGVzeXN0ZW0YAiABKAhSD3JlYWRzRmlsZXN5c3RlbRIrChF3cml0ZXNf",
-            "ZmlsZXN5c3RlbRgDIAEoCFIQd3JpdGVzRmlsZXN5c3RlbRIfCgtyZWFkc19z",
-            "dGRpbhgEIAEoCFIKcmVhZHNTdGRpbhIjCg13cml0ZXNfc3Rkb3V0GAUgASgI",
-            "Ugx3cml0ZXNTdGRvdXQSIwoNd3JpdGVzX3N0ZGVychgGIAEoCFIMd3JpdGVz",
-            "U3RkZXJyEisKEXJlYWRzX2Vudmlyb25tZW50GAcgASgIUhByZWFkc0Vudmly",
-            "b25tZW50EikKEGNvbnRyb2xzX3Byb2Nlc3MYCCABKAhSD2NvbnRyb2xzUHJv",
-            "Y2VzcxIfCgt1c2VzX21lbW9yeRgJIAEoCFIKdXNlc01lbW9yeRIbCgl1c2Vz",
-            "X3RpbWUYCiABKAhSCHVzZXNUaW1lEh8KC3VzZXNfcmFuZG9tGAsgASgIUgp1",
-            "c2VzUmFuZG9tEikKEHVzZXNfY29uY3VycmVuY3kYDCABKAhSD3VzZXNDb25j",
-            "dXJyZW5jeRIhCgx1c2VzX25ldHdvcmsYDSABKAhSC3VzZXNOZXR3b3JrEicK",
-            "D3RvdGFsX2Z1bmN0aW9ucxgOIAEoBVIOdG90YWxGdW5jdGlvbnMSJQoOcHVy",
-            "ZV9mdW5jdGlvbnMYDyABKAVSDXB1cmVGdW5jdGlvbnMSLwoTZWZmZWN0ZnVs",
-            "X2Z1bmN0aW9ucxgQIAEoBVISZWZmZWN0ZnVsRnVuY3Rpb25zKpcBCghSZWdp",
-            "c3RyeRIYChRSRUdJU1RSWV9VTlNQRUNJRklFRBAAEhAKDFJFR0lTVFJZX1BV",
-            "QhABEhAKDFJFR0lTVFJZX05QTRACEhIKDlJFR0lTVFJZX05VR0VUEAMSEgoO",
-            "UkVHSVNUUllfQ0FSR08QBBIRCg1SRUdJU1RSWV9QWVBJEAUSEgoOUkVHSVNU",
-            "UllfTUFWRU4QBipmCg5Nb2R1bGVFbmNvZGluZxIfChtNT0RVTEVfRU5DT0RJ",
-            "TkdfVU5TUEVDSUZJRUQQABIZChVNT0RVTEVfRU5DT0RJTkdfUFJPVE8QARIY",
-            "ChRNT0RVTEVfRU5DT0RJTkdfSlNPThACQo0BCgtjb20uYmFsbC52MUIJQmFs",
-            "bFByb3RvUAFaNmdpdGh1Yi5jb20vYmFsbC1sYW5nL2JhbGwvZ28vc2hhcmVk",
-            "L2dlbi9iYWxsL3YxO2JhbGx2MaICA0JYWKoCB0JhbGwuVjHKAgdCYWxsXFYx",
-            "4gITQmFsbFxWMVxHUEJNZXRhZGF0YeoCCEJhbGw6OlYxYgZwcm90bzM="));
+            "Y2FsbGVlRnVuY3Rpb24SJwoPcmVzb2x2ZWRfbW9kdWxlGAUgASgJUg5yZXNv",
+            "bHZlZE1vZHVsZSJsChJGdW5jdGlvbkNhcGFiaWxpdHkSFgoGbW9kdWxlGAEg",
+            "ASgJUgZtb2R1bGUSGgoIZnVuY3Rpb24YAiABKAlSCGZ1bmN0aW9uEiIKDGNh",
+            "cGFiaWxpdGllcxgDIAMoCVIMY2FwYWJpbGl0aWVzIvUEChFDYXBhYmlsaXR5",
+            "U3VtbWFyeRIXCgdpc19wdXJlGAEgASgIUgZpc1B1cmUSKQoQcmVhZHNfZmls",
+            "ZXN5c3RlbRgCIAEoCFIPcmVhZHNGaWxlc3lzdGVtEisKEXdyaXRlc19maWxl",
+            "c3lzdGVtGAMgASgIUhB3cml0ZXNGaWxlc3lzdGVtEh8KC3JlYWRzX3N0ZGlu",
+            "GAQgASgIUgpyZWFkc1N0ZGluEiMKDXdyaXRlc19zdGRvdXQYBSABKAhSDHdy",
+            "aXRlc1N0ZG91dBIjCg13cml0ZXNfc3RkZXJyGAYgASgIUgx3cml0ZXNTdGRl",
+            "cnISKwoRcmVhZHNfZW52aXJvbm1lbnQYByABKAhSEHJlYWRzRW52aXJvbm1l",
+            "bnQSKQoQY29udHJvbHNfcHJvY2VzcxgIIAEoCFIPY29udHJvbHNQcm9jZXNz",
+            "Eh8KC3VzZXNfbWVtb3J5GAkgASgIUgp1c2VzTWVtb3J5EhsKCXVzZXNfdGlt",
+            "ZRgKIAEoCFIIdXNlc1RpbWUSHwoLdXNlc19yYW5kb20YCyABKAhSCnVzZXNS",
+            "YW5kb20SKQoQdXNlc19jb25jdXJyZW5jeRgMIAEoCFIPdXNlc0NvbmN1cnJl",
+            "bmN5EiEKDHVzZXNfbmV0d29yaxgNIAEoCFILdXNlc05ldHdvcmsSJwoPdG90",
+            "YWxfZnVuY3Rpb25zGA4gASgFUg50b3RhbEZ1bmN0aW9ucxIlCg5wdXJlX2Z1",
+            "bmN0aW9ucxgPIAEoBVINcHVyZUZ1bmN0aW9ucxIvChNlZmZlY3RmdWxfZnVu",
+            "Y3Rpb25zGBAgASgFUhJlZmZlY3RmdWxGdW5jdGlvbnMqlwEKCFJlZ2lzdHJ5",
+            "EhgKFFJFR0lTVFJZX1VOU1BFQ0lGSUVEEAASEAoMUkVHSVNUUllfUFVCEAES",
+            "EAoMUkVHSVNUUllfTlBNEAISEgoOUkVHSVNUUllfTlVHRVQQAxISCg5SRUdJ",
+            "U1RSWV9DQVJHTxAEEhEKDVJFR0lTVFJZX1BZUEkQBRISCg5SRUdJU1RSWV9N",
+            "QVZFThAGKmYKDk1vZHVsZUVuY29kaW5nEh8KG01PRFVMRV9FTkNPRElOR19V",
+            "TlNQRUNJRklFRBAAEhkKFU1PRFVMRV9FTkNPRElOR19QUk9UTxABEhgKFE1P",
+            "RFVMRV9FTkNPRElOR19KU09OEAJCjQEKC2NvbS5iYWxsLnYxQglCYWxsUHJv",
+            "dG9QAVo2Z2l0aHViLmNvbS9iYWxsLWxhbmcvYmFsbC9nby9zaGFyZWQvZ2Vu",
+            "L2JhbGwvdjE7YmFsbHYxogIDQlhYqgIHQmFsbC5WMcoCB0JhbGxcVjHiAhNC",
+            "YWxsXFYxXEdQQk1ldGFkYXRh6gIIQmFsbDo6VjFiBnByb3RvMw=="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { global::Google.Protobuf.Reflection.DescriptorReflection.Descriptor, global::Google.Protobuf.WellKnownTypes.StructReflection.Descriptor, },
           new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Ball.V1.Registry), typeof(global::Ball.V1.ModuleEncoding), }, null, new pbr::GeneratedClrTypeInfo[] {
@@ -218,7 +219,7 @@ namespace Ball.V1 {
             new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.ResolvedDependency), global::Ball.V1.ResolvedDependency.Parser, new[]{ "Name", "ResolvedVersion", "Integrity", "Http", "Git", "File", "Registry", "DependencyNames" }, new[]{ "ResolvedSource" }, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.BallCapabilityReport), global::Ball.V1.BallCapabilityReport.Parser, new[]{ "ProgramName", "ProgramVersion", "Capabilities", "Functions", "Summary" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.CapabilityEntry), global::Ball.V1.CapabilityEntry.Parser, new[]{ "Capability", "RiskLevel", "CallSites" }, null, null, null, null),
-            new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.CallSite), global::Ball.V1.CallSite.Parser, new[]{ "Module", "Function", "CalleeModule", "CalleeFunction" }, null, null, null, null),
+            new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.CallSite), global::Ball.V1.CallSite.Parser, new[]{ "Module", "Function", "CalleeModule", "CalleeFunction", "ResolvedModule" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.FunctionCapability), global::Ball.V1.FunctionCapability.Parser, new[]{ "Module", "Function", "Capabilities" }, null, null, null, null),
             new pbr::GeneratedClrTypeInfo(typeof(global::Ball.V1.CapabilitySummary), global::Ball.V1.CapabilitySummary.Parser, new[]{ "IsPure", "ReadsFilesystem", "WritesFilesystem", "ReadsStdin", "WritesStdout", "WritesStderr", "ReadsEnvironment", "ControlsProcess", "UsesMemory", "UsesTime", "UsesRandom", "UsesConcurrency", "UsesNetwork", "TotalFunctions", "PureFunctions", "EffectfulFunctions" }, null, null, null, null)
           }));
@@ -11179,6 +11180,7 @@ namespace Ball.V1 {
       function_ = other.function_;
       calleeModule_ = other.calleeModule_;
       calleeFunction_ = other.calleeFunction_;
+      resolvedModule_ = other.resolvedModule_;
       _unknownFields = pb::UnknownFieldSet.Clone(other._unknownFields);
     }
 
@@ -11248,6 +11250,30 @@ namespace Ball.V1 {
       }
     }
 
+    /// <summary>Field number for the "resolved_module" field.</summary>
+    public const int ResolvedModuleFieldNumber = 5;
+    private string resolvedModule_ = "";
+    /// <summary>
+    /// The module that DECLARES the callee, when it differs from callee_module.
+    ///
+    /// The engine dispatches a base call by function identity, not by the
+    /// call-site module string: an unqualified call (empty module) or one naming a
+    /// benign-looking module still reaches the declaring module's base function.
+    /// callee_module keeps what the program wrote; this field names where that
+    /// call actually lands, so a machine-readable report cannot be misled by the
+    /// call-site spelling (issue #609). Empty when the call site named the
+    /// declaring module itself, and for every std capability (whose #402 bare-name
+    /// resolution is already unambiguous by function name alone).
+    /// </summary>
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
+    public string ResolvedModule {
+      get { return resolvedModule_; }
+      set {
+        resolvedModule_ = pb::ProtoPreconditions.CheckNotNull(value, "value");
+      }
+    }
+
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
     [global::System.CodeDom.Compiler.GeneratedCode("protoc", null)]
     public override bool Equals(object other) {
@@ -11267,6 +11293,7 @@ namespace Ball.V1 {
       if (Function != other.Function) return false;
       if (CalleeModule != other.CalleeModule) return false;
       if (CalleeFunction != other.CalleeFunction) return false;
+      if (ResolvedModule != other.ResolvedModule) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
 
@@ -11278,6 +11305,7 @@ namespace Ball.V1 {
       if (Function.Length != 0) hash ^= Function.GetHashCode();
       if (CalleeModule.Length != 0) hash ^= CalleeModule.GetHashCode();
       if (CalleeFunction.Length != 0) hash ^= CalleeFunction.GetHashCode();
+      if (ResolvedModule.Length != 0) hash ^= ResolvedModule.GetHashCode();
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
       }
@@ -11312,6 +11340,10 @@ namespace Ball.V1 {
         output.WriteRawTag(34);
         output.WriteString(CalleeFunction);
       }
+      if (ResolvedModule.Length != 0) {
+        output.WriteRawTag(42);
+        output.WriteString(ResolvedModule);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -11338,6 +11370,10 @@ namespace Ball.V1 {
         output.WriteRawTag(34);
         output.WriteString(CalleeFunction);
       }
+      if (ResolvedModule.Length != 0) {
+        output.WriteRawTag(42);
+        output.WriteString(ResolvedModule);
+      }
       if (_unknownFields != null) {
         _unknownFields.WriteTo(ref output);
       }
@@ -11359,6 +11395,9 @@ namespace Ball.V1 {
       }
       if (CalleeFunction.Length != 0) {
         size += 1 + pb::CodedOutputStream.ComputeStringSize(CalleeFunction);
+      }
+      if (ResolvedModule.Length != 0) {
+        size += 1 + pb::CodedOutputStream.ComputeStringSize(ResolvedModule);
       }
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
@@ -11383,6 +11422,9 @@ namespace Ball.V1 {
       }
       if (other.CalleeFunction.Length != 0) {
         CalleeFunction = other.CalleeFunction;
+      }
+      if (other.ResolvedModule.Length != 0) {
+        ResolvedModule = other.ResolvedModule;
       }
       _unknownFields = pb::UnknownFieldSet.MergeFrom(_unknownFields, other._unknownFields);
     }
@@ -11419,6 +11461,10 @@ namespace Ball.V1 {
             CalleeFunction = input.ReadString();
             break;
           }
+          case 42: {
+            ResolvedModule = input.ReadString();
+            break;
+          }
         }
       }
     #endif
@@ -11452,6 +11498,10 @@ namespace Ball.V1 {
           }
           case 34: {
             CalleeFunction = input.ReadString();
+            break;
+          }
+          case 42: {
+            ResolvedModule = input.ReadString();
             break;
           }
         }

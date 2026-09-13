@@ -28,8 +28,21 @@ Cross-language foundation: protobuf-generated Ball types, the universal std modu
   escalated to `REVIEW REQUIRED`, `--deny custom` enforceable) and the
   termination analyzer emits an `unknown_termination` info naming it (issue
   #609). Classification keys on the DECLARATION, never on the spoofable
-  `call.module` string — see `_collectCustomBaseFns`. The residual this does not
-  cover: a base function declared under one of the eight std module NAMES but
+  `call.module` string — see `_collectCustomBaseFns`. **It resolves by function
+  IDENTITY, not by the call-site module**: the engine's own
+  `_resolveAndCallFunction` falls back to a bare-name scan across every module
+  when the exact `<module>.<function>` key misses, so an unqualified call
+  (`call.module` empty) or one naming a benign-looking module reaches the very
+  same host handler and must audit the same way — `_resolveCustomBaseFn` does
+  exact-first, then bare-name, the std sibling of #402's
+  `lookupCapabilityByName`. Both fail closed: an undeclared name stays an
+  ordinary user call, and a bare name a non-base user function also declares is
+  never resolved (the engine refuses to dispatch that case at all — the #420
+  `sawBase && sawUser` guard throws). When the resolution differs from the call
+  site, the DECLARING module leads in the report and the `--deny` violation
+  (`mymodule.exec_shell (call site: main.exec_shell)`) and is carried in
+  `ball.v1.CallSite.resolved_module` for `--output` JSON. The residual this does
+  not cover: a base function declared under one of the eight std module NAMES but
   absent from `buildCapabilityTable()` still reads as an unresolved user call,
   because the table does not yet key every std base function in `std.json`.
 - Core invariants: `../../CLAUDE.md`; Dart patterns: `.claude/rules/dart.md`.

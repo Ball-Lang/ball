@@ -89,7 +89,7 @@
       "kind": "tier-b",
       "artifact": "coverage-study-tier-b-dart/tier_b.json",
       "scored": 106,
-      "clean": 102
+      "clean": 103
     },
     {
       "language": "Dart",

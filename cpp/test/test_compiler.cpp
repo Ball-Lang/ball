@@ -4850,6 +4850,46 @@ TEST(class_typed_field_receiver_is_recovered_before_member_access) {
     ASSERT_NOT_CONTAINS(out, "(h.leaf.label)");
 }
 
+// #488: the SAME field read UNQUALIFIED. Inside its own class a field is named
+// bare (`leaf`, not `this.leaf`) — `compile_reference` emits the plain member
+// name — but `receiver_class_of` only knew how to prove a local/parameter or an
+// explicit FieldAccess, so the two spellings of one slot disagreed:
+// `this.leaf.label` compiled, `leaf.label` emitted a member access on the
+// BallDyn member and g++ rejected it with "'class BallDyn' has no member named
+// 'label'". Fixture 471_null_aware_chain_scope's `node?.leaf.value` is the first
+// corpus program to read a class-typed own field this way.
+TEST(unqualified_own_field_receiver_is_recovered_before_member_access) {
+    json leaf_meta;
+    leaf_meta["kind"] = "class";
+    leaf_meta["fields"] = json::array({json{{"name", "label"}, {"type", "String"}}});
+    auto leaf_td =
+        cov_class_td("main:Leaf", {{"label", "TYPE_STRING"}}, std::move(leaf_meta));
+
+    json holder_meta;
+    holder_meta["kind"] = "class";
+    holder_meta["fields"] = json::array({json{{"name", "leaf"}, {"type", "Leaf?"}},
+                                         json{{"name", "inner"}, {"type", "Leaf"}}});
+    auto holder_td = cov_class_td(
+        "main:Holder", {{"leaf", "TYPE_MESSAGE"}, {"inner", "TYPE_MESSAGE"}},
+        std::move(holder_meta));
+
+    // void Holder.use() { print(leaf.label); print(inner.label); }
+    json use_meta;
+    use_meta["kind"] = "method";
+    auto use = cov_class_fn(
+        "main:Holder.use", std::move(use_meta),
+        block({stmt_expr(print_call(field_access(ref("leaf"), "label"))),
+               stmt_expr(print_call(field_access(ref("inner"), "label")))}),
+        "void");
+
+    auto out = compile_program(cov_class_program({leaf_td, holder_td}, {use}));
+
+    ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(leaf).label");
+    ASSERT_CONTAINS(out, "ball_obj_as<Leaf>(inner).label");
+    // The bare struct-member form on the erased receiver is what did not build.
+    ASSERT_NOT_CONTAINS(out, "(leaf.label)");
+}
+
 // #513: a constructor whose body is a SINGLE expression rather than a Block —
 // `Chain(this.depth) { if (depth > 0) { … } }` encodes to one `std.if` Call.
 // The Block-only emission loop dropped it entirely, with no diagnostic: the

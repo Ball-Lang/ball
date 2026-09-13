@@ -15,7 +15,7 @@ Every base function across the 8 universal std modules, generated directly from 
 |---|---|
 | Total base functions | 274 |
 | Encoder-emittable | 126 |
-| Covered by a conformance fixture | 136 |
+| Covered by a conformance fixture | 138 |
 | Dart engine-implemented | 236 |
 | Documented carve-outs | 0 |
 
@@ -43,14 +43,14 @@ Universal standard library base module. Every function here represents a languag
 | `divide_double` | ✅ | ✅ 12 fixture(s): `104_getter_setter`, `130_running_average`, `214_nan_propagation` +9 more | ✅ |
 | `do_while` | ✅ | ✅ 2 fixture(s): `282_enc_do_while`, `47_do_while` | ✅ |
 | `double_to_string` | ✅ | ✅ 1 fixture(s): `389_typed_to_string` | ✅ |
-| `equals` | ✅ | ✅ 71 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `117_list_generate` +68 more | ✅ |
+| `equals` | ✅ | ✅ 72 fixture(s): `100_complex_control_flow`, `113_operator_overloading`, `117_list_generate` +69 more | ✅ |
 | `for` | ✅ | ✅ 93 fixture(s): `100_complex_control_flow`, `103_abstract_class`, `105_static_methods` +90 more | ✅ |
 | `for_in` | ✅ | ✅ 47 fixture(s): `103_abstract_class`, `109_enum_values`, `117_list_generate` +44 more | ✅ |
 | `goto` | ❌ | ✅ 1 fixture(s): `390_goto_label` | ✅ |
 | `greater_than` | ✅ | ✅ 46 fixture(s): `100_complex_control_flow`, `105_static_methods`, `131_insertion_sort` +43 more | ✅ |
 | `gte` | ✅ | ✅ 11 fixture(s): `131_insertion_sort`, `140_caesar_cipher`, `151_recursive_descent_parser` +8 more | ✅ |
-| `if` | ✅ | ✅ 87 fixture(s): `100_complex_control_flow`, `105_static_methods`, `106_factory_constructor` +84 more | ✅ |
-| `index` | ✅ | ✅ 57 fixture(s): `106_factory_constructor`, `119_nested_maps`, `120_list_of_maps` +54 more | ✅ |
+| `if` | ✅ | ✅ 89 fixture(s): `100_complex_control_flow`, `105_static_methods`, `106_factory_constructor` +86 more | ✅ |
+| `index` | ✅ | ✅ 58 fixture(s): `106_factory_constructor`, `119_nested_maps`, `120_list_of_maps` +55 more | ✅ |
 | `int_to_string` | ✅ | ✅ 1 fixture(s): `389_typed_to_string` | ✅ |
 | `is` | ✅ | ✅ 12 fixture(s): `113_operator_overloading`, `167_generics_reified`, `180_generic_list_ops` +9 more | ✅ |
 | `is_not` | ✅ | ✅ 1 fixture(s): `380_is_not_type_check` | ✅ |
@@ -91,7 +91,7 @@ Universal standard library base module. Every function here represents a languag
 | `math_tan` | ❌ | ❌ | ✅ |
 | `math_trunc` | ✅ | ✅ 2 fixture(s): `259_math_functions`, `320_num_methods_on_double_local` | ✅ |
 | `modulo` | ✅ | ✅ 36 fixture(s): `108_class_tostring`, `117_list_generate`, `125_group_by` +33 more | ✅ |
-| `multiply` | ✅ | ✅ 66 fixture(s): `100_complex_control_flow`, `101_simple_class`, `103_abstract_class` +63 more | ✅ |
+| `multiply` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `101_simple_class`, `103_abstract_class` +64 more | ✅ |
 | `negate` | ✅ | ✅ 44 fixture(s): `105_static_methods`, `135_linear_search_sentinel`, `170_pattern_switch_expr` +41 more | ✅ |
 | `not` | ✅ | ✅ 14 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +11 more | ✅ |
 | `not_equals` | ✅ | ✅ 14 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +11 more | ✅ |
@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 354 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +351 more | ✅ |
+| `print` | ✅ | ✅ 357 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +354 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -196,7 +196,7 @@ Standard collections module. List and map operations. Separate from std because 
 | `list_to_list` | ✅ | ✅ 12 fixture(s): `118_set_operations`, `124_frequency_counter`, `125_group_by` +9 more | ✅ |
 | `list_zip` | ❌ | ❌ | ✅ |
 | `map_contains_key` | ✅ | ✅ 11 fixture(s): `106_factory_constructor`, `125_group_by`, `153_memoized_recursive` +8 more | ✅ |
-| `map_contains_value` | ✅ | ❌ | ✅ |
+| `map_contains_value` | ✅ | ✅ 1 fixture(s): `468_map_contains_value` | ✅ |
 | `map_delete` | ❌ | ❌ | ✅ |
 | `map_entries` | ❌ | ❌ | ✅ |
 | `map_filter` | ❌ | ❌ | ✅ |
@@ -207,7 +207,7 @@ Standard collections module. List and map operations. Separate from std because 
 | `map_length` | ❌ | ❌ | ✅ |
 | `map_map` | ❌ | ❌ | ✅ |
 | `map_merge` | ❌ | ❌ | ✅ |
-| `map_put_if_absent` | ✅ | ❌ | ✅ |
+| `map_put_if_absent` | ✅ | ✅ 1 fixture(s): `469_map_put_if_absent` | ✅ |
 | `map_set` | ❌ | ❌ | ✅ |
 | `map_values` | ❌ | ❌ | ✅ |
 | `set_add` | ❌ | ✅ 2 fixture(s): `459_set_add_remove_bool`, `462_set_mutation_in_place` | ✅ |
@@ -502,10 +502,9 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std_io.timestamp_ms`
 - `std_time.year`
 
-### Emittable but uncovered by any fixture (2) — genuine conformance gaps, not carved out
+### Emittable but uncovered by any fixture (0) — genuine conformance gaps, not carved out
 
-- `std_collections.map_contains_value`
-- `std_collections.map_put_if_absent`
+_None._
 
 ### Not Dart engine-implemented (38)
 

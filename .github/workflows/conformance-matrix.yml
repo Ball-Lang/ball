@@ -868,7 +868,17 @@ jobs:
       # read the wrapped list, and 394_mappattern_excludes_set matched
       # `case {…}:` until the map-pattern gate excluded the tagged shape.
       # Measured locally at 258, never predicted.
-      CSHARP_COMPILER_FLOOR: "258"
+      #
+      # 258 was the value recorded at #527/#528, when the corpus was 335
+      # fixtures; it is 349 now, so part of the gap below is corpus growth this
+      # floor was never re-measured against, not one change's yield. #615 makes
+      # `CompileTryStatement` dispatch EVERY catch clause by exception type (it
+      # used to run `catches[0]` unconditionally) and gives `BallThrow` the
+      # reference engine's `arg0` -> `message` rename; 146_nested_try_catch_types
+      # and the new 464_typed_catch_clause_dispatch are the two fixtures verified
+      # fixture-by-fixture to flip. Measured by this very row at 270 (run
+      # 34739969708, and 270 again on the run before it), never predicted.
+      CSHARP_COMPILER_FLOOR: "270"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1391,7 +1401,18 @@ jobs:
       # `set.add(x)` to the generic `list_push`, which panicked on the tagged
       # map until every mutating list op learned to write through it
       # (129_unique_elements). Measured locally at 265, never predicted.
-      RUST_COMPILER_FLOOR: "265"
+      #
+      # 265 was the value recorded at #527/#528, when the corpus was 335
+      # fixtures; it is 349 now, so part of the gap below is corpus growth this
+      # floor was never re-measured against, not one change's yield. #615 makes
+      # `compile_try` dispatch EVERY catch clause by exception type (it used to
+      # run `catches.first()` unconditionally) and gives `ball_throw` the
+      # reference engine's `arg0` -> `message` rename;
+      # 146_nested_try_catch_types and the new 464_typed_catch_clause_dispatch
+      # are the two fixtures verified fixture-by-fixture to flip. Measured by
+      # this very row at 273 (run 34739969708, and 273 again on the run before
+      # it), never predicted.
+      RUST_COMPILER_FLOOR: "273"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1482,7 +1503,18 @@ jobs:
       # leg (+2); a local before/after per-fixture diff accounted for every
       # change (106 and 112 only moved further along the pipeline, still
       # failing). Measured locally at 273, never predicted.
-      GO_COMPILER_FLOOR: "273"
+      #
+      # 273 was the value recorded at #527/#528, when the corpus was 335
+      # fixtures; it is 349 now, so part of the gap below is corpus growth this
+      # floor was never re-measured against. #615's OWN yield was measured
+      # directly, by running this leg's whole corpus at origin/main and again on
+      # the fix branch on one machine: 281 -> 283 of 348 -> 349, and a
+      # per-fixture diff over the WHOLE failure list accounted for every change
+      # — exactly 146_nested_try_catch_types flipped to passing, the new
+      # 464_typed_catch_clause_dispatch passes, and nothing flipped to failing.
+      # Measured by this very row at 283 (run 34739969708, and 283 again on the
+      # run before it), matching the local sweep, never predicted.
+      GO_COMPILER_FLOOR: "283"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 

@@ -8,8 +8,24 @@ class BallValue {}
 // mismatch (Dart semantics), it does NOT refute / fall through. Conjoined into a
 // switch-case condition by the compiler; returns true when the type check passed,
 // else throws a catchable error. (conformance 302_cast_patterns)
-function ball_cast_assert(ok: boolean, t: string): boolean {
-  if (!ok) throw new Error('TypeError: type cast failed: not a ' + t);
+//
+// Two things about the throw are load-bearing (issue #641):
+//   - It is the TAGGED {__type__, message} object every emitted typed-catch
+//     guard tests, not a bare JS Error. A plain Error is not an instance of
+//     globalThis.TypeError, so an 'on TypeError catch' clause never matched it.
+//   - The message is Dart's own, verbatim: a _TypeError's toString() IS its
+//     message (no 'TypeError: ' prefix, unlike the other three built-ins) and
+//     it names the VALUE's runtime type before the target type — which is why
+//     the subject is a parameter at all.
+// Guard: conformance 467_caught_type_error_to_string.
+function ball_cast_assert(ok: boolean, v: any, t: string): boolean {
+  if (!ok) {
+    throw {
+      __type__: 'TypeError',
+      message: "type '" + __ball_type_of(v) + "' is not a subtype of type '" + t +
+        "' in type cast",
+    };
+  }
   return true;
 }
 
@@ -261,14 +277,19 @@ function __ball_to_string(v: any): string {
     // "Bad state: No element". The table is EXPLICIT and closed over the type
     // names this compiler throws: a user object that merely carries a
     // message field is not a Dart error and keeps the map form.
+    // The empty prefix is not "unset" -- it is Dart's answer for TypeError: a
+    // _TypeError's toString() IS its message ("type 'int' is not a subtype of
+    // type 'String' in type cast"), with no type-name prefix at all (#641).
     const __ball_err_prefix: Record<string, string> = {
       StateError: 'Bad state',
       FormatException: 'FormatException',
       RangeError: 'RangeError',
+      TypeError: '',
     };
     if (typeof v['__type__'] === 'string' && typeof v['message'] === 'string'
         && __ball_err_prefix[v['__type__']] !== undefined) {
-      return __ball_err_prefix[v['__type__']] + ': ' + v['message'];
+      const __p = __ball_err_prefix[v['__type__']];
+      return __p === '' ? v['message'] : __p + ': ' + v['message'];
     }
     // A text sink (#630) or the legacy StringBuffer object it replaces:
     // stringify as the accumulated text, never as a map. The declared sink's
@@ -9726,7 +9747,7 @@ export class BallEngine {
       else if ((__sw === 'cast')) {
         let typeName = __ball_index(pattern, 'type');
         if ((!__ball_eq(typeName, null) && !this._matchesTypePattern(value, typeName))) {
-          throw new BallException('TypeError', ('type cast failed: not a ' + __ball_to_string(typeName)));
+          throw new BallException('TypeError', ((('type \'' + __ball_to_string(this._typeNameOf(value))) + '\' is not a subtype of ') + (('type \'' + __ball_to_string(typeName)) + '\' in type cast')));
         }
         let subpattern = __ball_index(pattern, 'pattern');
         if ((!__ball_eq(subpattern, null) && !this._matchPattern(value, subpattern, bindings))) {

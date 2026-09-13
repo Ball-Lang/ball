@@ -330,6 +330,7 @@ inline const std::vector<std::string>& program_names() {
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
         "466_string_sink",
+        "467_caught_type_error_to_string",
         "468_std_concurrency_handles",
     };
     return names;

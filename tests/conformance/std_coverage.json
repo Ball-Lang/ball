@@ -546,6 +546,7 @@
         "451_thrown_builtin_exception_tearoff",
         "464_typed_catch_clause_dispatch",
         "466_string_sink",
+        "467_caught_type_error_to_string",
         "53_try_catch_finally",
         "68_triangle_pattern",
         "83_matrix_multiply",
@@ -2359,6 +2360,7 @@
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
         "466_string_sink",
+        "467_caught_type_error_to_string",
         "468_std_concurrency_handles",
         "46_while_loop",
         "47_do_while",
@@ -2536,6 +2538,7 @@
         "397_map_values",
         "437_recursive_ctor_tree",
         "451_thrown_builtin_exception_tearoff",
+        "467_caught_type_error_to_string",
         "52_max_of_three",
         "54_abs_value",
         "57_recursion_factorial",
@@ -3018,7 +3021,8 @@
         "394_mappattern_excludes_set",
         "396_switch_case_fallthrough",
         "400_switch_continue_label",
-        "442_switch_goto_fallthrough_guard_or_pattern"
+        "442_switch_goto_fallthrough_guard_or_pattern",
+        "467_caught_type_error_to_string"
       ],
       "engineImplementedDart": true,
       "carvedOut": false
@@ -3249,6 +3253,7 @@
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
         "466_string_sink",
+        "467_caught_type_error_to_string",
         "468_std_concurrency_handles",
         "46_while_loop",
         "47_do_while",
@@ -3349,6 +3354,7 @@
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
+        "467_caught_type_error_to_string",
         "53_try_catch_finally",
         "84_exception_chain",
         "91_nested_try_catch"

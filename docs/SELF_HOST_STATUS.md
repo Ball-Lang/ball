@@ -124,7 +124,9 @@ remaining Phase 5 work (full per-target round-trip golden tests + publishing) is
 tracked in `docs/PROTOBUF_CODEGEN_PLAN.md`.
 
 The Editions resolver (`edition.dart` + `editions.dart`) runs identically on
-all three engines -- see `tests/editions/portability_matrix.md` for the proof.
+every full-corpus engine in `conformance-matrix.yml` (Dart, TypeScript, C++,
+Rust, C#, Go, Python) -- see `tests/editions/portability_matrix.md` for the
+proof.
 
 ## Skip-list
 

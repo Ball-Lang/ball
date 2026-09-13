@@ -171,7 +171,55 @@ internal sealed partial class Encoder
             return EncodeMethodCallOnReceiver(Builders.ReferenceExpr("self"), name, argExprs, instanceParams);
         }
 
+        // A `BallValue` literal factory (`Str("x")`, `Int(1)`, …), reached unqualified through
+        // the compiler's `using static Ball.Shared.BallValue;`. LAST, so a local, a source
+        // symbol, a same-file static and a same-file instance method all win first — the
+        // shadowing order C# itself uses.
+        if (RuntimeHelpers.ValueFactoryFunction(name) is not null && argExprs.Count == 1)
+        {
+            return EncodeExpr(argExprs[0]);
+        }
+
         return Builders.UserCall(name, PackArgs(argExprs, null));
+    }
+
+    /// <summary>
+    /// Encode a <c>BallRuntime.&lt;name&gt;(args…)</c> call — one universal <c>std</c> base call
+    /// each, per <see cref="RuntimeHelpers.Table"/>.
+    /// </summary>
+    private Expression EncodeRuntimeHelperCall(string name, List<ExpressionSyntax> argExprs)
+    {
+        if (name == RuntimeHelpers.Truthy)
+        {
+            if (argExprs.Count != 1)
+            {
+                throw new EncoderException(
+                    $"ball-encoder: BallRuntime.{name}(...) expects exactly one argument, " +
+                    $"got {argExprs.Count}");
+            }
+
+            // Truthiness coercion is implicit at every Ball condition site.
+            return EncodeExpr(argExprs[0]);
+        }
+
+        if (!RuntimeHelpers.Table.TryGetValue(name, out var helper))
+        {
+            throw new EncoderException(
+                $"ball-encoder: unsupported runtime helper `BallRuntime.{name}(...)` " +
+                "(encoder/src/RuntimeHelpers.cs lists the helpers that have a universal std inverse)");
+        }
+
+        if (argExprs.Count != helper.Fields.Length)
+        {
+            throw new EncoderException(
+                $"ball-encoder: BallRuntime.{name}(...) expects {helper.Fields.Length} " +
+                $"argument(s), got {argExprs.Count}");
+        }
+
+        var fields = helper.Fields
+            .Select((field, i) => (field, EncodeExpr(argExprs[i])))
+            .ToArray();
+        return Builders.StdCall(helper.Function, Builders.ArgsMessage(fields));
     }
 
     private Expression EncodeMemberInvocation(
@@ -211,6 +259,15 @@ internal sealed partial class Encoder
                     return EncodeConsoleCall(methodName, argExprs);
                 case "Math":
                     return EncodeMathCall(methodName, argExprs);
+
+                // The Ball C# runtime's own dispatch helpers. `Ball.Compiler`
+                // emits every base call as one of these, so recognizing them is
+                // what lets this encoder read the compiler's own output back
+                // (issue #642, see RuntimeHelpers.cs). Guarded on the same-file
+                // class table like `Debug`/`ArgumentNullException`: a class this
+                // encoder is itself encoding always wins over a built-in route.
+                case RuntimeHelpers.RuntimeClass when !DeclaresSameFileStatic(receiverName, methodName):
+                    return EncodeRuntimeHelperCall(methodName, argExprs);
 
                 // The BCL static GUARD receivers (issue #492, bucket i). Unlike
                 // `Console`/`Math` these two are guarded on the same-file class
@@ -841,6 +898,17 @@ internal sealed partial class Encoder
     private Expression EncodeMemberAccess(MemberAccessExpressionSyntax member)
     {
         var memberName = member.Name.Identifier.Text;
+
+        // `BallValue.Null` — the compiler's spelling of a Ball null literal (issue #642).
+        // Guarded the same way every other bare type receiver is: a local or field named
+        // `BallValue` wins.
+        if (memberName == "Null" &&
+            RuntimeHelpers.IsClassReference(member.Expression, RuntimeHelpers.ValueClass) &&
+            !IsKnownLocal(RuntimeHelpers.ValueClass) &&
+            !IsKnownField(RuntimeHelpers.ValueClass))
+        {
+            return Builders.NullLiteral();
+        }
 
         // `Color.Green` — a member access whose receiver names an enum THIS FILE declares
         // (issue #492, slice C). Encoded as `field_access(reference("Color"), "Green")`, the

@@ -14,7 +14,7 @@ Cross-language conformance corpus and supporting test assets. This directory is 
 | `conformance/*.expected_output.txt` | Golden stdout for each fixture, compared by all three engines |
 | `editions/featureset_defaults.binpb` | Golden Editions feature-set defaults (from protoc 35.1, max edition 2024); regenerate with `tools/gen_edition_defaults.{ps1,sh}` |
 | `editions/conformance_runner.{ps1,sh}` | Runs the Editions portability matrix across engines |
-| `editions/portability_matrix.md` | Status table for Editions resolver across Dart/TS/C++ |
+| `editions/portability_matrix.md` | Status table for Editions resolver across every full-corpus engine in `conformance-matrix.yml` |
 | `editions/descriptors/` | Proto descriptor fixtures for Editions tests |
 | `editions/golden/` | Golden outputs for Editions conformance |
 | `fixtures/dart/` | Dart-specific unit test fixtures |

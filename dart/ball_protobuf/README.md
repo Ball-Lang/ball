@@ -10,8 +10,9 @@ marshal/unmarshal, well-known types, gRPC framing, and the complete protobuf
 
 Because it is authored in Ball-portable Dart, the *same* engine is compiled by
 the Ball toolchain to every target language — so editions-aware protobuf
-behaves identically on Dart, TypeScript, and C++ (see the
-[portability matrix](https://github.com/ball-lang/ball/blob/main/tests/editions/portability_matrix.md)).
+behaves identically across every full-corpus Ball engine (Dart, TypeScript,
+C++, Rust, C#, Go, Python) — see the
+[portability matrix](https://github.com/ball-lang/ball/blob/main/tests/editions/portability_matrix.md).
 
 ## Editions features honoured
 

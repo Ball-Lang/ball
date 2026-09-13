@@ -498,7 +498,9 @@ dispatched by `release.yml`, tags `go-modules/vX.Y.Z`), computed from `go/`-path
 prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh` and whose publishCmd dispatches
 `tag-go-modules.yml` — the SINGLE tagging path — at that tag **and waits for that run to finish**
 (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any non-`success`
-conclusion — #627). Until #361's second half the tagging
+conclusion — #627; the run it waits for must be strictly newer than the newest one on that ref
+before the dispatch, so a manual repair re-dispatch cannot answer for the next release — #656).
+Until #361's second half the tagging
 was automatic but the version was a human's `chore(go):` PR, so every release re-tagged v0.1.0 and
 passed; `tools/release/check_go_release_wiring.sh` is the guard on that shape, and
 `.github/workflows/go-freshness.yml` (weekly) is the outcome alarm that asks proxy.golang.org

@@ -194,10 +194,10 @@ instructions.
   once before any clause binds its own variable. Guards:
   `tests/conformance/464_typed_catch_clause_dispatch` and `146_nested_try_catch_types`
   cross-target, plus the PR-gated `rust/compiler/tests/catch_clause_dispatch.rs` and
-  `runtime.rs`'s `catch_matches_*`/`throw_aliases_arg0_as_message` — the `rust-compiler` leg that
-  compiles the whole corpus lives only in `conformance-matrix.yml`, which has no
-  `pull_request:` trigger, and 146 had been failing there (absorbed into the ratchet floor) since
-  that leg came online.
+  `runtime.rs`'s `catch_matches_*`/`throw_aliases_arg0_as_message`. Those are what gate the SHAPE:
+  the `rust-compiler` leg that compiles the whole corpus is a PR gate since #619, but it is a
+  RATCHET on a passing count (`RUST_COMPILER_FLOOR`), and 146 had been failing there — inside the
+  floor, so green — since that leg came online.
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a

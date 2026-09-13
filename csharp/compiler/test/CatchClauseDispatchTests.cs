@@ -19,11 +19,13 @@ namespace Ball.Compiler.Tests;
 ///
 /// <para><b>Why nothing caught it.</b> The corpus fixture that exercises the
 /// shape (<c>146_nested_try_catch_types</c>) is only compiled through this
-/// compiler by <c>engine/conformance --leg=compiler</c>, a ratchet row in
-/// <c>conformance-matrix.yml</c> — a workflow with no <c>pull_request:</c>
-/// trigger, so a post-merge red there blocks nothing. And 146 was already
-/// failing on that leg for as long as the leg has existed, absorbed into the
-/// floor.</para>
+/// compiler by <c>engine/conformance --leg=compiler</c>, the
+/// <c>csharp-compiler</c> row in <c>conformance-matrix.yml</c>. That row is a PR
+/// gate since #619 — but it is a <b>ratchet</b> on a passing count
+/// (<c>CSHARP_COMPILER_FLOOR</c>), and 146 had been failing on it, inside the
+/// floor and therefore green, for as long as the leg has existed. A ratchet
+/// cannot name the fixture that is failing; these tests fail for THIS
+/// shape.</para>
 ///
 /// <para>These tests compile and RUN: a shape assertion alone could not tell
 /// "selects the right clause" from "runs the first clause, which happens to

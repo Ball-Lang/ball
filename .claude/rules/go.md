@@ -198,8 +198,9 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   `tests/conformance/464_typed_catch_clause_dispatch` +
   `146_nested_try_catch_types` (cross-target),
   `go/compiler/catch_clause_dispatch_test.go` and
-  `go/runtime/catch_match_test.go` (PR-gated — the `go-compiler` matrix row is
-  not).
+  `go/runtime/catch_match_test.go`. Those two are what gate the SHAPE: the
+  `go-compiler` matrix row is a PR gate since #619, but it is a RATCHET on a
+  passing count, and 146's failure sat inside its floor from day one.
 
 ### Encoder
 

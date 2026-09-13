@@ -503,23 +503,34 @@ clause only when the thrown value's type tag matches, fall back to the first
 untyped `catch (e)`, and re-raise when every typed clause misses — the reference
 engine's `_evalLazyTry` contract. A new fixture may use as many clauses as it
 needs; `tests/conformance/464_typed_catch_clause_dispatch` is the cross-target
-guard for that, and each compiler carries its own PR-gated unit test
+guard for that, and each compiler carries its own **per-shape** unit test
 (`go/compiler/catch_clause_dispatch_test.go`,
 `csharp/compiler/test/CatchClauseDispatchTests.cs`,
-`rust/compiler/tests/catch_clause_dispatch.rs`) because the per-language compiler
-legs live only in `conformance-matrix.yml`, which has no `pull_request:` trigger.
-That the throw is genuinely TYPED — reachable by `on StateError`, not only by an
-untyped catch-all, which is what Rust's bare `panic!` gave before #597 — is pinned
-per runtime too, next to each target's implementation.
+`rust/compiler/tests/catch_clause_dispatch.rs`) — see the gate lesson below for
+why the corpus leg alone is not enough. That the throw is genuinely TYPED —
+reachable by `on StateError`, not only by an untyped catch-all, which is what
+Rust's bare `panic!` gave before #597 — is pinned per runtime too, next to each
+target's implementation.
 
-**The gate lesson #615 adds.** The corpus fixture that would have gone red
-(`146_nested_try_catch_types`) already existed, was never carved out, and had been
-failing the Go/C#/Rust compiler rows since those pipelines came online — absorbed
-into each row's ratchet floor rather than reported. A ratchet floors a count; it
-cannot say WHICH fixture is failing, and a post-merge red on a workflow with no
-`pull_request:` trigger stops nothing. So when a compiler documents a lowering gap
-in a doc comment, that gap needs a **PR-gated** test of its own — the comment is
-not the gate.
+**The gate lesson #615 adds: a RATCHETED gate is green over the regression it
+already tolerates.** The corpus fixture that would have gone red
+(`146_nested_try_catch_types`) already existed and was never carved out, yet it
+had been failing the Go/C#/Rust compiler rows since those pipelines came online.
+Two compounding reasons, and #619 only fixed the first:
+
+1. Until #619 those rows ran on push-to-main, the weekly cron and manual dispatch
+   only. A post-merge red on a non-blocking workflow stops and reopens nothing,
+   and a lane that never dispatched saw **no row at all**, which reads as green.
+   `conformance-matrix.yml` is a PR gate now, so that half is closed.
+2. **They are ratchets, not parity gates** — `*_COMPILER_FLOOR` fails only on a
+   *drop* in a passing count. 146's failure sat inside each floor from day one. A
+   count cannot name the fixture that is failing, so the row stayed green over a
+   real, permanent defect and would have stayed green even as a PR gate.
+
+So "a gate exists" and "a gate would have gone red on this" remain different
+claims even now. When a compiler documents a lowering gap in a doc comment — which
+is how #615 was found, off prose, not off any CI signal — that gap needs a test
+that fails *for that shape*, not a leg whose floor already absorbs it.
 
 When a base function's result is meaningful — a predicate, a "was it there"
 answer, anything a caller would branch on — declare the `outputType`, add the

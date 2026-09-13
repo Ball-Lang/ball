@@ -215,8 +215,10 @@ all six modules produce no such file at all.
   (`engine_std.dart`), so a caught `e.message` reads the constructor argument
   rather than `null`. Guards: `tests/conformance/464_typed_catch_clause_dispatch`
   and `146_nested_try_catch_types` cross-target, plus the PR-gated
-  `go/compiler/catch_clause_dispatch_test.go` + `go/runtime/catch_match_test.go`
-  (the compiler leg below is NOT PR-gated).
+  `go/compiler/catch_clause_dispatch_test.go` + `go/runtime/catch_match_test.go`.
+  Those two are what gate the SHAPE: the compiler leg below is a PR gate since
+  #619, but it is a RATCHET on a passing count, and 146's failure sat inside its
+  floor from the day that leg came online.
 - **Fail-loud** (issue #55): an unsupported base function / expression shape is a
   compile error, never silent bad code.
 

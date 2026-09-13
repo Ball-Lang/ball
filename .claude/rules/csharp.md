@@ -136,8 +136,9 @@ compile items so the sibling projects never double-compile each other's files.
   `tests/conformance/464_typed_catch_clause_dispatch` +
   `146_nested_try_catch_types` (cross-target),
   `csharp/compiler/test/CatchClauseDispatchTests.cs` and
-  `csharp/shared/test/CatchMatchTests.cs` (PR-gated — the `csharp-compiler`
-  matrix row is not).
+  `csharp/shared/test/CatchMatchTests.cs`. Those two are what gate the SHAPE: the
+  `csharp-compiler` matrix row is a PR gate since #619, but it is a RATCHET on a
+  passing count, and 146's failure sat inside its floor from day one.
 
 ### Encoder
 

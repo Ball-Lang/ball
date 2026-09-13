@@ -13,11 +13,13 @@ import (
 //
 // Before #615 compileTry emitted the FIRST catch clause as an unconditional
 // catch-all and dropped every later one, so `throw StateError(...)` ran an
-// `on ArgumentError catch` body — silently wrong output, never an error. No CI
-// leg gates a PR on compiling a conformance fixture to Go (the `go-compiler`
-// row in conformance-matrix.yml is a ratchet on a workflow with no
-// `pull_request:` trigger), so without this test the fix would be unobserved
-// PR-time.
+// `on ArgumentError catch` body — silently wrong output, never an error.
+//
+// The `go-compiler` row in conformance-matrix.yml compiles this same fixture and
+// has been a PR gate since #619 — but it is a RATCHET on a passing count
+// (GO_COMPILER_FLOOR), so 146_nested_try_catch_types failed inside its floor,
+// green, from the day that leg came online. A ratchet cannot name the fixture
+// that is failing; this test can, and fails for THIS shape.
 func TestTypedCatchClauseDispatch(t *testing.T) {
 	fixture := filepath.Join("..", "..", "tests", "conformance", "464_typed_catch_clause_dispatch.ball.json")
 	golden := filepath.Join("..", "..", "tests", "conformance", "464_typed_catch_clause_dispatch.expected_output.txt")

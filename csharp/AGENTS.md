@@ -411,9 +411,10 @@ error. `BallThrow`'s untyped constructor also mirrors `std.throw`'s `arg0` -> `m
 (`engine_std.dart`), so a caught `e.message` reads the constructor argument rather than `null`.
 Guards: `tests/conformance/464_typed_catch_clause_dispatch` and `146_nested_try_catch_types`
 cross-target, plus the PR-gated `compiler/test/CatchClauseDispatchTests.cs` +
-`shared/test/CatchMatchTests.cs` — the `csharp-compiler` leg that compiles the whole corpus lives
-only in `conformance-matrix.yml`, which has no `pull_request:` trigger, and 146 had been failing
-there (absorbed into the ratchet floor) since that leg came online.
+`shared/test/CatchMatchTests.cs`. Those two are what gate the SHAPE: the `csharp-compiler` leg that
+compiles the whole corpus is a PR gate since #619, but it is a RATCHET on a passing count
+(`CSHARP_COMPILER_FLOOR`), and 146 had been failing there — inside the floor, so green — since that
+leg came online.
 
 **Type emission:** `typeDefs[]` `metadata.kind` → C# `sealed class`/`abstract class`; `Module.enums[]`
 → a working dynamic enum namespace; instance methods (`owner:Type.member` + `metadata.kind`) →

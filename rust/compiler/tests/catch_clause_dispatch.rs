@@ -1,9 +1,12 @@
 //! Typed `on <Type> catch` clause SELECTION (issue #615) — **emitted-source**
 //! assertions, so this suite is part of the default `cargo test --workspace` and
 //! runs on EVERY PR (unlike `compiler_conformance.rs`, which is `#[ignore]`d and
-//! shells out to cargo, and unlike the whole-corpus `rust-compiler` leg, which
-//! lives only in conformance-matrix.yml — a workflow with no `pull_request:`
-//! trigger that ratchets an aggregate count rather than gating parity).
+//! shells out to cargo). The whole-corpus `rust-compiler` leg in
+//! conformance-matrix.yml has been a PR gate since #619, but it RATCHETS an
+//! aggregate count (`RUST_COMPILER_FLOOR`) rather than gating parity: it was
+//! green over `146_nested_try_catch_types` failing inside its floor from the day
+//! that leg came online. A ratchet cannot name the failing fixture; this suite
+//! fails for THIS shape.
 //!
 //! **The bug this file was written against.** `compile_try` compiled
 //! `catches.first()` as an unconditional catch-all and dropped every later

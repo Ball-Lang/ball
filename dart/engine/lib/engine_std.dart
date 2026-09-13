@@ -1025,14 +1025,25 @@ extension BallEngineStd on BallEngine {
             : (raw is Map ? raw : <dynamic, dynamic>{});
         return map.containsValue(m['value']);
       },
-      'map_put_if_absent': (i) {
+      'map_put_if_absent': (i) async {
         final m = _stdAsMap(i)!;
         final map = _stdAsMap(m['map']) ?? (m['map'] as Map);
         final key = m['key'] as String;
         if (!map.containsKey(key)) {
           _trackMemoryAllocation(_ballMapEntryBytes);
           final val = m['value'];
-          map[key] = val is Function ? val() : val;
+          // Dart's `putIfAbsent(key, ifAbsent)` takes a THUNK, but a Ball
+          // lambda always has exactly one input (the gRPC-style invariant), so
+          // every engine's lambda closure is `(Object?) => …`. Calling it with
+          // no argument threw `NoSuchMethodError: Closure call with mismatched
+          // arguments` — invisible until `467_map_put_if_absent` became the
+          // first fixture ever to execute this base function (issue #488: the
+          // completeness gate could not see a name that only lives in
+          // `collectionRoutes`' map VALUE). The result may be a Future when the
+          // thunk's body awaits, exactly as in `list_map` above.
+          var produced = val is Function ? val(null) : val;
+          if (produced is Future) produced = await produced;
+          map[key] = produced;
         }
         return map[key];
       },

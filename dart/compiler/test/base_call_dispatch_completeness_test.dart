@@ -28,7 +28,7 @@
 /// reachable defect rather than an unused declaration. Declared-but-unroutable
 /// names (`list_zip`, the whole `std_concurrency` module, …) are a different,
 /// pre-existing gap and are deliberately NOT in this population — see the
-/// issue filed alongside this gate.
+/// issue #654, which enumerates all 20 of them and the three ways out.
 @TestOn('vm')
 library;
 

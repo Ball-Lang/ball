@@ -1,0 +1,616 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "map_create",
+          "isBase": true
+        },
+        {
+          "name": "map_put_if_absent",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "index",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "map_put_if_absent",
+          "isBase": true
+        }
+      ],
+      "description": "Collections standard library base module"
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "counts",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "map_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "String, int"
+                                  }
+                                }
+                              },
+                              {
+                                "name": "entry",
+                                "value": {
+                                  "messageCreation": {
+                                    "fields": [
+                                      {
+                                        "name": "key",
+                                        "value": {
+                                          "literal": {
+                                            "stringValue": "ada"
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "name": "value",
+                                        "value": {
+                                          "literal": {
+                                            "intValue": "1"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "map_put_if_absent",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "map",
+                                          "value": {
+                                            "reference": {
+                                              "name": "counts"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "key",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "ada"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "literal": {
+                                                  "intValue": "99"
+                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "counts"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "ada"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "counts"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "map_put_if_absent",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "map",
+                                          "value": {
+                                            "reference": {
+                                              "name": "counts"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "key",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "bob"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "literal": {
+                                                  "intValue": "7"
+                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "counts"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "bob"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "counts"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "fresh",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "map_create",
+                        "input": {
+                          "messageCreation": {
+                            "typeName": "",
+                            "fields": [
+                              {
+                                "name": "type_args",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "String, String"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "map_put_if_absent",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "map",
+                                          "value": {
+                                            "reference": {
+                                              "name": "fresh"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "key",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "k"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "literal": {
+                                                  "stringValue": "v"
+                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "index",
+                                  "input": {
+                                    "messageCreation": {
+                                      "typeName": "",
+                                      "fields": [
+                                        {
+                                          "name": "target",
+                                          "value": {
+                                            "reference": {
+                                              "name": "fresh"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "index",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "k"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std_collections",
+                                  "function": "map_put_if_absent",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "map",
+                                          "value": {
+                                            "reference": {
+                                              "name": "fresh"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "key",
+                                          "value": {
+                                            "literal": {
+                                              "stringValue": "k"
+                                            }
+                                          }
+                                        },
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "lambda": {
+                                              "name": "",
+                                              "body": {
+                                                "literal": {
+                                                  "stringValue": "other"
+                                                }
+                                              },
+                                              "metadata": {
+                                                "kind": "lambda",
+                                                "expression_body": true,
+                                                "has_return": true
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

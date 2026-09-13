@@ -202,15 +202,16 @@ if not needs:
     fail(f"{workflow_path}: the `summary` job's `needs:` list is empty")
     sys.exit(1)
 
-# The parity table proper: everything between the `╠═…╣` header separator and
-# the `╚═…╝` footer of the summary job's first printed box.
 # The table body is what the `summary` step prints between its box-drawing
 # header separator and its footer. Those two glyphs are the only anchor that
-# does not depend on job ids or row wording; the legs printed AFTER the footer
-# are excluded by construction, which is what makes this a parity-only set.
+# does not depend on job ids or row wording, and the legs printed AFTER the
+# footer are excluded by construction — which is what makes this a parity-only
+# set. Scoped to the `summary` job's own block so an unrelated box drawn
+# earlier in the workflow cannot be mistaken for it.
 TABLE_TOP = "\u2560"  # the header separator's leading glyph
 TABLE_BOTTOM = "\u255a"  # the footer's leading glyph
-table_m = re.search(TABLE_TOP + r"[^\n]*\n(.*?)" + TABLE_BOTTOM, workflow_text, re.DOTALL)
+summary_block = workflow_text[needs_m.start() :]
+table_m = re.search(TABLE_TOP + r"[^\n]*\n(.*?)" + TABLE_BOTTOM, summary_block, re.DOTALL)
 if not table_m:
     fail(
         f"{workflow_path}: could not find the `summary` job's parity table "
@@ -275,11 +276,18 @@ def aliases(token):
 
 
 def bounded_present(text, token):
+    """Is `token` present in `text` as a WHOLE word?
+
+    Both boundaries are enforced, but the trailing one only when the spelling
+    ends on a word character: a `\\b` after "C++"/"C#" can never match (they
+    already end on punctuation) and would make the check permanently fail for
+    exactly those two tokens. Without the trailing boundary "Go" matches
+    "Golden" and "Dart" matches "Darts", so a table that never mentions Go
+    would still be reported as naming it."""
     for spelling in aliases(token):
         pat = re.escape(spelling)
-        # A leading word-boundary is enough: "C++"/"C#" already end on a
-        # non-word character, so a trailing \b never matches after them and
-        # would make the check permanently fail for those two tokens.
+        if spelling[-1].isalnum() or spelling[-1] == "_":
+            pat += r"(?![A-Za-z0-9_])"
         if re.search(r"(?<![A-Za-z0-9_])" + pat, text):
             return True
     return False
@@ -675,6 +683,28 @@ MD
 | **C++** | self-hosted engine | `cpp-compiled` |
 MD
 
+  # "Go" must not be satisfied by "Golden"/"Google": without a TRAILING word
+  # boundary a table that never mentions Go still reports as naming it.
+  local substring_embed="$SCRATCH/embed_substring.md"
+  cat >"$substring_embed" <<'MD'
+# Ball Embed
+
+## Per-target honest status
+
+| Target | Embeddable for untrusted input? |
+|---|---|
+| **Dart** | Yes |
+| **TypeScript** | Partial |
+| **Rust** | Trusted only |
+| **C++** | Trusted only |
+| **C#** | Trusted only |
+| **Golden Retriever** | Trusted only |
+| **Python** | Trusted only |
+
+## Dangerous assumptions
+Not part of the table.
+MD
+
   local good_embed="$SCRATCH/embed_good.md"
   cat >"$good_embed" <<'MD'
 # Ball Embed
@@ -782,6 +812,10 @@ MD
     "table is missing row(s) for Go, Python" \
     "$wf" "$good_portability" "$short_embed"
 
+  expect "a substring of an engine name does not count as its row" 1 \
+    "table is missing row(s) for Go" \
+    "$wf" "$good_portability" "$substring_embed"
+
   # The verdict rule. The row COUNT and the row NAMES are both fine here, so
   # every other rule passes this fixture — which is exactly why #613's first
   # bullet had no test before.
@@ -861,8 +895,8 @@ YAML
     "$no_summary_wf" "$good_portability" "$good_embed"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 15 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 15) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 16 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 16) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

@@ -227,7 +227,7 @@ encoder and compiler (issue #493).
 | **TypeScript** — Tier A | 48 | 4 (8%) | 29 | 28 | 21 | 16 | 6 |
 | **C#** — Tier A | 472 | 0 (0%) | 141 | 140 | 58 | 0 | 0 |
 | **Python** — Tier A | 73 | 0 (0%) | 5 | 5 | 0 | 0 | 0 |
-| **Rust** — Tier A | 77 | 0 (0%) | 1 | 1 | 1 | 0 | 34 |
+| **Rust** — Tier A | 77 | 0 (0%) | 7 | 7 | 1 | 0 | 34 |
 | **Go** — Tier A | 21 | 0 (0%) | 0 | 0 | 0 | 0 | 13 |
 | **Dart** — Tier B (per-file) | 106 | 102 (96%) | — | — | — | — | — |
 | **Dart** — Tier B (whole-package) | 5 | 3 (60%) | — | — | — | — | — |

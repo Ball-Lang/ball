@@ -79,7 +79,7 @@ CANONICAL: dict[str, str] = {
 MIN_RAISED_PER_TARGET = 1
 MIN_TABLE_ENTRIES = 3
 MIN_TARGETS = 7
-MIN_TABLE_TARGETS = 4
+MIN_TABLE_TARGETS = 5
 
 
 def _read(root: pathlib.Path, rel: str) -> str:
@@ -133,11 +133,16 @@ def _dart_error_like(names: set[str]) -> set[str]:
 
 class Target:
     def __init__(self, name: str, raised: set[str], table: dict[str, str] | None,
-                 table_source: str | None):
+                 table_source: str | None, coverage_exempt: bool = False):
         self.name = name
         self.raised = raised
         self.table = table
         self.table_source = table_source
+        # True only for a target whose THROWER carries the canonical string for
+        # the names its table omits (C++). Agreement still applies to the rows
+        # the table does hold — an exemption from coverage is not an exemption
+        # from being right.
+        self.coverage_exempt = coverage_exempt
 
 
 def collect(root: pathlib.Path) -> list[Target]:
@@ -154,15 +159,31 @@ def collect(root: pathlib.Path) -> list[Target]:
     ))
 
     # ── C++ ──────────────────────────────────────────────────────────────────
-    # `ball_to_string(const BallException&)` returns `what()` — the payload
-    # verbatim — so C++ is the other target whose thrower carries the canonical
-    # string. Closure check only.
+    # C++ is the one target with BOTH shapes, so it gets a table AND is exempt
+    # from the coverage check:
+    #   - a LITERAL `throw StateError('boom')` keeps its ctor argument in
+    #     `fields` and reaches `_ball_dart_error_to_string`'s name -> prefix
+    #     table (#640), so those rows must AGREE with Dart like every sibling's;
+    #   - a RUNTIME-raised one (`ball_cast_assert`'s `TypeError`) is built by the
+    #     2-argument, no-`fields` ctor already carrying its canonical
+    #     `toString()` string, and `ball_to_string(const BallException&)` returns
+    #     `what()` verbatim — so the THROWER carries the string and no row is
+    #     needed.
+    # Modelling it as `table=` + `coverage_exempt=True` is what keeps the three
+    # rows it does hold under the agreement check instead of unwatched, while not
+    # demanding a `TypeError` row that would have no prefix to hold (#641).
     cpp_src = [_read(root, f) for f in
                _files(root, "cpp/shared/include/*.h", "cpp/compiler/src/compiler.cpp")]
+    cpp_table_body = _body(_read(root, "cpp/shared/include/ball_emit_runtime.h"),
+                           "inline std::string _ball_dart_error_to_string(",
+                           "if (prefix == nullptr)",
+                           "cpp _ball_dart_error_to_string")
     targets.append(Target(
         "cpp",
         _dart_error_like(_names(cpp_src, r"BallException\(\s*\"([A-Za-z_]\w*)\"")),
-        None, None,
+        dict(re.findall(r'bare == "(\w+)"\)\s*prefix = "([^"]*)"', cpp_table_body)),
+        "cpp/shared/include/ball_emit_runtime.h::_ball_dart_error_to_string",
+        coverage_exempt=True,
     ))
 
     # ── Rust ─────────────────────────────────────────────────────────────────
@@ -276,7 +297,9 @@ def main(argv: list[str]) -> int:
         rendered = sorted(t.table) if t.table is not None else []
         lines.append(
             f"  {t.name:<7} raises {sorted(t.raised)}"
-            + (f"  renders {rendered}" if t.table is not None else "  (thrower carries the string)")
+            + ("  (thrower carries the string)" if t.table is None
+               else f"  renders {rendered}"
+                    + ("  [+ thrower carries the rest]" if t.coverage_exempt else ""))
         )
 
         if len(t.raised) < MIN_RAISED_PER_TARGET:
@@ -301,7 +324,7 @@ def main(argv: list[str]) -> int:
                 f"{len(t.table)} entries, floor is {MIN_TABLE_ENTRIES} — the table "
                 "extractor stopped matching")
 
-        missing = sorted(t.raised - set(t.table))
+        missing = [] if t.coverage_exempt else sorted(t.raised - set(t.table))
         if missing:
             failures.append(
                 f"{t.name}: raises {missing} but {t.table_source} has no entry for "

@@ -388,6 +388,16 @@ jobs:
       - name: Compiler-cache gate self-test (#594)
         run: bash cpp/test/check_compiler_cache_applied.sh --self-test
 
+      # The self-test above proves the gate's parsers and its ceiling
+      # comparison; it runs the script directly and therefore structurally
+      # cannot notice WHERE in the cpp job the gate step sits. That placement
+      # is load-bearing (#660): full_e2e.sh's compile-and-link smoke adds
+      # uncacheable ccache calls, so a reorder puts the ubuntu/macOS legs at 4
+      # against a ceiling of 0 with a misleading cause. This asserts the order
+      # from ci.yml itself, with a negative control on a relocated copy.
+      - name: Compiler-cache gate step-order wiring test (#660)
+        run: bash cpp/test/test_cache_gate_step_order.sh
+
       # conformance-matrix.yml is a PR gate since #619, and BOTH of its triggers
       # (`push` to main and `pull_request`) share ONE path filter via a YAML
       # anchor. If a future edit turns that alias back into two literal lists and
@@ -423,6 +433,23 @@ jobs:
         run: |
           bash tools/ci/check_ci_regen_wiring.sh --self-test
           bash tools/ci/check_ci_regen_wiring.sh
+
+      # coverage.yml's Codecov upload must not be able to red a green coverage
+      # measurement (#638). Run 34746079045's `C++ coverage` job passed both
+      # floor steps and then failed on a codecov-action OIDC token-fetch
+      # timeout, so main's coverage history records a red on a commit whose
+      # coverage was fine — and `fail_ci_if_error: false` could not prevent it,
+      # because that input only reaches the action's LAST composite step, not
+      # the un-retried `Get OIDC token` one that timed out. This parses
+      # coverage.yml and asserts measurement and transport are different jobs,
+      # that nothing after a floor step can mask its verdict, that the upload
+      # retries the token fetch and then fails LOUD, and that no
+      # `continue-on-error`/`|| true` is anywhere near it. `--self-test` first:
+      # a guard that stopped asserting must not pass.
+      - name: Coverage upload-isolation wiring guard (#638)
+        run: |
+          bash tools/ci/check_coverage_upload_isolation.sh --self-test
+          bash tools/ci/check_coverage_upload_isolation.sh
 
       # The loop-breaker itself (#625): one auto-push per HUMAN commit. It is the
       # only thing standing between a nondeterministic generator and an infinite

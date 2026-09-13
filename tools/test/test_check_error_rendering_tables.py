@@ -120,6 +120,24 @@ def main() -> int:
         lambda root: _edit(root, "go/runtime/ops.go",
                            'prefix = "Bad state"', 'prefix = "StateError"'),
         1, "Dart spells 'Bad state'")
+    # C++ is the one target exempt from COVERAGE (its thrower carries the string
+    # for the names its table omits) and that exemption must not quietly extend
+    # to AGREEMENT — the three rows it does hold are checked like every other
+    # target's.
+    case(
+        "cpp renders FormatException with the wrong prefix",
+        lambda root: _edit(root, "cpp/shared/include/ball_emit_runtime.h",
+                           'bare == "FormatException") prefix = "FormatException"',
+                           'bare == "FormatException") prefix = "Format"'),
+        1, "renders 'FormatException' with prefix 'Format'")
+    # ... and the exemption is not a licence for the extractor to go blind: if
+    # the C++ table stops parsing, the table-target floor must catch it.
+    case(
+        "cpp table that stops parsing trips the table floor",
+        lambda root: _edit(root, "cpp/shared/include/ball_emit_runtime.h",
+                           'bare == "StateError") prefix = "Bad state"',
+                           'bare == kStateError) prefix = kBadState'),
+        1, "rendering table"),
 
     # ── Closure: a brand-new raised name the contract has never heard of ─────
     case(

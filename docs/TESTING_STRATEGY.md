@@ -355,7 +355,10 @@ per-file rule into its JSON report; `summarize.sh` FAILS a Tier A job whose log
 does not carry that line or whose count is not a bare integer; `coverage_table.py`
 fails on a Tier A artifact with no count, publishes it as a README column, and
 records it in `baseline.json` (recorded, **not** floored — a pin whose own test
-suite grew moves it in either direction and neither is a regression). Each
+suite grew moves it in either direction and neither is a regression). The count
+alone cannot see a PARTIAL readmission, so the harnesses also write the paths
+and `tools/coverage-study/excluded.json` commits them per pin: a path that list
+excludes and a run SCORED is a breach naming the file (#676). Each
 language's self-test pins both directions, including a negative control of
 library files named `latest`/`contest`/`attestation` that must stay **scored**,
 so a substring rule fails. The per-language rules and the one known limitation
@@ -854,9 +857,50 @@ was pointing at a real frame-accounting bug in the engine, see
 ## Coverage ratchet (toward 100% line coverage)
 
 Beyond construct-completeness (§2), we measure **line coverage** and ratchet it
-upward, never down — across **all three stacks**, uploaded to Codecov with
-per-stack flags (`dart`/`typescript`/`cpp`) via OIDC (no token). Gate:
-`.github/workflows/coverage.yml`.
+upward, never down — across **all five stacks**, uploaded to Codecov with
+per-stack flags (`dart`/`typescript`/`cpp`/`rust`/`csharp`) via OIDC (no token).
+Gate: `.github/workflows/coverage.yml`.
+
+**Read a coverage run at the STEP level, and never let transport speak for the
+measurement (#638).** A coverage job used to end by uploading its own lcov to
+Codecov, so one exit code answered two unrelated questions. Run
+[34746079045](https://github.com/Ball-Lang/ball/actions/runs/34746079045) is what
+that cost: its `C++ coverage` job passed step 11 (`C++ line coverage floor`,
+93.9% ≥ 91%) and step 12 (`C++ per-target coverage floors`, 94.6/99.0/94.3 ≥
+92/97/92), then failed step 13 on a `codecov/codecov-action` OIDC
+`Failed to get ID Token … Request timeout`. Result: a red on main's coverage
+history with no coverage regression behind it — on exactly the history the C++
+floor derivation and #599's cache ceiling read as "N consecutive green runs".
+
+Two things changed, and one rule stayed:
+
+- **Transport moved out.** Each language job now publishes its lcov as a
+  `coverage-lcov-<flag>` artifact and **ends on its floor steps**, so the job's
+  conclusion *is* the measurement. A separate `codecov-upload` job `needs:` all
+  five and carries the bytes. (The Dart job measures and gates in one
+  `coverage_dart.dart --floor` invocation, so its artifact is taken after the
+  gate under `if: ${{ !cancelled() }}` — a coverage DROP must still be published,
+  or the report gets a hole exactly at the commit worth looking at.)
+- **The upload retries, then fails loud.** `codecov/codecov-action@fb8b358…` is
+  v7.0.0, a *composite* action: `fail_ci_if_error` only reaches its last step
+  (`dist/codecov.sh`), while the token comes from an earlier, un-retried
+  `Get OIDC token` step, and v7.0.0 exposes no retry input at all. So the upload
+  job fetches the OIDC token itself against `ACTIONS_ID_TOKEN_REQUEST_URL` with a
+  bounded 3-attempt retry and passes it through the action's `token` input, then
+  uploads with `fail_ci_if_error: true`. A transient timeout retries; a
+  persistent failure reds the **upload** job — honest, and distinct from a
+  coverage drop. Never `continue-on-error`.
+- **The rule that outlives the fix:** judge a coverage.yml run by the named floor
+  STEPS and the numbers they print, not by a job or workflow conclusion. That was
+  true before the fix and stays true after it (PR #643's advisory 1: the earlier
+  "judge by the C++ JOB's conclusion" wording would, applied literally, have
+  thrown out the very run it was defending).
+
+`tools/ci/check_coverage_upload_isolation.sh` — ci.yml's always-on `Proto Checks`
+job, 20-case self-test with two positive controls — parses coverage.yml and
+holds all of that in place: measurement and transport in different jobs, the
+flag set matching the artifact set, nothing masking a floor verdict, the bounded
+retry present, and no `continue-on-error`/`|| true` in the upload path.
 
 **The Dart ratchet is a PR gate (#605).** `ci.yml`'s always-on `Dart Coverage
 Ratchet` job runs `dart run tools/coverage_dart.dart --floor 99.9` on every pull
@@ -870,8 +914,8 @@ whole-workspace, its inputs are not only `dart/**`, and a *skipped* check
 reports **success**, which is the exact failure mode that let the ratchet sit red
 on main for a week (2026-09-06 → 2026-09-13, 17140/17167 = 99.84%) while every
 required check stayed green. `coverage.yml`'s Dart job keeps its own copy of the
-ratchet because it owns the Codecov upload and is the push-to-main measurement;
-the two floors must move together.
+ratchet because it produces the lcov the Codecov upload carries (#638) and is the
+push-to-main measurement; the two floors must move together.
 
 **Completeness is the whole point — measure every package and every file, or the
 number lies.** The Dart tool `tools/coverage_dart.dart`:
@@ -920,10 +964,14 @@ after merging. The `cpp` job now also runs on `cpp/**`-touching pull requests;
 the other four jobs stay push/dispatch-only so a C++ PR doesn't drag the whole
 cross-stack matrix in. It is deliberately **not** a required check — it makes
 the regression visible pre-merge, it does not block. The finer per-target C++
-floors (`cpp/build-cov-floor.sh`: compiler 88 / encoder 88 / shared 81) are
-**reported, not enforced** — never measured by CI, and a false red on main is
-worse than an unenforced number; they ratchet once two runs establish a
-baseline. That script's parser is pinned by
+floors (`cpp/build-cov-floor.sh`) were **reported, not enforced** while CI had
+never measured them — a false red on main is worse than an unenforced number.
+CI has measured them since, so they are now **gated**: the `C++ per-target
+coverage floors (compiler/encoder/shared — gated)` step runs that script and
+takes its exit code, and the floors have been ratcheted to compiler 92 /
+encoder 97 / shared 92 against six consecutive agreeing main runs (#63; the run
+ids and the derivation live in that script's header, which is where the numbers
+belong). That script's parser is pinned by
 `cpp/test/test_build_cov_floor_parsing.sh` (it used to pass silently when it
 could not parse a summary at all).
 
@@ -965,12 +1013,13 @@ could not parse a summary at all).
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
 | **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result — and, for Tier A, on a log missing its `excluded (test-only): N` line, which would mean the library-code-only rule vanished (issue #491) |
-| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, and regenerates the README table, committing both to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
+| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, diffs the per-file exclusion list in `tools/coverage-study/excluded.json` and fails naming any file that list excludes and the run scored (#676), and regenerates the README table, committing all three to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
 | The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
 | **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
-| Line coverage ratchet (TS/Rust/C#) + the Dart Codecov upload | `coverage.yml` | push to main + manual — **NOT a PR gate** |
-| Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
+| Line coverage ratchet (Rust/C#) + the Dart push-to-main measurement | `coverage.yml`'s `dart`/`rust`/`csharp` jobs | push to main + manual — **NOT a PR gate** |
+| Line coverage ratchet (C++), aggregate **and** per-target | `coverage.yml`'s `cpp` job — the `C++ line coverage floor` and `C++ per-target coverage floors (compiler/encoder/shared — gated)` steps, the latter taking `cpp/build-cov-floor.sh`'s exit code | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
+| **The Codecov upload cannot red a green measurement** (#638) | `tools/ci/check_coverage_upload_isolation.sh` — measurement and transport in different jobs, the uploaded flag set equal to the measured artifact set, nothing masking a floor verdict, a bounded-retry OIDC token fetch, `fail_ci_if_error: true`, and neither a `continue-on-error` key nor a short-circuiting `true` guarding the upload path. 20-case self-test with two positive controls | every PR (the always-on `proto` job, no toolchain) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |
 | **The artifact an outside consumer gets, not the checkout** — Python wheel (#496) | `python/tool/wheel_smoke.py` (`python -m build python/`, install into a venv OUTSIDE the repo with no `PYTHONPATH`, run `--version`/`check`/`compile`/`encode`/`run`, `run` diffed against a golden as BYTES) | every PR (`Python`) |
 | Compile-on-first-use engine bootstrap (what a pip-installed wheel actually runs) | `python/engine/tests/test_bootstrap.py` (cache hit/miss/invalidation, failure modes, and a conformance fixture through the cache-compiled engine vs. its golden) | every PR (`Python`, with `BALL_REQUIRE_SELFHOST_SOURCE=1` so it cannot silently skip) |

@@ -59,11 +59,45 @@ struct BallException : public std::runtime_error {
           fields(std::move(f)) {}
 };
 
-// Stream inserter so `print(e)` on a catch-bound BallException works
-// (it falls through to printing `.what()`, matching the old
-// string-binding behavior for plain-string throws).
-inline std::ostream& operator<<(std::ostream& os, const BallException& e) {
-    return os << e.what();
+// One of the built-in Dart error/exception objects a Ball `throw` raises,
+// rendered the way Dart's own `toString()` does — or an empty string for
+// anything else (issues #616/#640).
+//
+// The table is EXPLICIT and closed, and matches `dartErrorToString`
+// (go/runtime/ops.go) and `DartErrorToString` (csharp/shared/src/BallValue.cs)
+// row for row — the same three rows, and the same module-prefix stripping.
+// Rendering any exception that happens to carry a `message` field would reach
+// straight into user data: a Ball class declaring a `message` field is not a
+// Dart error and must keep printing what it printed before. `StateError` is the
+// one whose rendering is not `<Type>: <message>`: Dart spells it
+// `Bad state: <message>` (verified against the SDK).
+//
+// The FOURTH sibling, `dart_error_to_string` (rust/shared/src/value.rs), carries
+// a `TypeError` row this table deliberately does NOT, and #641 settled why: a
+// `_TypeError`'s `toString()` IS its message, with no `TypeError: ` prefix at
+// all, so there is no prefix for a row here to hold. C++ needs none — it raises
+// `TypeError` through the 2-argument, no-`fields` ctor (`ball_cast_assert` in
+// `cpp/compiler/src/compiler.cpp`) carrying the canonical
+// `type '<runtime type>' is not a subtype of type '<target>' in type cast`
+// string as the payload, so the `message` lookup below misses and `what()`
+// returns that string verbatim. The three rows this table DOES hold are checked
+// against Dart's own spellings on every PR by
+// `tools/check_error_rendering_tables.py` (`Proto Checks`); a row whose prefix
+// drifts from Dart's, here or in any sibling, fails there.
+inline std::string _ball_dart_error_to_string(const std::string& type_name,
+                                              const std::string& message) {
+    // The throw lowering strips the module prefix, but a tag can still arrive
+    // module-qualified (`main:StateError`) — the sibling tables strip it too
+    // (go's `messageShortName`, C#'s `LastIndexOf(':')`).
+    std::string bare = type_name;
+    const auto colon = bare.rfind(':');
+    if (colon != std::string::npos) bare = bare.substr(colon + 1);
+    const char* prefix = nullptr;
+    if (bare == "StateError") prefix = "Bad state";
+    else if (bare == "FormatException") prefix = "FormatException";
+    else if (bare == "RangeError") prefix = "RangeError";
+    if (prefix == nullptr) return std::string();
+    return std::string(prefix) + ": " + message;
 }
 
 // Dart's `catch (e)` binds the caught exception itself, and `to_string(e)` on
@@ -72,7 +106,34 @@ inline std::ostream& operator<<(std::ostream& os, const BallException& e) {
 // instantiated `std::to_string(BallException&)`, which does not compile at all —
 // so a program that printed its caught exception was a BUILD error on this
 // target, not a wrong answer.
-inline std::string ball_to_string(const BallException& e) { return e.what(); }
+//
+// The two throw shapes carry that string in different places (issue #640):
+//   - a LITERAL throw (`throw StateError('boom')`) lowers to
+//     `BallException(type, type, {{"message", "boom"}})` — the ctor argument is
+//     in `fields` and `what()` is the bare TYPE NAME, so `what()` alone printed
+//     `StateError` where Dart prints `Bad state: boom`;
+//   - a RUNTIME-raised one (`_ball_make_exception`) already carries its
+//     canonical `toString()` string as the payload, and `fields` is empty — so
+//     it must NOT be prefixed a second time.
+// Keying on the `message` field rather than on the type name is what keeps
+// those apart.
+inline std::string ball_to_string(const BallException& e) {
+    const auto it = e.fields.find("message");
+    if (it != e.fields.end()) {
+        std::string rendered = _ball_dart_error_to_string(e.type_name, it->second);
+        if (!rendered.empty()) return rendered;
+    }
+    return e.what();
+}
+
+// Stream inserter so `print(e)` on a catch-bound BallException works. It routes
+// through ball_to_string above so a streamed exception and an interpolated one
+// are the same string — the compiler emits `print` as
+// `std::cout << ball_to_string(...)`, and a second spelling here would be a
+// second, silently drifting rendering.
+inline std::ostream& operator<<(std::ostream& os, const BallException& e) {
+    return os << ball_to_string(e);
+}
 
 // Dart-compatible string conversion. Handles bool and doubles so
 // compiled programs produce the same output as the Dart engine

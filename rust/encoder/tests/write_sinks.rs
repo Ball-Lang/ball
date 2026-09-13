@@ -592,6 +592,73 @@ pub fn dash(out: &mut fmt::Formatter) -> fmt::Result {
 }
 
 // ════════════════════════════════════════════════════════════
+// `&mut` alias bindings (issue #642) as a `write!` destination
+// ════════════════════════════════════════════════════════════
+
+#[test]
+fn a_write_through_a_mut_alias_re_assigns_the_local_string_it_borrows() {
+    // `let slot = &mut result;` is an ALIAS binding: issue #642's rule records
+    // it and emits no `let` at all, because Ball has no references — every
+    // later READ of `slot` resolves to `result` (`lib.rs::encode_path_expr`).
+    // A `write!` destination is a read like any other, so this must take the
+    // same arm `write!(&mut result, ..)` takes: a re-assignment of the local
+    // `String`. Classifying the alias NAME instead leaves it unrecorded in
+    // `local_scopes`, which reads as "not a local" and emits `std.sink_write`
+    // against a plain `String` — a value every engine and runtime rejects at
+    // run time (`rust/shared/src/runtime.rs::sink_backing` panics), turning an
+    // encode-time answer into a run-time failure.
+    const SOURCE: &str = r#"
+pub fn join(value: i64) -> String {
+    let mut result = String::new();
+    let slot = &mut result;
+    write!(slot, "{}", value).unwrap();
+    result
+}
+"#;
+    let program = encode_library(SOURCE);
+    assert_eq!(
+        count_std_calls(&program, "join", "sink_write"),
+        0,
+        "an alias of a provably-local `String` IS that `String`, not a sink"
+    );
+    let assign = only_std_call(&program, "join", "assign");
+    assert_eq!(
+        field(assign, "target").expr,
+        reference_to("result"),
+        "the re-assignment names the BORROWED variable, never the alias"
+    );
+    assert_eq!(
+        text_pieces(field(assign, "value")),
+        vec!["<ref result>".to_string(), "<to_string>".to_string()],
+    );
+}
+
+#[test]
+fn a_write_through_a_mut_alias_of_a_sink_parameter_stays_a_sink_write() {
+    // The same resolution in its other direction: the alias borrows a sink
+    // PARAMETER, so the write stays `std.sink_write` — and names the
+    // parameter, the only binding the encoded program has.
+    const SOURCE: &str = r#"
+pub fn dash(f: &mut fmt::Formatter) -> fmt::Result {
+    let out = &mut f;
+    write!(out, "-")
+}
+"#;
+    let program = encode_library(SOURCE);
+    let call = only_std_call(&program, "dash", "sink_write");
+    assert_eq!(
+        field(call, "sink").expr,
+        reference_to("f"),
+        "the alias resolves to the sink parameter it borrows"
+    );
+    assert_eq!(
+        count_std_calls(&program, "dash", "assign"),
+        0,
+        "a parameter is never re-assigned in place"
+    );
+}
+
+// ════════════════════════════════════════════════════════════
 // (v) a local of some OTHER type — a loud panic, never a guess
 // ════════════════════════════════════════════════════════════
 

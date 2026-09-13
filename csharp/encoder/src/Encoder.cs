@@ -123,6 +123,21 @@ internal sealed partial class Encoder
 
     private void MarkCollectionsUsed() => UsesCollections = true;
 
+    /// <summary>The semantic model this encode may consult, if any. Defaults to
+    /// <see cref="NullSemanticQuery"/> — "I don't know" to every question — which is what makes
+    /// <see cref="CSharpEncoder.Encode"/>/<see cref="CSharpEncoder.EncodeLibrary"/> byte-identical
+    /// to before the seam existed (issue #492, W12-C slice 1). Only
+    /// <see cref="CSharpEncoder.EncodeProject"/>/<see cref="CSharpEncoder.EncodeFileInProject"/>
+    /// ever replace it.</summary>
+    private ISemanticQuery _semantics = NullSemanticQuery.Instance;
+
+    internal void BindSemantics(ISemanticQuery semantics) => _semantics = semantics;
+
+    /// <summary>True when a real compilation is behind this encode — the single switch that
+    /// separates "answers are symbol-grade, so a name heuristic on an unbindable receiver is an
+    /// ERROR" from "no model was ever promised, so today's answer stands".</summary>
+    private bool IsProjectMode => _semantics.IsResolving;
+
     // ════════════════════════════════════════════════════════════
     // Local-scope helpers
     // ════════════════════════════════════════════════════════════
@@ -158,6 +173,8 @@ internal sealed partial class Encoder
 
     internal void CollectDeclarations(List<BaseTypeDeclarationSyntax> typeDecls)
     {
+        AssertShortNamesAreUnambiguous(typeDecls);
+
         foreach (var decl in typeDecls.OfType<TypeDeclarationSyntax>())
         {
             var shortName = decl.Identifier.Text;
@@ -174,8 +191,22 @@ internal sealed partial class Encoder
         foreach (var decl in typeDecls.OfType<TypeDeclarationSyntax>())
         {
             var shortName = decl.Identifier.Text;
-            var fieldNames = new List<string>();
-            var ctorShapes = new List<CtorDraft>();
+
+            // ACCUMULATE, never overwrite: several `partial` parts of one type are one type,
+            // and every part contributes fields and constructors. Before this, the last part
+            // silently replaced the earlier ones' field list — a same-file defect too, not
+            // only a project-mode one, which is why the fix is unconditional.
+            if (!ClassFields.TryGetValue(shortName, out var fieldNames))
+            {
+                fieldNames = new List<string>();
+                ClassFields[shortName] = fieldNames;
+            }
+
+            if (!drafts.TryGetValue(shortName, out var ctorShapes))
+            {
+                ctorShapes = new List<CtorDraft>();
+                drafts[shortName] = ctorShapes;
+            }
 
             // C# 12 primary constructor (`class Point(int x, int y);` / the long-standing
             // positional-record shorthand `record Point(int X, int Y);`) — its parameters
@@ -227,14 +258,15 @@ internal sealed partial class Encoder
                 }
             }
 
-            ClassFields[shortName] = fieldNames;
+        }
 
-            // Two constructors of the same arity cannot be told apart by a syntax-only
-            // encoder (it has no semantic model to type-match arguments against parameters),
-            // so that is a documented, loud scope limit rather than a coin flip. Reported at
-            // COLLECTION time — the ambiguity is a property of the declaration, not of any
-            // particular call site, so reporting it here names it once instead of once per
-            // `new`.
+        // Two constructors of the same arity cannot be told apart by argument COUNT, so that is
+        // a documented, loud scope limit rather than a coin flip. Reported at COLLECTION time —
+        // the ambiguity is a property of the declaration, not of any particular call site, so
+        // reporting it here names it once instead of once per `new`. Checked after the loop
+        // because a type's constructors can be spread across several `partial` parts.
+        foreach (var (shortName, ctorShapes) in drafts)
+        {
             var duplicateArity = ctorShapes
                 .GroupBy(shape => shape.ParamNames.Count)
                 .FirstOrDefault(group => group.Count() > 1);
@@ -243,11 +275,10 @@ internal sealed partial class Encoder
                 throw new EncoderException(
                     $"ball-encoder: class `{shortName}` declares {duplicateArity.Count()} " +
                     $"constructors taking {duplicateArity.Key} argument(s) — ambiguous " +
-                    "constructor arity: a syntax-only encoder cannot disambiguate same-arity " +
-                    "overloads (see Types.cs's module doc comment)");
+                    "constructor arity: this encoder selects a constructor by argument count " +
+                    "and cannot disambiguate same-arity overloads (see Types.cs's module doc " +
+                    "comment)");
             }
-
-            drafts[shortName] = ctorShapes;
         }
 
         // SECOND pass: resolve `: this(...)` chains now that every sibling's shape is known.
@@ -257,6 +288,71 @@ internal sealed partial class Encoder
         foreach (var (shortName, ctorDrafts) in drafts)
         {
             CtorShapes[shortName] = ResolveConstructorChains(shortName, ctorDrafts);
+        }
+    }
+
+    /// <summary>
+    /// In project mode, refuse two DISTINCT type symbols that share one short name.
+    ///
+    /// <para>Ball has no namespace concept: <see cref="QualifiedTypeName"/> flattens every
+    /// declaration into one <c>main:</c> module. So <c>A.Foo</c> and <c>B.Foo</c> both encode
+    /// to <c>main:Foo</c> — two <see cref="TypeDefinition"/>s and two <c>main:Foo.Method</c>
+    /// functions in one module, with no error at all. That is vanishingly rare inside a single
+    /// file (which is all the resolution-free path ever sees) and ROUTINE across a project:
+    /// measured at 13 collisions over 828 type symbols in the four Tier A pins.</para>
+    ///
+    /// <para>Only a symbol can tell that case from its opposite — several <c>partial</c> parts
+    /// of ONE type, which legitimately share a short name and are merged (measured: Newtonsoft's
+    /// 310 syntactic type names collapse to 261 symbols). Hence the guard runs only when a model
+    /// is bound; <see cref="CSharpEncoder.Encode"/> keeps behaving exactly as before.</para>
+    ///
+    /// <para>Disambiguating the encoded NAMES (rather than refusing) is the next slice's
+    /// decision, because it has to be taken against <c>csharp/compiler</c>'s consumption of
+    /// those names — not guessed at here.</para>
+    /// </summary>
+    private void AssertShortNamesAreUnambiguous(List<BaseTypeDeclarationSyntax> typeDecls)
+    {
+        if (!IsProjectMode)
+        {
+            return;
+        }
+
+        var byShortName = new Dictionary<string, List<(INamedTypeSymbol Symbol, BaseTypeDeclarationSyntax Decl)>>(
+            StringComparer.Ordinal);
+
+        foreach (var decl in typeDecls)
+        {
+            var symbol = _semantics.DeclaredType(decl)
+                ?? throw new EncoderException(
+                    $"ball-encoder: the type declaration `{decl.Identifier.Text}` in " +
+                    $"`{decl.SyntaxTree.FilePath}` did not bind to a symbol — the project " +
+                    "compilation cannot be trusted to resolve anything else either");
+
+            if (!byShortName.TryGetValue(decl.Identifier.Text, out var seen))
+            {
+                seen = [];
+                byShortName[decl.Identifier.Text] = seen;
+            }
+
+            seen.Add((symbol, decl));
+        }
+
+        foreach (var (shortName, seen) in byShortName)
+        {
+            var distinct = seen
+                .GroupBy(entry => entry.Symbol, SymbolEqualityComparer.Default)
+                .ToList();
+            if (distinct.Count < 2)
+            {
+                continue;
+            }
+
+            var detail = string.Join("; ", distinct.Select(group =>
+                $"`{group.Key!.ToDisplayString()}` ({group.First().Decl.SyntaxTree.FilePath})"));
+            throw new EncoderException(
+                $"ball-encoder: {distinct.Count} distinct types share the short name " +
+                $"`{shortName}` — {detail}. Ball has no namespaces, so every one of them would " +
+                $"encode to `{QualifiedTypeName(shortName)}` and silently overwrite the others");
         }
     }
 

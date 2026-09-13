@@ -51,9 +51,11 @@ compile items so the sibling projects never double-compile each other's files.
 - `Ball.Compiler` (`csharp/compiler/`) — Ball → C# compiler. `CSharpCompiler.Compile(Program) ->
   string` emits a single runnable C# source file; `BaseCall.cs` is the base-function dispatch
   table (delegates to `BallRuntime`); `TypeEmit.cs` handles `typeDefs[]` → class/enum emission.
-- `Ball.Encoder` (`csharp/encoder/`) — C# → Ball via **Roslyn** (`Microsoft.CodeAnalysis.CSharp`,
-  syntax-only — `CSharpSyntaxTree.ParseText`, no semantic model). Routes every construct through
-  universal `std`/`std_collections` — **no `csharp_std` base module**, ever.
+- `Ball.Encoder` (`csharp/encoder/`) — C# → Ball via **Roslyn**. Two entry-point families:
+  `Encode(string)`/`EncodeLibrary(string)` are **syntax-only** (`CSharpSyntaxTree.ParseText`, no
+  semantic model), and `EncodeProject(dir)`/`EncodeFileInProject(...)` (#492 W12-C slice 1) build
+  a real `CSharpCompilation` and ask its `SemanticModel`. Routes every construct through universal
+  `std`/`std_collections` — **no `csharp_std` base module**, ever.
 - `Ball.Engine` (`csharp/engine/`) — self-hosted engine wrapper (`Loader.cs`/`BallEngine.cs`/
   `BallProto` access patterns in `Ball.Shared`) + generated, gitignored `src/CompiledEngine.cs`.
   `engine/tool/Ball.Engine.Regen.csproj` regenerates it from `dart/self_host/engine.ball.pb`.
@@ -157,6 +159,44 @@ compile items so the sibling projects never double-compile each other's files.
 - `CSharpEncoder.Encode(source) -> Program` parses with Roslyn syntax trees and walks
   declarations → members → statements → expressions. **Invariant, not optional: no `csharp_std`
   base module** — verified by a CI-checkable xunit assertion (`StdModuleAccumulationTests`).
+- **Project mode is the opt-in semantic seam (#492 W12-C slice 1); `Encode`/`EncodeLibrary` stay
+  resolution-free.** `CreateProjectCompilation(dir)` builds ONE `CSharpCompilation` over the
+  directory (hermetic net10.0 references from the CPM-pinned `Basic.Reference.Assemblies.Net100`,
+  never the SDK ref pack — CI pins `dotnet-version: "10.0.x"` so that path's version floats);
+  `EncodeFileInProject(project, path)` encodes ONE file's declarations with project-wide
+  semantics, and `EncodeProject(dir)` encodes the whole thing into one `Program`,
+  abort-on-first-error. **Tier A uses the per-file pair, never `EncodeProject`** — its unit is the
+  FILE, and a whole-project encode cannot produce a per-file funnel. The two halves mirror
+  `dart/encoder`'s `prepareStaticTypes()` + per-file `encode()` exactly.
+  `Encoder._semantics` defaults to `NullSemanticQuery` ("I don't know" to everything), so the
+  resolution-free path is byte-identical to before the seam — structurally, not by luck; the
+  golden `ProjectEncodingTests.EncodeSingleFile_IsByteIdenticalToACommittedGolden` is the guard
+  and must never be relaxed. Route policy: `SymbolInfo.Symbol` **only**, never `CandidateSymbols`
+  (`Symbol` is the overload Roslyn itself chose; any other `CandidateReason` means the site is not
+  a single determinate target, so it is reported — `ISemanticQuery.BindingFailure` — never
+  guessed). A method whose `ContainingType.DeclaringSyntaxReferences` is non-empty is a SOURCE
+  symbol and takes the user-call path in front of `Methods.cs`'s table; an extension method routes
+  through `ReducedFrom` (its unreduced static signature, receiver bound to the `this` parameter);
+  arguments are keyed by `IMethodSymbol.Parameters`. A metadata (BCL) symbol falls through to the
+  table unchanged. `nameof(x)` folds via `GetConstantValue`.
+- **Project mode fails LOUD where it cannot answer — never a fallback to the name heuristic.**
+  An empty `ReferencePaths` list and an unreadable reference path both throw (a partial reference
+  set makes the compilation answer *wrongly*, not *not-at-all* — a deliberate divergence from
+  `prepareStaticTypes`'s documented fail-soft, because there the fallback is the only behaviour
+  that path promised). `GuardReceiverDiscriminatedCall` throws when a receiver-discriminated name
+  (`.Contains`/`.IndexOf`) has an unbindable receiver OR one the route does not model; the SAME
+  text through `Encode(string)` still returns today's answer, and both halves are asserted.
+  Compilation diagnostics about the INPUT are surfaced in `ProjectEncodeResult`, never swallowed
+  and never fatal (measured over the pins: 0 / 8 / 284 / 230 — dominated by third-party deps and
+  a missing `HAVE_LINQ`, which is why `ProjectEncodeOptions.Defines` exists).
+- **Two silent defects the seam closed, both unconditional fixes.** (1) Ball has no namespaces, so
+  `A.Foo` and `B.Foo` both encoded to `main:Foo` — two `TypeDefinition`s and two `main:Foo.Method`
+  functions in one module, no error; project mode groups by `INamedTypeSymbol` and throws naming
+  both FQNs and both files (it fires on 4 real corpus files: `Either`/`Either<,>`, `Maybe`/
+  `Maybe<T>`, `Result`/`Result<,>`, `JsonConverter`/`JsonConverter<T>`). (2) `partial` parts
+  overwrote each other — `ClassFields[shortName] = fields`, last part wins, plus one
+  `TypeDefinition` emitted per syntax part. Parts now accumulate and merge; that half is a
+  same-file defect too, so it is not gated on project mode.
 - The "one input" convention (invariant #1): unlike `rust/encoder` (which packs 2+-parameter
   functions into `field_access(reference("input"), name)` to work around a compiled-closure
   target), this encoder targets the tree-walking reference engine directly — every
@@ -222,15 +262,18 @@ compile items so the sibling projects never double-compile each other's files.
   `encode_library` makes the identical call; keep the two consistent.
 - **Real-world coverage is measured, not assumed** (#492): `encoder/test/RealWorldSweepTests.cs`
   feeds one hand-authored fixture per taxonomy bucket through the entry point that bucket declares
-  (`Encode`, or `EncodeLibrary` for the `Main`-less library bucket) and prints
-  `Results: 9 passed, 2 failed, 11 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
+  (`Encode`, `EncodeLibrary` for the `Main`-less library bucket, or `EncodeProject` for the
+  multi-file cross-file bucket) and prints
+  `Results: 10 passed, 1 failed, 11 total` (slice 1's baseline was `0 passed, 7 failed`; slice 2's,
   `1 passed, 6 failed`; slices A/B closed buckets b, c and g; slice C added and closed bucket
   (h), `enum` declarations; slice C's line was `5 passed, 3 failed, 8 total`; slice E closed
   bucket (e), `6 passed, 2 failed, 8 total`; slice 3 added and closed bucket (i), BCL static guard
   calls, `7 passed, 2 failed, 9 total`; slice 3b added and closed bucket (j), the 0-argument LINQ
   terminals, `8 passed, 2 failed, 10 total`; slice 4 added and closed bucket (k), the 2-argument
-  `string.Join` — the taxonomy grows only when a fresh measurement says so, which is
-  how the enum bucket stayed invisible until it was the largest). It never
+  `string.Join`; W12-C slice 1 closed bucket (d), the cross-file callee, with the
+  `EncodeProject` semantic seam, `9 passed, 2 failed, 11 total` -> `10 passed, 1 failed,
+  11 total`, leaving only bucket (f) — the taxonomy grows only when a fresh measurement says so,
+  which is how the enum bucket stayed invisible until it was the largest). It never
   asserts the **global** passed count (only a positive floor and a fixture set checked against a
   real directory listing, so adding a fixture without wiring it in fails) — but every bucket a
   slice has CLOSED carries a real per-bucket `MustEncode` assertion, so a regression fails rather
@@ -386,13 +429,22 @@ compile items so the sibling projects never double-compile each other's files.
 
 - **Third-party coverage study, Tier A (#493).** `csharp/coverage-study` (a separate
   Exe project in `Ball.slnx`, mirroring `engine/tool`) runs real pinned libraries
-  through `EncodeLibrary` -> `CSharpCompiler.Compile` -> `EncodeLibrary`, diffs the
+  through `EncodeFileInProject` -> `CSharpCompiler.Compile` -> `EncodeLibrary`, diffs the
   declaration inventory with a **Roslyn `CSharpSyntaxWalker` directly** (never
   `Ball.Encoder`'s own walk) and checks a second-generation fixpoint. Honest
-  baseline **0/472 clean**, but the funnel is the story: **123 files encode, 122
+  baseline **0/472 clean**, but the funnel is the story: **141 files encode, 140
   compile back, 58 re-encode**, and the wall is stage 4 (`declaration-drift`) — the
-  furthest any port gets. (Re-measured at `origin/main` @ `9ede6466`; the earlier
-  "74/73/58" sentence had gone stale.) Tier A reports only a file's FIRST error, so
+  furthest any port gets. Stage 1 is measured with **`--project-mode`** since #492
+  W12-C slice 1 (one `CSharpCompilation` per pinned subtree, one `SemanticModel` per
+  file); the UNIT is unchanged — one verdict per file, same 472 denominator, same
+  taxonomy tags — which `TierASelfTests`'
+  `Project_mode_keeps_the_per_file_basis_and_resolves_a_cross_file_callee` CHECKS
+  rather than assumes. Measured both ways on the same pins: `123/122` -> `141/140`,
+  clean `0/472` either way, 18 files advanced and 0 regressed, and the
+  `unsupported method call` first-blocker family fell 101 -> 53. The flag defaults
+  OFF in the harness and is passed explicitly by `coverage-study.yml`, because a
+  basis change must be an explicit, reported choice.
+  Tier A reports only a file's FIRST error, so
   a correct per-shape fix routinely leaves stage 1 unchanged — #578 and #492 slices 3,
   3b and 4 each did — while the file advances to its next gap. Verify a shape with a
   targeted test, and only ever move `tools/coverage-study/baseline.json`'s floor to
@@ -450,8 +502,13 @@ compile items so the sibling projects never double-compile each other's files.
   gencode plugin line exactly. When bumping the `csharp` plugin version in `buf.gen.yaml`, bump
   this in the same commit and rerun `shared/test/`'s binary+JSON round-trip smoke tests (a skewed
   pairing typically still *compiles* — only the smoke tests catch a meaningful skew).
-- `Microsoft.CodeAnalysis.CSharp = "5.6.0"` — Roslyn syntax API, shared by the encoder and the
-  compiler test suite's in-memory compile-and-run harness.
+- `Microsoft.CodeAnalysis.CSharp = "5.6.0"` — Roslyn. Syntax API for the encoder's
+  resolution-free entry points and the compiler test suite's in-memory compile-and-run harness;
+  since #492 W12-C slice 1 also the `CSharpCompilation`/`SemanticModel` behind `EncodeProject`.
+- `Basic.Reference.Assemblies.Net100 = "1.8.11"` — hermetic net10.0 REFERENCE assemblies for that
+  compilation (MIT, netstandard2.0, references carried as embedded resources). Deliberately not
+  the SDK ref pack: CI pins `dotnet-version: "10.0.x"`, so the pack's `<ver>` floats with the
+  runner's patch and the encoder's binding answers would drift with it.
 - `System.CommandLine = "2.0.9"` — the CLI's arg parser; the newest GA (non-preview) release as
   of the pin date.
 - `xunit.v3` + `xunit.runner.visualstudio` + `Microsoft.NET.Test.Sdk` + `coverlet.collector` —

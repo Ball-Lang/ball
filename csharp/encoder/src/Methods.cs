@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Ball.V1;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Ball.Encoder;
@@ -15,16 +16,32 @@ namespace Ball.Encoder;
 /// expression). No <c>csharp_std</c> module anywhere in this file — every arm routes through
 /// <c>std</c>/<c>std_collections</c>.
 ///
-/// ## Name-based dispatch is inherently ambiguous without a semantic model
+/// ## Name-based dispatch is ambiguous — and that caveat is now SCOPED
 ///
-/// Like every syntax-only encoder (see <c>.claude/rules/dart.md</c>'s "syntactic-encoder
-/// gotchas" and <c>rust/encoder/src/methods.rs</c>'s own module doc comment), a few C# method
-/// names collide across receiver types this encoder cannot statically distinguish —
-/// <c>.Contains(x)</c> and <c>.IndexOf(x)</c> always route to the STRING op
-/// (<c>string_contains</c>/<c>string_index_of</c>); <c>.Remove(x)</c> always routes to the MAP
-/// op (<c>map_delete</c>). A non-matching receiver throws at run time (same risk profile as
+/// A few C# method names collide across receiver types that syntax alone cannot distinguish:
+/// <c>.Contains(x)</c> and <c>.IndexOf(x)</c> route to the STRING op
+/// (<c>string_contains</c>/<c>string_index_of</c>); <c>.Remove(x)</c> routes to the MAP op
+/// (<c>map_delete</c>). A non-matching receiver throws at run time (the same risk profile as
 /// every other reference encoder's unconditional name routes) rather than silently
 /// miscompiling.
+///
+/// <para><b>That is true of <see cref="CSharpEncoder.Encode"/> and
+/// <see cref="CSharpEncoder.EncodeLibrary"/> only</b> (issue #492, W12-C slice 1). They are
+/// resolution-free by contract — see <c>.claude/rules/dart.md</c>'s "syntactic-encoder gotchas"
+/// and <c>rust/encoder/src/methods.rs</c>'s own module doc comment — and the coin flip is the
+/// behaviour they have always documented.</para>
+///
+/// <para><b>Under <see cref="CSharpEncoder.EncodeProject"/> the answers are symbol-grade, so a
+/// guess would be a silent fail-soft.</b> Two things change there, and only there: a call that
+/// binds to a method THIS PROJECT declares takes the user-call path before this table is
+/// consulted at all (<see cref="SourceSymbolCall"/> — which also retires the over-reach where a
+/// user's own <c>.Contains</c> on their own type routed to <c>string_contains</c>), and a
+/// receiver-discriminated name whose receiver does not bind, or binds to something the route
+/// does not model, is a loud <see cref="EncoderException"/> naming the file, the position and
+/// the reason (<see cref="GuardReceiverDiscriminatedCall"/>). Teaching the table to ROUTE by
+/// receiver type rather than merely refuse is the next slice, and it wants a symbol-keyed route
+/// table — (containing type, method name, parameter types) — not more predicates bolted onto
+/// <c>(name, argc)</c> arms.</para>
 /// </summary>
 internal sealed partial class Encoder
 {
@@ -68,11 +85,24 @@ internal sealed partial class Encoder
 
     internal Expression EncodeInvocation(InvocationExpressionSyntax invocation)
     {
+        // `nameof(x)` is not a call at all — it is a compile-time constant the C# compiler has
+        // already computed, and the model hands it over verbatim. Without one it encoded as an
+        // unresolvable user call to a function named `nameof`, which is exactly why the
+        // 2-argument `ArgumentNullException.ThrowIfNull(value, nameof(x))` overload had to stay
+        // a loud refusal (see EncodeArgumentNullExceptionCall). `NullSemanticQuery` answers
+        // null here, so the resolution-free path is untouched.
+        if (invocation.Expression is IdentifierNameSyntax { Identifier.Text: "nameof" } &&
+            invocation.ArgumentList.Arguments.Count == 1 &&
+            _semantics.ConstantValue(invocation) is string constantName)
+        {
+            return Builders.StringLiteral(constantName);
+        }
+
         var argExprs = invocation.ArgumentList.Arguments.Select(a => a.Expression).ToList();
         return invocation.Expression switch
         {
-            IdentifierNameSyntax id => EncodeBareCall(id.Identifier.Text, argExprs),
-            MemberAccessExpressionSyntax member => EncodeMemberInvocation(member, argExprs),
+            IdentifierNameSyntax id => EncodeBareCall(invocation, id.Identifier.Text, argExprs),
+            MemberAccessExpressionSyntax member => EncodeMemberInvocation(invocation, member, argExprs),
             _ => throw new EncoderException(
                 $"ball-encoder: unsupported call target `{invocation.Expression.Kind()}`: {invocation.Expression}"),
         };
@@ -111,12 +141,22 @@ internal sealed partial class Encoder
     /// implicit <c>this.Method(...)</c> call to an INSTANCE sibling method; (4) a plain
     /// same-module user call (covers top-level-statement helper calls and any other
     /// same-file name).</summary>
-    private Expression EncodeBareCall(string name, List<ExpressionSyntax> argExprs)
+    private Expression EncodeBareCall(
+        InvocationExpressionSyntax invocation, string name, List<ExpressionSyntax> argExprs)
     {
         if (IsKnownLocal(name))
         {
             var lambdaParams = _localLambdaParams.TryGetValue(name, out var lp) ? lp : null;
             return Builders.UserCall(name, PackArgs(argExprs, lambdaParams));
+        }
+
+        // A model resolves the cases the priority list below can only guess at: a `using
+        // static` import, and a static or instance member inherited from a base class declared
+        // in another file. A local still wins (checked above), exactly as C#'s own shadowing
+        // rule says it must.
+        if (SourceSymbolCall(invocation, receiver: null, argExprs) is { } resolved)
+        {
+            return resolved;
         }
 
         if (_currentOwnerShort is not null &&
@@ -134,9 +174,23 @@ internal sealed partial class Encoder
         return Builders.UserCall(name, PackArgs(argExprs, null));
     }
 
-    private Expression EncodeMemberInvocation(MemberAccessExpressionSyntax member, List<ExpressionSyntax> argExprs)
+    private Expression EncodeMemberInvocation(
+        InvocationExpressionSyntax invocation,
+        MemberAccessExpressionSyntax member,
+        List<ExpressionSyntax> argExprs)
     {
         var methodName = member.Name.Identifier.Text;
+
+        // SYMBOL FIRST. When the call binds to a method this project itself declares, the
+        // symbol answers everything the name/arity table can only approximate: which file the
+        // callee is in, whether it is static, its real parameter names, and — for an extension
+        // method — the unreduced static signature the receiver is really the first argument of.
+        // This also retires a live over-reach: a user's own `.Contains(x)` on their own type
+        // used to route unconditionally to `std.string_contains`; a source symbol now wins.
+        if (SourceSymbolCall(invocation, member.Expression, argExprs) is { } resolved)
+        {
+            return resolved;
+        }
 
         // A PREDEFINED type receiver (`int.Parse(...)`) is its own path: `int` is
         // a keyword-type node, never an `IdentifierNameSyntax`, so it can never
@@ -178,8 +232,158 @@ internal sealed partial class Encoder
             }
         }
 
+        GuardReceiverDiscriminatedCall(member, methodName, argExprs);
+
         var receiver = EncodeExpr(member.Expression);
         return DispatchInstanceOrBuiltinMethod(receiver, methodName, argExprs);
+    }
+
+    /// <summary>
+    /// Route a call that bound to a method THIS PROJECT declares in source, or return null to
+    /// leave it to the existing name-based dispatch (issue #492, W12-C slice 1).
+    ///
+    /// <para>"Declared in source" is <c>ISymbol.DeclaringSyntaxReferences</c>, whose contract is
+    /// exactly the test wanted: it "should return one or more syntax nodes only if the symbol
+    /// was declared in source code and also was not implicitly declared". A metadata (BCL)
+    /// symbol has none, so it falls through untouched to the built-in table.</para>
+    ///
+    /// <para><paramref name="receiver"/> is the member-access receiver, or null for a bare
+    /// (unqualified) call.</para>
+    /// </summary>
+    private Expression? SourceSymbolCall(
+        InvocationExpressionSyntax invocation,
+        ExpressionSyntax? receiver,
+        List<ExpressionSyntax> argExprs)
+    {
+        if (_semantics.MethodFor(invocation) is not { } symbol ||
+            symbol.ContainingType is not { DeclaringSyntaxReferences.Length: > 0 })
+        {
+            return null;
+        }
+
+        // A LOCAL FUNCTION is source-declared and its containing type is this project's, but
+        // `EncodeTypeDeclaration` never emits one — so routing it here would produce a call to a
+        // Ball function that does not exist, which is the silent kind of wrong. Local functions
+        // are a documented gap (csharp/AGENTS.md); the symbol is what finally lets project mode
+        // SAY so instead of emitting an unresolvable name. Anything other than an ordinary or a
+        // reduced-extension method gets the same treatment rather than a guess.
+        if (symbol.MethodKind is not (MethodKind.Ordinary or MethodKind.ReducedExtension))
+        {
+            var at = invocation.GetLocation().GetLineSpan();
+            throw new EncoderException(
+                $"ball-encoder: {at.Path}({at.StartLinePosition.Line + 1}," +
+                $"{at.StartLinePosition.Character + 1}): `{symbol.Name}(...)` binds to a " +
+                $"`{symbol.MethodKind}`, which this encoder does not emit a declaration for — " +
+                "encoding the call would reference a Ball function that does not exist");
+        }
+
+        // An extension method called in its REDUCED form (`receiver.Foo(a)`). `ReducedFrom`
+        // "returns the definition of extension method from which this was reduced", i.e. the
+        // plain static `Foo(this T self, A a)` — so the call encodes as the very same
+        // `UserCall(Owner_Foo, …)` shape a spelled-out static call already uses, with the
+        // receiver bound to the `this` parameter's real name.
+        if (symbol.ReducedFrom is { } unreduced)
+        {
+            if (receiver is null || unreduced.ContainingType is not { DeclaringSyntaxReferences.Length: > 0 })
+            {
+                return null;
+            }
+
+            var packed = new List<ExpressionSyntax> { receiver };
+            packed.AddRange(argExprs);
+            return Builders.UserCall(
+                SymbolFunctionName(unreduced),
+                PackArgs(packed, ParameterNames(unreduced)));
+        }
+
+        if (symbol.IsStatic)
+        {
+            return Builders.UserCall(SymbolFunctionName(symbol), PackArgs(argExprs, ParameterNames(symbol)));
+        }
+
+        // An instance method. A bare call inside the declaring type is an implicit `this.`,
+        // which is the engine's `self` convention — the same shape the member-access form uses.
+        return EncodeMethodCallOnReceiver(
+            receiver is null ? Builders.ReferenceExpr("self") : EncodeExpr(receiver),
+            symbol.Name,
+            argExprs,
+            ParameterNames(symbol));
+    }
+
+    /// <summary>The top-level Ball function name a STATIC method symbol compiles to — the
+    /// symbol-keyed twin of <see cref="StaticFunctionName"/>, including its one exception: a
+    /// method literally named <c>Main</c> is always the bare entry-point name.</summary>
+    private static string SymbolFunctionName(IMethodSymbol symbol) =>
+        symbol.Name == "Main" ? "Main" : StaticFunctionName(symbol.ContainingType.Name, symbol.Name);
+
+    private static List<string> ParameterNames(IMethodSymbol symbol) =>
+        symbol.Parameters.Select(p => p.Name).ToList();
+
+    /// <summary>
+    /// Which receiver type each receiver-DISCRIMINATED method name is modelled for. These are
+    /// the names <see cref="Encoder"/>'s module doc comment has always flagged as ambiguous:
+    /// the resolution-free path routes them unconditionally and documents the coin flip.
+    /// </summary>
+    private static readonly Dictionary<(string Name, int ArgCount), (SpecialType Receiver, string Route)>
+        ReceiverDiscriminatedRoutes = new()
+        {
+            [("Contains", 1)] = (SpecialType.System_String, "std.string_contains"),
+            [("IndexOf", 1)] = (SpecialType.System_String, "std.string_index_of"),
+        };
+
+    /// <summary>
+    /// In PROJECT mode, refuse to route a receiver-discriminated name unless the receiver's
+    /// type actually is the one that route models (issue #492, W12-C slice 1).
+    ///
+    /// <para>The resolution-free entry points may keep guessing: they never promised otherwise,
+    /// and their guess is the documented behaviour every existing caller depends on. But
+    /// <see cref="CSharpEncoder.EncodeProject"/> advertises symbol-grade answers, so falling
+    /// back to the name heuristic THERE would be a silent fail-soft in the one mode that
+    /// claims not to have any — a `List&lt;string&gt;.Contains(x)` quietly compiled as a string
+    /// search. Both failures are therefore loud, and each names the file, the position, the
+    /// call and the reason.</para>
+    ///
+    /// <para>Note the ordering: this runs only AFTER <see cref="SourceSymbolCall"/> has
+    /// declined, so a user's own <c>.Contains</c> on their own type never reaches it. Teaching
+    /// the table to route by receiver type (rather than merely refusing) is the next slice, and
+    /// it wants a symbol-keyed route table — (containing type, name, parameter types) — not
+    /// more predicates bolted onto <c>(name, argc)</c> arms.</para>
+    /// </summary>
+    private void GuardReceiverDiscriminatedCall(
+        MemberAccessExpressionSyntax member, string methodName, List<ExpressionSyntax> argExprs)
+    {
+        if (!IsProjectMode ||
+            !ReceiverDiscriminatedRoutes.TryGetValue((methodName, argExprs.Count), out var route))
+        {
+            return;
+        }
+
+        var position = member.GetLocation().GetLineSpan();
+        var where = $"{position.Path}({position.StartLinePosition.Line + 1}," +
+            $"{position.StartLinePosition.Character + 1})";
+
+        var receiverType = _semantics.TypeOf(member.Expression);
+        if (receiverType is null)
+        {
+            var reason = _semantics.BindingFailure(member.Expression) is { } failure
+                ? $" (binding failure: {failure})"
+                : string.Empty;
+            throw new EncoderException(
+                $"ball-encoder: {where}: the receiver of `.{methodName}(...)` could not be " +
+                $"bound to a type{reason}. `{methodName}` is a receiver-discriminated name — " +
+                $"it models `{route.Route}` and nothing else — so project mode refuses to " +
+                "guess. Encode this file with `Encode`/`EncodeLibrary` if the resolution-free " +
+                "answer is what you want, or add the missing reference/#define");
+        }
+
+        if (receiverType.SpecialType != route.Receiver)
+        {
+            throw new EncoderException(
+                $"ball-encoder: {where}: `.{methodName}(...)` has a receiver of type " +
+                $"`{receiverType.ToDisplayString()}`, but this encoder models that name only as " +
+                $"`{route.Route}`. Routing it by receiver type is not implemented yet, and " +
+                "guessing would silently compute something else");
+        }
     }
 
     /// <summary>

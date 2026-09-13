@@ -1,0 +1,1323 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded_csharp_program",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "add",
+          "inputType": "BinaryInput",
+          "description": "Addition: left \u002B right",
+          "isBase": true
+        },
+        {
+          "name": "greater_than",
+          "inputType": "BinaryInput",
+          "description": "Greater than: left \u003E right",
+          "isBase": true
+        },
+        {
+          "name": "length",
+          "inputType": "UnaryInput",
+          "description": "Get length: value.length",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "inputType": "BinaryInput",
+          "description": "Multiplication: left * right",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "inputType": "PrintInput",
+          "description": "Print to stdout: print(message)",
+          "isBase": true
+        },
+        {
+          "name": "string_to_int",
+          "inputType": "UnaryInput",
+          "description": "Parse int from string: int.parse(value)",
+          "isBase": true
+        },
+        {
+          "name": "to_string",
+          "inputType": "UnaryInput",
+          "description": "Convert to string: value.toString()",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module. Every function here represents a language-agnostic operation that all target languages implement natively. Types use protobuf descriptors so they map to every target language.",
+      "typeDefs": [
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IfInput",
+          "descriptor": {
+            "name": "IfInput",
+            "field": [
+              {
+                "name": "condition",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "then",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "else",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "case_pattern",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ForInput",
+          "descriptor": {
+            "name": "ForInput",
+            "field": [
+              {
+                "name": "init",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "condition",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "update",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ForInInput",
+          "descriptor": {
+            "name": "ForInInput",
+            "field": [
+              {
+                "name": "variable",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "variable_type",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "iterable",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "WhileInput",
+          "descriptor": {
+            "name": "WhileInput",
+            "field": [
+              {
+                "name": "condition",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "body",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "DoWhileInput",
+          "descriptor": {
+            "name": "DoWhileInput",
+            "field": [
+              {
+                "name": "body",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "condition",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SwitchInput",
+          "descriptor": {
+            "name": "SwitchInput",
+            "field": [
+              {
+                "name": "subject",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "cases",
+                "number": 2,
+                "label": "LABEL_REPEATED",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SwitchCase",
+          "descriptor": {
+            "name": "SwitchCase",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "is_default",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BOOL"
+              },
+              {
+                "name": "body",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "pattern",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "TryInput",
+          "descriptor": {
+            "name": "TryInput",
+            "field": [
+              {
+                "name": "body",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "catches",
+                "number": 2,
+                "label": "LABEL_REPEATED",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "finally",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CatchClause",
+          "descriptor": {
+            "name": "CatchClause",
+            "field": [
+              {
+                "name": "type",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "variable",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "stack_trace",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "body",
+                "number": 4,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "AssertInput",
+          "descriptor": {
+            "name": "AssertInput",
+            "field": [
+              {
+                "name": "condition",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "message",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "AssignInput",
+          "descriptor": {
+            "name": "AssignInput",
+            "field": [
+              {
+                "name": "target",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "op",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "IndexInput",
+          "descriptor": {
+            "name": "IndexInput",
+            "field": [
+              {
+                "name": "target",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "index",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "TypeCheckInput",
+          "descriptor": {
+            "name": "TypeCheckInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "type",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BreakInput",
+          "descriptor": {
+            "name": "BreakInput",
+            "field": [
+              {
+                "name": "label",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ContinueInput",
+          "descriptor": {
+            "name": "ContinueInput",
+            "field": [
+              {
+                "name": "label",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ReturnInput",
+          "descriptor": {
+            "name": "ReturnInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "GotoInput",
+          "descriptor": {
+            "name": "GotoInput",
+            "field": [
+              {
+                "name": "label",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "LabelInput",
+          "descriptor": {
+            "name": "LabelInput",
+            "field": [
+              {
+                "name": "name",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              },
+              {
+                "name": "body",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "StringSubstringInput",
+          "descriptor": {
+            "name": "StringSubstringInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "start",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "end",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "StringReplaceInput",
+          "descriptor": {
+            "name": "StringReplaceInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "from",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "to",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "StringRepeatInput",
+          "descriptor": {
+            "name": "StringRepeatInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "count",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "StringPadInput",
+          "descriptor": {
+            "name": "StringPadInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "width",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "padding",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "CompareToInput",
+          "descriptor": {
+            "name": "CompareToInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "other",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "NumFormatInput",
+          "descriptor": {
+            "name": "NumFormatInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "digits",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "precision",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MathClampInput",
+          "descriptor": {
+            "name": "MathClampInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "min",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "max",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "std_collections",
+      "functions": [
+        {
+          "name": "list_filter",
+          "inputType": "ListCallbackInput",
+          "description": "Filter: list.where(callback)",
+          "isBase": true
+        },
+        {
+          "name": "list_map",
+          "inputType": "ListCallbackInput",
+          "description": "Map: list.map(callback)",
+          "isBase": true
+        }
+      ],
+      "description": "Standard collections module. List and map operations. Separate from std because not all runtimes support mutable collections natively.",
+      "typeDefs": [
+        {
+          "name": "ListInput",
+          "descriptor": {
+            "name": "ListInput",
+            "field": [
+              {
+                "name": "list",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "index",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ListCallbackInput",
+          "descriptor": {
+            "name": "ListCallbackInput",
+            "field": [
+              {
+                "name": "list",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "callback",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ListReduceInput",
+          "descriptor": {
+            "name": "ListReduceInput",
+            "field": [
+              {
+                "name": "list",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "callback",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "initial",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ListSliceInput",
+          "descriptor": {
+            "name": "ListSliceInput",
+            "field": [
+              {
+                "name": "list",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "start",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "end",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MapInput",
+          "descriptor": {
+            "name": "MapInput",
+            "field": [
+              {
+                "name": "map",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "key",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 3,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "MapCallbackInput",
+          "descriptor": {
+            "name": "MapCallbackInput",
+            "field": [
+              {
+                "name": "map",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "callback",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "StringJoinInput",
+          "descriptor": {
+            "name": "StringJoinInput",
+            "field": [
+              {
+                "name": "list",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "separator",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SetInput",
+          "descriptor": {
+            "name": "SetInput",
+            "field": [
+              {
+                "name": "set",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "value",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SetCallbackInput",
+          "descriptor": {
+            "name": "SetCallbackInput",
+            "field": [
+              {
+                "name": "set",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "callback",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SetBinaryInput",
+          "descriptor": {
+            "name": "SetBinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "Main",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "twice",
+                    "value": {
+                      "lambda": {
+                        "body": {
+                          "call": {
+                            "module": "std",
+                            "function": "multiply",
+                            "input": {
+                              "messageCreation": {
+                                "fields": [
+                                  {
+                                    "name": "left",
+                                    "value": {
+                                      "reference": {
+                                        "name": "n"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "name": "right",
+                                    "value": {
+                                      "literal": {
+                                        "intValue": "2"
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "params": [
+                            {
+                              "name": "n"
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "type": "Func\u003Cint, int\u003E"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "values",
+                    "value": {
+                      "literal": {
+                        "listValue": {
+                          "elements": [
+                            {
+                              "literal": {
+                                "intValue": "1"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "2"
+                              }
+                            },
+                            {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "type": "List\u003Cint\u003E"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "doubled",
+                    "value": {
+                      "call": {
+                        "module": "std_collections",
+                        "function": "list_map",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "list",
+                                "value": {
+                                  "call": {
+                                    "module": "std_collections",
+                                    "function": "list_filter",
+                                    "input": {
+                                      "messageCreation": {
+                                        "fields": [
+                                          {
+                                            "name": "list",
+                                            "value": {
+                                              "reference": {
+                                                "name": "values"
+                                              }
+                                            }
+                                          },
+                                          {
+                                            "name": "callback",
+                                            "value": {
+                                              "lambda": {
+                                                "body": {
+                                                  "call": {
+                                                    "module": "std",
+                                                    "function": "greater_than",
+                                                    "input": {
+                                                      "messageCreation": {
+                                                        "fields": [
+                                                          {
+                                                            "name": "left",
+                                                            "value": {
+                                                              "reference": {
+                                                                "name": "v"
+                                                              }
+                                                            }
+                                                          },
+                                                          {
+                                                            "name": "right",
+                                                            "value": {
+                                                              "literal": {
+                                                                "intValue": "1"
+                                                              }
+                                                            }
+                                                          }
+                                                        ]
+                                                      }
+                                                    }
+                                                  }
+                                                },
+                                                "metadata": {
+                                                  "params": [
+                                                    {
+                                                      "name": "v"
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "name": "callback",
+                                "value": {
+                                  "reference": {
+                                    "name": "twice"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "type": "IEnumerable\u003Cint\u003E"
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "parsed",
+                    "value": {
+                      "call": {
+                        "module": "std",
+                        "function": "string_to_int",
+                        "input": {
+                          "messageCreation": {
+                            "fields": [
+                              {
+                                "name": "value",
+                                "value": {
+                                  "literal": {
+                                    "stringValue": "41"
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "metadata": {
+                      "type": "int"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "module": "std",
+                                  "function": "to_string",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "value",
+                                          "value": {
+                                            "call": {
+                                              "module": "std",
+                                              "function": "add",
+                                              "input": {
+                                                "messageCreation": {
+                                                  "fields": [
+                                                    {
+                                                      "name": "left",
+                                                      "value": {
+                                                        "call": {
+                                                          "module": "std",
+                                                          "function": "length",
+                                                          "input": {
+                                                            "messageCreation": {
+                                                              "fields": [
+                                                                {
+                                                                  "name": "value",
+                                                                  "value": {
+                                                                    "reference": {
+                                                                      "name": "doubled"
+                                                                    }
+                                                                  }
+                                                                }
+                                                              ]
+                                                            }
+                                                          }
+                                                        }
+                                                      }
+                                                    },
+                                                    {
+                                                      "name": "right",
+                                                      "value": {
+                                                        "reference": {
+                                                          "name": "parsed"
+                                                        }
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "result": {
+                "literal": {}
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_static": true,
+            "is_public": true
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        },
+        {
+          "name": "std_collections"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:Program",
+          "descriptor": {
+            "name": "main:Program"
+          },
+          "description": "Class metadata for main:Program",
+          "metadata": {
+            "kind": "class",
+            "is_public": true
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "Main"
+}

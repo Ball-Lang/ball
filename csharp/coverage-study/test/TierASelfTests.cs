@@ -211,6 +211,68 @@ public class TierASelfTests
             full.Where(name => !pruned.Contains(name)).ToArray());
     }
 
+    /// <summary>
+    /// <c>--project-mode</c> keeps Tier A's unit the FILE — same denominator, same taxonomy
+    /// tags — and resolves what only a project-wide model can (issue #492, W12-C slice 1).
+    ///
+    /// <para>This is the instrument's own proof that the basis is COMPARABLE, which is what a
+    /// two-basis measurement in a PR body claims. Without it, "project mode moved the funnel"
+    /// could just as well mean "project mode counts something else".</para>
+    /// </summary>
+    [Fact]
+    public void Project_mode_keeps_the_per_file_basis_and_resolves_a_cross_file_callee()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "rq1_cs_project_mode_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "MathHelper.cs"), """
+                namespace Demo;
+
+                public static class MathHelper
+                {
+                    public static int Square(int value)
+                    {
+                        return value * value;
+                    }
+                }
+                """);
+            File.WriteAllText(Path.Combine(dir, "Caller.cs"), """
+                namespace Demo;
+
+                public class Caller
+                {
+                    public int Of(int seed)
+                    {
+                        return MathHelper.Square(seed);
+                    }
+                }
+                """);
+
+            var library = TierA.StudyDirectory("synthetic", dir);
+            var project = TierA.StudyDirectory("synthetic", dir, projectMode: true);
+
+            // Same unit, same denominator — the funnels are comparable.
+            Assert.Equal(library.Count, project.Count);
+            Assert.Equal(
+                library.Select(r => r.File).ToArray(),
+                project.Select(r => r.File).ToArray());
+            Assert.All(project, r => TierA.StageReached(r.Reason));
+
+            // The cross-file callee is the difference, and it is a real one.
+            var libraryCaller = library.Single(r => r.File == "Caller.cs");
+            var projectCaller = project.Single(r => r.File == "Caller.cs");
+            Assert.StartsWith("encode-error:", libraryCaller.Reason, StringComparison.Ordinal);
+            Assert.True(
+                TierA.StageReached(projectCaller.Reason) > TierA.StageReached(libraryCaller.Reason),
+                $"project mode did not advance the cross-file caller (reason \"{projectCaller.Reason}\")");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     /// <summary>The report's positive floor is real: a run that scored nothing
     /// exits non-zero rather than printing a flattering 0%.</summary>
     [Fact]

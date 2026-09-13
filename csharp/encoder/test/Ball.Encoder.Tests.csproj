@@ -52,6 +52,9 @@
   <ItemGroup>
     <Compile Remove="fixtures/**/*.cs" />
     <None Include="fixtures/**/*.cs" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The byte-identity golden (issue #492, W12-C slice 1) — data, like the
+         fixtures it guards. -->
+    <None Include="fixtures/**/*.ball.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

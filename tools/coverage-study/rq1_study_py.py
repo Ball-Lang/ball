@@ -357,18 +357,8 @@ def run_pins(pins_path: Path, checkouts: Path) -> Run:
             # distinct outcome instead of scoring it as a failure.
             run.missing_pins.append(name)
             continue
-        studied, excluded = classify_python_files(name, directory)
-        run.excluded.extend(excluded)
-        for path in studied:
-            rel = path.relative_to(directory).as_posix()
-            try:
-                source = path.read_bytes().decode("utf-8")
-            except (OSError, UnicodeDecodeError) as ex:
-                run.results.append(
-                    FileResult(name, rel, False, f"read-error: {_first_line(ex)}")
-                )
-                continue
-            run.results.append(study_file(name, rel, source))
+        run.excluded.extend(classify_python_files(name, directory)[1])
+        run.results.extend(study_directory(name, directory))
     return run
 
 

@@ -293,14 +293,31 @@ fn scratch_crate(tag: &str) -> std::path::PathBuf {
         "pub mod core;\npub mod latest;\npub mod contest;\npub mod attestation;\n\
          #[cfg(test)]\nmod internal_tests;\n",
     );
-    for rel in ["core.rs", "latest.rs", "contest.rs"] {
+    for rel in ["core.rs", "latest.rs"] {
         write(rel, "pub fn value() -> i64 { 1 }\n");
     }
+    // `contest.rs` is a NON-mod-rs file, and its `#[path]` sits outside any
+    // inline block — so the Rust reference resolves it against the declaring
+    // FILE's directory (`src/`), NOT against the `src/contest/` directory its
+    // plain `mod name;` children would use. Getting that wrong makes the
+    // candidate miss, the module go unwalked, and `relocated_tests.rs` stay in
+    // the denominator, so this fixture is what keeps the two apart.
+    write(
+        "contest.rs",
+        "pub fn value() -> i64 { 1 }\n\
+         #[cfg(test)]\n#[path = \"relocated_tests.rs\"]\nmod relocated;\n",
+    );
     write("attestation/mod.rs", "pub mod verify;\n");
     write("attestation/verify.rs", "pub fn ok() -> i64 { 1 }\n");
     write(
         "internal_tests.rs",
         "#[test]\nfn works() { assert!(true); }\n",
+    );
+    // Reached only through `contest.rs`'s `#[cfg(test)] #[path] mod`, and
+    // living beside it in `src/` — not under `src/contest/`.
+    write(
+        "relocated_tests.rs",
+        "#[test]\nfn relocated() { assert!(true); }\n",
     );
     write("tests/basic.rs", "#[test]\nfn basic() { assert!(true); }\n");
     write("benches/perf.rs", "pub fn bench() {}\n");
@@ -351,6 +368,7 @@ fn test_only_files_are_excluded_counted_and_named() {
 
     for name in [
         "internal_tests.rs",
+        "relocated_tests.rs",
         "tests/basic.rs",
         "benches/perf.rs",
         "examples/demo.rs",
@@ -362,7 +380,7 @@ fn test_only_files_are_excluded_counted_and_named() {
     }
     assert_eq!(
         excluded_rel.len(),
-        4,
+        5,
         "exactly the test-only files must be excluded; got {excluded_rel:?}"
     );
     assert!(
@@ -382,6 +400,17 @@ fn test_only_files_are_excluded_counted_and_named() {
         "the cfg(test)-only module must be excluded BY the cfg(test) rule, not by a \
          path rule; got {cfg_rule:?}"
     );
+    // And the walk resolves `#[path]` the way the Rust reference does: outside
+    // an inline block, relative to the declaring FILE's directory. Getting that
+    // wrong makes the candidate miss, the module go unwalked, and a test file
+    // stay in the denominator — which is why it is asserted rather than assumed.
+    assert!(
+        excluded
+            .iter()
+            .any(|e| e.file == "relocated_tests.rs" && e.rule.contains("cfg(test)")),
+        "a `#[cfg(test)] #[path = \"…\"] mod` must resolve and be excluded by the \
+         cfg(test) rule; got {excluded_rel:?}"
+    );
 
     let results = ball_rq1_study::study_directory("scratch", &src);
     assert!(
@@ -395,7 +424,7 @@ fn test_only_files_are_excluded_counted_and_named() {
     let mut out = String::new();
     let _ = ball_rq1_study::report(&mut out, &results, &excluded, &[]);
     assert!(
-        out.contains("  excluded (test-only): 4\n"),
+        out.contains("  excluded (test-only): 5\n"),
         "the summary must print the exclusion count so nothing disappears silently; got:\n{out}"
     );
 

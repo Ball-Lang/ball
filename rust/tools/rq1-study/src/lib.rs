@@ -604,7 +604,7 @@ fn cfg_test_only_files(dir: &Path) -> BTreeSet<PathBuf> {
         test: BTreeSet::new(),
         seen: BTreeSet::new(),
     };
-    walk.file(&root, dir, false);
+    walk.file(&root, false);
     walk.test.difference(&walk.library).cloned().collect()
 }
 
@@ -619,9 +619,11 @@ struct ModWalk {
 }
 
 impl ModWalk {
-    /// Walks one file. `child_dir` is the directory its `mod name;` children
-    /// resolve in, per the Rust reference's module-file rules.
-    fn file(&mut self, path: &Path, child_dir: &Path, under_cfg_test: bool) {
+    /// Walks one file, resolving its `mod` children per the Rust reference's
+    /// module-file rules — the same rules `rust/encoder/src/crate_graph.rs`
+    /// follows, re-implemented here rather than borrowed (see
+    /// [`cfg_test_only_files`]).
+    fn file(&mut self, path: &Path, under_cfg_test: bool) {
         let key = (normalise(path), under_cfg_test);
         if !self.seen.insert(key.clone()) {
             return;
@@ -639,49 +641,63 @@ impl ModWalk {
             // denominator too large, never too small — the safe direction.
             return;
         };
-        self.items(&ast.items, child_dir, under_cfg_test);
+        let file_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        // A "mod-rs" file (`lib.rs`, `main.rs`, `mod.rs`) owns its own
+        // directory; any other file owns a subdirectory named after its stem.
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let mod_dir = if matches!(stem.as_str(), "lib" | "main" | "mod") {
+            file_dir.clone()
+        } else {
+            file_dir.join(&stem)
+        };
+        // OUTSIDE an inline block a `#[path]` is relative to the directory of
+        // the declaring FILE — which is NOT `mod_dir` for a non-mod-rs file.
+        // Inside one it is relative to the nested module directory, which is
+        // why `items` passes the new `mod_dir` as both.
+        self.items(&ast.items, &mod_dir, &file_dir, under_cfg_test);
     }
 
-    fn items(&mut self, items: &[syn::Item], child_dir: &Path, under_cfg_test: bool) {
+    fn items(
+        &mut self,
+        items: &[syn::Item],
+        mod_dir: &Path,
+        path_base: &Path,
+        under_cfg_test: bool,
+    ) {
         for item in items {
             let syn::Item::Mod(item_mod) = item else {
                 continue;
             };
             let nested_cfg_test = under_cfg_test || is_cfg_test(&item_mod.attrs);
             let name = item_mod.ident.to_string();
+            // `#[path]` ON an inline block replaces the directory component
+            // that block would otherwise contribute.
+            let nested_dir = match path_attr(&item_mod.attrs) {
+                Some(explicit) if item_mod.content.is_some() => path_base.join(explicit),
+                _ => mod_dir.join(&name),
+            };
             if let Some((_, inner)) = &item_mod.content {
-                // An inline `mod a { … }`: its own children resolve one
-                // directory deeper, but no new FILE is involved.
-                self.items(inner, &child_dir.join(&name), nested_cfg_test);
+                // An inline `mod a { … }` is its own module — one directory
+                // deeper — but introduces no new FILE. Inside it, a `#[path]`
+                // resolves against that nested directory.
+                self.items(inner, &nested_dir, &nested_dir, nested_cfg_test);
                 continue;
             }
             let candidates: Vec<PathBuf> = match path_attr(&item_mod.attrs) {
-                Some(explicit) => vec![child_dir.join(explicit)],
+                Some(explicit) => vec![path_base.join(explicit)],
                 None => vec![
-                    child_dir.join(format!("{name}.rs")),
-                    child_dir.join(&name).join("mod.rs"),
+                    mod_dir.join(format!("{name}.rs")),
+                    mod_dir.join(&name).join("mod.rs"),
                 ],
             };
             for candidate in candidates {
                 if !candidate.is_file() {
                     continue;
                 }
-                let next = if candidate.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
-                    candidate
-                        .parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_default()
-                } else {
-                    let stem = candidate
-                        .file_stem()
-                        .map(|s| s.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    candidate
-                        .parent()
-                        .map(|p| p.join(stem))
-                        .unwrap_or_else(|| PathBuf::from(&name))
-                };
-                self.file(&candidate, &next, nested_cfg_test);
+                self.file(&candidate, nested_cfg_test);
                 break;
             }
         }

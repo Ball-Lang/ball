@@ -345,6 +345,22 @@ the cascade `return set..add(x)`, which parses, keeps every declaration and
 reaches the fixpoint, so Tier A scored it clean across two full baselines while
 the issue sat open.
 
+**Tier A scores LIBRARY code only** (the owner's 2026-09-14 methodology decision
+on issue #491). A package's own test suite is a different population — written
+against that package's private internals, compiled under different settings, and
+encoded by nobody — so each harness excludes it by that language's own
+convention. The rule is never a silent filter: every harness prints
+`excluded (test-only): N` (always, zero included) and writes the count plus the
+per-file rule into its JSON report; `summarize.sh` FAILS a Tier A job whose log
+does not carry that line or whose count is not a bare integer; `coverage_table.py`
+fails on a Tier A artifact with no count, publishes it as a README column, and
+records it in `baseline.json` (recorded, **not** floored — a pin whose own test
+suite grew moves it in either direction and neither is a regression). Each
+language's self-test pins both directions, including a negative control of
+library files named `latest`/`contest`/`attestation` that must stay **scored**,
+so a substring rule fails. The per-language rules and the one known limitation
+are in `tests/conformance/COVERAGE_STUDY.md`.
+
 Tier A now exists for **all six** languages: Dart (`rq1_study.dart`), Rust
 (`rust/tools/rq1-study`), C# (`csharp/coverage-study`), Go
 (`tools/coverage-study/go`), Python (`rq1_study_py.py`) and TypeScript
@@ -742,7 +758,7 @@ could not parse a summary at all).
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
-| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result |
+| **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result — and, for Tier A, on a log missing its `excluded (test-only): N` line, which would mean the library-code-only rule vanished (issue #491) |
 | **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, and regenerates the README table, committing both to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
 | The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |

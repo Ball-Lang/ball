@@ -384,7 +384,7 @@ public static class TierA
     /// contain "test" and are library code, and excluding them would be exactly the silent
     /// denominator shrink this rule exists to prevent (TierASelfTests pins all three).</para>
     /// </summary>
-    public static string? TestOnlyRule(string root, string absolutePath, Dictionary<string, bool> projectCache)
+    private static string? TestOnlyRule(string root, string absolutePath, Dictionary<string, bool> projectCache)
     {
         var relative = Path.GetRelativePath(root, absolutePath).Replace('\\', '/');
         var segments = relative.Split('/');

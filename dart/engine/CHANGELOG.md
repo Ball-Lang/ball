@@ -1,3 +1,10 @@
+## [0.4.3](https://github.com/Ball-Lang/ball/compare/ball_engine-v0.4.2...ball_engine-v0.4.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* **engine:** probe the ordered-set representation with `is BallRawMap`, so in-place set mutation survives on every self-hosted engine (closes [#557](https://github.com/Ball-Lang/ball/issues/557)) ([#591](https://github.com/Ball-Lang/ball/issues/591)) ([64633d3](https://github.com/Ball-Lang/ball/commit/64633d39e20aa72d4146ebdd02d86effe5e55a55)), closes [528/#553](https://github.com/Ball-Lang/ball/issues/553) [#545](https://github.com/Ball-Lang/ball/issues/545)
+
 ## [0.4.2](https://github.com/Ball-Lang/ball/compare/ball_engine-v0.4.1...ball_engine-v0.4.2) (2026-09-05)
 
 

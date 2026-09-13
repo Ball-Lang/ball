@@ -95,10 +95,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use ball_lang_macro_expand::{MacroError, MacroTable};
 use ball_lang_shared::proto::ball::v1::{Module, Program};
 
 use crate::types::has_self_receiver;
-use crate::{EncodedFile, assemble_program, encode_file_module};
+use crate::{EncodedFile, assemble_program, encode_file_module, macro_expand};
 
 /// One Rust module of a crate, ready to encode.
 #[derive(Debug, Clone)]
@@ -188,6 +189,14 @@ impl CrateSymbols {
 pub struct CrateGraph {
     modules: Vec<CrateModule>,
     symbols: Rc<CrateSymbols>,
+    /// Every `macro_rules!` in scope for this crate (issue #629) — kept so
+    /// [`CrateGraph::encode_file_library`] can expand a file the walk did not
+    /// reach against the same definitions.
+    macros: Rc<MacroTable>,
+    /// Ball module name → the macro failure that stopped that module being
+    /// expanded. Raised when the module is ENCODED, not when the crate is
+    /// walked — see [`CrateGraph::load`].
+    macro_errors: Rc<BTreeMap<String, MacroError>>,
     root_has_main: bool,
 }
 
@@ -198,6 +207,43 @@ impl CrateGraph {
         let root = resolve_crate_root(path);
         let mut modules = Vec::new();
         walk_file(&root, Vec::new(), true, &mut modules);
+
+        // Macro expansion (issue #629) runs BEFORE the symbol table is built:
+        // an expansion can introduce a struct, an impl or a free function that
+        // `collect_symbols` — and every later pass — must see. The table is
+        // built from the WHOLE crate first, so a macro defined in one module and
+        // invoked from another resolves.
+        //
+        // **A failure here is recorded per MODULE, never raised here.** This is
+        // the same trap `simple_param_names` documents below: the walk
+        // catalogues the whole crate before anything is encoded, so a loud
+        // failure at THIS point costs every OTHER file in the crate its
+        // crate-aware measurement. Measured on the pinned Tier A corpus: raising
+        // it here dropped `1 encoded` from 1/110 to 0/110, because 4 of the 5
+        // crates have one file whose macros this encoder cannot handle. The
+        // error is re-raised — loudly, unchanged — when that module is actually
+        // ENCODED, which is where it belongs.
+        let mut macros = MacroTable::new();
+        let mut macro_errors: BTreeMap<String, MacroError> = BTreeMap::new();
+        for module in &modules {
+            if let Err(err) =
+                macro_expand::collect_definitions(&module.ast.items, &module.name, &mut macros)
+            {
+                macro_errors.entry(module.name.clone()).or_insert(err);
+            }
+        }
+        macro_expand::seed_dependency_macros(&root, &mut macros);
+        for module in &mut modules {
+            if macro_errors.contains_key(&module.name) {
+                continue;
+            }
+            if let Err(err) = macro_expand::expand_file(&mut module.ast, &macros) {
+                macro_errors.insert(module.name.clone(), err);
+            }
+        }
+        let macros = Rc::new(macros);
+        let macro_errors = Rc::new(macro_errors);
+
         let symbols = Rc::new(collect_symbols(&modules));
         let root_has_main = modules
             .iter()
@@ -207,6 +253,8 @@ impl CrateGraph {
         CrateGraph {
             modules,
             symbols,
+            macros,
+            macro_errors,
             root_has_main,
         }
     }
@@ -257,6 +305,12 @@ impl CrateGraph {
         let mut encoded_modules: Vec<Module> = Vec::new();
         let mut unresolved: BTreeSet<String> = BTreeSet::new();
         for module in &self.modules {
+            // A module whose macros could not be expanded fails HERE, where its
+            // own declarations were about to be encoded — never during the walk
+            // (see [`CrateGraph::load`]).
+            if let Some(err) = self.macro_errors.get(&module.name) {
+                macro_expand::fail(err.clone());
+            }
             let EncodedFile {
                 module: encoded,
                 has_main: _,
@@ -282,8 +336,13 @@ impl CrateGraph {
     /// one-file program does not contain. `compile_library` looks the entry
     /// module up by name and inlines it at the crate root; any name works.
     pub fn encode_file_library(&self, source: &str, module_name: &str) -> Program {
-        let ast = syn::parse_file(source)
+        let mut ast = syn::parse_file(source)
             .unwrap_or_else(|err| panic!("ball-lang-encoder: failed to parse Rust source: {err}"));
+        // The crate's own macro definitions, applied to a file the `mod` graph
+        // may never have reached (the Tier A harness scores every `.rs` file
+        // under `src/`, including ones only a `#[cfg(test)]` module declares).
+        macro_expand::expand_file(&mut ast, &self.macros)
+            .unwrap_or_else(|err| macro_expand::fail(err));
         let encoded = encode_file_module(&ast, module_name, Some(self.symbols.clone()));
         let mut program = assemble_program(vec![encoded.module], "", &encoded.unresolved_modules);
         program.entry_module = module_name.to_string();
@@ -532,7 +591,7 @@ fn path_attribute(attrs: &[syn::Attribute]) -> Option<String> {
 /// `any(test, feature = "x")` is KEPT deliberately: `cargo build --features x`
 /// compiles that module, so it is a module an ordinary build has, and skipping
 /// it would be the same silent scope loss in a rarer spelling.
-fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+pub(crate) fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
     // Stacked `cfg` attributes are conjoined, so ONE test-only conjunct gates
     // the whole item.
     attrs.iter().any(|attr| {

@@ -663,6 +663,29 @@ const cases: Case[] = [
     }),
     expect: [/const __r: any\[\] = \[\];/],
   },
+  // A `std.throw` whose value is a messageCreation typed with a BUILT-IN Dart
+  // exception lowers to the tagged object literal every emitted typed-`catch`
+  // guard tests for (`compileThrowValue`'s DART_EXCEPTION_TYPES arm). Until
+  // #616 the only thing exercising that arm was the SELF-HOSTED ENGINE's own
+  // source -- `throw StateError('No element')` in `engine_std.dart` -- which
+  // #616 replaced with `BallException(...)`, a name deliberately NOT in
+  // DART_EXCEPTION_TYPES. So the arm needs a case of its own here, or a
+  // compiler path every real program can reach goes untested.
+  {
+    name: "throwBuiltinDartException",
+    body: std("throw", {
+      value: {
+        messageCreation: {
+          typeName: "main:FormatException",
+          fields: [
+            { name: "arg0", value: lit("bad input") },
+            { name: "source", value: lit("x") },
+          ],
+        },
+      },
+    }),
+    expect: [/'__type__': 'FormatException'/, /'message': 'bad input'/, /'source': 'x'/],
+  },
   // "unknownStdFnDefaultFallback" (a name matching neither the main switch
   // nor the nested default switch) used to fall to a bare-call fallback
   // here; compileStdCall's default now throws a compile-time Error naming

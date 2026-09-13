@@ -128,8 +128,8 @@ user would ever hand the encoder.
 | TypeScript | it is under a `test`/`tests`/`__tests__` directory, or its name ends `.test.*` / `.spec.*` / `.bench.*` | `rq1_study_ts.mts::testOnlyRule` |
 | Python | it is under a `test`/`tests` directory, or it is `conftest.py`, `test_*.py` or `*_test.py` | `rq1_study_py.py::test_only_rule` |
 | Go | its name ends `_test.go`, or it is under a `testdata/` directory | `go/rq1study/study.go::TestOnlyRule` |
-| Rust | it is under a `tests`/`benches`/`examples` directory, **or** the crate's `mod` graph reaches it only through a `#[cfg(test)]` module | `rq1-study/src/lib.rs::classify_rust_files` |
-| C# | it is under a `test`/`tests` directory, or under a **test project** (`*.Tests.csproj` &c., or any `.csproj` referencing xunit / NUnit / MSTest) | `TierA.cs::TestOnlyRule` |
+| Rust | it is under a **package-root** `tests`/`benches`/`examples` directory (a sibling of `src/` — a Cargo target), **or** the crate's `mod` graph reaches it only through a `#[cfg(test)]` module | `rq1-study/src/lib.rs::classify_rust_files` |
+| C# | it is under a `test`/`tests` directory, or under a **test project** (`*.Tests.csproj` &c., or a `.csproj` whose **parsed manifest** carries a test-framework `<PackageReference Include="…"/>` or `<IsTestProject>true</IsTestProject>`) | `TierA.cs::TestOnlyRule` |
 
 Four properties make this a rule rather than a filter, and each is asserted by
 that language's own self-test (all six gated on every PR in `ci.yml`):
@@ -146,15 +146,19 @@ that language's own self-test (all six gated on every PR in `ci.yml`):
    whose own test suite grew moves it in either direction and neither is a
    regression.
 3. **It never excludes library code.** Matching is on whole path segments and
-   whole name suffixes, never substrings. Each self-test carries three library
-   files named `latest`, `contest` and `attestation/verify` — "la-**test**",
-   "con-**test**", "at-**test**-ation" — and asserts they are still *studied*. A
-   sloppy substring rule passes the exclusion half of the test and fails this
-   half, by construction.
+   whole name suffixes, never substrings — and, since #637, never on a file's
+   raw text either. Each self-test carries three library files named `latest`,
+   `contest` and `attestation/verify` — "la-**test**", "con-**test**",
+   "at-**test**-ation" — and asserts they are still *studied*. Rust's adds a
+   PUBLIC `src/tests/foo.rs` (declared `pub mod tests;`) and C#'s two library
+   projects whose `.csproj` merely *mentions* xunit — in an XML comment, and
+   behind an unevaluated `Condition`. A sloppy rule passes the exclusion half of
+   the test and fails this half, by construction.
 4. **Rust's two halves are both required.** The path rule cannot see
-   `bitflags/src/tests.rs` (not under a `tests/` directory); the reachability
-   rule is what catches it — and did, on the real pins: 33 excluded by path, 1 by
-   `#[cfg(test)]` reachability. The reachability walk is its own `syn` walk in
+   `bitflags/src/tests.rs` or `bitflags/src/tests/*.rs` — neither is under a
+   *package-root* `tests/` directory; the reachability rule is what catches
+   them, and on the real pins it catches all 34 (0 by path, 34 by
+   `#[cfg(test)]` reachability). The reachability walk is its own `syn` walk in
    the harness, not a call into `CrateGraph`: that walk skips `#[cfg(test)]`
    modules outright, so it cannot tell "test-only" from "not reached at all", and
    conflating those two would exclude an unreferenced *library* leftover. A file
@@ -174,6 +178,31 @@ directory rule would over-exclude a package that ships a PUBLIC test subpackage 
 `django.test` is the canonical example. No pin in
 `tools/coverage-study/packages/python.json` does; a pin that did would have to be
 recorded here.
+
+**Two rules that had the same shape were tightened instead (#637).** PR #635's
+review recorded both as advisories — no pin tripped either — and #637 closed
+them, test-first, rather than leaving them as documented risk:
+
+- **Rust's path half matched every parent segment**, so a PUBLIC `src/tests/`
+  module was excluded as if it were a Cargo target. It is not: `tests/`,
+  `benches/` and `examples/` are separate crates only as siblings of `src/`
+  ([Cargo's project layout](https://doc.rust-lang.org/cargo/guide/project-layout.html)),
+  and `cargo build` builds `src/tests/foo.rs` like any other module. The rule
+  now resolves the package root (the nearest `Cargo.toml`) and matches only the
+  FIRST segment relative to it; with no manifest anywhere above the studied
+  subtree the path half does not fire at all, since there is no anchor to be
+  sure about. The pins are unaffected: `bitflags`' 34 files are test-only by
+  `#[cfg(test)]` reachability, which is now the half that reports them.
+- **C#'s test-project marker was a raw-text substring search** over the
+  `.csproj`, so a library project that merely mentioned xunit in a comment (or
+  behind a `Condition` MSBuild never evaluates in that build) was classified
+  test-only. The manifest is now PARSED (`System.Xml.Linq`) and only a real
+  `<PackageReference Include="…"/>` naming a test framework, or
+  `<IsTestProject>true</IsTestProject>`, counts — matched on local element and
+  attribute names, case-insensitively, so an old-style project in the 2003
+  MSBuild namespace reads the same. A conditioned reference does not count, and
+  an unparseable manifest excludes nothing: both are "cannot tell", which always
+  means KEEP.
 
 ### Baseline (2026-09-02, five pinned packages, 106 scored files)
 

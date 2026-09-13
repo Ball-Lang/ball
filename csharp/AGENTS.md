@@ -72,6 +72,19 @@ Measure per shape; never raise
 `tools/coverage-study/baseline.json`'s floor to a number the harness did not
 actually print.
 
+**Tier A scores LIBRARY code only** (the owner's 2026-09-14 methodology decision
+on #491): a file under a `test`/`tests` directory, or under a test PROJECT, is
+excluded from the denominator and counted on the harness's own
+`excluded (test-only): N` line. A project is a test project when its name ends
+`.Tests`/`.Test`/`.Specs`/`.IntegrationTests`, or when its `.csproj`'s PARSED
+manifest (`System.Xml.Linq`, never a raw-text search — #637) carries a
+`<PackageReference Include="…"/>` naming xunit/NUnit/MSTest/Microsoft.NET.Test.Sdk
+or `<IsTestProject>true</IsTestProject>`. A reference behind a `Condition` does
+not count and an unparseable manifest excludes nothing: an uncertain case always
+KEEPS the file, because studying a test project's files is visible in the numbers
+while silently dropping a library project's is not. No pin trips the rule today
+(`excluded: 0` for C#), which is exactly why publishing the count matters.
+
 `dotnet test csharp/coverage-study/test/Ball.CoverageStudy.Tests.csproj` is the
 harness's own self-test and **is gated on every PR** in ci.yml's `csharp` job.
 The RUN is the `csharp-tier-a` job in `coverage-study.yml`, which has **no

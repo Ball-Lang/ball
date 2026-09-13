@@ -34,10 +34,14 @@ arrived with the crate-aware slice below; every #491 slice before it left the ag
 that number — read those histograms as history, not as today's totals.** Per the owner's
 methodology decision on #491, Tier A now scores LIBRARY code only: 34 of the 119 `.rs` files
 under the pinned subtrees are `bitflags`' own tests and are excluded, so `scored` is **77** and
-the harness prints `excluded (test-only): 34`. Rust's rule has two halves, and both fire on the
-real pins — 33 files under a `tests/` directory, plus `bitflags/src/tests.rs`, which is NOT under
-one and is caught only by the second half: a file the crate's `mod` graph reaches *only* through a
-`#[cfg(test)]` module. That second half is `classify_rust_files`' own `syn` walk, deliberately not
+the harness prints `excluded (test-only): 34`. Rust's rule has two halves, and on the real pins
+all 34 come from the second one: a file the crate's `mod` graph reaches *only* through a
+`#[cfg(test)]` module. The path half covers the PACKAGE-ROOT `tests/`, `benches/` and `examples/`
+Cargo targets — siblings of `src/`, which the pins (`lib` = `src`) never even walk — and
+deliberately not `src/tests/`, which is an ordinary module directory whose contents can be public
+library code (#637). `bitflags/src/tests.rs` and its 33 `src/tests/*.rs` children are all declared
+by `src/lib.rs`'s `#[cfg(test)] mod tests;`, so reachability is what reports them. That second half
+is `classify_rust_files`' own `syn` walk, deliberately not
 a call into `CrateGraph` — that walk skips `#[cfg(test)]` modules outright (#621), so it cannot
 tell "test-only" from "not reached at all", and an unreferenced *library* leftover must stay
 scored. Neither `clean` nor `encoded` moved in absolute terms; both ratios rose because the

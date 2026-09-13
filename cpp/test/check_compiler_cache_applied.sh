@@ -179,13 +179,38 @@ parse_sccache_noncacheable() {
 # `src/ccache/core/statistics.cpp` in 4.14 — the same expression in both). So
 # `total - cacheable`, the shortfall this gate used to read off the human line,
 # is exactly `uncacheable + errors`, and both families are printed by
-# `--print-stats`. Summing them is the same number from a format that carries no
-# thousands separators, no column alignment and no locale.
+# `--print-stats`. Summing them is the same number, taken from the format ccache
+# documents for machines instead of from the one it renders for people.
 #
-# WHY NOT the human line: it was parsed by digit-splitting
-# (`split($0, a, /[^0-9]+/)`), so `Cacheable calls: 1,234 / 1,250` — what ccache
-# prints once a leg's corpus passes 1000 calls — read as c=1, t=234 and reported
-# 233 declined compiles that never happened.
+# WHY NOT the human line — stated precisely, because the sloppy version of this
+# claim is itself a bug (it was in this comment until it was checked against
+# ccache's source):
+#
+#   * ccache does NOT group its counters. Both pinned versions render a table
+#     cell from a `uint64_t` as `fmt::format("{}", number)` — plain digits, no
+#     locale, no thousands separator (`Cell::Cell(uint64_t)` in
+#     `src/util/TextTable.cpp` 4.9.1 / `src/ccache/util/texttable.cpp` 4.14).
+#     There is no `1,234 / 1,250` to mis-read and no version that emits one.
+#   * What the old parse actually was: `Cacheable calls:` matched by a regex
+#     over the RENDERED row, then `split($0, a, /[^0-9]+/)` taking the first two
+#     numeric runs, sanity-checked only by `t >= c`. That is a parse of a
+#     PRESENTATION layer. `TextTable::compute_column_widths()` sizes each column
+#     to the widest cell across ALL rows, so the row's rendering is a function
+#     of unrelated rows, and ccache re-cuts the summary's rows and labels
+#     between releases (4.7 rewrote it wholesale).
+#   * Its failure mode is therefore: a layout ccache is free to change stops
+#     matching, and the leg goes red with `could not read a non-cacheable
+#     compilation count` — a red C++ leg for a reason that has nothing to do
+#     with the compiler cache. Feed the old parse any line it does not expect
+#     and that is what happens; the self-test's case 26 pins it.
+#     Worse, should a future row ever put a number ahead of the numerator, the
+#     first-two-runs rule would take the WRONG numbers while still matching.
+#   * And `ccache -s` failing used to be a cosmetic `::warning::` that blanked
+#     the stats file, so the run limped on to that same misleading
+#     `could not read` error instead of saying the instrument had failed.
+#
+# `--print-stats` has none of this: it is `<id><TAB><value>`, one line per
+# counter, no alignment and no rendering.
 #
 # VERSION-PINNED, against the ccache the runners actually install rather than
 # against a manual alone: ubuntu-latest has 4.9.1 (`ccache version 4.9.1`,
@@ -484,8 +509,8 @@ self_test() {
 
   # run_case_out <name> <want-exit> <grep-pattern> [args...] — like run_case,
   # but also pins the NUMBER the gate derived. An exit code alone cannot tell
-  # "read 16 declined, under the ceiling" from "read 233 declined, under a
-  # ceiling that happened to be higher".
+  # "read 4 declined, under the ceiling" from "read 0 because the parser gave up
+  # on a counter and nothing was summed".
   run_case_out() {
     local name="$1" want="$2" pat="$3"; shift 3
     local out rc
@@ -583,7 +608,10 @@ self_test() {
   }
 
   # One `ccache -s` human summary line, with its two numbers passed as LITERAL
-  # strings so a case can inject ccache's thousands separator verbatim.
+  # strings so a case can render the row in a layout the old parse could not
+  # read. (ccache itself always prints bare digits — see the parser's header —
+  # so these are deliberately synthetic, standing in for ANY re-rendering of a
+  # presentation-layer row.)
   ccache_human_line() {
     printf 'Cacheable calls: %5s / %s (99.99%%)\n' "$1" "$2"
   }
@@ -747,8 +775,8 @@ self_test() {
   # 23. ...and the mirror of that rule after #660: the human `Cacheable calls:`
   #     line is no longer an INPUT, only log decoration, so a stats file
   #     without it must still produce the number. This case used to assert the
-  #     opposite, which is exactly what made a thousands separator in that line
-  #     able to corrupt the count.
+  #     opposite — that a missing summary line is a hard failure — which is
+  #     what made the gate's ceiling hostage to a presentation-layer row.
   grep -v '^Cacheable calls:' "$tmp/ccache_clean.txt" >"$tmp/ccache_no_summary.txt"
   run_case_out "ccache stats without the human summary still parse" 0 \
     'non-cacheable compilations: 0' \
@@ -763,10 +791,15 @@ self_test() {
   #
   # The cases above read the uncacheable split out of `ccache -s`'s HUMAN
   # summary line (`Cacheable calls: <n> / <total>`), digit-split with
-  # `split($0, a, /[^0-9]+/)`. That parse is wrong the moment either number
-  # carries ccache's thousands separator — `1,234 / 1,250` reads as c=1, t=234
-  # and reports 233 declined compiles that never happened — and it makes the
-  # gate depend on a table layout ccache is free to re-render at any release.
+  # `split($0, a, /[^0-9]+/)` down to the first two numeric runs. That makes a
+  # required CI gate depend on a PRESENTATION layer: `TextTable` sizes every
+  # column to the widest cell across all rows, so the row's rendering is a
+  # function of unrelated rows, and ccache re-cuts the summary between releases.
+  # Any re-render the regex does not expect takes the leg red with
+  # `could not read a non-cacheable compilation count` — a red C++ leg for a
+  # non-cache reason. (NOT a silent mis-count from a thousands separator: ccache
+  # renders these cells with `fmt::format("{}", number)` and never groups them.
+  # That claim was in this file until it was checked against ccache's source.)
   # `ccache --print-stats` is the documented machine-parsable form:
   #
   #   "Print statistics counter IDs and corresponding values in machine-parsable
@@ -802,19 +835,24 @@ self_test() {
     --tool ccache --compiled 322 --max-noncacheable 5 \
     --stats-file "$tmp/ccache_counters_only.txt"
 
-  # 26. THE BUG, verbatim from the issue: a thousands-separated human line.
-  #     The counters say 16 declined (1250 - 1234); the digit-splitting parse
-  #     of `Cacheable calls: 1,234 / 1,250` reads c=1, t=234 and reports 233.
-  #     Both land on the same side of most ceilings, so the case pins the
-  #     NUMBER, not just the exit code.
+  # 26. THE DEFECT: a `Cacheable calls:` row rendered in a layout the old parse
+  #     cannot read. The counters say 16 declined (1250 - 1234); the old
+  #     digit-split regex does not match this row at all, so the gate reported
+  #     `could not read a non-cacheable compilation count` and took the leg red
+  #     for a reason that has nothing to do with the compiler cache. (The
+  #     grouped digits here are SYNTHETIC — ccache never groups; see the
+  #     parser's header. They stand in for any re-rendering of a row that is a
+  #     presentation layer, which is the whole reason a gate must not parse it.)
+  #     The case pins the NUMBER, not just the exit code: reading 16 and
+  #     reading nothing both sit under a generous ceiling in exit-code terms.
   {
     ccache_human_line "1,234" "1,250"
     ccache_print_stats 1234 0 0 16 0
-  } >"$tmp/ccache_thousands.txt"
-  run_case_out "thousands-separated human line does not corrupt the count" 0 \
+  } >"$tmp/ccache_relaid_human.txt"
+  run_case_out "a human row the old parse could not read no longer matters" 0 \
     'non-cacheable compilations: 16' \
     --tool ccache --compiled 1250 --max-noncacheable 20 \
-    --stats-file "$tmp/ccache_thousands.txt"
+    --stats-file "$tmp/ccache_relaid_human.txt"
 
   # 27. ccache's own `total_calls` includes the FLAG_ERROR counters, so the
   #     shortfall the gate reports must too — otherwise a leg whose compiles

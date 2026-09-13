@@ -309,9 +309,18 @@ Five things have to be true, and each is now pinned by CI rather than by prose:
    sum of `ccache --print-stats`'s `FLAG_UNCACHEABLE` + `FLAG_ERROR` counters —
    which is exactly `total_calls - (hits + misses)`, the shortfall ccache itself
    derives its `Cacheable calls: <n> / <total>` line from. Parsing that human
-   line is what the gate used to do, by digit-splitting, so a thousands
-   separator (`1,234 / 1,250`, printed once a leg passes 1000 calls) read as
-   `1 / 234` and reported 233 phantom declines. The counter classification is
+   line is what the gate used to do — regex over the rendered row, then the
+   first two numeric runs of `split($0, a, /[^0-9]+/)`. That is a required gate
+   reading a **presentation layer**: `TextTable` sizes each column to the widest
+   cell across *all* rows, so the row's rendering depends on unrelated rows, and
+   ccache re-cuts the summary between releases. Any re-render the regex does not
+   expect takes the C++ leg red with `could not read a non-cacheable compilation
+   count` — red for a non-cache reason. (It is *not* a thousands-separator
+   mis-count: ccache renders those cells with `fmt::format("{}", number)` and
+   never groups them. That claim was written into this rule and the gate's own
+   header before either was checked against ccache's source — `Cell::Cell(uint64_t)`
+   in `src/util/TextTable.cpp` 4.9.1 / `src/ccache/util/texttable.cpp` 4.14.)
+   The counter classification is
    version-pinned to the ccache the runners install — **4.9.1 on ubuntu-latest,
    4.14 on macos-latest**, whose tables differ by exactly one id — and lives in
    three lists at the top of the script; a counter id in none of them **fails

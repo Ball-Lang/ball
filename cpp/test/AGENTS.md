@@ -74,8 +74,8 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   mode: it compiled cacheable TUs and the cache recorded zero requests ("no
   cache at all", #594), or the cache was consulted and declined more compiles
   than the measured per-OS ceiling ("cache silently declined every compile",
-  #599). That ceiling is **0 on all three
-  legs**, read out of this gate's own step in three consecutive green main runs
+  #599). That ceiling is **0 on all three legs**, read out of this gate's own
+  step in three consecutive green main runs
   (34749011196 / 34746079068 / 34743380631) and documented with them in the
   script's header; raise it only against a fresh measurement, never to quiet a
   red run.
@@ -85,8 +85,12 @@ identically by `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
   `ccache --print-stats`'s FLAG_UNCACHEABLE + FLAG_ERROR counters — the same
   `total_calls - (hits + misses)` ccache derives its human
   `Cacheable calls: <n> / <total>` line from. That human line is no longer
-  parsed (digit-splitting it mis-read a thousands separator); it is echoed to
-  the log only, and `ccache -s` failing is now a hard error. The counter
+  parsed: it is a PRESENTATION layer (`TextTable` sizes each column to the
+  widest cell across all rows, and ccache re-cuts the summary between
+  releases), so any re-render the old regex did not expect took the leg red
+  with `could not read a non-cacheable compilation count` — red for a
+  non-cache reason. It is echoed to the log only, and `ccache -s` failing is
+  now a hard error rather than a warning the run limped past. The counter
   classification is pinned to the runners' ccache versions — 4.9.1 on ubuntu,
   4.14 on macOS — and an unclassified counter id fails the gate loud.
 - **The gate step must precede the `full_e2e.sh` smoke steps**, and

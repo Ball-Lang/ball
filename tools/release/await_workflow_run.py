@@ -65,6 +65,7 @@ Env overrides (the release config passes none; they exist for a recovery re-run)
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import subprocess
@@ -82,6 +83,10 @@ UNKNOWN = "unknown"
 # runner acquisition or a healthy-but-slow run would be reported as a timeout.
 DEFAULT_BUDGET_SECONDS = 1200
 DEFAULT_INTERVAL_SECONDS = 30
+
+# Sentinel for "this self-test case did not ask for a baseline at all", so the
+# back-compatible call shape (no after_run_id keyword) stays exercised.
+_NO_BASELINE = object()
 
 _BUDGET_ENV = "BALL_AWAIT_RUN_BUDGET_SECONDS"
 _INTERVAL_ENV = "BALL_AWAIT_RUN_INTERVAL_SECONDS"
@@ -333,9 +338,11 @@ def _self_test() -> int:
         def sleep(self, seconds):
             self.t += seconds
 
-    def drive(sequences, budget=1200, interval=30):
+    def drive(sequences, budget=1200, interval=30, after=_NO_BASELINE):
         """sequences: list of (rows|None, err) returned one per attempt; the last
-        entry repeats forever."""
+        entry repeats forever. `after` is the pre-dispatch baseline run id; the
+        sentinel means "call await_run the way a no-dispatch await does".
+        """
         clock = Clock()
         calls = {"n": 0}
 
@@ -344,6 +351,9 @@ def _self_test() -> int:
             calls["n"] += 1
             return sequences[i]
 
+        kwargs = {}
+        if after is not _NO_BASELINE:
+            kwargs["after_run_id"] = after
         code = await_run(
             workflow="tag-go-modules.yml",
             ref=REF,
@@ -353,6 +363,7 @@ def _self_test() -> int:
             sleep=clock.sleep,
             now=clock.now,
             log=log.append,
+            **kwargs,
         )
         return code, calls["n"], clock.t
 
@@ -421,6 +432,152 @@ def _self_test() -> int:
         ok("a success on another ref does not end the wait")
     else:
         no("a success on another ref does not end the wait", f"code={code}")
+
+    # ── the pre-dispatch baseline (#656) ──────────────────────────────────
+    # A workflow_dispatch run may ALREADY exist on the channel tag when the
+    # publishCmd dispatches: docs/RELEASE.md documents
+    # `gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z` as the manual
+    # repair for a release whose tags never landed, and GitHub's re-run button
+    # produces one too. GitHub creates the NEW run's row a few seconds AFTER
+    # accepting the dispatch, so the first poll lands in a window where only the
+    # OLD row exists — and a stale `success` there is indistinguishable from
+    # "this release's six tags were cut". The only row that can answer for this
+    # dispatch is one strictly newer than the newest one seen BEFORE it.
+    STALE_ID = 100
+    FRESH_ID = 200
+
+    def idrow(run_id, **kw):
+        return row(databaseId=run_id, url=f"https://example.invalid/run/{run_id}", **kw)
+
+    stale_success = idrow(STALE_ID, status="completed", conclusion="success")
+    fresh_failure = idrow(FRESH_ID, status="completed", conclusion="failure")
+    fresh_success = idrow(FRESH_ID, status="completed", conclusion="success")
+
+    baseline_fn = globals().get("baseline_run_id")
+    supports_baseline = (
+        "after_run_id" in inspect.signature(newest_matching).parameters
+        and "after_run_id" in inspect.signature(await_run).parameters
+        and callable(baseline_fn)
+    )
+    if not supports_baseline:
+        no(
+            "the poller demands a run strictly newer than the pre-dispatch baseline (#656)",
+            "expected newest_matching(runs, ref, after_run_id=…), await_run(…, after_run_id=…)",
+            "and a baseline_run_id() that records the newest existing run BEFORE --dispatch.",
+            "Without them the first poll answers with whatever workflow_dispatch row already",
+            "existed on that ref, so a stale SUCCESS is read as this release's tag cut and the",
+            "fresh FAILURE is never seen.",
+        )
+    else:
+        if newest_matching([stale_success], REF, after_run_id=STALE_ID) is None:
+            ok("a run that is not strictly newer than the baseline is never ours")
+        else:
+            no(
+                "a run that is not strictly newer than the baseline is never ours",
+                "the run that existed BEFORE the dispatch matched",
+            )
+
+        picked = newest_matching([stale_success, fresh_failure], REF, after_run_id=STALE_ID)
+        if picked is fresh_failure:
+            ok("with a baseline, the strictly newer run is the one classified")
+        else:
+            no("with a baseline, the strictly newer run is the one classified", f"picked {picked}")
+
+        if newest_matching([stale_success], REF) is stale_success:
+            ok("with NO baseline (a dispatch-less await) the newest matching run still wins")
+        else:
+            no(
+                "with NO baseline (a dispatch-less await) the newest matching run still wins",
+                "the back-compatible path stopped matching",
+            )
+
+        idless = row(status="completed", conclusion="success")
+        idless.pop("databaseId", None)
+        if newest_matching([idless], REF, after_run_id=STALE_ID) is None:
+            ok("a row with no databaseId cannot be ordered against the baseline, so it is not ours")
+        else:
+            no(
+                "a row with no databaseId cannot be ordered against the baseline, so it is not ours",
+                "an unorderable row matched",
+            )
+
+        code, calls, _ = drive(
+            [([stale_success], ""), ([stale_success, fresh_failure], "")],
+            after=STALE_ID,
+        )
+        if code == 1 and calls == 2:
+            ok("a stale SUCCESS from before the dispatch does not mask the fresh FAILURE")
+        else:
+            no(
+                "a stale SUCCESS from before the dispatch does not mask the fresh FAILURE",
+                f"code={code} calls={calls} (code=0 means the pre-existing run answered for us)",
+            )
+
+        code, calls, elapsed = drive([([stale_success], "")], budget=300, interval=30, after=STALE_ID)
+        if code == 1 and elapsed >= 300 and calls == 11:
+            ok("a stale row and no new run exhausts the budget and FAILS honestly")
+        else:
+            no(
+                "a stale row and no new run exhausts the budget and FAILS honestly",
+                f"code={code} calls={calls} elapsed={elapsed}",
+            )
+
+        code, calls, _ = drive(
+            [([stale_success], ""), ([stale_success, fresh_success], "")],
+            after=STALE_ID,
+        )
+        if code == 0 and calls == 2:
+            ok("the run the dispatch actually started is what ends the wait")
+        else:
+            no("the run the dispatch actually started is what ends the wait", f"code={code} calls={calls}")
+
+        # ── capturing the baseline itself ─────────────────────────────────
+        def capture(sequences, attempts=3):
+            seen = {"n": 0}
+
+            def list_runs():
+                i = min(seen["n"], len(sequences) - 1)
+                seen["n"] += 1
+                return sequences[i]
+
+            got = baseline_fn(
+                ref=REF,
+                list_runs=list_runs,
+                attempts=attempts,
+                interval_seconds=1,
+                sleep=lambda _seconds: None,
+                log=log.append,
+            )
+            return got, seen["n"]
+
+        other_ref = row(
+            headBranch="main", databaseId=999, status="completed", conclusion="success"
+        )
+        (found, run_id, _detail), _ = capture([([stale_success, other_ref], "")])
+        if found and run_id == STALE_ID:
+            ok("the baseline is the newest MATCHING run that existed before the dispatch")
+        else:
+            no(
+                "the baseline is the newest MATCHING run that existed before the dispatch",
+                f"found={found} run_id={run_id}",
+            )
+
+        (found, run_id, _detail), _ = capture([([], "")])
+        if found and run_id is None:
+            ok("no pre-existing run on the ref is itself a valid baseline")
+        else:
+            no("no pre-existing run on the ref is itself a valid baseline", f"found={found} run_id={run_id}")
+
+        (found, _run_id, _detail), attempts_made = capture(
+            [(None, "gh: API rate limit exceeded")], attempts=3
+        )
+        if not found and attempts_made == 3:
+            ok("a baseline that cannot be established is NOT silently read as 'no prior run'")
+        else:
+            no(
+                "a baseline that cannot be established is NOT silently read as 'no prior run'",
+                f"found={found} attempts={attempts_made}",
+            )
 
     total = passed + failed
     MIN = 15

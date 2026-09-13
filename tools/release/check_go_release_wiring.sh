@@ -73,6 +73,177 @@ no() {
   for line in "$@"; do printf '  %s\n' "$line"; done
 }
 
+SELF_TEST=0
+case "${1-}" in
+--self-test)
+  SELF_TEST=1
+  shift
+  ;;
+"") ;;
+*)
+  echo "::error::unknown argument: $1" >&2
+  exit 2
+  ;;
+esac
+
+# ── The negative controls for the checker above. ──────────────────────────
+# A guard whose own failure path is never exercised is decoration: the leg would
+# pass identically if `freshness_paths_problems` stopped looking at the list.
+# Driven from ci.yml's always-on `Proto Checks` job.
+SCRATCH=""
+cleanup() {
+  [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
+  return 0
+}
+
+self_test() {
+  local pass=0 fail=0
+  SCRATCH="$(mktemp -d)"
+  trap cleanup EXIT
+
+  expect() { # name want-exit file [needle …]
+    local name="$1" want="$2" file="$3"
+    shift 3
+    local out rc=0 good=1 needle
+    out="$(freshness_paths_problems "$file" 2>&1)" || rc=$?
+    [ "$rc" -eq "$want" ] || good=0
+    for needle in "$@"; do
+      case "$out" in
+      *"$needle"*) ;;
+      *) good=0 ;;
+      esac
+    done
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (exit $rc, wanted $want)"
+      printf '%s\n' "$out" | sed 's/^/    | /'
+    fi
+  }
+
+  write() { # file, then the yaml body on stdin
+    cat >"$SCRATCH/$1"
+  }
+
+  write exact.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+      - tools/release/check_go_freshness.sh
+  schedule:
+    - cron: "30 7 * * 1"
+  workflow_dispatch:
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tools/release/check_go_freshness.sh
+YML
+
+  write reordered.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - tools/release/check_go_freshness.sh
+      - .github/workflows/go-freshness.yml
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write widened.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+      - tools/release/check_go_freshness.sh
+      - go/**
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write narrowed.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write unfiltered.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write ignore.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths-ignore:
+      - docs/**
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write no_pr.yml <<'YML'
+name: Go module freshness
+on:
+  schedule:
+    - cron: "30 7 * * 1"
+  workflow_dispatch:
+YML
+
+  write broken.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+     bad indentation here
+YML
+
+  expect "the exact two-file list is accepted" 0 "$SCRATCH/exact.yml"
+  expect "the same two files in the other order are accepted (it is a set)" 0 "$SCRATCH/reordered.yml"
+  expect "a WIDENED list is refused" 1 "$SCRATCH/widened.yml" "go/**"
+  expect "a NARROWED list is refused" 1 "$SCRATCH/narrowed.yml" "tools/release/check_go_freshness.sh"
+  expect "a pull_request trigger with no paths filter is refused" 1 "$SCRATCH/unfiltered.yml" "EVERY pull request"
+  expect "paths-ignore smuggled in place of paths is refused" 1 "$SCRATCH/ignore.yml" "paths-ignore"
+  expect "a workflow with no pull_request trigger at all is refused" 1 "$SCRATCH/no_pr.yml" "no pull_request trigger"
+  expect "unparseable YAML is refused, never read as agreement" 1 "$SCRATCH/broken.yml" "not parseable YAML"
+  expect "the shipped .github/workflows/go-freshness.yml satisfies it" 0 "$WORKFLOWS/go-freshness.yml"
+
+  local total=$((pass + fail))
+  local MIN=9
+  case "$pass$fail$total" in
+  *[!0-9]*)
+    echo "::error::go-freshness paths self-test produced a non-numeric tally"
+    return 1
+    ;;
+  esac
+  if [ "$total" -lt "$MIN" ]; then
+    echo "::error::go-freshness paths self-test ran $total cases, expected at least $MIN — the sweep itself is broken"
+    return 1
+  fi
+  echo "Results: $pass passed, $fail failed, $total total"
+  [ "$fail" -eq 0 ]
+}
+
+if [ "$SELF_TEST" -eq 1 ]; then
+  self_test
+  exit $?
+fi
+
 [ -f "$RELEASE" ] || {
   echo "::error::missing $RELEASE"
   exit 1
@@ -480,6 +651,15 @@ if [ -f "$AWAIT" ]; then
     aprobs+=("expected a bounded polling budget — an unbounded wait hangs the release job until its timeout")
   grep -qF 'INTERVAL_SECONDS' "$AWAIT" ||
     aprobs+=("expected an explicit poll interval")
+  grep -qF 'def baseline_run_id(' "$AWAIT" ||
+    aprobs+=(
+      "expected the poller to require a run STRICTLY NEWER than a pre-dispatch baseline"
+      "(newest_matching/await_run take after_run_id, captured before the dispatch, #656):"
+      "GitHub creates the dispatched run's row seconds AFTER accepting the dispatch, so the first"
+      "poll sees only rows that already existed — and docs/RELEASE.md documents a manual"
+      "re-dispatch on that same channel tag, whose stale success would read as this release's"
+      "tag cut"
+    )
   grep -qF 'conclusion' "$AWAIT" ||
     aprobs+=(
       "expected the poller to read the dispatched run's CONCLUSION: waiting for a run to reach"

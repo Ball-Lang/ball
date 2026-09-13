@@ -390,6 +390,49 @@ place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
 
+### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
+Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
+
+A checker that reports "clean" by **printing nothing** and a checker that
+**could not run at all** produce the same stdout. So a leg shaped like
+
+```bash
+probs=()
+while IFS= read -r line; do probs+=("$line"); done < <(check "$file")   # WRONG
+if [ "${#probs[@]}" -eq 0 ]; then ok "…"; fi
+```
+
+reports PASS — and counts +1 toward its own positive floor — when `python3` is
+absent, an import fails, or the checker dies on a traceback (stderr, not
+stdout). That is issue #694, reproduced in PR #662's round-1 review by taking
+`python3` off PATH: `PASS … / Results: 26 passed, 1 failed, 27 total`, from a
+leg that asserted nothing. Reachability is not the bar; a gate that can be
+silently disabled is already broken.
+
+One of these three shapes, always:
+
+1. **The checker's status is the step's status** — make the call the script's
+   last command: `check_file "$WORKFLOW"; exit $?`
+   (`tools/ci/check_matrix_paths.sh`, `tools/ci/check_ci_regen_wiring.sh`, and
+   the trailing `python3 - … <<'PY'` heredoc in
+   `tools/ci/check_required_contexts.sh`).
+2. **Capture both and classify the status** —
+   `out="$(check "$f")"; rc=$?`, then treat every status the checker does not
+   define (anything but its clean/found-problems pair) as a **failure that names
+   the status**. `freshness_paths_findings` in
+   `tools/release/check_go_release_wiring.sh` is the worked example; so is
+   `cpp/test/check_compiler_cache_applied.sh`'s `|| requests=""` + `is_uint`.
+3. **Make empty output fail closed, and say why it is closed** — a positive
+   floor (`[ "$checked" -lt 1 ] && exit 1`), an explicit `[ -n "$x" ]` arm, or a
+   comparison against a non-empty expected value, so "nothing came back" cannot
+   reach the `ok` branch. Never `|| true` on the line the verdict reads.
+
+And the negative control belongs to the **leg**, not just the checker: cases
+that only assert what the checker answers about fabricated inputs cannot see a
+checker that answers nothing. Shadow the dependency (a PATH stub that exits 127)
+and assert the leg reports FAIL, paired with a positive control on the real tree
+so the negative case cannot pass for an unrelated reason.
+
 ### 4. A fixture's name must not overstate its coverage
 Enforced by `dart/encoder/bin/check_fixture_names.dart` (CI): a fixture named
 `*comprehension*` / `*spread*` / `*null_aware*` / `*cascade*` must actually use

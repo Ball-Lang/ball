@@ -1,0 +1,209 @@
+name: Release Go modules
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The Go module lane, fully automated (#361).
+#
+# WHAT THIS REPLACED. `tag-go-modules.yml` has cut the six `go/<module>/vX.Y.Z`
+# tags automatically since #361 — but only ever at the version already written
+# into the `go/*/go.mod` files. Moving THAT number was a human action: notice the
+# Go tree has changed, run `tools/go-module-proxy/bump_go_modules.sh vX.Y.Z`,
+# open a `chore(go):` PR. Between #361 and #586 that happened once, so
+# `release.yml` dispatched the tagger on every release and it correctly,
+# idempotently, did nothing — "All six go/<module>/v0.1.0 tags already exist,
+# nothing to do." is a PASS, and it is indistinguishable from a healthy lane.
+# Meanwhile `go install …@latest` served v0.1.0, whose `ball` could not run a
+# single program (the engine and CLI core were still gitignored back then).
+#
+# That is the pub.dev failure (#551) one level down: every automated part green,
+# the whole channel shipping nothing, because a human step stopped happening and
+# the automation around it kept reporting success.
+#
+# THE MODEL NOW. The Go module version is a semantic-release version line like
+# every other package in this repo: `.github/release/go.releaserc.json`, commits
+# path-filtered to `go/` by tools/release/only-package-commits.mjs, run here.
+# Its prepareCmd is the same `bump_go_modules.sh` a human used to run, so the
+# nine sites the version lives in are still rewritten by ONE reviewed, tested,
+# idempotent action — it is just no longer a person who runs it.
+#
+# THE SIX TAGS ARE STILL CUT BY tag_go_modules.sh, AND ONLY BY IT. That script
+# owns the invariant that makes the lane safe: all six tags on ONE commit in ONE
+# push, a half-tagged set refused rather than papered over, idempotent when they
+# all exist. Go module tags are immutable once fetched through
+# proxy.golang.org / sum.golang.org — a moved tag is a checksum mismatch for
+# every consumer that already has it (https://go.dev/ref/mod#version-queries) —
+# so a second tagger with its own logic could publish a broken module set
+# permanently. semantic-release therefore creates a DIFFERENT tag here:
+# `go-modules/vX.Y.Z`, the channel's own bookkeeping tag, which is also what
+# gives the lane version continuity. Its publishCmd then dispatches
+# tag-go-modules.yml pinned to that tag — whose commit is the bump commit,
+# because semantic-release creates its tag AFTER the prepare steps (so after
+# @semantic-release/git pushed) and BEFORE the publish steps
+# (semantic-release/index.js: "Create the tag before calling the publish plugins
+# as some require the tag to exists").
+#
+# WHY workflow_dispatch AND NOT `push: branches: [main]`: identical to
+# pubdev-release.yml. `release.yml` is push-triggered and its own
+# semantic-release step pushes `chore(release): X.Y.Z [skip ci]` to main; a
+# second push-triggered workflow would both race that push and be suppressed
+# outright by GitHub's skip-ci recursion protection (the exact defect that made
+# `tag-go-modules` unreachable inside release-tag.yml — no run row is created at
+# all). release.yml dispatches this explicitly instead, after its own push has
+# landed, guarded on a release actually having been cut.
+#
+# `--ref main`, NOT the `vX.Y.Z` tag publish-npm/release-cpp are pinned to:
+# those build a released tree, this one RUNS semantic-release, whose
+# @semantic-release/git step pushes commits and tags to a BRANCH.
+#
+# SHARED CONCURRENCY GROUP. This lane and pubdev-release.yml are the two
+# workflows that run semantic-release and therefore push commits to main.
+# release.yml dispatches both within a second of each other, and concurrent
+# pushes lose to non-fast-forward rejections — so they serialise on one group.
+# Neither can lose work to that: a rejected push fails the run BEFORE any tag is
+# created (prepare → tag → publish), and every run is stateless — the next
+# release's dispatch re-analyses the same unreleased commits and releases them.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry-run only — compute the next Go module version, create no tags, commits, releases or dispatches. Use this to rehearse."
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  # gh workflow run (the config's publishCmd dispatches tag-go-modules.yml)
+  actions: write
+
+# See SHARED CONCURRENCY GROUP above. pubdev-release.yml declares the same
+# group; tools/release/check_go_release_wiring.sh asserts they still match.
+concurrency:
+  group: main-release-push
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: semantic-release (Go module line)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # A REAL release always runs from the tip of main, never from whatever
+          # ref the dispatch happened to name — that is what makes
+          # @semantic-release/git's push a fast-forward.
+          #
+          # A DRY RUN checks out the dispatched ref instead, and it must: a
+          # rehearsal that always runs main's tree cannot rehearse a change to
+          # the release lane itself, and a lane whose only exercise is being
+          # merged is how #566 shipped unrehearsed. A dry run creates no
+          # commits, tags, releases or dispatches — semantic-release's `prepare`,
+          # `publish`, `addChannel`, `success` and `fail` steps all carry
+          # `dryRun: false` (lib/definitions/plugins.js) and are skipped, while
+          # `verifyConditions`, `analyzeCommits`, `verifyRelease` and
+          # `generateNotes` still run. The bump is a prepareCmd, so a rehearsal
+          # never rewrites a file; the version check is a verifyReleaseCmd, so a
+          # rehearsal DOES prove the computed version.
+          ref: ${{ inputs.dry_run && github.ref || 'main' }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      # Pinned toolchain (tools/release/package-lock.json). The local path-filter
+      # plugin (tools/release/only-package-commits.mjs) resolves its
+      # @semantic-release/commit-analyzer + release-notes-generator imports from
+      # this node_modules, so it MUST be installed here (not `-g`).
+      - name: Install release toolchain
+        run: cd tools/release && npm ci
+
+      # ── Version continuity, bootstrapped from the tags that already exist.
+      #
+      # semantic-release computes `semver.inc(lastRelease.version, type)` and
+      # falls back to 1.0.0 when it finds NO tag matching tagFormat
+      # (lib/get-next-version.js). This lane's tagFormat — `go-modules/vX.Y.Z` —
+      # is new, so its first run would jump the Go module line from 0.2.x to
+      # 1.0.0: a legal version, a silent lie about API stability, and one
+      # breaking change away from the v2 module-path cliff.
+      #
+      # The line's real history is already in the repo, as the six
+      # `go/<module>/vX.Y.Z` tags. This mirrors it into the channel tag ONCE,
+      # LOCALLY — never pushed, because it is only needed until the first real
+      # release of this lane pushes a `go-modules/v*` tag of its own, after which
+      # this step is a permanent no-op. Being local also makes it identical on a
+      # dry run, so a rehearsal computes the version a real run would.
+      #
+      # Fails loud rather than guessing: if the module tags for the version in
+      # the tree are missing, or do not all sit on one commit, there is no
+      # published line to continue from and the operator must look.
+      - name: Bootstrap the go-modules channel tag from the published module tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          existing="$(git tag --list 'go-modules/v*' | tr '\n' ' ')"
+          if [ -n "${existing// /}" ]; then
+            echo "Channel tag line already exists:${existing% } — nothing to bootstrap."
+            exit 0
+          fi
+          version="$(python3 tools/go-module-proxy/build_local_proxy.py --print-version)"
+          sha=""
+          missing=()
+          count=0
+          for dir in go/*/; do
+            [ -f "$dir/go.mod" ] || continue
+            count=$((count + 1))
+            tag="go/$(basename "$dir")/$version"
+            if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              missing+=("$tag")
+              continue
+            fi
+            at="$(git rev-list -n1 "$tag")"
+            if [ -z "$sha" ]; then
+              sha="$at"
+            elif [ "$sha" != "$at" ]; then
+              echo "::error::$tag points at $at but a sibling module tag points at $sha — the $version module set is split across commits, which no consumer can resolve consistently. Refusing to bootstrap a version line from it."
+              exit 1
+            fi
+          done
+          # Positive floor: an empty module sweep must never read as success.
+          if [ "$count" -lt 1 ]; then
+            echo "::error::found no Go modules under go/ — the sweep itself is broken"
+            exit 1
+          fi
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::the Go module line in this tree is $version, but these tags do not exist: ${missing[*]}. There is no published line to continue from; cut them first by dispatching tag-go-modules.yml at main."
+            exit 1
+          fi
+          git tag "go-modules/$version" "$sha"
+          echo "Bootstrapped go-modules/$version at $sha (local only, from the $count published module tags)."
+
+      - name: Run semantic-release (Go module line)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          FLAG=""
+          if [ "${DRY_RUN}" = "true" ]; then
+            # The config says `branches: ["main"]`, and semantic-release reads
+            # the CURRENT branch from the CI environment (GITHUB_REF), not from
+            # git — so on a rehearsal branch it would stop at "configured to only
+            # publish from main" and compute nothing. --branches makes the
+            # dispatched branch a release branch FOR THE REHEARSAL ONLY. A real
+            # run never gets this flag, and a dry run publishes nothing whatever
+            # branch it is on.
+            FLAG="--dry-run --branches ${GITHUB_REF_NAME}"
+          fi
+          # Stage this lane's config as THE config semantic-release discovers.
+          # The root .releaserc.json (the repo/npm lockstep lane, still live)
+          # would otherwise be auto-discovered by cosmiconfig and merged OVER it,
+          # and its branches/plugins/tagFormat would win. The copy is in no
+          # @semantic-release/git `assets` list, so it is never committed.
+          cp .github/release/go.releaserc.json .releaserc.json
+          node tools/release/node_modules/semantic-release/bin/semantic-release.js $FLAG

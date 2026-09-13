@@ -200,6 +200,62 @@ else
   ok "a missing moduleVersion constant is refused, not skipped"
 fi
 
+# ── 4c. --check-next: the release lane's verifyRelease gate ─────────────────
+#    `.github/release/go.releaserc.json` runs this as its verifyReleaseCmd, and
+#    semantic-release runs verifyRelease BEFORE prepare and ALSO under
+#    --dry-run. So it is the only place a rehearsal can prove the computed
+#    version, and the only place a v2 line or a lost tag baseline is stopped
+#    before a commit or a tag exists. It must rewrite NOTHING.
+make_tree "$scratch/n" v0.2.0
+sig_n="$(cat "$scratch/n"/go/go.work "$scratch/n"/go/*/go.mod "$scratch/n"/go/cli/version.go)"
+for pair in "patch v0.2.1" "minor v0.3.0" "major v1.0.0"; do
+  set -- $pair
+  if bash "$bump" --check-next "$2" --type "$1" --root "$scratch/n" >/dev/null 2>&1; then
+    ok "--check-next accepts the $1 successor of v0.2.0 ($2)"
+  else
+    fail "--check-next rejected the legal $1 successor $2"
+  fi
+done
+# semver.inc(0.2.0, <type>) has exactly one answer per type; anything else means
+# semantic-release was not computing from this tree's line at all.
+for pair in "minor v1.0.0" "patch v0.3.0" "minor v0.2.1" "major v0.3.0"; do
+  set -- $pair
+  if bash "$bump" --check-next "$2" --type "$1" --root "$scratch/n" >/dev/null 2>&1; then
+    fail "--check-next ACCEPTED $2 as a $1 release of v0.2.0"
+  else
+    ok "--check-next refuses $2 as a $1 release of v0.2.0 (continuity lost)"
+  fi
+done
+# The 1.0.0 fallback is the specific shape this catches: semantic-release uses
+# FIRST_RELEASE=1.0.0 when it finds no tag matching tagFormat, and 1.0.0 is a
+# perfectly legal version that would silently jump the module line.
+# Not a pipe: `set -o pipefail` would turn this refusal's (correct) exit 1 into
+# a failed assertion about its TEXT.
+bash "$bump" --check-next v1.0.0 --type minor --root "$scratch/n" >"$scratch/n.log" 2>&1 || true
+grep -q "no-previous-release default of 1.0.0" "$scratch/n.log" &&
+  ok "--check-next names the lost-baseline cause (semantic-release's 1.0.0 fallback)" ||
+  fail "--check-next refused without explaining the 1.0.0 fallback"
+for bad in "" "Patch" "prerelease"; do
+  if bash "$bump" --check-next v0.2.1 ${bad:+--type "$bad"} --root "$scratch/n" >/dev/null 2>&1; then
+    fail "--check-next accepted --type '${bad:-<missing>}'"
+  else
+    ok "--check-next refuses --type '${bad:-<missing>}'"
+  fi
+done
+[ "$(cat "$scratch/n"/go/go.work "$scratch/n"/go/*/go.mod "$scratch/n"/go/cli/version.go)" = "$sig_n" ] &&
+  ok "--check-next rewrote nothing (byte-identical tree after 11 invocations)" ||
+  fail "--check-next modified the tree"
+# The v2 cliff, reached the way it will actually be reached: a `feat!` on a 1.x
+# line. https://go.dev/ref/mod#major-version-suffixes
+make_tree "$scratch/m" v1.4.0
+if bash "$bump" --check-next v2.0.0 --type major --root "$scratch/m" >"$scratch/m.log" 2>&1; then
+  fail "--check-next accepted v2.0.0 without a /v2 module-path suffix"
+else
+  grep -q "major-version-suffixes" "$scratch/m.log" &&
+    ok "--check-next refuses the v2.0.0 a major release of a 1.x line computes, citing Go's /vN rule" ||
+    fail "--check-next refused v2.0.0 but without the /vN explanation"
+fi
+
 # ── 5. The build_local_proxy assertions bite on a drifted tree ───────────────
 #    Each of these is a half-landed bump; all four must fail LOUD, because the
 #    proxy this script synthesizes must equal the module set the tags publish.
@@ -257,4 +313,4 @@ grep -q 'build_local_proxy.py --print-version' "$wf" \
 echo "Results: $passed passed, $failed failed, $((passed + failed)) total"
 # Positive floor: an early `exit`, a skipped block, or a helper that stopped
 # running must not read as a pass.
-[ "$failed" -eq 0 ] && [ "$passed" -ge 22 ]
+[ "$failed" -eq 0 ] && [ "$passed" -ge 35 ]

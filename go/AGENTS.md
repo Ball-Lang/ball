@@ -92,13 +92,29 @@ siblings, then `go install`s `.../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH an
 Off the *public* proxy this resolves only once the six `go/<module>/vX.Y.Z` tags
 are pushed on one commit. The `v0.1.0` tags exist but predate #586, so a binary
 installed from them still cannot run a program; **`v0.2.0` is the first line that
-carries the committed engine and CLI core**, and its six tags are cut by the same
-workflow. Those tags come
-from `.github/workflows/tag-go-modules.yml`, which `release.yml` dispatches on
-every release (`gh workflow run tag-go-modules.yml --ref vX.Y.Z`); the releases
-that shipped before that wiring existed need a one-time maintainer backfill
-(`gh workflow run tag-go-modules.yml --ref main`). See `docs/RELEASE.md`'s
+carries the committed engine and CLI core** (cut on `71724734`, #618). Those tags
+come from `.github/workflows/tag-go-modules.yml` — and since #361's second half
+nothing dispatches it but the release lane itself. See `docs/RELEASE.md`'s
 "Go modules lane".
+
+**Releasing a new Go module version is fully automatic.** The version is a
+`semantic-release` line of its own (`.github/release/go.releaserc.json`,
+tagFormat `go-modules/vX.Y.Z`), computed from the conventional commits that
+touched `go/` and driven by `.github/workflows/go-release.yml`, which
+`release.yml` dispatches on every release (`--ref main`). Its `prepareCmd` runs
+the same `bump_go_modules.sh` below, `@semantic-release/git` commits
+`chore(release): go vX.Y.Z [skip ci]`, and its `publishCmd` dispatches
+`tag-go-modules.yml` at the channel tag — so a `feat(go):`/`fix(go):` merge is
+all it takes to move the published line. `tag_go_modules.sh` remains the SINGLE
+tagging path; `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`
+job) pins all of that. Rehearse a change to the lane with
+`gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
+
+Until that landed, tagging was automatic but *versioning* was not: the tagger
+only ever cuts the version already in the `go.mod` files, so every release
+re-dispatched it and it passed reporting "all six tags already exist, nothing to
+do" while `go install …@latest` stayed on v0.1.0 — a green channel shipping
+nothing, the #551 failure one level down.
 
 **Both legs run against a fresh `GOMODCACHE`** — leg 1 gained one while landing
 #537. The module line names a tag, not a commit, so a warm module cache already
@@ -115,13 +131,20 @@ every required module — and the synthesized proxy's version must EQUAL that
 derived version (`--version` is a cross-check, never an override), so the proxy
 CI proves is by construction the one the tags will publish.
 
-**Never bump the version by hand.** The same number lives in nine places — six
-`go/*/go.mod` `require` blocks, `go/go.work`'s five `replace` pins,
-`tools/coverage-study/go/go.mod`, and `go/cli/version.go`'s `moduleVersion`
-fallback (unprefixed, what `ball version` prints from a checkout build). Use:
+**Never bump the version by hand** — and in the normal case, never bump it at
+all: the release lane above runs this script for you. The same number lives in
+nine places — six `go/*/go.mod` `require` blocks, `go/go.work`'s five `replace`
+pins, `tools/coverage-study/go/go.mod`, and `go/cli/version.go`'s
+`moduleVersion` fallback (unprefixed, what `ball version` prints from a checkout
+build). To move it out of band (a catch-up, a rename), use:
 
 ```bash
 bash tools/go-module-proxy/bump_go_modules.sh v0.3.0   # ONE idempotent, self-verifying action
+
+# What the release lane's verifyReleaseCmd runs — validates and rewrites NOTHING.
+# Asserts the version is legal AND is exactly semver.inc(<the line in the tree>,
+# <type>), the same formula semantic-release applies.
+bash tools/go-module-proxy/bump_go_modules.sh --check-next v0.3.0 --type minor
 ```
 
 It refuses a non-semver version and a major >= 2 (the module paths carry no

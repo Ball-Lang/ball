@@ -178,6 +178,19 @@ jobs:
       - name: pub.dev release lane wiring guard (#551)
         run: bash tools/release/check_pubdev_release_wiring.sh
 
+      # The Go lane had the SAME defect one level down, and neither guard above
+      # could see it: the dispatch was reachable (the first guard's question)
+      # and the lane is not pub.dev (the second's scope). Tagging was automatic;
+      # deciding the VERSION those tags carry was a human running
+      # bump_go_modules.sh, and while nobody did, every release re-dispatched the
+      # tagger and it passed doing nothing. This pins the lane's shape: the Go
+      # module version is a semantic-release line, its commit carries every file
+      # the bump rewrites, tag_go_modules.sh stays the single tagging path, and
+      # a computed v2 stops the release instead of publishing six unimportable
+      # module paths.
+      - name: Go module release lane wiring guard (#361)
+        run: bash tools/release/check_go_release_wiring.sh
+
       # The freshness guard itself runs on a schedule (pubdev-freshness.yml) —
       # it queries the live pub.dev API, which must not be a per-PR dependency.
       # Its comparison logic is exercised here on every PR against synthetic

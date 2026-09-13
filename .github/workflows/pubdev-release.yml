@@ -117,8 +117,16 @@ permissions:
 
 # One Dart release run at a time — sequential per-package pushes to main must
 # never overlap with another run of this workflow.
+#
+# The group is SHARED with go-release.yml (#361), the other workflow that runs
+# semantic-release and therefore pushes commits to main: release.yml dispatches
+# both within a second of each other, and concurrent pushes lose to
+# non-fast-forward rejections. Neither lane can lose work to the queueing — each
+# run is stateless, so the next release's dispatch re-analyses the same
+# unreleased commits. tools/release/check_go_release_wiring.sh asserts the two
+# groups still match.
 concurrency:
-  group: pubdev-release
+  group: main-release-push
   cancel-in-progress: false
 
 jobs:

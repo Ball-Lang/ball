@@ -642,7 +642,14 @@ fn an_unresolvable_crate_root_fails_the_run() {
          denominator and the ratchet reads that as an improvement (#648).\n\
          stdout:\n{stdout}\nstderr:\n{stderr}"
     );
-    let expected = ["deepcrate", "lib.rs", "main.rs", "src/lib.rs", "src/main.rs", "crateRoot"];
+    let expected = [
+        "deepcrate",
+        "lib.rs",
+        "main.rs",
+        "src/lib.rs",
+        "src/main.rs",
+        "crateRoot",
+    ];
     for needle in expected {
         assert!(
             stderr.contains(needle),

@@ -26,7 +26,9 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use ball_rq1_study::{CrateRoot, Exclusion, FileResult, report, silence_panic_output, study_package};
+use ball_rq1_study::{
+    CrateRoot, Exclusion, FileResult, report, silence_panic_output, study_package,
+};
 
 /// The pin field (and CLI flag) that declares a studied subtree to have no
 /// crate root — issue #648.

@@ -701,7 +701,10 @@ pub fn classify_rust_files(
 fn crate_root_error(package: &str, dir: &Path) -> String {
     let searched = CRATE_ROOT_CANDIDATES.join(", ");
     let manifest = match package_root(dir) {
-        Some(root) => format!("The package root (nearest Cargo.toml) is {}.", root.display()),
+        Some(root) => format!(
+            "The package root (nearest Cargo.toml) is {}.",
+            root.display()
+        ),
         None => "No Cargo.toml was found at or above it either.".to_string(),
     };
     format!(

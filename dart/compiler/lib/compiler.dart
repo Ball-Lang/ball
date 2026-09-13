@@ -162,10 +162,17 @@ class DartCompiler {
   /// program actually calls it, so this is tight.
   bool _usesTypeOf = false;
 
+  /// True when the program declares any of the `std.sink_*` base functions, so
+  /// the emitted library needs the three `_ballSink*` runtime helpers (issue
+  /// #630). The encoder declares a base function only when the program actually
+  /// calls it, so this is tight.
+  bool _usesSink = false;
+
   void _buildLookupTables() {
     for (final module in program.modules) {
       for (final func in module.functions) {
         if (func.isBase && func.name == 'type_of') _usesTypeOf = true;
+        if (func.isBase && func.name.startsWith('sink_')) _usesSink = true;
       }
       final allBase = module.functions.every((f) => f.isBase);
       if (allBase && module.functions.isNotEmpty) {
@@ -579,6 +586,37 @@ class DartCompiler {
             '  }\n'
             r"  return '${v.runtimeType}';"
             '\n}\n',
+          ),
+        );
+      }
+
+      // ── std text-sink runtime helpers (#630) ──
+      // A sink is a `__type__`-tagged map, NOT a host `StringBuffer`: the tag
+      // is what makes `std.type_of` answer "Sink" on every target (a real
+      // StringBuffer would answer "StringBuffer" here and "String"/"Builder"/
+      // "StringIO" elsewhere), and a Dart `Map` is a reference type, so an
+      // append performed inside a callee is visible to the caller — the
+      // property that otherwise fails silently. Top-level functions rather
+      // than inline IIFEs for the same reason `_ballTypeOf` is one: an
+      // immediately-invoked lambda does not survive the compile → re-encode →
+      // engine conformance leg.
+      if (_usesSink) {
+        b.body.add(
+          cb.Code(
+            '// Ball std text-sink runtime helpers (#630)\n'
+            'Map<String, dynamic> _ballSinkCreate(dynamic initial) {\n'
+            "  return <String, dynamic>{'__type__': 'std:Sink', "
+            "'__buffer__': initial == null ? '' : '\$initial'};\n"
+            '}\n'
+            'dynamic _ballSinkWrite(dynamic sink, dynamic text) {\n'
+            '  final Map<String, dynamic> m = sink as Map<String, dynamic>;\n'
+            "  m['__buffer__'] = '\${m['__buffer__'] ?? ''}\$text';\n"
+            '  return null;\n'
+            '}\n'
+            'String _ballSinkToString(dynamic sink) {\n'
+            '  final Map<String, dynamic> m = sink as Map<String, dynamic>;\n'
+            "  return '\${m['__buffer__'] ?? ''}';\n"
+            '}\n',
           ),
         );
       }
@@ -3291,6 +3329,10 @@ class DartCompiler {
       'is_not' => _typeOp(f, 'is!'),
       'as' => _typeOp(f, 'as'),
       'type_of' => _compileTypeOf(f),
+      // Text sink (#630)
+      'sink_create' => _compileSinkCreate(f),
+      'sink_write' => _compileSinkWrite(f),
+      'sink_to_string' => _compileSinkToString(f),
       // Assignment (simple and compound)
       'assign' => _compileAssign(f),
       // Indexing / collections / etc.
@@ -4208,6 +4250,36 @@ class DartCompiler {
     final v = f['value'] ?? f['target'] ?? f['arg0'];
     if (v == null) return '/* invalid type_of */';
     return '_ballTypeOf(${_e(v)})';
+  }
+
+  /// `std.sink_create` — a new text sink (#630), optionally seeded.
+  String _compileSinkCreate(Map<String, Expression> f) {
+    final seed = f['initial'];
+    return '_ballSinkCreate(${seed == null ? 'null' : _e(seed)})';
+  }
+
+  /// `std.sink_write` — append to a sink. Fail loud on a malformed call rather
+  /// than emitting a comment that compiles to nothing and drops the write.
+  String _compileSinkWrite(Map<String, Expression> f) {
+    final sink = f['sink'], text = f['text'];
+    if (sink == null || text == null) {
+      throw StateError(
+        'std.sink_write requires both `sink` and `text` fields (got '
+        '${f.keys.toList()})',
+      );
+    }
+    return '_ballSinkWrite(${_e(sink)}, ${_e(text)})';
+  }
+
+  /// `std.sink_to_string` — the text accumulated in a sink (#630).
+  String _compileSinkToString(Map<String, Expression> f) {
+    final sink = f['sink'];
+    if (sink == null) {
+      throw StateError(
+        'std.sink_to_string requires a `sink` field (got ${f.keys.toList()})',
+      );
+    }
+    return '_ballSinkToString(${_e(sink)})';
   }
 
   String _mathFunc(Map<String, Expression> f, String func) {

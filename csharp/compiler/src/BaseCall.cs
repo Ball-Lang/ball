@@ -216,6 +216,12 @@ public sealed partial class CSharpCompiler
             "as" => $"BallRuntime.AsType({FieldOrNull(f, "value")}, {Naming.StringLiteral(StringField(f, "type") ?? string.Empty)})",
             // #489 — the value's canonical runtime type NAME (no `type` field).
             "type_of" => $"BallRuntime.TypeOf({FieldOrNull(f, "value")})",
+            // Text sink (#630) — backed by a `__type__`-tagged BallMap so
+            // `type_of` answers "Sink" and an append inside a callee is visible
+            // to the caller; a bare StringBuilder would lose both.
+            "sink_create" => $"BallRuntime.SinkCreate({FieldOrNull(f, "initial")})",
+            "sink_write" => $"BallRuntime.SinkWrite({FieldOrNull(f, "sink")}, {FieldOrNull(f, "text")})",
+            "sink_to_string" => $"BallRuntime.SinkToString({FieldOrNull(f, "sink")})",
             // Math
             "math_abs" => Un("MathAbs", f),
             "math_floor" => Un("MathFloor", f),

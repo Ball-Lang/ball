@@ -263,7 +263,7 @@ too, without a colour-forced CI leg.
 > fixture.** #651's fixture — `467_initializer_list_field_with_setter`, a class
 > declaring a `final` field and its OWN setter of the same name — is the
 > counter-case to 406 above. 406 was WITHDRAWN because a different fixture could
-> pin the same Dart-side point; 466 cannot be reshaped, because that exact
+> pin the same Dart-side point; 467 cannot be reshaped, because that exact
 > declaration pair IS #651's mechanism (a spurious `late final` hands the field
 > an implicit setter that collides with the declared one). It runs correctly on
 > every engine — Dart, TS, Rust, C#, Go, Python and the C++ self-host engine —

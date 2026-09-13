@@ -1879,6 +1879,43 @@ TEST(compile_std_concurrency_atomics) {
         })))));
     ASSERT_CONTAINS(compile_program(cmpxchg), "_ball_atomic_compare_exchange(");
 }
+
+// The fail-loud half of the same dispatch. Before #607 both of these cases
+// produced OUTPUT instead of an error: a missing field became a default
+// identifier (`"x"`, `"mtx"`, `"t"`) spliced into the emission, and an
+// undeclared name fell through to `/* std_concurrency.<fn> */` — a comment
+// where a value was expected, so the GENERATED program failed to compile with
+// an error pointing nowhere near the real mistake. The Dart compiler's
+// siblings are in `dart/compiler/test/std_concurrency_test.dart`.
+static std::string compile_expecting_throw(const json& prog) {
+    try {
+        compile_program(prog);
+    } catch (const std::exception& e) {
+        return e.what();
+    }
+    throw std::runtime_error(
+        "expected compile_program to throw, but it returned normally");
+}
+
+TEST(compile_std_concurrency_missing_field_fails_loud) {
+    // `atomic_store` declares AtomicOpInput{atomic, value}; drop `value`.
+    auto prog = build_program(call("std_concurrency", "atomic_store",
+        make_msg("AtomicOpInput", {{"atomic", ref("x")}})));
+    auto msg = compile_expecting_throw(prog);
+    ASSERT_CONTAINS(msg, "std_concurrency.atomic_store");
+    ASSERT_CONTAINS(msg, "value");
+}
+
+TEST(compile_std_concurrency_undeclared_function_fails_loud) {
+    // `atomic_fetch_add` is one of the three names #607 deleted: no module
+    // builder declares it, so it must not compile to anything at all.
+    auto prog = build_program(call("std_concurrency", "atomic_fetch_add",
+        make_msg("AtomicOpInput", {{"atomic", ref("x")}, {"value", lit_int(1)}})));
+    auto msg = compile_expecting_throw(prog);
+    ASSERT_CONTAINS(msg, "std_concurrency.atomic_fetch_add");
+    ASSERT_CONTAINS(msg, "is not a base function");
+}
+
 // ================================================================
 // Coverage grind (issue #63): per-arm unit tests for compile_std_call
 // dispatch arms and compile_call intrinsics not reached by the

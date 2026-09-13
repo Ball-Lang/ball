@@ -56,6 +56,29 @@ MISSING count is a hard failure, exactly like a missing artifact, because a
 harness whose rule silently vanished would otherwise publish a denominator
 nobody can account for — carried in the baseline, and published in the table.
 
+THE PER-FILE LIST, AND WHY A COUNT WAS NOT ENOUGH (issue #676). Every Tier A
+harness also writes the exclusions it applied as `excluded: [{package, file,
+rule}]`, and `tools/coverage-study/excluded.json` is that list COMMITTED — per
+language, per pin, sorted paths. It is read here and diffed, because the counts
+alone cannot state the property that matters: a PARTIAL drop (34 -> 31, three
+files readmitted into the denominator) is arithmetically identical to "the pin's
+test suite shrank by 3 while its library grew by 3", so `scored`, `clean`, the
+funnel and the total-collapse check below are all satisfied by it. The diff is
+not arithmetic and needs no inference: a path the committed list excludes and
+this run SCORED was readmitted, and the breach names it. A path that is merely
+gone is NOT a breach — the pin may simply have deleted the file — so only
+positive evidence fires, the same rule the count-based check follows. A newly
+excluded path is reported and the committed list is regenerated, exactly the way
+`baseline.json` is; when a pin's test population legitimately changes, that
+regenerated list is committed in the same reviewed PR.
+
+The artifact must CARRY that list, and its length must agree with the count: a
+report with a count and no list is back to a number nothing can diff, and
+reading it as "nothing was excluded" would disarm this check silently. Every
+Tier A row must also have an entry in the committed list — an empty object is
+how a row with no exclusions is declared; an ABSENT key is not a way to say
+anything, and would leave that row's exclusions diffed against nothing.
+
 THE ONE SHAPE OF THAT COUNT THAT *IS* A BREACH (issue #648). `excluded` falling
 to 0 from a baseline above it, while `scored` rises by at least that many files,
 is not a pin that dropped its tests: it is the whole excluded population
@@ -80,6 +103,7 @@ Usage:
     python3 tools/coverage-study/coverage_table.py \
       --artifacts <dir with the downloaded coverage-study-* artifacts> \
       --baseline tools/coverage-study/baseline.json \
+      --excluded-list tools/coverage-study/excluded.json \
       --readme README.md \
       [--write] [--summary "$GITHUB_STEP_SUMMARY"]
 
@@ -186,6 +210,73 @@ def _require_int(value: object, where: str) -> int:
     return value
 
 
+def _require_name(value: object, where: str) -> str:
+    """A pin name or a relative path: a non-empty string, and nothing else.
+
+    These are the keys the exclusion diff joins on, so an absent or oddly-typed
+    one would silently make a file un-matchable — i.e. would take it out of the
+    check rather than out of the denominator.
+    """
+    if not isinstance(value, str) or not value:
+        raise StudyError(
+            f"{where}: {value!r} is not a non-empty string — the excluded-list "
+            "diff joins on (package, file), so a nameless entry cannot be "
+            "matched and would silently escape the check"
+        )
+    return value
+
+
+def _read_excluded_files(path: Path, report: dict, count: int) -> dict[str, list[str]]:
+    """The per-file exclusion list a Tier A artifact carries (issue #676).
+
+    Required, like the count beside it: a harness that reports "34 excluded" and
+    no list is a number nothing can diff, and reading that as "nothing was
+    excluded" would silently disarm the readmission check — the exact shape of
+    failure this project keeps being bitten by. The count and the list are two
+    views of one population written by one harness, so a disagreement between
+    them means one is stale and neither can stand for the other.
+    """
+    if "excluded" not in report:
+        raise StudyError(
+            f"artifact {path}: carries 'excludedTestOnly' but no 'excluded' "
+            "per-file list — a count with no list behind it cannot be diffed "
+            "against tools/coverage-study/excluded.json, so a partially "
+            "readmitted population would be invisible (issue #676). Every Tier A "
+            "harness writes the list as [{package, file, rule}]."
+        )
+    raw = report["excluded"]
+    if not isinstance(raw, list):
+        raise StudyError(f"artifact {path}: 'excluded' is not a list")
+    by_pin: dict[str, list[str]] = {}
+    seen: set[tuple[str, str]] = set()
+    for index, item in enumerate(raw):
+        where = f"{path} 'excluded'[{index}]"
+        if not isinstance(item, dict):
+            raise StudyError(f"{where}: expected an object")
+        entry = _normalise(item)
+        pin = _require_name(entry.get("package"), f"{where} 'package'")
+        file = _require_name(entry.get("file"), f"{where} 'file'")
+        # The rule is not diffed (its wording is harness prose, and churning the
+        # committed list on a reworded string would bury real movement), but it
+        # must be there: an exclusion with no stated rule is a filter again.
+        _require_name(entry.get("rule"), f"{where} 'rule'")
+        if (pin, file) in seen:
+            raise StudyError(
+                f"{where}: {pin}/{file} is excluded twice — the count and the "
+                "list would describe different populations"
+            )
+        seen.add((pin, file))
+        by_pin.setdefault(pin, []).append(file)
+    if len(seen) != count:
+        raise StudyError(
+            f"artifact {path}: 'excludedTestOnly' is {count} but the 'excluded' "
+            f"list holds {len(seen)} files — the count and the list disagree, so "
+            "one of them is stale and neither can be trusted to stand for the "
+            "other"
+        )
+    return {pin: sorted(files) for pin, files in sorted(by_pin.items())}
+
+
 @dataclass(frozen=True)
 class Measurement:
     """One row's measured numbers, derived from one artifact."""
@@ -196,6 +287,13 @@ class Measurement:
     # Test-only files this run took OUT of the denominator (Tier A only).
     # Recorded and published, never floored — see `check_row`.
     excluded: int | None = None
+    # The same population as PATHS, pin -> sorted relative paths, and the
+    # (pin, path) pairs this run scored (Tier A only). The count above says how
+    # many files an exclusion rule removed; these two say WHICH, which is the
+    # only way to tell a partial readmission from a pin whose own test suite
+    # moved (issue #676).
+    excluded_files: dict[str, list[str]] | None = None
+    scored_files: frozenset[tuple[str, str]] | None = None
 
     @property
     def encoded(self) -> int:
@@ -254,6 +352,7 @@ def measure(path: Path, kind: str) -> Measurement:
     # a failure rather than a flawless 0/0. `summarize.sh` enforces the same
     # requirement on the job's log, inside the job.
     excluded: int | None = None
+    excluded_files: dict[str, list[str]] | None = None
     if kind == "tier-a":
         if "excludedTestOnly" not in report:
             raise StudyError(
@@ -263,8 +362,10 @@ def measure(path: Path, kind: str) -> Measurement:
                 "one is not."
             )
         excluded = _require_int(report["excludedTestOnly"], f"{path} 'excludedTestOnly'")
+        excluded_files = _read_excluded_files(path, report, excluded)
 
     scored = []
+    scored_pairs: set[tuple[str, str]] = set()
     for entry in entries:
         where = f"{path}: {entry.get('package', '?')}/{entry.get('file', '?')}"
         reason = entry.get("reason")
@@ -285,6 +386,13 @@ def measure(path: Path, kind: str) -> Measurement:
             )
         if _require_bool(entry, "scored", where):
             scored.append((tag, _require_bool(entry, "clean", where)))
+            if kind == "tier-a":
+                scored_pairs.add(
+                    (
+                        _require_name(entry.get("package"), f"{where} 'package'"),
+                        _require_name(entry.get("file"), f"{where} 'file'"),
+                    )
+                )
 
     total = len(scored)
     if total < 1:
@@ -299,7 +407,14 @@ def measure(path: Path, kind: str) -> Measurement:
     if kind == "tier-a":
         reached = [_TIER_A_STAGE_BY_TAG[tag] for tag, _ in scored]
         stages = tuple(sum(1 for r in reached if r >= n) for n in (1, 2, 3, 4))  # type: ignore[assignment]
-    return Measurement(scored=total, clean=clean, stages=stages, excluded=excluded)
+    return Measurement(
+        scored=total,
+        clean=clean,
+        stages=stages,
+        excluded=excluded,
+        excluded_files=excluded_files,
+        scored_files=frozenset(scored_pairs) if kind == "tier-a" else None,
+    )
 
 
 @dataclass
@@ -371,6 +486,103 @@ def load_baseline(path: Path) -> list[BaselineRow]:
     return rows
 
 
+def load_excluded_list(path: Path) -> dict[str, dict[str, list[str]]]:
+    """The committed per-file exclusion list: language -> pin -> sorted paths.
+
+    Canonical by construction — sorted, unique, no empty names — so the file
+    `--write` regenerates is byte-comparable with the one in git, and a hand
+    edit that appends out of order is rejected with an instruction to regenerate
+    rather than producing a diff nobody can read.
+    """
+    if not path.is_file():
+        raise StudyError(
+            f"excluded list {path} is missing — without it a readmitted "
+            "exclusion has nothing to be diffed against (issue #676)"
+        )
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not isinstance(raw.get("languages"), dict):
+        raise StudyError(f"{path}: expected an object with a 'languages' object")
+    out: dict[str, dict[str, list[str]]] = {}
+    for language, pins in raw["languages"].items():
+        if not isinstance(pins, dict):
+            raise StudyError(f"{path}: '{language}' must map pin names to path lists")
+        by_pin: dict[str, list[str]] = {}
+        for pin, paths in pins.items():
+            where = f"{path} '{language}'/'{pin}'"
+            _require_name(pin, f"{where} pin name")
+            if not isinstance(paths, list):
+                raise StudyError(f"{where}: expected a list of paths")
+            files = [_require_name(item, f"{where}[{i}]") for i, item in enumerate(paths)]
+            if files != sorted(files) or len(set(files)) != len(files):
+                raise StudyError(
+                    f"{where}: the paths are not sorted and unique. This file is "
+                    "generated — regenerate it with coverage_table.py --write "
+                    "rather than editing it by hand."
+                )
+            by_pin[pin] = files
+        out[language] = by_pin
+    return out
+
+
+def excluded_diff(
+    committed: dict[str, list[str]], measured: dict[str, list[str]]
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """(newly excluded, no longer excluded) as sorted (pin, path) pairs."""
+    before = {(pin, path) for pin, paths in committed.items() for path in paths}
+    after = {(pin, path) for pin, paths in measured.items() for path in paths}
+    return sorted(after - before), sorted(before - after)
+
+
+# A breach message is one `::error::` annotation, which is one line, so a row
+# that readmitted its whole population would otherwise print an unreadable wall.
+# The count is always exact; the names are truncated with the remainder stated.
+_MAX_NAMED_FILES = 20
+
+
+def _name_files(pairs: list[tuple[str, str]]) -> str:
+    shown = ", ".join(f"{pin}/{path}" for pin, path in pairs[:_MAX_NAMED_FILES])
+    rest = len(pairs) - _MAX_NAMED_FILES
+    return f"{shown} (+{rest} more)" if rest > 0 else shown
+
+
+def readmission_breach(
+    row: BaselineRow, measured: Measurement, committed: dict[str, list[str]]
+) -> list[str]:
+    """Files the committed list excludes and this run SCORED (issue #676).
+
+    This is the check the three ratio floors and the #648 count check cannot
+    express. A PARTIAL readmission — 3 of 34 — moves `excluded` down by 3 and
+    `scored` up by 3, which is indistinguishable from a pin whose test suite
+    shrank by 3 while its library grew by 3. Diffing the paths needs no such
+    inference: these exact files were out of the denominator by a RULE, and now
+    they are in it.
+
+    Only positive evidence fires. A committed path that is simply absent from
+    this run (neither excluded nor scored) is NOT reported here — the pin may
+    have deleted the file — and the regenerated list drops it quietly.
+    """
+    if measured.scored_files is None:
+        return []
+    readmitted = sorted(
+        (pin, path)
+        for pin, paths in committed.items()
+        for path in paths
+        if (pin, path) in measured.scored_files
+    )
+    if not readmitted:
+        return []
+    return [
+        f"{row.label}: {len(readmitted)} file(s) that "
+        "tools/coverage-study/excluded.json records as test-only were SCORED by "
+        f"this run: {_name_files(readmitted)}. They were readmitted into the "
+        "denominator, which is an exclusion RULE that stopped applying to them — "
+        "no ratio can see it, because the denominator grew and the readmitted "
+        "files may well be clean. The baseline is NOT raised. Fix the harness or "
+        "the pin; if that pin's test population legitimately changed, regenerate "
+        "tools/coverage-study/excluded.json and commit it in the same PR."
+    ]
+
+
 def discover_artifacts(artifacts_dir: Path) -> set[str]:
     """Every report file present, as a POSIX path relative to the download dir."""
     if not artifacts_dir.is_dir():
@@ -401,13 +613,14 @@ def exclusion_rule_breach(row: BaselineRow, measured: Measurement) -> list[str]:
     well have improved), and `excluded` itself is deliberately not floored, so
     without this the run is a silent RAISE onto a population nobody chose.
 
-    A PARTIAL drop is deliberately not flagged: "the test suite shrank by 3
-    while the library grew by 3" and "3 files stopped being excluded" have the
-    same arithmetic signature, and this file only reports a cause it can
-    positively show. The harness-side guard is where a partial failure is
-    caught — `rq1-study` now fails loud in-job on the crate root it could not
-    resolve (#648), which is the cause this check exists as the second line of
-    defence against.
+    A PARTIAL drop is not flagged HERE, and cannot be: "the test suite shrank by
+    3 while the library grew by 3" and "3 files stopped being excluded" have the
+    same arithmetic signature, and this check only reports a cause it can
+    positively show. `readmission_breach` is what sees a partial drop (#676), by
+    diffing the committed per-file list instead of the counts; the harness-side
+    guard catches the crate-root cause in-job (#648). This check remains the one
+    that needs no committed list at all, so it still fires on a row whose whole
+    population vanished even if the list were empty.
     """
     if row.excluded is None or measured.excluded is None:
         return []
@@ -427,7 +640,11 @@ def exclusion_rule_breach(row: BaselineRow, measured: Measurement) -> list[str]:
     ]
 
 
-def check_row(row: BaselineRow, measured: Measurement) -> tuple[list[str], BaselineRow | None]:
+def check_row(
+    row: BaselineRow,
+    measured: Measurement,
+    committed_excluded: dict[str, list[str]],
+) -> tuple[list[str], BaselineRow | None]:
     """Floor one row. Returns its breaches and, if any, the raised baseline."""
     breaches: list[str] = []
 
@@ -455,6 +672,7 @@ def check_row(row: BaselineRow, measured: Measurement) -> tuple[list[str], Basel
                 f"({pct(row.encoded, row.scored)}%)"
             )
         breaches += exclusion_rule_breach(row, measured)
+        breaches += readmission_breach(row, measured, committed_excluded)
 
     if breaches:
         return breaches, None
@@ -601,10 +819,32 @@ def dump_baseline(rows: list[BaselineRow], previous: dict) -> str:
     return json.dumps(out, indent=2) + "\n"
 
 
+def dump_excluded_list(
+    rows: list[tuple[BaselineRow, Measurement]], previous: dict
+) -> str:
+    """The committed list, regenerated from this run's Tier A artifacts.
+
+    Every top-level key but `languages` is carried through, so the file's own
+    header notes survive a regeneration.
+    """
+    out = dict(previous)
+    out["languages"] = {
+        row.language: dict(measured.excluded_files or {})
+        for row, measured in sorted(rows, key=lambda pair: pair[0].language)
+        if row.kind == "tier-a"
+    }
+    return json.dumps(out, indent=2) + "\n"
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", required=True, help="directory holding the downloaded coverage-study-* artifacts")
     parser.add_argument("--baseline", required=True, help="path to baseline.json")
+    parser.add_argument(
+        "--excluded-list",
+        required=True,
+        help="path to excluded.json, the committed per-file exclusion list (issue #676)",
+    )
     parser.add_argument("--readme", required=True, help="path to the README carrying the generated block")
     parser.add_argument("--write", action="store_true", help="persist the regenerated table and the raised baseline")
     parser.add_argument("--summary", default=None, help="append the rendered table to this file (GITHUB_STEP_SUMMARY)")
@@ -612,10 +852,42 @@ def main(argv: list[str]) -> int:
 
     artifacts_dir = Path(args.artifacts)
     baseline_path = Path(args.baseline)
+    excluded_path = Path(args.excluded_list)
     readme_path = Path(args.readme)
 
     try:
         baseline = load_baseline(baseline_path)
+        committed_excluded = load_excluded_list(excluded_path)
+        tier_a_languages: list[str] = []
+        for row in baseline:
+            if row.kind != "tier-a":
+                continue
+            if row.language in tier_a_languages:
+                raise StudyError(
+                    f"{baseline_path}: two Tier A rows are both '{row.language}' — "
+                    f"{excluded_path} is keyed by language, so their exclusions "
+                    "would collide"
+                )
+            tier_a_languages.append(row.language)
+        unlisted = sorted(set(tier_a_languages) - set(committed_excluded))
+        if unlisted:
+            raise StudyError(
+                f"{excluded_path} has no entry for "
+                + ", ".join(unlisted)
+                + " — that row's exclusions would be diffed against nothing, so "
+                "a readmitted file could not be seen (issue #676). A row that "
+                'excludes nothing is declared as an empty object ("{}"); an '
+                "absent key says nothing at all."
+            )
+        orphaned = sorted(set(committed_excluded) - set(tier_a_languages))
+        if orphaned:
+            raise StudyError(
+                f"{excluded_path} names "
+                + ", ".join(orphaned)
+                + f", which no Tier A row in {baseline_path} claims — a stale "
+                "entry guards nothing. Remove it in the same commit that removed "
+                "the row."
+            )
         present = discover_artifacts(artifacts_dir)
         floored = {row.artifact for row in baseline}
         unfloored = sorted(present - floored)
@@ -639,7 +911,8 @@ def main(argv: list[str]) -> int:
     raises: list[str] = []
     final_rows: list[BaselineRow] = []
     for row, measured in measured_rows:
-        row_breaches, raised = check_row(row, measured)
+        committed = committed_excluded.get(row.language, {}) if row.kind == "tier-a" else {}
+        row_breaches, raised = check_row(row, measured, committed)
         breaches += row_breaches
         if raised is not None:
             detail = (
@@ -656,6 +929,18 @@ def main(argv: list[str]) -> int:
             f"({pct(measured.clean, measured.scored)}%)  "
             f"floor {row.clean}/{row.scored} ({pct(row.clean, row.scored)}%)  {status}"
         )
+        # The exclusion list's own movement, per row, printed whether or not the
+        # regenerated file is later committed: a path leaving or entering the
+        # denominator is the provenance a reader needs in the job log, not only
+        # in a diff.
+        if row.kind == "tier-a" and not row_breaches:
+            added, gone = excluded_diff(committed, measured.excluded_files or {})
+            if added:
+                print(f"    newly excluded: {_name_files(added)}")
+            if gone:
+                print(
+                    f"    no longer excluded, and not scored either: {_name_files(gone)}"
+                )
     print(f"Rows checked: {len(measured_rows)}, breaches: {len(breaches)}")
 
     if breaches:
@@ -687,19 +972,27 @@ def main(argv: list[str]) -> int:
     baseline_stale = new_baseline != baseline_text
     readme_stale = new_readme != readme_text
 
+    excluded_text, excluded_crlf = read_preserving_newlines(excluded_path)
+    new_excluded = dump_excluded_list(measured_rows, json.loads(excluded_text))
+    excluded_stale = new_excluded != excluded_text
+
     if args.write:
         if readme_stale:
             write_preserving_newlines(readme_path, new_readme, readme_crlf)
         if baseline_stale:
             write_preserving_newlines(baseline_path, new_baseline, baseline_crlf)
+        if excluded_stale:
+            write_preserving_newlines(excluded_path, new_excluded, excluded_crlf)
         print(
             f"Wrote: README {'updated' if readme_stale else 'already current'}, "
-            f"baseline {'updated' if baseline_stale else 'already current'}"
+            f"baseline {'updated' if baseline_stale else 'already current'}, "
+            f"excluded list {'updated' if excluded_stale else 'already current'}"
         )
     else:
         print(
             f"Check only: README {'is stale' if readme_stale else 'is current'}, "
-            f"baseline {'is stale' if baseline_stale else 'is current'} "
+            f"baseline {'is stale' if baseline_stale else 'is current'}, "
+            f"excluded list {'is stale' if excluded_stale else 'is current'} "
             "(pass --write to regenerate)"
         )
 

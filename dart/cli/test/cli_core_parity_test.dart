@@ -371,6 +371,185 @@ void main() {
       expect(hostedViolations, equals(nativeViolations));
     });
 
+    // #683: a program-supplied module SQUATTING a std name. The classification
+    // is no longer "is the module name one of the eight `std*` names" but "does
+    // the capability table model this base function", so this must self-host
+    // byte-identically too — every non-Dart `ball audit` is this same source.
+    test('a squatted std name is surfaced — native == engine (#683)', () async {
+      final program = Program()
+        ..mergeFromProto3Json({
+          'name': 'squat',
+          'version': '1.0.0',
+          'entryModule': 'main',
+          'entryFunction': 'main',
+          'modules': [
+            {
+              'name': 'std',
+              'functions': [
+                {'name': 'print', 'isBase': true},
+                {'name': 'exec_shell', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                {
+                  'name': 'main',
+                  'outputType': 'void',
+                  'body': {
+                    'call': {
+                      'module': 'std',
+                      'function': 'exec_shell',
+                      'input': {
+                        'messageCreation': {'fields': <Object?>[]},
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }, ignoreUnknownFields: true);
+      final input = protoToEngineMap(program);
+      final engine = newEngine();
+
+      final nativeText = cli.auditReport(program);
+      expect(nativeText, contains('main.main → std.exec_shell'));
+      expect(
+        nativeText,
+        contains('REVIEW REQUIRED — calls into custom base modules'),
+      );
+      expect(nativeText, isNot(contains('NO RISK')));
+
+      expect(
+        await engine.callFunction('main', 'auditReport', input),
+        equals(nativeText),
+      );
+
+      final nativeViolations = cli.checkPolicy(
+        cli.analyzeCapabilities(program),
+        deny: {'custom'},
+      );
+      expect(nativeViolations, isNotEmpty);
+      final hostedReport = await engine.callFunction(
+        'main',
+        'analyzeCapabilities',
+        input,
+      );
+      expect(
+        await engine.callFunction('main', 'checkPolicyViolations', {
+          'report': hostedReport,
+          'deny': ['custom'],
+        }),
+        equals(nativeViolations),
+      );
+    });
+
+    // #682: the summary precedence. A program that is BOTH high-risk and
+    // custom prints `REVIEW REQUIRED`, never `HIGH RISK` — a choice, so it
+    // must hold on the self-hosted CLI too, not only natively.
+    test(
+      'custom outranks HIGH RISK in the summary — native == engine (#682)',
+      () async {
+        final program = Program()
+          ..mergeFromProto3Json({
+            'name': 'combined',
+            'version': '1.0.0',
+            'entryModule': 'main',
+            'entryFunction': 'main',
+            'modules': [
+              {
+                'name': 'std_io',
+                'functions': [
+                  {'name': 'exit', 'isBase': true},
+                ],
+              },
+              {
+                'name': 'mymodule',
+                'functions': [
+                  {'name': 'exec_shell', 'isBase': true},
+                ],
+              },
+              {
+                'name': 'main',
+                'functions': [
+                  {
+                    'name': 'main',
+                    'outputType': 'void',
+                    'body': {
+                      'block': {
+                        'statements': [
+                          {
+                            'expression': {
+                              'call': {
+                                'module': 'std_io',
+                                'function': 'exit',
+                                'input': {
+                                  'messageCreation': {'fields': <Object?>[]},
+                                },
+                              },
+                            },
+                          },
+                          {
+                            'expression': {
+                              'call': {
+                                'module': 'mymodule',
+                                'function': 'exec_shell',
+                                'input': {
+                                  'messageCreation': {'fields': <Object?>[]},
+                                },
+                              },
+                            },
+                          },
+                        ],
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          }, ignoreUnknownFields: true);
+        final input = protoToEngineMap(program);
+        final engine = newEngine();
+
+        final nativeText = cli.auditReport(program);
+        expect(
+          nativeText,
+          contains('Summary: REVIEW REQUIRED — calls into custom base modules'),
+        );
+        expect(nativeText, isNot(contains('Summary: HIGH RISK')));
+        // The ranked half is still reported, with its own call site.
+        expect(
+          nativeText,
+          contains('process (1 call sites: main.main → std_io.exit)'),
+        );
+
+        expect(
+          await engine.callFunction('main', 'auditReport', input),
+          equals(nativeText),
+        );
+
+        // `--deny process` is unaffected by the summary ordering, on both.
+        final nativeViolations = cli.checkPolicy(
+          cli.analyzeCapabilities(program),
+          deny: {'process'},
+        );
+        expect(nativeViolations, hasLength(1));
+        final hostedReport = await engine.callFunction(
+          'main',
+          'analyzeCapabilities',
+          input,
+        );
+        expect(
+          await engine.callFunction('main', 'checkPolicyViolations', {
+            'report': hostedReport,
+            'deny': ['process'],
+          }),
+          equals(nativeViolations),
+        );
+      },
+    );
+
     test(
       'benign concurrency-free program stays clean — native == engine',
       () async {

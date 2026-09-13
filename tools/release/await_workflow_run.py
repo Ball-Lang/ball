@@ -39,12 +39,28 @@ never mistake "I do not know yet" for "it worked":
 
 WHICH RUN IS "THE" RUN. The ref is the channel tag `go-modules/vX.Y.Z`, which
 semantic-release creates exactly once per release and which nothing else is ever
-dispatched on. Every workflow_dispatch run on that ref is therefore this
-publishCmd's run; when several exist (someone re-ran it), the NEWEST is the
-authority, because that is the one whose outcome is current. Matching is done
-here, on `headBranch`, rather than through `gh run list --branch`, so a tag ref
-that the server-side filter treats differently from a branch cannot silently
-return an empty list forever.
+dispatched on. Matching is done here, on `headBranch`, rather than through
+`gh run list --branch`, so a tag ref that the server-side filter treats
+differently from a branch cannot silently return an empty list forever.
+
+That is not enough on its own (#656). GitHub creates the dispatched run's row a
+few SECONDS after accepting the dispatch, so the first poll lands in a window
+where the newest `workflow_dispatch` row on the ref can only be one that already
+existed — and such a row is not hypothetical: docs/RELEASE.md documents
+`gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z` as the manual repair
+for a release whose tags never landed, and GitHub's re-run button produces one
+too. A stale `success` there is indistinguishable from "this release's six tags
+were cut", which is the fire-and-forget bug this file exists to close, arriving
+by another door.
+
+So `--dispatch` records the newest matching run's `databaseId` BEFORE dispatching
+(`baseline_run_id`), and afterwards only a run with a STRICTLY GREATER id can
+answer for it. Run ids are monotonic per repository, so "strictly greater" is
+"started after the baseline was taken". If the baseline cannot be established —
+`gh` failing every attempt — the dispatch does not happen at all: the one thing
+this may never do is fall back to "no prior run", because that is the bug. With
+no `--dispatch` (awaiting a run started elsewhere) there is no baseline and the
+newest matching run is the authority, exactly as before.
 
 `--self-test` drives every classification and both loops offline (fake clock,
 injected `gh` runner) from ci.yml's always-on `Proto Checks` job, because this
@@ -65,6 +81,7 @@ Env overrides (the release config passes none; they exist for a recovery re-run)
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import os
 import subprocess
@@ -82,6 +99,17 @@ UNKNOWN = "unknown"
 # runner acquisition or a healthy-but-slow run would be reported as a timeout.
 DEFAULT_BUDGET_SECONDS = 1200
 DEFAULT_INTERVAL_SECONDS = 30
+
+# How many times the pre-dispatch baseline query may be retried before the
+# dispatch is refused (#656). Small on purpose: nothing has happened yet at this
+# point, so failing here costs a release run and no state, while guessing the
+# baseline costs the very guarantee this poller exists to give.
+DEFAULT_BASELINE_ATTEMPTS = 3
+DEFAULT_BASELINE_INTERVAL_SECONDS = 10
+
+# Sentinel for "this self-test case did not ask for a baseline at all", so the
+# back-compatible call shape (no after_run_id keyword) stays exercised.
+_NO_BASELINE = object()
 
 _BUDGET_ENV = "BALL_AWAIT_RUN_BUDGET_SECONDS"
 _INTERVAL_ENV = "BALL_AWAIT_RUN_INTERVAL_SECONDS"
@@ -150,13 +178,21 @@ def classify(run: dict | None) -> tuple[str, str]:
     return FAILED, f"run {url} completed with conclusion {conclusion!r}"
 
 
-def newest_matching(runs: list[dict], ref: str) -> dict | None:
+def newest_matching(
+    runs: list[dict], ref: str, after_run_id: int | None = None
+) -> dict | None:
     """The newest workflow_dispatch run whose head ref is `ref`, or None.
 
     `gh run list --branch` is deliberately not used: the ref here is a TAG, and
     a server-side filter that treats a tag differently from a branch would
     return an empty list forever — a silent wait to the budget instead of an
     answer. Filtering here on the rows `gh` returns cannot do that.
+
+    With `after_run_id` (the newest matching run recorded BEFORE the dispatch,
+    #656) only a STRICTLY newer run qualifies. Run ids are monotonic per
+    repository, so that is "started after the baseline was taken". A row whose
+    `databaseId` cannot be ordered against the baseline is not ours either:
+    accepting it would be the guess this is here to refuse.
     """
     matching = [
         r
@@ -164,12 +200,71 @@ def newest_matching(runs: list[dict], ref: str) -> dict | None:
         if (r.get("headBranch") or "") == ref
         and (r.get("event") or "workflow_dispatch") == "workflow_dispatch"
     ]
+    if after_run_id is not None:
+        matching = [
+            r
+            for r in matching
+            if isinstance(r.get("databaseId"), int)
+            and not isinstance(r.get("databaseId"), bool)
+            and r["databaseId"] > after_run_id
+        ]
     if not matching:
         return None
-    # `gh run list` returns newest-first; sort on createdAt anyway so the choice
-    # does not depend on that. ISO-8601 UTC strings sort lexicographically.
-    matching.sort(key=lambda r: r.get("createdAt") or "", reverse=True)
+    # `gh run list` returns newest-first; sort anyway so the choice does not
+    # depend on that. ISO-8601 UTC strings sort lexicographically, and the run id
+    # breaks a tie — `createdAt` has second granularity, so two runs started in
+    # the same second (a re-run storm) would otherwise be ordered by luck.
+    def order(run: dict):
+        run_id = run.get("databaseId")
+        return (
+            run.get("createdAt") or "",
+            run_id if isinstance(run_id, int) and not isinstance(run_id, bool) else -1,
+        )
+
+    matching.sort(key=order, reverse=True)
     return matching[0]
+
+
+def baseline_run_id(
+    *,
+    ref: str,
+    list_runs,
+    attempts: int,
+    interval_seconds: int,
+    sleep,
+    log,
+) -> tuple[bool, int | None, str]:
+    """The newest matching run id on `ref` BEFORE the dispatch (#656).
+
+    Returns (established, run_id, detail). `established` False means the caller
+    must NOT dispatch: without this number a run that was already on the ref
+    could answer for the one the dispatch is about to start. `run_id` None with
+    `established` True is the ordinary case — nothing has ever been dispatched
+    on this release's channel tag — and means any run qualifies.
+    """
+    for attempt in range(1, attempts + 1):
+        rows, err = list_runs()
+        if rows is not None:
+            run = newest_matching(rows, ref)
+            if run is None:
+                return True, None, f"no workflow_dispatch run exists on {ref} yet"
+            run_id = run.get("databaseId")
+            if not isinstance(run_id, int) or isinstance(run_id, bool):
+                return (
+                    False,
+                    None,
+                    f"the newest workflow_dispatch run on {ref} reported no usable "
+                    f"databaseId ({run_id!r}), so nothing can be ordered against it",
+                )
+            return True, run_id, f"newest existing run on {ref} is #{run_id}"
+        log(f"baseline attempt {attempt}/{attempts}: could not list runs: {err}")
+        if attempt < attempts:
+            sleep(interval_seconds)
+    return (
+        False,
+        None,
+        f"could not list the runs on {ref} in {attempts} attempts",
+    )
 
 
 def await_run(
@@ -182,6 +277,7 @@ def await_run(
     sleep,
     now,
     log,
+    after_run_id: int | None = None,
 ) -> int:
     """Poll until the dispatched run finishes. Returns a process exit code."""
     deadline = now() + budget_seconds
@@ -193,7 +289,17 @@ def await_run(
         if rows is None:
             verdict, detail = UNKNOWN, f"could not list runs: {err}"
         else:
-            verdict, detail = classify(newest_matching(rows, ref))
+            run = newest_matching(rows, ref, after_run_id=after_run_id)
+            if run is None and after_run_id is not None:
+                # Say WHICH wait this is: "no run yet" and "only the run that was
+                # already here" are different states, and conflating them is how
+                # a stale row gets mistaken for the fresh one.
+                verdict, detail = (
+                    PENDING,
+                    f"no workflow_dispatch run newer than #{after_run_id} on {ref} yet",
+                )
+            else:
+                verdict, detail = classify(run)
         last_detail = detail
 
         if verdict == SUCCEEDED:
@@ -333,9 +439,11 @@ def _self_test() -> int:
         def sleep(self, seconds):
             self.t += seconds
 
-    def drive(sequences, budget=1200, interval=30):
+    def drive(sequences, budget=1200, interval=30, after=_NO_BASELINE):
         """sequences: list of (rows|None, err) returned one per attempt; the last
-        entry repeats forever."""
+        entry repeats forever. `after` is the pre-dispatch baseline run id; the
+        sentinel means "call await_run the way a no-dispatch await does".
+        """
         clock = Clock()
         calls = {"n": 0}
 
@@ -344,6 +452,9 @@ def _self_test() -> int:
             calls["n"] += 1
             return sequences[i]
 
+        kwargs = {}
+        if after is not _NO_BASELINE:
+            kwargs["after_run_id"] = after
         code = await_run(
             workflow="tag-go-modules.yml",
             ref=REF,
@@ -353,6 +464,7 @@ def _self_test() -> int:
             sleep=clock.sleep,
             now=clock.now,
             log=log.append,
+            **kwargs,
         )
         return code, calls["n"], clock.t
 
@@ -422,8 +534,170 @@ def _self_test() -> int:
     else:
         no("a success on another ref does not end the wait", f"code={code}")
 
+    # ── the pre-dispatch baseline (#656) ──────────────────────────────────
+    # A workflow_dispatch run may ALREADY exist on the channel tag when the
+    # publishCmd dispatches: docs/RELEASE.md documents
+    # `gh workflow run tag-go-modules.yml --ref go-modules/vX.Y.Z` as the manual
+    # repair for a release whose tags never landed, and GitHub's re-run button
+    # produces one too. GitHub creates the NEW run's row a few seconds AFTER
+    # accepting the dispatch, so the first poll lands in a window where only the
+    # OLD row exists — and a stale `success` there is indistinguishable from
+    # "this release's six tags were cut". The only row that can answer for this
+    # dispatch is one strictly newer than the newest one seen BEFORE it.
+    STALE_ID = 100
+    FRESH_ID = 200
+
+    def idrow(run_id, **kw):
+        return row(databaseId=run_id, url=f"https://example.invalid/run/{run_id}", **kw)
+
+    stale_success = idrow(STALE_ID, status="completed", conclusion="success")
+    fresh_failure = idrow(FRESH_ID, status="completed", conclusion="failure")
+    fresh_success = idrow(FRESH_ID, status="completed", conclusion="success")
+
+    baseline_fn = globals().get("baseline_run_id")
+    supports_baseline = (
+        "after_run_id" in inspect.signature(newest_matching).parameters
+        and "after_run_id" in inspect.signature(await_run).parameters
+        and callable(baseline_fn)
+    )
+    if not supports_baseline:
+        no(
+            "the poller demands a run strictly newer than the pre-dispatch baseline (#656)",
+            "expected newest_matching(runs, ref, after_run_id=…), await_run(…, after_run_id=…)",
+            "and a baseline_run_id() that records the newest existing run BEFORE --dispatch.",
+            "Without them the first poll answers with whatever workflow_dispatch row already",
+            "existed on that ref, so a stale SUCCESS is read as this release's tag cut and the",
+            "fresh FAILURE is never seen.",
+        )
+    else:
+        if newest_matching([stale_success], REF, after_run_id=STALE_ID) is None:
+            ok("a run that is not strictly newer than the baseline is never ours")
+        else:
+            no(
+                "a run that is not strictly newer than the baseline is never ours",
+                "the run that existed BEFORE the dispatch matched",
+            )
+
+        picked = newest_matching([stale_success, fresh_failure], REF, after_run_id=STALE_ID)
+        if picked is fresh_failure:
+            ok("with a baseline, the strictly newer run is the one classified")
+        else:
+            no("with a baseline, the strictly newer run is the one classified", f"picked {picked}")
+
+        if newest_matching([stale_success], REF) is stale_success:
+            ok("with NO baseline (a dispatch-less await) the newest matching run still wins")
+        else:
+            no(
+                "with NO baseline (a dispatch-less await) the newest matching run still wins",
+                "the back-compatible path stopped matching",
+            )
+
+        idless = row(status="completed", conclusion="success")
+        idless.pop("databaseId", None)
+        if newest_matching([idless], REF, after_run_id=STALE_ID) is None:
+            ok("a row with no databaseId cannot be ordered against the baseline, so it is not ours")
+        else:
+            no(
+                "a row with no databaseId cannot be ordered against the baseline, so it is not ours",
+                "an unorderable row matched",
+            )
+
+        code, calls, _ = drive(
+            [([stale_success], ""), ([stale_success, fresh_failure], "")],
+            after=STALE_ID,
+        )
+        if code == 1 and calls == 2:
+            ok("a stale SUCCESS from before the dispatch does not mask the fresh FAILURE")
+        else:
+            no(
+                "a stale SUCCESS from before the dispatch does not mask the fresh FAILURE",
+                f"code={code} calls={calls} (code=0 means the pre-existing run answered for us)",
+            )
+
+        code, calls, elapsed = drive([([stale_success], "")], budget=300, interval=30, after=STALE_ID)
+        if code == 1 and elapsed >= 300 and calls == 11:
+            ok("a stale row and no new run exhausts the budget and FAILS honestly")
+        else:
+            no(
+                "a stale row and no new run exhausts the budget and FAILS honestly",
+                f"code={code} calls={calls} elapsed={elapsed}",
+            )
+
+        same_second = newest_matching(
+            [
+                idrow(FRESH_ID, status="completed", conclusion="failure"),
+                idrow(FRESH_ID + 1, status="completed", conclusion="success"),
+            ],
+            REF,
+            after_run_id=STALE_ID,
+        )
+        if same_second is not None and same_second.get("databaseId") == FRESH_ID + 1:
+            ok("two runs created in the same second are ordered by run id, not by luck")
+        else:
+            no(
+                "two runs created in the same second are ordered by run id, not by luck",
+                f"picked {same_second}",
+            )
+
+        code, calls, _ = drive(
+            [([stale_success], ""), ([stale_success, fresh_success], "")],
+            after=STALE_ID,
+        )
+        if code == 0 and calls == 2:
+            ok("the run the dispatch actually started is what ends the wait")
+        else:
+            no("the run the dispatch actually started is what ends the wait", f"code={code} calls={calls}")
+
+        # ── capturing the baseline itself ─────────────────────────────────
+        def capture(sequences, attempts=3):
+            seen = {"n": 0}
+
+            def list_runs():
+                i = min(seen["n"], len(sequences) - 1)
+                seen["n"] += 1
+                return sequences[i]
+
+            got = baseline_fn(
+                ref=REF,
+                list_runs=list_runs,
+                attempts=attempts,
+                interval_seconds=1,
+                sleep=lambda _seconds: None,
+                log=log.append,
+            )
+            return got, seen["n"]
+
+        other_ref = row(
+            headBranch="main", databaseId=999, status="completed", conclusion="success"
+        )
+        (found, run_id, _detail), _ = capture([([stale_success, other_ref], "")])
+        if found and run_id == STALE_ID:
+            ok("the baseline is the newest MATCHING run that existed before the dispatch")
+        else:
+            no(
+                "the baseline is the newest MATCHING run that existed before the dispatch",
+                f"found={found} run_id={run_id}",
+            )
+
+        (found, run_id, _detail), _ = capture([([], "")])
+        if found and run_id is None:
+            ok("no pre-existing run on the ref is itself a valid baseline")
+        else:
+            no("no pre-existing run on the ref is itself a valid baseline", f"found={found} run_id={run_id}")
+
+        (found, _run_id, _detail), attempts_made = capture(
+            [(None, "gh: API rate limit exceeded")], attempts=3
+        )
+        if not found and attempts_made == 3:
+            ok("a baseline that cannot be established is NOT silently read as 'no prior run'")
+        else:
+            no(
+                "a baseline that cannot be established is NOT silently read as 'no prior run'",
+                f"found={found} attempts={attempts_made}",
+            )
+
     total = passed + failed
-    MIN = 15
+    MIN = 30
     if total < MIN:
         print(
             f"::error::awaited-dispatch poller self-test ran {total} cases, expected at "
@@ -461,7 +735,30 @@ def main(argv: list[str]) -> int:
     def log(message):
         print(message, flush=True)
 
+    list_runs = _live_list_runs(args.workflow, args.limit)
+    after_run_id = None
+
     if args.dispatch:
+        # BEFORE the dispatch, not after: this is the only moment at which
+        # "which runs were already here" can be known (#656).
+        established, after_run_id, detail = baseline_run_id(
+            ref=args.ref,
+            list_runs=list_runs,
+            attempts=DEFAULT_BASELINE_ATTEMPTS,
+            interval_seconds=DEFAULT_BASELINE_INTERVAL_SECONDS,
+            sleep=time.sleep,
+            log=log,
+        )
+        if not established:
+            log(
+                f"::error::refusing to dispatch {args.workflow} at {args.ref}: {detail}. "
+                "Without the newest pre-existing run id, a run that was already on this ref "
+                "(the manual re-dispatch documented in docs/RELEASE.md, or a re-run) could "
+                "answer for the one this release starts. Nothing was dispatched."
+            )
+            return 1
+        log(f"Pre-dispatch baseline: {detail}")
+
         log(f"Dispatching {args.workflow} at {args.ref} …")
         code, out, err = _run_gh(["workflow", "run", args.workflow, "--ref", args.ref])
         if out.strip():
@@ -473,19 +770,21 @@ def main(argv: list[str]) -> int:
             )
             return 1
 
+    newer_than = "" if after_run_id is None else f", accepting only a run newer than #{after_run_id}"
     log(
         f"Awaiting the {args.workflow} run at {args.ref} "
-        f"(budget {budget}s, polling every {interval}s) …"
+        f"(budget {budget}s, polling every {interval}s{newer_than}) …"
     )
     return await_run(
         workflow=args.workflow,
         ref=args.ref,
         budget_seconds=budget,
         interval_seconds=interval,
-        list_runs=_live_list_runs(args.workflow, args.limit),
+        list_runs=list_runs,
         sleep=time.sleep,
         now=time.monotonic,
         log=log,
+        after_run_id=after_run_id,
     )
 
 

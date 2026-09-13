@@ -345,6 +345,17 @@ impl Compiler<'_> {
             "as" => self.compile_type_op("ball_as", &f),
             // #489 — the value's canonical runtime type NAME (no `type` field).
             "type_of" => self.un("ball_type_of", &f),
+            // ── Text sink (#630) ──
+            // Backed by a `__type__`-tagged `BallMap` so `ball_type_of` answers
+            // "Sink" and an append inside a callee is visible to the caller;
+            // a bare `String` backing would lose both.
+            "sink_create" => format!("ball_sink_create({})", self.field_or_null(&f, "initial")),
+            "sink_write" => format!(
+                "ball_sink_write({}, {})",
+                self.field_or_null(&f, "sink"),
+                self.field_or_null(&f, "text")
+            ),
+            "sink_to_string" => format!("ball_sink_to_string({})", self.field_or_null(&f, "sink")),
             // ── Indexing ──
             "index" | "string_char_at" => self.compile_index(&f),
             // ── Strings (pure manipulation) ──

@@ -1633,6 +1633,17 @@ class Compiler:
         if fn == "type_of":
             return f"ballrt.type_of({a('value')})"
 
+        # #630 - the declared text sink. Backed by a ``__type__``-tagged dict so
+        # ``type_of`` answers "Sink" and an append inside a callee is visible to
+        # the caller; a bare ``io.StringIO`` would report "StringIO" and diverge
+        # from every other target.
+        if fn == "sink_create":
+            return f"ballrt.sink_create({a('initial') if 'initial' in f else 'None'})"
+        if fn == "sink_write":
+            return f"ballrt.sink_write({a('sink')}, {a('text')})"
+        if fn == "sink_to_string":
+            return f"ballrt.sink_to_string({a('sink')})"
+
         # Collection literals routed through std (map/set literals, typed lists).
         if fn == "map_create":
             return self.map_create(call)
@@ -1714,6 +1725,14 @@ class Compiler:
             "string_trim": "string_trim", "string_trim_start": "string_trim_start",
             "string_trim_end": "string_trim_end", "string_is_empty": "string_is_empty",
             "string_to_int": "string_to_int", "string_to_double": "string_to_double",
+            # `String.fromCharCode(n)` / `fromCharCodes(list)`. The runtime
+            # helpers have always existed (the self-hosted engine reaches them
+            # through the Dart-SDK static table above); the BASE-function
+            # spellings the Dart encoder emits had no arm here, so a program
+            # using `StringBuffer.writeCharCode` — which #630 desugars into
+            # `string_from_char_code` — was refused outright.
+            "string_from_char_code": "string_from_char_code",
+            "string_from_char_codes": "string_from_char_codes",
         }
         if fn in str_1:
             return f"ballrt.{str_1[fn]}({V()})"

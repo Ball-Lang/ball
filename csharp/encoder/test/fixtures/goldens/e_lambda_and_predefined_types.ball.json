@@ -728,6 +728,58 @@
               }
             ]
           }
+        },
+        {
+          "name": "SinkCreateInput",
+          "descriptor": {
+            "name": "SinkCreateInput",
+            "field": [
+              {
+                "name": "initial",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SinkWriteInput",
+          "descriptor": {
+            "name": "SinkWriteInput",
+            "field": [
+              {
+                "name": "sink",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              },
+              {
+                "name": "text",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
+        },
+        {
+          "name": "SinkToStringInput",
+          "descriptor": {
+            "name": "SinkToStringInput",
+            "field": [
+              {
+                "name": "sink",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_MESSAGE",
+                "typeName": ".ball.v1.Expression"
+              }
+            ]
+          }
         }
       ]
     },

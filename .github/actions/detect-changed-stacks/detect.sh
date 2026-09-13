@@ -43,6 +43,9 @@ ball_fail_open() {
   echo "python=true"
   echo "infra=true"
   echo "self_host=true"
+  echo "corpus=true"
+  echo "dart_core=true"
+  echo "matrix_self=true"
   echo "changed_fixtures=ALL"
 }
 
@@ -118,6 +121,51 @@ ball_classify_stacks() {
     sed -E 's#.*/##; s/\.ball\.json$//' |
     sort -u | tr '\n' ' ' | sed -E 's/^ +//; s/ +$//')"
 
+  # corpus = the conformance fixture corpus itself (tests/conformance/**, both
+  # the generated *.ball.json programs and the tests/conformance/src/*.dart
+  # sources they are generated from). dart_core = the Dart sources EVERY
+  # self-hosted engine is compiled from: dart/engine (engine.dart + parts),
+  # dart/shared (std.json/std.bin and cli_core), dart/compiler (the Ball->X
+  # emitters and the gen_*_json tools), dart/self_host (the generated program
+  # inputs). Both are consumed ONLY by conformance-matrix.yml, whose per-row
+  # conditions need to know "does this diff change what EVERY row runs?" (#666).
+  #
+  # These are DELIBERATELY narrower than `infra`: `infra` is the fail-safe that
+  # forces every ci.yml stack to run for any file outside the language dirs
+  # (docs, tools/, root configs, workflows), and using it inside the matrix
+  # would run all 18 legs for a PR that changed one language's test file —
+  # measured on PR #644, where 15 of 18 legs covered untouched languages. The
+  # matrix can afford the narrower signal because its `pull_request:` trigger is
+  # already `paths:`-filtered to exactly {tests/conformance, the four dart_core
+  # dirs, ts, cpp, rust, csharp, go, python} plus the matrix's own definition
+  # (conformance-matrix.yml and tools/ci/roundtrip_floor.sh -> `matrix_self`
+  # below, added by #642 so a PR that only moves a floor still re-runs the
+  # matrix). Every file that CAN start it maps onto one of those signals.
+  #
+  # That mapping is a correctness invariant, not a convention, and it is guarded
+  # both ways since #666: tools/ci/check_matrix_paths.sh runs THIS classifier
+  # over a synthesized path for each filter entry and fails on an entry that
+  # lights up no signal any row reads (its `--self-test` drives that negative
+  # control), and conformance-matrix.yml's `Parity Matrix` fails a pull_request
+  # run that executed zero engine rows. Without both, an unmapped path is
+  # silently green: the workflow starts, every row's `if:` is false, and a
+  # summary that treats `skipped` as benign prints a table of SKIPs and exits 0.
+  local corpus=false dart_core=false
+  if m '^tests/conformance/'; then corpus=true; fi
+  if m '^dart/(engine|shared|compiler|self_host)/'; then dart_core=true; fi
+
+  # matrix_self = the conformance matrix's OWN definition: the workflow file and
+  # the shared gate script its round-trip rows invoke. Both are in the workflow's
+  # `paths:` filter since #642 — a PR that only re-floors a row, or only edits
+  # tools/ci/roundtrip_floor.sh, MUST re-run the matrix, or the commit meant to
+  # prove a floor RED proves nothing (an absent check reads as green). They map
+  # onto `infra` alone, which no matrix row reads, so without this signal those
+  # two entries would start the workflow with every row's `if:` false — the
+  # silently-green shape tools/ci/check_matrix_paths.sh exists to catch. Every
+  # row ORs this in, because a change to the matrix definition can move ANY row.
+  local matrix_self=false
+  if m '^\.github/workflows/conformance-matrix\.yml$|^tools/ci/roundtrip_floor\.sh$'; then matrix_self=true; fi
+
   out dart '^dart/'
   out ts '^ts/'
   # cpp/rust/csharp/go/python run on their own dir changes OR any self-host
@@ -132,6 +180,9 @@ ball_classify_stacks() {
   if m '^python/' || [ "$self_host" = true ]; then echo "python=true"; else echo "python=false"; fi
   echo "infra=$infra"
   echo "self_host=$self_host"
+  echo "corpus=$corpus"
+  echo "dart_core=$dart_core"
+  echo "matrix_self=$matrix_self"
   echo "changed_fixtures=$changed_fixtures"
 }
 

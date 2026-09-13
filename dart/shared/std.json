@@ -640,6 +640,27 @@
       "isBase": true
     },
     {
+      "name": "sink_create",
+      "inputType": "SinkCreateInput",
+      "outputType": "",
+      "description": "Create a text sink, optionally seeded: StringBuffer(initial)",
+      "isBase": true
+    },
+    {
+      "name": "sink_write",
+      "inputType": "SinkWriteInput",
+      "outputType": "",
+      "description": "Append text to a sink: sink.write(text)",
+      "isBase": true
+    },
+    {
+      "name": "sink_to_string",
+      "inputType": "SinkToStringInput",
+      "outputType": "String",
+      "description": "Read a sink back: sink.toString()",
+      "isBase": true
+    },
+    {
       "name": "regex_match",
       "inputType": "BinaryInput",
       "outputType": "",
@@ -1565,6 +1586,58 @@
           {
             "name": "max",
             "number": 3,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SinkCreateInput",
+      "descriptor": {
+        "name": "SinkCreateInput",
+        "field": [
+          {
+            "name": "initial",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SinkWriteInput",
+      "descriptor": {
+        "name": "SinkWriteInput",
+        "field": [
+          {
+            "name": "sink",
+            "number": 1,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          },
+          {
+            "name": "text",
+            "number": 2,
+            "label": "LABEL_OPTIONAL",
+            "type": "TYPE_MESSAGE",
+            "typeName": ".ball.v1.Expression"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SinkToStringInput",
+      "descriptor": {
+        "name": "SinkToStringInput",
+        "field": [
+          {
+            "name": "sink",
+            "number": 1,
             "label": "LABEL_OPTIONAL",
             "type": "TYPE_MESSAGE",
             "typeName": ".ball.v1.Expression"

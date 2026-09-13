@@ -12,8 +12,16 @@ public interface CapabilityEntryOrBuilder extends
 
   /**
    * <pre>
-   * Category name: "pure", "io", "fs", "process", "time", "random",
-   * "memory", "concurrency", "network".
+   * Category name. Closed set, in report-iteration order:
+   * "pure", "io", "fs", "process", "time", "random", "memory",
+   * "concurrency", "network", "async", "custom".
+   * A `custom` category marks a call into a base function the PROGRAM declares
+   * that the analyzer's capability table does not model (the host-extension
+   * seam) — its effects are unknown, so it is never pure and never ranked.
+   * Double-quoted tokens in this comment are the enumeration itself and are
+   * gated against the analyzer by
+   * dart/shared/test/capability_table_closed_set_test.dart; keep prose
+   * references in `backticks` so the gate reads only the closed set.
    * </pre>
    *
    * <code>string capability = 1 [json_name = "capability"];</code>
@@ -22,8 +30,16 @@ public interface CapabilityEntryOrBuilder extends
   java.lang.String getCapability();
   /**
    * <pre>
-   * Category name: "pure", "io", "fs", "process", "time", "random",
-   * "memory", "concurrency", "network".
+   * Category name. Closed set, in report-iteration order:
+   * "pure", "io", "fs", "process", "time", "random", "memory",
+   * "concurrency", "network", "async", "custom".
+   * A `custom` category marks a call into a base function the PROGRAM declares
+   * that the analyzer's capability table does not model (the host-extension
+   * seam) — its effects are unknown, so it is never pure and never ranked.
+   * Double-quoted tokens in this comment are the enumeration itself and are
+   * gated against the analyzer by
+   * dart/shared/test/capability_table_closed_set_test.dart; keep prose
+   * references in `backticks` so the gate reads only the closed set.
    * </pre>
    *
    * <code>string capability = 1 [json_name = "capability"];</code>
@@ -34,7 +50,9 @@ public interface CapabilityEntryOrBuilder extends
 
   /**
    * <pre>
-   * Risk level: "none", "low", "medium", "high".
+   * Risk level. Closed set: "none", "low", "medium", "high", "unknown".
+   * Only the `custom` category carries `unknown`. Same double-quote
+   * convention and same gate as `capability` above.
    * </pre>
    *
    * <code>string risk_level = 2 [json_name = "riskLevel"];</code>
@@ -43,7 +61,9 @@ public interface CapabilityEntryOrBuilder extends
   java.lang.String getRiskLevel();
   /**
    * <pre>
-   * Risk level: "none", "low", "medium", "high".
+   * Risk level. Closed set: "none", "low", "medium", "high", "unknown".
+   * Only the `custom` category carries `unknown`. Same double-quote
+   * convention and same gate as `capability` above.
    * </pre>
    *
    * <code>string risk_level = 2 [json_name = "riskLevel"];</code>

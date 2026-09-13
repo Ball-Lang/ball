@@ -2,8 +2,9 @@
 # Truth-table test for the detect-changed-stacks composite action (issue #458).
 #
 # Sources ../detect.sh and drives its pure classifier with a synthetic changed-
-# file list per row, asserting EVERY one of the ten outputs
-# (dart/ts/cpp/rust/csharp/go/python/infra/self_host/changed_fixtures) — not
+# file list per row, asserting EVERY one of the thirteen outputs
+# (dart/ts/cpp/rust/csharp/go/python/infra/self_host/corpus/dart_core/
+# matrix_self/changed_fixtures) — not
 # just "the script exited 0". The last four rows drive the real entry point,
 # ball_detect_main, once per event that supplies no diff base, to pin the
 # fail-open path itself. Before #458 this test could not exist: the logic
@@ -67,7 +68,7 @@ expect() {
     esac
   done
   local k
-  for k in dart ts cpp rust csharp go python infra self_host; do
+  for k in dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self; do
     if [ -n "${t[$k]:-}" ]; then echo "$k=true"; else echo "$k=false"; fi
   done
   echo "changed_fixtures=$fixtures"
@@ -76,7 +77,7 @@ expect() {
 # ── Single-stack rows: exactly one language flag, infra stays false ──────────
 row "go-only" 'go/cli/cmd/ball/main.go' '' "$(expect go)"
 row "python-only" 'python/compiler/ball_compiler/base_call.py' '' "$(expect python)"
-row "dart-only" 'dart/compiler/lib/compiler.dart' '' "$(expect dart)"
+row "dart-only" 'dart/compiler/lib/compiler.dart' '' "$(expect dart dart_core)"
 row "ts-only" 'ts/engine/src/index.ts' '' "$(expect ts)"
 row "cpp-only" 'cpp/compiler/src/compiler.cpp' '' "$(expect cpp)"
 row "rust-only" 'rust/compiler/src/base_call.rs' '' "$(expect rust)"
@@ -90,13 +91,13 @@ row "root-config-only" 'pubspec.yaml' '' "$(expect infra)"
 # ── Conformance fixtures: infra=true AND the fixture stem is reported ────────
 row "fixture-added" 'tests/conformance/426_example.ball.json' \
   "$(printf 'A\ttests/conformance/426_example.ball.json')" \
-  "$(expect infra fixtures=426_example)"
+  "$(expect infra corpus fixtures=426_example)"
 row "fixture-deleted-excluded" 'tests/conformance/426_example.ball.json' \
   "$(printf 'D\ttests/conformance/426_example.ball.json')" \
-  "$(expect infra)"
+  "$(expect infra corpus)"
 row "fixture-renamed-uses-new-path" 'tests/conformance/427_new.ball.json' \
   "$(printf 'R100\ttests/conformance/426_old.ball.json\ttests/conformance/427_new.ball.json')" \
-  "$(expect infra fixtures=427_new)"
+  "$(expect infra corpus fixtures=427_new)"
 
 # ── Mixed ───────────────────────────────────────────────────────────────────
 row "go-plus-proto" "$(printf 'go/compiler/compile.go\nproto/ball/v1/ball.proto')" '' \
@@ -104,11 +105,49 @@ row "go-plus-proto" "$(printf 'go/compiler/compile.go\nproto/ball/v1/ball.proto'
 
 # ── self_host: a dart/ edit that cross-compiles into every self-hosted engine ─
 row "self-host-engine-source" 'dart/engine/lib/engine.dart' '' \
-  "$(expect dart cpp rust csharp go python self_host)"
+  "$(expect dart cpp rust csharp go python self_host dart_core)"
 row "self-host-cli-core" 'dart/shared/lib/cli_core.dart' '' \
-  "$(expect dart cpp rust csharp go python self_host)"
-# A dart/shared file that is NOT part of the self-host CLI core stays dart-only.
-row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' '' "$(expect dart)"
+  "$(expect dart cpp rust csharp go python self_host dart_core)"
+# A dart/shared file that is NOT part of the self-host CLI core does not flip
+# self_host — but it IS a conformance-matrix core input (std.json feeds
+# every compiled program), so dart_core is true.
+row "dart-shared-non-selfhost" 'dart/shared/lib/std.dart' '' "$(expect dart dart_core)"
+
+# ── corpus / dart_core: the conformance-matrix row selectors (#666) ──────────
+# conformance-matrix.yml's `pull_request:` trigger is `paths:`-filtered, and
+# since #666 each ROW is additionally conditioned on the stack it covers.
+# `corpus` and `dart_core` are the two signals that must switch EVERY row back
+# on: a fixture change, and a change to the Dart sources every self-hosted
+# engine is compiled from.
+row "corpus-fixture-source" 'tests/conformance/src/466_map_contains_value.dart' '' \
+  "$(expect infra corpus)"
+# A tests/ file OUTSIDE the conformance corpus is infra (it forces every ci.yml
+# stack) but not corpus — it is no conformance row's input.
+row "tests-outside-corpus-is-not-corpus" 'tests/editions/portability_matrix.md' '' \
+  "$(expect infra)"
+row "dart-core-compiler-tool" 'dart/compiler/tool/gen_engine_json.dart' '' \
+  "$(expect dart dart_core)"
+row "dart-core-self-host-dir" 'dart/self_host/lib/engine_rt.cpp' '' \
+  "$(expect dart dart_core)"
+# dart/encoder, dart/cli and dart/ball_protobuf are the Dart-target toolchain,
+# not inputs to any conformance row — dart, but NOT dart_core.
+row "dart-encoder-is-not-core" 'dart/encoder/lib/encoder.dart' '' "$(expect dart)"
+row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
+
+# ── matrix_self: the conformance matrix's OWN definition (#642) ──────────────
+# conformance-matrix.yml and tools/ci/roundtrip_floor.sh are in that workflow's
+# `paths:` filter, so a PR that only moves a row's floor re-runs the matrix —
+# and EVERY row ORs `matrix_self` in. Without the signal those two entries map
+# to `infra` alone, which no row reads: the workflow would start with every
+# row's `if:` false and its summary would print a table of SKIPs and exit 0.
+# tools/ci/check_matrix_paths.sh is the static half of the same invariant.
+row "matrix-workflow-is-matrix-self" '.github/workflows/conformance-matrix.yml' ''   "$(expect infra matrix_self)"
+row "roundtrip-floor-script-is-matrix-self" 'tools/ci/roundtrip_floor.sh' ''   "$(expect infra matrix_self)"
+# Negative controls: a NEIGHBOURING workflow and a NEIGHBOURING tools/ci script
+# are infra (every ci.yml stack runs) but must NOT re-enable every matrix row —
+# if they did, `matrix_self` would just be `infra` under another name.
+row "other-workflow-is-not-matrix-self" '.github/workflows/regression-gates.yml' ''   "$(expect infra)"
+row "other-ci-tool-is-not-matrix-self" 'tools/ci/apply_regenerated.sh' ''   "$(expect infra)"
 
 # An EMPTY changed-file list is the one input shape whose outputs would
 # otherwise be unpinned. It cannot arise from a real diff (a run with no changed
@@ -119,7 +158,7 @@ row "empty-file-list" '' '' "$(expect infra)"
 
 # ── Fail-open: no usable diff base => every stack true, fixtures=ALL ─────────
 expect_rows "fail-open-no-base" \
-  "$(expect dart ts cpp rust csharp go python infra self_host fixtures=ALL)" \
+  "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
   "$(ball_fail_open)"
 
 # The same fail-open, driven END-TO-END through ball_detect_main for each event
@@ -142,7 +181,7 @@ event_fail_open_row() {
   actual="$(cat "$out_file")"
   rm -f "$out_file"
   expect_rows "$name" \
-    "$(expect dart ts cpp rust csharp go python infra self_host fixtures=ALL)" \
+    "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
     "$actual"
 }
 

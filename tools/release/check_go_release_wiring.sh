@@ -41,7 +41,11 @@
 # the lane fire without a human, not the incidental shape of the YAML and JSON
 # around them, so a legitimate refactor does not false-red.
 #
-# Usage: bash tools/release/check_go_release_wiring.sh
+# Usage:
+#   bash tools/release/check_go_release_wiring.sh              # gate the repo
+#   bash tools/release/check_go_release_wiring.sh --self-test  # the go-freshness
+#                                                              # paths leg's own
+#                                                              # negative controls
 
 set -uo pipefail
 
@@ -72,6 +76,379 @@ no() {
   local line
   for line in "$@"; do printf '  %s\n' "$line"; done
 }
+
+SELF_TEST=0
+case "${1-}" in
+--self-test)
+  SELF_TEST=1
+  shift
+  ;;
+"") ;;
+*)
+  echo "::error::unknown argument: $1" >&2
+  exit 2
+  ;;
+esac
+
+# ── go-freshness.yml's pull_request scoping (#656). ───────────────────────
+# go-freshness.yml is the one freshness alarm in this repo with a pull_request
+# trigger, and its own header says why that is acceptable: the paths filter names
+# the alarm's OWN two files, "so no unrelated pull request touches them". Every
+# other freshness lane is schedule-only precisely because a per-PR dependency on
+# an external registry reddens unrelated work on a CDN hiccup. That argument is
+# load-bearing and, until #656, unguarded.
+#
+# WHY THIS PARSES YAML INSTEAD OF GREPPING, unlike the rest of this file: the
+# assertion is that a LIST IS EXACTLY A SET, and the thing it must catch is an
+# entry being ADDED. `grep -qF` on the two expected lines passes just as happily
+# with a third one sitting under them — it cannot see the failure it is for. The
+# python3 + PyYAML dependency is already carried by tools/ci/check_matrix_paths.sh
+# in this same always-on job.
+freshness_paths_problems() {
+  python3 - "$1" <<'PY'
+import sys
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - the runner image ships PyYAML
+    print("PyYAML is required by tools/release/check_go_release_wiring.sh")
+    sys.exit(1)
+
+EXPECTED = {
+    ".github/workflows/go-freshness.yml",
+    "tools/release/check_go_freshness.sh",
+}
+
+path = sys.argv[1]
+
+
+def collect(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = yaml.safe_load(fh)
+    except FileNotFoundError:
+        return [f"{path} does not exist"]
+    except yaml.YAMLError as exc:
+        return [f"{path} is not parseable YAML: {exc}"]
+    if not isinstance(doc, dict):
+        return [f"{path} does not parse to a mapping"]
+    # YAML 1.1 (what PyYAML implements) resolves a bare `on:` key to the BOOLEAN
+    # True, not the string "on".
+    triggers = doc.get(True, doc.get("on"))
+    if not isinstance(triggers, dict):
+        return [f"{path} has no `on:` trigger mapping"]
+    if "pull_request" not in triggers:
+        return [
+            "no pull_request trigger at all: a workflow_dispatch workflow cannot be "
+            "rehearsed before its file is on the default branch (GitHub's events "
+            "reference), and this self-gated PR trigger is the documented way out"
+        ]
+    block = triggers.get("pull_request")
+    problems = []
+    if isinstance(block, dict) and "paths-ignore" in block:
+        problems.append(
+            "`on.pull_request.paths-ignore` is set: an exclusion list runs this alarm on "
+            "every pull request that is not excluded, which is the opposite of scoping it "
+            "to the alarm's own files"
+        )
+    paths = block.get("paths") if isinstance(block, dict) else None
+    if not isinstance(paths, list) or not paths:
+        problems.append(
+            "`on.pull_request.paths` is missing or empty, so this alarm runs on EVERY pull "
+            "request — a live proxy.golang.org dependency on unrelated work, which is the "
+            "one thing its header promises it is not"
+        )
+        return problems
+    got = [str(entry) for entry in paths]
+    for entry in got:
+        if entry not in EXPECTED:
+            problems.append(
+                f"unexpected path in the pull_request filter: {entry} — the filter must name "
+                "ONLY the alarm's own two files"
+            )
+    for entry in sorted(EXPECTED - set(got)):
+        problems.append(
+            f"missing from the pull_request filter: {entry} — a change to the alarm must "
+            "prove itself against the live proxy before it merges"
+        )
+    return problems
+
+
+found = collect(path)
+for problem in found:
+    print(problem)
+sys.exit(1 if found else 0)
+PY
+}
+
+# ── The checker's EXIT STATUS is part of its answer (#694). ────────────────
+# `freshness_paths_problems` reports a clean list by printing nothing, and a
+# checker that cannot run AT ALL — python3 absent, PyYAML absent, the embedded
+# Python raising (the traceback goes to stderr) — also prints nothing. Read only
+# its stdout and those two are the same observation, so the leg below used to say
+# PASS for a check that never happened and count it toward this guard's own
+# positive floor. PR #662's round-1 review reproduced exactly that with python3
+# off PATH.
+#
+# So the status is folded in here, once, and the leg consumes THIS function:
+#   0 = it ran and found nothing   1 = it ran and printed problems
+#   anything else = it could not run, which is never agreement.
+# The two self-contradictory shapes (0 with output, 1 without) are refused too —
+# a checker that has started disagreeing with itself is not evidence either way.
+freshness_paths_findings() {
+  local out rc=0
+  out="$(freshness_paths_problems "$1" 2>&1)" || rc=$?
+  case "$rc" in
+  0)
+    [ -z "$out" ] && return 0
+    printf '%s\n' \
+      "the paths checker exited 0 (clean) while printing output, so it is disagreeing with itself:"
+    printf '%s\n' "$out" | sed 's/^/  | /'
+    return 1
+    ;;
+  1)
+    if [ -z "$out" ]; then
+      printf '%s\n' \
+        "the paths checker exited 1 (problems found) but printed none, so there is nothing to act on"
+      return 1
+    fi
+    printf '%s\n' "$out"
+    return 1
+    ;;
+  *)
+    printf '%s\n' \
+      "the paths checker could not run: exit status $rc (expected 0 = clean, or 1 = problems found)." \
+      "127 means python3 is not on PATH; a PyYAML import failure and an unhandled traceback land here too." \
+      "An answer that was never computed is not a clean answer (#694)."
+    [ -n "$out" ] && printf '%s\n' "$out" | sed 's/^/  | /'
+    return 1
+    ;;
+  esac
+}
+
+# ── The negative controls for the checker above. ──────────────────────────
+# A guard whose own failure path is never exercised is decoration: the leg would
+# pass identically if `freshness_paths_problems` stopped looking at the list.
+# Driven from ci.yml's always-on `Proto Checks` job.
+SCRATCH=""
+cleanup() {
+  [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
+  return 0
+}
+
+self_test() {
+  local pass=0 fail=0
+  SCRATCH="$(mktemp -d)"
+  trap cleanup EXIT
+
+  expect() { # name want-exit file [needle …]
+    local name="$1" want="$2" file="$3"
+    shift 3
+    local out rc=0 good=1 needle
+    out="$(freshness_paths_problems "$file" 2>&1)" || rc=$?
+    [ "$rc" -eq "$want" ] || good=0
+    for needle in "$@"; do
+      case "$out" in
+      *"$needle"*) ;;
+      *) good=0 ;;
+      esac
+    done
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (exit $rc, wanted $want)"
+      printf '%s\n' "$out" | sed 's/^/    | /'
+    fi
+  }
+
+  write() { # file, then the yaml body on stdin
+    cat >"$SCRATCH/$1"
+  }
+
+  write exact.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+      - tools/release/check_go_freshness.sh
+  schedule:
+    - cron: "30 7 * * 1"
+  workflow_dispatch:
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    steps:
+      - run: bash tools/release/check_go_freshness.sh
+YML
+
+  write reordered.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - tools/release/check_go_freshness.sh
+      - .github/workflows/go-freshness.yml
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write widened.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+      - tools/release/check_go_freshness.sh
+      - go/**
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write narrowed.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write unfiltered.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write ignore.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths-ignore:
+      - docs/**
+  schedule:
+    - cron: "30 7 * * 1"
+YML
+
+  write no_pr.yml <<'YML'
+name: Go module freshness
+on:
+  schedule:
+    - cron: "30 7 * * 1"
+  workflow_dispatch:
+YML
+
+  write broken.yml <<'YML'
+name: Go module freshness
+on:
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+     bad indentation here
+YML
+
+  expect "the exact two-file list is accepted" 0 "$SCRATCH/exact.yml"
+  expect "the same two files in the other order are accepted (it is a set)" 0 "$SCRATCH/reordered.yml"
+  expect "a WIDENED list is refused" 1 "$SCRATCH/widened.yml" "go/**"
+  expect "a NARROWED list is refused" 1 "$SCRATCH/narrowed.yml" "tools/release/check_go_freshness.sh"
+  expect "a pull_request trigger with no paths filter is refused" 1 "$SCRATCH/unfiltered.yml" "EVERY pull request"
+  expect "paths-ignore smuggled in place of paths is refused" 1 "$SCRATCH/ignore.yml" "paths-ignore"
+  expect "a workflow with no pull_request trigger at all is refused" 1 "$SCRATCH/no_pr.yml" "no pull_request trigger"
+  expect "unparseable YAML is refused, never read as agreement" 1 "$SCRATCH/broken.yml" "not parseable YAML"
+  expect "the shipped .github/workflows/go-freshness.yml satisfies it" 0 "$WORKFLOWS/go-freshness.yml"
+
+  # ── The LEG, not the checker (#694). ────────────────────────────────────
+  # Everything above proves what `freshness_paths_problems` ANSWERS. None of it
+  # can see what the leg that consumes that answer does when the checker cannot
+  # answer at all — and that is the failure that actually happened: PR #662's
+  # round-1 review removed python3 from PATH and this guard printed
+  # `PASS … / Results: 26 passed, 1 failed, 27 total`, counting a leg that
+  # asserted nothing toward its own positive floor, while the sibling
+  # `--self-test` step correctly went exit 127.
+  #
+  # So these two cases drive the WHOLE guard as a subprocess and read its
+  # verdict, with and without a python3 that works. A PATH whose first `python3`
+  # exits 127 is exactly what a runner image without python3 looks like from
+  # inside this script.
+  mkdir -p "$SCRATCH/nopy"
+  cat >"$SCRATCH/nopy/python3" <<'STUB'
+#!/usr/bin/env bash
+# Stands in for "python3 is not installed": the status `command not found`
+# produces, with nothing on stdout.
+exit 127
+STUB
+  chmod +x "$SCRATCH/nopy/python3"
+
+  local LEG="go-freshness.yml's pull_request trigger is scoped to the alarm's own two files"
+
+  # leg_case <name> <PASS|FAIL> [PATH prefix]
+  # Runs the guard itself and asserts the verdict THIS leg reported, plus the
+  # guard's own exit status — the two things a stdout-only leg cannot connect.
+  leg_case() {
+    local name="$1" want="$2" prefix="${3-}"
+    local out rc=0 good=1
+    if [ -n "$prefix" ]; then
+      out="$(PATH="$prefix:$PATH" bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+    else
+      out="$(bash "${BASH_SOURCE[0]}" 2>&1)" || rc=$?
+    fi
+    case "$out" in
+    *"$want  $LEG"*) ;;
+    *) good=0 ;;
+    esac
+    if [ "$want" = "FAIL" ]; then
+      [ "$rc" -ne 0 ] || good=0
+      # The status the checker died with must be NAMED: without it the next
+      # reader cannot tell a drifted path list from a checker that never ran.
+      case "$out" in
+      *"exit status 127"*) ;;
+      *) good=0 ;;
+      esac
+    else
+      [ "$rc" -eq 0 ] || good=0
+    fi
+    if [ "$good" -eq 1 ]; then
+      pass=$((pass + 1))
+      echo "PASS  $name"
+    else
+      fail=$((fail + 1))
+      echo "FAIL  $name (guard exited $rc, wanted the leg to report $want)"
+      printf '%s\n' "$out" |
+        grep -E "^(PASS|FAIL)  go-freshness\.yml's pull_request|^Results:" |
+        sed 's/^/    | /'
+    fi
+  }
+
+  leg_case "the leg PASSES on the shipped tree when the checker can run" PASS
+  leg_case "the leg FAILS when the paths checker cannot run at all (python3 exits 127)" \
+    FAIL "$SCRATCH/nopy"
+
+  local total=$((pass + fail))
+  local MIN=11
+  case "$pass$fail$total" in
+  *[!0-9]*)
+    echo "::error::go-freshness paths self-test produced a non-numeric tally"
+    return 1
+    ;;
+  esac
+  if [ "$total" -lt "$MIN" ]; then
+    echo "::error::go-freshness paths self-test ran $total cases, expected at least $MIN — the sweep itself is broken"
+    return 1
+  fi
+  echo "Results: $pass passed, $fail failed, $total total"
+  [ "$fail" -eq 0 ]
+}
+
+if [ "$SELF_TEST" -eq 1 ]; then
+  self_test
+  exit $?
+fi
 
 [ -f "$RELEASE" ] || {
   echo "::error::missing $RELEASE"
@@ -480,6 +857,15 @@ if [ -f "$AWAIT" ]; then
     aprobs+=("expected a bounded polling budget — an unbounded wait hangs the release job until its timeout")
   grep -qF 'INTERVAL_SECONDS' "$AWAIT" ||
     aprobs+=("expected an explicit poll interval")
+  grep -qF 'def baseline_run_id(' "$AWAIT" ||
+    aprobs+=(
+      "expected the poller to require a run STRICTLY NEWER than a pre-dispatch baseline"
+      "(newest_matching/await_run take after_run_id, captured before the dispatch, #656):"
+      "GitHub creates the dispatched run's row seconds AFTER accepting the dispatch, so the first"
+      "poll sees only rows that already existed — and docs/RELEASE.md documents a manual"
+      "re-dispatch on that same channel tag, whose stale success would read as this release's"
+      "tag cut"
+    )
   grep -qF 'conclusion' "$AWAIT" ||
     aprobs+=(
       "expected the poller to read the dispatched run's CONCLUSION: waiting for a run to reach"
@@ -554,6 +940,39 @@ if [ -f "$FRESHWF" ]; then
   else
     no "go-freshness.yml is scheduled, rehearsable, and self-tests before it trusts the network" "${wprobs[@]}"
   fi
+
+  # The scoping of its pull_request trigger is a separate, load-bearing claim:
+  # this is the only freshness alarm in the repo that runs on pull requests at
+  # all, and the header's argument for why that is not a per-PR dependency on
+  # proxy.golang.org is that the filter names the alarm's OWN two files. Widen
+  # it and a CDN hiccup reddens unrelated work; narrow it and a change to the
+  # alarm stops having to prove itself against the live proxy before it merges.
+  #
+  # Through freshness_paths_findings, never freshness_paths_problems directly:
+  # the verdict has to consume the checker's EXIT STATUS, not only its stdout,
+  # or "it found nothing" and "it never ran" are the same observation (#694).
+  pathrc=0
+  pathout="$(freshness_paths_findings "$FRESHWF")" || pathrc=$?
+  pathprobs=()
+  while IFS= read -r pline; do
+    [ -n "$pline" ] && pathprobs+=("$pline")
+  done <<EOF
+$pathout
+EOF
+  if [ "$pathrc" -ne 0 ] && [ "${#pathprobs[@]}" -eq 0 ]; then
+    # Cannot happen through the wrapper above, which always says why it failed.
+    # Asserted anyway so a future edit cannot turn a silent non-zero into a PASS.
+    pathprobs=("the paths checker failed with exit status $pathrc and said nothing")
+  fi
+  if [ "$pathrc" -eq 0 ] && [ "${#pathprobs[@]}" -eq 0 ]; then
+    ok "go-freshness.yml's pull_request trigger is scoped to the alarm's own two files"
+  else
+    no "go-freshness.yml's pull_request trigger is scoped to the alarm's own two files" \
+      "${pathprobs[@]}" \
+      "this alarm queries proxy.golang.org; every other freshness lane is schedule-only for" \
+      "exactly that reason, and this one's PR trigger is acceptable ONLY while the filter cannot" \
+      "match a pull request that does not change the alarm (#656)"
+  fi
 else
   no ".github/workflows/go-freshness.yml exists (weekly + dispatch)" \
     "pubdev-freshness.yml is 'the alarm #551 lacked'; the Go lane has no equivalent, so the only" \
@@ -576,10 +995,19 @@ else
     "exercise its budget loop and its conclusion classification before it matters"
 fi
 
+if grep -qF 'tools/release/check_go_release_wiring.sh --self-test' "$CI"; then
+  ok "ci.yml runs this guard's own paths-scoping negative controls"
+else
+  no "ci.yml runs this guard's own paths-scoping negative controls" \
+    "the go-freshness paths leg above is the one leg here that parses YAML rather than grepping," \
+    "and a leg whose failure path is never exercised would pass identically if it stopped looking" \
+    "at the list: bash tools/release/check_go_release_wiring.sh --self-test (#656)"
+fi
+
 total=$((pass + fail))
 # Positive floor (#439/#444): an exit code plus a zero failure count cannot tell
 # "all passed" from "nothing ran".
-MIN=20
+MIN=22
 case "$pass$fail$total" in
 *[!0-9]*)
   echo "::error::Go release wiring guard produced a non-numeric tally"

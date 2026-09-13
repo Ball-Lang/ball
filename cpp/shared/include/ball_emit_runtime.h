@@ -63,14 +63,24 @@ struct BallException : public std::runtime_error {
 // rendered the way Dart's own `toString()` does — or an empty string for
 // anything else (issues #616/#640).
 //
-// The table is EXPLICIT and closed, and byte-identical to the sibling runtimes'
-// — `dartErrorToString` (go/runtime/ops.go), `DartErrorToString`
-// (csharp/shared/src/BallValue.cs), `dart_error_to_string`
-// (rust/shared/src/value.rs). Rendering any exception that happens to carry a
-// `message` field would reach straight into user data: a Ball class declaring a
-// `message` field is not a Dart error and must keep printing what it printed
-// before. `StateError` is the one whose rendering is not `<Type>: <message>`:
-// Dart spells it `Bad state: <message>` (verified against the SDK).
+// The table is EXPLICIT and closed, and matches `dartErrorToString`
+// (go/runtime/ops.go) and `DartErrorToString` (csharp/shared/src/BallValue.cs)
+// row for row — the same three rows, and the same module-prefix stripping.
+// Rendering any exception that happens to carry a `message` field would reach
+// straight into user data: a Ball class declaring a `message` field is not a
+// Dart error and must keep printing what it printed before. `StateError` is the
+// one whose rendering is not `<Type>: <message>`: Dart spells it
+// `Bad state: <message>` (verified against the SDK).
+//
+// The FOURTH sibling, `dart_error_to_string` (rust/shared/src/value.rs), is NOT
+// identical and is deliberately not copied: it carries an extra `TypeError` row
+// and does no module-prefix stripping. That divergence is the open issue #641,
+// which owns the decision about which spelling wins; adding the row here would
+// pre-empt it and would change nothing anyway — C++ raises `TypeError` through
+// the 2-argument, no-`fields` ctor (`ball_cast_assert` in
+// `cpp/compiler/src/compiler.cpp`), so the `message` lookup below misses and the
+// cast failure keeps printing `type cast failed: not a <T>`, which is what the
+// Dart reference engine prints.
 inline std::string _ball_dart_error_to_string(const std::string& type_name,
                                               const std::string& message) {
     // The throw lowering strips the module prefix, but a tag can still arrive

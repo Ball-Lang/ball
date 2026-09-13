@@ -124,11 +124,20 @@ bound two different ways by the `try` lowering in `cpp/compiler/src/compiler.cpp
 
 Both must print Dart's `toString()`, and they must agree. The single renderer is
 `_ball_dart_error_to_string(type_name, message)` in `cpp/shared/include/ball_emit_runtime.h`
-— #616's closed table, byte-identical to `dartErrorToString` (`go/runtime/ops.go`),
-`DartErrorToString` (`csharp/shared/src/BallValue.cs`) and `dart_error_to_string`
-(`rust/shared/src/value.rs`): `StateError` → `Bad state`, `FormatException` →
-`FormatException`, `RangeError` → `RangeError`, and **nothing else**, so a user class that
-happens to declare a `message` field is never re-rendered.
+— #616's closed table, matching `dartErrorToString` (`go/runtime/ops.go`) and
+`DartErrorToString` (`csharp/shared/src/BallValue.cs`) row for row: `StateError` →
+`Bad state`, `FormatException` → `FormatException`, `RangeError` → `RangeError`, and
+**nothing else**, so a user class that happens to declare a `message` field is never
+re-rendered. Same three rows, same module-prefix stripping.
+
+The fourth sibling, `dart_error_to_string` (`rust/shared/src/value.rs`), is **not** identical
+and is deliberately not copied: it carries an extra `TypeError` row and does no module-prefix
+stripping. That three-way split (C#'s map form, Rust's prefixed form, Dart's bare form) is the
+OPEN issue #641, which owns the decision about which spelling wins. Adding the row here would
+pre-empt it and would change nothing anyway — C++ raises `TypeError` through the 2-argument,
+no-`fields` ctor (`ball_cast_assert`, `cpp/compiler/src/compiler.cpp`), so the `message` lookup
+misses and a failed cast keeps printing `type cast failed: not a <T>`, which is what the Dart
+reference engine prints.
 
 The two throw shapes carry the string in different places, and the renderer keys on that
 difference rather than on the type name:

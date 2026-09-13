@@ -215,7 +215,10 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   a reified `BallDyn` (`_ball_caught_to_dyn`) when none is. Both route through
   `_ball_dart_error_to_string` in `cpp/shared/include/ball_emit_runtime.h`
   (#616's closed table: `StateError` → `Bad state`, `FormatException`,
-  `RangeError`, nothing else). Key on the `message` FIELD, never on the type
+  `RangeError`, nothing else — the same three rows as Go's `dartErrorToString`
+  and C#'s `DartErrorToString`; Rust's `dart_error_to_string` has a fourth
+  `TypeError` row and is the OPEN divergence #641, so do NOT copy it here).
+  Key on the `message` FIELD, never on the type
   name alone: a literal `throw StateError('boom')` keeps its ctor argument in
   `fields` with `what()` = the bare type name, while `_ball_make_exception`
   already carries the canonical `toString()` string in `what()` with no fields —

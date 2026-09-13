@@ -72,15 +72,18 @@ struct BallException : public std::runtime_error {
 // one whose rendering is not `<Type>: <message>`: Dart spells it
 // `Bad state: <message>` (verified against the SDK).
 //
-// The FOURTH sibling, `dart_error_to_string` (rust/shared/src/value.rs), is NOT
-// identical and is deliberately not copied: it carries an extra `TypeError` row
-// and does no module-prefix stripping. That divergence is the open issue #641,
-// which owns the decision about which spelling wins; adding the row here would
-// pre-empt it and would change nothing anyway — C++ raises `TypeError` through
-// the 2-argument, no-`fields` ctor (`ball_cast_assert` in
-// `cpp/compiler/src/compiler.cpp`), so the `message` lookup below misses and the
-// cast failure keeps printing `type cast failed: not a <T>`, which is what the
-// Dart reference engine prints.
+// The FOURTH sibling, `dart_error_to_string` (rust/shared/src/value.rs), carries
+// a `TypeError` row this table deliberately does NOT, and #641 settled why: a
+// `_TypeError`'s `toString()` IS its message, with no `TypeError: ` prefix at
+// all, so there is no prefix for a row here to hold. C++ needs none — it raises
+// `TypeError` through the 2-argument, no-`fields` ctor (`ball_cast_assert` in
+// `cpp/compiler/src/compiler.cpp`) carrying the canonical
+// `type '<runtime type>' is not a subtype of type '<target>' in type cast`
+// string as the payload, so the `message` lookup below misses and `what()`
+// returns that string verbatim. The three rows this table DOES hold are checked
+// against Dart's own spellings on every PR by
+// `tools/check_error_rendering_tables.py` (`Proto Checks`); a row whose prefix
+// drifts from Dart's, here or in any sibling, fails there.
 inline std::string _ball_dart_error_to_string(const std::string& type_name,
                                               const std::string& message) {
     // The throw lowering strips the module prefix, but a tag can still arrive

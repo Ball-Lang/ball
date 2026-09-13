@@ -219,7 +219,10 @@ public sealed partial class CSharpCompiler
             return sub;
         }
 
-        var assert = $"BallRuntime.PatternCastAssert({TypeTest(subject, type)}, {Naming.StringLiteral(type)})";
+        // The subject is passed too: Dart's cast-failure message names the
+        // VALUE's runtime type before the target type (issue #641).
+        var assert =
+            $"BallRuntime.PatternCastAssert({TypeTest(subject, type)}, {subject}, {Naming.StringLiteral(type)})";
         return new PatternMatch($"({sub.Condition} && {assert})", sub.Bindings);
     }
 

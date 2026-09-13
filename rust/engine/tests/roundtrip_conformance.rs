@@ -32,7 +32,7 @@
 //! this leg mirrors measures exactly 0. This leg keeps that number live and
 //! honest; raising it is encoder/compiler work tracked elsewhere.
 //!
-//! ## Not a PR gate
+//! ## A PR gate, but not from `cargo test`
 //!
 //! `#[ignore]` by default (a long, whole-corpus sweep that shells out to Dart),
 //! so `cargo test --workspace` in the PR-gated `Rust` CI job never runs it. Its

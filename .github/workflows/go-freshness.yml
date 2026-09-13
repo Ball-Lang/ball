@@ -1,0 +1,99 @@
+name: Go module freshness
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The Go lane's outcome alarm — the sibling of pubdev-freshness.yml (#627).
+#
+# Every other Go release guard asserts something STATIC: that the channel's
+# trigger chain can fire (tools/release/check_release_dispatch_wiring.sh), or
+# that the lane is shaped so it fires with no human in the path
+# (tools/release/check_go_release_wiring.sh). None of them can see a
+# perfectly-wired, perfectly-green lane that has simply stopped shipping — which
+# is the failure #551 reported for pub.dev and #361 reported for Go one level
+# down: the tagger ran on every release and idempotently did nothing, "all six
+# tags already exist" is a PASS, and `go install …@latest` kept serving v0.1.0.
+#
+# Go's registry IS the module proxy, so this compares the PROXY's live state to
+# `main`: for each of the six modules, `proxy.golang.org` must list the version
+# that main's go.mod files name (build_local_proxy.py --print-version).
+#
+# WHY SCHEDULED AND NOT PR-GATED: proxy.golang.org does not change between two
+# pushes of the same PR, and a per-PR dependency on an external CDN would redden
+# UNRELATED work on a hiccup — the same reasoning that keeps pubdev-freshness.yml
+# off the PR path. The comparison logic itself IS PR-gated: ci.yml's
+# `Proto Checks` job runs `check_go_freshness.sh --self-test` on every PR, so a
+# guard that quietly stopped comparing anything cannot reach main. The one
+# exception is this alarm's OWN two files — see the trigger block below; that
+# cannot redden unrelated work, because no unrelated pull request touches them.
+#
+# THE VERSION ALWAYS COMES FROM main, NEVER FROM THE DISPATCHED REF. The
+# released module line lives on main; a branch may carry an unreleased bump, and
+# comparing the proxy against THAT would be a false alarm at best and a false
+# all-clear at worst. `BALL_GO_VERSION_REF: origin/main` makes the script
+# materialise that ref's `go/` + `tools/go-module-proxy/` into a scratch tree and
+# derive the version there — through the same `build_local_proxy.py
+# --print-version` entry point the tagger uses, so the four cross-file
+# invariants are re-asserted on the tree being compared. The SCRIPT, meanwhile,
+# is the dispatched ref's, which is what makes a branch dispatch a real
+# rehearsal of a change to this alarm.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  # SELF-GATED, and only self-gated. A workflow_dispatch workflow is not
+  # registered until its file is on the default branch ("This event will only
+  # trigger a workflow run if the workflow file exists on the default branch" —
+  # GitHub's events reference), so a brand-new alarm cannot be rehearsed by
+  # dispatch before it merges: `gh workflow run go-freshness.yml --ref <branch>`
+  # answers HTTP 404. The same wall stopped PR #623 rehearsing go-release.yml.
+  #
+  # This path filter is the way out, and it is NOT the per-PR network dependency
+  # the paragraph above rejects: it names only this alarm's own two files, so the
+  # only pull request it can ever redden is one that CHANGES THE ALARM — which is
+  # exactly the pull request that should have to prove it still works against the
+  # live proxy before it merges. Nothing else in the repository can trip it.
+  pull_request:
+    paths:
+      - .github/workflows/go-freshness.yml
+      - tools/release/check_go_freshness.sh
+  schedule:
+    - cron: "30 7 * * 1" # Weekly, Monday 07:30 UTC (after pubdev-freshness's 07:00)
+  workflow_dispatch:
+    inputs:
+      max_lag_minutes:
+        description: "How long proxy.golang.org may lag a freshly pushed go/<module>/vX.Y.Z tag, in minutes. The index lag was measured at ~25 min on 2026-09-05 and 2026-09-14."
+        type: string
+        default: "60"
+
+permissions:
+  contents: read
+
+jobs:
+  freshness:
+    name: proxy.golang.org vs main
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The lag window is measured from the go/<module>/vX.Y.Z tag's own
+          # date, and the version is read from origin/main — neither of which a
+          # shallow, single-ref clone carries.
+          fetch-depth: 0
+
+      # The module path list and the version both come from the tree, so no Go
+      # dependency is downloaded here; `go list -m -versions` only needs the
+      # toolchain itself. No cache-dependency-path for the same reason.
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      # Proves the classifier still classifies before trusting a live verdict:
+      # a clean network run and a broken comparison look identical otherwise.
+      - name: Self-test the freshness classifier
+        run: bash tools/release/check_go_freshness.sh --self-test
+
+      - name: Compare proxy.golang.org against main
+        env:
+          MAX_LAG_MINUTES: ${{ inputs.max_lag_minutes || '60' }}
+          BALL_GO_VERSION_REF: origin/main
+        run: bash tools/release/check_go_freshness.sh

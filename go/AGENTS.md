@@ -104,11 +104,22 @@ touched `go/` and driven by `.github/workflows/go-release.yml`, which
 `release.yml` dispatches on every release (`--ref main`). Its `prepareCmd` runs
 the same `bump_go_modules.sh` below, `@semantic-release/git` commits
 `chore(release): go vX.Y.Z [skip ci]`, and its `publishCmd` dispatches
-`tag-go-modules.yml` at the channel tag — so a `feat(go):`/`fix(go):` merge is
-all it takes to move the published line. `tag_go_modules.sh` remains the SINGLE
-tagging path; `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`
-job) pins all of that. Rehearse a change to the lane with
+`tag-go-modules.yml` at the channel tag **and waits for that run to finish**
+(`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any
+non-`success` conclusion — #627) — so a `feat(go):`/`fix(go):` merge is all it
+takes to move the published line, and a tag cut that fails reddens the release
+that caused it. `tag_go_modules.sh` remains the SINGLE tagging path;
+`tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks` job) pins all
+of that. Rehearse a change to the lane with
 `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
+
+**Whether `proxy.golang.org` actually serves the line is its own weekly alarm**
+(`.github/workflows/go-freshness.yml`, #627): for each of the six modules,
+`go list -m -versions github.com/ball-lang/ball/go/<module>` against the public
+proxy must list the version **main's** `go.mod` files name, tolerating a tag
+younger than `MAX_LAG_MINUTES` (60; the observed index lag is ~25 min). It is
+the Go sibling of `pubdev-freshness.yml` — the one guard that can see a
+perfectly-wired, perfectly-green lane that has stopped shipping.
 
 Until that landed, tagging was automatic but *versioning* was not: the tagger
 only ever cuts the version already in the `go.mod` files, so every release

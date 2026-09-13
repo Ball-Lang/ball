@@ -154,16 +154,48 @@ that language's own self-test (all six gated on every PR in `ci.yml`):
    projects whose `.csproj` merely *mentions* xunit — in an XML comment, and
    behind an unevaluated `Condition`. A sloppy rule passes the exclusion half of
    the test and fails this half, by construction.
-4. **Rust's two halves are both required.** The path rule cannot see
-   `bitflags/src/tests.rs` or `bitflags/src/tests/*.rs` — neither is under a
-   *package-root* `tests/` directory; the reachability rule is what catches
-   them, and on the real pins it catches all 34 (0 by path, 34 by
-   `#[cfg(test)]` reachability). The reachability walk is its own `syn` walk in
-   the harness, not a call into `CrateGraph`: that walk skips `#[cfg(test)]`
-   modules outright, so it cannot tell "test-only" from "not reached at all", and
-   conflating those two would exclude an unreferenced *library* leftover. A file
-   the walk cannot resolve is **kept**, so the rule can only ever leave the
-   denominator too large.
+4. **Rust's two halves are both required, and the working one's anchor must be
+   declared.** The path rule cannot see `bitflags/src/tests.rs` or
+   `bitflags/src/tests/*.rs` — neither is under a *package-root* `tests/`
+   directory; the reachability rule is what catches them, and on the real pins it
+   catches all 34 (0 by path, 34 by `#[cfg(test)]` reachability). The
+   reachability walk is its own `syn` walk in the harness, not a call into
+   `CrateGraph`: that walk skips `#[cfg(test)]` modules outright, so it cannot
+   tell "test-only" from "not reached at all", and conflating those two would
+   exclude an unreferenced *library* leftover. A file the walk cannot resolve is
+   **kept**, so the rule can only ever leave the denominator too large.
+
+   That walk starts from a **crate root** resolved under the studied subtree
+   (`lib.rs` / `main.rs` / `src/lib.rs` / `src/main.rs`). Until #648 a failed
+   search returned an empty exclusion set and the run continued: a pin whose
+   `lib` pointed one level too deep, a crate whose root moved, or a refactor of
+   the resolver turned the only working half of the rule OFF, all 34 files
+   re-entered the denominator, and `coverage_table.py` read the jump in `scored`
+   as an improvement to ratchet UP. "Too large" is the safe direction for one
+   unresolvable *file*; it is not safe for the *anchor* of the whole rule. So
+   there are now two controls, and both are negative controls with fixtures:
+
+   - **The harness fails loud.** No crate root under the studied subtree is an
+     ERROR naming every path searched, the package root it did find, and the
+     opt-in — never a note. A subtree that genuinely has no crate root (a bare
+     directory of `.rs` files) is declared, per pin, with `"crateRoot": "none"`
+     (CLI: `--no-crate-root`); any other value for that key is itself an error,
+     so a typo cannot silently re-arm the default. `self_test.rs`'s
+     `an_unresolvable_crate_root_fails_the_run` builds a package whose
+     `src/deep/mod.rs` declares `#[cfg(test)] mod deep_tests;` and points the pin
+     at `src/deep` — the "one level too deep" shape exactly — and asserts the run
+     fails; `the_declared_anchorless_opt_in_lets_the_run_proceed` asserts the
+     declared pin runs with that module *studied* and `excluded (test-only): 0`,
+     which is what keeps the fix from making every anchorless subtree fatal.
+   - **The published ratchet reads the signature.** `coverage_table.py` treats a
+     row whose `excluded` drops to 0 from a baseline above it *while `scored`
+     rises by at least that many files* as a **breach** naming that cause — the
+     whole excluded population was readmitted — and does not raise the baseline.
+     None of the three floors can see that on their own: the denominator GREW,
+     and if the readmitted files happen to be clean every ratio improves too.
+     The same drop with an **unchanged** denominator stays an ordinary raise (a
+     pin that dropped its own tests readmits nothing). Both shapes are asserted
+     in `tools/coverage-study/test/coverage_table_self_test.py` (14f and 14g).
 
 Three harnesses were already filtering before this change — TypeScript dropped
 `*.test.ts` / `*.spec.ts` / `*.bench.ts` and three directories, Python dropped
@@ -634,6 +666,11 @@ node --experimental-strip-types tools/coverage-study/rq1_study_ts.mts \
   --pins tools/coverage-study/packages/ts.json --checkouts /tmp/co
 
 # Every harness also takes --package <name> --source-dir <dir> for a one-off.
+# The Rust one refuses a --source-dir with no crate root under it (#648) — that
+# is the anchor of the `#[cfg(test)]` half of its test-only rule. Point it at
+# the crate's source root, or declare the subtree anchorless:
+cd rust && cargo run -p ball-rq1-study --bin rq1-study -- \
+  --package bare --source-dir /tmp/loose-rs-files --no-crate-root
 
 # ── Tier B (Dart) ──────────────────────────────────────────────────────────
 # Its self-test is gated in ci.yml's Dart job too.

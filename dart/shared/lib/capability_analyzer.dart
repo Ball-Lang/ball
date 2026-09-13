@@ -18,7 +18,8 @@
 /// {
 ///   'programName': String, 'programVersion': String,
 ///   'capabilities': [ {'capability','riskLevel','callSites':[
-///       {'module','function','calleeModule','calleeFunction'} ]} ],
+///       {'module','function','calleeModule','calleeFunction',
+///        'resolvedModule'} ]} ],
 ///   'functions': [ {'module','function','capabilities':[String]} ],
 ///   'summary': { 'isPure','readsFilesystem',…,'totalFunctions',… },
 /// }
@@ -286,8 +287,8 @@ List<Object?> _collectCustomBaseFns(dynamic modules) {
   return entries;
 }
 
-/// The declaring `'<module>.<function>'` key of the custom base function a call
-/// to ([module], [function]) actually reaches, or `''` when it reaches none.
+/// The declared custom base function a call to ([module], [function]) actually
+/// reaches, or `null` when it reaches none.
 ///
 /// The engine dispatches a base call by function IDENTITY, not by the call-site
 /// module string: `_resolveAndCallFunction` falls back to a bare-name scan
@@ -302,8 +303,8 @@ List<Object?> _collectCustomBaseFns(dynamic modules) {
 /// Exact match first, so a program declaring the same bare name in two custom
 /// modules still attributes a qualified call to the module it named. The
 /// bare-name pass then mirrors [lookupCapabilityByName], with the same
-/// fail-closed property: an unrecognized name yields `''` and the call stays an
-/// ordinary user call. [userFns] blocks the bare-name pass for a name a
+/// fail-closed property: an unrecognized name yields nothing and the call stays
+/// an ordinary user call. [userFns] blocks the bare-name pass for a name a
 /// non-base user function also declares, because the engine refuses to dispatch
 /// that case at all (the #420 `sawBase && sawUser` ambiguity guard throws), so
 /// there is no host call to report; the qualified spelling still resolves

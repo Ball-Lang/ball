@@ -615,7 +615,7 @@ Supporting configs:
    clones and builds third-party packages), but it is no longer report-only:
    since #493 its `publish` job floors every row against
    `tools/coverage-study/baseline.json` with a RATCHET (fail on a drop in the
-   clean ratio, the stage-1 funnel ratio, or the scored denominator; raise the
+   clean ratio, ANY funnel stage's ratio, or the scored denominator; raise the
    baseline on an improvement), and regenerates the published table in
    `README.md`, committing both to main with `[skip ci]`. The floors sit at the
    measured numbers, not at an aspiration — Dart Tier A is 61% and four rows are

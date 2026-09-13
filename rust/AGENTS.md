@@ -390,6 +390,18 @@ instructions.
   `go/compiler/library.go` and `csharp/compiler/src/TypeEmit.cs`; the
   `ball-lang-compiler runtime:` prefix it used to carry was #616/#641 rendering drift in a spot
   no fixture observed.
+- **Do not expect that fix to move Tier A's Rust row — measured, twice.** Stage 3 on the current
+  pins is `1/77`, and it was `1/77` before the fix too
+  ([34766105061](https://github.com/Ball-Lang/ball/actions/runs/34766105061) pre-fix,
+  [34769384905](https://github.com/Ball-Lang/ball/actions/runs/34769384905) post-fix), because
+  **stage 1 is the dam**: 76 of the 77 scored files fail `encode-error` on third-party Rust the
+  encoder does not yet read (`.finish()`, `write!`, tuple expressions, data-carrying enum
+  variants, destructuring bindings, non-plain `impl` self types), so only one file ever reaches
+  stage 3 — and no file in that run carries a `reencode-error` at all. The `panic!` gap is real
+  and the round-trip gate proves it on the repository's own output; it is simply not what those
+  pins are stopped on. A lane raising Rust's Tier A numbers works on stage 1, on the reasons that
+  artifact names — read them with `gh run download <run-id> -n coverage-study-tier-a-rust`, never
+  from prose.
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a

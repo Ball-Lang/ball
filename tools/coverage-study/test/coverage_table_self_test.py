@@ -97,6 +97,8 @@ def tier_a_artifact(
     clean: int,
     drift: int,
     encode_errors: int,
+    compile_errors: int = 0,
+    reencode_errors: int = 0,
     skipped: int = 0,
     excluded: int = 0,
     excluded_entries: list[tuple[str, str]] | None = None,
@@ -112,6 +114,13 @@ def tier_a_artifact(
     keys are ``Package``/``Scored``/``Clean``/``Reason`` while the other five
     harnesses emit camelCase. A renderer that only understood one casing would
     read the C# artifact as an empty report — i.e. as a pass.
+
+    ``compile_errors`` and ``reencode_errors`` are the files that stop AFTER
+    stage 1: a `compile-error` survived stage 1 only, and a `reencode-error`
+    survived stages 1 and 2 and then failed stage 3 — which is the shape issue
+    #632 had (`rust/compiler` emitted a `panic!` its own `rust/encoder`
+    refused). Without them every synthetic row has an identical funnel, and a
+    stage-3 floor would have nothing to fail on.
 
     ``excluded`` is the test-only exclusion count every Tier A harness reports
     since the owner's 2026-09-14 methodology decision on #491. ``omit_excluded``
@@ -135,6 +144,10 @@ def tier_a_artifact(
         files.append({"package": "p", "file": f"drift{i}.x", "scored": True, "clean": False, "irStable": False, "reason": "fixpoint-drift: generation 3 differed"})
     for i in range(encode_errors):
         files.append({"package": "p", "file": f"enc{i}.x", "scored": True, "clean": False, "irStable": False, "reason": "encode-error: unsupported construct"})
+    for i in range(compile_errors):
+        files.append({"package": "p", "file": f"cmp{i}.x", "scored": True, "clean": False, "irStable": False, "reason": "compile-error: unsupported expression"})
+    for i in range(reencode_errors):
+        files.append({"package": "p", "file": f"reenc{i}.x", "scored": True, "clean": False, "irStable": False, "reason": "reencode-error: unsupported macro invocation `panic!`"})
     for i in range(skipped):
         files.append({"package": "p", "file": f"skip{i}.x", "scored": False, "clean": False, "irStable": False, "reason": "skipped: no declarations"})
     for package, name in scored_entries or []:
@@ -187,7 +200,13 @@ def baseline_row(**over) -> dict:
         "artifact": "coverage-study-tier-a-dart/tier_a.json",
         "scored": 4,
         "clean": 3,
+        # The whole funnel is floored, stage by stage (issue #632), so a
+        # fixture that named only stage 1 would be rejected on its shape
+        # before it could assert anything.
         "encoded": 4,
+        "compiledBack": 4,
+        "reencoded": 4,
+        "declarationsKept": 4,
         # RECORDED, NOT FLOORED. The test-only exclusion count is context for
         # the denominator, not a quality measure: a pin list that grows its test
         # suite legitimately moves it in either direction. Keeping it in the
@@ -196,13 +215,14 @@ def baseline_row(**over) -> dict:
         "excluded": 0,
     }
     row.update(over)
-    # A Tier B row has no funnel, so it carries no `encoded`. Leaving the
-    # default in would make both Tier B cases below fail on the row shape
-    # instead of on the thing they claim to assert — a drop that "passes"
-    # because the fixture was rejected first is a false green.
+    # A Tier B row has no funnel, so it carries none of the four stage keys.
+    # Leaving the defaults in would make both Tier B cases below fail on the
+    # row shape instead of on the thing they claim to assert — a drop that
+    # "passes" because the fixture was rejected first is a false green.
     if row["kind"] == "tier-b":
-        if "encoded" not in over:
-            row.pop("encoded")
+        for key in ("encoded", "compiledBack", "reencoded", "declarationsKept"):
+            if key not in over:
+                row.pop(key)
         if "excluded" not in over:
             row.pop("excluded")
     return row
@@ -431,6 +451,9 @@ def main() -> int:
                 scored=4,
                 clean=0,
                 encoded=2,
+                compiledBack=2,
+                reencoded=2,
+                declarationsKept=2,
             )
         ])
         got = funnel.run()
@@ -769,6 +792,9 @@ def main() -> int:
             scored=10,
             clean=2,
             encoded=4,
+            compiledBack=4,
+            reencoded=4,
+            declarationsKept=4,
             excluded=34,
         )
 
@@ -998,6 +1024,145 @@ def main() -> int:
             "that failure names the row whose entry is missing",
             "Rust" in message,
             message,
+        )
+
+        # ── 17. every funnel stage is floored, not just stage 1 (#632) ─────
+        #
+        # Stage 3 is the only stage whose INPUT is this repository's own
+        # output: it re-encodes what this project's compiler just emitted. A
+        # construct the compiler emits that its own encoder refuses stops
+        # exactly there and nowhere else — which is why #632's `panic!`
+        # dispatcher arm was invisible to a baseline that floored stage 1
+        # alone. The fixtures below hold `scored`, `clean` and stage 1 FIXED,
+        # so each asserts the stage it names and nothing else.
+        stage3 = Case(tmp, "stage3")
+        stage3.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            # Stage 1 = 4/4 and clean = 0/4, exactly as the baseline demands;
+            # two files now stop at stage 3 instead of reaching stage 4.
+            tier_a_artifact(clean=0, drift=2, encode_errors=0, reencode_errors=2),
+        )
+        stage3.put_baseline([
+            baseline_row(
+                language="Rust",
+                artifact="coverage-study-tier-a-rust/tier_a.json",
+                scored=4,
+                clean=0,
+                encoded=4,
+                compiledBack=4,
+                reencoded=4,
+                declarationsKept=2,
+            )
+        ])
+        got = stage3.run()
+        message = got.stdout + got.stderr
+        check(
+            "a stage-3 drop fails even with clean and stage 1 unchanged",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "the stage-3 breach names stage 3 and both numbers",
+            "3 re-encoded" in message and "2/4" in message and "4/4" in message,
+            message,
+        )
+        check(
+            "a stage-3 breach never rewrites the baseline it just failed on",
+            json.loads(stage3.baseline.read_text(encoding="utf-8"))["rows"][0]["reencoded"] == 4,
+            stage3.baseline.read_text(encoding="utf-8"),
+        )
+
+        # ── 17b. …and a stage-3 gain raises that floor, naming the stage ────
+        stage3_up = Case(tmp, "stage3_up")
+        stage3_up.put_artifact(
+            "coverage-study-tier-a-rust/tier_a.json",
+            tier_a_artifact(clean=0, drift=2, encode_errors=0, reencode_errors=2),
+        )
+        stage3_up.put_baseline([
+            baseline_row(
+                language="Rust",
+                artifact="coverage-study-tier-a-rust/tier_a.json",
+                scored=4,
+                clean=0,
+                encoded=4,
+                compiledBack=4,
+                reencoded=0,
+                declarationsKept=0,
+            )
+        ])
+        got = stage3_up.run("--write")
+        message = got.stdout + got.stderr
+        raised = json.loads(stage3_up.baseline.read_text(encoding="utf-8"))["rows"][0]
+        check(
+            "a stage-3 gain passes and is persisted",
+            got.returncode == 0 and raised["reencoded"] == 2,
+            f"exit={got.returncode} row={raised}\n{message}",
+        )
+        check(
+            "the raise names the funnel stage that moved",
+            "3 re-encoded 0/4 -> 2/4" in message,
+            message,
+        )
+
+        # ── 17c. a Tier A row missing a stage is rejected, never defaulted ──
+        for missing_key in ("compiledBack", "reencoded", "declarationsKept"):
+            partial_row = baseline_row()
+            partial_row.pop(missing_key)
+            short = Case(tmp, f"short_{missing_key}")
+            short.put_artifact(
+                "coverage-study-tier-a-dart/tier_a.json",
+                tier_a_artifact(clean=3, drift=1, encode_errors=0),
+            )
+            short.put_baseline([partial_row])
+            got = short.run()
+            message = got.stdout + got.stderr
+            check(
+                f"a Tier A baseline row missing '{missing_key}' fails loud",
+                got.returncode == 1 and missing_key in message,
+                f"exit={got.returncode}\n{message}",
+            )
+
+        # ── 17d. a Tier B row carrying a funnel stage is rejected ───────────
+        for stage_key in ("encoded", "compiledBack", "reencoded", "declarationsKept"):
+            tierb_funnel = Case(tmp, f"tierb_{stage_key}")
+            tierb_funnel.put_artifact(
+                "coverage-study-tier-b-dart/tier_b.json",
+                tier_b_artifact(clean=3, drift=1),
+            )
+            tierb_funnel.put_baseline([
+                baseline_row(
+                    tier="Tier B (per-file)",
+                    kind="tier-b",
+                    artifact="coverage-study-tier-b-dart/tier_b.json",
+                    scored=4,
+                    clean=3,
+                    **{stage_key: 4},
+                )
+            ])
+            got = tierb_funnel.run()
+            message = got.stdout + got.stderr
+            check(
+                f"a Tier B row carrying '{stage_key}' fails loud",
+                got.returncode == 1 and stage_key in message,
+                f"exit={got.returncode}\n{message}",
+            )
+
+        # ── 17e. a funnel that rises down the stages cannot be measured ─────
+        # The funnel is monotone by construction (a file that failed a stage
+        # cannot pass the next), so a row claiming otherwise was hand-written,
+        # and hand-written floors are how a ratchet gets quietly widened.
+        impossible = Case(tmp, "impossible")
+        impossible.put_artifact(
+            "coverage-study-tier-a-dart/tier_a.json",
+            tier_a_artifact(clean=3, drift=1, encode_errors=0),
+        )
+        impossible.put_baseline([baseline_row(compiledBack=5)])
+        got = impossible.run()
+        message = got.stdout + got.stderr
+        check(
+            "a non-monotone baseline funnel is rejected",
+            got.returncode == 1 and "monotone" in message,
+            f"exit={got.returncode}\n{message}",
         )
 
     total = _passed + _failed

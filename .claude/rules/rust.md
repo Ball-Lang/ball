@@ -390,6 +390,12 @@ and its own encoder refuses caps that column no matter how good either half is o
   `ball-lang-compiler runtime:` prefix no other target emits, which is the #616/#641
   error-rendering drift in a spot no fixture observed. Changing that spelling means re-running the
   round-trip gate, which asserts it on both sides.
+- **Tier A's Rust row is dammed at STAGE 1, not stage 3** — measured on both sides of this fix
+  (`1/77` at stage 1, 2 and 3 in runs 34766105061 and 34769384905; 76 files stop at
+  `encode-error`, none at `reencode-error`). So the `panic!` fix does not move the published
+  funnel, and a lane that wants those numbers up works on stage 1's named reasons
+  (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
+  the invariant; the third-party funnel is a separate, slower instrument.
 - The same invariant's other OPEN instance is the script-mode entry-point IIFE (`compile()` wraps
   the entry body in `(|| -> BallValue { … })()`, which the encoder refuses), pinned as
   `documented_gaps.rs::compiled_entry_point_iife_is_a_documented_gap` and tracked as **#687**. Do

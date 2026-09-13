@@ -30,16 +30,25 @@ SCRIPT="$HERE/../build-cov-floor.sh"
 pass=0
 fail=0
 
-# Real floors, mirrored from build-cov-floor.sh's FLOORS map, so the cases below
-# read as "above"/"below" without duplicating the numbers' meaning. Ratcheted
-# 2026-09-13 from six consecutive coverage.yml runs on main that measured an
-# identical 94.6 / 99.0 / 94.3, minus the ~2pt CI-variance buffer (the run ids
-# are in build-cov-floor.sh's header).
-#   compiler 92, encoder 97, shared 92
-# The boundary cases at the bottom of this file READ those values out of the
-# committed script instead of restating them, so the next ratchet moves them on
-# its own; only the "above floor" percentages below are hand-written, and they
-# are that same measurement.
+# EVERY percentage in this file is DERIVED from build-cov-floor.sh's committed
+# FLOORS map — floor + 1 for "above", floor - 0.1 for "below" — so a ratchet
+# moves the whole suite on its own and no measurement is ever pasted in here.
+# Until #660, case 1 hard-coded the day's measurement (94.6 / 99.0 / 94.3), so
+# the first ratchet past any of those numbers would have reddened a PARSING
+# test for a reason that has nothing to do with parsing; the future-ratchet
+# simulation at the bottom of this file is the negative control for exactly
+# that, and it fails if anyone reintroduces a literal.
+# (The floors' own provenance — the six coverage.yml runs on main they were
+# ratcheted from, minus the ~2pt CI-variance buffer — lives in
+# build-cov-floor.sh's header, which is the one place it belongs.)
+
+# floors_of — "<target> <floor>" per line, straight out of the committed script.
+floors_of() {
+  sed -n '/^declare -A FLOORS=(/,/^)/p' "$SCRIPT" \
+    | sed -n 's/^[[:space:]]*\[\([A-Za-z_][A-Za-z0-9_]*\)\]=\(.*\)$/\1 \2/p'
+}
+
+floor_for() { floors_of | awk -v t="$1" '$1 == t { print $2; found = 1 } END { exit !found }'; }
 
 # summary_line <pct> — one line in the exact shape `lcov --summary` prints.
 summary_line() { printf '  lines......: %s%% (1000 of 1100 lines)\n' "$1"; }
@@ -91,25 +100,42 @@ STUB
   rm -rf "$tmp"
 }
 
-# 1. Every target at/above its floor -> exit 0. (CI's own measurement.)
-run_case "all targets at or above floor" 0 \
-  "$(summary_line 94.6)" "$(summary_line 99.0)" "$(summary_line 94.3)"
+# The per-target floors, read out of the committed table ONCE. Every case below
+# that needs an "above floor" or "below floor" percentage derives it from these,
+# so a ratchet moves this whole file on its own (#660).
+c_floor="$(floor_for compiler)"
+e_floor="$(floor_for encoder)"
+s_floor="$(floor_for shared)"
+# just_over / just_under <int-floor> — a point above / a tenth of a point below
+# it, without floating-point arithmetic in bash.
+just_over() { printf '%s\n' "$(($1 + 1))"; }
+just_under() { printf '%s.9\n' "$(($1 - 1))"; }
+
+# 1. Every target above its floor -> exit 0.
+run_case "all targets above their committed floors" 0 \
+  "$(summary_line "$(just_over "$c_floor")")" \
+  "$(summary_line "$(just_over "$e_floor")")" \
+  "$(summary_line "$(just_over "$s_floor")")"
 
 # 2. One target below its floor -> exit 1 (the gate's whole purpose).
 run_case "compiler below floor" 1 \
-  "$(summary_line 80.0)" "$(summary_line 99.0)" "$(summary_line 94.3)"
+  "$(summary_line "$(just_under "$c_floor")")" \
+  "$(summary_line "$(just_over "$e_floor")")" \
+  "$(summary_line "$(just_over "$s_floor")")"
 
 # 3. Empty summary (lcov printed nothing — e.g. an empty/broken extraction)
 #    -> MUST exit 1. This is the fail-open branch: before the fix the script
 #    printed `SKIP` and exited 0 with the floor never checked.
 run_case "empty summary fails loud" 1 \
-  "" "$(summary_line 99.0)" "$(summary_line 94.3)"
+  "" "$(summary_line "$(just_over "$e_floor")")" \
+  "$(summary_line "$(just_over "$s_floor")")"
 
 # 4. Malformed summary (output present, but no parseable `lines...:` line)
 #    -> MUST exit 1, same reason.
 run_case "malformed summary fails loud" 1 \
   "lcov: ERROR: no valid records found in tracefile" \
-  "$(summary_line 99.0)" "$(summary_line 94.3)"
+  "$(summary_line "$(just_over "$e_floor")")" \
+  "$(summary_line "$(just_over "$s_floor")")"
 
 # ── The committed FLOORS table itself (issues #63 / #599) ──────────────────
 #
@@ -126,14 +152,6 @@ run_case "malformed summary fails loud" 1 \
 # must pass, a tenth of a point under must fail. The boundary cases read the
 # committed values rather than hardcoding them, so a ratchet moves them
 # automatically and this file never has to be kept in sync by hand.
-
-# floors_of — "<target> <floor>" per line, straight out of the committed script.
-floors_of() {
-  sed -n '/^declare -A FLOORS=(/,/^)/p' "$SCRIPT" \
-    | sed -n 's/^[[:space:]]*\[\([A-Za-z_][A-Za-z0-9_]*\)\]=\(.*\)$/\1 \2/p'
-}
-
-floor_for() { floors_of | awk -v t="$1" '$1 == t { print $2; found = 1 } END { exit !found }'; }
 
 table_ok=1
 names="$(floors_of | awk '{ print $1 }' | sort | tr '\n' ' ')"
@@ -163,14 +181,9 @@ else
   fail=$((fail + 1))
 fi
 
-# 5-8. Boundary cases against the COMMITTED floors, not synthetic ones.
-c_floor="$(floor_for compiler)"
-e_floor="$(floor_for encoder)"
-s_floor="$(floor_for shared)"
-# just_under <int-floor> — a tenth of a point below it, without floating-point
-# arithmetic in bash.
-just_under() { printf '%s.9\n' "$(($1 - 1))"; }
-
+# 5-8. Boundary cases against the COMMITTED floors: exactly at one must pass,
+#      a tenth of a point under it must fail. (c_floor/e_floor/s_floor and
+#      just_under are defined with the other derived values at the top.)
 run_case "every target exactly at its committed floor" 0 \
   "$(summary_line "$c_floor")" "$(summary_line "$e_floor")" "$(summary_line "$s_floor")"
 run_case "compiler a tenth of a point under its committed floor" 1 \

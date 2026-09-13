@@ -702,7 +702,18 @@ jobs:
     # lcov whose numbers Codecov must record — the drop is the interesting run.
     # The four jobs pinned to non-PR events simply contribute no artifact on a
     # pull_request, and a `needs` on a skipped job would otherwise skip this one.
-    if: ${{ !cancelled() }}
+    #
+    # The fork clause is not squeamishness: a `pull_request` from a fork gets a
+    # read-only GITHUB_TOKEN, so GitHub issues no OIDC token however the
+    # workflow's `permissions:` are written, and the fetch below would fail loud
+    # for something the contributor cannot fix. codecov-action covers that case
+    # with its own tokenless `CC_FORK` path, which is a different mechanism with
+    # different trust; this job does not pretend to. Nothing is lost — the
+    # push-to-main run after the merge publishes the same commits.
+    if: >-
+      ${{ !cancelled()
+      && (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

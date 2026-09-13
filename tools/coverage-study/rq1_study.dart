@@ -353,18 +353,94 @@ FileResult studyFile(String package, String file, String source) {
   return FileResult(package, file, true, 'clean', irStable: irStable);
 }
 
-/// Every `.dart` file under [dir] (a package checkout's `lib/`, or any tree).
-List<File> dartFilesUnder(Directory dir) =>
-    dir
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.dart'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+/// One file Tier A did not score, and the rule that took it out.
+///
+/// An excluded file is NOT a `skipped` result: it never enters the results list
+/// at all, so it is in neither the numerator nor the denominator. It is
+/// reported on its own line so a denominator that moves because a RULE moved is
+/// visible — which is the entire reason exclusions are named here rather than
+/// silently filtered out of the walk.
+class Exclusion {
+  const Exclusion(this.package, this.file, this.rule);
+
+  final String package;
+  final String file;
+  final String rule;
+
+  Map<String, Object?> toJson() => {
+    'package': package,
+    'file': file,
+    'rule': rule,
+  };
+}
+
+/// Directory names that are not a source tree at all — not test-only, not
+/// counted. There is nothing here a reader could mistake for library code.
+const _nonSourceDirs = {'.git', '.dart_tool', 'build'};
+
+/// Directory names that are a package's own test suite, by Dart convention.
+const _testDirs = {'test', 'tests', 'integration_test'};
+
+/// The rule excluding [relativePath], or `null` when it is library code.
+///
+/// The owner's 2026-09-14 decision on issue #491: Tier A scores the LIBRARY
+/// code a user would encode, so a package's own test suite is out of the
+/// denominator. Dart's convention is a `test`/`tests`/`integration_test`
+/// directory, plus the `*_test.dart` suffix `package:test` collects by.
+///
+/// Matched on WHOLE path segments and a WHOLE suffix, never as a substring: a
+/// library file called `latest.dart`, `contest.dart` or `attestation/verify.dart`
+/// contains "test" and is library code, and excluding it would be exactly the
+/// silent denominator shrink this rule exists to prevent.
+/// `tools/coverage-study/test/rq1_study_self_test.dart` pins all three.
+String? testOnlyRule(String relativePath) {
+  final parts = relativePath.split('/');
+  final name = parts.last;
+  if (parts.sublist(0, parts.length - 1).any(_testDirs.contains)) {
+    return 'under a test/, tests/ or integration_test/ directory';
+  }
+  if (name.endsWith('_test.dart')) return '*_test.dart';
+  return null;
+}
+
+/// Splits every `.dart` file under [dir] into the studied set and the test-only
+/// exclusions.
+({List<File> studied, List<Exclusion> excluded}) classifyDartFiles(
+  String package,
+  Directory dir,
+) {
+  final studied = <File>[];
+  final excluded = <Exclusion>[];
+  final files =
+      dir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+  for (final file in files) {
+    final rel = file.path
+        .substring(dir.path.length)
+        .replaceAll('\\', '/')
+        .replaceFirst(RegExp(r'^/'), '');
+    if (rel.split('/').any(_nonSourceDirs.contains)) continue;
+    final rule = testOnlyRule(rel);
+    if (rule == null) {
+      studied.add(file);
+    } else {
+      excluded.add(Exclusion(package, rel, rule));
+    }
+  }
+  return (studied: studied, excluded: excluded);
+}
+
+/// Every studyable `.dart` file under [dir] (a package checkout's `lib/`, or
+/// any tree).
+List<File> dartFilesUnder(Directory dir) => classifyDartFiles('', dir).studied;
 
 List<FileResult> studyDirectory(String package, Directory dir) {
   final results = <FileResult>[];
-  for (final file in dartFilesUnder(dir)) {
+  for (final file in classifyDartFiles(package, dir).studied) {
     final rel = file.path
         .substring(dir.path.length)
         .replaceAll('\\', '/')
@@ -389,9 +465,66 @@ String? _arg(List<String> args, String name) {
   return args[i + 1];
 }
 
+/// Appends the shared Tier A summary to [out] and returns the process exit
+/// code. A run that scored nothing is a harness/checkout failure, not a 0%
+/// result.
+///
+/// Rendered into a buffer rather than printed so the self-test can assert the
+/// summary LINES, not just the numbers behind them: `excluded (test-only)` is
+/// provenance for the denominator, and a line nothing checks is a line that can
+/// quietly disappear. Mirrors `report()` in the five ports.
+int renderReport(
+  StringBuffer out,
+  List<FileResult> results,
+  List<Exclusion> excluded,
+  List<String> missingPins,
+) {
+  final scored = results.where((r) => r.scored).toList();
+  final total = scored.length;
+  final clean = scored.where((r) => r.clean).length;
+  final irStable = scored.where((r) => r.irStable).length;
+  final skipped = results.length - total;
+  final byReason = <String, int>{};
+  for (final r in scored) {
+    final tag = r.reason.split(':').first;
+    byReason[tag] = (byReason[tag] ?? 0) + 1;
+  }
+
+  for (final entry
+      in (byReason.entries.toList()
+        ..sort((a, b) => b.value.compareTo(a.value)))) {
+    out.writeln('  ${entry.key}: ${entry.value}');
+  }
+  if (skipped > 0) {
+    out.writeln('  skipped (no declarations, not scored): $skipped');
+  }
+  // ALWAYS printed, zero included: a missing line is indistinguishable from an
+  // exclusion rule that vanished, and summarize.sh fails the job on it.
+  out.writeln('  excluded (test-only): ${excluded.length}');
+  if (missingPins.isNotEmpty) {
+    out.writeln('  unreachable pins (not scored): ${missingPins.join(', ')}');
+  }
+  if (scored.isNotEmpty) {
+    out.writeln('Funnel (scored files that survived each stage):');
+    for (final entry in stages.entries) {
+      final reached = scored
+          .where((r) => stageReached(r.reason) >= entry.key)
+          .length;
+      out.writeln('  ${entry.value}: $reached/$total');
+    }
+  }
+  final pct = total == 0 ? 0 : (clean * 100 / total).round();
+  out.writeln('Tier A: $clean/$total clean ($pct%)');
+  out.writeln('Tier A (IR fixpoint, informational): $irStable/$total stable');
+  out.writeln('Results: $clean passed, ${total - clean} failed, $total total');
+
+  return total < 1 ? 1 : 0;
+}
+
 void main(List<String> args) {
   final results = <FileResult>[];
   final missingPins = <String>[];
+  final excluded = <Exclusion>[];
 
   final pinsPath = _arg(args, 'pins');
   final packageName = _arg(args, 'package');
@@ -418,6 +551,7 @@ void main(List<String> args) {
         missingPins.add(name);
         continue;
       }
+      excluded.addAll(classifyDartFiles(name, dir).excluded);
       results.addAll(studyDirectory(name, dir));
     }
   } else if (packageName != null && sourceDir != null) {
@@ -426,6 +560,7 @@ void main(List<String> args) {
       stderr.writeln('--source-dir does not exist: $sourceDir');
       exit(2);
     }
+    excluded.addAll(classifyDartFiles(packageName, dir).excluded);
     results.addAll(studyDirectory(packageName, dir));
   } else {
     stderr.writeln(
@@ -442,58 +577,22 @@ void main(List<String> args) {
       '${const JsonEncoder.withIndent('  ').convert({
         'missingPins': missingPins,
         'files': [for (final r in results) r.toJson()],
+        'excludedTestOnly': excluded.length,
+        'excluded': [for (final e in excluded) e.toJson()],
       })}\n',
     );
   }
 
-  final scored = results.where((r) => r.scored).toList();
-  final total = scored.length;
-  final clean = scored.where((r) => r.clean).length;
-  final irStable = scored.where((r) => r.irStable).length;
-  final skipped = results.length - total;
-  final byReason = <String, int>{};
-  for (final r in scored) {
-    final tag = r.reason.split(':').first;
-    byReason[tag] = (byReason[tag] ?? 0) + 1;
-  }
-
-  for (final entry
-      in (byReason.entries.toList()
-        ..sort((a, b) => b.value.compareTo(a.value)))) {
-    stdout.writeln('  ${entry.key}: ${entry.value}');
-  }
-  if (skipped > 0) {
-    stdout.writeln('  skipped (no declarations, not scored): $skipped');
-  }
-  if (missingPins.isNotEmpty) {
-    stdout.writeln(
-      '  unreachable pins (not scored): ${missingPins.join(', ')}',
-    );
-  }
-  if (scored.isNotEmpty) {
-    stdout.writeln('Funnel (scored files that survived each stage):');
-    for (final entry in stages.entries) {
-      final reached = scored
-          .where((r) => stageReached(r.reason) >= entry.key)
-          .length;
-      stdout.writeln('  ${entry.value}: $reached/$total');
-    }
-  }
-  final pct = total == 0 ? 0 : (clean * 100 / total).round();
-  stdout.writeln('Tier A: $clean/$total clean ($pct%)');
-  stdout.writeln(
-    'Tier A (IR fixpoint, informational): $irStable/$total stable',
-  );
-  stdout.writeln(
-    'Results: $clean passed, ${total - clean} failed, $total total',
-  );
+  final out = StringBuffer();
+  final code = renderReport(out, results, excluded, missingPins);
+  stdout.write(out.toString());
 
   // Positive floor: a run that scored nothing is a harness/checkout failure,
   // not a 0% result.
-  if (total < 1) {
+  if (code != 0) {
     stderr.writeln(
       'ERROR: Tier A scored 0 files — no package checkout was readable.',
     );
-    exit(1);
+    exit(code);
   }
 }

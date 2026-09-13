@@ -242,10 +242,205 @@ fn a_cross_file_method_call_is_measured_crate_aware() {
 #[test]
 fn an_empty_run_is_a_harness_failure_not_a_zero_percent_result() {
     let mut out = String::new();
-    let code = ball_rq1_study::report(&mut out, &[], &[]).expect("the report renders");
+    let code = ball_rq1_study::report(&mut out, &[], &[], &[]).expect("the report renders");
     assert_eq!(code, 1);
     assert!(
         out.contains("Results: 0 passed, 0 failed, 0 total"),
         "{out}"
+    );
+}
+
+// ── test-only exclusion (the owner's 2026-09-14 decision on #491) ───────────
+//
+// Tier A scores the LIBRARY code a user would encode; a crate's own test suite
+// is a different population and is out of the denominator. This is the row the
+// decision was written for: 33 of Rust's 110 scored files were `bitflags`'
+// `src/tests/*.rs`, which exist only under `#[cfg(test)] mod tests;` and which
+// `crate_graph.rs::walk_items` deliberately does not walk (#621), so they were
+// measured with no crate context at all and dragged the whole row down.
+//
+// Rust's convention has TWO halves and both are needed: a path rule
+// (`tests/`, `benches/`, `examples/`) and a REACHABILITY rule (a file the mod
+// graph reaches only by passing through a `#[cfg(test)]` module). Neither
+// subsumes the other — `src/tests.rs` is not under a `tests/` directory, and a
+// crate may keep unit tests in a directory named anything at all.
+//
+// The negative control is load-bearing: a library file whose NAME merely
+// contains "test" ("la-test", "con-test", "at-test-ation") must still be
+// studied. A sloppy substring rule passes the exclusion half and fails this
+// half, which is the point.
+
+/// Builds a scratch crate with library files, path-excluded test trees and a
+/// `#[cfg(test)]`-only module, and returns its root.
+fn scratch_crate(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!(
+        "ball_rq1_exclusion_{}_{}_{}",
+        tag,
+        std::process::id(),
+        line!()
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let src = dir.join("src");
+    for sub in ["attestation", "tests", "benches", "examples"] {
+        std::fs::create_dir_all(src.join(sub)).expect("failed to create the scratch crate");
+    }
+
+    let write = |rel: &str, source: &str| {
+        std::fs::write(src.join(rel), source).unwrap_or_else(|e| panic!("write {rel}: {e}"));
+    };
+    write(
+        "lib.rs",
+        "pub mod core;\npub mod latest;\npub mod contest;\npub mod attestation;\n\
+         #[cfg(test)]\nmod internal_tests;\n",
+    );
+    for rel in ["core.rs", "latest.rs"] {
+        write(rel, "pub fn value() -> i64 { 1 }\n");
+    }
+    // `contest.rs` is a NON-mod-rs file, and its `#[path]` sits outside any
+    // inline block — so the Rust reference resolves it against the declaring
+    // FILE's directory (`src/`), NOT against the `src/contest/` directory its
+    // plain `mod name;` children would use. Getting that wrong makes the
+    // candidate miss, the module go unwalked, and `relocated_tests.rs` stay in
+    // the denominator, so this fixture is what keeps the two apart.
+    write(
+        "contest.rs",
+        "pub fn value() -> i64 { 1 }\n\
+         #[cfg(test)]\n#[path = \"relocated_tests.rs\"]\nmod relocated;\n",
+    );
+    write("attestation/mod.rs", "pub mod verify;\n");
+    write("attestation/verify.rs", "pub fn ok() -> i64 { 1 }\n");
+    write(
+        "internal_tests.rs",
+        "#[test]\nfn works() { assert!(true); }\n",
+    );
+    // Reached only through `contest.rs`'s `#[cfg(test)] #[path] mod`, and
+    // living beside it in `src/` — not under `src/contest/`.
+    write(
+        "relocated_tests.rs",
+        "#[test]\nfn relocated() { assert!(true); }\n",
+    );
+    write("tests/basic.rs", "#[test]\nfn basic() { assert!(true); }\n");
+    write("benches/perf.rs", "pub fn bench() {}\n");
+    write("examples/demo.rs", "fn main() {}\n");
+    dir
+}
+
+/// Every library file — including the three whose names merely contain "test" —
+/// is studied, and every test-only file is excluded WITH the rule that excluded
+/// it.
+#[test]
+fn test_only_files_are_excluded_counted_and_named() {
+    quiet();
+    let dir = scratch_crate("classify");
+    let src = dir.join("src");
+    let (studied, excluded) = ball_rq1_study::classify_rust_files("scratch", &src);
+
+    let rel = |path: &std::path::Path| {
+        path.strip_prefix(&src)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let studied_rel: std::collections::BTreeSet<String> = studied.iter().map(|p| rel(p)).collect();
+    let excluded_rel: std::collections::BTreeSet<String> =
+        excluded.iter().map(|e| e.file.clone()).collect();
+
+    let library = [
+        "lib.rs",
+        "core.rs",
+        "latest.rs",
+        "contest.rs",
+        "attestation/mod.rs",
+        "attestation/verify.rs",
+    ];
+    for name in library {
+        assert!(
+            studied_rel.contains(name),
+            "library file {name} was not studied — the rule is excluding library code \
+             (studied: {studied_rel:?})"
+        );
+    }
+    assert_eq!(
+        studied_rel.len(),
+        library.len(),
+        "exactly the library files must be studied; got {studied_rel:?}"
+    );
+
+    for name in [
+        "internal_tests.rs",
+        "relocated_tests.rs",
+        "tests/basic.rs",
+        "benches/perf.rs",
+        "examples/demo.rs",
+    ] {
+        assert!(
+            excluded_rel.contains(name),
+            "test-only file {name} was not excluded (excluded: {excluded_rel:?})"
+        );
+    }
+    assert_eq!(
+        excluded_rel.len(),
+        5,
+        "exactly the test-only files must be excluded; got {excluded_rel:?}"
+    );
+    assert!(
+        excluded.iter().all(|e| !e.rule.is_empty()),
+        "every exclusion must name the rule that made it"
+    );
+    // The cfg(test) half is a REACHABILITY rule, not a path rule: nothing about
+    // `internal_tests.rs` looks like a test directory.
+    let cfg_rule = excluded
+        .iter()
+        .find(|e| e.file == "internal_tests.rs")
+        .expect("the cfg(test)-only module is excluded")
+        .rule
+        .clone();
+    assert!(
+        cfg_rule.contains("cfg(test)"),
+        "the cfg(test)-only module must be excluded BY the cfg(test) rule, not by a \
+         path rule; got {cfg_rule:?}"
+    );
+    // And the walk resolves `#[path]` the way the Rust reference does: outside
+    // an inline block, relative to the declaring FILE's directory. Getting that
+    // wrong makes the candidate miss, the module go unwalked, and a test file
+    // stay in the denominator — which is why it is asserted rather than assumed.
+    assert!(
+        excluded
+            .iter()
+            .any(|e| e.file == "relocated_tests.rs" && e.rule.contains("cfg(test)")),
+        "a `#[cfg(test)] #[path = \"…\"] mod` must resolve and be excluded by the \
+         cfg(test) rule; got {excluded_rel:?}"
+    );
+
+    let results = ball_rq1_study::study_directory("scratch", &src);
+    assert!(
+        results
+            .iter()
+            .all(|r| !excluded_rel.contains(r.file.as_str())),
+        "an excluded file must never reach the scored results: {:?}",
+        results.iter().map(|r| &r.file).collect::<Vec<_>>()
+    );
+
+    let mut out = String::new();
+    let _ = ball_rq1_study::report(&mut out, &results, &excluded, &[]);
+    assert!(
+        out.contains("  excluded (test-only): 5\n"),
+        "the summary must print the exclusion count so nothing disappears silently; got:\n{out}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A run that excluded nothing STILL prints the line: a missing line is
+/// indistinguishable from a rule that vanished, and `summarize.sh` fails on it.
+#[test]
+fn the_exclusion_count_is_printed_even_when_zero() {
+    quiet();
+    let results = vec![study_file("scratch", "helper.rs", HELPER_SOURCE)];
+    let mut out = String::new();
+    let _ = ball_rq1_study::report(&mut out, &results, &[], &[]);
+    assert!(
+        out.contains("  excluded (test-only): 0\n"),
+        "a zero exclusion count must still be printed; got:\n{out}"
     );
 }

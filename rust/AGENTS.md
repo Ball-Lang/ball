@@ -24,11 +24,24 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest baseline, **0/110 clean and 1/110 encoded** (the 5 crates pinned in
+Honest baseline, **0/77 clean and 1/77 encoded** (the 5 crates pinned in
 `tools/coverage-study/packages/rust.json` — **`itertools`, `smallvec`, `bitflags`, `heck`,
 `strsim`**, not the original 10-crate set the #491 prose below narrates). That single encoded file
 arrived with the crate-aware slice below; every #491 slice before it left the aggregate at
 `0 clean, 0 encoded`.
+
+**The denominator was 110 until 2026-09-14, and the #491 prose below is all written against
+that number — read those histograms as history, not as today's totals.** Per the owner's
+methodology decision on #491, Tier A now scores LIBRARY code only: 34 of the 119 `.rs` files
+under the pinned subtrees are `bitflags`' own tests and are excluded, so `scored` is **77** and
+the harness prints `excluded (test-only): 34`. Rust's rule has two halves, and both fire on the
+real pins — 33 files under a `tests/` directory, plus `bitflags/src/tests.rs`, which is NOT under
+one and is caught only by the second half: a file the crate's `mod` graph reaches *only* through a
+`#[cfg(test)]` module. That second half is `classify_rust_files`' own `syn` walk, deliberately not
+a call into `CrateGraph` — that walk skips `#[cfg(test)]` modules outright (#621), so it cannot
+tell "test-only" from "not reached at all", and an unreferenced *library* leftover must stay
+scored. Neither `clean` nor `encoded` moved in absolute terms; both ratios rose because the
+denominator shrank. See `tests/conformance/COVERAGE_STUDY.md`.
 Every other scored file is an `encode-error`: the encoder's documented gaps
 (item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate

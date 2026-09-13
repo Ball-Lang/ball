@@ -413,7 +413,7 @@ describe("MethodDispatchHandler", () => {
   });
 
   describe("generic object (map-like) methods", () => {
-    test("key/value/entry operations", () => {
+    test("key/value/entry operations", async () => {
       const map: any = { a: 1, b: 2 };
       assert.equal(handler.call("containsKey", { self: map, arg0: "a" }, null), true);
       assert.equal(handler.call("containsValue", { self: map, arg0: 2 }, null), true);
@@ -432,6 +432,20 @@ describe("MethodDispatchHandler", () => {
       assert.equal(handler.call("putIfAbsent", { self: putMap, arg0: "x", arg1: 99 }, null), 1);
       assert.equal(handler.call("putIfAbsent", { self: putMap, arg0: "y", arg1: 99 }, null), 99);
       assert.equal(putMap.y, 99);
+      // A Ball lambda takes exactly ONE input, so the ifAbsent operand is
+      // called with one argument; an async one resolves through the returned
+      // promise (the engine awaits every handler result).
+      const thunkArgs: any[] = [];
+      assert.equal(
+        handler.call("putIfAbsent", { self: putMap, arg0: "z", arg1: (i: any) => { thunkArgs.push(i); return 7; } }, null),
+        7,
+      );
+      assert.deepEqual(thunkArgs, [null]);
+      assert.equal(putMap.z, 7);
+      assert.equal(await handler.call("putIfAbsent", { self: putMap, arg0: "w", arg1: async () => 8 }, null), 8);
+      assert.equal(putMap.w, 8);
+      assert.equal(handler.call("putIfAbsent", { self: putMap, arg0: "n", arg1: () => undefined }, null), null);
+      assert.equal(await handler.call("putIfAbsent", { self: putMap, arg0: "an", arg1: async () => undefined }, null), null);
       assert.equal(handler.call("toString", { self: { a: 1, b: 2 } }, null), "{a: 1, b: 2}");
     });
   });
@@ -1252,6 +1266,52 @@ describe("registerExtraStdFunctions: map_* fallback keys and branch edges", () =
     const put: any = { x: 1 };
     assert.equal(await h.call("map_put_if_absent", { collection: put, key: "y", if_absent: () => 42 }), 42);
     assert.equal(await h.call("map_put_if_absent", { map: 5, key: "a", value: 1 }), null);
+  });
+
+  // The shape the ENCODER actually emits: `collectionRoutes` puts
+  // `putIfAbsent`'s thunk in `value`, and a Ball lambda takes exactly one
+  // input. Before issue #488's fixture 467 executed this base function for the
+  // first time, the override looked only at `ifAbsent`/`if_absent`, so the
+  // FUNCTION ITSELF was stored in the map and printed.
+  test("map_put_if_absent: the thunk arrives in `value`, is called with ONE argument, and is awaited", async () => {
+    const seenArgs: any[] = [];
+    const counts: any = { ada: 1 };
+
+    // Key present: the thunk is never called and the map is unchanged.
+    assert.equal(
+      await h.call("map_put_if_absent", { map: counts, key: "ada", value: (i: any) => { seenArgs.push(i); return 99; } }),
+      1,
+    );
+    assert.deepEqual(seenArgs, []);
+    assert.equal(counts.ada, 1);
+
+    // Key absent: the thunk is called with the single Ball lambda input, and
+    // its VALUE (never the closure) is both returned and inserted.
+    assert.equal(
+      await h.call("map_put_if_absent", { map: counts, key: "bob", value: (i: any) => { seenArgs.push(i); return 7; } }),
+      7,
+    );
+    assert.deepEqual(seenArgs, [null]);
+    assert.equal(counts.bob, 7);
+
+    // An async thunk is awaited, as in list_map.
+    const fresh: any = {};
+    assert.equal(
+      await h.call("map_put_if_absent", { map: fresh, key: "k", value: async () => "v" }),
+      "v",
+    );
+    assert.equal(fresh.k, "v");
+
+    // A key that only exists on Object.prototype (the preamble installs the
+    // whole Dart-SDK method surface there) is ABSENT, not present.
+    const poll: any = {};
+    assert.equal(await h.call("map_put_if_absent", { map: poll, key: "putIfAbsent", value: () => 5 }), 5);
+    assert.equal(poll.putIfAbsent, 5);
+
+    // A thunk that produces nothing stores an explicit null, never `undefined`.
+    const empty: any = {};
+    assert.equal(await h.call("map_put_if_absent", { map: empty, key: "n", value: () => undefined }), null);
+    assert.equal(Object.prototype.hasOwnProperty.call(empty, "n"), true);
   });
 
   test("map_for_each/map_map: 'collection'/'callback' fallback keys and async callbacks", async () => {

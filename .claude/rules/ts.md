@@ -214,6 +214,20 @@ const json = toJson(ProgramSchema, program);
   `.reduce(cb)`. `tests/conformance/465_state_error_message` is the guard.
   See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`map_put_if_absent`'s thunk arrives in `value`, and a Ball lambda takes
+  exactly ONE input (#488).** Third instance of the bullet three up, found the
+  same way — by the first fixture ever to execute the base function
+  (`467_map_put_if_absent`; the encoder-completeness gate could not see a name
+  that lives in `collectionRoutes`' map VALUE). The `engine_setup.ts` override
+  read the thunk only from `ifAbsent`/`if_absent`, which the encoder never
+  emits, so the CLOSURE ITSELF was stored in the map and printed; and a thunk it
+  did find was called with zero arguments, which no Ball lambda accepts. The
+  result is awaited, as `list_map` does. When adding an override here, check the
+  key names against `collectionRoutes` in `dart/encoder/lib/encoder.dart` and
+  against the compiled engine's own `['<name>']:` entry — the compiled engine is
+  the reference implementation, and shadowing it is only ever justified when it
+  cannot run at all.
+
 ### Encoder
 
 - TypeScript → Ball, built on the TypeScript Compiler API (`typescript` package, `ts.SyntaxKind`).

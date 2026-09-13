@@ -672,7 +672,19 @@ export function createEngineSetup(mod: EngineModule) {
           case 'keys': return Object.keys(self);
           case 'values': return Object.values(self);
           case 'entries': return Object.entries(self).map(([k, v]) => ({key: k, value: v}));
-          case 'putIfAbsent': if (!(String(arg0) in self)) self[String(arg0)] = typeof arg1 === 'function' ? arg1() : arg1; return self[String(arg0)];
+          case 'putIfAbsent': {
+            // Same contract as the `map_put_if_absent` std override below: the
+            // ifAbsent operand is a Ball lambda, which takes exactly ONE input,
+            // and its result may be a Future.
+            const pk = String(arg0);
+            if (Object.prototype.hasOwnProperty.call(self, pk)) return self[pk];
+            const produced = typeof arg1 === 'function' ? arg1(null) : arg1;
+            if (produced?.then) {
+              return produced.then((v: any) => { self[pk] = v ?? null; return self[pk]; });
+            }
+            self[pk] = produced ?? null;
+            return self[pk];
+          }
           case 'toString': return '{' + Object.entries(self).map(([k,v]) => k + ': ' + v).join(', ') + '}';
         }
       }
@@ -914,7 +926,35 @@ export function createEngineSetup(mod: EngineModule) {
     _r('map_values', (i: any) => { const m = _m(i); const map = m['map'] ?? m['collection'] ?? {}; return typeof map === 'object' && map !== null ? Object.keys(map).filter(k => !k.startsWith('__')).map(k => map[k]) : []; });
     _r('map_entries', (i: any) => { const m = _m(i); const map = m['map'] ?? m['collection'] ?? {}; return typeof map === 'object' && map !== null ? Object.entries(map).filter(([k]) => !k.startsWith('__')).map(([k, v]) => ({key: k, value: v})) : []; });
     _r('map_remove', (i: any) => { const m = _m(i); const map = m['map'] ?? m['collection']; const key = m['key'] ?? ''; if (typeof map === 'object' && map !== null) { const v = map[String(key)]; delete map[String(key)]; return v; } return null; });
-    _r('map_put_if_absent', (i: any) => { const m = _m(i); const map = m['map'] ?? m['collection']; const key = String(m['key'] ?? ''); const value = m['value']; const ia = m['ifAbsent'] ?? m['if_absent']; if (typeof map === 'object' && map !== null) { if (!(key in map)) map[key] = typeof ia === 'function' ? ia() : (value ?? null); return map[key]; } return null; });
+    // `Map.putIfAbsent`'s second operand is a THUNK, and the encoder's
+    // `collectionRoutes` table puts it in `value` — NOT in `ifAbsent`, the only
+    // key this override used to look at. Fixture `467_map_put_if_absent` is the
+    // first program ever to execute this base function (issue #488: the
+    // completeness gate could not see a name that lives in a route table's map
+    // VALUE), and it caught two halves of the same mistake here: the thunk in
+    // `value` was stored in the map UNCALLED, and a thunk that WAS found was
+    // called with zero arguments even though a Ball lambda always takes exactly
+    // one input (the gRPC-style invariant) — the same defect the Dart reference
+    // engine had in `engine_std.dart`. The result is awaited, as in `list_map`:
+    // the thunk's body may itself await. A plain (non-function) `value` is still
+    // honoured, which is what the existing `{map, key, value}` callers pass.
+    _r('map_put_if_absent', async (i: any) => {
+      const m = _m(i);
+      const map = m['map'] ?? m['collection'];
+      const key = String(m['key'] ?? '');
+      const ia = m['ifAbsent'] ?? m['if_absent'] ?? m['value'];
+      if (typeof map !== 'object' || map === null) return null;
+      // `key in map` walks the prototype chain, and the preamble installs the
+      // whole Dart-SDK method surface on Object.prototype, so a key named
+      // `putIfAbsent`/`toString` would read as already present (the same
+      // prototype-pollution hazard `__ball_map_has` documents).
+      if (!Object.prototype.hasOwnProperty.call(map, key)) {
+        let produced = typeof ia === 'function' ? ia(null) : ia;
+        if (produced?.then) produced = await produced;
+        map[key] = produced ?? null;
+      }
+      return map[key];
+    });
     _r('map_for_each', async (i: any) => {
       const m = _m(i); const map = m['map'] ?? m['collection'] ?? {}; const fn = m['function'] ?? m['callback'];
       if (typeof fn === 'function' && typeof map === 'object' && map !== null) {

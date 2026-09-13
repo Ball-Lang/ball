@@ -357,3 +357,6 @@ fn roundtrip_conformance() {
         "the round-trip leg measured nothing (total={total})"
     );
 }
+
+// probe (#666 re-measure): a rust-only diff, to observe which conformance-matrix
+// rows a PR of PR #644's shape now starts. Throwaway branch; never merged.

@@ -161,6 +161,26 @@ later as `unknown revision go/<m>/vX.Y.Z` in the `go` job's Build step.
   evaluated lazily (invariant #4). `return`/`break`/`continue`/`throw` →
   `ballrt` flow signals (panic/recover) so they cross IIFE boundaries; loops use
   `ballrt.RunLoopBody`, function bodies `defer ballrt.CatchReturn`.
+- **`try` dispatches EVERY catch clause, in source order** (issue #615).
+  `compileTry` emits one `ballrt.TryCatch` catch closure containing an
+  `if`-chain: an `on <Type> catch` clause runs only when
+  `ballrt.CatchMatches(__ex, "<Type>")` accepts the thrown value's type tag
+  (matched by its FULL `main:StateError` or BARE `StateError` spelling, as
+  `_evalLazyTry` does in `dart/engine/lib/engine_control_flow.dart`); the first
+  untyped `catch (e)` is the unconditional fallback; and a clause list where
+  every typed clause misses ends in `ballrt.Rethrow()`, so an enclosing `try`
+  sees the original value. Before #615 only `catches[0]` was compiled, as an
+  unconditional catch-all, so `throw StateError(...)` ran an
+  `on ArgumentError catch` body — silently wrong output, never an error. The
+  dispatch lives in the emitted closure on purpose: `ballrt.TryCatch`'s
+  `(body, catch, finally)` signature is public API of `go/runtime`, and generated
+  `if`-chains are what the compiled self-hosted engine already emits for this very
+  Dart logic. `ballrt.Throw` also mirrors `std.throw`'s `arg0` -> `message` rename
+  (`engine_std.dart`), so a caught `e.message` reads the constructor argument
+  rather than `null`. Guards: `tests/conformance/464_typed_catch_clause_dispatch`
+  and `146_nested_try_catch_types` cross-target, plus the PR-gated
+  `go/compiler/catch_clause_dispatch_test.go` + `go/runtime/catch_match_test.go`
+  (the compiler leg below is NOT PR-gated).
 - **Fail-loud** (issue #55): an unsupported base function / expression shape is a
   compile error, never silent bad code.
 
@@ -256,7 +276,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 348 passed, 0 failed, 348 total`; 4 golden-less
+  (`Results: 349 passed, 0 failed, 349 total`; 4 golden-less
   resource-limit/sandbox carve-outs). `compiled/compiled_engine.go` is a
   COMMITTED generated artifact since #586 (no build tag), kept fresh by ci.yml's
   `Ball Artifact Freshness` regen-and-diff job. See `go/engine/AGENTS.md`.

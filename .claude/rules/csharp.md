@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -117,6 +117,27 @@ compile items so the sibling projects never double-compile each other's files.
   must carry the type name `StateError` so the program's own `on StateError
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `csharp/compiler/test/ListFindContractTests.cs` (`BallRuntime.ListFind` throws a `BallThrow`, NOT a `BallRuntimeException` — only the former is what the compiled `catch (BallThrow …)` sees, so an unhandled native fault can no longer bypass the program's own `try`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
+
+- **`try` dispatches EVERY catch clause, in source order (#615).**
+  `CompileTryStatement` emits one `catch (BallThrow __ballEx)` containing an
+  `if`/`else if` chain: an `on <Type> catch` clause runs only when
+  `BallRuntime.CatchMatches(__ballEx, "<Type>")` accepts the exception's type tag
+  (its explicit `BallThrow.TypeName` when the runtime synthesized a typed throw,
+  else the payload's own `BallMessage` type name or `BallMap` `__type__`, matched
+  by FULL `main:StateError` or BARE `StateError` spelling), the first untyped
+  `catch (e)` is the `else`, and a clause list where every typed clause misses
+  ends in a bare `throw;` so an enclosing `try` sees the original exception.
+  Before #615 only `catches[0]` was compiled — as an unconditional catch-all — so
+  `throw StateError(...)` ran an `on ArgumentError catch` body: silently wrong
+  output, never an error (its own doc comment recorded the gap, which is how the
+  issue was filed — off prose, not off any CI signal). `BallThrow`'s untyped
+  constructor also mirrors `std.throw`'s `arg0` -> `message` rename, so a caught
+  `e.message` reads the constructor argument instead of `null`. Guards:
+  `tests/conformance/464_typed_catch_clause_dispatch` +
+  `146_nested_try_catch_types` (cross-target),
+  `csharp/compiler/test/CatchClauseDispatchTests.cs` and
+  `csharp/shared/test/CatchMatchTests.cs` (PR-gated — the `csharp-compiler`
+  matrix row is not).
 
 ### Encoder
 
@@ -289,8 +310,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 348 passed, 0 failed,
-  348 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 349 passed, 0 failed,
+  349 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without

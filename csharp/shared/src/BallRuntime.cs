@@ -180,6 +180,50 @@ public static partial class BallRuntime
     public static BallValue CaughtStackTrace(Exception ex) =>
         BallValue.Str(string.IsNullOrEmpty(ex.StackTrace) ? ex.ToString() : ex.StackTrace);
 
+    /// <summary>
+    /// The type tag a typed <c>on &lt;Type&gt; catch</c> clause matches a thrown
+    /// exception against, following the reference engine's rule (<c>std.throw</c>
+    /// in engine_std.dart): the explicit <see cref="BallThrow.TypeName"/> when the
+    /// runtime synthesized a typed throw, else the payload's own type tag (a
+    /// <see cref="BallMessage"/>'s type name or a <see cref="BallMap"/>'s
+    /// <c>__type__</c> entry), else the literal <c>Exception</c> — <c>std.throw</c>'s
+    /// own default for an untagged value.
+    /// </summary>
+    public static string ExceptionTypeName(BallThrow ex)
+    {
+        if (!string.IsNullOrEmpty(ex.TypeName))
+        {
+            return ex.TypeName!;
+        }
+
+        return ex.Payload switch
+        {
+            BallMessage message => message.TypeName,
+            BallMap map when map.Get("__type__") is { } tag => tag.ToString() ?? "Exception",
+            _ => "Exception",
+        };
+    }
+
+    /// <summary>
+    /// Whether an <c>on &lt;Type&gt; catch</c> clause declaring
+    /// <paramref name="typeName"/> handles <paramref name="ex"/>. A thrown value's
+    /// tag may be module-qualified (<c>main:StateError</c>) while the clause names
+    /// the bare type, so BOTH spellings match — exactly what <c>_evalLazyTry</c>
+    /// does in the reference engine. An untyped <c>catch (e)</c> clause never
+    /// routes through here: it matches unconditionally (issue #615).
+    /// </summary>
+    public static bool CatchMatches(BallThrow ex, string typeName)
+    {
+        var actual = ExceptionTypeName(ex);
+        if (actual == typeName)
+        {
+            return true;
+        }
+
+        var colon = actual.IndexOf(':');
+        return colon >= 0 && actual.AsSpan(colon + 1).SequenceEqual(typeName);
+    }
+
     // ════════════════════════════════════════════════════════════
     // Arithmetic
     // ════════════════════════════════════════════════════════════

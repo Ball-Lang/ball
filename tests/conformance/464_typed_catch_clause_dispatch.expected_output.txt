@@ -1,0 +1,5 @@
+1: right (StateError) - boom
+2: right (untyped fallback)
+3: right (outer StateError) - inner
+4: inner FormatException, rethrowing
+4: right (outer FormatException)

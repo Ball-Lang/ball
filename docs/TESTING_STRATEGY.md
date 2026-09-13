@@ -492,16 +492,33 @@ call. `tests/conformance/463_list_find_no_match` is the worked example: a hit
 (the element), a miss on a non-empty list, and a miss on an empty one, each
 caught by the program's own `on StateError catch`.
 
-One portability constraint that fixture had to respect, and that any successor
-will too: **every `try` in it carries exactly ONE catch clause.** The Go, C# and
-Rust compilers all dispatch only the first catch clause with no type matching (a
-pre-existing, separately documented gap — see `csharp/compiler/src/BaseCall.cs`'s
-`CompileTryStatement`), so a multi-clause `try` whose first arm names a
-non-matching type would fail those compile legs for a reason unrelated to the
-function under test. That the throw is genuinely TYPED — reachable by
-`on StateError`, not only by an untyped catch-all, which is what Rust's bare
-`panic!` gave before #597 — is pinned per runtime instead, next to each target's
-implementation.
+One portability constraint that fixture had to respect — and that **no longer
+applies** (#615): every `try` in it carries exactly one catch clause, because the
+Go, C# and Rust compilers all dispatched only the first catch clause with no type
+matching, so a multi-clause `try` whose first arm named a non-matching type would
+have failed those compile legs for a reason unrelated to the function under test.
+All three now walk `catches[]` in **source order**, run an `on <Type> catch`
+clause only when the thrown value's type tag matches, fall back to the first
+untyped `catch (e)`, and re-raise when every typed clause misses — the reference
+engine's `_evalLazyTry` contract. A new fixture may use as many clauses as it
+needs; `tests/conformance/464_typed_catch_clause_dispatch` is the cross-target
+guard for that, and each compiler carries its own PR-gated unit test
+(`go/compiler/catch_clause_dispatch_test.go`,
+`csharp/compiler/test/CatchClauseDispatchTests.cs`,
+`rust/compiler/tests/catch_clause_dispatch.rs`) because the per-language compiler
+legs live only in `conformance-matrix.yml`, which has no `pull_request:` trigger.
+That the throw is genuinely TYPED — reachable by `on StateError`, not only by an
+untyped catch-all, which is what Rust's bare `panic!` gave before #597 — is pinned
+per runtime too, next to each target's implementation.
+
+**The gate lesson #615 adds.** The corpus fixture that would have gone red
+(`146_nested_try_catch_types`) already existed, was never carved out, and had been
+failing the Go/C#/Rust compiler rows since those pipelines came online — absorbed
+into each row's ratchet floor rather than reported. A ratchet floors a count; it
+cannot say WHICH fixture is failing, and a post-merge red on a workflow with no
+`pull_request:` trigger stops nothing. So when a compiler documents a lowering gap
+in a doc comment, that gap needs a **PR-gated** test of its own — the comment is
+not the gate.
 
 When a base function's result is meaningful — a predicate, a "was it there"
 answer, anything a caller would branch on — declare the `outputType`, add the

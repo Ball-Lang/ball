@@ -78,6 +78,27 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   (`"main:B"`), so a lookup with `current_class_name_` silently misses. For an
   external receiver, resolve its class with `static_class_of()` and fall back
   EXPLICITLY when it cannot be proven; never guess "not shadowed".
+- **A `final` field declared beside a same-named SETTER reuses the #501
+  backing-member lowering — with only the GETTER half (#664).** Dart allows the
+  pair (a `final` field contributes a getter and nothing else, so the explicit
+  setter is the only setter for that name — `collection`'s `ListSlice`); C++ has
+  no such split, and g++ rejects a data member `length` beside a member function
+  `length(v)` outright ("conflicts with a previous declaration"). The
+  shadowed-field analysis therefore also marks a field whose OWN class declares
+  a setter of that name, so `emit_struct` stores it under
+  `shadow_backing_name()` and re-exposes the name as a public accessor — but
+  `class_setter_backed_fields_` suppresses the implicit SETTER half, which would
+  redefine the user's own member. Two consequences: the read path's
+  receiver-scoped branch now answers "getter" for any
+  `class_field_shadows_getter` field (for a #501 field `class_has_getter`
+  already did, via the ancestor that declares it; here there IS no ancestor
+  getter), and these fields are deliberately NOT added to the program-wide
+  `shadowed_getter_names_` — widening that would reroute an unrelated class's
+  plain `obj.length = v` into a setter it does not have. A write whose receiver
+  class cannot be proven therefore names the private backing member and fails to
+  BUILD: loud, never silent. Conformance `470_setter_beside_final_field` is the
+  guard; the self-hosted engine declares **zero** setters, so `engine_rt.cpp` is
+  provably untouched by this branch.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and

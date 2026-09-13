@@ -355,3 +355,34 @@ fn cross_file_method_call_encodes() {
         "the crate walk must reach the file declaring the called method"
     );
 }
+
+// ── lib.rs: re-encoding the COMPILER's own output ────────────────────────────
+
+/// The compiler↔encoder round-trip invariant (#632) in its second shape, still
+/// OPEN as issue #687.
+///
+/// `Compiler::compile()` (script mode) wraps the entry function's body in an
+/// immediately-invoked closure — `let _ballvalue_result: BallValue = (|| ->
+/// BallValue { … })();` — and `lib.rs`'s call-target match refuses it, so
+/// `encode(compile(p))` fails for EVERY program, hello-world included.
+///
+/// It is not fixed here because the IIFE is load-bearing: it is what makes a
+/// `return` inside the entry body return from the entry body rather than from
+/// `main`, which returns `()`. Encoding it as a plain Ball `block` would
+/// silently change that (a `return` inside a Ball block returns from the
+/// enclosing FUNCTION); the faithful shape is a `lambda` invoked through
+/// `std.invoke`, which is what `dart/encoder` emits for a
+/// `FunctionExpressionInvocation` — a decision #687 owes, together with a
+/// run-proof that the `return` still behaves.
+///
+/// The LIBRARY-mode round trip — the pipeline Tier A stage 3 actually measures
+/// — is green and gated by
+/// `rust/encoder/tests/compile_reencode_roundtrip.rs`. Flip this pin to a
+/// positive assertion in the PR that closes #687.
+#[test]
+#[should_panic(expected = "unsupported call target")]
+fn compiled_entry_point_iife_is_a_documented_gap() {
+    let program = ball_lang_encoder::encode(r#"fn main() { println!("{}", 1); }"#);
+    let compiled = ball_lang_compiler::Compiler::new(&program).compile();
+    encode(&compiled);
+}

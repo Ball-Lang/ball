@@ -5,13 +5,13 @@
 //! ## What this gate is
 //!
 //! Tier A's Rust harness (`rust/tools/rq1-study`) runs three stages over each
-//! third-party library file: **(1)** encode the Rust into Ball, **(2)** compile
-//! that Ball back into Rust, **(3)** re-encode the compiled Rust. Stage 3 is
-//! the only stage whose *input* is this repo's own output, and until this test
-//! existed nothing in the test suite exercised it: `rust/compiler`'s tests
-//! assert on emitted Rust and `rust/encoder`'s tests start from hand-written
-//! Rust, so a construct the compiler emits and the encoder refuses was
-//! invisible to both.
+//! third-party library file: **(1)** `encode_library` the Rust into Ball,
+//! **(2)** `compile_library` that Ball back into Rust, **(3)** `encode_library`
+//! the compiled Rust again. Stage 3 is the only stage whose *input* is this
+//! repo's own output, and until this test existed nothing in the suite
+//! exercised it: `rust/compiler`'s tests assert on emitted Rust and
+//! `rust/encoder`'s tests start from hand-written Rust, so a construct the
+//! compiler emits and its own encoder refuses was invisible to both.
 //!
 //! It was not hypothetical. `type_emit.rs::compile_method_dispatchers` emits
 //! one free dispatcher function per method short name, whose fallback arm was
@@ -19,17 +19,37 @@
 //! `println!`/`format!`/`vec!`. So **every** library with a struct and one
 //! method failed stage 3 with ``unsupported macro invocation `panic!` ``.
 //!
-//! ## Why the assertions are what they are
+//! The three stages here are the library-mode ones on purpose: that is the
+//! pipeline Tier A actually measures. The *script*-mode `compile()` wraps the
+//! entry body in an immediately-invoked closure this encoder also cannot read
+//! back — a second instance of the same invariant, in a shape Tier A never
+//! reaches; it is pinned as its own documented gap in
+//! `documented_gaps.rs::compiled_entry_point_iife_is_a_documented_gap` and
+//! tracked as issue #687.
 //!
-//! A shape assertion on the re-encoded Ball would pass on a `std.throw`
-//! carrying the wrong message, and an encode-only assertion would pass on a
-//! throw that no longer runs. So the round trip is closed all the way through
-//! execution: the re-encoded program is compiled a SECOND time and run, and
-//! its stdout must equal the original Rust source's own hand-computed output.
-//! The fallback arm's *message* is asserted separately, because that string is
-//! the value a Ball `catch` binds (`runtime.rs::ball_catch_payload` re-wraps a
-//! non-Ball panic payload as `BallValue::String(message)`) and it is therefore
-//! an observable the #616/#641 error-rendering contract governs.
+//! ## Stage 3 is an ENCODE gate, and the run-proofs sit beside it
+//!
+//! Stage 3's output is deliberately **not** compiled and run here, and neither
+//! Tier A nor this test should pretend otherwise: the compiler's output names
+//! runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not
+//! user functions, so re-encoding it yields a Ball program whose calls resolve
+//! to nothing, and re-compiling that is not a fixpoint anyone has claimed. What
+//! stage 3 measures — the only thing it measures — is whether the encoder can
+//! read the compiler's output at all.
+//!
+//! So the behavioural half is proven on the constructs themselves, each through
+//! a real `cargo build` + run of compiler output driven by a hand-written
+//! `main`:
+//!
+//! - `dispatcher_fallback_throws_the_target_neutral_message` reaches the
+//!   dispatcher's fallback arm on purpose and prints the value a Ball `catch`
+//!   would bind (`runtime.rs::ball_catch_payload` re-wraps a non-Ball panic
+//!   payload as `BallValue::String(message)`). That message is an observable
+//!   the #616/#641 error-rendering contract governs, so it is asserted as
+//!   bytes.
+//! - `a_formatted_panic_throws_the_message_rust_itself_would_print` does the
+//!   same for the new `panic!` → `std.throw` arm on ordinary user code: the
+//!   caught value must read exactly what the original Rust `panic!` says.
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -41,9 +61,9 @@ use ball_lang_shared::proto::ball::v1::literal::Value as LiteralValue;
 use ball_lang_shared::proto::ball::v1::statement::Stmt;
 use ball_lang_shared::proto::ball::v1::{Expression, Program};
 
-/// A struct with one instance method, called polymorphically — the smallest
-/// source that makes `compile_method_dispatchers` emit a dispatcher with a
-/// fallback arm. `3 + 4 == 7`, hand-computed from the Rust semantics.
+/// A library with one struct and one instance method — the smallest source
+/// that makes `compile_method_dispatchers` emit a dispatcher with a fallback
+/// arm.
 const CLASS_WITH_METHOD_SOURCE: &str = r#"
 struct Point {
     x: i64,
@@ -55,14 +75,69 @@ impl Point {
         self.x + self.y
     }
 }
+"#;
 
+/// A `main` the COMPILER did not write, appended to the compiled library so the
+/// dispatcher can actually be run. It calls the dispatcher twice: once with a
+/// real `Point` receiver (`3 + 4`, hand-computed from the Rust semantics
+/// above), and once with a receiver of a type that owns no `sum`, so the
+/// fallback arm fires and its thrown value is printed exactly as a Ball `catch`
+/// would see it.
+const DISPATCHER_DRIVER_MAIN: &str = r#"
 fn main() {
-    let p = Point { x: 3, y: 4 };
-    println!("{}", p.sum());
+    let mut fields = BallMap::new();
+    fields.insert("x".to_string(), BallValue::Int(3));
+    fields.insert("y".to_string(), BallValue::Int(4));
+    let mut input = BallMap::new();
+    input.insert(
+        "self".to_string(),
+        BallValue::Message(BallMessage::new("main:Point", fields)),
+    );
+    println!("{}", ball_to_string(sum(BallValue::Map(input))));
+
+    let mut stranger = BallMap::new();
+    stranger.insert(
+        "self".to_string(),
+        BallValue::Message(BallMessage::new("main:Stranger", BallMap::new())),
+    );
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        sum(BallValue::Map(stranger))
+    }));
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("the dispatcher fallback arm must throw");
+    println!("{}", ball_to_string(ball_catch_payload(payload)));
 }
 "#;
 
-const EXPECTED_STDOUT: &str = "7\n";
+/// `7` from the real receiver, then the fallback arm's message — the same
+/// string `go/compiler/library.go` and `csharp/compiler/src/TypeEmit.cs` throw.
+const DISPATCHER_EXPECTED_STDOUT: &str = "7\nno method 'sum' for main:Stranger\n";
+
+/// Ordinary user code whose only interesting construct is a formatted `panic!`.
+const PANICKING_LIBRARY_SOURCE: &str = r#"
+fn boom(code: i64) -> i64 {
+    panic!("boom {}", code);
+}
+"#;
+
+/// Calls the compiled `boom` and prints the value a Ball `catch` would bind.
+const PANIC_DRIVER_MAIN: &str = r#"
+fn main() {
+    std::panic::set_hook(Box::new(|_| {}));
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        boom(BallValue::Int(7))
+    }));
+    let _ = std::panic::take_hook();
+    let payload = outcome.err().expect("`panic!` must still throw after the round trip");
+    println!("{}", ball_to_string(ball_catch_payload(payload)));
+}
+"#;
+
+/// Byte-identical to what `panic!("boom {}", code)` itself prints for `code =
+/// 7` — the whole point of routing the message through `format!`'s own
+/// `std.concat`/`std.to_string` chain rather than dropping it.
+const PANIC_EXPECTED_STDOUT: &str = "boom 7\n";
 
 static FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -161,7 +236,7 @@ fn std_calls(program: &Program) -> Vec<String> {
     let mut names = Vec::new();
     for module in &program.modules {
         if module.functions.iter().all(|f| f.is_base) {
-            continue; // a base module declaration, not user code
+            continue; // a base-module declaration, not user code
         }
         for function in &module.functions {
             if let Some(body) = &function.body {
@@ -227,25 +302,19 @@ fn collect_std_calls(expr: &Expression, out: &mut Vec<String>) {
     }
 }
 
-/// Stage 1 → 2 → 3, the exact Tier A pipeline, closed through a second
-/// compile and a real run.
+/// Stage 1 → 2 → 3, the exact Tier A pipeline. RED before issue #632's fix:
+/// stage 3 aborted on the dispatcher's `panic!` fallback arm.
 #[test]
-fn compiled_method_dispatcher_re_encodes_and_still_runs() {
-    // ── Stage 1: Rust → Ball ──
-    let program = ball_lang_encoder::encode(CLASS_WITH_METHOD_SOURCE);
-
-    // ── Stage 2: Ball → Rust ──
-    let compiled = Compiler::new(&program).compile();
+fn compiled_method_dispatcher_re_encodes() {
+    let program = ball_lang_encoder::encode_library(CLASS_WITH_METHOD_SOURCE);
+    let compiled = Compiler::new(&program).compile_library();
     assert!(
         compiled.contains("pub fn sum(input: BallValue) -> BallValue"),
         "the compiler must emit a free dispatcher for `sum` — otherwise this test is not \
          exercising the construct it claims to:\n{compiled}"
     );
 
-    // ── Stage 3: the compiler's own output → Ball ──
-    // RED before issue #632's fix: `encode_macro` refused the dispatcher's
-    // `panic!` fallback arm.
-    let reencoded = ball_lang_encoder::encode(&compiled);
+    let reencoded = ball_lang_encoder::encode_library(&compiled);
 
     let calls = std_calls(&reencoded);
     assert!(
@@ -254,46 +323,49 @@ fn compiled_method_dispatcher_re_encodes_and_still_runs() {
          silently. std calls found: {calls:?}"
     );
 
-    // ── The round trip is behaviour-preserving, not merely structural ──
-    let recompiled = Compiler::new(&reencoded).compile();
-    let stdout = compile_and_run("reencoded_dispatcher", &recompiled);
-    assert_eq!(
-        stdout, EXPECTED_STDOUT,
-        "the twice-round-tripped program must still print what the original Rust prints"
+    // …carrying the SAME message, not merely some throw. That string is the
+    // value a Ball `catch` binds, so losing it would be a behaviour change no
+    // presence-of-a-throw assertion could see.
+    let rendered = format!("{reencoded:?}");
+    assert!(
+        rendered.contains("no method 'sum' for "),
+        "the re-encoded `std.throw` must carry the dispatcher's own message"
     );
 }
 
-/// The compiler half of the agreement: the fallback arm's message is the value
-/// a `catch` binds, and it must be spelled the same way every other target
-/// spells it — `go/compiler/library.go`'s
+/// The compiler half of the agreement, proven by running it: the fallback arm's
+/// message is the value a `catch` binds, and it must be spelled the way every
+/// other target spells it — `go/compiler/library.go`'s
 /// `panic(ballrt.Thrown{Value: "no method '<name>' for " + __t})` and
 /// `csharp/compiler/src/TypeEmit.cs`'s
-/// `throw new BallRuntimeException($"no method '<name>' for {__t}")`.
+/// `throw new BallRuntimeException($"no method '<name>' for {__t}")`. RED
+/// before #632's fix, which dropped a `ball-lang-compiler runtime:` prefix no
+/// other target emits.
 #[test]
-fn dispatcher_fallback_message_matches_the_other_targets() {
-    let program = ball_lang_encoder::encode(CLASS_WITH_METHOD_SOURCE);
-    let compiled = Compiler::new(&program).compile();
-
-    assert!(
-        compiled.contains(r#"panic!("no method 'sum' for {}", other)"#),
-        "the dispatcher fallback must throw the target-neutral `no method '<name>' for <type>` \
-         message — no `ball-lang-compiler runtime:` prefix that no other target emits:\n{compiled}"
+fn dispatcher_fallback_throws_the_target_neutral_message() {
+    let program = ball_lang_encoder::encode_library(CLASS_WITH_METHOD_SOURCE);
+    let compiled = Compiler::new(&program).compile_library();
+    let stdout = compile_and_run(
+        "dispatcher_fallback",
+        &format!("{compiled}\n{DISPATCHER_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, DISPATCHER_EXPECTED_STDOUT,
+        "the dispatcher must compute the same value for a known receiver and throw the \
+         target-neutral message for an unknown one"
     );
 }
 
 /// `panic!` outside a dispatcher: ordinary third-party Rust uses it too, and it
 /// is Rust's spelling of Ball's `std.throw` (`runtime.rs::ball_throw` is
-/// literally `std::panic::panic_any`). The formatted message travels through
-/// the same `std.concat`/`std.to_string` chain `format!` already encodes to.
+/// literally `std::panic::panic_any`). Proven end to end — encode → compile →
+/// `cargo build` → run — because the message must survive, not merely the
+/// throw: a caught value reading `boom ` or `` would round-trip just as
+/// cleanly and be silently wrong.
 #[test]
-fn a_formatted_panic_encodes_as_std_throw() {
-    let source = r#"
-fn main() {
-    let code = 7;
-    panic!("boom {}", code);
-}
-"#;
-    let program = ball_lang_encoder::encode(source);
+fn a_formatted_panic_throws_the_message_rust_itself_would_print() {
+    let program = ball_lang_encoder::encode_library(PANICKING_LIBRARY_SOURCE);
+
     let calls = std_calls(&program);
     assert!(
         calls.iter().any(|name| name == "throw"),
@@ -304,30 +376,36 @@ fn main() {
         "the panic message must keep its interpolation, as `format!` does. \
          std calls found: {calls:?}"
     );
+
+    let compiled = Compiler::new(&program).compile_library();
+    let stdout = compile_and_run(
+        "formatted_panic",
+        &format!("{compiled}\n{PANIC_DRIVER_MAIN}"),
+    );
+    assert_eq!(
+        stdout, PANIC_EXPECTED_STDOUT,
+        "the caught value must read exactly what the original Rust `panic!` prints"
+    );
 }
 
 /// `panic!()` with no arguments. Rust's own message for it is `explicit panic`
-/// (the `core::panic!()` expansion — `panic!()` is defined to panic with that
-/// message), so the encoded throw carries exactly that, never an empty string.
+/// (`core`'s `panic!()` expands to a `panic("explicit panic")` call), so the
+/// encoded throw carries exactly that, never an empty string that would lose
+/// the failure's identity.
 #[test]
 fn a_bare_panic_encodes_the_message_rust_itself_prints() {
-    let source = r#"
-fn main() {
-    panic!();
-}
-"#;
-    let program = ball_lang_encoder::encode(source);
-    let main_module = program
+    let program = ball_lang_encoder::encode_library("fn boom() { panic!(); }");
+    let boom = program
         .modules
         .iter()
         .find(|m| m.name == "main")
-        .expect("encoded program must carry a `main` module");
-    let main_fn = main_module
+        .expect("encoded program must carry a `main` module")
         .functions
         .iter()
-        .find(|f| f.name == "main")
-        .expect("encoded program must carry `main`");
-    let rendered = format!("{:?}", main_fn.body);
+        .find(|f| f.name == "boom")
+        .expect("encoded program must carry `boom`")
+        .clone();
+    let rendered = format!("{:?}", boom.body);
     assert!(
         rendered.contains("explicit panic"),
         "a bare `panic!()` must carry Rust's own `explicit panic` message: {rendered}"

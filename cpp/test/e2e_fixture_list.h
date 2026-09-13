@@ -333,7 +333,8 @@ inline const std::vector<std::string>& program_names() {
         "467_caught_type_error_to_string",
         "468_map_contains_value",
         "469_map_put_if_absent",
-        "470_null_aware_chain_scope",
+        "470_setter_beside_final_field",
+        "471_null_aware_chain_scope",
     };
     return names;
 }

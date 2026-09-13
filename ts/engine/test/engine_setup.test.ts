@@ -1746,6 +1746,54 @@ describe("patchCompiledEngine (via a real BallEngine instance)", () => {
     assert.equal(ce._matchesTypePattern(null, "Null"), true);
   });
 
+  // ── The virtual map getters never shadow a DECLARED field (#664) ──────────
+  //
+  // `patchCompiledEngine` intercepts `_evalFieldAccess` and answers
+  // `length`/`isEmpty`/`isNotEmpty` from the object's entry count BEFORE the
+  // compiled engine's own resolution order (own key → `__super__` chain →
+  // methods → user getter → virtual map property) gets a turn. A class that
+  // declares `final int length` therefore read its instance's ENTRY COUNT —
+  // silently, with no error, on this target only. Found while adding
+  // conformance `470_setter_beside_final_field`; a plain map that literally
+  // carries a `'length'` key had the same bug.
+  describe("_evalFieldAccess: a declared field beats the virtual map getters", () => {
+    async function read(object: any, field: string): Promise<any> {
+      const ce = makeEngine();
+      const scope = ce._globalScope;
+      scope.bind("__recv", object);
+      return ce._evalFieldAccess(
+        { object: { reference: { name: "__recv" } }, field_2: field, field },
+        scope,
+      );
+    }
+
+    test("a class instance's own `length` field wins over the entry count", async () => {
+      // 3 non-`__` keys, but the declared `length` field holds 7.
+      const instance = { __type__: "main:Box", length: 7, a: 1, b: 2 };
+      assert.equal(await read(instance, "length"), 7);
+    });
+
+    test("a class instance INHERITS `length` through __super__, not as an own key", async () => {
+      const instance = {
+        __type__: "main:Child",
+        __super__: { __type__: "main:Base", length: 9 },
+        a: 1,
+      };
+      assert.equal(await read(instance, "length"), 9);
+    });
+
+    test("a plain map with a literal 'length' key returns that entry", async () => {
+      assert.equal(await read({ length: 42, other: 1 }, "length"), 42);
+    });
+
+    test("a plain map WITHOUT those keys still gets the virtual getters", async () => {
+      assert.equal(await read({ a: 1, b: 2 }, "length"), 2);
+      assert.equal(await read({ a: 1 }, "isEmpty"), false);
+      assert.equal(await read({}, "isEmpty"), true);
+      assert.equal(await read({ a: 1 }, "isNotEmpty"), true);
+    });
+  });
+
   test("_stdMapCreate ingests a single (non-array) entries object", () => {
     const ce = makeEngine();
     assert.deepEqual(ce._stdMapCreate({ entries: { key: "x", value: 5 } }), { x: 5 });

@@ -26,14 +26,24 @@
 //! When a slice closes a gap, its test here flips from `#[should_panic]` to a
 //! positive "encodes successfully" assertion in the **same PR** — leaving it
 //! asserting the old panic text would silently regress a closed gap back to
-//! unverified. Five are flipped today: receiver-less associated functions and
-//! cross-file call targets (issue #491's associated-fn slice), non-`Fn` items
-//! inside an `impl` block, and tuple + unit structs. The deeper proofs for all
-//! five live in `rust/encoder/tests/static_methods.rs`,
+//! unverified. Seven are flipped today: receiver-less associated functions and
+//! cross-file call targets (PR #526), non-`Fn` items inside an `impl` block,
+//! tuple + unit structs, and — newest — module-scope `const`/`static`/`type`
+//! aliases and non-`Fn` items inside a `trait` block. The deeper proofs live
+//! in `rust/encoder/tests/static_methods.rs`,
 //! `rust/encoder/tests/cross_module_calls.rs`,
-//! `rust/encoder/tests/mixed_impl_items.rs` and
-//! `rust/encoder/tests/tuple_and_unit_structs.rs`; the flipped tests here
+//! `rust/encoder/tests/mixed_impl_items.rs`,
+//! `rust/encoder/tests/tuple_and_unit_structs.rs` and
+//! `rust/encoder/tests/mixed_module_items.rs`; the flipped tests here
 //! remain the goalposts that keep this file's gap list honest.
+//!
+//! **Closing a gap can create a new one, and that pin is owed in the same
+//! PR.** Skipping a module-scope `const` declaration made a *reference* to one
+//! newly reachable as a dangling `reference(name)`, so the encoder fails loud
+//! at the use site and
+//! `reference_to_a_skipped_top_level_const_is_a_documented_gap` pins that.
+//! Likewise `top_level_macro_invocation_is_a_documented_gap` pins the carve-out
+//! that deliberately was NOT skipped alongside it.
 //!
 //! **Slice numbering is not used here on purpose.** #491's issue body numbers
 //! its slices one way and the PRs that landed self-labelled *different* work

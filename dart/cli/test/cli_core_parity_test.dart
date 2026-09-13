@@ -371,6 +371,92 @@ void main() {
       expect(hostedViolations, equals(nativeViolations));
     });
 
+    // #609 follow-up: the engine dispatches a base call by function identity,
+    // not by `call.module`, so an UNQUALIFIED call reaches the very same host
+    // handler. The audit must classify it the same way — and, because the call
+    // site named no module, it must name the DECLARING one in the report.
+    test(
+      'an unqualified custom base call is surfaced — native == engine',
+      () async {
+        final program = Program()
+          ..mergeFromProto3Json({
+            'name': 'custom_unqualified',
+            'version': '1.0.0',
+            'entryModule': 'main',
+            'entryFunction': 'main',
+            'modules': [
+              {
+                'name': 'std',
+                'functions': [
+                  {'name': 'print', 'isBase': true},
+                ],
+              },
+              {
+                'name': 'mymodule',
+                'functions': [
+                  {'name': 'exec_shell', 'isBase': true},
+                ],
+              },
+              {
+                'name': 'main',
+                'functions': [
+                  {
+                    'name': 'main',
+                    'outputType': 'void',
+                    'body': {
+                      'call': {
+                        'function': 'exec_shell',
+                        'input': {
+                          'messageCreation': {'fields': <Object?>[]},
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          }, ignoreUnknownFields: true);
+        final input = protoToEngineMap(program);
+        final engine = newEngine();
+
+        final nativeText = cli.auditReport(program);
+        expect(nativeText, contains('mymodule.exec_shell'));
+        expect(
+          nativeText,
+          contains('REVIEW REQUIRED — calls into custom base modules'),
+        );
+        expect(nativeText, isNot(contains('NO RISK')));
+        expect(nativeText, contains('Unknown Termination (1):'));
+
+        final hostedText = await engine.callFunction(
+          'main',
+          'auditReport',
+          input,
+        );
+        expect(hostedText, equals(nativeText));
+
+        final nativeViolations = cli.checkPolicy(
+          cli.analyzeCapabilities(program),
+          deny: {'custom'},
+        );
+        expect(nativeViolations, isNotEmpty);
+        final hostedReport = await engine.callFunction(
+          'main',
+          'analyzeCapabilities',
+          input,
+        );
+        final hostedViolations = await engine.callFunction(
+          'main',
+          'checkPolicyViolations',
+          {
+            'report': hostedReport,
+            'deny': ['custom'],
+          },
+        );
+        expect(hostedViolations, equals(nativeViolations));
+      },
+    );
+
     test(
       'benign concurrency-free program stays clean — native == engine',
       () async {

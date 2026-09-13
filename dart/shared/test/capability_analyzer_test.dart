@@ -845,6 +845,153 @@ void main() {
       expect(text, contains('main.main: '));
       expect(text, contains('Total: 0 error(s), 0 warning(s), 1 info(s)'));
     });
+
+    // ── The call-site module is not the signal — the DECLARATION is ─────────
+    //
+    // The engine dispatches a base call by function identity, not by
+    // `call.module`: when the exact `(module, function)` key misses it scans
+    // every module for the bare name (`_resolveAndCallFunction`; the #420
+    // `sawBase && sawUser` guard passes when only a base function bears the
+    // name) and dispatches the host handler. So an UNQUALIFIED call
+    // (`call.module` empty) and a call naming a benign-looking module both
+    // reach `mymodule.exec_shell` at run time. Classifying only the truthfully
+    // qualified spelling left both of those reading `NO RISK — pure
+    // computation only` with `--deny custom` empty — the same hole #402 closed
+    // for std base functions, still open for the host-extension seam.
+    for (final spelling in <List<String>>[
+      <String>['unqualified', ''],
+      <String>['spoofed', 'harmless_looking_module'],
+    ]) {
+      final label = spelling[0];
+      final callModule = spelling[1];
+
+      test('a $label call into a declared custom base module is custom', () {
+        final r = analyzeCapabilities(buildCustom(callModule: callModule));
+        expect(_sum(r)['isPure'], isFalse);
+        final entry = _findCap(r, 'custom');
+        expect(entry['riskLevel'], 'unknown');
+        final sites = entry['callSites'] as List;
+        expect(sites, hasLength(1));
+        final site = sites.single as Map;
+        expect(site['module'], 'main');
+        expect(site['function'], 'main');
+        expect(site['calleeFunction'], 'exec_shell');
+        // The declaring module is named even when the call site did not.
+        expect(site['resolvedModule'], 'mymodule');
+      });
+
+      test('the $label report names the declaring module', () {
+        final text = formatCapabilityReport(
+          analyzeCapabilities(buildCustom(callModule: callModule)),
+        );
+        expect(text, contains('custom (1 call sites:'));
+        expect(text, contains('mymodule.exec_shell'));
+        expect(
+          text,
+          contains('REVIEW REQUIRED — calls into custom base modules'),
+        );
+        expect(text, isNot(contains('NO RISK')));
+      });
+
+      test('--deny custom trips on the $label call', () {
+        final violations = checkPolicy(
+          analyzeCapabilities(buildCustom(callModule: callModule)),
+          deny: <String>{'custom'},
+        );
+        expect(violations, hasLength(1));
+        expect(violations.single, contains('mymodule.exec_shell'));
+      });
+
+      test('the reachable-only analysis sees the $label call too', () {
+        final r = analyzeCapabilitiesReachable(
+          buildCustom(callModule: callModule),
+        );
+        expect(_sum(r)['isPure'], isFalse);
+        expect(
+          (_findCap(r, 'custom')['callSites'] as List).single,
+          containsPair('calleeFunction', 'exec_shell'),
+        );
+      });
+
+      test('the termination analyzer flags the $label call', () {
+        final warnings = analyzeTermination(
+          buildCustom(callModule: callModule),
+        );
+        expect(warnings, hasLength(1));
+        final w = warnings.single as Map;
+        expect(w['severity'], 'info');
+        expect(w['category'], 'unknown_termination');
+        expect(w['location'], 'main.main');
+        expect(w['message'], contains('mymodule.exec_shell'));
+      });
+    }
+
+    test('an unqualified call to an UNdeclared name stays an ordinary call', () {
+      // Nothing declares `helper` as a base function anywhere, so the bare-name
+      // resolution finds nothing and the audit fails closed.
+      final r = analyzeCapabilities(
+        buildCustom(
+          callModule: '',
+          callFunction: 'helper',
+          declareCustomModule: false,
+        ),
+      );
+      expect(
+        _caps(r).map((c) => (c as Map)['capability']),
+        isNot(contains('custom')),
+      );
+    });
+
+    test('a user function bearing the name blocks bare-name resolution', () {
+      // When both a user function and a base function bear the bare name the
+      // engine refuses to dispatch at all (the #420 ambiguity guard throws), so
+      // there is no host call to report and the bare-name resolution must not
+      // invent one. The QUALIFIED spelling still resolves exactly, so a real
+      // host call is never lost.
+      final p = Program()
+        ..mergeFromProto3Json({
+          'name': 'custom',
+          'version': '1.0.0',
+          'entryModule': 'main',
+          'entryFunction': 'main',
+          'modules': <Map<String, dynamic>>[
+            {
+              'name': 'mymodule',
+              'functions': [
+                {'name': 'exec_shell', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                {
+                  'name': 'exec_shell',
+                  'outputType': 'void',
+                  'body': {
+                    'messageCreation': {'fields': <dynamic>[]},
+                  },
+                },
+                {
+                  'name': 'main',
+                  'outputType': 'void',
+                  'body': {
+                    'call': {
+                      'function': 'exec_shell',
+                      'input': {
+                        'messageCreation': {'fields': <dynamic>[]},
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }, ignoreUnknownFields: true);
+      expect(
+        _caps(analyzeCapabilities(p)).map((c) => (c as Map)['capability']),
+        isNot(contains('custom')),
+      );
+    });
   });
 
   group('conformance programs', () {

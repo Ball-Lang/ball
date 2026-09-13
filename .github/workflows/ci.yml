@@ -191,6 +191,29 @@ jobs:
       - name: Go module release lane wiring guard (#361)
         run: bash tools/release/check_go_release_wiring.sh
 
+      # #627: the two halves the guard above can only assert the EXISTENCE of.
+      #
+      # The freshness classifier is the Go lane's answer to pubdev-freshness.yml
+      # — "does proxy.golang.org actually serve the version the six go.mod files
+      # name?" Its live legs run on a schedule (go-freshness.yml), because a
+      # per-PR dependency on proxy.golang.org would redden unrelated work on a
+      # CDN hiccup and the proxy does not change between two pushes of the same
+      # PR. The classification is driven here, offline, on synthetic fixtures,
+      # so a classifier that silently stopped classifying — and would therefore
+      # report a lane that has cut no tags in months as healthy — cannot reach
+      # main.
+      - name: Go module freshness classifier self-test (#627)
+        run: bash tools/release/check_go_freshness.sh --self-test
+
+      # The poller is what makes go.releaserc.json's publishCmd AWAIT the
+      # tag-go-modules.yml run it dispatches instead of firing and forgetting.
+      # It only ever executes inside a real release, so without a self-test its
+      # budget loop and its conclusion classification would first be exercised
+      # on the day a tag cut went wrong — the same argument that put
+      # resolve_published.py's self-test here (#568).
+      - name: Awaited workflow-dispatch poller self-test (#627)
+        run: python3 tools/release/await_workflow_run.py --self-test
+
       # The freshness guard itself runs on a schedule (pubdev-freshness.yml) —
       # it queries the live pub.dev API, which must not be a per-PR dependency.
       # Its comparison logic is exercised here on every PR against synthetic
@@ -2244,7 +2267,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)" — the
+      # "Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2439,7 +2462,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)" — the 4
+      # "Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -2528,6 +2551,20 @@ jobs:
       - name: "Coverage-table renderer + floor self-test (issue #493)"
         run: python tools/coverage-study/test/coverage_table_self_test.py
 
+      # ── summarize.sh self-test (issues #493, #491) ──
+      # summarize.sh is the only thing a report-only coverage-study job still
+      # FAILS on: the positive floor (a run that scored zero files is a
+      # harness/checkout failure, never a 0% result) and — since the owner's
+      # 2026-09-14 methodology decision on #491 — the REQUIRED
+      # `excluded (test-only): N` line, which is the provenance for a
+      # denominator that no longer contains a package's own tests. It is shell,
+      # and a shell gate can disable itself silently (a failing `[` inside an
+      # `if` skips the branch and falls through to exit 0), so it is gated here
+      # by exit code. Language-agnostic, hence this job rather than a per-
+      # language one; it is bash either way.
+      - name: "Coverage-study summarize.sh self-test (issues #493, #491)"
+        run: bash tools/coverage-study/test/summarize_self_test.sh
+
       # Runs BEFORE the self-host regen below, so compiled_engine.py is absent
       # here and the CLI's honest-failure `run` path (exit 1 + regenerate hint)
       # is actually exercised — the natural state of a fresh checkout.
@@ -2580,7 +2617,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)" — the 4
+      # "Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

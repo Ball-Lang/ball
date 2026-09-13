@@ -7,7 +7,7 @@ paths:
 
 Rust is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in place
 and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 349 passed, 0 failed, 349 total`; the 4 golden-less resource-limit/sandbox fixtures
+(`Results: 350 passed, 0 failed, 350 total`; the 4 golden-less resource-limit/sandbox fixtures
 are carve-outs skipped like the Dart runner — #39/#300 closed, #40/#41 landed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `rust` job — build/test/fmt/clippy plus the
 self-host run-acceptance and full conformance sweep) and `rust/AGENTS.md`, not stale prose.
@@ -117,6 +117,16 @@ cargo fmt --check && cargo clippy --workspace
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `rust/shared/src/runtime.rs`'s `list_find_no_match_throws_a_typed_state_error` (`ball_list_find` uses `ball_throw_typed`, like its `.first`/`list_reduce` neighbours — a bare `panic!(&str)` is recoverable only by an UNTYPED catch) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`.first`/`.last`/`.single` raise a TYPED `StateError` too (#616).** They used
+  to `panic!(&str)` with a message no other target produced — recoverable only by
+  an untyped catch, so a program's own `on StateError catch` around an empty
+  `.first` never saw it. And `ball_throw_typed`'s payload now renders as Dart's
+  own `StateError.toString()` (`value.rs`'s `dart_error_to_string`, a CLOSED
+  table over the type names `ball_throw_typed` is called with), so `to_string(e)`
+  in a catch body reads `Bad state: No element` rather than the raw map form.
+  `rust/shared/src/runtime.rs`'s
+  `empty_first_last_and_single_throw_a_typed_dart_state_error` is this target's
+  half. See `docs/TESTING_STRATEGY.md` §5b.
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compile_try`
   emits an `if`/`else if` chain over the recovered payload: an `on <Type> catch`
   clause runs only when `ball_catch_matches(&__err, "<Type>")` accepts the thrown
@@ -335,7 +345,7 @@ cargo fmt --check && cargo clippy --workspace
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++: compile
   `dart/self_host/engine.ball.json` through `ball-lang-compiler` into `src/compiled_engine.rs`.
 - **Status: complete, runs at Dart parity** (#39/#300). The compiled engine builds and runs the
-  whole corpus with Dart-identical output: `Results: 349 passed, 0 failed, 349 total` (the 4
+  whole corpus with Dart-identical output: `Results: 350 passed, 0 failed, 350 total` (the 4
   golden-less resource-limit/sandbox fixtures 196/197/201/202 are behavioral carve-outs skipped
   like the Dart runner). The `self_host` cargo feature gates the compiled-engine driver (the
   generated `compiled_engine.rs` is a gitignored build artifact); a default build without it
@@ -367,8 +377,17 @@ cargo fmt --check && cargo clippy --workspace
   encoded with the crate's symbol table in hand (`rq1-study --single-file`
   turns that off and reproduces the older per-file measurement, so a
   before/after is one binary over one checkout; each JSON row's `crateModule`
-  says which way that file was measured). Honest baseline, **0/110 clean,
-  1/110 encoded** — the encoders' documented gaps (item-level macro
+  says which way that file was measured). **Tier A scores LIBRARY code only
+  since 2026-09-14** (the owner's methodology decision on #491): a file under a
+  PACKAGE-ROOT `tests/`/`benches/`/`examples/` directory (a sibling of `src/` —
+  a Cargo target; `src/tests/` is NOT one, #637), or one the crate's `mod` graph
+  reaches ONLY through a `#[cfg(test)]` module, is excluded from the denominator
+  and counted on the harness's own `excluded (test-only): N` line. That took 34
+  of `bitflags`' files out — all 34 by reachability, since `src/tests.rs` and
+  `src/tests/*.rs` alike are only reached through `#[cfg(test)] mod tests;` — so
+  the denominator is **77, not the 110 every #491 histogram in this file and in
+  `rust/AGENTS.md` is written against**; read those as history. Honest baseline,
+  **0/77 clean, 1/77 encoded** — the encoders' documented gaps (item-level macro
   invocations, unmapped macros like `write!`, `impl` self types that are not a
   plain named type) are in essentially every real crate file, and a file that
   clears one lands on the next. A closed gap category usually moves the

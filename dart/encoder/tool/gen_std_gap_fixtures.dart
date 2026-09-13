@@ -885,5 +885,133 @@ Future<void> main() async {
     ),
   );
 
+  // -- 465_state_error_message: the ONE observable form of a CAUGHT StateError
+  // (issue #616). `463_list_find_no_match` proved the throw is typed, but both
+  // of its catch bodies print a HARDCODED literal, so nothing anywhere pinned
+  // what the caught value itself reads as -- and every target answered
+  // differently. Measured on `origin/main` before the fix, same program:
+  //
+  //   Dart reference engine   Bad state: No element   <- canonical
+  //   TS self-hosted engine   {message: No element}
+  //   Go self-hosted engine   main:StateError
+  //
+  // The canonical answer is the Dart reference engine's, and it is also real
+  // Dart's: `StateError('No element').toString()` is `Bad state: No element`
+  // (verified against the SDK, not asserted in prose). `_evalLazyTry` binds
+  // `e is BallException ? e.value : e.toString()`, and the reference engine
+  // raised a HOST `StateError`, so the catch variable collapsed to that string.
+  // Every self-hosted engine compiles the same source line into a BALL-level
+  // construction of an unknown `StateError` class, so its catch variable bound
+  // a target-shaped object instead and each target's `to_string` rendered it
+  // its own way. The fix makes the engine throw a `BallException` whose value
+  // IS the canonical string, so the SAME portable value travels every target.
+  //
+  // Two sites, deliberately: `list_find` (the #604/#616 site, typed everywhere
+  // already) and `list_first` on an EMPTY list (which reached the runtimes'
+  // untyped `panic!`/`Thrown{string}`/`BallRuntimeException` paths, so a typed
+  // `on StateError catch` could not even see it on Rust/Go/C#/Python).
+  //
+  // Each `try` here has exactly one catch clause -- a fixture-shape choice, NOT
+  // a constraint. It WAS one until #615: the Go, C# and Rust COMPILERS each
+  // dispatched only the first clause with no type matching. All three now walk
+  // `catches[]` in source order and match each clause's `type` against the
+  // thrown value's type tag, and `464_typed_catch_clause_dispatch` is the
+  // cross-target guard for that. This fixture stays single-clause on purpose so
+  // that what it pins is the caught VALUE, not the clause dispatch.
+  //
+  // Not generatable from Dart source: the Dart encoder routes no Dart syntax to
+  // `list_find` at all (see `463`'s note), so `generate_conformance` cannot
+  // reach it from a `tests/conformance/src/*.dart`. Hand-built here and listed
+  // in tests/conformance/CARVEOUTS.md.
+  await writeFixture(
+    '465_state_error_message',
+    buildProgramJson(
+      name: 'state_error_message',
+      stdFunctions: [
+        {'name': 'print', 'isBase': true},
+        {'name': 'to_string', 'isBase': true},
+        {'name': 'greater_than', 'isBase': true},
+        {'name': 'try', 'isBase': true},
+      ],
+      stdTypeDefs: [
+        _printInputTypeDef,
+        _unaryInputTypeDef,
+        _binaryInputTypeDef,
+      ],
+      extraModules: [
+        {
+          'name': 'std_collections',
+          'functions': [
+            {'name': 'list_find', 'isBase': true},
+            {'name': 'list_first', 'isBase': true},
+          ],
+          'typeDefs': [_listCallbackInputTypeDef, _listInputTypeDef],
+        },
+      ],
+      mainFunction: mainFn([
+        // 1. A MISS on a non-empty list: print the CAUGHT VALUE, never a
+        //    hardcoded string. This is the whole point of the fixture.
+        stmt(
+          tryCatch(
+            [
+              stmt(
+                printExpr(
+                  toStr(
+                    listFind(
+                      listLit([literal(1), literal(2), literal(3)]),
+                      lambda1(
+                        'x',
+                        stdCall(
+                          'greater_than',
+                          msg([
+                            field('left', ref('x')),
+                            field('right', literal(100)),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            [
+              (
+                type: 'StateError',
+                variable: 'e',
+                body: printExpr(toStr(ref('e'))),
+              ),
+            ],
+          ),
+        ),
+        // 2. `list_first` on an EMPTY list throws the same typed StateError
+        //    with the same observable form.
+        stmt(
+          tryCatch(
+            [
+              stmt(
+                printExpr(
+                  toStr(
+                    collectionsCall(
+                      'list_first',
+                      msg([field('list', listLit([]))]),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            [
+              (
+                type: 'StateError',
+                variable: 'e',
+                body: printExpr(toStr(ref('e'))),
+              ),
+            ],
+          ),
+        ),
+        stmt(printExpr(literal('done'))),
+      ]),
+    ),
+  );
+
   stderr.writeln('Done.');
 }

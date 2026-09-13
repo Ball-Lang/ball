@@ -1,5 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Xml;
+using System.Xml.Linq;
 using Ball.Compiler;
 using Ball.Encoder;
 using Ball.V1;
@@ -28,6 +30,15 @@ public sealed record FileResult(
     bool Clean,
     bool IrStable,
     string Reason);
+
+/// <summary>One file Tier A did not score, and the rule that took it out.
+///
+/// <para>An excluded file is NOT a <c>skipped</c> result: it never enters the
+/// results list at all, so it is in neither the numerator nor the denominator.
+/// It is reported on its own line so a denominator that moves because a RULE
+/// moved is visible — which is the entire reason exclusions are named here
+/// rather than silently filtered out of the walk.</para></summary>
+public sealed record Exclusion(string Package, string File, string Rule);
 
 /// <summary>Tier A of the third-party coverage study — C# port (issue #493).
 ///
@@ -331,21 +342,247 @@ public static class TierA
     }
 
     /// <summary>Every hand-written .cs file under <paramref name="directory"/>,
-    /// sorted. Build outputs and generated/designer files are excluded — they
-    /// are nobody's hand-written library surface.</summary>
+    /// sorted, test-only files excluded. Build outputs and generated/designer
+    /// files are dropped too — they are nobody's hand-written library
+    /// surface, and unlike the test-only exclusion that is not a judgement
+    /// about which population is being measured, so it is not counted.</summary>
     public static List<string> CsFilesUnder(string directory) =>
-        Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
-            .Where(path =>
+        ClassifyCsFiles(string.Empty, directory).Studied;
+
+    private static bool IsHandWrittenSource(string path)
+    {
+        var normalized = path.Replace('\\', '/');
+        return !normalized.Contains("/obj/", StringComparison.Ordinal)
+            && !normalized.Contains("/bin/", StringComparison.Ordinal)
+            && !normalized.EndsWith(".Designer.cs", StringComparison.Ordinal)
+            && !normalized.EndsWith(".g.cs", StringComparison.Ordinal)
+            && !normalized.EndsWith(".generated.cs", StringComparison.Ordinal);
+    }
+
+    /// <summary>Directory names that are a package's own test suite.</summary>
+    private static readonly HashSet<string> TestDirs =
+        new(["test", "tests"], StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Project-name suffixes that declare a test project outright.</summary>
+    private static readonly string[] TestProjectSuffixes = ["Tests", "Test", "Specs", "IntegrationTests"];
+
+    /// <summary>Package ids a .csproj <c>&lt;PackageReference Include="…"/&gt;</c>
+    /// can name that make it a test project whatever the project is called.
+    /// Matched as a prefix of the package ID so
+    /// <c>xunit.runner.visualstudio</c> / <c>NUnit3TestAdapter</c> count — and
+    /// only ever against an ID read out of the parsed manifest, never against
+    /// the manifest's raw text (see <see cref="DeclaresTestProject"/>).</summary>
+    private static readonly string[] TestPackageMarkers =
+        ["xunit", "NUnit", "MSTest", "Microsoft.NET.Test.Sdk"];
+
+    /// <summary>
+    /// The rule excluding <paramref name="absolutePath"/>, or <c>null</c> when it is library code.
+    ///
+    /// <para>The owner's 2026-09-14 decision on issue #491: Tier A scores the LIBRARY code a
+    /// user would encode, so a package's own test suite is out of the denominator. C#'s
+    /// convention has two halves — a test DIRECTORY, and a test PROJECT (a
+    /// <c>*.Tests.csproj</c>, or a .csproj whose MANIFEST declares a test-framework
+    /// <c>PackageReference</c> or <c>IsTestProject</c>, which is the half a filename rule
+    /// alone would miss).</para>
+    ///
+    /// <para>Matched on WHOLE path segments and WHOLE project-name suffixes, never as a
+    /// substring: <c>Latest.cs</c>, <c>Contest.cs</c> and <c>Attestation/Verify.cs</c> all
+    /// contain "test" and are library code, and excluding them would be exactly the silent
+    /// denominator shrink this rule exists to prevent (TierASelfTests pins all three).</para>
+    /// </summary>
+    private static string? TestOnlyRule(string root, string absolutePath, Dictionary<string, string?> projectCache)
+    {
+        var relative = Path.GetRelativePath(root, absolutePath).Replace('\\', '/');
+        var segments = relative.Split('/');
+        if (segments.Take(segments.Length - 1).Any(TestDirs.Contains))
+        {
+            return "under a test/ or tests/ directory";
+        }
+
+        // Walk up to the nearest enclosing .csproj — that is the project this
+        // file compiles into, exactly as MSBuild resolves it.
+        var dir = Path.GetDirectoryName(absolutePath);
+        var stop = Path.GetFullPath(root);
+        while (dir is not null && dir.StartsWith(stop, StringComparison.Ordinal))
+        {
+            if (!projectCache.TryGetValue(dir, out var reason))
             {
-                var normalized = path.Replace('\\', '/');
-                return !normalized.Contains("/obj/", StringComparison.Ordinal)
-                    && !normalized.Contains("/bin/", StringComparison.Ordinal)
-                    && !normalized.EndsWith(".Designer.cs", StringComparison.Ordinal)
-                    && !normalized.EndsWith(".g.cs", StringComparison.Ordinal)
-                    && !normalized.EndsWith(".generated.cs", StringComparison.Ordinal);
-            })
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .ToList();
+                reason = TestProjectReason(dir, out var found);
+                if (!found)
+                {
+                    // No project here; keep walking up without caching a
+                    // verdict that belongs to a directory above this one.
+                    dir = Path.GetDirectoryName(dir);
+                    continue;
+                }
+
+                projectCache[dir] = reason;
+            }
+
+            return reason;
+        }
+
+        return null;
+    }
+
+    /// <summary>The rule by which the project(s) in <paramref name="dir"/> are a
+    /// test project, or <c>null</c> when they are not. <paramref name="found"/>
+    /// reports whether the directory holds a .csproj at all, so the caller can
+    /// tell "not a test project" from "keep walking up".
+    ///
+    /// <para>The rule NAMES which half fired, because an exclusion whose reason
+    /// is a fixed string cannot tell a reader whose denominator moved WHY it
+    /// moved.</para></summary>
+    private static string? TestProjectReason(string dir, out bool found)
+    {
+        string[] projects;
+        try
+        {
+            projects = Directory.GetFiles(dir, "*.csproj", SearchOption.TopDirectoryOnly);
+        }
+        catch (IOException)
+        {
+            found = false;
+            return null;
+        }
+
+        found = projects.Length > 0;
+        foreach (var project in projects)
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            if (TestProjectSuffixes.Any(suffix =>
+                    name.EndsWith("." + suffix, StringComparison.OrdinalIgnoreCase)
+                    || name.Equals(suffix, StringComparison.OrdinalIgnoreCase)))
+            {
+                return "under a test project (a *.Tests.csproj project name)";
+            }
+
+            var declared = DeclaresTestProject(project);
+            if (declared is not null)
+            {
+                return $"under a test project ({declared})";
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The manifest declaration that makes this .csproj a test project, or
+    /// <c>null</c> when it carries none: a
+    /// <c>&lt;PackageReference Include="…"/&gt;</c> naming a test framework, or
+    /// <c>&lt;IsTestProject&gt;true&lt;/IsTestProject&gt;</c> (which names no
+    /// package at all and is the half a package rule alone would miss).
+    ///
+    /// <para>Parsed as XML, never searched as text (#637): the raw-text search
+    /// this replaced classified a LIBRARY project as test-only for merely
+    /// mentioning "xunit" in a comment, which silently takes that project's
+    /// library code out of the Tier A denominator — the exact failure the
+    /// exclusion rule exists to avoid. MSBuild element and attribute names are
+    /// case-insensitive and an old-style project carries the 2003 MSBuild
+    /// namespace, so both are matched on the LOCAL name, case-insensitively.</para>
+    ///
+    /// <para>A reference behind a <c>Condition</c> does NOT count. Whether it is
+    /// referenced at all depends on an MSBuild property this harness does not
+    /// evaluate, so it is not proof — and between "study a test project's files"
+    /// and "drop a library project's files", only the first is recoverable by
+    /// reading the numbers. Every uncertain case keeps the file.</para>
+    /// </summary>
+    private static string? DeclaresTestProject(string project)
+    {
+        XDocument manifest;
+        try
+        {
+            manifest = XDocument.Load(project);
+        }
+        catch (XmlException)
+        {
+            // An unparseable manifest proves nothing; keep studying its files.
+            return null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+
+        if (manifest.Root is null)
+        {
+            return null;
+        }
+
+        foreach (var element in manifest.Root.DescendantsAndSelf())
+        {
+            if (element.Name.LocalName.Equals("IsTestProject", StringComparison.OrdinalIgnoreCase)
+                && bool.TryParse(element.Value.Trim(), out var isTestProject)
+                && isTestProject
+                && !IsConditioned(element))
+            {
+                return "IsTestProject";
+            }
+
+            if (!element.Name.LocalName.Equals("PackageReference", StringComparison.OrdinalIgnoreCase)
+                || IsConditioned(element))
+            {
+                continue;
+            }
+
+            var include = element.Attributes()
+                .FirstOrDefault(a => a.Name.LocalName.Equals("Include", StringComparison.OrdinalIgnoreCase))
+                ?.Value;
+            if (include is null)
+            {
+                continue;
+            }
+
+            // An Include may name several packages, separated by ';'.
+            foreach (var id in include.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (TestPackageMarkers.Any(marker => id.StartsWith(marker, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return $"a PackageReference to {id}";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>True when the element, or any ancestor up to the project root,
+    /// carries a <c>Condition</c> — an MSBuild expression this harness does not
+    /// evaluate.</summary>
+    private static bool IsConditioned(XElement element) =>
+        element.AncestorsAndSelf().Any(node => node.Attributes()
+            .Any(a => a.Name.LocalName.Equals("Condition", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>Splits every hand-written .cs file under
+    /// <paramref name="directory"/> into the studied set and the test-only
+    /// exclusions.</summary>
+    public static (List<string> Studied, List<Exclusion> Excluded) ClassifyCsFiles(string package, string directory)
+    {
+        var studied = new List<string>();
+        var excluded = new List<Exclusion>();
+        var projectCache = new Dictionary<string, string?>(StringComparer.Ordinal);
+        var paths = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
+            .Where(IsHandWrittenSource)
+            .OrderBy(path => path, StringComparer.Ordinal);
+        foreach (var path in paths)
+        {
+            var rule = TestOnlyRule(directory, path, projectCache);
+            if (rule is null)
+            {
+                studied.Add(path);
+            }
+            else
+            {
+                excluded.Add(new Exclusion(
+                    package,
+                    Path.GetRelativePath(directory, path).Replace('\\', '/'),
+                    rule));
+            }
+        }
+
+        return (studied, excluded);
+    }
 
     /// <summary>
     /// Runs Tier A over every .cs file under <paramref name="directory"/>.
@@ -363,6 +600,14 @@ public static class TierA
     /// <para>A directory that cannot be resolved at all (unreadable reference set, a parse
     /// error in some file) reports every file as a <c>project-error</c>, never a silent
     /// fallback to library mode — the two bases must not be mixed inside one run.</para>
+    ///
+    /// <para><b>The compilation and the scored set are deliberately different populations.</b>
+    /// <see cref="CSharpEncoder.CreateProjectCompilation"/> sweeps the whole project, tests
+    /// included, because a semantic model resolves best over everything that is actually there;
+    /// the verdict loop below walks <see cref="ClassifyCsFiles"/>, which is library code only
+    /// since the owner's 2026-09-14 methodology decision on issue #491. Narrowing the
+    /// compilation to match the scored set would make symbols harder to resolve and change what
+    /// the funnel measures.</para>
     /// </summary>
     public static List<FileResult> StudyDirectory(string package, string directory, bool projectMode = false)
     {

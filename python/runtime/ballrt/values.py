@@ -11,6 +11,7 @@ dispatch is Python's own.
 from __future__ import annotations
 
 from . import ops
+from .flow import state_error as _state_error
 
 
 class BallSet:
@@ -234,9 +235,15 @@ def getfield(obj, name):
             return len(obj) == 0
         if name == "isNotEmpty":
             return len(obj) > 0
+        # An empty list's `.first`/`.last` is Dart's typed StateError, not
+        # Python's native IndexError, which no compiled `try` can catch (#616).
         if name == "first":
+            if not obj:
+                _state_error("No element")
             return obj[0]
         if name == "last":
+            if not obj:
+                _state_error("No element")
             return obj[-1]
         if name == "reversed":
             return list(reversed(obj))

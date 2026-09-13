@@ -104,11 +104,22 @@ touched `go/` and driven by `.github/workflows/go-release.yml`, which
 `release.yml` dispatches on every release (`--ref main`). Its `prepareCmd` runs
 the same `bump_go_modules.sh` below, `@semantic-release/git` commits
 `chore(release): go vX.Y.Z [skip ci]`, and its `publishCmd` dispatches
-`tag-go-modules.yml` at the channel tag — so a `feat(go):`/`fix(go):` merge is
-all it takes to move the published line. `tag_go_modules.sh` remains the SINGLE
-tagging path; `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`
-job) pins all of that. Rehearse a change to the lane with
+`tag-go-modules.yml` at the channel tag **and waits for that run to finish**
+(`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget, red on any
+non-`success` conclusion — #627) — so a `feat(go):`/`fix(go):` merge is all it
+takes to move the published line, and a tag cut that fails reddens the release
+that caused it. `tag_go_modules.sh` remains the SINGLE tagging path;
+`tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks` job) pins all
+of that. Rehearse a change to the lane with
 `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
+
+**Whether `proxy.golang.org` actually serves the line is its own weekly alarm**
+(`.github/workflows/go-freshness.yml`, #627): for each of the six modules,
+`go list -m -versions github.com/ball-lang/ball/go/<module>` against the public
+proxy must list the version **main's** `go.mod` files name, tolerating a tag
+younger than `MAX_LAG_MINUTES` (60; the observed index lag is ~25 min). It is
+the Go sibling of `pubdev-freshness.yml` — the one guard that can see a
+perfectly-wired, perfectly-green lane that has stopped shipping.
 
 Until that landed, tagging was automatic but *versioning* was not: the tagger
 only ever cuts the version already in the `go.mod` files, so every release
@@ -339,7 +350,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 349 passed, 0 failed, 349 total`; 4 golden-less
+  (`Results: 350 passed, 0 failed, 350 total`; 4 golden-less
   resource-limit/sandbox carve-outs). `compiled/compiled_engine.go` is a
   COMMITTED generated artifact since #586 (no build tag), kept fresh by ci.yml's
   `Ball Artifact Freshness` regen-and-diff job. See `go/engine/AGENTS.md`.
@@ -375,3 +386,27 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - Verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
 - `go/shared/gen/` is generated — regenerate after proto changes, never hand-edit.
 - Follow `.claude/skills/new-ball-language/SKILL.md` for the remaining phases.
+
+### Dart's `StateError`: typed AND readable (issue #616)
+
+#597/#604 settled that `std_collections.list_find`'s no-match THROWS and that the throw is
+typed. Neither settled what the program then OBSERVES — conformance fixture
+`463_list_find_no_match` prints a hardcoded literal from its catch bodies — and every target
+answered differently. Measured on `origin/main` before the fix, one program printing
+`to_string(e)` from its catch: the Dart reference engine `Bad state: No element` (which is also
+real Dart's `StateError('No element').toString()`), the TS self-hosted engine
+`{message: No element}`, the Go self-hosted engine `main:StateError`.
+
+The contract now has two halves at EVERY site that raises Dart's `StateError` — an empty
+`.first`/`.last`/`.single`/`removeLast`/`reduce`, or a `firstWhere` with no match:
+
+1. **TYPED** — the thrown value carries the type name `StateError`, so a program's own
+   `on StateError catch` matches it. Several sites used to raise an untyped native fault that
+   the compiled `try` could not see at all.
+2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
+   so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
+
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
+value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
+Per-target details are in `.claude/rules/<lang>.md`; the gap class is
+`docs/TESTING_STRATEGY.md` §5b.

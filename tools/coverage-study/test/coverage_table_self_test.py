@@ -35,7 +35,14 @@ function of the artifacts:
 7. the funnel is floored too, which is what gives the five 0%-clean rows a live
    guard — `clean` cannot drop below 0, but "110 files reached stage 1" can;
 8. rendering is idempotent, so the workflow's bot commit is a pure
-   regeneration and a week with no change produces no commit at all.
+   regeneration and a week with no change produces no commit at all;
+9. the test-only exclusion count (the owner's 2026-09-14 methodology decision
+   on #491) is published in the table and recorded in the baseline, and a Tier A
+   artifact that carries NO exclusion count fails loud rather than reading as
+   zero — that shape is a harness whose exclusion rule vanished, and publishing
+   a denominator nobody can explain is the silent-filter failure the decision
+   exists to end. It is RECORDED, NOT FLOORED: a pin whose own test suite grew
+   moves that count in either direction and neither is a regression.
 
 WHAT THIS DOES NOT PROVE. Nothing here is a regression test for any encoder or
 compiler defect. It validates the INSTRUMENT: the harnesses' own self-tests
@@ -81,6 +88,8 @@ def tier_a_artifact(
     drift: int,
     encode_errors: int,
     skipped: int = 0,
+    excluded: int = 0,
+    omit_excluded: bool = False,
     pascal_case: bool = False,
 ) -> dict:
     """A synthetic Tier A report in the shape every harness writes.
@@ -89,6 +98,12 @@ def tier_a_artifact(
     keys are ``Package``/``Scored``/``Clean``/``Reason`` while the other five
     harnesses emit camelCase. A renderer that only understood one casing would
     read the C# artifact as an empty report — i.e. as a pass.
+
+    ``excluded`` is the test-only exclusion count every Tier A harness reports
+    since the owner's 2026-09-14 methodology decision on #491. ``omit_excluded``
+    writes a report WITHOUT that key — the shape a harness would produce if its
+    exclusion rule silently vanished, which must fail rather than render a blank
+    column.
     """
     files = []
     for i in range(clean):
@@ -99,10 +114,23 @@ def tier_a_artifact(
         files.append({"package": "p", "file": f"enc{i}.x", "scored": True, "clean": False, "irStable": False, "reason": "encode-error: unsupported construct"})
     for i in range(skipped):
         files.append({"package": "p", "file": f"skip{i}.x", "scored": False, "clean": False, "irStable": False, "reason": "skipped: no declarations"})
+    dropped = [
+        {"package": "p", "file": f"x_test{i}.x", "rule": "test-only convention"}
+        for i in range(excluded)
+    ]
     if pascal_case:
         files = [{k[0].upper() + k[1:]: v for k, v in f.items()} for f in files]
-        return {"MissingPins": [], "Files": files}
-    return {"missingPins": [], "files": files}
+        dropped = [{k[0].upper() + k[1:]: v for k, v in d.items()} for d in dropped]
+        report = {"MissingPins": [], "Files": files}
+        if not omit_excluded:
+            report["ExcludedTestOnly"] = excluded
+            report["Excluded"] = dropped
+        return report
+    report = {"missingPins": [], "files": files}
+    if not omit_excluded:
+        report["excludedTestOnly"] = excluded
+        report["excluded"] = dropped
+    return report
 
 
 def tier_b_artifact(*, clean: int, drift: int, not_compiled: int = 0) -> dict:
@@ -126,14 +154,23 @@ def baseline_row(**over) -> dict:
         "scored": 4,
         "clean": 3,
         "encoded": 4,
+        # RECORDED, NOT FLOORED. The test-only exclusion count is context for
+        # the denominator, not a quality measure: a pin list that grows its test
+        # suite legitimately moves it in either direction. Keeping it in the
+        # baseline is what makes a silent change to an exclusion rule show up in
+        # the committed diff (the owner's 2026-09-14 decision on #491).
+        "excluded": 0,
     }
     row.update(over)
     # A Tier B row has no funnel, so it carries no `encoded`. Leaving the
     # default in would make both Tier B cases below fail on the row shape
     # instead of on the thing they claim to assert — a drop that "passes"
     # because the fixture was rejected first is a false green.
-    if row["kind"] == "tier-b" and "encoded" not in over:
-        row.pop("encoded")
+    if row["kind"] == "tier-b":
+        if "encoded" not in over:
+            row.pop("encoded")
+        if "excluded" not in over:
+            row.pop("excluded")
     return row
 
 
@@ -529,6 +566,62 @@ def main() -> int:
             "two baseline rows claiming the same artifact fail",
             got.returncode == 1,
             f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
+        )
+
+        # ── 14d. the test-only exclusion count is published and recorded ────
+        # The owner's 2026-09-14 methodology decision on #491 takes a package's
+        # own tests out of the Tier A denominator. That makes the denominator a
+        # function of an exclusion RULE, so the count must be visible in the
+        # published table and recorded in the baseline — otherwise a rule that
+        # silently widened would move every ratio with nothing in the diff
+        # saying why. It is RECORDED, NOT FLOORED: a legitimately larger test
+        # suite in a pin moves it, which is not a regression.
+        excl = Case(tmp, "excluded")
+        excl.put_artifact(
+            "coverage-study-tier-a-dart/tier_a.json",
+            tier_a_artifact(clean=3, drift=1, encode_errors=0, excluded=7),
+        )
+        excl.put_baseline([baseline_row()])
+        got = excl.run("--write")
+        check(
+            "a run whose exclusion count moved still passes — excluded is recorded, not floored",
+            got.returncode == 0,
+            f"exit={got.returncode}\n{got.stdout}\n{got.stderr}",
+        )
+        check(
+            "the published table carries the excluded column and the measured count",
+            "excluded (test-only)" in excl.readme.read_text(encoding="utf-8")
+            and "| 7 |" in excl.readme.read_text(encoding="utf-8"),
+            excl.readme.read_text(encoding="utf-8"),
+        )
+        check(
+            "the recorded baseline picks up the new exclusion count",
+            json.loads(excl.baseline.read_text(encoding="utf-8"))["rows"][0]["excluded"] == 7,
+            excl.baseline.read_text(encoding="utf-8"),
+        )
+
+        # ── 14e. a Tier A report with no exclusion count fails loud ─────────
+        # This is the shape a harness produces when its exclusion rule vanishes.
+        # Reading it as "excluded 0" would publish a denominator nobody could
+        # explain, which is exactly the silent-filter failure the decision was
+        # written to end.
+        noexcl = Case(tmp, "noexcl")
+        noexcl.put_artifact(
+            "coverage-study-tier-a-dart/tier_a.json",
+            tier_a_artifact(clean=3, drift=1, encode_errors=0, omit_excluded=True),
+        )
+        noexcl.put_baseline([baseline_row()])
+        got = noexcl.run()
+        message = got.stdout + got.stderr
+        check(
+            "a Tier A artifact with no exclusion count fails instead of reading as zero",
+            got.returncode == 1,
+            f"exit={got.returncode}\n{message}",
+        )
+        check(
+            "that failure names the missing key",
+            "excludedTestOnly" in message,
+            message,
         )
 
         # ── 15. check mode reports a stale README without rewriting it ──────

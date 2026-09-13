@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 349 passed, 0
-failed, 349 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 350 passed, 0
+failed, 350 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -24,11 +24,28 @@ inventory using **`syn` directly** — never `ball-lang-encoder`'s own walk, so 
 encoder bookkeeping bug cannot hide from the instrument measuring it — and
 checks a second-generation fixpoint.
 
-Honest baseline, **0/110 clean and 1/110 encoded** (the 5 crates pinned in
+Honest baseline, **0/77 clean and 1/77 encoded** (the 5 crates pinned in
 `tools/coverage-study/packages/rust.json` — **`itertools`, `smallvec`, `bitflags`, `heck`,
 `strsim`**, not the original 10-crate set the #491 prose below narrates). That single encoded file
 arrived with the crate-aware slice below; every #491 slice before it left the aggregate at
 `0 clean, 0 encoded`.
+
+**The denominator was 110 until 2026-09-14, and the #491 prose below is all written against
+that number — read those histograms as history, not as today's totals.** Per the owner's
+methodology decision on #491, Tier A now scores LIBRARY code only: 34 of the 119 `.rs` files
+under the pinned subtrees are `bitflags`' own tests and are excluded, so `scored` is **77** and
+the harness prints `excluded (test-only): 34`. Rust's rule has two halves, and on the real pins
+all 34 come from the second one: a file the crate's `mod` graph reaches *only* through a
+`#[cfg(test)]` module. The path half covers the PACKAGE-ROOT `tests/`, `benches/` and `examples/`
+Cargo targets — siblings of `src/`, which the pins (`lib` = `src`) never even walk — and
+deliberately not `src/tests/`, which is an ordinary module directory whose contents can be public
+library code (#637). `bitflags/src/tests.rs` and its 33 `src/tests/*.rs` children are all declared
+by `src/lib.rs`'s `#[cfg(test)] mod tests;`, so reachability is what reports them. That second half
+is `classify_rust_files`' own `syn` walk, deliberately not
+a call into `CrateGraph` — that walk skips `#[cfg(test)]` modules outright (#621), so it cannot
+tell "test-only" from "not reached at all", and an unreferenced *library* leftover must stay
+scored. Neither `clean` nor `encoded` moved in absolute terms; both ratios rose because the
+denominator shrank. See `tests/conformance/COVERAGE_STUDY.md`.
 Every other scored file is an `encode-error`: the encoder's documented gaps
 (item-level macro invocations, `write!` and other unmapped macros,
 methods declared in another file) are present in essentially every real crate
@@ -285,8 +302,8 @@ was not an option; it carries `version.workspace = true` and sits in the publish
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 349 passed, 0 failed,
-349 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 350 passed, 0 failed,
+350 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -929,3 +946,27 @@ Trusted Publisher to be configured until **after** a crate's first publish
 (RFC 3691). A brand-new crate name therefore has to be claimed once with an API
 token before OIDC can take over — which is why the workflow briefly carried a
 `continue-on-error` auth step and a `CARGO_REGISTRY_TOKEN` fallback.
+
+### Dart's `StateError`: typed AND readable (issue #616)
+
+#597/#604 settled that `std_collections.list_find`'s no-match THROWS and that the throw is
+typed. Neither settled what the program then OBSERVES — conformance fixture
+`463_list_find_no_match` prints a hardcoded literal from its catch bodies — and every target
+answered differently. Measured on `origin/main` before the fix, one program printing
+`to_string(e)` from its catch: the Dart reference engine `Bad state: No element` (which is also
+real Dart's `StateError('No element').toString()`), the TS self-hosted engine
+`{message: No element}`, the Go self-hosted engine `main:StateError`.
+
+The contract now has two halves at EVERY site that raises Dart's `StateError` — an empty
+`.first`/`.last`/`.single`/`removeLast`/`reduce`, or a `firstWhere` with no match:
+
+1. **TYPED** — the thrown value carries the type name `StateError`, so a program's own
+   `on StateError catch` matches it. Several sites used to raise an untyped native fault that
+   the compiled `try` could not see at all.
+2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
+   so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
+
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
+value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
+Per-target details are in `.claude/rules/<lang>.md`; the gap class is
+`docs/TESTING_STRATEGY.md` §5b.

@@ -7,7 +7,7 @@ paths:
 
 C# (epic #377) is a **full pipeline** — compiler, encoder, self-hosted engine, and CLI are all in
 place and tested. The self-hosted engine runs the whole conformance corpus at **Dart parity**
-(`Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)`; the 4 golden-less
+(`Results: 350 passed, 0 failed, 350 total (4 skipped carve-outs)`; the 4 golden-less
 resource-limit/sandbox fixtures are documented carve-outs — #383/#384 closed). Always verify
 maturity against CI (`.github/workflows/ci.yml`'s `csharp` job — build/test/format plus the
 regenerate-then-run self-hosted engine conformance sweep — and the `csharp-engine` row in
@@ -120,6 +120,18 @@ compile items so the sibling projects never double-compile each other's files.
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `csharp/compiler/test/ListFindContractTests.cs` (`BallRuntime.ListFind` throws a `BallThrow`, NOT a `BallRuntimeException` — only the former is what the compiled `catch (BallThrow …)` sees, so an unhandled native fault can no longer bypass the program's own `try`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`ListFirst`/`ListLast`/`RemoveLast` throw `BallThrow`, not
+  `BallRuntimeException` (#616)** — the same anti-pattern #597 fixed for
+  `list_find`: a compiled `try` catches only `BallThrow`, so a native
+  `BallRuntimeException` sailed past the program's own `on StateError catch` and
+  killed the process. The payload also renders as Dart's own
+  `StateError.toString()` now (`BallValue.DartErrorToString`, a CLOSED table over
+  the type names `BallThrow`'s typed constructor is called with), so
+  `to_string(e)` in a catch body reads `Bad state: No element` instead of the map
+  form `{message: No element}`. The list/set `.first`/`.last` FIELD getters threw
+  the same silent `null` placeholder and now throw too.
+  `csharp/compiler/test/StateErrorContractTests.cs` is this target's half.
+  See `docs/TESTING_STRATEGY.md` §5b.
 - **`try` dispatches EVERY catch clause, in source order (#615).**
   `CompileTryStatement` emits one `catch (BallThrow __ballEx)` containing an
   `if`/`else if` chain: an `on <Type> catch` clause runs only when
@@ -354,8 +366,8 @@ compile items so the sibling projects never double-compile each other's files.
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust: compile
   `dart/self_host/engine.ball.pb` through `Ball.Compiler` into `src/CompiledEngine.cs`.
-- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 349 passed, 0 failed,
-  349 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
+- **Status: complete, runs at Dart parity** (#383/#384 closed). `Results: 350 passed, 0 failed,
+  350 total (4 skipped carve-outs)` — the whole conformance corpus, matching Dart's output
   byte-for-byte. Gated behind the off-by-default `-p:SelfHost=true` MSBuild property (the C#
   analog of Rust's `self_host` cargo feature) because the generated `CompiledEngine.cs` is a
   gitignored build artifact not present in a fresh checkout — a default build stays green without

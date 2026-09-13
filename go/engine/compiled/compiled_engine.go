@@ -12426,8 +12426,9 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 								}()
 								_ = ballrt.Throw(func() ballrt.Value {
 									__m := ballrt.NewMap()
-									__m.Set("message", "First element of empty set")
-									return ballrt.NewMessage("main:BallRuntimeError", __m)
+									__m.Set("typeName", "StateError")
+									__m.Set("value", "Bad state: No element")
+									return ballrt.NewMessage("main:BallException", __m)
 								}())
 								return ballrt.Value(nil)
 							}()
@@ -12443,8 +12444,9 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 								}()
 								_ = ballrt.Throw(func() ballrt.Value {
 									__m := ballrt.NewMap()
-									__m.Set("message", "Last element of empty set")
-									return ballrt.NewMessage("main:BallRuntimeError", __m)
+									__m.Set("typeName", "StateError")
+									__m.Set("value", "Bad state: No element")
+									return ballrt.NewMessage("main:BallException", __m)
 								}())
 								return ballrt.Value(nil)
 							}()
@@ -12453,16 +12455,28 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 						if ballrt.Eq(__subj30, "single") {
 							_ = func() ballrt.Value {
 								_ = func() ballrt.Value {
-									if ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(items, "length"), int64(1))) {
-										return ballrt.Return(ballrt.FieldGet(items, "single"))
+									if ballrt.Truthy(ballrt.StrIsEmpty(items)) {
+										return ballrt.Throw(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("typeName", "StateError")
+											__m.Set("value", "Bad state: No element")
+											return ballrt.NewMessage("main:BallException", __m)
+										}())
 									}
 									return ballrt.Value(nil)
 								}()
-								_ = ballrt.Throw(func() ballrt.Value {
-									__m := ballrt.NewMap()
-									__m.Set("message", "Set does not have exactly one element")
-									return ballrt.NewMessage("main:BallRuntimeError", __m)
-								}())
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Gt(ballrt.FieldGet(items, "length"), int64(1))) {
+										return ballrt.Throw(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("typeName", "StateError")
+											__m.Set("value", "Bad state: Too many elements")
+											return ballrt.NewMessage("main:BallException", __m)
+										}())
+									}
+									return ballrt.Value(nil)
+								}()
+								_ = ballrt.Return(ballrt.FieldGet(items, "single"))
 								return ballrt.Value(nil)
 							}()
 							return ballrt.Value(nil)
@@ -12911,8 +12925,22 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Eq(__subj34, "first") {
 				_ = func() ballrt.Value {
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(rawList))))) {
-							return ballrt.Return(ballrt.FieldGet(rawList, "first"))
+						if ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) {
+							return func() ballrt.Value {
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.StrIsEmpty(rawList)) {
+										return ballrt.Throw(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("typeName", "StateError")
+											__m.Set("value", "Bad state: No element")
+											return ballrt.NewMessage("main:BallException", __m)
+										}())
+									}
+									return ballrt.Value(nil)
+								}()
+								_ = ballrt.Return(ballrt.FieldGet(rawList, "first"))
+								return ballrt.Value(nil)
+							}()
 						}
 						return ballrt.Value(nil)
 					}()
@@ -12929,8 +12957,22 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Eq(__subj34, "last") {
 				_ = func() ballrt.Value {
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Not(ballrt.StrIsEmpty(rawList))))) {
-							return ballrt.Return(ballrt.FieldGet(rawList, "last"))
+						if ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) {
+							return func() ballrt.Value {
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.StrIsEmpty(rawList)) {
+										return ballrt.Throw(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("typeName", "StateError")
+											__m.Set("value", "Bad state: No element")
+											return ballrt.NewMessage("main:BallException", __m)
+										}())
+									}
+									return ballrt.Value(nil)
+								}()
+								_ = ballrt.Return(ballrt.FieldGet(rawList, "last"))
+								return ballrt.Value(nil)
+							}()
 						}
 						return ballrt.Value(nil)
 					}()
@@ -12947,8 +12989,33 @@ func BallEngine___evalFieldAccess(input ballrt.Value) (__ret ballrt.Value) {
 			if ballrt.Eq(__subj34, "single") {
 				_ = func() ballrt.Value {
 					_ = func() ballrt.Value {
-						if ballrt.Truthy((ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) && ballrt.Truthy(ballrt.Eq(ballrt.FieldGet(rawList, "length"), int64(1))))) {
-							return ballrt.Return(ballrt.FieldGet(rawList, "single"))
+						if ballrt.Truthy(ballrt.Neq(rawList, ballrt.Value(nil))) {
+							return func() ballrt.Value {
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.StrIsEmpty(rawList)) {
+										return ballrt.Throw(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("typeName", "StateError")
+											__m.Set("value", "Bad state: No element")
+											return ballrt.NewMessage("main:BallException", __m)
+										}())
+									}
+									return ballrt.Value(nil)
+								}()
+								_ = func() ballrt.Value {
+									if ballrt.Truthy(ballrt.Gt(ballrt.FieldGet(rawList, "length"), int64(1))) {
+										return ballrt.Throw(func() ballrt.Value {
+											__m := ballrt.NewMap()
+											__m.Set("typeName", "StateError")
+											__m.Set("value", "Bad state: Too many elements")
+											return ballrt.NewMessage("main:BallException", __m)
+										}())
+									}
+									return ballrt.Value(nil)
+								}()
+								_ = ballrt.Return(ballrt.FieldGet(rawList, "single"))
+								return ballrt.Value(nil)
+							}()
 						}
 						return ballrt.Value(nil)
 					}()
@@ -24148,6 +24215,22 @@ func BallEngine___gotoSignalLabel(input ballrt.Value) (__ret ballrt.Value) {
 			return ballrt.Value(nil)
 		}()
 		_ = func() ballrt.Value {
+			if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(signal, "Map")) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(signal, "typeName"), "_FlowSignal")))) {
+				return func() ballrt.Value {
+					var v ballrt.Value = ballrt.IndexGet(signal, "value")
+					_ = v
+					_ = ballrt.Return(func() ballrt.Value {
+						if ballrt.Truthy(ballrt.IsType(v, "String")) {
+							return v
+						}
+						return ballrt.Value(nil)
+					}())
+					return ballrt.Value(nil)
+				}()
+			}
+			return ballrt.Value(nil)
+		}()
+		_ = func() ballrt.Value {
 			if ballrt.Truthy((ballrt.Truthy(ballrt.IsType(signal, "Map")) && ballrt.Truthy(ballrt.Eq(ballrt.IndexGet(signal, "kind"), "goto")))) {
 				return func() ballrt.Value {
 					var l ballrt.Value = ballrt.IndexGet(signal, "label")
@@ -25740,8 +25823,9 @@ func BallEngine___dispatchBuiltinInstanceMethod(input ballrt.Value) (__ret ballr
 												if ballrt.Truthy(ballrt.Not(seeded)) {
 													return ballrt.Throw(func() ballrt.Value {
 														__m := ballrt.NewMap()
-														__m.Set("arg0", "No element")
-														return ballrt.NewMessage("main:StateError", __m)
+														__m.Set("typeName", "StateError")
+														__m.Set("value", "Bad state: No element")
+														return ballrt.NewMessage("main:BallException", __m)
 													}())
 												}
 												return ballrt.Value(nil)
@@ -29182,7 +29266,22 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			i := input
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.FieldGet(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self))), "first")
+			__ret = func() ballrt.Value {
+				var list ballrt.Value = ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self)))
+				_ = list
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.StrIsEmpty(list)) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("typeName", "StateError")
+							__m.Set("value", "Bad state: No element")
+							return ballrt.NewMessage("main:BallException", __m)
+						}())
+					}
+					return ballrt.Value(nil)
+				}()
+				return ballrt.FieldGet(list, "first")
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("list_last"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -29190,7 +29289,22 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			i := input
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.FieldGet(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self))), "last")
+			__ret = func() ballrt.Value {
+				var list ballrt.Value = ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self)))
+				_ = list
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.StrIsEmpty(list)) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("typeName", "StateError")
+							__m.Set("value", "Bad state: No element")
+							return ballrt.NewMessage("main:BallException", __m)
+						}())
+					}
+					return ballrt.Value(nil)
+				}()
+				return ballrt.FieldGet(list, "last")
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("list_single"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -29198,7 +29312,33 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 			i := input
 			_ = i
 			defer ballrt.CatchReturn(&__ret)
-			__ret = ballrt.FieldGet(ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self))), "single")
+			__ret = func() ballrt.Value {
+				var list ballrt.Value = ballrt.NullCheck(_stdAsList(ballrt.Arg0WithSelf(ballrt.IndexGet(ballrt.NullCheck(_stdAsMap(ballrt.Arg0WithSelf(i, __self))), "list"), __self)))
+				_ = list
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.StrIsEmpty(list)) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("typeName", "StateError")
+							__m.Set("value", "Bad state: No element")
+							return ballrt.NewMessage("main:BallException", __m)
+						}())
+					}
+					return ballrt.Value(nil)
+				}()
+				_ = func() ballrt.Value {
+					if ballrt.Truthy(ballrt.Gt(ballrt.FieldGet(list, "length"), int64(1))) {
+						return ballrt.Throw(func() ballrt.Value {
+							__m := ballrt.NewMap()
+							__m.Set("typeName", "StateError")
+							__m.Set("value", "Bad state: Too many elements")
+							return ballrt.NewMessage("main:BallException", __m)
+						}())
+					}
+					return ballrt.Value(nil)
+				}()
+				return ballrt.FieldGet(list, "first")
+			}()
 			return
 		}))
 		__map86.Set(ballrt.ToStr("list_contains"), ballrt.Fn("", func(input ballrt.Value) (__ret ballrt.Value) {
@@ -29459,8 +29599,9 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 					if ballrt.Truthy(ballrt.Not(seeded)) {
 						return ballrt.Throw(func() ballrt.Value {
 							__m := ballrt.NewMap()
-							__m.Set("arg0", "No element")
-							return ballrt.NewMessage("main:StateError", __m)
+							__m.Set("typeName", "StateError")
+							__m.Set("value", "Bad state: No element")
+							return ballrt.NewMessage("main:BallException", __m)
 						}())
 					}
 					return ballrt.Value(nil)
@@ -29522,8 +29663,9 @@ func BallEngine___buildStdDispatch(input ballrt.Value) (__ret ballrt.Value) {
 				}()
 				_ = ballrt.Throw(func() ballrt.Value {
 					__m := ballrt.NewMap()
-					__m.Set("arg0", "No element")
-					return ballrt.NewMessage("main:StateError", __m)
+					__m.Set("typeName", "StateError")
+					__m.Set("value", "Bad state: No element")
+					return ballrt.NewMessage("main:BallException", __m)
 				}())
 				return ballrt.Value(nil)
 			}()

@@ -11,8 +11,8 @@ CLI (`run`/`compile`/`encode`/`check`, #437, plus the self-hosted cli-core verbs
 no build tags**: `go/engine/compiled/compiled_engine.go` and `go/cli/compiled/compiled_cli.go` are
 COMMITTED generated artifacts, so every verb works in every build, including the one
 `go install` produces. The
-self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 349 passed,
-0 failed, 349 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
+self-hosted engine runs the whole conformance corpus at **Dart parity** (`Results: 350 passed,
+0 failed, 350 total (4 skipped carve-outs)`; the 4 golden-less resource-limit/sandbox fixtures are
 documented carve-outs). Always verify maturity against CI (`.github/workflows/ci.yml`'s `go` job —
 build/vet/gofmt/test, the external-consumer module smoke, the cli-core golden gate and the
 conformance sweep, all against the committed artifacts — the `Ball Artifact Freshness` job, which
@@ -107,14 +107,27 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   dispatches on every release (`--ref main`). Its `verifyReleaseCmd` is
   `bump_go_modules.sh --check-next` (legal semver, major < 2, and exactly `semver.inc` of the line
   in the tree — this runs under `--dry-run` too), its `prepareCmd` is the bump itself, and its
-  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag — so `tag_go_modules.sh` stays
-  the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
+  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag **and waits for that run**
+  (`tools/release/await_workflow_run.py`, 30 s apart, 20 min budget — #627; a bare
+  `gh workflow run` returns on acceptance, so a failed tag cut used to leave the release green)
+  — so `tag_go_modules.sh` stays the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
   `chore(go):` PR, so every release re-dispatched the tagger and it passed reporting "all six tags
   already exist, nothing to do" while the published line stayed put — the #551 failure one level
   down. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`) pins the lane's shape;
   `check_release_dispatch_wiring.sh` still pins the tag-pinned channels and that no workflow
   dispatches the tagger. Rehearse a change with
   `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
+- **Whether the tags are actually SERVED is a separate alarm (#627).** Every guard above is
+  static. `.github/workflows/go-freshness.yml` (weekly + dispatch) is the outcome guard: for each
+  of the six modules it runs
+  `GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org go list -m -versions
+  github.com/ball-lang/ball/go/<module>` from a scratch directory, and the version **main's**
+  go.mod files name must appear in the answer. `GOWORK=off` is load-bearing: run anywhere under
+  `go/`, the workspace's `replace` pins resolve the module locally and that command prints the
+  module path with an EMPTY version list and exits 0 — which the classifier treats as UNKNOWN
+  (a failure), never as an absence. A tag younger than `MAX_LAG_MINUTES` (60) is tolerated;
+  `proxy.golang.org`'s index lag was measured at ~25 min. `check_go_freshness.sh --self-test`
+  runs on every PR in `Proto Checks`.
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:
@@ -191,6 +204,20 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `go/runtime/list_find_contract_test.go` (`ListFind` throws via `dartError`, so the payload is a typed `*Message`) and `go/compiler/list_find_contract_test.go` (compiles the fixture and runs it) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **Every Dart `StateError` site goes through `ballrt.stateError` (#616).** Two
+  halves, and each site used to get exactly one right: TYPED (a `*Message` tagged
+  `StateError`, so `on StateError catch` matches — `ListFirst`/`ListLast`/
+  `ListPop` and the `.reduce`/`.firstWhere` method arms used to
+  `panic(Thrown{Value: "Bad state: No element"})`, a plain string whose
+  runtimeType is `String`), and OBSERVABLE (`ToStr` renders it as Dart's own
+  `StateError.toString()`, `Bad state: <message>` — `ListFind` was typed but
+  stringified as the bare tag `StateError`). `ops.go`'s `dartErrorToString` is
+  that rendering, and its type table is deliberately CLOSED over the names
+  `dartError` raises: a user class that merely declares a `message` field is not
+  a Dart error and keeps printing its type name.
+  `go/runtime/state_error_contract_test.go` +
+  `go/compiler/state_error_contract_test.go` are this target's halves.
+  See `docs/TESTING_STRATEGY.md` §5b.
 - **`try` dispatches EVERY catch clause, in source order (#615).** `compileTry`
   emits one `ballrt.TryCatch` catch closure containing an `if`-chain: an
   `on <Type> catch` clause runs only when `ballrt.CatchMatches(__ex, "<Type>")`
@@ -239,7 +266,7 @@ gofmt -l cli compiler encoder engine runtime shared    # must print nothing
 
 - Self-hosted route only (SKILL.md Phase 4, Option B) — same approach as TS/C++/Rust/C#: compile
   `dart/self_host/engine.ball.json` through `go/compiler` into `compiled/compiled_engine.go`.
-- **Status: complete, runs at Dart parity.** `Results: 349 passed, 0 failed, 349 total (4 skipped
+- **Status: complete, runs at Dart parity.** `Results: 350 passed, 0 failed, 350 total (4 skipped
   carve-outs)` — the whole conformance corpus, matching Dart byte-for-byte.
 - **Committed, untagged (#586).** `compiled_engine.go` is TRACKED and carries no build
   constraint, so a plain `go build`/`go test` — and the binary `go install` produces — drive the

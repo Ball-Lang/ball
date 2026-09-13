@@ -750,7 +750,14 @@ void main() {
           ]),
         ],
       );
-      await expectLater(runAndCapture(program), throwsA(isA<StateError>()));
+      await expectLater(
+        runAndCapture(program),
+        throwsA(
+          isA<BallException>()
+              .having((e) => e.typeName, 'typeName', 'StateError')
+              .having((e) => e.value, 'value', 'Bad state: No element'),
+        ),
+      );
     });
 
     test('list_find with no match throws StateError', () async {
@@ -771,7 +778,14 @@ void main() {
           ]),
         ],
       );
-      await expectLater(runAndCapture(program), throwsA(isA<StateError>()));
+      await expectLater(
+        runAndCapture(program),
+        throwsA(
+          isA<BallException>()
+              .having((e) => e.typeName, 'typeName', 'StateError')
+              .having((e) => e.value, 'value', 'Bad state: No element'),
+        ),
+      );
     });
 
     test('list_concat on a set stays a de-duplicated set', () async {

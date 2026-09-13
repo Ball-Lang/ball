@@ -279,8 +279,175 @@ public class TierASelfTests
     public void An_empty_run_is_a_harness_failure_not_a_zero_percent_result()
     {
         var output = new StringBuilder();
-        var code = EntryPoint.Report(output, [], []);
+        var code = EntryPoint.Report(output, [], [], []);
         Assert.Equal(1, code);
         Assert.Contains("Results: 0 passed, 0 failed, 0 total", output.ToString(), StringComparison.Ordinal);
+    }
+
+    // ── test-only exclusion (the owner's 2026-09-14 decision on #491) ───────
+    //
+    // Tier A scores the LIBRARY code a user would encode; a package's own test
+    // suite is a different population and is out of the denominator. The rule
+    // must be EXPLICIT, self-tested and COUNTED in the run summary — a silent
+    // filter is how a denominator shrinks without anyone noticing.
+    //
+    // C#'s convention has two halves: a TEST PROJECT (a `*.Tests.csproj`, or a
+    // .csproj whose MANIFEST declares a test-framework PackageReference or
+    // IsTestProject) and a test DIRECTORY. The negative control is
+    // load-bearing, and it has two forms: a library file whose NAME merely
+    // contains "test" ("la-test", "con-test", "at-test-ation"), and a library
+    // project whose .csproj merely MENTIONS a test framework — in a comment, or
+    // behind a Condition this harness does not evaluate. Both must still be
+    // studied; a substring rule over the path fails the first and a substring
+    // rule over the manifest text fails the second.
+
+    /// <summary>Library file paths whose name merely contains "test" — the
+    /// negative control.</summary>
+    private static readonly string[] LibraryLookalikes =
+        ["src/Latest.cs", "src/Contest.cs", "src/Attestation/Verify.cs"];
+
+    /// <summary>Library files in projects whose .csproj only MENTIONS a test
+    /// framework — in an XML comment, and behind an unevaluated Condition. A
+    /// raw-text marker search classifies both as test projects and silently
+    /// takes their library code out of the denominator.</summary>
+    private static readonly string[] LibraryProjectLookalikes =
+        ["Demo.Documented/Helper.cs", "Demo.Conditioned/Helper.cs"];
+
+    private static readonly string[] TestOnlyFiles =
+    [
+        "test/Support.cs",
+        "tests/Legacy.cs",
+        "Demo.Tests/CoreTests.cs",
+        "Demo.Verification/Cases.cs",
+        "Demo.Marked/Cases.cs",
+    ];
+
+    private static void Write(string root, string rel, string source)
+    {
+        var full = Path.Combine(root, rel.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.WriteAllText(full, source);
+    }
+
+    /// <summary>A scratch tree with library files, a test DIRECTORY, a
+    /// <c>*.Tests.csproj</c> project and an xunit-referencing project whose
+    /// name says nothing about tests.</summary>
+    private static string WriteMixedTree()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "rq1_cs_exclusion_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        Write(dir, "src/Core.cs", "namespace Demo;\npublic class Core { public int V() { return 1; } }\n");
+        foreach (var rel in LibraryLookalikes.Concat(LibraryProjectLookalikes))
+        {
+            Write(dir, rel, "namespace Demo;\npublic class Item { public int V() { return 1; } }\n");
+        }
+
+        foreach (var rel in TestOnlyFiles)
+        {
+            Write(dir, rel, "namespace Demo;\npublic class Cases { public int V() { return 1; } }\n");
+        }
+
+        // A project whose FILENAME declares it a test project.
+        Write(dir, "Demo.Tests/Demo.Tests.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        // A project whose filename says nothing about tests, but which
+        // references xunit — the half a filename rule alone would miss.
+        Write(dir, "Demo.Verification/Demo.Verification.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"xunit.v3\" /></ItemGroup></Project>\n");
+        // A project that declares itself a test project by PROPERTY and names
+        // no package at all — the half a package rule alone would miss.
+        Write(dir, "Demo.Marked/Demo.Marked.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><IsTestProject>true</IsTestProject></PropertyGroup></Project>\n");
+        // A LIBRARY project that merely mentions xunit in an XML comment. A
+        // raw-text marker search reads the comment and excludes the project's
+        // library code; parsing the manifest as XML cannot see a comment at all.
+        Write(dir, "Demo.Documented/Demo.Documented.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+                + "  <!-- Consumers testing this library with xunit should also reference NUnit3TestAdapter. -->\n"
+                + "  <PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>\n"
+                + "</Project>\n");
+        // A LIBRARY project carrying a CONDITIONED test-framework reference:
+        // whether it is even referenced depends on an MSBuild property this
+        // harness does not evaluate, so it is not proof of a test project.
+        Write(dir, "Demo.Conditioned/Demo.Conditioned.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+                + "  <ItemGroup Condition=\"'$(BuildingTests)' == 'true'\">\n"
+                + "    <PackageReference Include=\"xunit.v3\" />\n"
+                + "  </ItemGroup>\n"
+                + "</Project>\n");
+        // And the library's own project, which must NOT make its files test-only.
+        Write(dir, "src/Demo.csproj",
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>\n");
+        return dir;
+    }
+
+    [Fact]
+    public void Test_only_files_are_excluded_counted_and_named()
+    {
+        var dir = WriteMixedTree();
+        try
+        {
+            var (studied, excluded) = TierA.ClassifyCsFiles("synthetic", dir);
+            var studiedRel = studied
+                .Select(p => Path.GetRelativePath(dir, p).Replace('\\', '/'))
+                .ToHashSet(StringComparer.Ordinal);
+            var excludedRel = excluded.ToDictionary(e => e.File, e => e.Rule, StringComparer.Ordinal);
+
+            var library = new[] { "src/Core.cs" }
+                .Concat(LibraryLookalikes)
+                .Concat(LibraryProjectLookalikes)
+                .ToArray();
+            foreach (var rel in library)
+            {
+                Assert.True(
+                    studiedRel.Contains(rel),
+                    $"library file \"{rel}\" was not studied — the rule is excluding library code "
+                        + $"(studied: {string.Join(", ", studiedRel.Order(StringComparer.Ordinal))})");
+            }
+
+            Assert.Equal(library.Length, studiedRel.Count);
+
+            foreach (var rel in TestOnlyFiles)
+            {
+                Assert.True(
+                    excludedRel.ContainsKey(rel),
+                    $"test-only file \"{rel}\" was not excluded "
+                        + $"(excluded: {string.Join(", ", excludedRel.Keys.Order(StringComparer.Ordinal))})");
+            }
+
+            Assert.Equal(TestOnlyFiles.Length, excludedRel.Count);
+            Assert.All(excluded, e => Assert.False(string.IsNullOrEmpty(e.Rule)));
+
+            // The project half is read from the MANIFEST, not from its text: a
+            // real <PackageReference Include="xunit.v3" /> and an
+            // <IsTestProject>true</IsTestProject> each excludes on its own.
+            Assert.Contains("PackageReference", excludedRel["Demo.Verification/Cases.cs"], StringComparison.Ordinal);
+            Assert.Contains("IsTestProject", excludedRel["Demo.Marked/Cases.cs"], StringComparison.Ordinal);
+
+            var results = TierA.StudyDirectory("synthetic", dir);
+            Assert.DoesNotContain(results, r => excludedRel.ContainsKey(r.File));
+
+            var output = new StringBuilder();
+            EntryPoint.Report(output, results, excluded, []);
+            Assert.Contains(
+                $"  excluded (test-only): {TestOnlyFiles.Length}\n",
+                output.ToString(),
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    /// <summary>A run that excluded nothing STILL prints the line: a missing
+    /// line is indistinguishable from a rule that vanished, and summarize.sh
+    /// fails on it.</summary>
+    [Fact]
+    public void The_exclusion_count_is_printed_even_when_zero()
+    {
+        var output = new StringBuilder();
+        EntryPoint.Report(output, [TierA.StudyFile("synthetic", "Helper.cs", HelperSource)], [], []);
+        Assert.Contains("  excluded (test-only): 0\n", output.ToString(), StringComparison.Ordinal);
     }
 }

@@ -381,35 +381,93 @@ func StudyFile(pkg, file, source string) FileResult {
 		IRStable: irStable, Reason: "clean"}
 }
 
-// GoFilesUnder lists every non-test .go file under dir, sorted. Test files are
-// excluded: they are not the library surface a consumer compiles.
-func GoFilesUnder(dir string) ([]string, error) {
+// Exclusion is one file Tier A did not score, and the rule that took it out.
+//
+// An excluded file is NOT a `skipped` result: it never enters the results slice
+// at all, so it is in neither the numerator nor the denominator. It is reported
+// on its own line so a denominator that moves because a RULE moved is visible —
+// which is the entire reason exclusions are named here rather than silently
+// dropped from the walk, as this harness used to do.
+type Exclusion struct {
+	Package string `json:"package"`
+	File    string `json:"file"`
+	Rule    string `json:"rule"`
+}
+
+// TestOnlyRule returns the rule excluding relativePath, or "" when it is
+// library code.
+//
+// The owner's 2026-09-14 decision on issue #491: Tier A scores the LIBRARY code
+// a user would encode, so a package's own test suite is out of the denominator.
+// Go's convention is the `_test.go` suffix the toolchain itself keys on, plus
+// `testdata/`, which `go build` ignores outright.
+//
+// Matched on a WHOLE suffix and WHOLE path segments, never as a substring:
+// latest.go, contest.go and attestation/verify.go all contain "test" and are
+// library code, and excluding them would be exactly the silent denominator
+// shrink this rule exists to prevent (study_test.go pins all three).
+func TestOnlyRule(relativePath string) string {
+	parts := strings.Split(filepath.ToSlash(relativePath), "/")
+	for _, part := range parts[:len(parts)-1] {
+		if part == "testdata" {
+			return "under a testdata/ directory"
+		}
+	}
+	if strings.HasSuffix(parts[len(parts)-1], "_test.go") {
+		return "*_test.go"
+	}
+	return ""
+}
+
+// ClassifyGoFiles splits every .go file under dir into the studied set and the
+// test-only exclusions, both sorted.
+func ClassifyGoFiles(pkg, dir string) ([]string, []Exclusion, error) {
 	var files []string
+	var excluded []Exclusion
 	err := filepath.WalkDir(dir, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if entry.IsDir() {
-			if entry.Name() == "testdata" || entry.Name() == ".git" {
+			// Not a source tree at all — not test-only, not counted.
+			if entry.Name() == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
-			files = append(files, path)
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+		if rule := TestOnlyRule(rel); rule != "" {
+			excluded = append(excluded, Exclusion{Package: pkg, File: rel, Rule: rule})
+			return nil
+		}
+		files = append(files, path)
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	sort.Strings(files)
-	return files, nil
+	sort.Slice(excluded, func(i, j int) bool { return excluded[i].File < excluded[j].File })
+	return files, excluded, nil
 }
 
-// StudyDirectory runs Tier A over every .go file under dir.
+// GoFilesUnder lists every studyable .go file under dir, sorted. Test files are
+// excluded: they are not the library surface a consumer compiles.
+func GoFilesUnder(dir string) ([]string, error) {
+	files, _, err := ClassifyGoFiles("", dir)
+	return files, err
+}
+
+// StudyDirectory runs Tier A over every studyable .go file under dir.
 func StudyDirectory(pkg, dir string) ([]FileResult, error) {
-	files, err := GoFilesUnder(dir)
+	files, _, err := ClassifyGoFiles(pkg, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -435,7 +493,7 @@ func StudyDirectory(pkg, dir string) ([]FileResult, error) {
 // Report prints the same summary shape as every other Tier A harness and
 // returns the process exit code. A run that scored nothing is a
 // harness/checkout failure, not a 0% result.
-func Report(out *strings.Builder, results []FileResult, missingPins []string) (int, error) {
+func Report(out *strings.Builder, results []FileResult, excluded []Exclusion, missingPins []string) (int, error) {
 	scored := make([]FileResult, 0, len(results))
 	for _, r := range results {
 		if r.Scored {
@@ -472,6 +530,9 @@ func Report(out *strings.Builder, results []FileResult, missingPins []string) (i
 	if skipped := len(results) - total; skipped > 0 {
 		fmt.Fprintf(out, "  skipped (no declarations, not scored): %d\n", skipped)
 	}
+	// ALWAYS printed, zero included: a missing line is indistinguishable from an
+	// exclusion rule that vanished, and summarize.sh fails the job on it.
+	fmt.Fprintf(out, "  excluded (test-only): %d\n", len(excluded))
 	if len(missingPins) > 0 {
 		fmt.Fprintf(out, "  unreachable pins (not scored): %s\n", strings.Join(missingPins, ", "))
 	}

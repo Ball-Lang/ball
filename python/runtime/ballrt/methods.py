@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from . import ops
 from . import proto as _proto
-from .flow import throw
+from .flow import state_error as _state_error, throw
 from .values import BallMap, BallSet, invoke, iterate
 
 _BUILTIN = (list, dict, str, int, float, bool)
@@ -240,9 +240,12 @@ def _join(recv, sep=""):
 
 
 def _reduce(recv, combine):
+    """``Iterable.reduce`` — no seed, and an EMPTY receiver is Dart's
+    ``StateError``. A bare-string throw carried the right TEXT but no type, so
+    `on StateError catch` could not match it (issue #616)."""
     items = list(iterate(recv))
     if not items:
-        return throw("Bad state: No element")
+        _state_error("No element")
     acc = items[0]
     for el in items[1:]:
         acc = invoke(combine, {"arg0": acc, "arg1": el})
@@ -255,7 +258,8 @@ def _first_where(recv, test, *rest):
             return it
     if rest and isinstance(rest[0], dict) and "orElse" in rest[0]:
         return invoke(rest[0]["orElse"], None)
-    return throw("Bad state: No element")
+    # Typed, like every other StateError site since #616 — not a bare string.
+    _state_error("No element")
 
 
 def _index_of(recv, x, *rest):
@@ -287,6 +291,9 @@ def _remove_at(recv, index):
 
 
 def _remove_last(recv):
+    """``List.removeLast()`` — empty is Dart's typed ``StateError`` (#616)."""
+    if not recv:
+        _state_error("No element")
     return recv.pop()
 
 

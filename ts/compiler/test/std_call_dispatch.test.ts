@@ -302,15 +302,24 @@ const cases: Case[] = [
     body: std("list_is_empty", { list: ref("l") }),
     expect: [/\(l\.length === 0\)/],
   },
+  // #616: an EMPTY list is Dart's StateError, not `undefined`. Both halves are
+  // asserted — the element is still returned, AND the guard throws the tagged
+  // shape every emitted typed-`catch` guard tests for.
   {
     name: "listFirst",
     body: std("list_first", { list: ref("l") }),
-    expect: [/l\[0\]/],
+    expect: [
+      /__ball_lfst\[0\]/,
+      /if \(__ball_lfst\.length === 0\) throw \{\s*'__type__': 'StateError', 'message': 'No element'\s*\}/,
+    ],
   },
   {
     name: "listLast",
     body: std("list_last", { list: ref("l") }),
-    expect: [/l\[l\.length - 1\]/],
+    expect: [
+      /__ball_llst\[__ball_llst\.length - 1\]/,
+      /if \(__ball_llst\.length === 0\) throw \{\s*'__type__': 'StateError', 'message': 'No element'\s*\}/,
+    ],
   },
   {
     name: "listContains",
@@ -653,6 +662,29 @@ const cases: Case[] = [
       element: ref("i"),
     }),
     expect: [/const __r: any\[\] = \[\];/],
+  },
+  // A `std.throw` whose value is a messageCreation typed with a BUILT-IN Dart
+  // exception lowers to the tagged object literal every emitted typed-`catch`
+  // guard tests for (`compileThrowValue`'s DART_EXCEPTION_TYPES arm). Until
+  // #616 the only thing exercising that arm was the SELF-HOSTED ENGINE's own
+  // source -- `throw StateError('No element')` in `engine_std.dart` -- which
+  // #616 replaced with `BallException(...)`, a name deliberately NOT in
+  // DART_EXCEPTION_TYPES. So the arm needs a case of its own here, or a
+  // compiler path every real program can reach goes untested.
+  {
+    name: "throwBuiltinDartException",
+    body: std("throw", {
+      value: {
+        messageCreation: {
+          typeName: "main:FormatException",
+          fields: [
+            { name: "arg0", value: lit("bad input") },
+            { name: "source", value: lit("x") },
+          ],
+        },
+      },
+    }),
+    expect: [/'__type__': 'FormatException'/, /'message': 'bad input'/, /'source': 'x'/],
   },
   // "unknownStdFnDefaultFallback" (a name matching neither the main switch
   // nor the nested default switch) used to fall to a bare-call fallback

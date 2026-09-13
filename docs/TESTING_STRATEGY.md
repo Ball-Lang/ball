@@ -274,6 +274,18 @@ too, without a colour-forced CI leg.
 > tracked, one entry, and never `continue-on-error`. Delete both entries and list
 > the name in `cpp/test/e2e_fixture_list.h` the moment #695 lands.
 >
+> Adding it also surfaced a hole in the per-PR leg itself. `full_e2e.sh` carries
+> a positive floor — `passed == 0 && failed == 0` is a leg that proved nothing,
+> so it exits 1 — and that floor is PER-INVOCATION. ci.yml used to hand it only
+> the PR's changed fixtures, so a PR whose every changed fixture is carved out
+> selected one fixture, skipped it, ran nothing, and went red naming the wrong
+> cause: the gate as written forbade ever ADDING a carved-out fixture, which
+> contradicts the paragraph above. The fix is the one the floor's own error
+> message prescribes — WIDEN THE FILTER: the changed fixtures and the derived
+> four-fixture harness slice now share a single `full_e2e.sh` call, so the floor
+> always measures real compiles while the carve-out stays loudly reported. Never
+> answer that red by deleting the floor, the carve-out, or the fixture.
+>
 > **Name the leg that actually covers it — measure, do not assume.** An earlier
 > draft of the paragraph above also claimed those four fixtures "pass on the
 > Rust/Go/Python/C# compiler legs". Measured one fixture at a time, they do not:
@@ -1126,7 +1138,7 @@ could not parse a summary at all).
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
 | C++ e2e fixture coverage is *visible*, not just asserted (#521) | ci.yml's `cpp` job — `test_e2e` writes `<build>/test/e2e_coverage.txt`, deleted before `ctest` and re-checked after (`expected == executed >= 1`); a passing CTest test prints nothing under `--output-on-failure` | every cpp PR, all 3 OS legs |
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
-| The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
+| The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — ONE `full_e2e.sh` call over the PR's changed fixtures **plus** a derived four-fixture slice. One call, not two steps: the harness's positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is per-invocation, so a PR whose every changed fixture is a tracked `CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the wrong cause (#651/#695) | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |

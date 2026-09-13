@@ -1,0 +1,11 @@
+thread a
+thread b
+true
+joined
+in lock
+7
+9
+true
+11
+false
+11

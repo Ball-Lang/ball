@@ -10,11 +10,11 @@
     "package:ball_base buildStdTimeModule()",
     "package:ball_base buildStdConcurrencyModule()"
   ],
-  "totalFunctions": 271,
+  "totalFunctions": 272,
   "functionsByModule": {
     "std": 127,
     "std_collections": 59,
-    "std_concurrency": 9,
+    "std_concurrency": 10,
     "std_convert": 6,
     "std_fs": 10,
     "std_io": 10,
@@ -23,7 +23,7 @@
   },
   "summary": {
     "encoderEmittable": 121,
-    "coveredByFixture": 131,
+    "coveredByFixture": 141,
     "engineImplementedDart": 233,
     "carvedOut": 0
   },
@@ -1882,6 +1882,7 @@
         "417_null_aware_collection_elements",
         "435_recursive_ctor_construction",
         "436_recursive_ctor_named",
+        "466_std_concurrency_handles",
         "60_collatz",
         "72_gcd"
       ],
@@ -2355,6 +2356,7 @@
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
+        "466_std_concurrency_handles",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -3198,6 +3200,7 @@
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
+        "466_std_concurrency_handles",
         "46_while_loop",
         "47_do_while",
         "48_break_continue",
@@ -4060,8 +4063,22 @@
       "inputType": "AtomicOpInput",
       "outputType": "bool",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
+      "carvedOut": false
+    },
+    {
+      "module": "std_concurrency",
+      "name": "atomic_create",
+      "inputType": "AtomicInput",
+      "outputType": "int",
+      "encoderEmittable": false,
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
+      "engineImplementedDart": false,
       "carvedOut": false
     },
     {
@@ -4069,7 +4086,9 @@
       "name": "atomic_load",
       "inputType": "UnaryInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4079,7 +4098,9 @@
       "inputType": "AtomicOpInput",
       "outputType": "void",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4089,7 +4110,9 @@
       "inputType": "MutexInput",
       "outputType": "int",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4099,7 +4122,9 @@
       "inputType": "UnaryInput",
       "outputType": "void",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4109,7 +4134,9 @@
       "inputType": "UnaryInput",
       "outputType": "void",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4118,7 +4145,9 @@
       "name": "scoped_lock",
       "inputType": "LockInput",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4128,7 +4157,9 @@
       "inputType": "UnaryInput",
       "outputType": "void",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4138,7 +4169,9 @@
       "inputType": "ThreadInput",
       "outputType": "int",
       "encoderEmittable": false,
-      "coveredByFixtures": [],
+      "coveredByFixtures": [
+        "466_std_concurrency_handles"
+      ],
       "engineImplementedDart": true,
       "carvedOut": false
     },
@@ -4860,6 +4893,7 @@
       "address_of",
       "args_get",
       "atomic_compare_exchange",
+      "atomic_create",
       "atomic_load",
       "atomic_store",
       "day",
@@ -5014,6 +5048,7 @@
     ],
     "notEngineImplementedDart": [
       "address_of",
+      "atomic_create",
       "deref",
       "memory_alloc",
       "memory_compare",

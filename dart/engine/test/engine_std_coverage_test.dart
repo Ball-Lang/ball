@@ -1276,7 +1276,7 @@ void main() {
     // is `(Object?) => …` and calling it with NO argument threw
     // `NoSuchMethodError: Closure call with mismatched arguments` — the two
     // cases above pass a plain literal, so nothing ever reached the branch
-    // (issue #488; conformance fixture `467_map_put_if_absent`).
+    // (issue #488; conformance fixture `469_map_put_if_absent`).
     test(
       'map_put_if_absent calls a lambda value when the key is absent',
       () async {

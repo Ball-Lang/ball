@@ -38665,7 +38665,7 @@ func BallEngine___matchStructuredPattern(input ballrt.Value) (__ret ballrt.Value
 							return ballrt.Throw(func() ballrt.Value {
 								__m := ballrt.NewMap()
 								__m.Set("typeName", "TypeError")
-								__m.Set("value", ballrt.Concat("type cast failed: not a ", ballrt.ToStr(typeName)))
+								__m.Set("value", ballrt.Concat(ballrt.Concat(ballrt.Concat("type '", ballrt.ToStr(_typeNameOf(ballrt.Arg0WithSelf(value, __self)))), "' is not a subtype of "), ballrt.Concat(ballrt.Concat("type '", ballrt.ToStr(typeName)), "' in type cast")))
 								return ballrt.NewMessage("main:BallException", __m)
 							}())
 						}

@@ -328,11 +328,12 @@ inline const std::vector<std::string>& program_names() {
         "462_set_mutation_in_place",
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
-        "466_string_sink",
         "465_state_error_message",
-        "466_map_contains_value",
-        "467_map_put_if_absent",
-        "468_null_aware_chain_scope",
+        "466_string_sink",
+        "467_caught_type_error_to_string",
+        "468_map_contains_value",
+        "469_map_put_if_absent",
+        "470_null_aware_chain_scope",
     };
     return names;
 }

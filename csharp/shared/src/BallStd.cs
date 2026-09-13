@@ -138,7 +138,12 @@ public static partial class BallRuntime
     /// </summary>
     public static BallValue TypeOf(BallValue value) => BallValue.Str(TypeOfName(value));
 
-    private static string TypeOfName(BallValue value)
+    /// <summary>
+    /// <see cref="TypeOf"/>'s answer as a plain string, for the places that need
+    /// the name inside a message rather than as a Ball value (issue #641's
+    /// cast-failure text).
+    /// </summary>
+    internal static string TypeOfName(BallValue value)
     {
         // An ordered set is the portable `{'__ball_set__': [...]}` form — built
         // both by BallRuntime.SetCreate (a directly-compiled program, since

@@ -3819,9 +3819,13 @@ static std::optional<StructuredPatternResult> _compileStructuredPattern(
             if (s) sub = *s;
         }
         if (!typeName.empty()) {
+            // The SUBJECT is passed too: Dart's cast-failure message names the
+            // value's runtime type before the target type (issue #641). Wrapped
+            // in BallDyn(...) because a subject accessor may already be a raw
+            // scalar (the same wrapping _typeCheckCondition's Map arm uses).
             sub.condition = "(" + sub.condition + " && ball_cast_assert(" +
-                            _typeCheckCondition(typeName, subject) + ", \"" +
-                            typeName + "\"))";
+                            _typeCheckCondition(typeName, subject) + ", BallDyn(" + subject +
+                            "), \"" + typeName + "\"))";
         }
         return sub;
     }
@@ -9216,8 +9220,16 @@ inline int64_t ball_to_int64(const BallDyn& v) {
 // throws a catchable TypeError on a mismatch (it does NOT refute / fall through
 // to the next case). Conjoined into a switch-case condition so the case still
 // matches structurally while the assertion runs as a side effect. (conformance 302)
-inline bool ball_cast_assert(bool ok, const std::string& t) {
-  if (!ok) throw BallException("TypeError"s, "type cast failed: not a "s + t);
+// The message is Dart's own, verbatim (issue #641): a _TypeError's toString() IS
+// its message — no type-name prefix, unlike the other three built-ins — and it
+// names the VALUE's runtime type before the target type, which is why the
+// subject is a parameter. (conformance 467_caught_type_error_to_string)
+inline bool ball_cast_assert(bool ok, const BallDyn& v, const std::string& t) {
+  if (!ok) {
+    throw BallException("TypeError"s,
+                        "type '"s + ball_type_of(v) + "' is not a subtype of type '"s + t +
+                            "' in type cast"s);
+  }
   return true;
 }
 )";

@@ -923,7 +923,7 @@ export function createEngineSetup(mod: EngineModule) {
     _r('map_remove', (i: any) => { const m = _m(i); const map = m['map'] ?? m['collection']; const key = m['key'] ?? ''; if (typeof map === 'object' && map !== null) { const v = map[String(key)]; delete map[String(key)]; return v; } return null; });
     // `Map.putIfAbsent`'s second operand is a THUNK, and the encoder's
     // `collectionRoutes` table puts it in `value` — NOT in `ifAbsent`, the only
-    // key this override used to look at. Fixture `467_map_put_if_absent` is the
+    // key this override used to look at. Fixture `469_map_put_if_absent` is the
     // first program ever to execute this base function (issue #488: the
     // completeness gate could not see a name that lives in a route table's map
     // VALUE), and it caught two halves of the same mistake here: the thunk in

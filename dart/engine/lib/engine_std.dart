@@ -1036,7 +1036,7 @@ extension BallEngineStd on BallEngine {
           // lambda always has exactly one input (the gRPC-style invariant), so
           // every engine's lambda closure is `(Object?) => …`. Calling it with
           // no argument threw `NoSuchMethodError: Closure call with mismatched
-          // arguments` — invisible until `467_map_put_if_absent` became the
+          // arguments` — invisible until `469_map_put_if_absent` became the
           // first fixture ever to execute this base function (issue #488: the
           // completeness gate could not see a name that only lives in
           // `collectionRoutes`' map VALUE). The result may be a Future when the
@@ -2612,7 +2612,19 @@ extension BallEngineStd on BallEngine {
           // Cast patterns ASSERT: `value as T` throws on a type mismatch — it
           // does NOT refute / fall through to the next case. Match native Dart
           // semantics across every target. (conformance 302_cast_patterns)
-          throw BallException('TypeError', 'type cast failed: not a $typeName');
+          //
+          // The MESSAGE is Dart's own, verbatim (issue #641): a `_TypeError`'s
+          // `toString()` IS its message — no `TypeError: ` prefix, unlike the
+          // other three built-ins — and it names the VALUE's runtime type before
+          // the target type. `_evalLazyTry` binds `e.value` verbatim, so this
+          // string is what every engine's catch variable reads, self-hosted ones
+          // included. Guard: conformance 467_caught_type_error_to_string, whose
+          // golden is produced by running its Dart source on the SDK.
+          throw BallException(
+            'TypeError',
+            "type '${_typeNameOf(value)}' is not a subtype of "
+                "type '$typeName' in type cast",
+          );
         }
         final subpattern = pattern['pattern'];
         if (subpattern != null && !_matchPattern(value, subpattern, bindings)) {

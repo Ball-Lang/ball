@@ -1276,7 +1276,7 @@ describe("registerExtraStdFunctions: map_* fallback keys and branch edges", () =
 
   // The shape the ENCODER actually emits: `collectionRoutes` puts
   // `putIfAbsent`'s thunk in `value`, and a Ball lambda takes exactly one
-  // input. Before issue #488's fixture 467 executed this base function for the
+  // input. Before issue #488's fixture 469 executed this base function for the
   // first time, the override looked only at `ifAbsent`/`if_absent`, so the
   // FUNCTION ITSELF was stored in the map and printed.
   test("map_put_if_absent: the thunk arrives in `value`, is called with ONE argument, and is awaited", async () => {

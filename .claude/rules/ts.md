@@ -232,7 +232,7 @@ const json = toJson(ProgramSchema, program);
 - **`map_put_if_absent`'s thunk arrives in `value`, and a Ball lambda takes
   exactly ONE input (#488).** Third instance of the bullet three up, found the
   same way — by the first fixture ever to execute the base function
-  (`467_map_put_if_absent`; the encoder-completeness gate could not see a name
+  (`469_map_put_if_absent`; the encoder-completeness gate could not see a name
   that lives in `collectionRoutes`' map VALUE). The `engine_setup.ts` override
   read the thunk only from `ifAbsent`/`if_absent`, which the encoder never
   emits, so the CLOSURE ITSELF was stored in the map and printed; and a thunk it
@@ -242,6 +242,27 @@ const json = toJson(ProgramSchema, program);
   against the compiled engine's own `['<name>']:` entry — the compiled engine is
   the reference implementation, and shadowing it is only ever justified when it
   cannot run at all.
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. `ball_cast_assert` takes the subject and throws the TAGGED
+  `{__type__: 'TypeError', message}` object every emitted typed-`catch` guard
+  tests — a bare JS `Error` is not an instance of `globalThis.TypeError`, so
+  `on TypeError catch` never matched it. `__ball_err_prefix` gained
+  `TypeError: ''`. Both live in the preamble TEMPLATE LITERAL, so never put a
+  backtick or `${` in a comment you add there.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one: it asserts every Dart error name this
+  runtime RAISES has an entry in this runtime's table and that every entry's
+  prefix equals Dart's. Add a new built-in error here and to that contract in the
+  same PR, or the checker fails.
 
 ### Encoder
 

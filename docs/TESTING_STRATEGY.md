@@ -703,6 +703,41 @@ type tag, a shared backing, an ordering — name that contract in the declaratio
 doc comment and gate it per target, because the corpus can only see what the
 source language can express.**
 
+#### A rendering TABLE is only closed when a TEST says so (#641)
+
+#616's per-target fix left each compiled runtime with an explicit
+`name -> prefix` table (`dart_error_to_string` / `dartErrorToString` /
+`DartErrorToString` / `__ball_err_prefix`) whose doc comment asserts it is
+"EXPLICIT and closed over the type names this runtime raises". That claim was
+prose. Three of the four tables had no `TypeError` arm while every one of those
+runtimes raises a `TypeError` for a failed cast, and the fourth rendered it with
+a prefix Dart does not spell — so the same caught cast read four different ways,
+and no gate could see it, because the only fixture that reaches a cast pattern
+(`302_cast_patterns`) prints a hardcoded literal from its catch body.
+
+Two instruments close it, and they are different in kind:
+
+* `tests/conformance/467_caught_type_error_to_string` — the cross-target
+  observable, printing `$e` / `e.toString()` / an interpolated form after a
+  failed cast pattern, and ending with an `on TypeError catch` clause so a
+  target whose cast throws something untyped fails too.
+* `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR) — the
+  STRUCTURAL half a fixture cannot supply. It extracts, per target, the Dart
+  error names that target raises as a Ball throw and the names its table covers,
+  then asserts closure, coverage and prefix agreement, with positive floors so a
+  regex that stops matching fails instead of passing vacuously. Its own
+  self-test (`tools/test/test_check_error_rendering_tables.py`) runs first.
+
+The canonical string comes from **real Dart**, and that is a property of how the
+corpus is built rather than a preference: `dart/encoder/bin/generate_conformance.dart`
+captures `dart run <source>`'s stdout, so any fixture generated from
+`tests/conformance/src/` is golden-locked to the SDK's own answer — here
+`type 'String' is not a subtype of type 'int' in type cast`, with **no**
+`TypeError: ` prefix, because `_TypeError.toString()` IS its message. When a new
+built-in error becomes reachable from a Ball program, measure its `toString()`
+against the SDK, add it to the checker's contract, and add its arm to every
+table — the checker fails until all of that is done.
+
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid
 constructs the syntactic encoder mishandles. The one that bit #55's fix:
@@ -1131,6 +1166,7 @@ could not parse a summary at all).
 | **A base function's NO-MATCH branch is observed (§5b, #597)** — `std_collections.list_find` throws a catchable `StateError` when nothing matches, on every engine and every direct compiler; no target may answer `null`/`undefined`/an empty value, and none may refuse to compile it | `tests/conformance/463_list_find_no_match` (cross-target) + per-runtime tests: `dart/compiler/test/base_calls_test.dart`, `ts/engine/test/index_wrapper.test.ts`, `ts/compiler/test/std_call_dispatch.test.ts`, `cpp/test/test_compiler.cpp`, `csharp/compiler/test/ListFindContractTests.cs`, `rust/shared/src/runtime.rs`, `go/runtime/list_find_contract_test.go` + `go/compiler/list_find_contract_test.go`, `python/compiler/tests/test_conformance.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A base function's returned VALUE carries a contract (§5b, #630)** — `std.sink_create`'s sink is a `__type__`-tagged, REFERENCE-semantic value: `std.type_of` answers `Sink` on every target (never the host builder's type), and an append performed inside a callee is visible to the caller. A conformance golden cannot assert the tag (the oracle is native Dart, which says `StringBuffer`), so the behaviour and the tag are gated separately | `tests/conformance/466_string_sink` (cross-target; the `appendWord(out, 'c')` line is the reference-semantics leg) + per-target tag tests: `dart/engine/test/engine_test.dart`, `dart/compiler/test/base_calls_test.dart`, `ts/compiler/test/string_sink.test.ts`, `cpp/test/test_compiler.cpp`, `rust/shared/src/runtime.rs`, `csharp/shared/test/SinkContractTests.cs`, `go/runtime/sink_contract_test.go`, `python/compiler/tests/test_sink.py` | every PR (each language's own job) + every engine row of `conformance-matrix.yml` |
 | **A declared base-function RETURN SHAPE is real (§5b, #545)** — every base function with a non-empty `outputType` is probed against the Dart reference engine; a declaration with no probe fails, and no universal `std`/`std_collections` declaration may sit in the frozen carve-out list | `dart/engine/test/std_output_type_contract_test.dart` (carries a positive floor so an empty inventory cannot pass vacuously) | every PR (`Dart`, `cd dart/engine && dart test`) |
+| **A caught Dart error's STRING FORM is one answer, and each target's rendering table is CLOSED (§5b, #641)** — a caught failed cast reads Dart's own `type 'X' is not a subtype of type 'Y' in type cast` on every target (no `TypeError: ` prefix: `_TypeError.toString()` IS its message), and every Dart error name a runtime RAISES has a rendering entry in that runtime's table, with the prefix Dart spells | `tests/conformance/467_caught_type_error_to_string` (cross-target) + `tools/check_error_rendering_tables.py` (structural, all 7 targets, with positive floors) and its self-test `tools/test/test_check_error_rendering_tables.py` + per-runtime tests: `go/runtime/type_error_contract_test.go`, `go/compiler/type_error_contract_test.go`, `csharp/compiler/test/TypeErrorContractTests.cs`, `rust/shared/src/runtime.rs`, `python/compiler/tests/test_runtime.py` | every PR (`Proto Checks` for the checker + self-test; each language's own job for its unit test) + every engine row of `conformance-matrix.yml` |
 | Engine/compiler behavior | `conformance_test.dart`, `conformance_compiler_inprocess_test.dart` | every PR |
 | Real subprocess round-trip (engine, `dart run`, `node`, encoder-in-the-loop) | `conformance_roundtrip_test.dart` (`@Tags(['slow'])`; its `_knownUnroundtrippable` ratchet holds the one leg the Dart encoder provably cannot express, and fails if that leg starts passing or names nothing real) | `slow-conformance.yml`, weekly + manual only |
 | C++ CI wall-clock budget (#521) | ci.yml's `cpp` job — step-level `timeout-minutes` on `Run tests` (20 Windows / 8 Linux+macOS, sized against the **cold**-ccache 13m57s / 5m19s / 4m57s and still under the pre-fix 28m33s / 12m12s / 9m56s) + a 25-min job budget | every cpp/infra-touching PR |
@@ -1149,6 +1185,7 @@ could not parse a summary at all).
 | **The Go module release lane stays machine-driven, and its own YAML-parsing leg cannot be silently disabled** (#361/#656/#694) | `tools/release/check_go_release_wiring.sh` — 27 legs over the lane's shape (one semantic-release config, the commit carrying every file the bump rewrites, `tag_go_modules.sh` as the single tagging path, no silent v2), of which the go-freshness `pull_request.paths` leg parses YAML rather than grepping because the claim is that a LIST IS EXACTLY A SET. `--self-test` drives 11 cases: 9 on the checker's verdicts (widened, narrowed, unfiltered, `paths-ignore`, no PR trigger, unparseable) and 2 on the **leg**, which run the whole guard with and without a `python3` that works — the §3a control, added after the leg was found reporting PASS with the checker unable to run | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
+| **The two docs that enumerate "every engine" cannot drift from the matrix** (#610/#613) | `tools/ci/check_engine_row_docs.sh` — derives the engine languages from the **parity table** `conformance-matrix.yml`'s `summary` job prints (its `print_row` calls, which is where a new engine is declared a full-parity row, and which excludes the ratcheted compiler / measurement round-trip legs by construction; a parity row reporting a job outside `summary.needs` is a hard error, because such a row can never fail the matrix), then gates `tests/editions/portability_matrix.md`'s `## Engines` table and `plugins/ball/skills/embed/SKILL.md`'s `## Per-target honest status` table on three rules: one data row per derived engine, a row naming each of them, and no row claiming a parity-table engine cannot execute a program. Matching is scoped to each table's DATA ROWS — a whole-file name scan is a fake green, since an engine's name survives in prose long after its row is gone. The portability doc additionally may freeze no fixture or engine tally. `--self-test` drives 16 cases first (floor: `pass < 16` is a hard error), each asserting the failure MESSAGE as well as the exit code | every PR (the always-on `proto` job, offline) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
 | **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result — and, for Tier A, on a log missing its `excluded (test-only): N` line, which would mean the library-code-only rule vanished (issue #491) |
 | **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, diffs the per-file exclusion list in `tools/coverage-study/excluded.json` and fails naming any file that list excludes and the run scored (#676), and regenerates the README table, committing all three to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |

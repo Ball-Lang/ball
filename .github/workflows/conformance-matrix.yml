@@ -39,6 +39,13 @@ on:
       - "go/**"
       - "python/**"
       - "dart/self_host/**"
+      # The matrix must gate changes to ITSELF (#642). A PR that only edits this
+      # workflow — a row's floor, a row's parse block — used to get no matrix run
+      # at all, and an absent check reads as green: the four `*-roundtrip` rows
+      # were floored in a commit this filter did not select, so the commit that
+      # was supposed to prove them RED proved nothing.
+      - ".github/workflows/conformance-matrix.yml"
+      - "tools/ci/roundtrip_floor.sh"
   pull_request:
     # The SAME list as `push` above, by YAML alias — never a second copy.
     paths: *matrix_paths

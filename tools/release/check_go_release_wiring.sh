@@ -113,9 +113,14 @@ if [ -f "$CFG" ]; then
     )
   grep -qF 'bump_go_modules.sh v${nextRelease.version}' "$CFG" ||
     probs+=("expected a prepareCmd running: bash tools/go-module-proxy/bump_go_modules.sh v\${nextRelease.version}")
-  grep -qF 'gh workflow run tag-go-modules.yml --ref go-modules/v${nextRelease.version}' "$CFG" ||
+  grep -qF 'await_workflow_run.py --dispatch --workflow tag-go-modules.yml --ref go-modules/v${nextRelease.version}' "$CFG" ||
     probs+=(
-      "expected publishCmd: gh workflow run tag-go-modules.yml --ref go-modules/v\${nextRelease.version}"
+      "expected publishCmd: python3 tools/release/await_workflow_run.py --dispatch \\"
+      "  --workflow tag-go-modules.yml --ref go-modules/v\${nextRelease.version}"
+      "a bare \`gh workflow run\` returns the moment GitHub ACCEPTS the dispatch, so the release run"
+      "reports success whether the tagger then cut six tags, refused a half-tagged set, or never"
+      "started at all — the lane's only signal would once again be 'the automation ran' (#627)."
+      "The poller waits for the dispatched run and fails the publish step on any non-success."
       "semantic-release creates its tag AFTER prepare and BEFORE publish, on the commit"
       "@semantic-release/git just pushed, so that tag is the ref carrying the bumped go.mod files"
     )
@@ -273,7 +278,7 @@ fi
 # this lane existed, and that dispatch was an unconditional no-op: it re-ran the
 # tagger at whatever version the go.mod files already carried, which is exactly
 # the state that reads green while shipping nothing.
-if sed 's/#.*$//' "$RELEASE" | grep -qF 'gh workflow run tag-go-modules.yml'; then
+if sed 's/#.*$//' "$RELEASE" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml'; then
   no "release.yml no longer dispatches tag-go-modules.yml directly" \
     "the tagger is now dispatched by go.releaserc.json's publishCmd, pinned to the channel tag" \
     "whose commit carries the bumped go.mod files; a second, version-less dispatch from release.yml" \
@@ -287,7 +292,7 @@ dispatchers=()
 for f in "$WORKFLOWS"/*.yml "$CONFIGS"/*.json; do
   [ -f "$f" ] || continue
   [ "$(basename "$f")" = "tag-go-modules.yml" ] && continue
-  sed 's/#.*$//' "$f" | grep -qF 'gh workflow run tag-go-modules.yml' &&
+  sed 's/#.*$//' "$f" | grep -qE 'workflow run tag-go-modules\.yml|--workflow tag-go-modules\.yml' &&
     dispatchers+=("$(basename "$f")")
 done
 if [ "${#dispatchers[@]}" -eq 1 ] && [ "${dispatchers[0]}" = "go.releaserc.json" ]; then
@@ -409,10 +414,172 @@ else
     "live run with 'fatal: too many arguments' (run 33939440446)"
 fi
 
+# ── 11. The tagger's header tells the post-#623 truth. ────────────────────
+# tag-go-modules.yml is the file an operator lands on when a tag cut goes wrong,
+# and its header is the only explanation of the lane it carries. It described a
+# world that stopped existing when #623 landed: "Bumping the Go modules is
+# therefore a normal PR that runs bump_go_modules.sh; this workflow then cuts
+# the tags on the next release" (the bump is a prepareCmd now), "release.yml
+# dispatches this explicitly" (leg 4 above asserts it does NOT), and an offer to
+# hand-dispatch for "the one-time backfill" (done in #618). Stale prose in a
+# release file is not cosmetic — it is the instruction a human follows at 2am,
+# and nothing else in this guard reads comments. So this one does (#627).
+if [ -f "$TAGGER" ]; then
+  header="$(sed -n '1,/^on:/p' "$TAGGER" | grep -E '^[[:space:]]*#')"
+  header_lines="$(printf '%s\n' "$header" | grep -c .)"
+  case "$header_lines" in
+  *[!0-9]*) header_lines=0 ;;
+  esac
+  if [ "$header_lines" -lt 10 ]; then
+    # A vanished header would make every forbidden-phrase check below vacuously
+    # true, which is the shape this guard refuses everywhere else.
+    no "tag-go-modules.yml carries an explanatory header (>= 10 comment lines before 'on:')" \
+      "found $header_lines — with no header there is nothing to keep honest, and the prose" \
+      "assertions below would pass by being empty"
+  else
+    hprobs=()
+    printf '%s\n' "$header" | grep -qE 'release\.yml dispatches' &&
+      hprobs+=(
+        "says \"release.yml dispatches\" — it does not, and leg 4 of this guard fails if it ever"
+        "does again. Since #623 the only dispatcher is .github/release/go.releaserc.json's"
+        "publishCmd, pinned to the go-modules/vX.Y.Z channel tag."
+      )
+    printf '%s\n' "$header" | grep -qE 'cuts the tags on the next release' &&
+      hprobs+=(
+        "still describes the bump as a human PR that this workflow tags \"on the next release\";"
+        "since #623 the bump is go.releaserc.json's prepareCmd and the tags are cut by the"
+        "publishCmd of the same release that made it"
+      )
+    printf '%s\n' "$header" | grep -qE 'one-time backfill' &&
+      hprobs+=("still offers the one-time backfill hand-dispatch; that backfill happened in #618")
+    printf '%s\n' "$header" | grep -qF 'go.releaserc.json' ||
+      hprobs+=("never names .github/release/go.releaserc.json, which is what actually dispatches it")
+    printf '%s\n' "$header" | grep -qF 'publishCmd' ||
+      hprobs+=("never names the publishCmd that dispatches it")
+    if [ "${#hprobs[@]}" -eq 0 ]; then
+      ok "tag-go-modules.yml's header describes the post-#623 lane ($header_lines comment lines)"
+    else
+      no "tag-go-modules.yml's header describes the post-#623 lane" "${hprobs[@]}"
+    fi
+  fi
+fi
+
+# ── 12. The dispatch is AWAITED, by a poller with a bounded budget. ───────
+# Leg 2 pins that publishCmd calls the poller. This pins that the poller is a
+# poller: a script that shells out to `gh workflow run` and returns would
+# satisfy that grep and change nothing.
+AWAIT="$ROOT/tools/release/await_workflow_run.py"
+if [ -f "$AWAIT" ]; then
+  aprobs=()
+  grep -qF -- '--self-test' "$AWAIT" ||
+    aprobs+=(
+      "expected a --self-test mode: this code runs only inside a real release, so without one its"
+      "first exercise would be the day it had to be right (the resolve_published.py precedent, #568)"
+    )
+  grep -qF 'BUDGET_SECONDS' "$AWAIT" ||
+    aprobs+=("expected a bounded polling budget — an unbounded wait hangs the release job until its timeout")
+  grep -qF 'INTERVAL_SECONDS' "$AWAIT" ||
+    aprobs+=("expected an explicit poll interval")
+  grep -qF 'conclusion' "$AWAIT" ||
+    aprobs+=(
+      "expected the poller to read the dispatched run's CONCLUSION: waiting for a run to reach"
+      "\"completed\" and then exiting 0 regardless of HOW it completed is the fire-and-forget bug"
+      "with extra steps"
+    )
+  if [ "${#aprobs[@]}" -eq 0 ]; then
+    ok "await_workflow_run.py polls a bounded budget and gates on the run's conclusion"
+  else
+    no "await_workflow_run.py polls a bounded budget and gates on the run's conclusion" "${aprobs[@]}"
+  fi
+else
+  no "tools/release/await_workflow_run.py exists (the awaited dispatch, #627)" \
+    "publishCmd's dispatch is fire-and-forget without it: 'gh workflow run' returns as soon as" \
+    "GitHub accepts the request, so a tagger run that fails, is cancelled, or never starts leaves" \
+    "the go-release run green"
+fi
+
+# ── 13. The Go lane has an OUTCOME alarm, not just wiring guards. ─────────
+# Everything above is static: it asks whether the lane is SHAPED to ship. The
+# pub.dev lane learned the hard way (#551) that a perfectly-shaped, perfectly-
+# green lane can still stop shipping, and the only thing that sees it is a
+# periodic comparison of the live registry against main. Go's registry is
+# proxy.golang.org; this is its equivalent (#627).
+FRESH="$ROOT/tools/release/check_go_freshness.sh"
+FRESHWF="$WORKFLOWS/go-freshness.yml"
+if [ -f "$FRESH" ]; then
+  fprobs=()
+  grep -qF -- '--self-test' "$FRESH" ||
+    fprobs+=("expected a --self-test mode so the classifier is exercised on every PR, offline")
+  grep -qF 'go list -m -versions' "$FRESH" ||
+    fprobs+=(
+      "expected the live leg to ask the proxy with 'go list -m -versions' — the one documented way"
+      "to list a module's versions with no main module (https://go.dev/ref/mod#commands-outside)"
+    )
+  grep -qF 'GOWORK=off' "$FRESH" ||
+    fprobs+=(
+      "expected GOWORK=off: inside go/ the workspace's replace pins resolve the module locally and"
+      "'go list -m -versions' prints the module path with an EMPTY version list and exits 0 — a"
+      "silent nothing that would read as a clean sweep"
+    )
+  if [ "${#fprobs[@]}" -eq 0 ]; then
+    ok "check_go_freshness.sh asks proxy.golang.org the right question, hermetically"
+  else
+    no "check_go_freshness.sh asks proxy.golang.org the right question, hermetically" "${fprobs[@]}"
+  fi
+else
+  no "tools/release/check_go_freshness.sh exists (the proxy.golang.org alarm, #627)" \
+    "the Go lane has wiring guards and no outcome guard: nothing anywhere compares the version the" \
+    "six go.mod files name against the versions proxy.golang.org actually serves, so a tagger that" \
+    "stops cutting tags is invisible until a consumer reports an unknown revision"
+fi
+
+if [ -f "$FRESHWF" ]; then
+  wprobs=()
+  grep -qE '^[[:space:]]*schedule:' "$FRESHWF" ||
+    wprobs+=("expected a schedule: trigger — an alarm nothing fires is not an alarm")
+  grep -qE '^[[:space:]]*workflow_dispatch:' "$FRESHWF" ||
+    wprobs+=("expected workflow_dispatch so the alarm can be rehearsed on a branch before it is trusted")
+  grep -qF 'check_go_freshness.sh --self-test' "$FRESHWF" ||
+    wprobs+=(
+      "expected the workflow to run the classifier's self-test BEFORE the live comparison"
+      "(pubdev-freshness.yml's shape): a clean network run and a broken comparison look identical"
+    )
+  grep -qE 'fetch-depth:[[:space:]]*0' "$FRESHWF" ||
+    wprobs+=(
+      "expected fetch-depth: 0 — the lag window is measured from the go/<module>/vX.Y.Z tag's own"
+      "date, and a shallow clone carries no tags"
+    )
+  if [ "${#wprobs[@]}" -eq 0 ]; then
+    ok "go-freshness.yml is scheduled, rehearsable, and self-tests before it trusts the network"
+  else
+    no "go-freshness.yml is scheduled, rehearsable, and self-tests before it trusts the network" "${wprobs[@]}"
+  fi
+else
+  no ".github/workflows/go-freshness.yml exists (weekly + dispatch)" \
+    "pubdev-freshness.yml is 'the alarm #551 lacked'; the Go lane has no equivalent, so the only" \
+    "signal after a release is that the automation RAN"
+fi
+
+if grep -qF 'tools/release/check_go_freshness.sh --self-test' "$CI"; then
+  ok "ci.yml runs the Go freshness classifier's self-test"
+else
+  no "ci.yml runs the Go freshness classifier's self-test" \
+    "the live legs only run on a schedule, so without a PR-gated self-test a classifier that" \
+    "silently stopped classifying would report a dead lane as healthy — the #551 failure exactly"
+fi
+
+if grep -qF 'tools/release/await_workflow_run.py --self-test' "$CI"; then
+  ok "ci.yml runs the awaited-dispatch poller's self-test"
+else
+  no "ci.yml runs the awaited-dispatch poller's self-test" \
+    "the poller only runs inside a real release; a PR-time self-test is the only thing that can" \
+    "exercise its budget loop and its conclusion classification before it matters"
+fi
+
 total=$((pass + fail))
 # Positive floor (#439/#444): an exit code plus a zero failure count cannot tell
 # "all passed" from "nothing ran".
-MIN=15
+MIN=20
 case "$pass$fail$total" in
 *[!0-9]*)
   echo "::error::Go release wiring guard produced a non-numeric tally"

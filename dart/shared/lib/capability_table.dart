@@ -351,6 +351,15 @@ Map<String, String> buildCapabilityTable() {
     'std.string_code_unit_at': 'pure',
     'std.string_runes': 'pure',
 
+    // ── std: text sink (issue #630) — pure ──
+    //
+    // Append-only in-memory text accumulation with a terminal read. Declared in
+    // universal `std` rather than `std_io` precisely so building a string does
+    // NOT mark a program io-capable (see `std.dart`'s declaration comment).
+    'std.sink_create': 'pure',
+    'std.sink_write': 'pure',
+    'std.sink_to_string': 'pure',
+
     // ── std: regex (pure) ──
     'std.regex_match': 'pure',
     'std.regex_find': 'pure',

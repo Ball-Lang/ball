@@ -114,7 +114,12 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   is the reachable case and `470_setter_beside_final_field` is its guard, with
   `cpp/test/test_compiler.cpp`'s
   `length_on_a_class_that_declares_it_is_the_field_not_ball_length` as the fast
-  gate.
+  gate. `472_instance_field_named_length` (#681) is the second gate, and the
+  plainest shape of the same collision — a mutable `int length;` with no getter
+  and no shadowing field, so `class_has_own_field` alone carries it — read
+  externally, read unqualified from inside the class, and read again after a
+  write, with a list, a string and a map as the controls proving `.length` still
+  answers for real collections.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and

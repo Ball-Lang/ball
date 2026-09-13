@@ -86,6 +86,25 @@ for the authoritative member set).
   runtime RAISES has an entry in this runtime's table and that every entry's
   prefix equals Dart's. Add a new built-in error here and to that contract in the
   same PR, or the checker fails.
+- **`_isBaseModule` is a CLOSED SET, checked against the builders (#606).** It
+  enumerates base module names by hand, and `std_concurrency` was missing — so
+  every `std_concurrency.*` call fell through `_compileCall` to the USER-function
+  path and emitted a bare `thread_spawn(...)`, an identifier the generated Dart
+  never defines, with NO diagnostic (not even the `/* unsupported: std.<fn> */`
+  marker the `std` switch's default arm produces). A module added to
+  `dart/shared/lib/std*.dart` needs BOTH an `_isBaseModule` entry and a
+  `_compileBaseCall` lowering; `dart/compiler/test/std_concurrency_test.dart`
+  re-derives the dispatcher's list from its own source and asserts every builder
+  module is in it (with a positive floor, so an extraction that stops matching
+  fails instead of passing vacuously).
+- **A module that needs STATE gets a conditional runtime preamble**, the way
+  `std_memory`'s linear-memory block always has. `std_concurrency` emits one too
+  (`_ballThreads`/`_ballMutexes`/`_ballAtomics` plus the `_ball*` helpers), only
+  when `_baseModules.contains('std_concurrency')`, and its semantics must stay
+  byte-for-byte equivalent to `engine_std.dart`'s — a program has to mean the
+  same thing interpreted and compiled. An ASYNC body is REJECTED there rather
+  than silently un-awaited: the engine awaits it, and dropping the `Future`
+  would be a divergence, not an optimisation.
 
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`
@@ -304,6 +323,21 @@ falls back to it would call itself in every compiled self-hosted engine. Use
   at all while `Counter()` worked. It now calls `_initFieldDefaults` like the
   `messageCreation` path does.
 
+- **"Single-threaded" describes WHEN a `std_concurrency` body runs, never what
+  the operations ANSWER (#608).** The old block in `engine_std.dart` fabricated
+  results — `atomic_store` discarded the write, `atomic_load` echoed its own
+  call input, `atomic_compare_exchange` returned an unconditional `true` (so a
+  CAS retry loop exited on its first iteration with the wrong answer), and
+  `thread_spawn` returned the literal `0` for every thread — and because the
+  other six engines are compiled from this source, all seven agreed on the wrong
+  answer. There are now three real tables (`_threadJoined`, `_mutexLocked`,
+  `_atomicCells`) keyed by an OPAQUE 1-based handle, and every misuse (joining
+  twice, locking a locked mutex, unlocking an unlocked one, naming an unminted
+  handle) raises a `BallRuntimeError`. They are LISTS, not int-keyed maps, on
+  purpose: this file is compiled into six other engines and a list index has one
+  representation on every target. `tests/conformance/468_std_concurrency_handles`
+  is the cross-target guard; `dart/engine/test/std_concurrency_test.dart` holds
+  the fail-loud half. See `docs/TESTING_STRATEGY.md` §5c.
 - **The ordered-set representation probe is `is BallRawMap`, never `is Map`
   (#557).** `_ballValueIsSet` in `engine_types.dart` asks "is this value the raw
   `Map<String, Object?>` my `{'__ball_set__': [...]}` representation is built out

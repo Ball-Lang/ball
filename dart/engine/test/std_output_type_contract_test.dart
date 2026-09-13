@@ -63,6 +63,90 @@ final Map<String, List<_Probe>> _probes = {
       want: false,
     ),
   ],
+  // ── std_concurrency (issue #608) ──
+  // Handles are minted 1, 2, 3… per engine instance and `_eval` builds a fresh
+  // engine per probe, so the FIRST handle of each kind is deterministic. That
+  // exact number is the reference engine's, not a portable promise: conformance
+  // fixture `468_std_concurrency_handles` asserts only that handles are
+  // DISTINCT, which is what a Ball program may rely on.
+  'std_concurrency.thread_spawn': [
+    (
+      description: 'a spawned thread answers a fresh handle, not a constant',
+      call: _concCall('thread_spawn', {'body': _noopLambda()}),
+      want: 1,
+    ),
+  ],
+  'std_concurrency.thread_join': [
+    (
+      description: 'joining a spawned handle answers nothing',
+      call: _concCall('thread_join', {
+        'value': _concCall('thread_spawn', {'body': _noopLambda()}),
+      }),
+      want: null,
+    ),
+  ],
+  'std_concurrency.mutex_create': [
+    (
+      description: 'a created mutex answers a fresh handle',
+      call: _concCall('mutex_create', const {}),
+      want: 1,
+    ),
+  ],
+  'std_concurrency.mutex_lock': [
+    (
+      description: 'locking an unlocked mutex answers nothing',
+      call: _concCall('mutex_lock', {
+        'value': _concCall('mutex_create', const {}),
+      }),
+      want: null,
+    ),
+  ],
+  'std_concurrency.mutex_unlock': [
+    (
+      description: 'unlocking a locked mutex answers nothing',
+      call: _lockThenUnlock(),
+      want: null,
+    ),
+  ],
+  'std_concurrency.atomic_create': [
+    (
+      description: 'a created atomic cell answers a fresh handle',
+      call: _concCall('atomic_create', {'value': _intLit(7)}),
+      want: 1,
+    ),
+  ],
+  'std_concurrency.atomic_store': [
+    (
+      description: 'storing into a cell answers nothing',
+      call: _concCall('atomic_store', {
+        'atomic': _concCall('atomic_create', {'value': _intLit(1)}),
+        'value': _intLit(2),
+      }),
+      want: null,
+    ),
+  ],
+  'std_concurrency.atomic_compare_exchange': [
+    (
+      description: 'a CAS whose expected value matches answers true',
+      call: _concCall('atomic_compare_exchange', {
+        'atomic': _concCall('atomic_create', {'value': _intLit(7)}),
+        'expected': _intLit(7),
+        'value': _intLit(9),
+      }),
+      want: true,
+    ),
+    (
+      // The line no fabricated answer can pass: before #608 this returned
+      // `true` too, so a CAS retry loop exited on its first iteration.
+      description: 'a CAS whose expected value is stale answers false',
+      call: _concCall('atomic_compare_exchange', {
+        'atomic': _concCall('atomic_create', {'value': _intLit(7)}),
+        'expected': _intLit(8),
+        'value': _intLit(9),
+      }),
+      want: false,
+    ),
+  ],
   'std_collections.set_remove': [
     (
       description: 'removing a present element answers true',
@@ -98,25 +182,27 @@ final Map<String, List<_Probe>> _probes = {
 /// Declarations that predate this gate and are NOT probed yet — a ratchet, not
 /// a dumping ground (the same shape as `cpp/test/e2e_fixture_list_known_gaps.txt`).
 ///
-/// Every entry is in `std_time` / `std_fs` / `std_concurrency` / `std_convert`:
-/// the host-facing modules, whose returns are non-deterministic (`now`), touch
-/// the filesystem, or spawn threads, so probing them needs a fixture harness
-/// rather than a one-line expression. Nothing in the universal `std` /
-/// `std_collections` modules may appear here — those are the modules a portable
-/// Ball program is built from, and they are what issue #545 was about.
+/// Every entry is in `std_time` / `std_fs` / `std_convert`: the host-facing
+/// modules, whose returns are non-deterministic (`now`) or touch the
+/// filesystem, so probing them needs a fixture harness rather than a one-line
+/// expression. Nothing in the universal `std` / `std_collections` modules may
+/// appear here — those are the modules a portable Ball program is built from,
+/// and they are what issue #545 was about.
+///
+/// The seven `std_concurrency` entries this list used to carry are GONE
+/// (issue #608): every one of them is probed below. They were parked here
+/// because the engine "simulated" concurrency by fabricating answers — a
+/// `thread_spawn` that returned the literal `0`, an `atomic_compare_exchange`
+/// that returned an unconditional `true` — and a fabricated answer happens to
+/// have the declared TYPE, so parking them hid nothing that a type probe would
+/// have caught. Now that the engine keeps real handles and real cells, each
+/// one is a one-line expression again.
 ///
 /// The list is enforced in BOTH directions below: an entry that gains a probe,
 /// or that no longer declares an `outputType`, is a failure. So this debt can
 /// only shrink, and a NEW declaration cannot join it without editing this file
 /// (and tripping the `std`/`std_collections` guard if it belongs there).
 const _unprobedLegacyDeclarations = <String>{
-  'std_concurrency.thread_spawn',
-  'std_concurrency.thread_join',
-  'std_concurrency.mutex_create',
-  'std_concurrency.mutex_lock',
-  'std_concurrency.mutex_unlock',
-  'std_concurrency.atomic_store',
-  'std_concurrency.atomic_compare_exchange',
   'std_convert.json_encode',
   'std_convert.utf8_encode',
   'std_convert.utf8_decode',
@@ -146,7 +232,12 @@ const _unprobedLegacyDeclarations = <String>{
 bool _matchesDeclaredType(String outputType, Object? value) =>
     switch (outputType) {
       'bool' => value is bool,
+      'int' => value is int,
       'String' => value is String,
+      // A `void` base function contributes no value; the engine's handlers
+      // answer `null`. Asserting that is what stops a "void" function from
+      // quietly returning something a program could come to depend on.
+      'void' => value == null,
       _ => throw StateError(
         'std_output_type_contract_test has no runtime predicate for the '
         'declared outputType "$outputType". Add one (and a probe) rather than '
@@ -319,6 +410,22 @@ Future<Object?> _eval(Map<String, dynamic> expr) async {
           ],
         },
         {
+          'name': 'std_concurrency',
+          'functions': [
+            for (final n in [
+              'thread_spawn',
+              'thread_join',
+              'mutex_create',
+              'mutex_lock',
+              'mutex_unlock',
+              'atomic_create',
+              'atomic_store',
+              'atomic_compare_exchange',
+            ])
+              {'name': n, 'isBase': true},
+          ],
+        },
+        {
           'name': 'probe',
           'functions': [
             {'name': 'capture', 'isBase': true},
@@ -471,5 +578,69 @@ Map<String, dynamic> _setCall(
         ],
       },
     },
+  },
+};
+
+// ── std_concurrency expression builders ────────────────────────────────────
+
+Map<String, dynamic> _concCall(
+  String function,
+  Map<String, Map<String, dynamic>> fields,
+) => {
+  'call': {
+    'module': 'std_concurrency',
+    'function': function,
+    'input': {
+      'messageCreation': {
+        'typeName': '',
+        'fields': [
+          for (final e in fields.entries) {'name': e.key, 'value': e.value},
+        ],
+      },
+    },
+  },
+};
+
+/// `(_) => 0` — the shape every encoder emits for a one-parameter lambda, so
+/// `thread_spawn` gets a real callable body rather than a bare value.
+Map<String, dynamic> _noopLambda() => {
+  'lambda': {
+    'name': '',
+    'body': _intLit(0),
+    'metadata': {
+      'kind': 'lambda',
+      'expression_body': true,
+      'has_return': true,
+      'params': [
+        {'name': '_'},
+      ],
+    },
+  },
+};
+
+Map<String, dynamic> _ref(String name) => {
+  'reference': {'name': name},
+};
+
+/// `{ final m = mutex_create(); mutex_lock(m); mutex_unlock(m); }` — unlocking
+/// is legal only on a LOCKED mutex (the engine fails loud otherwise), so this
+/// probe cannot be a single nested call the way `mutex_lock`'s is.
+Map<String, dynamic> _lockThenUnlock() => {
+  'block': {
+    'statements': [
+      {
+        'let': {
+          'name': 'm',
+          'value': _concCall('mutex_create', const {}),
+          'metadata': {'keyword': 'final'},
+        },
+      },
+      {
+        'expression': _concCall('mutex_lock', {'value': _ref('m')}),
+      },
+      {
+        'expression': _concCall('mutex_unlock', {'value': _ref('m')}),
+      },
+    ],
   },
 };

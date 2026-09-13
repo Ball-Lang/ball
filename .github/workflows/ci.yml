@@ -379,6 +379,23 @@ jobs:
           bash cpp/test/check_e2e_fixture_list.sh --self-test
           bash cpp/test/check_e2e_fixture_list.sh
 
+      # cpp/compiler/src/compiler.cpp implements base functions by hardcoded
+      # name, and nothing compared those names against the canonical
+      # dart/shared/lib/std*.dart declarations — so compile_concurrency_call
+      # grew three functions no builder declares, no encoder can emit and no
+      # engine implements (#607). This is the C++ sibling of #505's
+      # dart/shared/test/std_routed_declarations_test.dart.
+      # It lives HERE, in the always-on job, and not in the path-filtered `cpp`
+      # job: BOTH of its inputs can move it — the C++ dispatch AND the Dart
+      # builders — so a PR that only DROPS a declaration would skip a cpp-gated
+      # guard, and an absent check reads as green. It needs no C++ toolchain.
+      # `--self-test` first, so a guard that found nothing to compare cannot
+      # report success.
+      - name: C++ declared-base-function drift guard (#607)
+        run: |
+          python3 cpp/test/check_declared_base_functions.py --self-test
+          python3 cpp/test/check_declared_base_functions.py
+
       # The cpp job's compiler-cache gate (#594) reads ccache/sccache statistics
       # and fails when a job compiled cacheable TUs with the cache recording zero
       # requests. Its whole value is in two parsers and one comparison, and a
@@ -2628,7 +2645,7 @@ jobs:
       # tests/conformance/*.ball.json through the self-hosted C# engine and
       # asserts the canonical `Results: N passed, M failed, T total` line shows
       # every golden-having fixture passing (Dart parity). Currently
-      # "Results: 352 passed, 0 failed, 352 total (4 skipped carve-outs)" — the
+      # "Results: 353 passed, 0 failed, 353 total (4 skipped carve-outs)" — the
       # 4 golden-less resource-limit/sandbox fixtures are behavioral carve-outs
       # the runner skips, exactly like the Dart/Rust runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count, mirroring
@@ -2823,7 +2840,7 @@ jobs:
       # through the self-hosted Go engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 352 passed, 0 failed, 352 total (4 skipped carve-outs)" — the 4
+      # "Results: 353 passed, 0 failed, 353 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C# runners. Parity-checked
       # (passed == total, failed == 0) rather than a hardcoded count. `-v` is
@@ -2978,7 +2995,7 @@ jobs:
       # through the self-hosted Python engine and asserts the canonical
       # `Results: N passed, M failed, T total` line shows every golden-having
       # fixture passing (Dart parity). Currently
-      # "Results: 352 passed, 0 failed, 352 total (4 skipped carve-outs)" — the 4
+      # "Results: 353 passed, 0 failed, 353 total (4 skipped carve-outs)" — the 4
       # golden-less resource-limit/sandbox fixtures are behavioral carve-outs the
       # runner skips, exactly like the Dart/Rust/C#/Go runners. Parity-checked
       # (passed == total, failed == 0, passed >= 1) rather than a hardcoded count,

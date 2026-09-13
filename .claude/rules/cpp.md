@@ -224,6 +224,35 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   only target that spelled Dart's `toString()` all along.
   See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`std_concurrency` lowers to HELPER CALLS over handle tables, and the set of
+  names it implements is GATED (#606/#607).** `compile_concurrency_call` used to
+  emit declaration STATEMENTS where a value was expected (`std::thread
+  _thread(<body>)`, `std::mutex _mtx`), so `thread_spawn`/`mutex_create` could
+  not honour their declared `-> int` and `thread_join`/`mutex_unlock` blindly
+  appended `.join()`/`.unlock()` to whatever field text they were handed. Every
+  arm now emits `_ball_<op>(...)` over the `_ball_threads` / `_ball_mutexes` /
+  `_ball_atomics` tables spliced into the preamble, with the SAME
+  single-threaded semantics as `dart/engine/lib/engine_std.dart` — opaque
+  1-based handles, a real cell store, a CAS that compares and exchanges, and
+  fail-loud misuse. `tests/conformance/468_std_concurrency_handles` is the
+  cross-target guard (wired into `cpp/test/e2e_fixture_list.h`).
+  It also implemented three functions **no module builder declares**
+  (`thread_detach`, `unique_lock`, `atomic_fetch_add`), reachable by no encoder
+  and implemented by no engine; the canonical builder wins, so they are gone.
+  `cpp/test/check_declared_base_functions.py` (ci.yml's always-on `proto` job,
+  `--self-test` first) is the C++ sibling of #505's
+  `dart/shared/test/std_routed_declarations_test.dart`: every `fn == "..."` a
+  module-scoped `compile_*_call` tests for must be declared in
+  `tests/conformance/std_coverage.json` — the ALL-module inventory, since
+  `dart/shared/std.json` carries only `buildStdModule()` — or be named in the
+  frozen `cpp/test/declared_base_functions_known_gaps.txt` ratchet.
+- **The preamble is spliced from a C++ RAW STRING, so no literal in it may
+  contain `)` immediately followed by `"`.** That two-character sequence ends
+  `R"( … )"` early and closes `namespace ball` in the middle of the file,
+  producing a cascade of "not declared in this scope" errors hundreds of lines
+  BEFORE the real mistake. A parenthetical at the end of an error message
+  (`"… (handles 1..N have been created)"`) is the easy way to trip it; use a
+  semicolon clause instead.
 - **A CAUGHT exception renders through ONE table (#640).**
   `catch (e) { print('$e'); }` lowers to `ball_to_string(e)`, and the `try`
   lowering binds `e` two ways — `const BallException&` when any clause is typed,

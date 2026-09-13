@@ -1,7 +1,22 @@
 /// `std_concurrency` base module builder for the ball programming language.
 ///
 /// Provides threading, mutex, and atomic primitives.
-/// Engines can choose single-threaded simulation or real threading.
+///
+/// Every resource in this module is addressed by an OPAQUE INTEGER HANDLE:
+/// `thread_spawn`, `mutex_create` and `atomic_create` mint one, and every other
+/// function takes one back. A handle's numeric value is an implementation
+/// detail — a portable program may compare handles, never depend on their
+/// numbering.
+///
+/// Engines can choose single-threaded simulation or real threading, but the
+/// OBSERVABLE contract is the same either way: a spawned body runs, a joined
+/// handle is a handle that was spawned, a locked mutex is unlocked before it is
+/// locked again, an `atomic_load` answers the last `atomic_store`, and an
+/// `atomic_compare_exchange` exchanges only when the cell holds `expected`.
+/// Every Ball engine today implements the single-threaded end of that contract
+/// (`thread_spawn` runs the body eagerly); see `docs/TESTING_STRATEGY.md` and
+/// conformance fixture `468_std_concurrency_handles`, which pins it on every
+/// engine and every compiled target.
 library;
 
 import 'gen/google/protobuf/descriptor.pb.dart' as google;
@@ -24,10 +39,19 @@ Module buildStdConcurrencyModule() {
       _type('ThreadInput', [_exprField('body', 1)]),
       _type('MutexInput', []),
       _type('LockInput', [_exprField('mutex', 1), _exprField('body', 2)]),
+      // `atomic_create`'s initial value.
       _type('AtomicInput', [_exprField('value', 1)]),
+      // `atomic_store` reads {atomic, value}; `atomic_compare_exchange` reads
+      // all three — `expected` is the value the cell must currently hold for
+      // the exchange to happen, `value` is the one it is exchanged FOR.
+      //
+      // Field 2 held a `string op` until the #607/#608 pass: nothing in any
+      // engine, compiler or encoder ever read it, and without an `expected`
+      // field a compare-and-exchange could not be EXPRESSED at all — which is
+      // precisely why every engine's CAS returned an unconditional `true`.
       _type('AtomicOpInput', [
         _exprField('atomic', 1),
-        _stringField('op', 2),
+        _exprField('expected', 2),
         _exprField('value', 3),
       ]),
     ].map(
@@ -63,6 +87,12 @@ Module buildStdConcurrencyModule() {
     ),
 
     // Atomics
+    _fn(
+      'atomic_create',
+      'AtomicInput',
+      'int',
+      'Create an atomic cell holding the given value, return handle',
+    ),
     _fn('atomic_load', 'UnaryInput', '', 'Atomic read of value'),
     _fn('atomic_store', 'AtomicOpInput', 'void', 'Atomic write of value'),
     _fn(
@@ -87,13 +117,6 @@ google.DescriptorProto _type(
   return google.DescriptorProto()
     ..name = name
     ..field.addAll(fields);
-}
-
-google.FieldDescriptorProto _stringField(String name, int number) {
-  return google.FieldDescriptorProto()
-    ..name = name
-    ..number = number
-    ..type = google.FieldDescriptorProto_Type.TYPE_STRING;
 }
 
 google.FieldDescriptorProto _exprField(String name, int number) {

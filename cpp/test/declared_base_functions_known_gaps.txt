@@ -1,0 +1,60 @@
+# Base functions cpp/compiler/src/compiler.cpp implements by hardcoded name that
+# NO dart/shared/lib/std*.dart builder declares.
+#
+# cpp/test/check_declared_base_functions.py (ci.yml's always-on `proto` job)
+# fails when a module-scoped `compile_*_call` dispatcher tests for a name that is
+# neither declared in tests/conformance/std_coverage.json nor listed here — so a
+# NEW undeclared name can never slip in again (issue #607, the C++ sibling of
+# issue #505's dart/shared/test/std_routed_declarations_test.dart).
+#
+# This file freezes the drift that already existed when the guard landed,
+# MEASURED by running the guard with an empty list — 27 names, all of them in
+# `compile_std_call` except `std_collections.map_create` and
+# `std_time.timestamp_ms`. The three `std_concurrency` names #607 was filed
+# about (`thread_detach`, `unique_lock`, `atomic_fetch_add`) are deliberately
+# NOT here: they were deleted with the same change, because the canonical
+# builder wins and nothing anywhere consumed them.
+#
+# It is a RATCHET, not a dumping ground. The guard also fails when an entry is
+# now declared, or names a function the compiler no longer implements, so the
+# list can only shrink. To close one: declare the function in the relevant
+# dart/shared/lib/std*.dart builder, regenerate the inventory
+# (`cd dart/shared && dart run bin/gen_std.dart` plus
+# `cd dart/encoder && dart run bin/gen_std_coverage.dart`), and delete its line.
+#
+# Not done in the same change as the guard on purpose: a declaration is not a
+# C++-local edit. It ripples through every compiler, every engine, the capability
+# table, the std-output-type contract gate and the coverage inventory — and most
+# of these 27 are node-shaped constructs (`cascade`, `spread`, `record`,
+# `string_interpolation`, `switch_expr`, `type_literal`, the `null_aware_*`
+# family) whose place in the declared surface is a design question, not a typo.
+#
+# One `<module>.<function>` per line; `#` starts a comment.
+
+std.cascade
+std.ceil_to_double
+std.collection_for
+std.collection_if
+std.floor_to_double
+std.invoke
+std.map_create
+std.null_aware_access
+std.null_aware_call
+std.null_aware_cascade
+std.null_aware_index
+std.null_spread
+std.paren
+std.record
+std.round_to_double
+std.set_create
+std.spread
+std.string_interpolation
+std.string_join
+std.switch_expr
+std.symbol
+std.truncate_to_double
+std.type_literal
+std.typed_list
+std.yield_each
+std_collections.map_create
+std_time.timestamp_ms

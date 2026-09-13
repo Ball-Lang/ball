@@ -1554,38 +1554,130 @@ extension BallEngineStd on BallEngine {
       'dir_create': _stdDirCreate,
       'dir_exists': _stdDirExists,
 
-      // ── std_concurrency (single-threaded simulation) ──────────
+      // ── std_concurrency (single-threaded, issue #608) ─────────
+      //
+      // "Single-threaded" describes WHEN a body runs (immediately, on the
+      // calling thread), never what the operations ANSWER. Every one of these
+      // used to fabricate a result — `atomic_store` discarded the write,
+      // `atomic_load` echoed its own input, `atomic_compare_exchange` returned
+      // an unconditional `true`, `thread_spawn` returned the literal `0` — and
+      // because the other six engines are compiled from this source, all seven
+      // agreed on the wrong answer. Handles are now real, cells are real, and
+      // misuse fails loud. `468_std_concurrency_handles` is the cross-target
+      // guard.
       'thread_spawn': (i) async {
-        // Single-threaded: execute body, return 0 as handle.
         final m = _stdAsMap(i)!;
         final body = m['body'];
-        if (body is Function) {
-          var v = body(null);
-          if (v is Future) await v;
+        if (body is! Function) {
+          throw BallRuntimeError(
+            'std_concurrency.thread_spawn: `body` must be a function, got '
+            '${body == null ? 'null' : '$body'}',
+          );
         }
-        return 0;
+        var v = body(null);
+        if (v is Future) await v;
+        _threadJoined.add(false);
+        return _threadJoined.length;
       },
-      'thread_join': (_) => null, // no-op in single-threaded mode
-      'mutex_create': (_) => _nextMutexId++,
-      'mutex_lock': (_) => null, // no-op
-      'mutex_unlock': (_) => null, // no-op
-      'scoped_lock': (i) async {
-        // Execute body directly (no actual locking).
-        final m = _stdAsMap(i)!;
-        final body = m['body'];
-        if (body is Function) {
-          var v = body(null);
-          if (v is Future) v = await v;
-          return v;
+      'thread_join': (i) {
+        final h = _concurrencyHandle(
+          i,
+          'value',
+          'thread_join',
+          _threadJoined.length,
+        );
+        if (_threadJoined[h - 1]) {
+          throw BallRuntimeError(
+            'std_concurrency.thread_join: thread handle $h was already joined',
+          );
         }
+        _threadJoined[h - 1] = true;
         return null;
       },
-      'atomic_load': (i) {
-        final m = _stdAsMap(i)!;
-        return m['value'];
+      'mutex_create': (_) {
+        _mutexLocked.add(false);
+        return _mutexLocked.length;
       },
-      'atomic_store': (i) => null,
-      'atomic_compare_exchange': (i) => true,
+      'mutex_lock': (i) {
+        final h = _concurrencyHandle(
+          i,
+          'value',
+          'mutex_lock',
+          _mutexLocked.length,
+        );
+        _lockMutex(h, 'mutex_lock');
+        return null;
+      },
+      'mutex_unlock': (i) {
+        final h = _concurrencyHandle(
+          i,
+          'value',
+          'mutex_unlock',
+          _mutexLocked.length,
+        );
+        _unlockMutex(h, 'mutex_unlock');
+        return null;
+      },
+      'scoped_lock': (i) async {
+        final m = _stdAsMap(i)!;
+        final h = _concurrencyHandle(
+          i,
+          'mutex',
+          'scoped_lock',
+          _mutexLocked.length,
+        );
+        final body = m['body'];
+        if (body is! Function) {
+          throw BallRuntimeError(
+            'std_concurrency.scoped_lock: `body` must be a function, got '
+            '${body == null ? 'null' : '$body'}',
+          );
+        }
+        _lockMutex(h, 'scoped_lock');
+        var v = body(null);
+        if (v is Future) v = await v;
+        _unlockMutex(h, 'scoped_lock');
+        return v;
+      },
+      'atomic_create': (i) {
+        final m = _stdAsMap(i)!;
+        _atomicCells.add(m['value']);
+        return _atomicCells.length;
+      },
+      'atomic_load': (i) {
+        final h = _concurrencyHandle(
+          i,
+          'value',
+          'atomic_load',
+          _atomicCells.length,
+        );
+        return _atomicCells[h - 1];
+      },
+      'atomic_store': (i) {
+        final m = _stdAsMap(i)!;
+        final h = _concurrencyHandle(
+          i,
+          'atomic',
+          'atomic_store',
+          _atomicCells.length,
+        );
+        _atomicCells[h - 1] = m['value'];
+        return null;
+      },
+      'atomic_compare_exchange': (i) {
+        final m = _stdAsMap(i)!;
+        final h = _concurrencyHandle(
+          i,
+          'atomic',
+          'atomic_compare_exchange',
+          _atomicCells.length,
+        );
+        if (_atomicCells[h - 1] == m['expected']) {
+          _atomicCells[h - 1] = m['value'];
+          return true;
+        }
+        return false;
+      },
 
       'goto': (i) {
         final im = _stdAsMap(i);
@@ -1601,6 +1693,59 @@ extension BallEngineStd on BallEngine {
         return null;
       },
     };
+  }
+
+  // ---- std_concurrency helpers (issue #608) ----
+
+  /// Reads [field] off a `std_concurrency` call's input and validates it as a
+  /// LIVE handle — an int in `[1, count]`, where `count` is how many resources
+  /// of that kind have been minted.
+  ///
+  /// Fails loud on anything else. A handle is the only way to name a thread, a
+  /// mutex or an atomic cell, so an unrecognised one means the program is
+  /// operating on something that does not exist; answering anything at all
+  /// would be the fabrication issue #608 is about.
+  int _concurrencyHandle(
+    Object? input,
+    String field,
+    String function,
+    int count,
+  ) {
+    final m = _stdAsMap(input);
+    final raw = m == null ? null : m[field];
+    if (raw is! int) {
+      throw BallRuntimeError(
+        'std_concurrency.$function: `$field` must be an int handle, got '
+        '${raw == null ? 'null' : '$raw'}',
+      );
+    }
+    if (raw < 1 || raw > count) {
+      throw BallRuntimeError(
+        'std_concurrency.$function: $raw is not a live handle; '
+        'handles 1..$count have been created',
+      );
+    }
+    return raw;
+  }
+
+  void _lockMutex(int handle, String function) {
+    if (_mutexLocked[handle - 1]) {
+      throw BallRuntimeError(
+        'std_concurrency.$function: mutex handle $handle is already locked — '
+        'this engine runs single-threaded, so no other thread can ever release '
+        'it',
+      );
+    }
+    _mutexLocked[handle - 1] = true;
+  }
+
+  void _unlockMutex(int handle, String function) {
+    if (!_mutexLocked[handle - 1]) {
+      throw BallRuntimeError(
+        'std_concurrency.$function: mutex handle $handle is not locked',
+      );
+    }
+    _mutexLocked[handle - 1] = false;
   }
 
   // ---- std function implementations ----

@@ -180,7 +180,11 @@ int cmd_run(const std::vector<std::string>& args) {
         engine._enumValues = BallDyn(BallMap{});
         engine._constructors = BallDyn(BallMap{});
         engine._callCounts = BallDyn(BallMap{});
-        engine._nextMutexId = 0;
+        // std_concurrency handle tables (issue #608 replaced the single
+        // _nextMutexId counter with three real tables).
+        engine._threadJoined = BallDyn(BallList{});
+        engine._mutexLocked = BallDyn(BallList{});
+        engine._atomicCells = BallDyn(BallList{});
         // Stream program output straight to the process stdout.
         engine.stdout_ = BallDyn(BallFunc([](std::any arg) -> std::any {
             std::cout << ball_to_string(arg) << "\n";

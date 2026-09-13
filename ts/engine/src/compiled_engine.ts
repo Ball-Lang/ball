@@ -1746,7 +1746,9 @@ export class BallEngine {
   stdinReader: any = null;
   _envGet: any;
   _args: Array<string> = [];
-  _nextMutexId: number = 0;
+  readonly _threadJoined: Array<boolean> = [];
+  readonly _mutexLocked: Array<boolean> = [];
+  readonly _atomicCells: Array<any> = [];
   _activeException: any = null;
   readonly _resolver: ModuleResolver = null;
   readonly _initialized: Promise<void>;
@@ -8705,46 +8707,72 @@ export class BallEngine {
         const input = i;
         let m = this._stdAsMap(i);
         let body = __ball_index(m, 'body');
-        if ((typeof body === 'function')) {
-          let v = body(null);
-          if ((v != null)) {
-            await v;
-          }
+        if (!((typeof body === 'function'))) {
+          throw new BallRuntimeError(('std_concurrency.thread_spawn: `body` must be a function, got ' + __ball_to_string((__ball_eq(body, null) ? 'null' : __ball_to_string(body)))));
         }
-        return 0;
-      }), ['thread_join']: ((_) => {
-        const input = _;
-        return null;
+        let v = body(null);
+        if ((v != null)) {
+          await v;
+        }
+        this._threadJoined = (this._threadJoined.push(false), this._threadJoined);
+        return this._threadJoined.length;
+      }), ['thread_join']: ((i) => {
+        const input = i;
+        let h = this._concurrencyHandle(i, 'value', 'thread_join', this._threadJoined.length);
+        if (__ball_index(this._threadJoined, __ball_sub(h, 1))) {
+          throw new BallRuntimeError((('std_concurrency.thread_join: thread handle ' + __ball_to_string(h)) + ' was already joined'));
+        }
+        this._threadJoined[__ball_sub(h, 1)] = true;
       }), ['mutex_create']: ((_) => {
         const input = _;
-        return (this._nextMutexId++);
-      }), ['mutex_lock']: ((_) => {
-        const input = _;
-        return null;
-      }), ['mutex_unlock']: ((_) => {
-        const input = _;
-        return null;
+        this._mutexLocked = (this._mutexLocked.push(false), this._mutexLocked);
+        return this._mutexLocked.length;
+      }), ['mutex_lock']: ((i) => {
+        const input = i;
+        let h = this._concurrencyHandle(i, 'value', 'mutex_lock', this._mutexLocked.length);
+        this._lockMutex(h, 'mutex_lock');
+      }), ['mutex_unlock']: ((i) => {
+        const input = i;
+        let h = this._concurrencyHandle(i, 'value', 'mutex_unlock', this._mutexLocked.length);
+        this._unlockMutex(h, 'mutex_unlock');
       }), ['scoped_lock']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
+        let h = this._concurrencyHandle(i, 'mutex', 'scoped_lock', this._mutexLocked.length);
         let body = __ball_index(m, 'body');
-        if ((typeof body === 'function')) {
-          let v = body(null);
-          if ((v != null)) {
-            v = await v;
-          }
-          return v;
+        if (!((typeof body === 'function'))) {
+          throw new BallRuntimeError(('std_concurrency.scoped_lock: `body` must be a function, got ' + __ball_to_string((__ball_eq(body, null) ? 'null' : __ball_to_string(body)))));
         }
-      }), ['atomic_load']: ((i) => {
+        this._lockMutex(h, 'scoped_lock');
+        let v = body(null);
+        if ((v != null)) {
+          v = await v;
+        }
+        this._unlockMutex(h, 'scoped_lock');
+        return v;
+      }), ['atomic_create']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
-        return __ball_index(m, 'value');
+        this._atomicCells = (this._atomicCells.push(__ball_index(m, 'value')), this._atomicCells);
+        return this._atomicCells.length;
+      }), ['atomic_load']: ((i) => {
+        const input = i;
+        let h = this._concurrencyHandle(i, 'value', 'atomic_load', this._atomicCells.length);
+        return __ball_index(this._atomicCells, __ball_sub(h, 1));
       }), ['atomic_store']: ((i) => {
         const input = i;
-        return null;
+        let m = this._stdAsMap(i);
+        let h = this._concurrencyHandle(i, 'atomic', 'atomic_store', this._atomicCells.length);
+        this._atomicCells[__ball_sub(h, 1)] = __ball_index(m, 'value');
       }), ['atomic_compare_exchange']: ((i) => {
         const input = i;
-        return true;
+        let m = this._stdAsMap(i);
+        let h = this._concurrencyHandle(i, 'atomic', 'atomic_compare_exchange', this._atomicCells.length);
+        if (__ball_eq(__ball_index(this._atomicCells, __ball_sub(h, 1)), __ball_index(m, 'expected'))) {
+          this._atomicCells[__ball_sub(h, 1)] = __ball_index(m, 'value');
+          return true;
+        }
+        return false;
       }), ['goto']: ((i) => {
         const input = i;
         let im = this._stdAsMap(i);
@@ -8760,6 +8788,32 @@ export class BallEngine {
         }
       })
     };
+  }
+
+  _concurrencyHandle(input: any, field: any, function_: any, count: any): any {
+    let m = this._stdAsMap(input);
+    let raw = (__ball_eq(m, null) ? null : __ball_index(m, field));
+    if (!((typeof raw === 'number' && Number.isInteger(raw)))) {
+      throw new BallRuntimeError(((((('std_concurrency.' + __ball_to_string(function_)) + ': `') + __ball_to_string(field)) + '` must be an int handle, got ') + __ball_to_string((__ball_eq(raw, null) ? 'null' : __ball_to_string(raw)))));
+    }
+    if ((__ball_lt(raw, 1) || __ball_gt(raw, count))) {
+      throw new BallRuntimeError(((((('std_concurrency.' + __ball_to_string(function_)) + ': ') + __ball_to_string(raw)) + ' is not a live handle; ') + (('handles 1..' + __ball_to_string(count)) + ' have been created')));
+    }
+    return raw;
+  }
+
+  _lockMutex(handle: any, function_: any): any {
+    if (__ball_index(this._mutexLocked, __ball_sub(handle, 1))) {
+      throw new BallRuntimeError((((((('std_concurrency.' + __ball_to_string(function_)) + ': mutex handle ') + __ball_to_string(handle)) + ' is already locked \u2014 ') + 'this engine runs single-threaded, so no other thread can ever release ') + 'it'));
+    }
+    this._mutexLocked[__ball_sub(handle, 1)] = true;
+  }
+
+  _unlockMutex(handle: any, function_: any): any {
+    if (!__ball_index(this._mutexLocked, __ball_sub(handle, 1))) {
+      throw new BallRuntimeError((((('std_concurrency.' + __ball_to_string(function_)) + ': mutex handle ') + __ball_to_string(handle)) + ' is not locked'));
+    }
+    this._mutexLocked[__ball_sub(handle, 1)] = false;
   }
 
   _trackListCopy(list: any): any {

@@ -280,17 +280,32 @@ fn reference_to_a_skipped_top_level_const_is_a_documented_gap() {
     encode("const LIMIT: i32 = 10;\nfn main() { println!(\"{}\", LIMIT); }");
 }
 
-/// A top-level **macro invocation** is deliberately NOT folded into the skip
-/// above. A macro at item level can be the very thing that DEFINES a type the
-/// rest of the file references — `bitflags::bitflags! { ... }` produces the
-/// `TestFlags` every `bitflags/tests/*.rs` file then calls into, which is 28
-/// of the 110 scored Tier A files. Skipping it would orphan those references
-/// into a confusing downstream panic naming a type that looks like it should
-/// exist, instead of a clean boundary here. Closing this bucket needs macro
-/// *expansion*, a materially bigger feature.
+/// **HALF CLOSED** by issue #629. A top-level macro invocation is still not
+/// folded into the skip above — a macro at item level can be the very thing
+/// that DEFINES a type the rest of the file references, so skipping it would
+/// orphan those references into a confusing downstream panic naming a type
+/// that looks like it should exist. What changed is that a **`macro_rules!`**
+/// invocation is now *expanded* rather than refused: this assertion is
+/// positive, and the deeper proofs (fixed point, depth limit, inline-`mod`
+/// scope, `impl`-body expansion, a dependency-defined macro) live in
+/// `rust/encoder/tests/macro_expansion.rs`.
+#[test]
+fn top_level_macro_rules_invocation_encodes() {
+    encode(
+        "macro_rules! declare { ($n:ident) => { struct $n { v: i64 } }; }\n\
+         declare!(Made);\n\
+         fn main() { let m = Made { v: 1 }; println!(\"{}\", m.v); }",
+    );
+}
+
+/// The half that stays open, and is meant to: a macro **no `macro_rules!` in
+/// scope defines**. That is every proc-macro, `#[derive]` helper and attribute
+/// macro, which `ball-lang-macro-expand` does not expand by design — its real
+/// body is Rust code compiled into a compiler plugin, not a matcher and a
+/// transcriber.
 #[test]
 #[should_panic(expected = "unsupported top-level item")]
-fn top_level_macro_invocation_is_a_documented_gap() {
+fn top_level_proc_macro_invocation_is_a_documented_gap() {
     encode("some_derive_helper!();\nfn main() { println!(\"{}\", 1); }");
 }
 

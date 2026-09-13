@@ -11,23 +11,19 @@
 //! macro-by-example engine, quarantined behind the `ball-lang-macro-expand`
 //! crate.
 //!
-//! Every test here runs against `tests/fixtures/macro_crate` — a real,
-//! hermetic two-crate fixture whose crate root invokes a LOCAL `macro_rules!`
-//! at item position and whose `flags` module invokes a DEPENDENCY-defined,
-//! `#[macro_export]`ed one reached through `cargo metadata`. Nothing in the
-//! encoder knows the name `bitflags` (or `mini_bitflags`); the fixture is a
-//! stand-in for the general mechanism, never a special case.
-//!
-//! ## Slice 0 — the goalposts, before any engine exists
-//!
-//! These start as `#[should_panic]` pins on **today's** loud refusal, so the
-//! fixture and the boundary are both in CI before a line of expansion is
-//! written. Each flips to a positive assertion in the slice that closes it,
-//! in the same PR — the rule `documented_gaps.rs`' own module doc states.
+//! Every fixture-based test here runs against `tests/fixtures/macro_crate` — a
+//! real, hermetic two-crate fixture whose crate root invokes a LOCAL
+//! `macro_rules!` at item position and whose `flags` module invokes a
+//! DEPENDENCY-defined, `#[macro_export]`ed one reached through `cargo
+//! metadata`. Nothing in the encoder knows the name `bitflags` (or
+//! `mini_bitflags`); the fixture is a stand-in for the general mechanism, never
+//! a special case.
 
 use std::path::{Path, PathBuf};
 
-use ball_lang_encoder::{encode, encode_crate};
+use ball_lang_shared::proto::ball::v1::{Module, Program};
+
+use ball_lang_encoder::{encode, encode_crate, encode_library};
 
 /// `rust/encoder/tests/fixtures/macro_crate` — the crate root directory, the
 /// spelling `encode_crate` documents as its entry point.
@@ -41,52 +37,213 @@ fn read_fixture(relative: &str) -> String {
         .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()))
 }
 
-// ── Slice 0 pins: the loud refusal, as it stands today ───────────────────────
+fn module<'a>(program: &'a Program, name: &str) -> &'a Module {
+    program
+        .modules
+        .iter()
+        .find(|m| m.name == name)
+        .unwrap_or_else(|| {
+            panic!(
+                "no module `{name}` in the encoded program (modules: {:?})",
+                program.modules.iter().map(|m| &m.name).collect::<Vec<_>>()
+            )
+        })
+}
 
-/// A LOCAL `macro_rules!` at item position, in the smallest possible source.
-///
-/// Note *both* halves are refused today: `macro_rules! make_point { … }` is
-/// itself a `syn::Item::Macro`, so the DEFINITION lands on the same panic as
-/// the invocation. Expansion has to remove definitions from the item list as
-/// well as replace invocations.
+/// Declared type names, with the `main:` module qualifier `types.rs`'s
+/// `qualified_type_name` adds stripped back off.
+fn type_names(module: &Module) -> Vec<String> {
+    module
+        .type_defs
+        .iter()
+        .map(|def| def.name.rsplit(':').next().unwrap_or(&def.name).to_owned())
+        .collect()
+}
+
+/// A struct's declared FIELDS, read off its protobuf descriptor.
+fn field_names(module: &Module, type_name: &str) -> Vec<String> {
+    module
+        .type_defs
+        .iter()
+        .find(|def| def.name.ends_with(type_name))
+        .unwrap_or_else(|| {
+            panic!(
+                "no type `{type_name}` in module `{}` (types: {:?})",
+                module.name,
+                type_names(module)
+            )
+        })
+        .descriptor
+        .as_ref()
+        .unwrap_or_else(|| panic!("type `{type_name}` has no descriptor"))
+        .field
+        .iter()
+        .map(|field| field.name.clone().unwrap_or_default())
+        .collect()
+}
+
+/// Every function the module declares, by name (a method is
+/// `<qualified type>.<method>`).
+fn function_names(module: &Module) -> Vec<String> {
+    module.functions.iter().map(|f| f.name.clone()).collect()
+}
+
+// ── The closed gap: a local item-level `macro_rules!` ────────────────────────
+
+/// **CLOSED** by #629. Both halves used to be refused: `macro_rules! make_one
+/// { … }` is itself a `syn::Item::Macro`, so the DEFINITION landed on the same
+/// panic as the invocation. Expansion removes definitions from the item list
+/// and replaces invocations with what they produce.
 #[test]
-#[should_panic(expected = "macro invocations at item level remain deferred")]
-fn a_local_item_level_macro_is_a_documented_gap() {
-    encode(
-        "macro_rules! make_one { () => { struct One { v: i64 } }; }\n\
-         make_one!();\n\
-         fn main() { let _o = One { v: 1 }; }",
+fn a_local_item_level_macro_expands_into_real_declarations() {
+    let program = encode(
+        "macro_rules! make_one { ($f:ident) => { struct One { $f: i64 } }; }\n\
+         make_one!(v);\n\
+         fn main() { let o = One { v: 1 }; println!(\"{}\", o.v); }",
+    );
+    let main = module(&program, "main");
+    assert_eq!(type_names(main), vec!["One".to_string()]);
+    assert_eq!(field_names(main, "One"), vec!["v".to_string()]);
+}
+
+/// A definition is removed from the item list rather than left to reach the
+/// unsupported-item panic — and a file that is NOTHING BUT a definition still
+/// encodes.
+#[test]
+fn a_macro_rules_definition_alone_leaves_no_declaration_behind() {
+    let program = encode_library("macro_rules! unused { () => { struct Never; }; }");
+    let main = module(&program, "main");
+    assert!(
+        main.type_defs.is_empty() && main.functions.is_empty(),
+        "a definition declares nothing Ball models: {main:?}"
     );
 }
 
-/// The whole fixture crate, through the crate-aware entry point.
+// ── The driver: fixed point, depth limit, nesting ────────────────────────────
+
+/// Expansion must run to a FIXED POINT. One pass leaves an invocation a
+/// transcriber produced still in place — `ball-lang-macro-expand`'s
+/// `a_self_recursive_macro_is_not_fully_expanded_in_one_pass` pins that at the
+/// engine level; this is the driver's half.
 #[test]
-#[should_panic(expected = "macro invocations at item level remain deferred")]
-fn the_macro_crate_fixture_is_blocked_at_item_level() {
-    encode_crate(&macro_crate_dir());
+fn expansion_runs_to_a_fixed_point() {
+    let program = encode_library(
+        "macro_rules! inner { ($n:ident) => { struct $n { a: i64 } }; }\n\
+         macro_rules! outer { () => { inner!(Made); }; }\n\
+         outer!();",
+    );
+    assert_eq!(
+        type_names(module(&program, "main")),
+        vec!["Made".to_string()]
+    );
 }
 
-/// The DEPENDENCY-defined half, on its own: `flags.rs` invokes
-/// `mini_bitflags::flags!` by a two-segment path.
+/// rustc's own default `recursion_limit` is 128 (the Rust Reference, *Limits*).
+/// A macro that never stops expanding must hit that limit loudly, naming the
+/// chain — never a partial expansion, and never a hang.
 #[test]
-#[should_panic(expected = "macro invocations at item level remain deferred")]
-fn a_dependency_defined_item_level_macro_is_a_documented_gap() {
-    ball_lang_encoder::encode_library(&read_fixture("src/flags.rs"));
+#[should_panic(expected = "exceeded the recursion limit of 128")]
+fn runaway_recursion_hits_the_depth_limit() {
+    encode_library("macro_rules! forever { () => { forever!(); }; }\nforever!();");
 }
 
-/// Statement position, for a name no `macro_rules!` in scope defines. This one
-/// does not become an expansion — it becomes a *resolution* failure — so the
-/// pin flips to the loud unresolved-macro message rather than to a positive
-/// encode.
+/// 21 of `bitflags`' definitions live inside inline `mod` blocks, so the
+/// collector has to descend into them.
+#[test]
+fn a_macro_defined_inside_an_inline_mod_is_in_scope_for_the_file() {
+    let program = encode_library(
+        "mod internal { macro_rules! shared { ($n:ident) => { struct $n { a: i64 } }; } }\n\
+         shared!(FromInside);",
+    );
+    assert_eq!(
+        type_names(module(&program, "main")),
+        vec!["FromInside".to_string()]
+    );
+}
+
+/// A macro invoked inside an `impl` block expands into impl items — the shape
+/// `bitflags`' internal `__impl_public_bitflags*!` family has.
+#[test]
+fn a_macro_invoked_inside_an_impl_block_expands_into_methods() {
+    let program = encode_library(
+        "struct Holder { a: i64 }\n\
+         macro_rules! accessors { () => { fn get(&self) -> i64 { self.a } }; }\n\
+         impl Holder { accessors!(); }",
+    );
+    let main = module(&program, "main");
+    assert_eq!(field_names(main, "Holder"), vec!["a".to_string()]);
+    assert!(
+        function_names(main)
+            .iter()
+            .any(|n| n.ends_with("Holder.get")),
+        "the macro-produced method must be declared: {:?}",
+        function_names(main)
+    );
+}
+
+/// Statement position, for a locally defined macro.
+#[test]
+fn a_statement_position_local_macro_expands() {
+    let program = encode(
+        "macro_rules! shout { ($v:expr) => { println!(\"{}\", $v); }; }\n\
+         fn main() { shout!(7); }",
+    );
+    let main = module(&program, "main");
+    let body = main
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .and_then(|f| f.body.as_ref())
+        .expect("`main` must have a body");
+    let rendered = format!("{body:?}");
+    assert!(
+        rendered.contains("print"),
+        "the expanded `println!` must have been lowered by the encoder: {rendered}"
+    );
+}
+
+// ── What stays loud ──────────────────────────────────────────────────────────
+
+/// A name no `macro_rules!` in scope defines — every proc-macro, `#[derive]`
+/// helper and attribute macro — keeps the encoder's own loud refusal. That
+/// boundary is deliberate: this crate expands DECLARATIVE macros and nothing
+/// else.
+#[test]
+#[should_panic(expected = "unsupported top-level item")]
+fn a_proc_macro_style_item_invocation_is_still_loud() {
+    encode("some_derive_helper!();\nfn main() { println!(\"{}\", 1); }");
+}
+
+/// Statement position, for a name nothing defines: routed to the encoder's own
+/// `encode_macro`, which is what keeps the builtin-macro gap (issue #630)
+/// separately trackable.
 #[test]
 #[should_panic(expected = "unsupported macro invocation")]
 fn an_unresolvable_statement_position_macro_is_loud() {
     encode("fn main() { shout!(1); }");
 }
 
-/// The golden the slice-6 round-trip diffs against, and the value an ordinary
-/// `cargo run` of the fixture produces (verified: `42\n7\n`). Pinned here from
-/// slice 0 so the golden cannot drift silently ahead of the fixture.
+/// A DEPENDENCY-defined macro reached from a SINGLE-FILE encode is a named
+/// failure, not a generic "unsupported item": there is no manifest to resolve
+/// the dependency against, and saying so is the actionable diagnostic.
+#[test]
+#[should_panic(expected = "no crate manifest to resolve dependencies against")]
+fn a_dependency_macro_in_single_file_mode_names_the_missing_manifest() {
+    encode_library(&read_fixture("src/flags.rs"));
+}
+
+/// The same, from crate mode — the goalpost the dependency slice moves.
+#[test]
+#[should_panic(expected = "dependency crates were not consulted")]
+fn the_macro_crate_fixture_still_needs_dependency_macros() {
+    encode_crate(&macro_crate_dir());
+}
+
+// ── The fixture's golden ─────────────────────────────────────────────────────
+
+/// The golden the round-trip diffs against, and the value an ordinary `cargo
+/// run` of the fixture produces (verified: `42\n7\n`). Pinned so the golden
+/// cannot drift silently ahead of the fixture.
 #[test]
 fn the_fixture_golden_matches_the_hand_computed_values() {
     // Point { x: 20, y: 22 }.total() == 0 + 20 + 22, and

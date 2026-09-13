@@ -111,3 +111,58 @@ The contract now has two halves at EVERY site that raises Dart's `StateError` �
 value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
 Per-target details are in `.claude/rules/<lang>.md`; the gap class is
 `docs/TESTING_STRATEGY.md` §5b.
+
+### Rendering a CAUGHT exception (issue #640)
+
+`catch (e) { print('caught: $e'); }` lowers to `ball_to_string(e)`, and the catch variable is
+bound two different ways by the `try` lowering in `cpp/compiler/src/compiler.cpp`:
+
+| `try` shape | binding | renderer |
+|---|---|---|
+| at least one TYPED clause | `const BallException& e = __ball_e;` | `ball_to_string(const BallException&)` |
+| all clauses untyped | `auto e = _ball_caught_to_dyn(__ball_e);` | `BallDyn::operator std::string()` over the reified map |
+
+Both must print Dart's `toString()`, and they must agree. The single renderer is
+`_ball_dart_error_to_string(type_name, message)` in `cpp/shared/include/ball_emit_runtime.h`
+— #616's closed table, matching `dartErrorToString` (`go/runtime/ops.go`) and
+`DartErrorToString` (`csharp/shared/src/BallValue.cs`) row for row: `StateError` →
+`Bad state`, `FormatException` → `FormatException`, `RangeError` → `RangeError`, and
+**nothing else**, so a user class that happens to declare a `message` field is never
+re-rendered. Same three rows, same module-prefix stripping.
+
+The fourth sibling, `dart_error_to_string` (`rust/shared/src/value.rs`), is **not** identical
+and is deliberately not copied: it carries an extra `TypeError` row and does no module-prefix
+stripping. That three-way split (C#'s map form, Rust's prefixed form, Dart's bare form) is the
+OPEN issue #641, which owns the decision about which spelling wins. Adding the row here would
+pre-empt it and would change nothing anyway — C++ raises `TypeError` through the 2-argument,
+no-`fields` ctor (`ball_cast_assert`, `cpp/compiler/src/compiler.cpp`), so the `message` lookup
+misses and a failed cast keeps printing `type cast failed: not a <T>`, which is what the Dart
+reference engine prints.
+
+The two throw shapes carry the string in different places, and the renderer keys on that
+difference rather than on the type name:
+
+- a LITERAL throw (`throw StateError('boom')`) lowers to
+  `BallException("StateError", "StateError", {{"message", "boom"}})` — the ctor argument is a
+  `fields` entry and `what()` is the bare TYPE NAME. Rendering `what()` printed `StateError`
+  where Dart prints `Bad state: boom`;
+- a RUNTIME-raised one (`_ball_make_exception`) already carries its canonical `toString()`
+  string as the payload and has no fields, so prefixing it again would read
+  `Bad state: Bad state: No element`.
+
+`_ball_exception_to_dyn` follows the same split: `value` (what `print(e)`/`'$e'` reads) is the
+rendered string, `message` is the ctor ARGUMENT — the same thing the typed binding's
+`e.fields.at("message")` gives a catch body, and what conformance 146/464 read.
+
+Guards: `cpp/test/test_ball_dyn.cpp`'s `caught_builtin_dart_error_renders_dart_to_string` and
+`…_reified_as_dyn_renders_dart_to_string` pin both bindings (and, by existing at all, pin the
+overload itself — without it the generic `ball_to_string(T)` template instantiates
+`std::to_string(BallException&)`, which does not compile, so the program is a BUILD error
+rather than a wrong answer). `464_typed_catch_clause_dispatch`'s untyped fallback arm
+interpolates its exception, which is the corpus's only arm that puts a typed-dispatch catch
+variable in a value position, so the C++ Compiled matrix row compiles that shape on every PR.
+
+Not yet portable: a user-thrown built-in error printed in a value position still differs
+across targets (the Dart reference engine prints the bare ctor argument, the Go compiler the
+type tag), so no conformance fixture can print one today — issue #658 carries the measurements
+and the cross-target fix.

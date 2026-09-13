@@ -2500,8 +2500,19 @@ inline BallDyn _ball_exception_to_dyn(const BallException& e) {
     std::map<std::string, std::any> m;
     m["__type__"] = std::any(std::string("BallException"));
     m["typeName"] = std::any(e.type_name);
-    m["value"] = e.has_payload ? e.value : std::any(std::string(e.what()));
-    m["message"] = std::any(std::string(e.what()));
+    // Issue #640. A LITERAL throw (`throw StateError('boom')`) carries its ctor
+    // argument in `fields` and leaves `what()` as the bare TYPE NAME, so the
+    // reification must not echo `what()` into either key: `value` is what
+    // `print(e)` / `'$e'` reads, and it has to be Dart's `toString()` (that is
+    // what ball_to_string renders, #616's table); `message` is the ctor
+    // ARGUMENT, which is what `e.message` means on every other target and what
+    // the TYPED binding already reads (`e.fields.at("message")`, conformance
+    // 146/464). A runtime-raised exception has no fields, so both keys keep the
+    // payload/`what()` they always had.
+    const auto mit = e.fields.find("message");
+    m["value"] = e.has_payload ? e.value : std::any(ball_to_string(e));
+    m["message"] = std::any(mit != e.fields.end() ? mit->second
+                                                  : std::string(e.what()));
     BallDyn d;
     d._val = std::any(std::move(m));
     return d;

@@ -169,6 +169,17 @@ that is not a string literal, and a placeholder/argument count mismatch, reuse t
 format-macro refusals; a local destination that is not a `String` constructor panics naming the local
 and its initialiser. Tests: `rust/encoder/tests/write_sinks.rs`.
 
+**Known boundary of the syntax-only rule, and why it is safe.** A local `String` that is handed to
+*another* function which writes into it (`let mut s = String::new(); helper(&mut s);`) splits across
+the two arms: the caller's `s` encodes as a Ball `String` and `helper`'s parameter as a sink, so the
+encoded program passes a string where `std.sink_write` expects a sink. That mismatch is **loud on
+every target** — each engine's sink helper proves the value is a tagged sink before touching it
+(`dart/engine/lib/engine_std.dart::_stdSinkBacking`: *"Fail loud rather than fabricating an empty
+sink: silently accepting a non-sink would turn every mis-routed `sink_write` into a discarded
+write"*), and each compiler's runtime does the same. It does not occur in the Tier A corpus. Closing
+it needs cross-function knowledge of how a local is used — a resolution-time question for
+`encode_crate`, not a `write!` question — so it stays a loud refusal rather than a guess.
+
 ## 6. Options considered, and why they were rejected
 
 **(a) Desugar to string concatenation on a provably-local `String`, alone.** Measured on the Tier A

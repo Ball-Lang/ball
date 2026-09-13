@@ -808,6 +808,18 @@ jobs:
 
       # Windows: nlohmann-json is fetched by CMake FetchContent
 
+      # Windows only, and the reason the whole leg can use its compiler cache
+      # (#594): with `-G Ninja` CMake needs cl.exe plus the INCLUDE/LIB/PATH
+      # environment on its own — the Visual Studio generator located the
+      # toolchain for itself, Ninja does not. Without this, `cmake -G Ninja`
+      # fails at compiler detection (loudly, never silently). `ninja` itself is
+      # preinstalled on the runner image, so nothing is installed here:
+      # actions/runner-images `images/windows/Windows2025-VS2026-Readme.md`
+      # (the image `windows-latest` points at) lists "Ninja 1.13.2" under Tools.
+      - name: Set up the MSVC environment (Windows, for -G Ninja)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
       # -DBALL_BUILD_PROTOBUF_RT=ON builds Ball's own compiled protobuf runtime
       # (cpp/shared/ball_protobuf_rt.h) plus a smoke driver that round-trips
       # real values through it, as a standalone, dependency-free proof target —
@@ -817,8 +829,17 @@ jobs:
       # (g++) only for now: that's the toolchain the target has been verified
       # against; extend to macOS (AppleClang) / Windows (MSVC) once each is
       # confirmed green — a broken canary must never take the whole job red.
+      #
+      # `-G Ninja` on Windows (#594): CMake honours <LANG>_COMPILER_LAUNCHER for
+      # the Makefile and Ninja generators only, and windows-latest defaults to
+      # the Visual Studio (MSBuild) generator — which silently ignored the
+      # launcher below, so this leg compiled everything uncached. The generator
+      # itself is NOT the win (a Ninja scratch build measured 590s against
+      # MSBuild's 591s); making sccache real is. It also makes the generator the
+      # same single-config shape the Linux/macOS legs already use, which is what
+      # `test_e2e`'s nested scratch project inherits via BALL_E2E_GENERATOR.
       - name: Configure CMake
-        run: cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'Linux' && '-DBALL_BUILD_PROTOBUF_RT=ON' || '' }} -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
+        run: cmake -S cpp -B cpp/build ${{ runner.os == 'Windows' && '-G Ninja' || '' }} -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'Linux' && '-DBALL_BUILD_PROTOBUF_RT=ON' || '' }} -DCMAKE_C_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
 
       - name: Build all targets
         run: cmake --build cpp/build --config Release
@@ -921,23 +942,21 @@ jobs:
       # BALL_E2E_JOBS / BALL_E2E_LAUNCHER are read by cpp/test/test_e2e.cpp for
       # the nested scratch project: build the ~269 fixture targets in parallel,
       # and route their compiles through the same compiler cache as the parent
-      # build. The launcher is Linux/macOS only ON PURPOSE — CMake honours
-      # <LANG>_COMPILER_LAUNCHER for the Makefile and Ninja generators but the
-      # Visual Studio (MSBuild) generator ignores it, so setting it on Windows
-      # would claim a cache that is not there. (Measured: the Windows leg of
-      # run 33673078770 finished with sccache reporting `Compile requests 0`
-      # for the same reason — the parent build's launcher is a no-op there too.
-      # Moving the Windows leg to `-G Ninja` would fix both; tracked as
-      # follow-up work, deliberately out of scope here.)
+      # build. The launcher is now set on ALL THREE legs (#594). It used to be
+      # Linux/macOS only, because CMake honours <LANG>_COMPILER_LAUNCHER for the
+      # Makefile and Ninja generators but the Visual Studio (MSBuild) generator
+      # ignores it — so on the Windows default generator it would have claimed a
+      # cache that was not there (measured: run 33673078770's Windows leg
+      # finished with sccache reporting `Compile requests 0`, the parent build's
+      # launcher being a no-op for the same reason). The Configure step above now
+      # passes `-G Ninja` on Windows, the scratch project inherits that generator
+      # through BALL_E2E_GENERATOR, and the "Compiler cache applied" step below
+      # fails the job if any of that ever stops being true.
       - name: Run tests
         timeout-minutes: ${{ runner.os == 'Windows' && 20 || 8 }}
         env:
           BALL_E2E_JOBS: ${{ steps.jobs.outputs.n }}
-          # NB: written as `!= 'Windows' && 'ccache' || ''` on purpose — an
-          # empty string is FALSY in a GitHub expression, so the intuitive
-          # `== 'Windows' && '' || 'ccache'` would fall through to 'ccache' on
-          # Windows and claim a cache MSBuild cannot use.
-          BALL_E2E_LAUNCHER: ${{ runner.os != 'Windows' && 'ccache' || '' }}
+          BALL_E2E_LAUNCHER: ${{ runner.os == 'Windows' && 'sccache' || 'ccache' }}
         run: ctest --test-dir cpp/build --output-on-failure -C Release -j ${{ steps.jobs.outputs.n }} --no-tests=error
 
       # Make the e2e coverage number VISIBLE on a green run, and re-assert it

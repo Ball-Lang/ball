@@ -1,5 +1,3 @@
-//go:build clicore
-
 package cli
 
 import (
@@ -26,8 +24,9 @@ import (
 // (see that directory's README.md for regeneration) — proving the compiled Go
 // report functions produce byte-identical text to the reference implementation.
 //
-// Runs only under `-tags clicore`; the default build's half of the contract
-// (honest exit-1 degradation) is cli_core_default_test.go.
+// Runs in every build: compiled/compiled_cli.go is tracked since #586, so there
+// is no longer a tag-less build whose cli-core verbs degrade to a regenerate
+// hint (the old cli_core_default_test.go covered that half and is gone with it).
 
 // goldenFixtures is the same varied slice every other target's parity gate uses.
 var goldenFixtures = []string{

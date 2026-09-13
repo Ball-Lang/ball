@@ -13,14 +13,15 @@ The compiled engine runs the whole conformance corpus with Dart-identical output
 **`Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`**. The 4
 golden-less fixtures (`196_timeout` / `197_memory_limit` / `201_input_validation`
 / `202_sandbox_mode`) are the same resource-limit/sandbox carve-outs the
-Dart/Rust/C# runners skip. Behind the off-by-default `selfhost` build tag because
-`compiled_engine.go` is a gitignored generated artifact absent from a fresh
-checkout (see Build-tag gating below).
+Dart/Rust/C# runners skip. No build tag: `compiled/compiled_engine.go` is a
+COMMITTED generated artifact since #586 (see "Why the artifact is committed"
+below), so a plain `go build ./...` / `go test ./...` in a fresh checkout drives
+the real engine.
 
 ## Layout
 
-- `engine.go` — public API (`BallEngine`, `FromJSON`/`FromBinary`, `Run`) and
-  `ErrSelfHostPending`.
+- `engine.go` — public API (`BallEngine`, `FromJSON`/`FromBinary`, `Run`);
+  `Run` drives the compiled engine through `compiled.RunProgram`.
 - `loader.go` — build the canonical proto3-JSON `ballrt.Value` view of a target
   `Program` (the shape the compiled engine reads through the `ball_proto`
   access-pattern functions): serialize with proto3 default values materialized,
@@ -28,36 +29,37 @@ checkout (see Build-tag gating below).
   doubleValue forced to a double), then reconstruct the raw
   `google.protobuf.Struct` shape for every `metadata` field. The Go sibling of
   `csharp/engine/src/Loader.cs` / `rust/engine/src/loader.rs`.
-- `run_selfhost.go` (`//go:build selfhost`) / `run_stub.go` (`//go:build
-  !selfhost`) — the two `run()` implementations. The stub returns
-  `ErrSelfHostPending`; the real one drives the compiled engine via
-  `compiled.RunProgram`.
-- `compiled/` — the generated engine package. `doc.go` (untagged) keeps the
-  package non-empty on a fresh checkout; `driver.go` (`//go:build selfhost`)
-  constructs the compiled `BallEngine` + `StdModuleHandler` and calls the
-  compiled `run`; `compiled_engine.go` (`//go:build selfhost`, **GENERATED,
-  gitignored**) is the compiled engine itself.
+- `compiled/` — the generated engine package. `driver.go` constructs the
+  compiled `BallEngine` + `StdModuleHandler` and calls the compiled `run`;
+  `compiled_engine.go` (**GENERATED, committed, never hand-edit**) is the
+  compiled engine itself; `doc.go` documents the package.
 - `cmd/regen` — the regeneration entry point.
 - `conformance/` — the whole-corpus sweeps. The **engine** leg (`runner.go` +
-  `conformance_test.go`) is `//go:build selfhost`; the **round-trip** leg
-  (`roundtrip.go` + `roundtrip_test.go`, issue #452 item 3) is deliberately
-  untagged, because it never touches the compiled engine — it goes Ball →
-  `go/compiler` → `go/encoder` → the **Dart** reference engine → golden diff.
-  Their shared `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers therefore
-  live in the untagged `support.go`; `doc.go` is untagged too. Honest round-trip
-  baseline: `Results: 0 passed, 321 failed, 321 total` — expected by
-  construction (see `go/AGENTS.md`'s "Round-trip conformance leg").
+  `conformance_test.go`) drives the compiled engine; the **round-trip** leg
+  (`roundtrip.go` + `roundtrip_test.go`, issue #452 item 3) never touches it — it
+  goes Ball → `go/compiler` → `go/encoder` → the **Dart** reference engine →
+  golden diff. Their shared `Result`/`Summary`/`conformanceDir`/`diffDetail`
+  helpers live in `support.go`. Honest round-trip baseline:
+  `Results: 0 passed, 321 failed, 321 total` — expected by construction (see
+  `go/AGENTS.md`'s "Round-trip conformance leg").
 - `ball_proto` access patterns + the base-op / Dart-SDK runtime the compiled
   engine calls live in `go/runtime` (package `ballrt`), not here.
 
 ## Generated file — NEVER edit
 
 `compiled/compiled_engine.go` — the self-hosted engine, compiled from
-`dart/self_host/engine.ball.json`. Regenerate, never hand-patch. Gitignored (like
-C++'s `engine_rt.cpp`, Rust's `compiled_engine.rs`, C#'s `CompiledEngine.cs`)
-because it is a ~1.3 MB / ~30k-line build artifact. To change engine behavior,
-fix `go/compiler` or `go/runtime` (or the `dart/self_host/` source) and rerun the
-regenerator.
+`dart/self_host/engine.ball.json`. Regenerate and COMMIT, never hand-patch. To
+change engine behavior, fix `go/compiler` or `go/runtime` (or the
+`dart/self_host/` source), rerun the regenerator, and commit the result;
+ci.yml's `Ball Artifact Freshness` job regenerates it and `git diff
+--exit-code`s it, so a codegen change without a regen fails the build.
+
+The regenerator's output must be **byte-reproducible** — that is what makes the
+freshness gate possible. #586 had to fix one source of non-determinism first:
+`go/compiler`'s `compileRecord` ranged over a Go map, so every compile emitted a
+record's fields in a different order (and gave the record a different RUNTIME
+field order). Anything new that emits from a map must sort or use the proto's
+repeated-field order; `compileOneofDiscriminators` sorts for the same reason.
 
 ## Regenerate + run
 
@@ -65,11 +67,11 @@ regenerator.
 # From dart/, regenerate the self-host source if absent (gitignored):
 cd dart && dart run compiler/tool/gen_engine_json.dart
 
-# Regenerate compiled_engine.go:
+# Regenerate compiled_engine.go (then COMMIT it — it is tracked):
 cd go/engine && go run ./cmd/regen
 
-# Run the whole conformance corpus (needs the selfhost tag):
-go test -tags selfhost -run TestConformance -timeout 3600s ./conformance/
+# Run the whole conformance corpus (no build tag; -v so Results: reaches stdout):
+go test -v -run TestConformance -timeout 3600s ./conformance/
 #   → prints `Results: N passed, M failed, T total (K skipped carve-outs)`
 # BALL_FIXTURE=<name> runs one fixture; BALL_DEBUG_STACK=1 crashes on the first
 # panic with a Go origin stack (locates the compiled-engine line).
@@ -101,16 +103,29 @@ wedged sweeps); the recursion shape remains open. `TimeoutMs` is off
 (0, unbounded) by default, so the CLI/`Run()` path is unaffected. Regression
 test: `conformance/timeout_test.go`.
 
-## Build-tag gating
+## Why the artifact is committed (issue #586)
 
-The generated `compiled_engine.go` is a gitignored artifact absent from a fresh
-checkout, so a plain `go build ./... && go test ./...` must not depend on it.
-Everything that references it — `driver.go`, `run_selfhost.go`, the conformance
-runner + test — carries `//go:build selfhost`; the untagged `doc.go` files keep
-each package non-empty. A default build stays green on the wrapper foundation
-(loader + `ball_proto` + the stub `run`); the compiled engine only participates
-under `-tags selfhost`. This is the Go analog of Rust's off-by-default
-`self_host` cargo feature and C#'s `-p:SelfHost=true` MSBuild property.
+Rust, C# and Python keep their compiled engines gitignored behind an
+off-by-default feature/property, because their registry channels (crates.io,
+NuGet, PyPI) regenerate or bootstrap at publish time. **Go's registry IS the git
+tag**: the module proxy serves the repository at `go/<module>/vX.Y.Z`, and
+`go install` accepts no `-tags`. A gitignored, `selfhost`-gated
+`compiled_engine.go` therefore never reached a consumer, and
+`go install github.com/ball-lang/ball/go/cli/cmd/ball@…` produced a `ball` that
+could not run a single program.
+
+So the artifact is tracked and the build tag is gone — the shape
+`ts/engine/src/compiled_engine.ts` has had since #517. The two halves of that
+contract:
+
+- **freshness** — ci.yml's `Ball Artifact Freshness` job regenerates
+  `compiled_engine.go` (and `go/cli/compiled/compiled_cli.go`) and
+  `git diff --exit-code`s them. Exactly one such gate per artifact; do not add a
+  second regeneration pass to the `go` job.
+- **behaviour** — `tools/go-module-proxy/smoke.sh` (run by the `go` job)
+  `go install`s the CLI into a clean GOPATH off a synthesized proxy and runs
+  `ball run` / `ball info` / `ball version`, byte-comparing against the same
+  goldens the sweeps use.
 
 ## Fixing engine behavior
 

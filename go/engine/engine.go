@@ -1,36 +1,29 @@
 // Package engine is the self-hosted Ball Go engine (epic #426 Phase 4): it runs
 // Ball programs by compiling the reference engine (dart/self_host/engine.ball.pb)
-// through the Ball → Go compiler into a gitignored compiled_engine.go, then
-// driving it with this thin native wrapper. The Go sibling of rust/engine,
+// through the Ball → Go compiler into compiled/compiled_engine.go, then driving
+// it with this thin native wrapper. The Go sibling of rust/engine,
 // csharp/engine, and ts/engine.
 //
 // The wrapper supplies what compiled Ball cannot express natively: loading a
 // target program and viewing it as the canonical proto3-JSON value the compiled
 // engine reads (loader.go), and the ball_proto access-pattern functions it calls
-// to inspect that program (in package ballrt). The compiled engine driver lives
-// behind the `selfhost` build tag because compiled_engine.go is a gitignored
-// build artifact not present in a fresh checkout — a default build stays green
-// on the wrapper foundation, exactly like Rust's `self_host` cargo feature and
-// C#'s `-p:SelfHost=true` MSBuild property.
+// to inspect that program (in package ballrt).
+//
+// compiled/compiled_engine.go is a TRACKED generated artifact (issue #586), and
+// the driver carries no build constraint: `go install` accepts no `-tags`, so
+// the engine a registry consumer receives has to be in the module at the tag.
+// Regenerate it with `go run ./cmd/regen` — `Ball Artifact Freshness` in CI
+// regenerates and diffs it, exactly as it does ts/engine's compiled_engine.ts.
 package engine
 
 import (
-	"errors"
-
 	compiler "github.com/ball-lang/ball/go/compiler"
+	compiled "github.com/ball-lang/ball/go/engine/compiled"
 	ballrt "github.com/ball-lang/ball/go/runtime"
 	ballv1 "github.com/ball-lang/ball/go/shared/gen/ball/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
-
-// ErrSelfHostPending is returned by Run in the default build — the compiled
-// self-hosted engine driver is only present under the `selfhost` build tag (the
-// generated compiled_engine.go is a gitignored build artifact). Build/run with
-// `-tags selfhost` after regenerating (see cmd/regen + AGENTS.md).
-var ErrSelfHostPending = errors.New(
-	"self-hosted engine driver is off in the default build: regenerate " +
-		"compiled_engine.go (go run ./cmd/regen) and build with -tags selfhost")
 
 // BallEngine is a loaded Ball program ready to run.
 type BallEngine struct {
@@ -41,7 +34,7 @@ type BallEngine struct {
 	// runaway program self-aborts with an "Execution timeout exceeded" error
 	// instead of spinning forever, so the driver goroutine exits (Go cannot kill
 	// a goroutine — issue #436). 0 (the default) leaves execution unbounded. Set
-	// it before calling Run. Only honored under the `selfhost` build tag.
+	// it before calling Run.
 	TimeoutMs int64
 
 	view   ballrt.Value
@@ -95,9 +88,17 @@ func newEngine(program *ballv1.Program) (*BallEngine, error) {
 // is the engine's own — treat it as read-only.
 func (e *BallEngine) ProgramValue() ballrt.Value { return e.view }
 
-// Run executes the program and returns its captured stdout lines. In the default
-// build it returns ErrSelfHostPending; under the `selfhost` build tag it drives
-// the compiled self-hosted engine.
+// Run executes the program through the compiled self-hosted engine and returns
+// its captured stdout lines: the compiled engine's BallEngine constructor + run
+// method, fed this program's view and an stdout callback capturing into
+// e.output. Mirrors rust/engine's run_self_hosted and csharp/engine's
+// RunSelfHosted.
 func (e *BallEngine) Run() ([]string, error) {
-	return e.run()
+	e.output = e.output[:0]
+	if err := compiled.RunProgram(e.view, func(line string) {
+		e.output = append(e.output, line)
+	}, e.TimeoutMs); err != nil {
+		return e.output, err
+	}
+	return e.output, nil
 }

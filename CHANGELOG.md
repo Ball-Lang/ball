@@ -1,3 +1,10 @@
+## [1.72.4](https://github.com/Ball-Lang/ball/compare/v1.72.3...v1.72.4) (2026-09-13)
+
+
+### Bug Fixes
+
+* **go:** commit the generated self-hosted engine and CLI core so a go install-acquired ball runs (closes [#586](https://github.com/Ball-Lang/ball/issues/586)) ([#603](https://github.com/Ball-Lang/ball/issues/603)) ([a3ac775](https://github.com/Ball-Lang/ball/commit/a3ac7756301a7d198844dec912de685e3b0021f5)), closes [#517](https://github.com/Ball-Lang/ball/issues/517) [#580](https://github.com/Ball-Lang/ball/issues/580)
+
 ## [1.72.3](https://github.com/Ball-Lang/ball/compare/v1.72.2...v1.72.3) (2026-09-13)
 
 

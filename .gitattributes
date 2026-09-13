@@ -65,3 +65,12 @@ tests/conformance/*.ball.json linguist-generated=true
 # cli-core parity gates. Pinned to LF so the comparison is identical on every
 # platform; a CRLF checkout would fail the gates for no real reason.
 tests/cli_core_goldens/*.txt text eol=lf
+
+# The two committed Go artifacts (issue #586): go/engine/compiled/compiled_engine.go
+# and go/cli/compiled/compiled_cli.go became TRACKED so a `go install`-acquired
+# `ball` can run programs and the cli-core verbs. Pinned to LF because
+# `go run ./cmd/regen` always writes LF: without eol=lf a Windows checkout would
+# hand the Ball Artifact Freshness regen-and-diff a whole-file CRLF diff (and
+# gofmt a whole-file complaint) on files nobody touched.
+go/engine/compiled/compiled_engine.go text eol=lf linguist-generated=true
+go/cli/compiled/compiled_cli.go text eol=lf linguist-generated=true

@@ -3,11 +3,10 @@ package conformance
 // Corpus discovery, result types and diff formatting shared by every leg in this
 // package.
 //
-// Deliberately UNTAGGED. The engine leg (runner.go) needs `-tags selfhost`
-// because it drives the generated, gitignored compiled_engine.go; the round-trip
-// leg (roundtrip.go) does not touch the compiled engine at all and must stay
-// runnable in a fresh checkout. These shared pieces therefore cannot live behind
-// the tag — the C# harness's Fixtures.cs plays the same role for its three legs.
+// The C# harness's Fixtures.cs plays the same role for its three legs. Nothing
+// in this package is build-tag-gated any more: since #586 the compiled engine is
+// a committed artifact, so the engine leg (runner.go) and the round-trip leg
+// (roundtrip.go) both build in a fresh checkout.
 
 import (
 	"os"

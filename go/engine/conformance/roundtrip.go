@@ -2,9 +2,9 @@ package conformance
 
 // Whole-corpus ROUND-TRIP leg for the Go target (issue #452 item 3).
 //
-// The engine leg (runner.go, `-tags selfhost`) sweeps the corpus through the
-// self-hosted Go engine. This is a different question: **can the Go encoder read
-// back what the Go compiler emits?**
+// The engine leg (runner.go) sweeps the corpus through the self-hosted Go
+// engine. This is a different question: **can the Go encoder read back what the
+// Go compiler emits?**
 //
 // Per fixture:
 //
@@ -29,9 +29,8 @@ package conformance
 // it runs on push-to-main, the weekly schedule, or manual dispatch. An absent
 // check on a PR is not a green one.
 //
-// Deliberately NOT behind the `selfhost` build tag (unlike runner.go): this leg
-// never touches the compiled engine, so it must not require the gitignored,
-// regenerated compiled_engine.go to run.
+// This leg never touches the compiled engine at all — it needs the DART
+// reference engine on PATH instead, and skips loudly without it.
 
 import (
 	"encoding/json"

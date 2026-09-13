@@ -1,7 +1,7 @@
 // Command ball is the Ball language CLI for the Go toolchain (epic #426 Phase
 // 5): a single binary with the four core verbs run / compile / encode / check.
 //
-//	ball run      <program.ball.json>            execute (self-hosted engine; -tags selfhost)
+//	ball run      <program.ball.json>            execute (self-hosted engine)
 //	ball compile  <program.ball.json> [-o f.go]  Ball → Go source
 //	ball encode   <source.go> [-o f] [-format …] Go → Ball program
 //	ball check    <program.ball.json> [-compile] validate without running

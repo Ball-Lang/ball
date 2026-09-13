@@ -199,26 +199,32 @@ ctest --test-dir build -L selfhost -j4 --output-on-failure
 ### CI time budget + the e2e build knobs (#521)
 
 `ctest` in ci.yml's `cpp` job runs with `-j <runner CPUs> --no-tests=error`, and
-its `Run tests` step carries a **step-level `timeout-minutes`: 20 on Windows, 8
+its `Run tests` step carries a **step-level `timeout-minutes`: 13 on Windows, 8
 on Linux/macOS** (job budget 25), against a pre-fix 28m33s / 12m12s / 9m56s.
 Those numbers are a gate, not decoration — a change that puts the fixture
-compiles back on one core fails the job. Re-measure and update them (with the
-run id, as the workflow comment does) if you change what the step does.
+compiles back on one core, or that costs the leg its compiler cache, fails the
+job. Re-measure and update them (with the run id, as the workflow comment does)
+if you change what the step does.
 
-Size them against the **cold**-ccache run, never the warm one. Warm, the
+Size them against the **cold**-cache run, never the warm one. Warm, the
 Linux/macOS step is 11s / 19s; cold it is 5m19s / 4m57s (run 33698642352, with
 `ccache -s` showing 22 hits of 292 cacheable calls). A cold cache is normal and
 blameless — every PR that touches the Ball->C++ emitter or
-`cpp/shared/include/ball_dyn.h` changes all ~269 generated TUs, as does a cache
+`cpp/shared/include/ball_dyn.h` changes all ~296 generated TUs, as does a cache
 eviction or a first run on a new key — so a budget sized to the warm number
 red-lights a required check on an innocent PR.
 
-Windows is the outlier by measurement, not assumption: each generated fixture is
-a ~278 KB TU pulling 29 standard headers, MSVC needs ~1000s of front-end CPU for
-the 269 of them, link is 0.33s per fixture, and the generator is irrelevant (a
-Ninja scratch build measured 590s against MSBuild's 591s). Reaching the issue's
-aspirational 6-10 min there needs a compiler cache that actually works on
-Windows (see below) or a decision to run a subset of the corpus on that leg.
+Windows' 13 was re-derived the same way in #594, once that leg had a cache that
+is actually applied: **14m27s uncached** (run 34727102995) -> **8m51s cold with
+every fixture compile a miss** (run 34728878760) -> **1m12s warm** at 318 of 318
+hits (run 34729468858, whole job 2m02s against 19 min on main); 13 min is ~47%
+over the COLD number and still fails a regression back to the uncached
+behaviour. It stays the
+loosest of the three by measurement, not assumption: each generated fixture is a
+~278 KB TU pulling 29 standard headers, and MSVC needs ~1000s of front-end CPU
+for ~296 of them when nothing is cached. The generator was never the cost (a
+Ninja scratch build measured 590s against MSBuild's 591s) — it is simply the one
+CMake honours a compiler launcher for.
 
 Two env knobs drive the per-fixture compiles; CI sets both, and they work the
 same way for `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
@@ -228,13 +234,33 @@ same way for `test_e2e`, `full_e2e.sh` and `quick_e2e.sh`:
 | `BALL_E2E_JOBS` | Fixture compiles to run concurrently. Default: `hardware_concurrency()` / `nproc`. `1` restores the old serial behaviour. |
 | `BALL_E2E_LAUNCHER` | Compiler launcher (`ccache` / `sccache`) for the fixture compiles, so an unchanged fixture is a cache hit. Empty/unset = none. |
 
-`BALL_E2E_LAUNCHER` is set on Linux/macOS **only**. CMake honours
-`<LANG>_COMPILER_LAUNCHER` for the Makefile and Ninja generators; the Visual
-Studio (MSBuild) generator ignores it, so on Windows it would advertise a cache
-that never gets used. (This is not hypothetical: on main run 33673078770 the
-Windows leg's own `Post ccache` step reported `Compile requests 0` — the parent
-build's `-DCMAKE_CXX_COMPILER_LAUNCHER=sccache` is a no-op there too. Moving that
-leg to `-G Ninja` would make both real; it is tracked separately.)
+`BALL_E2E_LAUNCHER` is set on **all three** legs since #594 (`ccache` on
+Linux/macOS, `sccache` on Windows). It used to be Linux/macOS only: CMake
+honours `<LANG>_COMPILER_LAUNCHER` for the Makefile and Ninja generators, and
+the Visual Studio (MSBuild) generator — the `windows-latest` default — ignores
+it, so the Windows leg compiled everything uncached for months while staying
+green (main run 33673078770's `Post ccache` reported `Compile requests 0`; the
+parent build's `-DCMAKE_CXX_COMPILER_LAUNCHER=sccache` was a no-op there too).
+
+Three things had to be true, and each is now pinned by CI rather than by prose:
+
+1. **Windows configures with `-G Ninja`** (`ilammy/msvc-dev-cmd` supplies the
+   MSVC environment Ninja needs; `ninja` is preinstalled on the runner image).
+   `test_e2e`'s scratch project inherits the generator via
+   `BALL_E2E_GENERATOR`, so this fixes the parent build and the fixtures.
+2. **The scratch project pins `CMAKE_BUILD_TYPE` to empty** (`test_e2e.cpp`).
+   CMake's MSVC module initialises an *unset* build type to Debug, and its
+   `/Zi` writes a PDB shared by every TU of a target — a shape sccache refuses
+   to cache. Without this the leg reported `Non-cacheable compilations 296`,
+   i.e. every fixture, with a working launcher.
+3. **A gate asserts the cache is used at all.** `cpp/test/check_compiler_cache_applied.sh`
+   (run by the `Compiler cache applied (#594)` step, unit-tested via
+   `--self-test` in the always-on `proto` job) fails when the job compiled > 0
+   cacheable TUs and the cache recorded **zero requests**. It deliberately never
+   asserts a hit *rate* — a cold cache is blameless; a launcher that is
+   configured and ignored is not. A step-time budget cannot tell those apart,
+   which is why this leg sat under its 20 min budget, permanently cold, for so
+   long.
 
 Parallelism must never shrink coverage, so each harness asserts its own count:
 `test_e2e` compares executed tests against `e2e_fixture_list.h` + 3 inline

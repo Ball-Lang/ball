@@ -170,15 +170,23 @@ gofmt -l cli compiler encoder engine runtime shared       # must print nothing (
 # Needs go + python3.
 bash tools/go-module-proxy/smoke.sh
 
-# Move the Go module line (the version the go/<module>/vX.Y.Z tags carry). It
-# lives in NINE places — six go/*/go.mod require blocks, go/go.work's five
-# replace pins, tools/coverage-study/go, and go/cli/version.go's moduleVersion
-# fallback — so never edit them by hand. The script is idempotent, refuses a
-# non-semver version and any major >= 2 (the module paths carry no /vN suffix:
-# https://go.dev/ref/mod#major-version-suffixes), and re-verifies through
+# Move the Go module line (the version the go/<module>/vX.Y.Z tags carry). You
+# normally do NOT run this: the Go module version is its own semantic-release
+# line (.github/release/go.releaserc.json + .github/workflows/go-release.yml,
+# dispatched by release.yml), and its prepareCmd runs exactly this script — so a
+# feat(go):/fix(go): merge moves the published line with no human step (#361).
+# The number lives in NINE places — six go/*/go.mod require blocks, go/go.work's
+# five replace pins, tools/coverage-study/go, and go/cli/version.go's
+# moduleVersion fallback — so never edit them by hand. The script is idempotent,
+# refuses a non-semver version and any major >= 2 (the module paths carry no /vN
+# suffix: https://go.dev/ref/mod#major-version-suffixes), and re-verifies through
 # build_local_proxy.py --print-version, the same call tag-go-modules.yml makes.
 # tools/test/test_bump_go_modules.sh (ci.yml's `proto` job) proves it.
 bash tools/go-module-proxy/bump_go_modules.sh v0.3.0
+# The release lane's verifyRelease gate — validates, rewrites nothing:
+bash tools/go-module-proxy/bump_go_modules.sh --check-next v0.3.0 --type minor
+# Rehearse the whole lane on a branch (no tags, commits, releases or dispatches):
+gh workflow run go-release.yml --ref <branch> -f dry_run=true
 
 # The `ball` Go CLI (go/cli, #437): run/compile/encode/check plus the cli-core
 # verbs info/validate/tree/version over engine/compiler/encoder. NO build tags —
@@ -460,8 +468,14 @@ version`, byte-compared against the same goldens the in-repo sweeps use. Off the
 pushed. The `go/<module>/v0.1.0` tags exist but predate #586, so a binary installed from them
 cannot run a program; Go tags are immutable once fetched through proxy.golang.org/sum.golang.org
 (a moved tag is a checksum mismatch for consumers), so they are not re-cut — **`v0.2.0` is the
-first line carrying the committed engine and CLI core**. Move the line only with
-`tools/go-module-proxy/bump_go_modules.sh`; `go/go.work.sum` is gitignored (every hash is already
+first line carrying the committed engine and CLI core**. The line MOVES ON ITS OWN: it is a
+semantic-release version line (`.github/release/go.releaserc.json` + `.github/workflows/go-release.yml`,
+dispatched by `release.yml`, tags `go-modules/vX.Y.Z`), computed from `go/`-path commits, whose
+prepareCmd runs `tools/go-module-proxy/bump_go_modules.sh` and whose publishCmd dispatches
+`tag-go-modules.yml` — the SINGLE tagging path — at that tag. Until #361's second half the tagging
+was automatic but the version was a human's `chore(go):` PR, so every release re-tagged v0.1.0 and
+passed; `tools/release/check_go_release_wiring.sh` is the guard on that shape. Run
+`bump_go_modules.sh` yourself only out of band; `go/go.work.sum` is gitignored (every hash is already
 in a committed `go.sum` — https://go.dev/ref/mod#go-work-sum).
 
 ### Python workspace (`python/`)

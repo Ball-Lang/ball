@@ -100,11 +100,21 @@ regenerates and diffs those two artifacts, and the `go-engine` row in `conforman
   even though the module shape is now correct and CI proves it (#361). The `v0.1.0` tags exist but
   predate #586, so a binary installed from them cannot run a program or answer a cli-core verb —
   and they are not re-cut (see the immutability note above). **`v0.2.0` is the first Go module
-  line that carries the committed engine and CLI core**; its six tags are cut by
-  `.github/workflows/tag-go-modules.yml`, dispatched from `release.yml`
-  on every release; the already-shipped releases need a one-time maintainer backfill
-  (`gh workflow run tag-go-modules.yml --ref main`). `tools/release/check_release_dispatch_wiring.sh`
-  (ci.yml's `Proto Checks`) pins that dispatch so the channel cannot silently go dead again.
+  line that carries the committed engine and CLI core** (cut on `71724734`, #618).
+- **The module VERSION moves on its own now (#361, second half).** It is a `semantic-release`
+  version line: `.github/release/go.releaserc.json` (tagFormat `go-modules/vX.Y.Z`, commits
+  path-filtered to `go/`) driven by `.github/workflows/go-release.yml`, which `release.yml`
+  dispatches on every release (`--ref main`). Its `verifyReleaseCmd` is
+  `bump_go_modules.sh --check-next` (legal semver, major < 2, and exactly `semver.inc` of the line
+  in the tree — this runs under `--dry-run` too), its `prepareCmd` is the bump itself, and its
+  `publishCmd` dispatches `tag-go-modules.yml` at the channel tag — so `tag_go_modules.sh` stays
+  the SINGLE tagging path. Until that landed, tagging was automatic but the version was a human's
+  `chore(go):` PR, so every release re-dispatched the tagger and it passed reporting "all six tags
+  already exist, nothing to do" while the published line stayed put — the #551 failure one level
+  down. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`) pins the lane's shape;
+  `check_release_dispatch_wiring.sh` still pins the tag-pinned channels and that no workflow
+  dispatches the tagger. Rehearse a change with
+  `gh workflow run go-release.yml --ref <branch> -f dry_run=true`.
 - **The workspace-root `./...` pattern is invalid** — `go/` is not itself a module, so
   `cd go && go build ./...` fails with "directory prefix . does not contain modules listed in
   go.work". Enumerate the module subdirs instead:

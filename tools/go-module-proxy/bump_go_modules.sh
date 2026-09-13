@@ -27,17 +27,36 @@
 #   on the result. Idempotent: re-running at the version already in the tree
 #   rewrites nothing and still verifies.
 #
+# `--check-next <vX.Y.Z> --type <patch|minor|major>` is the same contract with
+#   NOTHING rewritten: it asserts the version is legal (semver, major < 2) and
+#   that it is exactly `semver.inc(<the line in the tree>, <type>)` — the
+#   formula semantic-release itself applies
+#   (semantic-release/lib/get-next-version.js: `semver.inc(lastRelease.version,
+#   type)`). `.github/release/go.releaserc.json` runs it as its
+#   `verifyReleaseCmd`, which semantic-release executes BEFORE prepare and ALSO
+#   under `--dry-run`, so it is the gate that (a) stops a v2 line before any
+#   commit or tag exists and (b) catches the lane losing version continuity —
+#   semantic-release starts a tag line it cannot find at 1.0.0, and 1.0.0 is a
+#   perfectly legal version that would silently jump the module line and put the
+#   next breaking change over the v2 cliff.
+#
 # Usage: tools/go-module-proxy/bump_go_modules.sh v0.2.0
+#        tools/go-module-proxy/bump_go_modules.sh --check-next v0.2.1 --type patch
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 
 version=""
+mode="bump"
+type=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --root) root="$(cd "$2" && pwd)"; shift 2 ;;
     --root=*) root="$(cd "${1#*=}" && pwd)"; shift ;;
+    --check-next) mode="check"; shift ;;
+    --type) type="${2:-}"; shift 2 ;;
+    --type=*) type="${1#*=}"; shift ;;
     -*) echo "bump: unknown flag '$1'" >&2; exit 2 ;;
     *) version="$1"; shift ;;
   esac
@@ -45,6 +64,7 @@ done
 
 if [ -z "$version" ]; then
   echo "usage: bump_go_modules.sh <vX.Y.Z> [--root <dir>]" >&2
+  echo "       bump_go_modules.sh --check-next <vX.Y.Z> --type <patch|minor|major> [--root <dir>]" >&2
   exit 2
 fi
 
@@ -61,6 +81,38 @@ if [ "$major" -ge 2 ]; then
   echo "      The Ball Go module paths are github.com/ball-lang/ball/go/<m> with no suffix, so the" >&2
   echo "      line must stay 0.x/1.x until the paths themselves are renamed. Refusing." >&2
   exit 1
+fi
+
+# ── --check-next: validate, never rewrite. ───────────────────────────────────
+# Everything above already ran, so a malformed version and the v2 cliff are
+# refused here too — before semantic-release has created a commit or a tag.
+if [ "$mode" = "check" ]; then
+  case "$type" in
+    patch|minor|major) ;;
+    "") echo "bump: --check-next needs --type <patch|minor|major> (semantic-release's \${nextRelease.type})" >&2; exit 2 ;;
+    *) echo "bump: --type '$type' is not one of patch/minor/major" >&2; exit 2 ;;
+  esac
+  current="$(python3 "$here/build_local_proxy.py" --root "$root" --print-version)"
+  IFS='.' read -r cur_major cur_minor cur_patch <<EOF
+${current#v}
+EOF
+  case "$type" in
+    patch) want="v$cur_major.$cur_minor.$((cur_patch + 1))" ;;
+    minor) want="v$cur_major.$((cur_minor + 1)).0" ;;
+    major) want="v$((cur_major + 1)).0.0" ;;
+  esac
+  if [ "$version" != "$want" ]; then
+    echo "bump: refusing a $type release at '$version' — the Go module line in this tree is '$current'," >&2
+    echo "      so the only legal next version is '$want' (semver.inc, the same formula" >&2
+    echo "      semantic-release applies in lib/get-next-version.js)." >&2
+    echo "      A version that is not the tree's successor means the lane lost continuity: most" >&2
+    echo "      likely no 'go-modules/v*' tag was reachable, and semantic-release fell back to its" >&2
+    echo "      no-previous-release default of 1.0.0. Check go-release.yml's channel-tag bootstrap" >&2
+    echo "      step before releasing anything — see docs/RELEASE.md, 'Go modules lane'." >&2
+    exit 1
+  fi
+  echo "Go module line: $current -> $version ($type) — legal, nothing rewritten (--check-next)"
+  exit 0
 fi
 
 # The files that carry an intra-repo version reference: go/go.work plus every

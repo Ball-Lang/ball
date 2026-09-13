@@ -10,7 +10,15 @@ trunk, **all fully automated with no human step in any critical path**.
 > stayed green, and it still shipped nothing from 2026-07-06 to 2026-09-05,
 > because PR #272 was never merged (issue #551). A human step that stops
 > happening is invisible — the automation *around* it keeps reporting success.
-> Three guards now pin this: `tools/release/check_pubdev_release_wiring.sh`
+> The Go lane was the same defect one level down (#361): tagging was automatic,
+> but the **version** those tags carry only moved when someone ran
+> `bump_go_modules.sh` in a `chore(go):` PR, so release after release
+> re-dispatched the tagger and it passed reporting "already tagged, nothing to
+> do" while `go install …@latest` stayed on v0.1.0. That version is a
+> `semantic-release` line now (`.github/release/go.releaserc.json`,
+> `.github/workflows/go-release.yml`), pinned by
+> `tools/release/check_go_release_wiring.sh`.
+> Three guards now pin the pub.dev lane: `tools/release/check_pubdev_release_wiring.sh`
 > (every PR — the lane's shape),
 > `tools/release/check_pubspec_workspace_consistency.mjs` (every PR, and again
 > after each release run — the workspace invariants `melos version` used to hold
@@ -358,60 +366,143 @@ combining distribution is caught before a tag is ever cut.
 ## Go modules lane (`go/<module>/vX.Y.Z`)
 
 The six Go modules are consumed straight from the module proxy — there is no
-registry account and nothing to upload; a tag *is* the release.
+registry account and nothing to upload; a tag *is* the release. The Go module
+version is its **own line** (`v0.1.0` first, `v0.2.0` since #586), not the repo's
+`vX.Y.Z`, and since #361's second half that line is computed by
+`semantic-release` from the conventional commits that touched `go/`:
 
 ```
 push to main
   └► release.yml → semantic-release (as in the npm lane above)
-       └► gh workflow run tag-go-modules.yml --ref vX.Y.Z   ← EXPLICIT dispatch
-            └► tag-go-modules.yml: one `git push` creating all six
-               go/<module>/vA.B.C tags on the released commit
+       └► gh workflow run go-release.yml --ref main        ← EXPLICIT dispatch
+            └► go-release.yml
+                 ├─ bootstrap the go-modules/vX.Y.Z channel tag (local, once)
+                 └─ semantic-release (.github/release/go.releaserc.json)
+                      ├─ analyzeCommits, path-filtered to go/  → patch|minor|major
+                      ├─ verifyReleaseCmd: bump_go_modules.sh --check-next …
+                      │    (legal semver, major < 2, and exactly semver.inc of
+                      │     the line in the tree — runs under --dry-run too)
+                      ├─ prepareCmd: bump_go_modules.sh vA.B.C   ← the 9 sites
+                      ├─ @semantic-release/git: "chore(release): go vA.B.C [skip ci]"
+                      ├─ core creates+pushes the tag  go-modules/vA.B.C
+                      └─ publishCmd → gh workflow run tag-go-modules.yml
+                                        --ref go-modules/vA.B.C
+                           └► tag-go-modules.yml: ONE `git push` creating all six
+                              go/<module>/vA.B.C tags on the bump commit
 ```
 
-`tag-go-modules.yml` cuts all six tags **in one push** (a dependent must never
-resolve to a version that does not exist yet), at the version single-sourced from
-the `go/*/go.mod` requires (`tools/go-module-proxy/build_local_proxy.py
---print-version`, which also asserts all six agree and that no go.mod carries a
-`replace` directive). It is idempotent when the tags already exist and refuses to
-act on a half-tagged set. Note the Go module version is its OWN line (`v0.1.0`
-first, `v0.2.0` since #586) — it is not the repo's `vX.Y.Z` release version,
-which only selects the commit the tags land on. Move that line ONLY with
-`tools/go-module-proxy/bump_go_modules.sh vX.Y.Z` (it owns all nine sites the
-version lives in and re-verifies through `--print-version`); a `chore(go):` bump
-PR is not itself a repo release — the tags are cut when the next semantic-release
-tag dispatches this workflow, or by a manual
-`gh workflow run tag-go-modules.yml --ref main`.
+**What used to be manual, and why nothing caught it.** Tagging has been
+automatic since #361 — but the tagger only ever cuts the version *already
+written into* the `go/*/go.mod` files. Moving that number was a human action:
+notice the Go tree has changed, run `bump_go_modules.sh vX.Y.Z`, open a
+`chore(go):` PR. Between #361 and #586 that happened exactly once, so every
+release in between dispatched `tag-go-modules.yml` and it correctly,
+idempotently reported *"All six go/<module>/v0.1.0 tags already exist — nothing
+to do."* and exited 0. That is a PASS, and it is indistinguishable from a
+healthy lane; meanwhile `go install …@latest` served v0.1.0, whose `ball` could
+not run a single program. Same shape as #551 one level down: every automated
+part green, the channel shipping nothing, because the one human step stopped
+happening. `tools/release/check_go_release_wiring.sh` (ci.yml's `Proto Checks`
+job) now pins the lane's shape the way `check_pubdev_release_wiring.sh` pins
+pub.dev's.
+
+**`tag_go_modules.sh` is still the single tagging path.** It owns the invariant
+that makes the lane safe: all six tags on ONE commit in ONE push (a dependent
+must never resolve to a version that does not exist yet), a half-tagged set
+refused rather than papered over, idempotent when they all exist, at the version
+single-sourced from the `go/*/go.mod` requires
+(`tools/go-module-proxy/build_local_proxy.py --print-version`, which also asserts
+all six agree, that no go.mod carries a `replace` directive, and that go.work's
+pins and `use` block agree with them). Nothing else may create a `go/**` tag, and
+the guard fails if anything does — Go module tags are **immutable** once fetched
+through `proxy.golang.org`/`sum.golang.org` (a moved tag is a checksum mismatch
+for every consumer that already has it,
+<https://go.dev/ref/mod#version-queries>), so a second tagger with its own logic
+could publish a broken module set permanently.
+
+**Why semantic-release tags `go-modules/vX.Y.Z` and not one of the six.**
+semantic-release always creates its own `tagFormat` tag. If that were, say,
+`go/cli/vX.Y.Z`, `tag_go_modules.sh` would then find one of six tags already
+present and refuse the set as half-tagged — correctly. So the lane keeps a
+separate **channel tag**, which is also what carries version continuity from one
+release to the next. It is created after the prepare steps and before the
+publish steps (semantic-release's `index.js`: *"Create the tag before calling the
+publish plugins as some require the tag to exists"*), on the commit
+`@semantic-release/git` just pushed — which is why the publishCmd can dispatch
+the tagger at that tag and get the bumped `go.mod` files.
+
+**The v2 cliff is a hard stop.** From major 2 on, Go requires a `/vN` suffix on
+the module **path** (<https://go.dev/ref/mod#major-version-suffixes>), and these
+paths (`github.com/ball-lang/ball/go/<m>`) carry none. semantic-release computes
+`semver.inc(last, type)`, so the day a breaking-change commit lands on a 1.x
+line it would compute `2.0.0` — six tags no consumer could import. Both the
+`--check-next` gate (verifyRelease, before any commit or tag exists, and under
+`--dry-run`) and the bump itself refuse a major ≥ 2, citing that rule. Recovery
+is not a version bump: the module paths have to be renamed to `…/go/<m>/v2`
+first, everywhere, including `go.work` and every intra-repo `require`. Until
+then the line stays 0.x/1.x.
+
+**Version continuity is bootstrapped, once.** semantic-release falls back to
+`1.0.0` when it finds no tag matching `tagFormat`
+(`lib/get-next-version.js`), and `go-modules/v*` is a new tag line — so the
+first run would jump the modules from 0.2.x to 1.0.0: legal, silently wrong, and
+one breaking change from the v2 cliff. `go-release.yml`'s bootstrap step mirrors
+the existing `go/<module>/vX.Y.Z` tags into a **local** `go-modules/vX.Y.Z` tag
+(never pushed; the first real release of this lane pushes one of its own and the
+step becomes a permanent no-op). It fails loud if those module tags are missing
+or split across commits. `--check-next` is the backstop: it refuses any version
+that is not exactly `semver.inc` of the line in the tree, so a lane that lost its
+baseline stops before it releases rather than after.
 
 **Why the explicit dispatch** — same reason as npm and C++ above, and this lane
-learned it the expensive way. The job originally lived in `release-tag.yml`
-(since deleted, #551) behind
+learned it the expensive way. The tagging job originally lived in
+`release-tag.yml` (since deleted, #551) behind
 `on: push: branches:[main]` + `if: contains(head_commit.message, 'chore(release)')`.
 semantic-release commits `chore(release): X.Y.Z [skip ci]`, and GitHub's skip-ci
 recursion protection suppresses the **entire workflow run** on such a push — not
 merely the job's `if:`. No run row is created at all, so the dead channel read as
 "nothing red" while five releases (v1.61.1 … v1.64.0) shipped and
 `gh api repos/Ball-Lang/ball/git/matching-refs/tags/go%2F` still returned `[]`.
-`tools/release/check_release_dispatch_wiring.sh` (ci.yml's `Proto Checks` job) now
-pins the dispatch contract for all three channels so this cannot recur.
+`tools/release/check_release_dispatch_wiring.sh` pins that contract for the two
+tag-pinned channels (npm, C++); the two lanes that *run* semantic-release
+(`pubdev-release.yml`, `go-release.yml`) are dispatched `--ref main` instead —
+`@semantic-release/git` pushes commits and tags to a **branch**, and a detached
+tag ref gives it nothing to release from — and have their own guards.
+
+**Those two lanes share one concurrency group** (`main-release-push`), because
+`release.yml` dispatches both within a second of each other and both push
+commits to main; concurrent pushes lose to non-fast-forward rejections. Neither
+can lose work to the queueing: a rejected push fails the run *before* any tag is
+created, and each run is stateless, so the next release's dispatch re-analyses
+the same unreleased commits.
 
 **Status: the six `go/<module>/v0.1.0` tags exist** (backfilled by #556, all on
 `08599a51`) — but they predate #586, when the compiled engine and CLI core were
 still gitignored and build-tag-gated. A `ball` installed from them can only
 `compile`/`encode`/`check`; it cannot run a program or answer `info`/`validate`/
-`tree`/`version`. Go module tags are **immutable** once fetched through
-`proxy.golang.org`/`sum.golang.org` (a moved tag is a checksum mismatch for every
-consumer that already has it — <https://go.dev/ref/mod#version-queries>), so they
-are **not** re-cut. **`v0.2.0` is the first Go module line that carries the
-committed artifacts**; its six tags are cut by the same workflow on the next
-release, or on demand:
+`tree`/`version`. Tags are immutable, so they are **not** re-cut. **`v0.2.0` is
+the first Go module line that carries the committed artifacts** (cut on
+`71724734`, #618), and it is the baseline every future version is computed from.
+
+**Rehearsing without releasing:**
 
 ```sh
-gh workflow run tag-go-modules.yml --ref main   # creates the six go/<module>/v0.2.0 tags
+gh workflow run go-release.yml --ref <branch> -f dry_run=true
 ```
+
+computes the next Go module version and creates no tags, commits, releases or
+dispatches — semantic-release's `prepare`, `publish`, `addChannel`, `success`
+and `fail` steps all carry `dryRun: false` in `lib/definitions/plugins.js` and
+are skipped, while `verifyConditions`, `analyzeCommits`, `verifyRelease` and
+`generateNotes` still run. The bump is a `prepareCmd` (so a rehearsal rewrites
+nothing) and the version check is a `verifyReleaseCmd` (so a rehearsal proves
+the computed version). A dry run checks out **the ref it was dispatched for** —
+a real run always checks out `main` — so a change to this lane can be rehearsed
+on its own branch before it is merged.
 
 `tools/go-module-proxy/smoke.sh` (gating in ci.yml's `go` job) proves `go install
 github.com/ball-lang/ball/go/cli/cmd/ball@vX.Y.Z` works against a synthesized
-proxy — that is what the tags will make real, not evidence that they exist.
+proxy — that is what the tags make real, not evidence that they exist.
 
 ## C++ `ball` binaries lane (GitHub Release assets)
 
@@ -556,6 +647,53 @@ from a real release at `v1.64.0`; see `tools/vcpkg-port/README.md`.
   `gh workflow run pubdev-release.yml --ref <branch> -f dry_run=true`. #566
   shipped unrehearsed because this step pinned `main` unconditionally and the
   only way to exercise a change was to merge it.
+- **`go-release.yml` red in `verifyRelease` ("refusing a *type* release at
+  …"):** `bump_go_modules.sh --check-next` computed a different successor than
+  semantic-release did, so the lane is not measuring the module line in the
+  tree. Nothing was written — this fires before `prepare`. Two causes: the
+  `go-modules/v*` baseline was lost (the bootstrap step's log says what it did;
+  if it reports "nothing to bootstrap" while the version is 1.0.0, a stray
+  `go-modules/*` tag is the baseline), or the tree's line and the published tags
+  genuinely disagree (`python3 tools/go-module-proxy/build_local_proxy.py
+  --print-version` versus `git tag --list 'go/cli/v*'`). Fix forward; never
+  hand-tag to make the check pass.
+- **`go-release.yml` red citing `major-version-suffixes`:** a breaking-change
+  commit under `go/` computed a major ≥ 2, which Go cannot serve from these
+  module paths. This is a design decision, not an outage: either the commit
+  should not have been `BREAKING CHANGE`/`feat!` (amend the message and the
+  next release computes a normal bump), or the modules really do need `/v2`
+  paths — a separate, deliberate rename of every module path, `go.work` pin and
+  intra-repo `require`. The lane stays stopped until one of those happens.
+- **`go-release.yml` red on a non-fast-forward push:** it raced
+  `pubdev-release.yml` onto main despite the shared `main-release-push` group
+  (or someone pushed to main mid-run). Nothing half-landed — the push happens in
+  `prepare`, before any tag is created. The next release's dispatch re-analyses
+  the same commits and releases them; re-dispatch `go-release.yml --ref main`
+  to do it sooner.
+- **`tag-go-modules.yml` red with "N of 6 tags already exist and M do not":** a
+  half-published module set, which the script refuses to paper over. Do **not**
+  delete and re-cut: a tag any consumer already fetched through
+  `proxy.golang.org` is immutable, and moving it is a checksum mismatch for them
+  (<https://go.dev/ref/mod#version-queries>). Inspect
+  `git tag --list 'go/*/vX.Y.Z'`, and if the set is genuinely partial and
+  unfetched, supersede it — let the lane cut the NEXT version rather than
+  repairing this one.
+- **The six tags exist but `go install …@vX.Y.Z` says "unknown revision" or
+  keeps resolving the old version:** module-proxy index lag, not a broken
+  release. `proxy.golang.org` caches negative lookups; #556's verification saw
+  25 minutes of them after a correct tag push. Confirm the tags are really
+  there with `gh api repos/Ball-Lang/ball/git/matching-refs/tags/go%2F`, then
+  check what the proxy serves —
+  `curl -s https://proxy.golang.org/github.com/ball-lang/ball/go/cli/@v/list` —
+  and wait it out, or bypass it for a one-off check with
+  `GOPROXY=direct GONOSUMCHECK=1 go install …` (which reads the tag from GitHub
+  and skips the cached negative). Nothing to fix or re-run.
+- **A release cut the Go version but no `go/**` tags appeared:** the
+  `publishCmd` dispatch failed after the commit and channel tag landed. The
+  state is consistent, just untagged — re-dispatch the tagger at the channel tag
+  that release created: `gh workflow run tag-go-modules.yml --ref
+  go-modules/vX.Y.Z`. It derives the version from that ref's `go.mod` files, so
+  the tags land on the right commit.
 
 ## The guards, and what each one can and cannot see
 
@@ -567,6 +705,7 @@ another.
 |---|---|---|---|
 | `tools/release/check_release_dispatch_wiring.sh` | every PR (`Proto Checks`) | a channel wired so its trigger can **never fire** — `push: branches:[main]` + a `chore(release)` message match, which `[skip ci]` suppresses entirely. `tag-go-modules` shipped zero tags across five releases that way (#361) | whether the dispatch ever *ran*, and whether the registry is current |
 | `tools/release/check_pubdev_release_wiring.sh` | every PR (`Proto Checks`) | the pub.dev lane's **shape**: a publishable package with no config (or vice versa), a config whose tag/paths/stamp/dispatch disagree, two workflows driving one package, the Melos versioning lane coming back, `ball_cli`'s `version.g.dart` regen going missing, `verify-published` disappearing, the lockstep wiring (#566) going missing, and a dry run losing the ability to rehearse the branch it was dispatched for | whether a release was actually cut — it is entirely static |
+| `tools/release/check_go_release_wiring.sh` | every PR (`Proto Checks`) | the Go lane's **shape**: no semantic-release config for the module line (so the version only moves when a human runs the bump), a config whose tag line / path filter / bump / commit / dispatch disagree, a file the bump rewrites that the release commit does not carry, a second tagger next to `tag_go_modules.sh`, the driver losing its dry-run rehearsal, and the two main-pushing lanes drifting out of one concurrency group. This is the guard the *first* two could not have: the dispatch was reachable (#361's question) and the lane is not pub.dev (#551's scope), yet every release still re-tagged the same version and passed | whether a release was actually cut — it is entirely static |
 | `.github/workflows/pubdev-freshness.yml` | weekly + dispatch | the registry **falling behind main**: a version on pub.dev that does not match `main`, or a package whose code has moved for more than 30 days while pub.dev has not. This is the alarm #551 lacked — the stalled lane was reachable AND correctly shaped, and stayed green for two months | a lane that broke in the last few days (it is deliberately generous) |
 | `tools/release/check_pubspec_workspace_consistency.mjs` | every PR (`Proto Checks`) + after the release loop | the invariants `melos version` used to hold for free: a workspace member (including the private `dart/self_host`, which has no release config) pinned to a sibling version the workspace no longer contains — `dart pub get` fails for the whole repo — and a `PACKAGES` loop that is not a deps-first order of the runtime dependency graph, which publishes tarballs pinned to sibling versions that only bump later in the same run | anything registry-side; it never leaves the working tree |
 | `tools/release/lockstep_plan.mjs` | every PR (`--self-test`, `Proto Checks`) + the release run itself | the **published** graph splitting: a package the sibling sweep re-pinned in the repo but never published, so pub.dev keeps serving its old pubspec and an external `dart pub get` cannot solve the graph (#566). It is the only guard that models pub.dev BEFORE the upload | anything about a package whose constraint shape it does not model (`any`, an explicit range) — those never force a release |

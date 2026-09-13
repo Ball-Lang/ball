@@ -34,9 +34,22 @@ ROOT="$(cd "$HERE/../.." && pwd)"
 WORKFLOWS="$ROOT/.github/workflows"
 RELEASE="$WORKFLOWS/release.yml"
 
-# Every workflow that must react to a release side effect. Adding a channel here
-# without wiring its dispatch is a hard failure, by design.
-TARGETS="publish-npm.yml release-cpp.yml tag-go-modules.yml"
+# Every workflow that must react to a release side effect by building the
+# RELEASED TREE, and is therefore dispatched pinned to the fresh `vX.Y.Z` tag.
+# Adding a channel here without wiring its dispatch is a hard failure, by design.
+#
+# The two lanes that RUN semantic-release — pubdev-release.yml and
+# go-release.yml — are deliberately not in this list: they are dispatched
+# `--ref main`, because @semantic-release/git pushes commits and tags to a
+# BRANCH and a detached tag ref gives it nothing to release from. Their
+# contracts live in check_pubdev_release_wiring.sh and
+# check_go_release_wiring.sh. `tag-go-modules.yml` left this list with #361's
+# second half: release.yml no longer dispatches it at all, because a dispatch
+# that carried no version only ever re-cut the tags a human had already written
+# into the go.mod files. go.releaserc.json's publishCmd dispatches it now,
+# pinned to the channel tag whose commit carries the bumped files — see the
+# stray-tagger leg below, which still pins that it has exactly one dispatcher.
+TARGETS="publish-npm.yml release-cpp.yml"
 
 pass=0
 fail=0
@@ -118,8 +131,10 @@ done
 # `if: contains(head_commit.message, 'chore(release)')`. That shape is proven
 # unreachable for `chore(release): X.Y.Z [skip ci]` commits; re-adding it would
 # silently resurrect the dead channel next to the live one. release-tag.yml is
-# gone entirely since #551, so this now checks the general case: nothing but the
-# channel's own workflow and release.yml's dispatch may mention it.
+# gone entirely since #551, so this now checks the general case: no WORKFLOW may
+# declare the tagging job or dispatch it — its only dispatcher is
+# `.github/release/go.releaserc.json`'s publishCmd, which
+# check_go_release_wiring.sh pins as the single one.
 # Matched against the JOB declaration and the dispatch command only, never
 # against prose — several workflows legitimately describe this history in
 # comments.
@@ -129,19 +144,20 @@ for wf in "$WORKFLOWS"/*.yml; do
   [ "$(basename "$wf")" = "tag-go-modules.yml" ] && continue
   # A job named `tag-go-modules:` at job indentation, anywhere but its own file.
   grep -qE '^[[:space:]]{2}tag-go-modules:' "$wf" && stray+=("$(basename "$wf"): declares a tag-go-modules job")
-  # An actual dispatch (not a comment) from anywhere but release.yml.
-  if [ "$(basename "$wf")" != "release.yml" ]; then
-    sed 's/#.*$//' "$wf" | grep -qF 'gh workflow run tag-go-modules.yml' &&
-      stray+=("$(basename "$wf"): dispatches tag-go-modules.yml")
-  fi
+  # An actual dispatch (not a comment) from a workflow. Since #361's second half
+  # there is none: a version-less dispatch re-cuts whatever version the go.mod
+  # files already carry, which is a no-op that reports success.
+  sed 's/#.*$//' "$wf" | grep -qF 'gh workflow run tag-go-modules.yml' &&
+    stray+=("$(basename "$wf"): dispatches tag-go-modules.yml")
 done
 if [ "${#stray[@]}" -eq 0 ]; then
-  ok "Go module tagging lives only in tag-go-modules.yml, dispatched only from release.yml"
+  ok "Go module tagging lives only in tag-go-modules.yml, dispatched only by the Go release config"
 else
-  no "Go module tagging lives only in tag-go-modules.yml, dispatched only from release.yml" \
+  no "Go module tagging lives only in tag-go-modules.yml, dispatched only by the Go release config" \
     "${stray[@]}" \
     "a push-triggered workflow can never fire on a semantic-release commit ([skip ci] suppresses the run)," \
-    "which is how the channel shipped zero tags across five releases (#361)"
+    "which is how the channel shipped zero tags across five releases (#361); a version-less dispatch" \
+    "from a workflow re-cuts the OLD version and passes for doing nothing"
 fi
 
 # ── 6. This guard is itself wired into an always-run CI job. ──────────────
@@ -154,7 +170,7 @@ fi
 total=$((pass + fail))
 # Positive floor: an exit code plus a zero failure count cannot tell "all
 # passed" from "nothing ran". Four assertions per target plus two global ones.
-MIN=3
+MIN=8
 case "$pass$fail$total" in
 *[!0-9]*)
   echo "::error::release dispatch wiring guard produced a non-numeric tally"

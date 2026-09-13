@@ -381,6 +381,8 @@ func staticMethod(typeName, method string, a0, a1, a2 Value) Value {
 		switch method {
 		case "from", "of":
 			return MapCopy(a0)
+		case "fromEntries":
+			return MapFromEntries(a0)
 		}
 	case "Set":
 		switch method {

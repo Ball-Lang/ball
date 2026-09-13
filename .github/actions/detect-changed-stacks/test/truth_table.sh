@@ -2,9 +2,9 @@
 # Truth-table test for the detect-changed-stacks composite action (issue #458).
 #
 # Sources ../detect.sh and drives its pure classifier with a synthetic changed-
-# file list per row, asserting EVERY one of the twelve outputs
+# file list per row, asserting EVERY one of the thirteen outputs
 # (dart/ts/cpp/rust/csharp/go/python/infra/self_host/corpus/dart_core/
-# changed_fixtures) — not
+# matrix_self/changed_fixtures) — not
 # just "the script exited 0". The last four rows drive the real entry point,
 # ball_detect_main, once per event that supplies no diff base, to pin the
 # fail-open path itself. Before #458 this test could not exist: the logic
@@ -68,7 +68,7 @@ expect() {
     esac
   done
   local k
-  for k in dart ts cpp rust csharp go python infra self_host corpus dart_core; do
+  for k in dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self; do
     if [ -n "${t[$k]:-}" ]; then echo "$k=true"; else echo "$k=false"; fi
   done
   echo "changed_fixtures=$fixtures"
@@ -134,6 +134,21 @@ row "dart-core-self-host-dir" 'dart/self_host/lib/engine_rt.cpp' '' \
 row "dart-encoder-is-not-core" 'dart/encoder/lib/encoder.dart' '' "$(expect dart)"
 row "dart-cli-is-not-core" 'dart/cli/bin/ball.dart' '' "$(expect dart)"
 
+# ── matrix_self: the conformance matrix's OWN definition (#642) ──────────────
+# conformance-matrix.yml and tools/ci/roundtrip_floor.sh are in that workflow's
+# `paths:` filter, so a PR that only moves a row's floor re-runs the matrix —
+# and EVERY row ORs `matrix_self` in. Without the signal those two entries map
+# to `infra` alone, which no row reads: the workflow would start with every
+# row's `if:` false and its summary would print a table of SKIPs and exit 0.
+# tools/ci/check_matrix_paths.sh is the static half of the same invariant.
+row "matrix-workflow-is-matrix-self" '.github/workflows/conformance-matrix.yml' ''   "$(expect infra matrix_self)"
+row "roundtrip-floor-script-is-matrix-self" 'tools/ci/roundtrip_floor.sh' ''   "$(expect infra matrix_self)"
+# Negative controls: a NEIGHBOURING workflow and a NEIGHBOURING tools/ci script
+# are infra (every ci.yml stack runs) but must NOT re-enable every matrix row —
+# if they did, `matrix_self` would just be `infra` under another name.
+row "other-workflow-is-not-matrix-self" '.github/workflows/regression-gates.yml' ''   "$(expect infra)"
+row "other-ci-tool-is-not-matrix-self" 'tools/ci/apply_regenerated.sh' ''   "$(expect infra)"
+
 # An EMPTY changed-file list is the one input shape whose outputs would
 # otherwise be unpinned. It cannot arise from a real diff (a run with no changed
 # files still has a base), but it is what a mis-wired caller would pass, so pin
@@ -143,7 +158,7 @@ row "empty-file-list" '' '' "$(expect infra)"
 
 # ── Fail-open: no usable diff base => every stack true, fixtures=ALL ─────────
 expect_rows "fail-open-no-base" \
-  "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core fixtures=ALL)" \
+  "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
   "$(ball_fail_open)"
 
 # The same fail-open, driven END-TO-END through ball_detect_main for each event
@@ -166,7 +181,7 @@ event_fail_open_row() {
   actual="$(cat "$out_file")"
   rm -f "$out_file"
   expect_rows "$name" \
-    "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core fixtures=ALL)" \
+    "$(expect dart ts cpp rust csharp go python infra self_host corpus dart_core matrix_self fixtures=ALL)" \
     "$actual"
 }
 

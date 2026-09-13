@@ -141,24 +141,24 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 	// 1. Ball -> Go (fail-loud by design; a scope gap is a FAILURE here).
 	prog, err := compiler.LoadProgramFile(path)
 	if err != nil {
-		return Result{name, "error", "load: " + firstLine(err.Error())}
+		return Result{name, "error", "load: " + errorDetail(err.Error())}
 	}
 	source, err := compiler.Compile(prog)
 	if err != nil {
-		return Result{name, "compile-error", firstLine(err.Error())}
+		return Result{name, "compile-error", errorDetail(err.Error())}
 	}
 
 	// 2. Go -> Ball (the step expected to reject compiler-emitted shapes today —
 	//    that rejection is the measurement).
 	reencoded, err := encoder.Encode(source)
 	if err != nil {
-		return Result{name, "encode-error", firstLine(err.Error())}
+		return Result{name, "encode-error", errorDetail(err.Error())}
 	}
 
 	// 3. Serialize as the `@type`-enveloped .ball.json every Ball CLI reads.
 	ballJSON := filepath.Join(workdir, name+".ball.json")
 	if err := writeEnvelopedJSON(ballJSON, reencoded); err != nil {
-		return Result{name, "error", "serialize: " + firstLine(err.Error())}
+		return Result{name, "error", "serialize: " + errorDetail(err.Error())}
 	}
 
 	// 4. Run the RE-ENCODED program on the Dart reference engine (ground truth).
@@ -169,7 +169,7 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		return Result{name, "error", "dart exec: " + firstLine(err.Error())}
+		return Result{name, "error", "dart exec: " + errorDetail(err.Error())}
 	}
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
@@ -183,7 +183,7 @@ func roundTripOne(name, path, golden, dart, ballDart, repoRoot, workdir string) 
 		if waitErr != nil {
 			detail := lastLine(strings.ReplaceAll(stderr.String(), "\r\n", "\n"))
 			if detail == "" {
-				detail = "dart run failed: " + firstLine(waitErr.Error())
+				detail = "dart run failed: " + errorDetail(waitErr.Error())
 			}
 			return Result{name, "error", detail}
 		}

@@ -210,7 +210,10 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 6 on 2026-09-13, and everything else in that file is a flipped, positive assertion.
+  prose** — 9 on 2026-09-14 (three of them are #632 siblings: the script-mode entry-point IIFE,
+  tracked as #687, and the spliced collection-literal lowering's two refusals — `Vec::new()` and
+  `matches!` — tracked as #712 and pinned separately because a `#[should_panic]` observes only the
+  first panic), and everything else in that file is a flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -368,6 +371,28 @@ cargo fmt --check && cargo clippy --workspace
   `cargo build` → run, prints `12`). Like every #491 slice so far, this did **not** move the Tier A
   aggregate (`0 passed, 110 failed, 110 total`) — a default-bodied *receiver-less* trait fn is a
   narrow idiom; state that plainly rather than implying a moved floor.
+- **A `&mut` ALIAS binding is resolved, not copied (#642/#693) — the one shape whose mis-encoding
+  is silent.** `let slot: &mut T = &mut place;` is what `rust/compiler`'s
+  `lvalue.rs::emit_mutation` emits for EVERY Ball `assign`
+  (`let __slot: &mut BallValue = (&mut i); ...; *__slot = __new.clone();`), and Ball has no
+  references: binding it as a value made the write land on a copy, so the borrowed variable never
+  changed and every loop whose counter is mutated that way ran forever. Measured: 28 of the
+  corpus's loop fixtures re-encoded "clean" and then hung on the Dart reference engine, killed at
+  60 s; fixing it moved the `rust-roundtrip` row 68 -> 99 of 351 and the job from 40 min to 14 — worse than a refusal, because `ball check` accepts the Program. `block.rs::encode_local`
+  now records `alias → variable` in a BLOCK-SCOPED table and emits no binding, and
+  `encode_path_expr` resolves a read of the alias to the borrowed variable. Deliberately narrow:
+  only a borrow of a plain NAMED variable — `&mut v[0]`/`&mut p.x` are left exactly as they were
+  rather than guessed at, and a `&mut` passed to a callee is still the wider, open
+  reference-semantics gap. The alias is SHADOWED like any other Rust binding — by a later `let` of
+  the same name (cleared in `encode_local` AFTER its initializer is encoded, so `let r = r + 1;`
+  still reads the old one) and by a fn/closure PARAMETER of the same name (saved and restored
+  around every `push_fn_scope`/`pop_fn_scope`) — or a read of the shadowing binding would silently
+  resolve to the borrowed variable instead, the same class of wrong answer in the other direction.
+  Guards: `rust/encoder/tests/compiler_output.rs`'s
+  `mutation_through_a_mut_alias_targets_the_borrowed_variable`,
+  `a_borrow_of_a_non_variable_place_is_not_treated_as_an_alias`,
+  `a_later_let_of_the_same_name_shadows_the_alias` and
+  `a_parameter_shadows_an_alias_of_the_same_name`.
 - **Library mode (#491 slice 2).** `encode` requires a `fn main()`; `encode_library` (CLI:
   `ball encode --lib`) drops **only** that requirement — every other documented gap still panics.
   A library-mode `Program` carries `entry_module = "main"` (needed by `compile_library`, which
@@ -376,6 +401,84 @@ cargo fmt --check && cargo clippy --workspace
   never synthesise a fake entry function to silence it. The C# encoder's `EncodeLibrary` makes the
   identical call; keep the two consistent. Proof: `rust/encoder/tests/library_mode.rs` compiles the
   encoded program through `compile_library` and asserts `cargo build` accepts it as a real `[lib]`.
+
+### Compiler ↔ encoder round trip — an invariant, not a nice-to-have (#632)
+
+**Every construct `ball-lang-compiler` emits must be one `ball-lang-encoder` can read back.**
+Tier A's stage 3 re-encodes this repo's OWN compiler output, so a construct the compiler emits
+and its own encoder refuses caps that column no matter how good either half is on its own.
+
+- It was not hypothetical: `type_emit.rs::compile_method_dispatchers` emitted its fallback arm as
+  a bare `panic!`, `methods.rs::encode_macro` refused `panic!`, and **every** library whose
+  compiled output carries a method dispatcher (i.e. every library with a struct and a method)
+  failed stage 3 with ``unsupported macro invocation `panic!` ``. Neither crate's own tests could
+  see it — `rust/compiler`'s assert on emitted Rust, `rust/encoder`'s start from hand-written
+  Rust.
+- The gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`. Stage 3 is an **encode** gate and
+  says so: the compiler's output names runtime helpers (`ball_field_get`,
+  `ball_message_type_name`, …) that are not user functions, so re-encoding it yields calls that
+  resolve to nothing and **re-compiling that is not a fixpoint** — measured, and neither Tier A
+  nor this test pretends otherwise. The behavioural half sits beside it, on the constructs
+  themselves: three cases compile the compiler's own output, link it against a hand-written
+  `main`, and RUN it, asserting the thrown message as bytes. A shape assertion alone would pass
+  on a throw carrying the wrong message. Extend THAT test when you add a compiler emission shape;
+  do not add a second, weaker round trip.
+- `panic!` encodes to `std.throw` (field `value`), the same shape `dart/encoder`'s
+  `ThrowExpression` arm emits and the same one this crate's `encode_unwrap` already used. The two
+  really are one mechanism on this target: `runtime.rs::ball_throw` IS `std::panic::panic_any`,
+  and `ball_catch_payload` re-wraps a non-Ball payload (what `panic!` carries) as
+  `BallValue::String(message)` — so a `catch` binds the identical value either way. A bare
+  `panic!()` carries Rust's own `explicit panic` message, never `""`.
+- **`unreachable!` is mapped too, and for the same reason** — it is `panic!` with a fixed prefix
+  (`library/core/src/panic.rs`'s `unreachable_2021` expands to
+  `panic!("internal error: entered unreachable code: {}", format_args!(..))`), and the compiler
+  EMITS it: `base_call.rs::flow_propagation` ends a `try` carrying a `break`/`continue` with no
+  enclosing loop in exactly that macro. It encodes as the same `std.throw`, carrying Rust's whole
+  message — **prefix included**, because that prefix is part of what a `catch` binds, and an
+  encode-only assertion could not see it dropped. `an_unreachable_throws_rusts_own_internal_error_message`
+  is the run-proof; `a_bare_unreachable_encodes_the_message_rust_itself_prints` pins the
+  argument-less form, which must NOT carry a trailing `": "`.
+- **Enumerate what the compiler emits; do not assume it is one construct.** #632 arrived as a
+  single `panic!`. Sweeping `rust/compiler/src` for constructs inside EMITTED string literals
+  finds three more: `unreachable!` (`flow_propagation`), and — in `compile_list_literal`'s
+  imperative lowering, used by EVERY spliced collection literal (`std.spread`, `null_spread`,
+  `collection_if`, `collection_for`) — both `Vec::new()` and `matches!`. Re-run that sweep
+  whenever you add an emission shape; everything past the first was invisible to the issue that
+  named it.
+- The dispatcher fallback's message is **target-neutral** — `no method '<name>' for <type>`,
+  byte-identical to `go/compiler/library.go`'s `ballrt.Thrown` and
+  `csharp/compiler/src/TypeEmit.cs`'s `BallRuntimeException`. It used to carry a
+  `ball-lang-compiler runtime:` prefix no other target emits, which is the #616/#641
+  error-rendering drift in a spot no fixture observed. Changing that spelling means re-running the
+  round-trip gate, which asserts it on both sides.
+- **Tier A's Rust row is dammed at STAGE 1, not stage 3** — measured on both sides of this fix
+  (`1/77` at stage 1, 2 and 3 in runs 34766105061 and 34769384905; 76 files stop at
+  `encode-error`, none at `reencode-error`). So the `panic!` fix does not move the published
+  funnel, and a lane that wants those numbers up works on stage 1's named reasons
+  (`gh run download <run-id> -n coverage-study-tier-a-rust`). The round-trip gate is what proves
+  the invariant; the third-party funnel is a separate, slower instrument.
+- The invariant has **two** OPEN instances, each pinned fail-loud in `documented_gaps.rs`:
+  - the script-mode entry-point IIFE (`compile()` wraps the entry body in
+    `(|| -> BallValue { … })()`, which the encoder refuses),
+    `compiled_entry_point_iife_is_a_documented_gap`, tracked as **#687**. Do not "fix" it by
+    encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return` in the entry
+    body return from the entry body rather than from `main`, and a Ball block's `return` leaves
+    the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
+  - the **spliced collection-literal lowering**, tracked as **#712**, which is the broader of the
+    two: `compile_list_literal` goes imperative the moment any element splices, and emits
+    `let mut __lit: Vec<BallValue> = Vec::new();` (refused as an associated fn on a foreign type
+    — measured as the FIRST refusal) and `if !matches!(__sp, BallValue::Null)` behind it. So every
+    library whose output holds a spread, collection-`if` or collection-`for` fails stage 3, not
+    just a null-aware one. Pinned by `compiled_spliced_list_literal_is_a_documented_gap` (driven
+    through the real compiler, asserting BOTH constructs are still emitted) plus
+    `the_matches_macro_is_a_documented_gap` for the second refusal, which a single
+    `#[should_panic]` cannot reach. Do NOT close it by teaching the encoder `Vec::new()`/`matches!`
+    arms: that encodes compiler-internal spellings while still refusing every real-world one,
+    which is what Tier A measures. The fix belongs on the COMPILER side — a plain
+    `ball_is_null(&__sp)` helper and the existing `BallList`/`BallValue::List` vocabulary in place
+    of the bare `Vec`, the same plain-call vocabulary the neighbouring
+    `ball_truthy`/`ball_iterate`/`ball_spread_iter` already use, which re-encodes soft instead of
+    aborting the file.
 
 ### Engine
 
@@ -477,14 +580,27 @@ cargo fmt --check && cargo clippy --workspace
   no exclusion. Conformance fixture `462_set_mutation_in_place` is the guard.
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
-- `rust/engine/tests/roundtrip_conformance.rs` is a **measurement-only** whole-corpus sweep
+- `rust/engine/tests/roundtrip_conformance.rs` is a whole-corpus measurement sweep
   (#452 item 3): Ball → Rust → Ball → the **Dart** reference engine → golden diff, all in-process
-  except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). Honest baseline **0/321**,
-  like the C# leg it mirrors. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
-  `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`. Its CI
-  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** —
-  the row runs automatically on any PR touching a filtered path, gated on harness health (a
-  parseable `Results:` line, integer counts, `total >= 1`), never on the failure count.
+  except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). It measured a flat **0/321**
+  from the day it shipped until #642 — the encoder refused the compiler's own output outright: the
+  unconditional `pub static Expression_Expr: LazyLock<BallValue>` namespaces, the
+  `(|| -> BallValue { … })()` IIFE the entry body is wrapped in, and the
+  `BallValue::String(…)`/`BallValue::Null` constructors every literal becomes. The compiler now
+  emits a oneof namespace only when the compiled text mentions it
+  (`type_emit::oneof_discriminator_enum_defs`), and `lib.rs` recognises the IIFE
+  (`as_zero_arg_closure`) and the `BallValue` constructors; `rust/encoder/tests/compiler_output.rs`
+  is the fast guard. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
+  `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`
+  (`BALL_DART` overrides the launcher). Its CI home is the `rust-roundtrip` row in
+  `conformance-matrix.yml`, which **is a PR gate since #619** and **floored + ratcheted since
+  #642**: harness health PLUS `passed >= 1` PLUS `passed >= RUST_ROUNDTRIP_FLOOR`, enforced by
+  `tools/ci/roundtrip_floor.sh`. Still NOT a parity gate — but a flat zero is red, and the floor
+  only rises. **Raise it in the SAME PR as the fix that earned it**; the job prints the exact new
+  value. The remaining gap is named in the row's own step summary with the issue tracking it (#692:
+  `BallMap::new()`/`BallList::new()` and the class-registry helpers), never as an "expected
+  baseline"; the method-dispatcher `panic!` sub-case (#632) is a DIFFERENT metric — it moves Tier A,
+  not this leg.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

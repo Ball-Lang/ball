@@ -349,8 +349,8 @@ gate** — `coverage-study.yml` has no `pull_request:` trigger, because these
 harnesses clone and build third-party packages — but it is no longer merely
 report-only: its `publish` job floors every row against
 `tools/coverage-study/baseline.json` and fails the run on a drop. The floors are
-**ratchets at the measured numbers** (fail on a drop in the clean ratio, the
-stage-1 funnel ratio, or the scored denominator; raise the baseline on an
+**ratchets at the measured numbers** (fail on a drop in the clean ratio, in ANY
+funnel stage's ratio, or in the scored denominator; raise the baseline on an
 improvement), not the >= 95% / >= 75% issue #493 first proposed — Dart Tier A
 measures 61% and four of six Tier A rows measure 0% clean, so an aspirational
 floor would be permanently red and therefore muted. The same job publishes the
@@ -403,12 +403,58 @@ because for four of the five ports the clean number is 0% and the information is
 entirely in *where* files stop: the Rust/C#/Go/Python compilers emit
 runtime-call-shaped source their syntactic encoders were never built to read
 back, so stage 3 (re-encode) is a wall — the same wall the `*-roundtrip` rows
-already report as an honest 0/32x on the project's own corpus. A bare 0% would
+report on the project's own corpus. Those rows read a flat `0 passed` for as long
+as they existed and went green every time, because nothing floored the count
+(#642); each one now carries a measured floor and a ratchet (see the table
+below), and the remaining gap is named per target with the issue tracking it
+(#689 C#, #690 Python, #691 Go, #692 Rust). A bare 0% would
 hide the difference between "the encoder rejected the file outright" (Rust, Go:
 0 files even encode) and "58 of 472 files got all the way to the declaration
 diff" (C#). TypeScript is the one port with a non-zero first number (4/48), and
 its failures are spread across every stage rather than piled on one.
 
+
+### 2c. A measurement leg is floored the moment it measures anything (#642)
+
+The four `*-roundtrip` rows (`conformance-matrix.yml`: Ball fixture →
+`<lang>` compiler → that language's own encoder → the **Dart** reference engine →
+golden diff) are the repo's hardest legs by construction, and for as long as they
+existed every one of them printed
+
+```
+Results: 0 passed, 349 failed, 349 total (4 skipped carve-outs)
+```
+
+and reported the row healthy. The only assertion was `total >= 1` — the harness
+ran — so an honest "it has always been 0" was indistinguishable from a future
+regression, and the rows could not have noticed one.
+
+The rule this repo now follows on any measurement leg:
+
+1. **No positive floor while the leg genuinely passes nothing.** Adding
+   `passed >= 1` to a row measuring 0 makes it permanently red for a pre-existing
+   gap, and invites the one thing a floor must never buy — a special-cased
+   fixture or a weakened fail-loud check, just to clear it. The floor lands in
+   the SAME PR as the first passing fixture, never before.
+2. **A row at zero must not report "OK".** Until the floor can land, the row
+   prints the first failing fixture's error VERBATIM and names its gap with an
+   issue number in the step summary. "Expected baseline" is not a status.
+3. **Once it measures something, the floor is set AT the measured count** — the
+   number that row's own CI job printed, never a prediction, never an
+   aspiration — and only ever rises, in the same PR as the fix that earned it.
+   `tools/ci/roundtrip_floor.sh` prints the exact new value on an improvement.
+4. **The gate is a script, and the script has its own test.** Inline workflow
+   bash cannot be unit-tested, and a `[ "$passed" -lt "$floor" ]` with an empty
+   or multiline operand exits 2 — which, inside an `if`, SKIPS the branch and
+   falls through to a green exit. `tools/test/test_roundtrip_floor.sh` runs on
+   every PR and pins all of it, the wiring included.
+
+Measured on PR #646's own matrix (run 34784068344), after teaching each encoder
+its own compiler's dispatch shape and fixing the Rust `&mut` alias that made 28
+loop fixtures re-encode clean and then hang (#693): Rust **99**, C# **76**,
+Python **41**, Go **31** of 352. Those are the floors. None of the four is a parity gate — most of
+the corpus still does not round-trip anywhere — but a flat zero is red, and a
+drop is red.
 
 ### 3. Fail loud, never degrade silently
 A construct the engine/encoder/compiler does not handle must **throw**, not
@@ -926,7 +972,9 @@ matrix job.
 **The conformance matrix's per-row conditions.** Each row runs when the diff
 touches `tests/conformance/**` (`corpus`), any of
 `dart/{engine,shared,compiler,self_host}/**` (`dart_core` — the Dart sources
-every self-hosted engine is compiled from), or that row's own language dir.
+every self-hosted engine is compiled from), the matrix's own definition
+(`matrix_self` — `conformance-matrix.yml` or `tools/ci/roundtrip_floor.sh`), or
+that row's own language dir.
 Measured on PR #644 (`d853854b`): 18 matrix jobs ran, 15 of them for languages
 the diff did not touch. The `infra` fail-safe is deliberately NOT part of those
 conditions — it is true for any file outside the language dirs (docs, `tools/`,
@@ -962,14 +1010,20 @@ So:
   under bash across eight scenarios, including a negative control that strips
   the floor and asserts the same all-skipped run then goes green.
 
-The detect-changed-stacks truth table pins `corpus`/`dart_core` themselves.
+The detect-changed-stacks truth table pins `corpus`/`dart_core`/`matrix_self`
+themselves.
 
-**Known residual.** A PR whose ONLY change is `conformance-matrix.yml` does not
-start that workflow at all — its own path is not in the filter. That predates
-#666 and is unchanged by it. Note the two guards above are what make adding it
-a real decision rather than a one-line edit: `.github/workflows/**` sets only
-`infra`, which no row reads, so adding that path to the filter is RED until it
-is given a signal or an existing signal is added to the row conditions.
+**The matrix gates changes to itself** (#642). `conformance-matrix.yml` and
+`tools/ci/roundtrip_floor.sh` are in the filter, so a PR that only moves a row's
+floor re-runs the matrix — before #642 such a PR started no matrix run at all,
+and an absent check reads as green, which is how the four round-trip rows were
+first floored by a commit nothing re-measured. Those two paths map onto
+`infra` alone, which no row reads, so the guards above made adding them a real
+decision rather than a one-line edit: they also required a signal,
+`matrix_self`, which EVERY row ORs in (a change to the matrix definition can
+move any row). The classifier truth table pins it both ways — the two paths set
+it, a neighbouring workflow and a neighbouring `tools/ci` script do not, so it
+cannot decay into `infra` under another name.
 
 **That list is gated, not trusted** (issue #655). It used to be hand-copied
 prose about a setting edited in a web UI: it matched the live ruleset on
@@ -1174,7 +1228,8 @@ could not parse a summary at all).
 | **The C++ e2e fixture LIST cannot silently stop growing** (#63 / #511) | `cpp/test/check_e2e_fixture_list.sh` — every runnable fixture (a `.ball.json` with a sibling `.expected_output.txt`) must be in `cpp/test/e2e_fixture_list.h` or named in the frozen, ratchet-only `cpp/test/e2e_fixture_list_known_gaps.txt`; `--self-test` proves the guard bites | every PR (the always-on `proto` job, no toolchain) |
 | The `full_e2e.sh` harness itself (worker dispatch, `xargs -P`, CWD isolation, corpus-ordered aggregation) (#521) | ci.yml's `cpp` job, Linux leg — changed-fixture gate when a PR touches fixtures, else a derived four-fixture harness smoke | every PR (otherwise only the post-merge `C++ Compiled` leg ran it) |
 | Cross-engine parity (§5) | `conformance-matrix.yml` (Dart/TS/C++/Rust/C#/Go/Python) | **every PR touching a filtered path** (#619) + push to main + weekly |
-| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
+| Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452), all four through `tools/ci/roundtrip_floor.sh` (#642) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — **floored and ratcheted since #642**: harness health (a parseable `Results:` line, integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= <LANG>_ROUNDTRIP_FLOOR`. The four rows printed `0 passed` on every run for as long as they existed and went green every time; they are not parity gates (most of the corpus still does not round-trip anywhere), but a flat zero is now RED |
+| **The round-trip floor itself bites** (#642) | `tools/test/test_roundtrip_floor.sh` — a flat zero is RED, a drop below the floor is RED, an empty or non-integer floor is a hard error rather than a `[` that exits 2 and gets SKIPPED inside an `if`, two `Results:` lines resolve to the last; plus the WIRING (all four rows actually invoke the script) | every PR (the always-on `proto` job, no toolchain) |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
 | **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
@@ -1188,9 +1243,9 @@ could not parse a summary at all).
 | **The two docs that enumerate "every engine" cannot drift from the matrix** (#610/#613) | `tools/ci/check_engine_row_docs.sh` — derives the engine languages from the **parity table** `conformance-matrix.yml`'s `summary` job prints (its `print_row` calls, which is where a new engine is declared a full-parity row, and which excludes the ratcheted compiler / measurement round-trip legs by construction; a parity row reporting a job outside `summary.needs` is a hard error, because such a row can never fail the matrix), then gates `tests/editions/portability_matrix.md`'s `## Engines` table and `plugins/ball/skills/embed/SKILL.md`'s `## Per-target honest status` table on three rules: one data row per derived engine, a row naming each of them, and no row claiming a parity-table engine cannot execute a program. Matching is scoped to each table's DATA ROWS — a whole-file name scan is a fake green, since an engine's name survives in prose long after its row is gone. The portability doc additionally may freeze no fixture or engine tally. `--self-test` drives 16 cases first (floor: `pass < 16` is a hard error), each asserting the failure MESSAGE as well as the exit code | every PR (the always-on `proto` job, offline) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
 | **Third-party code (§2c)** — Tier A, Dart/Rust/C#/Go/Python/TS + Tier B (Dart) | `coverage-study.yml`'s seven measuring jobs | weekly + manual — **NOT a PR gate** (issue #493). Each job fails on a run that scored < 1 file: a harness/checkout failure, never a 0% result — and, for Tier A, on a log missing its `excluded (test-only): N` line, which would mean the library-code-only rule vanished (issue #491) |
-| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, stage-1 funnel ratio, scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, diffs the per-file exclusion list in `tools/coverage-study/excluded.json` and fails naming any file that list excludes and the run scored (#676), and regenerates the README table, committing all three to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
+| **Third-party numbers do not slide back, and are published** (#493) | `coverage-study.yml`'s `publish` job — `tools/coverage-study/coverage_table.py` floors all eight rows against `tools/coverage-study/baseline.json` (clean ratio, EVERY funnel stage's ratio — stage 3 `reencoded` by name since #632, because it is the only stage whose INPUT is this repo's own output, so a construct a compiler emits that its own encoder refuses stops there and nowhere else, which is what `rust/compiler`'s `panic!` dispatcher arm did while a stage-1-only floor stayed green — and the scored denominator; a missing or zero-scored report is a hard failure, never a 0% pass), raises the baseline on an improvement, diffs the per-file exclusion list in `tools/coverage-study/excluded.json` and fails naming any file that list excludes and the run scored (#676), and regenerates the README table, committing all three to main with `[skip ci]` | weekly + manual, after the seven jobs above (`if: always()`, so a broken upstream job is a loud red rather than a skipped — i.e. green-looking — check) |
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
-| The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
+| The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical. Since #632 also: a stage-3 drop fails (on a fixture holding `scored`, `clean` and stage 1 fixed, so it can only be failing on that stage), a stage-3 gain raises and names it, a Tier A row missing any stage key fails loud rather than defaulting it, a Tier B row carrying one fails loud, and a non-monotone baseline funnel is rejected | every PR (`Python`) |
 | **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
 | Line coverage ratchet (Rust/C#) + the Dart push-to-main measurement | `coverage.yml`'s `dart`/`rust`/`csharp` jobs | push to main + manual — **NOT a PR gate** |
 | Line coverage ratchet (C++), aggregate **and** per-target | `coverage.yml`'s `cpp` job — the `C++ line coverage floor` and `C++ per-target coverage floors (compiler/encoder/shared — gated)` steps, the latter taking `cpp/build-cov-floor.sh`'s exit code | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |

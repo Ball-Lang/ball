@@ -83,6 +83,16 @@ type Compiler struct {
 	// (mirrors the oneof-discriminator branch); compileEnumNamespace emits that var.
 	enumShortNames map[string]bool
 
+	// usedOneofs records which synthesized oneof-discriminator namespaces the
+	// program actually references, so compileOneofDiscriminators emits only
+	// those. The table in library.go is a fixed list of the engine's AST oneofs;
+	// emitting all of it unconditionally put five dead `var ballOneof_*` blocks
+	// at the top of EVERY compiled program, including a hello-world (issue
+	// #642). Populated by compileReference, which is the single site that can
+	// resolve a bare name to one of them — so a referenced namespace is always
+	// emitted.
+	usedOneofs map[string]bool
+
 	// bodyCtorImpl maps a class short name to the impl func of its body-carrying
 	// UNNAMED constructor (if any) — the target CompileMessageCreation invokes.
 	bodyCtorImpl map[string]string
@@ -148,6 +158,7 @@ func newCompiler(prog *ballv1.Program, libraryMode bool, pkgName string) *Compil
 		classMembers:    map[string][]*ballv1.FunctionDefinition{},
 		typeDefsByShort: map[string]*ballv1.TypeDefinition{},
 		enumShortNames:  map[string]bool{},
+		usedOneofs:      map[string]bool{},
 		bodyCtorImpl:    map[string]string{},
 		ctorImpl:        map[string]string{},
 		volatileByOwner: map[string]map[string]bool{},
@@ -274,14 +285,20 @@ func (c *Compiler) compile() (string, error) {
 	// Class members (dispatchers + impls + constructors) for every owner.
 	b.WriteString(c.compileClassMembers())
 
-	// Oneof discriminator namespaces (Expression_Expr, …).
-	b.WriteString(c.compileOneofDiscriminators())
-
-	// The entry point (program mode only).
+	// The entry point (program mode only). Compiled BEFORE the oneof namespaces
+	// are emitted, and buffered, so `usedOneofs` is complete by the time
+	// compileOneofDiscriminators reads it — the entry body is the last thing
+	// that can reference one.
+	entrySrc := ""
 	if !c.libraryMode {
 		_, entryFn := c.entryPoint()
-		b.WriteString(c.compileEntry(entryFn))
+		entrySrc = c.compileEntry(entryFn)
 	}
+
+	// Oneof discriminator namespaces (Expression_Expr, …) — only the ones the
+	// program actually references.
+	b.WriteString(c.compileOneofDiscriminators())
+	b.WriteString(entrySrc)
 
 	if len(c.errs) > 0 {
 		return b.String(), fmt.Errorf("ball→go: %d unsupported construct(s):\n  - %s",
@@ -490,6 +507,7 @@ func (c *Compiler) compileReference(r *ballv1.Reference) string {
 	}
 	// A oneof-discriminator constant (Expression_Expr.call, …).
 	if _, ok := oneofDiscriminators[name]; ok {
+		c.usedOneofs[name] = true
 		return "ballOneof_" + sanitize(name)
 	}
 	// A bare user-enum type name used as a namespace receiver (Color.red,

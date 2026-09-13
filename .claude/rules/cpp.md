@@ -209,6 +209,21 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   only target that spelled Dart's `toString()` all along.
   See `docs/TESTING_STRATEGY.md` §5b.
 
+- **A CAUGHT exception renders through ONE table (#640).**
+  `catch (e) { print('$e'); }` lowers to `ball_to_string(e)`, and the `try`
+  lowering binds `e` two ways — `const BallException&` when any clause is typed,
+  a reified `BallDyn` (`_ball_caught_to_dyn`) when none is. Both route through
+  `_ball_dart_error_to_string` in `cpp/shared/include/ball_emit_runtime.h`
+  (#616's closed table: `StateError` → `Bad state`, `FormatException`,
+  `RangeError`, nothing else). Key on the `message` FIELD, never on the type
+  name alone: a literal `throw StateError('boom')` keeps its ctor argument in
+  `fields` with `what()` = the bare type name, while `_ball_make_exception`
+  already carries the canonical `toString()` string in `what()` with no fields —
+  prefixing that one again reads `Bad state: Bad state: No element`. Edit the
+  header, never the spliced copies (`*_embed.h` are generated at configure time,
+  `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
+  `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

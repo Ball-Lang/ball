@@ -9,7 +9,18 @@
     "repo's default branch on 2026-09-03 via the GitHub API, so a Tier A number",
     "is reproducible; bump it deliberately, never to chase a number. `lib` is",
     "the subtree that is actually studied. An unreachable pin is reported",
-    "separately and is NOT scored as a failure."
+    "separately and is NOT scored as a failure.",
+    "",
+    "`lib` MUST point at a subtree containing a crate root (lib.rs / main.rs /",
+    "src/lib.rs / src/main.rs): that root is what the `#[cfg(test)]` half of the",
+    "test-only rule walks from, and on these pins it is the half doing all the",
+    "work (34 exclusions by reachability, 0 by path). Since #648 a pin whose",
+    "crate root does not resolve FAILS the run, naming every path searched -",
+    "before that it silently excluded nothing, and the resulting jump in",
+    "`scored` read downstream as an improvement to ratchet up. A subtree that",
+    "genuinely has no crate root (a bare directory of .rs files) is still",
+    "allowed, but it must SAY so: add \"crateRoot\": \"none\" to that pin, the",
+    "only value that key accepts. No pin needs it today."
   ],
   "packages": [
     {

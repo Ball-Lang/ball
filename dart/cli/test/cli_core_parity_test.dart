@@ -284,6 +284,93 @@ void main() {
       expect(hostedText, equals(nativeText));
     });
 
+    // #609 regression: a program that declares its OWN `isBase` module (the
+    // host-extension seam) and calls into it must be surfaced under the
+    // explicit `custom` capability — never reported pure / NO RISK — and that
+    // classification must self-host byte-identically, since every non-Dart
+    // `ball audit` is this same source compiled.
+    test('custom base module is surfaced — native == engine (#609)', () async {
+      final program = Program()
+        ..mergeFromProto3Json({
+          'name': 'custom',
+          'version': '1.0.0',
+          'entryModule': 'main',
+          'entryFunction': 'main',
+          'modules': [
+            {
+              'name': 'std',
+              'functions': [
+                {'name': 'print', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'mymodule',
+              'functions': [
+                {'name': 'exec_shell', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                {
+                  'name': 'main',
+                  'outputType': 'void',
+                  'body': {
+                    'call': {
+                      'module': 'mymodule',
+                      'function': 'exec_shell',
+                      'input': {
+                        'messageCreation': {'fields': <Object?>[]},
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }, ignoreUnknownFields: true);
+      final input = protoToEngineMap(program);
+      final engine = newEngine();
+
+      final nativeText = cli.auditReport(program);
+      expect(nativeText, contains('main.main → mymodule.exec_shell'));
+      expect(
+        nativeText,
+        contains('REVIEW REQUIRED — calls into custom base modules'),
+      );
+      expect(nativeText, isNot(contains('NO RISK')));
+      // The termination half says, out loud, that it cannot analyze the callee.
+      expect(nativeText, contains('Unknown Termination (1):'));
+
+      final hostedText = await engine.callFunction(
+        'main',
+        'auditReport',
+        input,
+      );
+      expect(hostedText, equals(nativeText));
+
+      // …and `--deny custom` trips identically native vs. engine.
+      final nativeViolations = cli.checkPolicy(
+        cli.analyzeCapabilities(program),
+        deny: {'custom'},
+      );
+      expect(nativeViolations, isNotEmpty);
+      final hostedReport = await engine.callFunction(
+        'main',
+        'analyzeCapabilities',
+        input,
+      );
+      final hostedViolations = await engine.callFunction(
+        'main',
+        'checkPolicyViolations',
+        {
+          'report': hostedReport,
+          'deny': ['custom'],
+        },
+      );
+      expect(hostedViolations, equals(nativeViolations));
+    });
+
     test(
       'benign concurrency-free program stays clean — native == engine',
       () async {

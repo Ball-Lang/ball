@@ -530,6 +530,68 @@ void main() {
       expect(err, contains('io: main.main calls std.print'));
     });
 
+    // #609: a program calling into its OWN declared `isBase` module (the host
+    // extension seam) is reported under the explicit `custom` capability — so
+    // `--deny custom` is an enforceable gate, and the default report never
+    // calls such a program pure.
+    test('--deny custom --exit-code trips on a custom base module', () async {
+      final path = p('custom.ball.json');
+      File(path).writeAsStringSync(
+        jsonEncode({
+          '@type': 'type.googleapis.com/ball.v1.Program',
+          'name': 'custom',
+          'version': '1.0.0',
+          'entryModule': 'main',
+          'entryFunction': 'main',
+          'modules': [
+            {
+              'name': 'mymodule',
+              'functions': [
+                {'name': 'exec_shell', 'isBase': true},
+              ],
+            },
+            {
+              'name': 'main',
+              'functions': [
+                {
+                  'name': 'main',
+                  'outputType': 'void',
+                  'body': {
+                    'call': {
+                      'module': 'mymodule',
+                      'function': 'exec_shell',
+                      'input': {
+                        'messageCreation': {'fields': <Object?>[]},
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      final (plainCode, plainOut, _) = await run(['audit', path]);
+      expect(plainCode, 0);
+      expect(plainOut, contains('main.main → mymodule.exec_shell'));
+      expect(
+        plainOut,
+        contains('REVIEW REQUIRED — calls into custom base modules'),
+      );
+      expect(plainOut, isNot(contains('NO RISK')));
+
+      final (code, _, err) = await run([
+        'audit',
+        path,
+        '--deny',
+        'custom',
+        '--exit-code',
+      ]);
+      expect(code, 1);
+      expect(err, contains('custom: main.main calls mymodule.exec_shell'));
+    });
+
     test('--deny without --exit-code still returns 0 but reports', () async {
       final path = writeValidProgram();
       final (code, out, err) = await run(['audit', path, '--deny', 'io']);

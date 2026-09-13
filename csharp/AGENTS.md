@@ -504,6 +504,51 @@ workflow with no `pull_request` trigger (see "Conformance harness"). Anything wh
 depends on a specific IR shape needs its own test here; `AccessorEdgeCaseTests` (#461) is the
 worked example.
 
+#### Captured stdout is per-execution-context, never a global redirect (issue #611)
+
+`CSharpRunner.Run` is how a test asserts on a compiled program's REAL stdout, and
+`compiler/test/TestSupport.cs` is its single source — `encoder/test/Ball.Encoder.Tests.csproj`
+LINKS that file rather than copying it, so both suites run one harness.
+
+It used to capture with `Console.SetOut(stringWriter)` around the invoke, serialised by a `lock`.
+`Console.Out` is **process-global**: while that redirect was installed, every write anywhere in
+the process landed in that one test's `StringWriter`, and a lock only restrains the code that
+takes it. `Ball.Encoder.Tests` contains a writer that never did —
+`RealWorldSweepTests.RealWorldSweep_ReportsHonestBaseline` ends with a bare
+`Console.Write(report)` so a plain runner can grep its `Results:` line — and xUnit v3 puts each
+test class in its own collection and runs collections **in parallel by default**
+(<https://xunit.net/docs/running-tests-in-parallel>; this repo ships no `xunit.runner.json` and no
+assembly-level `CollectionBehavior` attribute). On CI run 34732470492,
+`BclStaticGuardCallTests.BucketIFixtureEncodesCompilesAndRuns` expected `"BALL\n"` and read the
+sweep's `"Results: 9 passed, 2 failed, 11 total\n…"` instead. (That `2 failed` is the sweep's
+NORMAL line — buckets d and f are declared `MustEncode: false` — so the sweep itself was healthy;
+only its destination was wrong.)
+
+`ConsoleCapture` replaces the shared mutable state instead of scheduling around it:
+`Console.Out` is swapped **once** for a router that forwards each write to the capture registered
+for the CALLING execution context (an `AsyncLocal<TextWriter?>`), and to the real console writer
+when there is none. A capture therefore collects only what its own call tree wrote (work the
+program spawns included — `AsyncLocal` flows with `ExecutionContext`), and a foreign writer is
+unaffected however the runner schedules it. Capture is now lock-free, so compile+run legs are
+concurrent again.
+
+- **Do not "fix" a future collision with `[Collection]` + `DisableParallelization`.** xUnit's
+  grouping is opt-in per class, so that serialises the suite AND leaves the hole open for the next
+  class that writes to `Console` without joining the collection.
+- **Do not hand a test a bare `Console.SetOut`.** Route every capture through
+  `ConsoleCapture.Capture`.
+- `ConsoleCaptureIsolationTests` (linked into BOTH test assemblies) is the guard, and it is
+  deterministic — it forces the interleaving with a file handshake rather than hoping for it:
+  `AForeignConsoleWriteDuringARunIsNotCapturedAsTheProgramsOutput` fails with
+  `Expected: "MINE\n" / Actual: "FOREIGN-SWEEP-LINE\nMINE\n"` on the pre-fix harness, and
+  `TwoConcurrentRunsEachCaptureOnlyTheirOwnOutput` additionally asserts the two runs genuinely
+  OVERLAPPED, so re-serialising the capture fails it too.
+- A plain stress loop is **not** an instrument for this: 20 unforced runs of the two colliding
+  classes reproduced it 0 times. Force the interleaving.
+- `engine/conformance/CSharpRunner.cs` is a deliberate small duplicate that still redirects
+  globally — sound only because that harness drives fixtures one at a time on one thread. Its doc
+  comment says so; port `ConsoleCapture` there before ever running a leg concurrently.
+
 ## Encoder (issue #382)
 
 `csharp/encoder/` encodes C# source into a Ball `Program` via **Roslyn**

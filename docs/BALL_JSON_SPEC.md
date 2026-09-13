@@ -15,15 +15,17 @@ parser/serializer against `ball.schema.json`).
 
 Every `*.ball.json` file in this repo — see `examples/**/*.ball.json` and
 `tests/conformance/*.ball.json` — validates against `ball.schema.json`.
-Run `python scripts/validate_ball_schema.py` to check the whole corpus. CI runs
-it on every PR (`ci.yml`'s always-run `proto` job), alongside
-`python tools/check_proto_schema_drift.py` — the other half of the contract,
-which compares this schema field-for-field against `ball.proto` itself. The
-corpus check alone cannot see a drift in a message no corpus file contains: a
+Run `python scripts/validate_ball_schema.py` to check the whole corpus (it needs
+`pip install jsonschema`, so it is a local check, not a CI step).
+
+What CI *does* enforce, on every PR, is the other half of the contract:
+`python tools/check_proto_schema_drift.py` (stdlib-only, in `ci.yml`'s always-run
+`proto` job) compares this schema field-for-field against `ball.proto` itself.
+The corpus check could never have covered that axis anyway — a
 `ball.v1.Program` document exercises none of `BallCapabilityReport`,
 `BallManifest` or `BallLockfile`, so a field added to one of those (as #609
-added `CallSite.resolved_module`) would leave the schema silently REJECTING the
-tool output it documents — every `$defs` object sets
+added `CallSite.resolved_module`) leaves the schema silently REJECTING the tool
+output this document points at, since every `$defs` object sets
 `additionalProperties: false`.
 
 ## Contents

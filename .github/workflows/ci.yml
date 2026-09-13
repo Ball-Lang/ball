@@ -183,25 +183,18 @@ jobs:
       # validates ball.v1.Program documents from the conformance/examples
       # corpus, and no corpus file is a BallCapabilityReport. This closes it
       # structurally, for every message, and is stdlib-only so the always-run
-      # job stays hermetic. Self-test first — a checker nobody has watched fail
-      # is not a gate.
+      # job stays hermetic — which is also why `scripts/validate_ball_schema.py`
+      # (the corpus half, `pip install jsonschema`) is NOT wired here: this job
+      # deliberately runs on the image's preinstalled python3 with no
+      # setup-python and no network install, and the python job that has both is
+      # path-filtered to python/**, so it would skip the very changes the corpus
+      # check guards. Self-test first — a checker nobody has watched fail is not
+      # a gate.
       - name: Proto/JSON-Schema drift self-test (#609)
         run: python tools/test/test_check_proto_schema_drift.py
 
       - name: ball.schema.json mirrors ball.proto (#609)
         run: python tools/check_proto_schema_drift.py
-
-      # The other half of the same contract, and the check
-      # docs/BALL_JSON_SPEC.md has always CLAIMED CI runs: every
-      # tests/conformance/*.ball.json + examples/**/*.ball.json file must still
-      # validate against the schema. It had never actually been wired, so the
-      # claim was prose. `jsonschema` is the one dependency this job installs;
-      # a corpus the published schema rejects is a red, not a footnote.
-      - name: Install jsonschema
-        run: python -m pip install --quiet "jsonschema>=4.23"
-
-      - name: Ball-JSON corpus validates against ball.schema.json (#133)
-        run: python scripts/validate_ball_schema.py
 
       # The vcpkg self-host sidecar (issues #368/#361) is wired across four
       # files that never see each other at runtime: the release workflow that

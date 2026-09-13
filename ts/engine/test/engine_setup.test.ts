@@ -507,10 +507,6 @@ describe("registerExtraStdFunctions: list_*", () => {
     assert.deepEqual(await h.call("list_map", { list: [1, 2], function: (x: number) => x + 1 }), [2, 3]);
     assert.deepEqual(await h.call("list_filter", { list: [1, 2, 3, 4], function: (x: number) => x % 2 === 0 }), [2, 4]);
     assert.deepEqual(await h.call("list_where", { list: [1, 2, 3, 4], function: (x: number) => x > 2 }), [3, 4]);
-    assert.equal(
-      await h.call("list_reduce", { list: [1, 2, 3], function: (i: any) => i.arg0 + i.arg1, initial: 0 }),
-      6,
-    );
     assert.equal(await h.call("list_any", { list: [1, 2, 3], function: (x: number) => x === 2 }), true);
     assert.equal(await h.call("list_every", { list: [1, 2, 3], function: (x: number) => x > 0 }), true);
     assert.deepEqual(await h.call("list_expand", { list: [1, 2], function: (x: number) => [x, x] }), [1, 1, 2, 2]);
@@ -522,8 +518,17 @@ describe("registerExtraStdFunctions: list_*", () => {
   // is the single source of truth, and a hand-written override here would
   // shadow it. Its behaviour is pinned end-to-end through the real engine in
   // index_wrapper.test.ts and by tests/conformance/463_list_find_no_match.
-  test("list_find is NOT overridden here — the compiled engine owns it", () => {
+  // `list_first`, `list_last` and `list_reduce` joined `list_find` on that
+  // list with #616: all three overrides returned a placeholder (`null`, or
+  // `initial ?? null`) for an empty list where the compiled engine throws a
+  // typed `StateError`, and being registered AFTER the compiled table is built
+  // they shadowed it. tests/conformance/464_state_error_message is the
+  // end-to-end guard.
+  test("list_find/list_first/list_last/list_reduce are NOT overridden here — the compiled engine owns them", () => {
     assert.equal(h.has("list_find"), false);
+    assert.equal(h.has("list_first"), false);
+    assert.equal(h.has("list_last"), false);
+    assert.equal(h.has("list_reduce"), false);
   });
 
   test("list_foreach also iterates a Set and a plain-object map", async () => {
@@ -603,8 +608,6 @@ describe("registerExtraStdFunctions: list_*", () => {
     assert.equal(await h.call("list_peek", { list: [1, 2, 3] }), 3);
     assert.deepEqual(await h.call("list_take", { list: [1, 2, 3, 4], count: 2 }), [1, 2]);
     assert.deepEqual(await h.call("list_skip", { list: [1, 2, 3, 4], count: 2 }), [3, 4]);
-    assert.equal(await h.call("list_first", { list: [1, 2] }), 1);
-    assert.equal(await h.call("list_last", { list: [1, 2] }), 2);
     const setArr = [1, 2, 3];
     await h.call("list_set", { list: setArr, index: 1, value: 99 });
     assert.deepEqual(setArr, [1, 99, 3]);
@@ -1055,13 +1058,6 @@ describe("registerExtraStdFunctions: list_* fallback keys and branch edges", () 
     assert.deepEqual(await h.call("list_where", { list: [1, 2, 3], callback: (x: number) => x > 1 }), [2, 3]);
   });
 
-  test("list_reduce: 'collection'/'value'/'callback' fallback keys and initial-less non-array fallback", async () => {
-    assert.equal(await h.call("list_reduce", { collection: [1, 2, 3], value: (i: any) => i.arg0 + i.arg1 }), 6);
-    assert.equal(await h.call("list_reduce", { list: [1, 2, 3], callback: (i: any) => i.arg0 + i.arg1 }), 6);
-    assert.equal(await h.call("list_reduce", { list: "not an array" }), null);
-    assert.equal(await h.call("list_reduce", { list: "not an array", initial: 5 }), 5);
-  });
-
   test("list_sort: 'collection' key, a non-numeric comparator result is treated as <=0, default sort handles equal elements", async () => {
     assert.deepEqual(await h.call("list_sort", { collection: [3, 1, 2] }), [1, 2, 3]);
     const stable = await h.call("list_sort", { list: [1, 2], compare: () => true });
@@ -1180,11 +1176,7 @@ describe("registerExtraStdFunctions: list_* fallback keys and branch edges", () 
     assert.deepEqual(await h.call("list_skip", { list: "nope" }), []);
   });
 
-  test("list_first/list_last/list_set: 'collection' key and non-array/empty fallbacks", async () => {
-    assert.equal(await h.call("list_first", { collection: [1, 2] }), 1);
-    assert.equal(await h.call("list_first", { list: [] }), null);
-    assert.equal(await h.call("list_last", { collection: [1, 2] }), 2);
-    assert.equal(await h.call("list_last", { list: [] }), null);
+  test("list_set: 'collection' key and non-array fallback", async () => {
     const l = [1, 2];
     await h.call("list_set", { collection: l, index: 0, value: 9 });
     assert.deepEqual(l, [9, 2]);
@@ -1536,7 +1528,6 @@ describe("registerExtraStdFunctions: terminal default-fallback branches (no reco
     assert.deepEqual(await h.call("list_map", {}), []);
     assert.deepEqual(await h.call("list_filter", {}), []);
     assert.deepEqual(await h.call("list_where", {}), []);
-    assert.equal(await h.call("list_reduce", {}), null);
     assert.deepEqual(await h.call("list_sort", {}), []);
     assert.deepEqual(await h.call("list_sort", { list: "nope" }), []);
     assert.equal(await h.call("list_any", {}), false);
@@ -1554,8 +1545,6 @@ describe("registerExtraStdFunctions: terminal default-fallback branches (no reco
     assert.equal(await h.call("list_join", {}), "");
     assert.deepEqual(await h.call("list_take", { value: 2 }), []);
     assert.deepEqual(await h.call("list_skip", { value: 2 }), []);
-    assert.equal(await h.call("list_first", {}), null);
-    assert.equal(await h.call("list_last", {}), null);
     assert.equal(await h.call("list_set", { index: 0, value: 1 }), null);
     assert.deepEqual(await h.call("list_slice", { start: 0 }), []);
   });

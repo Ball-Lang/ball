@@ -760,19 +760,15 @@ export function createEngineSetup(mod: EngineModule) {
       for (const item of list) { let r = fn(item); if (r?.then) r = await r; if (r) result.push(item); }
       return result;
     });
-    _r('list_reduce', async (i: any) => {
-      const m = _m(i); const list = m['list'] ?? m['collection'] ?? [];
-      const fn = m['function'] ?? m['value'] ?? m['callback'];
-      const init = m['initial'] ?? m['initialValue'];
-      if (!Array.isArray(list) || typeof fn !== 'function') return init ?? null;
-      let acc = init;
-      for (const item of list) {
-        if (acc === undefined) { acc = item; continue; }
-        let r = fn({'arg0': acc, 'arg1': item, 'left': acc, 'right': item});
-        if (r?.then) r = await r; acc = r;
-      }
-      return acc;
-    });
+    // `list_reduce` is DELIBERATELY NOT overridden here either (issue #616,
+    // same shadowing class as `list_find`/`list_first`/`list_last`). The
+    // override returned `initial ?? null` for an empty list where the compiled
+    // reference implementation throws a typed `StateError` — and its `initial`
+    // seed was dead weight: every encoder emits `list_reduce` only from a
+    // one-argument `.reduce(cb)` (`dart/encoder/lib/encoder.dart`'s
+    // `'reduce': (…, 1, 1)` arity window, `ts/encoder/src/encoder.ts`'s
+    // `args: ["function"]`), never with a seed. `.fold(init, cb)` is a
+    // different route.
     _r('list_sort', async (i: any) => {
       const m = _m(i); const list = m['list'] ?? m['collection'] ?? [];
       const fn = m['compare'] ?? m['comparator'] ?? m['function'] ?? m['value'];
@@ -876,8 +872,16 @@ export function createEngineSetup(mod: EngineModule) {
     _r('list_peek', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; return (Array.isArray(l) && l.length > 0) ? l[l.length - 1] : null; });
     _r('list_take', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const n = Number(m['count'] ?? m['value'] ?? m['n'] ?? 0); return Array.isArray(l) ? l.slice(0, n) : []; });
     _r('list_skip', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; const n = Number(m['count'] ?? m['value'] ?? m['n'] ?? 0); return Array.isArray(l) ? l.slice(n) : []; });
-    _r('list_first', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; return (Array.isArray(l) && l.length > 0) ? l[0] : null; });
-    _r('list_last', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; return (Array.isArray(l) && l.length > 0) ? l[l.length - 1] : null; });
+    // `list_first` / `list_last` are DELIBERATELY NOT overridden here — the
+    // exact repeat of #597's `list_find` lesson, one line below its own note
+    // (issue #616). Both hand-written overrides returned `null` on an empty
+    // list and, being registered AFTER the compiled table is built, SHADOWED
+    // the compiled engine's reference implementation, which THROWS a typed
+    // `StateError` (`dart/engine/lib/engine_std.dart` — Dart's `List.first` /
+    // `List.last`). So the TS engine silently answered `null` where Dart and
+    // every other self-hosted engine threw, and no fixture could see it
+    // because none read the value back. The compiled implementation is the
+    // single source of truth.
     _r('list_set', (i: any) => { const m = _m(i); const l = m['list'] ?? m['collection']; const idx = Number(m['index'] ?? 0); if (Array.isArray(l)) l[idx] = m['value']; return null; });
     _r('list_slice', (i: any) => {
       const m = _m(i); const l = m['list'] ?? m['collection'] ?? []; if (!Array.isArray(l)) return [];

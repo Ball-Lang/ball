@@ -617,18 +617,33 @@ public static partial class BallRuntime
     /// <summary><c>list.isEmpty</c>.</summary>
     public static BallValue ListIsEmpty(BallValue list) => BallValue.Bool(AsList(list).IsEmpty);
 
-    /// <summary><c>list.first</c>.</summary>
+    /// <summary>
+    /// <c>list.first</c> — Dart's <c>List.first</c>, which throws
+    /// <c>StateError('No element')</c> on an empty list.
+    ///
+    /// <para>A <see cref="BallThrow"/>, NOT a <see cref="BallRuntimeException"/>
+    /// (issue #616 — the same lesson <c>BallStd.ListFind</c> learned in #597):
+    /// only the former is what a compiled <c>try</c>'s <c>catch (BallThrow)</c>
+    /// sees, so a program's own <c>on StateError catch</c> handles it instead of
+    /// the process dying with an unhandled native exception. The message is
+    /// Dart's bare <c>StateError.message</c>; the <c>Bad state: </c> prefix a
+    /// catch body reads back comes from the payload's rendering
+    /// (<c>BallValue.DartErrorToString</c>).</para>
+    /// </summary>
     public static BallValue ListFirst(BallValue list)
     {
         var l = AsList(list);
-        return l.IsEmpty ? throw new BallRuntimeException("first on an empty list") : l.Get(0);
+        return l.IsEmpty ? throw new BallThrow("StateError", "No element") : l.Get(0);
     }
 
-    /// <summary><c>list.last</c>.</summary>
+    /// <summary>
+    /// <c>list.last</c> — Dart's <c>List.last</c>; an empty list throws a
+    /// catchable, typed <c>StateError</c>, exactly as <see cref="ListFirst"/>.
+    /// </summary>
     public static BallValue ListLast(BallValue list)
     {
         var l = AsList(list);
-        return l.IsEmpty ? throw new BallRuntimeException("last on an empty list") : l.Get(l.Count - 1);
+        return l.IsEmpty ? throw new BallThrow("StateError", "No element") : l.Get(l.Count - 1);
     }
 
     /// <summary><c>list.contains(value)</c> — polymorphic: the syntactic encoder routes a String <c>.contains</c> here too.</summary>
@@ -1013,10 +1028,13 @@ public static partial class BallRuntime
                     return BallValue.Bool(items.IsEmpty);
                 case "isNotEmpty":
                     return BallValue.Bool(!items.IsEmpty);
+                // An empty set's `.first`/`.last` is Dart's StateError, never a
+                // silent `null` placeholder (issue #616 / the #55 fail-loud
+                // rule) — and a typed BallThrow, so `on StateError catch` sees it.
                 case "first":
-                    return items.Count > 0 ? items.Get(0) : BallValue.Null;
+                    return items.Count > 0 ? items.Get(0) : throw new BallThrow("StateError", "No element");
                 case "last":
-                    return items.Count > 0 ? items.Get(items.Count - 1) : BallValue.Null;
+                    return items.Count > 0 ? items.Get(items.Count - 1) : throw new BallThrow("StateError", "No element");
             }
         }
 
@@ -1052,8 +1070,10 @@ public static partial class BallRuntime
                 {
                     "isEmpty" => BallValue.Bool(list.IsEmpty),
                     "isNotEmpty" => BallValue.Bool(!list.IsEmpty),
-                    "first" => list.Count > 0 ? list.Get(0) : BallValue.Null,
-                    "last" => list.Count > 0 ? list.Get(list.Count - 1) : BallValue.Null,
+                    // Same as the set arm above: an empty list's `.first`/`.last`
+                    // is a typed StateError, not a silent `null` (issue #616).
+                    "first" => list.Count > 0 ? list.Get(0) : throw new BallThrow("StateError", "No element"),
+                    "last" => list.Count > 0 ? list.Get(list.Count - 1) : throw new BallThrow("StateError", "No element"),
                     _ => throw new BallRuntimeException($"field access '{field}' on a list"),
                 };
             case BallString str:

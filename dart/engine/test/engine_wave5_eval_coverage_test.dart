@@ -370,7 +370,11 @@ void main() {
       );
       await expectLater(
         runAndCapture(program),
-        throwsA(isA<BallRuntimeError>()),
+        throwsA(
+          isA<BallException>()
+              .having((e) => e.typeName, 'typeName', 'StateError')
+              .having((e) => e.value, 'value', 'Bad state: No element'),
+        ),
       );
     });
 
@@ -382,7 +386,11 @@ void main() {
       );
       await expectLater(
         runAndCapture(program),
-        throwsA(isA<BallRuntimeError>()),
+        throwsA(
+          isA<BallException>()
+              .having((e) => e.typeName, 'typeName', 'StateError')
+              .having((e) => e.value, 'value', 'Bad state: No element'),
+        ),
       );
     });
 
@@ -396,7 +404,11 @@ void main() {
       );
       await expectLater(
         runAndCapture(program),
-        throwsA(isA<BallRuntimeError>()),
+        throwsA(
+          isA<BallException>()
+              .having((e) => e.typeName, 'typeName', 'StateError')
+              .having((e) => e.value, 'value', 'Bad state: Too many elements'),
+        ),
       );
     });
   });

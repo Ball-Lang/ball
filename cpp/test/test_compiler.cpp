@@ -2166,12 +2166,25 @@ TEST(collections_list_positional_scalar_ops) {
         coll("list_length", {{"list", ref("a")}}))), ".size())");
     ASSERT_CONTAINS(compile_program(build_program(
         coll("list_is_empty", {{"list", ref("a")}}))), ".empty()");
+    // #616: `.first`/`.last`/`.single` on a list that cannot supply the element
+    // THROW Dart's StateError. `BallDyn::front()`/`back()` answer a null BallDyn
+    // for an empty list and `[0]` answers the FIRST element of a longer one, so
+    // each emission carries its own guard — the same silent-placeholder defect
+    // `list_find` had before #597. Both halves are asserted: the element is
+    // still returned on the happy path AND the guard is present.
+    for (const auto& fn : {"list_first", "list_last"}) {
+        const auto src = compile_program(build_program(coll(fn, {{"list", ref("a")}})));
+        ASSERT_CONTAINS(src, "if(v.empty())throw BallException(\"StateError\"s,\"Bad state: No element\"s);");
+    }
     ASSERT_CONTAINS(compile_program(build_program(
-        coll("list_first", {{"list", ref("a")}}))), ".front()");
+        coll("list_first", {{"list", ref("a")}}))), "return v.front();");
     ASSERT_CONTAINS(compile_program(build_program(
-        coll("list_last", {{"list", ref("a")}}))), ".back()");
+        coll("list_last", {{"list", ref("a")}}))), "return v.back();");
     ASSERT_CONTAINS(compile_program(build_program(
-        coll("list_single", {{"list", ref("a")}}))), "[static_cast<int64_t>(0)]");
+        coll("list_single", {{"list", ref("a")}}))),
+        "if(v.size()>1)throw BallException(\"StateError\"s,\"Bad state: Too many elements\"s);");
+    ASSERT_CONTAINS(compile_program(build_program(
+        coll("list_single", {{"list", ref("a")}}))), "return v[static_cast<int64_t>(0)];");
     ASSERT_CONTAINS(compile_program(build_program(
         coll("list_contains", {{"list", ref("a")}, {"value", lit_int(1)}}))), "ball_index_of(");
     ASSERT_CONTAINS(compile_program(build_program(

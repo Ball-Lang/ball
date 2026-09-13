@@ -12060,11 +12060,25 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto list = get_message_field(call, "list");
         return "BallDyn(" + list + ").empty()";
     }
+    // `.first`/`.last` on an EMPTY list throw Dart's StateError (issue #616).
+    // `BallDyn::front()`/`back()` answer a default-constructed (null) BallDyn
+    // there — the same silent placeholder `list_find` handed back before #597 —
+    // so the emptiness test is explicit here rather than delegated. The thrown
+    // value is the canonical `StateError.toString()` string, which is what a
+    // program's catch variable binds and `to_string(e)` prints; the runtime
+    // helpers themselves are left alone because the compiled engine reaches
+    // them on paths that have already checked.
     if (fn == "list_first") {
-        return "BallDyn(" + get_message_field(call, "list") + ").front()";
+        return "[](const BallDyn& v)->BallDyn{"
+               "if(v.empty())throw BallException(\"StateError\"s,\"Bad state: No element\"s);"
+               "return v.front();}("
+               + get_message_field(call, "list") + ")";
     }
     if (fn == "list_last") {
-        return "BallDyn(" + get_message_field(call, "list") + ").back()";
+        return "[](const BallDyn& v)->BallDyn{"
+               "if(v.empty())throw BallException(\"StateError\"s,\"Bad state: No element\"s);"
+               "return v.back();}("
+               + get_message_field(call, "list") + ")";
     }
     if (fn == "list_contains") {
         auto list = get_message_field(call, "list");
@@ -12093,8 +12107,16 @@ std::string CppCompiler::compile_collections_call(const std::string& fn,
         auto idx = get_message_field(call, "index");
         return "ball_list_remove_at(" + list + "," + idx + ")";
     }
+    // `.single` on anything but a one-element list is Dart's StateError
+    // (`No element` for empty, `Too many elements` for more — both verified
+    // against the SDK). Indexing [0] unconditionally answered the FIRST element
+    // of a longer list and a null for an empty one (issue #616).
     if (fn == "list_single") {
-        return "BallDyn(" + get_message_field(call, "list") + ")[static_cast<int64_t>(0)]";
+        return "[](const BallDyn& v)->BallDyn{"
+               "if(v.empty())throw BallException(\"StateError\"s,\"Bad state: No element\"s);"
+               "if(v.size()>1)throw BallException(\"StateError\"s,\"Bad state: Too many elements\"s);"
+               "return v[static_cast<int64_t>(0)];}("
+               + get_message_field(call, "list") + ")";
     }
     if (fn == "list_map") {
         auto list = get_message_field(call, "list");

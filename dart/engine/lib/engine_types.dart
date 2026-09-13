@@ -425,6 +425,28 @@ class BallException extends BallValue implements Exception {
   String toString() => value?.toString() ?? typeName;
 }
 
+/// Dart's `StateError`, raised PORTABLY (issue #616).
+///
+/// The engine used to raise the host language's own `StateError` for an empty
+/// `.first`/`.last`/`.single`/`reduce` and a no-match `firstWhere`. On the Dart
+/// reference engine that reads back correctly — `_evalLazyTry` binds
+/// `e is BallException ? e.value : e.toString()`, and a host error collapses to
+/// `'Bad state: No element'`. But every SELF-HOSTED engine is this same source
+/// compiled through the Ball pipeline, where `StateError('No element')` is just
+/// a construction of a class the program never declares: the catch variable
+/// then bound a target-shaped object, and `to_string(e)` printed
+/// `{message: No element}` (TS), `main:StateError` (Go), … — one contract,
+/// three answers, all different from Dart.
+///
+/// Raising a [BallException] whose value IS the canonical
+/// `StateError.toString()` string keeps the Dart observable byte-identical
+/// (`e.value` is that string) and makes every target agree, because the same
+/// portable string now travels all of them. [message] is the bare Dart
+/// `StateError.message` (`'No element'`); the `'Bad state: '` prefix is Dart's
+/// own `Error.toString()` rendering, verified against the SDK.
+BallException _stateError(String message) =>
+    BallException('StateError', 'Bad state: $message');
+
 /// Thrown by `std_io.exit` / `std_io.panic` to terminate gracefully.
 class _ExitSignal extends BallValue implements Exception {
   final int code;

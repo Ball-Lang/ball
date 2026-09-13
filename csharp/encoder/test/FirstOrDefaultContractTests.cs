@@ -105,9 +105,13 @@ public class FirstOrDefaultContractTests
                 Console.WriteLine(empty.First());
             """)));
 
-        var ex = Assert.Throws<BallRuntimeException>(() => CSharpRunner.Run(compiled));
+        // Since #616 that throw is a TYPED, catchable BallThrow carrying Dart's
+        // StateError — not the native BallRuntimeException it used to be, which
+        // sailed straight past a compiled program's own `catch (BallThrow …)`.
+        var ex = Assert.Throws<BallThrow>(() => CSharpRunner.Run(compiled));
 
-        Assert.Contains("first on an empty list", ex.Message);
+        Assert.Equal("StateError", ex.TypeName);
+        Assert.Equal("Bad state: No element", ex.Payload.ToString());
     }
 
     /// <summary>The fix's own definition of success: <c>.FirstOrDefault()</c> now fails at

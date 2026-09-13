@@ -37,6 +37,22 @@ for the authoritative member set).
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `dart/compiler/test/base_calls_test.dart`'s `list_find` group (the compiler lowers it to `.firstWhere(cb)` with NO `orElse`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **A caught `StateError` reads as `Bad state: <message>` (#616).** `463` above
+  proves the throw is TYPED; it prints a hardcoded literal from its catch
+  bodies, so it pins nothing about the caught VALUE. The reference engine used
+  to raise a HOST `StateError` for an empty `.first`/`.last`/`.single`/`reduce`
+  and a no-match `firstWhere`, which `_evalLazyTry` collapses to
+  `e.toString()` — correct on Dart, but every SELF-HOSTED engine is that same
+  source compiled through the Ball pipeline, where `StateError('No element')` is
+  a construction of a class the program never declares, so their catch variable
+  bound a target-shaped object and `to_string(e)` printed `{message: No element}`
+  (TS) / `main:StateError` (Go). `engine_types.dart`'s `_stateError` raises a
+  `BallException` whose value IS the canonical string instead, so the Dart
+  observable is byte-identical and the same portable value travels every target.
+  Never re-introduce a host `throw StateError(...)` in engine source — use
+  `_stateError`. `tests/conformance/464_state_error_message` is the cross-target
+  guard. See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder
 - `DartEncoder.encode(String source)` → returns Ball `Program`
 - Uses `analyzer` package to parse Dart AST

@@ -119,6 +119,26 @@ engine test harnesses instead — `dart/engine/test/conformance_test.dart` and
   `list_find_no_match_throws_a_typed_state_error`, `go/runtime`'s
   `TestListFindNoMatchThrowsTypedStateError`, `csharp/compiler/test/
   ListFindContractTests.cs`, and `ts/compiler/test/std_call_dispatch.test.ts`.
+- `464_state_error_message` — what a CAUGHT `StateError` READS AS (issue #616).
+  `463` above proved the throw is typed, but both of its catch bodies print a
+  HARDCODED literal, so nothing anywhere pinned the caught value itself — and
+  every target answered differently. Measured on `origin/main` before the fix,
+  on the same program: the Dart reference engine printed `Bad state: No element`
+  (which is also real Dart's `StateError('No element').toString()`), the TS
+  self-hosted engine `{message: No element}`, the Go self-hosted engine
+  `main:StateError`. This fixture prints `to_string(e)` for the caught value —
+  never a hardcoded string, deliberately unlike `463` — from BOTH
+  `std_collections.list_find`'s no-match and `std_collections.list_first` on an
+  EMPTY list. The second half was worse than a message drift: `list_first`
+  raised an UNTYPED fault on Rust/Go/C#/Python (a bare `panic!` / a
+  `Thrown{Value: string}` / a native `BallRuntimeException` / Python's own
+  `IndexError`), so the program's `on StateError catch` never even ran, and the
+  TS engine's hand-written `engine_setup.ts` override returned `null` — the
+  exact shadowing defect #597 removed one line below, for `list_find`.
+  Hand-authored for the same reason `463` is (the Dart encoder routes no Dart
+  syntax to `list_find`), by the same tool,
+  `dart/encoder/tool/gen_std_gap_fixtures.dart`. One catch clause per `try`, for
+  the same first-clause-only compiler reason `463` documents.
 - `399_bytes_literal` — exercises a `Literal.bytes_value` node (the `literal.bytes_value`
   node-shape carve-out, #64 Phase 2b). No Dart source construct maps to a bytes literal
   (`Uint8List.fromList([...])` encodes as a constructor call), so it cannot be generated

@@ -1936,7 +1936,7 @@ extension BallEngineControlFlow on BallEngine {
               acc = r;
             }
             if (!seeded) {
-              throw StateError('No element');
+              throw _stateError('No element');
             }
             return acc;
           }

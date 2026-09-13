@@ -203,6 +203,17 @@ const json = toJson(ProgramSchema, program);
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `ts/engine/test/index_wrapper.test.ts` (the engine — `engine_setup.ts` deliberately does NOT override `list_find`, so the compiled engine's own correct handler wins) and `ts/compiler/test/std_call_dispatch.test.ts` (the compiler emits a throwing IIFE, never a bare `Array.prototype.find`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`list_first`/`list_last`/`list_reduce` are NOT overridden in
+  `engine_setup.ts` either (#616)** — the exact repeat of the `list_find` lesson
+  one bullet up, found by a fixture that finally printed the caught value. All
+  three hand-written overrides answered a placeholder on an empty list (`null`,
+  or `initial ?? null`) and, being registered AFTER the compiled table is built,
+  SHADOWED the compiled engine's reference implementation, which throws a typed
+  `StateError`. The `list_reduce` override's `initial` seed was dead weight
+  besides: every encoder emits `list_reduce` only from a one-argument
+  `.reduce(cb)`. `tests/conformance/464_state_error_message` is the guard.
+  See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder
 
 - TypeScript → Ball, built on the TypeScript Compiler API (`typescript` package, `ts.SyntaxKind`).

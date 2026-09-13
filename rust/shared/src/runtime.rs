@@ -1543,27 +1543,40 @@ pub fn ball_list_is_empty(list: BallValue) -> BallValue {
     BallValue::Bool(as_list(list).is_empty())
 }
 
+/// `list.first` — Dart's `List.first`, which throws `StateError` on an empty
+/// list.
+///
+/// A TYPED throw, not a bare `panic!(&str)` (issue #616 — the same lesson
+/// [`ball_list_find`] learned in #597): a plain panic is only recoverable by an
+/// *untyped* catch, so a program's own `on StateError catch` around an empty
+/// `.first` never saw it. The message is Dart's bare `StateError.message`; the
+/// `Bad state: ` prefix a catch body reads back is the payload's rendering
+/// (`dart_error_to_string` in `value.rs`).
 pub fn ball_list_first(list: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
         .next()
-        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: .first on an empty list"))
+        .unwrap_or_else(|| ball_throw_typed("StateError", "No element".to_string()))
 }
 
+/// `list.last` — empty throws the same typed `StateError` as [`ball_list_first`].
 pub fn ball_list_last(list: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
         .next_back()
-        .unwrap_or_else(|| panic!("ball-lang-compiler runtime: .last on an empty list"))
+        .unwrap_or_else(|| ball_throw_typed("StateError", "No element".to_string()))
 }
 
+/// `list.single` — Dart throws `StateError('No element')` for an empty list and
+/// `StateError('Too many elements')` for more than one (both verified against
+/// the SDK). Typed for the same reason [`ball_list_first`] is.
 pub fn ball_list_single(list: BallValue) -> BallValue {
     let list = as_list(list);
-    if list.len() != 1 {
-        panic!(
-            "ball-lang-compiler runtime: .single on a list with {} elements",
-            list.len()
-        );
+    if list.is_empty() {
+        ball_throw_typed("StateError", "No element".to_string());
+    }
+    if list.len() > 1 {
+        ball_throw_typed("StateError", "Too many elements".to_string());
     }
     list.into_iter().next().expect("length checked above")
 }
@@ -1634,7 +1647,10 @@ pub fn ball_list_filter(list: BallValue, callback: BallValue) -> BallValue {
 /// `on StateError catch` clause: a bare `panic!(&str)` is only recoverable by an
 /// *untyped* catch, so a multi-clause `try` whose first `on` arm names some
 /// other type would skip every clause and let the panic escape. The sibling
-/// `.first`/`.last`/`list_reduce` paths already use it for exactly this reason.
+/// `.first`/`.last`/`.single` paths use it for exactly this reason too since
+/// #616, which also gave the payload Dart's own `StateError.toString()`
+/// rendering (`Bad state: No element`) so a catch body reads the same string
+/// here as on the Dart reference engine.
 pub fn ball_list_find(list: BallValue, callback: BallValue) -> BallValue {
     as_list(list)
         .into_iter()
@@ -4543,10 +4559,55 @@ mod tests {
                 BallValue::String("StateError".to_string())
             );
             assert_eq!(
-                ball_field_get(payload, "message"),
+                ball_field_get(payload.clone(), "message"),
                 BallValue::String("No element".to_string())
             );
+            // …and the value a catch body actually READS (issue #616). Typing
+            // alone was not enough: the payload used to render as the generic
+            // map form `{__type__: StateError, message: No element}`, where the
+            // Dart reference engine prints Dart's own `StateError.toString()`.
+            assert_eq!(payload.to_string(), "Bad state: No element");
         }
+    }
+
+    /// Issue #616 — every site that raises Dart's `StateError` agrees on BOTH
+    /// halves of the contract: a TYPED payload an `on StateError catch` can
+    /// match, and Dart's own `StateError.toString()` rendering. `.first`,
+    /// `.last` and `.single` used to raise a bare `panic!(&str)`, recoverable
+    /// only by an untyped catch and carrying a message no other target
+    /// produced.
+    #[test]
+    fn empty_first_last_and_single_throw_a_typed_dart_state_error() {
+        fn assert_state_error(want: &str, call: impl FnOnce() -> BallValue) {
+            let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(call))
+                .expect_err("must throw, not return");
+            let payload = ball_catch_payload(caught);
+            assert_eq!(
+                ball_field_get(payload.clone(), "__type__"),
+                BallValue::String("StateError".to_string())
+            );
+            assert_eq!(payload.to_string(), want);
+        }
+
+        assert_state_error("Bad state: No element", || ball_list_first(int_list(&[])));
+        assert_state_error("Bad state: No element", || ball_list_last(int_list(&[])));
+        assert_state_error("Bad state: No element", || ball_list_single(int_list(&[])));
+        assert_state_error("Bad state: Too many elements", || {
+            ball_list_single(int_list(&[1, 2]))
+        });
+    }
+
+    /// The Dart-error rendering table is closed over the type names
+    /// `ball_throw_typed` raises: a map that merely carries a `message` field is
+    /// user data and keeps the generic `{key: value}` form.
+    #[test]
+    fn a_user_map_with_a_message_field_is_not_rendered_as_a_dart_error() {
+        let map = BallMap::new();
+        map.insert(
+            "message".to_string(),
+            BallValue::String("hello".to_string()),
+        );
+        assert_eq!(BallValue::Map(map).to_string(), "{message: hello}");
     }
 
     // ── strings ──

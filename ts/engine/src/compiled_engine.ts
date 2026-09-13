@@ -3884,19 +3884,22 @@ export class BallEngine {
           if (!(items.length === 0)) {
             return items.first;
           }
-          throw new BallRuntimeError('First element of empty set');
+          throw _stateError('No element');
         }
         else if ((__sw === 'last')) {
           if (!(items.length === 0)) {
             return items.last;
           }
-          throw new BallRuntimeError('Last element of empty set');
+          throw _stateError('No element');
         }
         else if ((__sw === 'single')) {
-          if (__ball_eq(items.length, 1)) {
-            return items.single;
+          if ((items.length === 0)) {
+            throw _stateError('No element');
           }
-          throw new BallRuntimeError('Set does not have exactly one element');
+          if (__ball_gt(items.length, 1)) {
+            throw _stateError('Too many elements');
+          }
+          return items.single;
         }
       } while (false);
     }
@@ -4060,7 +4063,10 @@ export class BallEngine {
         }
       }
       else if ((__sw === 'first')) {
-        if ((!__ball_eq(rawList, null) && !(rawList.length === 0))) {
+        if (!__ball_eq(rawList, null)) {
+          if ((rawList.length === 0)) {
+            throw _stateError('No element');
+          }
           return rawList.first;
         }
         if (((object instanceof Set) && !(object.length === 0))) {
@@ -4068,7 +4074,10 @@ export class BallEngine {
         }
       }
       else if ((__sw === 'last')) {
-        if ((!__ball_eq(rawList, null) && !(rawList.length === 0))) {
+        if (!__ball_eq(rawList, null)) {
+          if ((rawList.length === 0)) {
+            throw _stateError('No element');
+          }
           return rawList.last;
         }
         if (((object instanceof Set) && !(object.length === 0))) {
@@ -4076,7 +4085,13 @@ export class BallEngine {
         }
       }
       else if ((__sw === 'single')) {
-        if ((!__ball_eq(rawList, null) && __ball_eq(rawList.length, 1))) {
+        if (!__ball_eq(rawList, null)) {
+          if ((rawList.length === 0)) {
+            throw _stateError('No element');
+          }
+          if (__ball_gt(rawList.length, 1)) {
+            throw _stateError('Too many elements');
+          }
           return rawList.single;
         }
         if (((object instanceof Set) && __ball_eq(object.length, 1))) {
@@ -6619,7 +6634,7 @@ export class BallEngine {
               acc = r;
             }
             if (!seeded) {
-              throw { '__type__': 'StateError', 'message': 'No element' };
+              throw _stateError('No element');
             }
             return acc;
           }
@@ -7506,13 +7521,28 @@ export class BallEngine {
         return (this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).length === 0);
       }), ['list_first']: ((i) => {
         const input = i;
-        return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).first;
+        let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
+        if ((list.length === 0)) {
+          throw _stateError('No element');
+        }
+        return list.first;
       }), ['list_last']: ((i) => {
         const input = i;
-        return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).last;
+        let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
+        if ((list.length === 0)) {
+          throw _stateError('No element');
+        }
+        return list.last;
       }), ['list_single']: ((i) => {
         const input = i;
-        return this._stdAsList(__ball_index(this._stdAsMap(i), 'list')).single;
+        let list = this._stdAsList(__ball_index(this._stdAsMap(i), 'list'));
+        if ((list.length === 0)) {
+          throw _stateError('No element');
+        }
+        if (__ball_gt(list.length, 1)) {
+          throw _stateError('Too many elements');
+        }
+        return list.first;
       }), ['list_contains']: ((i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -7591,7 +7621,7 @@ export class BallEngine {
           acc = v;
         }
         if (!seeded) {
-          throw { '__type__': 'StateError', 'message': 'No element' };
+          throw _stateError('No element');
         }
         return acc;
       }), ['list_find']: (async (i) => {
@@ -7608,7 +7638,7 @@ export class BallEngine {
             return e;
           }
         }
-        throw { '__type__': 'StateError', 'message': 'No element' };
+        throw _stateError('No element');
       }), ['list_any']: (async (i) => {
         const input = i;
         let m = this._stdAsMap(i);
@@ -10798,6 +10828,11 @@ function _unwrapBallFuture(value: any): any {
     return __ball_index(map, 'value');
   }
   return value;
+}
+
+function _stateError(message: any): any {
+  const input = message;
+  return new BallException('StateError', ('Bad state: ' + __ball_to_string(message)));
 }
 
 function _mathSqrt(v: any): any {

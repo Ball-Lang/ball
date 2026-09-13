@@ -73,7 +73,7 @@ func ListIsEmpty(list Value) Value { return asList(list).Len() == 0 }
 func ListFirst(list Value) Value {
 	l := asList(list)
 	if l.Len() == 0 {
-		panic(Thrown{Value: "Bad state: No element"})
+		stateError("No element")
 	}
 	return l.Items[0]
 }
@@ -82,7 +82,7 @@ func ListFirst(list Value) Value {
 func ListLast(list Value) Value {
 	l := asList(list)
 	if l.Len() == 0 {
-		panic(Thrown{Value: "Bad state: No element"})
+		stateError("No element")
 	}
 	return l.Items[l.Len()-1]
 }
@@ -205,7 +205,7 @@ func ListPush(list, value Value) Value {
 func ListPop(list Value) Value {
 	l := asList(list)
 	if l.Len() == 0 {
-		panic(Thrown{Value: "Bad state: No element"})
+		stateError("No element")
 	}
 	v := l.Items[l.Len()-1]
 	l.Items = l.Items[:l.Len()-1]
@@ -345,8 +345,8 @@ func ListFind(list, fn Value) Value {
 			return it
 		}
 	}
-	dartError("StateError", "No element")
-	return nil // unreachable: dartError always panics.
+	stateError("No element")
+	return nil // unreachable: stateError always panics.
 }
 
 // ListSort sorts list in place (Dart's sort). cmpFn may be null (natural order).

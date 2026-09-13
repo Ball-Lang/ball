@@ -4,8 +4,8 @@
 
 Rust implementation of Ball tools (epic #32). The full pipeline is in place —
 compiler, encoder, self-hosted engine, and CLI — and the self-hosted engine now
-**runs the whole conformance corpus at Dart parity** (`Results: 348 passed, 0
-failed, 348 total`; the 4 golden-less resource-limit/sandbox fixtures are
+**runs the whole conformance corpus at Dart parity** (`Results: 349 passed, 0
+failed, 349 total`; the 4 golden-less resource-limit/sandbox fixtures are
 carve-outs, skipped exactly as the Dart runner skips them — #39/#300 closed).
 Always reference the Dart implementation (`dart/compiler/lib/compiler.dart`,
 `dart/encoder/lib/encoder.dart`, `dart/engine/lib/engine.dart`) as the canonical
@@ -140,8 +140,8 @@ self-hosted engine and prints `Results: N passed, M failed, T total` (#40).
 ## Self-Hosted Engine Status (#39/#300) — Complete, at Dart parity
 
 The self-hosted engine compiles through `ball-lang-compiler` **and runs the whole
-conformance corpus with Dart-identical output**: `Results: 348 passed, 0 failed,
-348 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
+conformance corpus with Dart-identical output**: `Results: 349 passed, 0 failed,
+349 total` (the 4 golden-less resource-limit/sandbox fixtures — 196/197/201/202 —
 are documented behavioral carve-outs, skipped like the Dart runner skips them).
 The compiled-engine driver is behind the `self_host` cargo feature (the generated
 `compiled_engine.rs` is a gitignored build artifact, so a default build without it
@@ -615,3 +615,27 @@ Trusted Publisher to be configured until **after** a crate's first publish
 (RFC 3691). A brand-new crate name therefore has to be claimed once with an API
 token before OIDC can take over — which is why the workflow briefly carried a
 `continue-on-error` auth step and a `CARGO_REGISTRY_TOKEN` fallback.
+
+### Dart's `StateError`: typed AND readable (issue #616)
+
+#597/#604 settled that `std_collections.list_find`'s no-match THROWS and that the throw is
+typed. Neither settled what the program then OBSERVES — conformance fixture
+`463_list_find_no_match` prints a hardcoded literal from its catch bodies — and every target
+answered differently. Measured on `origin/main` before the fix, one program printing
+`to_string(e)` from its catch: the Dart reference engine `Bad state: No element` (which is also
+real Dart's `StateError('No element').toString()`), the TS self-hosted engine
+`{message: No element}`, the Go self-hosted engine `main:StateError`.
+
+The contract now has two halves at EVERY site that raises Dart's `StateError` — an empty
+`.first`/`.last`/`.single`/`removeLast`/`reduce`, or a `firstWhere` with no match:
+
+1. **TYPED** — the thrown value carries the type name `StateError`, so a program's own
+   `on StateError catch` matches it. Several sites used to raise an untyped native fault that
+   the compiled `try` could not see at all.
+2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
+   so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
+
+`tests/conformance/464_state_error_message` is the cross-target guard (it prints the caught
+value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
+Per-target details are in `.claude/rules/<lang>.md`; the gap class is
+`docs/TESTING_STRATEGY.md` §5b.

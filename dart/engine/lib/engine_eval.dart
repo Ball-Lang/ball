@@ -908,15 +908,20 @@ extension BallEngineEval on BallEngine {
           return items.isEmpty;
         case 'isNotEmpty':
           return items.isNotEmpty;
+        // Dart raises a `StateError` here, not an engine-internal error: a
+        // program's `on StateError catch` around `mySet.first` has to see it
+        // (issue #616's "set ops" audit). `_stateError` keeps the thrown value
+        // portable across every self-hosted engine.
         case 'first':
           if (items.isNotEmpty) return items.first;
-          throw BallRuntimeError('First element of empty set');
+          throw _stateError('No element');
         case 'last':
           if (items.isNotEmpty) return items.last;
-          throw BallRuntimeError('Last element of empty set');
+          throw _stateError('No element');
         case 'single':
-          if (items.length == 1) return items.single;
-          throw BallRuntimeError('Set does not have exactly one element');
+          if (items.isEmpty) throw _stateError('No element');
+          if (items.length > 1) throw _stateError('Too many elements');
+          return items.single;
       }
     }
 
@@ -1103,18 +1108,32 @@ extension BallEngineEval on BallEngine {
         if (object is Map) return object.isNotEmpty;
         if (object is Set) return object.isNotEmpty;
       // coverage:ignore-end
+      // An EMPTY receiver is Dart's `StateError`, not "field not found": the
+      // post-switch throw below would report `Cannot access field "first" on
+      // List`, which no `on StateError catch` can match and which no other
+      // target reproduces (issue #616).
       case 'first':
-        if (rawList != null && rawList.isNotEmpty) return rawList.first;
+        if (rawList != null) {
+          if (rawList.isEmpty) throw _stateError('No element');
+          return rawList.first;
+        }
         // coverage:ignore-start
         if (object is Set && object.isNotEmpty) return object.first;
       // coverage:ignore-end
       case 'last':
-        if (rawList != null && rawList.isNotEmpty) return rawList.last;
+        if (rawList != null) {
+          if (rawList.isEmpty) throw _stateError('No element');
+          return rawList.last;
+        }
         // coverage:ignore-start
         if (object is Set && object.isNotEmpty) return object.last;
       // coverage:ignore-end
       case 'single':
-        if (rawList != null && rawList.length == 1) return rawList.single;
+        if (rawList != null) {
+          if (rawList.isEmpty) throw _stateError('No element');
+          if (rawList.length > 1) throw _stateError('Too many elements');
+          return rawList.single;
+        }
         // coverage:ignore-start
         if (object is Set && object.length == 1) return object.single;
       // coverage:ignore-end

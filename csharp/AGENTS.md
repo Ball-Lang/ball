@@ -970,6 +970,30 @@ cross-target guard and `csharp/compiler/test/ListFindContractTests.cs` this targ
 `ZeroArgLinqTerminalTests.OrDefaultTerminalsFailLoud` (all four `*OrDefault` names) and
 `FirstOrDefaultContractTests` (the real C# contract, plus `First`'s two surviving routes).
 
+### Dart's `StateError`: typed AND readable (issue #616)
+
+#597/#604 settled that `std_collections.list_find`'s no-match THROWS and that the throw is
+typed. Neither settled what the program then OBSERVES — conformance fixture
+`463_list_find_no_match` prints a hardcoded literal from its catch bodies — and every target
+answered differently. Measured on `origin/main` before the fix, one program printing
+`to_string(e)` from its catch: the Dart reference engine `Bad state: No element` (which is also
+real Dart's `StateError('No element').toString()`), the TS self-hosted engine
+`{message: No element}`, the Go self-hosted engine `main:StateError`.
+
+The contract now has two halves at EVERY site that raises Dart's `StateError` — an empty
+`.first`/`.last`/`.single`/`removeLast`/`reduce`, or a `firstWhere` with no match:
+
+1. **TYPED** — the thrown value carries the type name `StateError`, so a program's own
+   `on StateError catch` matches it. Several sites used to raise an untyped native fault that
+   the compiled `try` could not see at all.
+2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
+   so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
+
+`tests/conformance/464_state_error_message` is the cross-target guard (it prints the caught
+value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
+Per-target details are in `.claude/rules/<lang>.md`; the gap class is
+`docs/TESTING_STRATEGY.md` §5b.
+
 ### Library mode — `EncodeLibrary` / `ball encode --library` (issue #492, slice 2)
 
 `CSharpEncoder.Encode` requires a `Main` entry point; real class libraries have none, which is
@@ -1202,7 +1226,7 @@ Three legs, one runner, selected via `--leg=`:
   `Task` with a 120s budget (mirrors the Rust runner's documented "a latent hang must not wedge the
   whole sweep, and a leaked worker thread is harmless for a measurement run"). Re-measured by the
   `csharp` job on every CI run (regenerate `CompiledEngine.cs`, then sweep), currently
-  **`Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`** — Dart parity. This is what
+  **`Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)`** — Dart parity. This is what
   closes #383's acceptance bar ("full corpus at Dart parity via the Phase-7 harness"). Read the
   live number off that job, not off this line; a repo-derived drift guard
   (`tools/check_conformance_doc_counts.sh`, #519) keeps it honest.
@@ -1427,7 +1451,7 @@ dotnet test csharp/cli/test/Ball.Cli.Tests.csproj -p:CliCore=true -p:SelfHost=tr
   ... --leg=engine` — parity-checked (`passed == total`, `failed == 0`) against the parsed
   `Results:` line rather than a hardcoded fixture count, mirroring the `rust`/`cpp`/`ts` jobs'
   identical gate so the corpus can grow without editing the workflow. Currently green at
-  `Results: 348 passed, 0 failed, 348 total (4 skipped carve-outs)`.
+  `Results: 349 passed, 0 failed, 349 total (4 skipped carve-outs)`.
 - **`csharp-engine` row** (`.github/workflows/conformance-matrix.yml`) — same regen-then-run leg
   as the `ci.yml` job, wired into the `summary` job's `needs`, `print_row`, and both failure-check
   blocks exactly like `rust-engine`. `csharp/**` was also added to the workflow's `push.paths`
@@ -1494,7 +1518,7 @@ dotnet test csharp/engine/test/Ball.Engine.Tests.csproj -p:SelfHost=true \
 # SelfHost setting, then run with --no-build to skip re-resolving each time.
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release -p:SelfHost=true
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
-  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 348 passed, 0 failed, 348 total
+  -c Release -p:SelfHost=true --no-build -- --leg=engine     # Results: 349 passed, 0 failed, 349 total
 dotnet build csharp/engine/conformance/Ball.Engine.Conformance.csproj -c Release
 dotnet run --project csharp/engine/conformance/Ball.Engine.Conformance.csproj \
   -c Release --no-build -- --leg=compiler                    # Results: 258 passed, 77 failed, 335 total
@@ -1664,8 +1688,8 @@ on nuget.org (registration API → HTTP 404), so the first publish reserves the 
   that sweep byte-exact are documented in "CLI" above since they're easy to reintroduce
   accidentally (e.g. via a bare `Console.WriteLine` bypassing the configured `Console.Out`).
   **Phase 9 (#386) wired all of this into CI** — a `csharp` job in `ci.yml` (build/test/format +
-  the regenerate-then-run self-hosted engine conformance sweep, `Results: 348 passed, 0 failed,
-  348 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
+  the regenerate-then-run self-hosted engine conformance sweep, `Results: 349 passed, 0 failed,
+  349 total`), a `csharp-engine` row in `conformance-matrix.yml`, a coverlet→Codecov coverage
   flag/floor, and a `nuget` dependabot entry — see "CI/CD" above. **Phase 10 (#387) added
   documentation** — this file, `.claude/rules/csharp.md`, and the root `CLAUDE.md`/`AGENTS.md`
   status paragraphs (see below). This is the last phase in epic #377's phase table.

@@ -576,9 +576,26 @@ extension BallEngineStd on BallEngine {
       },
       'list_length': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.length,
       'list_is_empty': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.isEmpty,
-      'list_first': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.first,
-      'list_last': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.last,
-      'list_single': (i) => _stdAsList((_stdAsMap(i)!)['list'])!.single,
+      // `.first`/`.last`/`.single` on a list that cannot supply the element
+      // raise Dart's own `StateError`. The empty/length checks are EXPLICIT
+      // rather than delegated to `List.first`/`.last`/`.single`, because a HOST
+      // `StateError` is not portable: see `_stateError`'s doc comment (#616).
+      'list_first': (i) {
+        final list = _stdAsList((_stdAsMap(i)!)['list'])!;
+        if (list.isEmpty) throw _stateError('No element');
+        return list.first;
+      },
+      'list_last': (i) {
+        final list = _stdAsList((_stdAsMap(i)!)['list'])!;
+        if (list.isEmpty) throw _stateError('No element');
+        return list.last;
+      },
+      'list_single': (i) {
+        final list = _stdAsList((_stdAsMap(i)!)['list'])!;
+        if (list.isEmpty) throw _stateError('No element');
+        if (list.length > 1) throw _stateError('Too many elements');
+        return list.first;
+      },
       'list_contains': (i) {
         final m = _stdAsMap(i)!;
         final collection = m['list'];
@@ -665,7 +682,7 @@ extension BallEngineStd on BallEngine {
           acc = v;
         }
         if (!seeded) {
-          throw StateError('No element');
+          throw _stateError('No element');
         }
         return acc;
       },
@@ -678,7 +695,7 @@ extension BallEngineStd on BallEngine {
           if (v is Future) v = await v;
           if (v == true) return e;
         }
-        throw StateError('No element');
+        throw _stateError('No element');
       },
       'list_any': (i) async {
         final m = _stdAsMap(i)!;

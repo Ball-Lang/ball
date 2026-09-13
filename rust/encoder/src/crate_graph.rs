@@ -239,20 +239,25 @@ impl CrateGraph {
     }
 
     /// Encode ONE file of this crate as a standalone library-mode program,
-    /// with the crate's symbol table in hand. The emitted module is named
-    /// `main` (what `compile_library` inlines at the crate root) while name
-    /// resolution still runs as `module_name` — so a sibling module's callee
+    /// with the crate's symbol table in hand. A sibling module's callee
     /// resolves to a real cross-module call, whose module is then a
     /// deliberately unresolved `ModuleImport` because that module is not part
     /// of this one-file program. Used by the Tier A coverage harness, which
     /// scores one file at a time.
+    ///
+    /// The emitted module KEEPS its own crate module name and
+    /// `Program.entry_module` names it — rather than renaming it to `main`,
+    /// which would make a call into the crate ROOT (`module: "main"`) look like
+    /// a same-module call and emit an unqualified call to a function this
+    /// one-file program does not contain. `compile_library` looks the entry
+    /// module up by name and inlines it at the crate root; any name works.
     pub fn encode_file_library(&self, source: &str, module_name: &str) -> Program {
         let ast = syn::parse_file(source)
             .unwrap_or_else(|err| panic!("ball-lang-encoder: failed to parse Rust source: {err}"));
         let encoded = encode_file_module(&ast, module_name, Some(self.symbols.clone()));
-        let mut module = encoded.module;
-        module.name = ROOT_MODULE.to_string();
-        assemble_program(vec![module], "", &encoded.unresolved_modules)
+        let mut program = assemble_program(vec![encoded.module], "", &encoded.unresolved_modules);
+        program.entry_module = module_name.to_string();
+        program
     }
 }
 

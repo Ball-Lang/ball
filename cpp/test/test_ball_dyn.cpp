@@ -794,6 +794,89 @@ TEST(caught_typed_exception_with_a_scalar_payload_keeps_its_type) {
     ASSERT_EQ(ball_object_type_tag(untyped._val), std::string());
 }
 
+TEST(caught_builtin_dart_error_renders_dart_to_string) {
+    // Issue #640. `catch (e) { print('caught: $e'); }` lowers to
+    // `ball_to_string(e)`, and a `try` with at least one TYPED clause binds its
+    // catch variable as `const BallException& e = __ball_e;` — so this overload
+    // is what such a program reads. Its mere EXISTENCE is the build gate (#616
+    // added it): without it the generic `ball_to_string(T)` template
+    // instantiated `std::to_string(BallException&)`, which does not compile,
+    // so the program was a BUILD error rather than a wrong answer. This case
+    // therefore fails to compile if the overload is ever removed.
+    //
+    // What it must RENDER is Dart's own `toString()`. A literal throw
+    // (`throw StateError('boom')`) lowers to
+    // `BallException("StateError", "StateError", {{"message", "boom"}})`: the
+    // ctor argument lives in `fields` and `what()` is the bare TYPE NAME, so
+    // returning `what()` printed `StateError` where Dart prints
+    // `Bad state: boom`.
+    ASSERT_EQ(ball_to_string(BallException(
+                  "StateError"s, "StateError"s, {{"message"s, "boom"s}})),
+              std::string("Bad state: boom"));
+    ASSERT_EQ(ball_to_string(BallException("FormatException"s,
+                                           "FormatException"s,
+                                           {{"message"s, "bad"s}})),
+              std::string("FormatException: bad"));
+    ASSERT_EQ(ball_to_string(BallException("RangeError"s, "RangeError"s,
+                                           {{"message"s, "out of range"s}})),
+              std::string("RangeError: out of range"));
+
+    // A module-qualified tag names the same built-in (the sibling runtimes'
+    // tables strip it the same way: go's messageShortName, C#'s LastIndexOf).
+    ASSERT_EQ(ball_to_string(BallException("main:StateError"s, "StateError"s,
+                                           {{"message"s, "boom"s}})),
+              std::string("Bad state: boom"));
+
+    // The table is CLOSED: a user type keeps `what()` even when it carries a
+    // `message` field, so the rendering never reaches into user data.
+    ASSERT_EQ(ball_to_string(BallException("Complaint"s, "Complaint"s,
+                                           {{"message"s, "late"s}})),
+              std::string("Complaint"));
+    ASSERT_EQ(ball_to_string(BallException("NotFound"s, "NotFound"s,
+                                           {{"detail"s, "x"s}})),
+              std::string("NotFound"));
+
+    // A RUNTIME-raised error already carries its canonical `toString()` string
+    // as the payload (#616), so it must NOT be prefixed a second time.
+    ASSERT_EQ(ball_to_string(_ball_make_exception(
+                  "StateError"s, std::any(std::string("Bad state: No element")))),
+              std::string("Bad state: No element"));
+
+    // A plain untyped throw keeps its message verbatim.
+    ASSERT_EQ(ball_to_string(BallException("Exception"s, "recoverable"s)),
+              std::string("recoverable"));
+
+    // The stream inserter renders the same string — one rendering, two spellings.
+    std::ostringstream oss;
+    oss << BallException("StateError"s, "StateError"s, {{"message"s, "boom"s}});
+    ASSERT_EQ(oss.str(), std::string("Bad state: boom"));
+}
+
+TEST(caught_builtin_dart_error_reified_as_dyn_renders_dart_to_string) {
+    // Issue #640, the other binding: a `try` whose clauses are ALL untyped
+    // binds its catch variable through `_ball_caught_to_dyn`, so the reified
+    // {__type__: "BallException", …} map must stringify to the same Dart
+    // string the `const BallException&` binding above produces.
+    BallDyn d = _ball_caught_to_dyn(
+        BallException("StateError"s, "StateError"s, {{"message"s, "boom"s}}));
+    ASSERT_EQ((std::string)d, std::string("Bad state: boom"));
+    ASSERT_EQ(ball_object_type_tag(d._val), std::string("BallException"));
+    ASSERT_EQ(ball_to_string(d[std::string("typeName")]._val),
+              std::string("StateError"));
+    // `e.message` is the ctor ARGUMENT on every other target (conformance 146
+    // and 464 read it through the typed binding's `fields`), so the reified
+    // shape must agree instead of echoing the type name.
+    ASSERT_EQ(ball_to_string(d[std::string("message")]._val),
+              std::string("boom"));
+
+    // A non-table type keeps the old reification verbatim.
+    BallDyn other = _ball_caught_to_dyn(
+        BallException("NotFound"s, "missing"s, {{"detail"s, "x"s}}));
+    ASSERT_EQ((std::string)other, std::string("missing"));
+    ASSERT_EQ(ball_to_string(other[std::string("message")]._val),
+              std::string("missing"));
+}
+
 TEST(ball_natural_less_cross_type_numeric_and_string) {
     ASSERT_TRUE(ball_natural_less(std::any((int64_t)1), std::any(2.0)));
     ASSERT_TRUE(!ball_natural_less(std::any(2.0), std::any((int64_t)1)));

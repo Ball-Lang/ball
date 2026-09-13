@@ -1,3 +1,10 @@
+## [0.4.4](https://github.com/Ball-Lang/ball/compare/ball_compiler-v0.4.3...ball_compiler-v0.4.4) (2026-09-13)
+
+
+### Bug Fixes
+
+* make std_collections.list_find throw StateError on no match everywhere (closes [#597](https://github.com/Ball-Lang/ball/issues/597)) ([#604](https://github.com/Ball-Lang/ball/issues/604)) ([edde5c4](https://github.com/Ball-Lang/ball/commit/edde5c4bec44a36a1e2c480300f257c7e16d3125)), closes [#545](https://github.com/Ball-Lang/ball/issues/545)
+
 ## [0.4.3](https://github.com/Ball-Lang/ball/compare/ball_compiler-v0.4.2...ball_compiler-v0.4.3) (2026-09-13)
 
 

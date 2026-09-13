@@ -231,8 +231,9 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_ball_dart_error_to_string` in `cpp/shared/include/ball_emit_runtime.h`
   (#616's closed table: `StateError` → `Bad state`, `FormatException`,
   `RangeError`, nothing else — the same three rows as Go's `dartErrorToString`
-  and C#'s `DartErrorToString`; Rust's `dart_error_to_string` has a fourth
-  `TypeError` row and is the OPEN divergence #641, so do NOT copy it here).
+  and C#'s `DartErrorToString`; the siblings also carry a `TypeError` row, which
+  this table deliberately does not — see the #641 bullet below for why there is
+  no prefix for it to hold).
   Key on the `message` FIELD, never on the type
   name alone: a literal `throw StateError('boom')` keeps its ctor argument in
   `fields` with `what()` = the bare type name, while `_ball_make_exception`
@@ -241,6 +242,31 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   header, never the spliced copies (`*_embed.h` are generated at configure time,
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
+
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. The emitted `ball_cast_assert` takes the subject as a `BallDyn` now.
+  C++ needs no `TypeError` ROW in the #640 table above: `ball_cast_assert` uses
+  the 2-argument, no-`fields` ctor, so the `message` lookup misses and
+  `ball_to_string(const BallException&)` returns `what()` — the canonical string
+  the THROWER already carried. That also means there is nothing for a row to
+  hold, since Dart spells this one with no prefix at all.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one. C++ is the single target it marks
+  `coverage_exempt`, and that exemption is narrow: it excuses C++ from needing a
+  row for a name whose thrower carries the string, and excuses it from NOTHING
+  else — the three rows the table does hold are checked against Dart's spellings
+  exactly like Go's, C#'s, Rust's and TS's, with a negative control in the
+  self-test proving that check fires. Add a new built-in error here and to that
+  contract in the same PR, or the checker fails.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)

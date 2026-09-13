@@ -112,10 +112,21 @@ public static partial class BallRuntime
     /// <summary>
     /// <c>p as T</c> — an assertion, not a refutation: a type mismatch throws a
     /// catchable Ball <c>TypeError</c> rather than falling through to the next
-    /// case (the reference engine's <c>type cast failed</c>).
+    /// case.
+    /// <para>The message is Dart's own, verbatim (issue #641): a <c>_TypeError</c>'s
+    /// <c>toString()</c> IS its message — no <c>TypeError: </c> prefix, unlike the
+    /// other three built-ins — and it names the VALUE's runtime type before the
+    /// target type, which is why the subject is a parameter at all. It used to
+    /// spell <c>type cast failed: not a int</c>, which no other target and no real
+    /// Dart produced. Guard:
+    /// <c>tests/conformance/467_caught_type_error_to_string</c>.</para>
     /// </summary>
-    public static bool PatternCastAssert(bool matched, string typeName) =>
-        matched ? true : throw new BallThrow("TypeError", $"type cast failed: not a {typeName}");
+    public static bool PatternCastAssert(bool matched, BallValue value, string typeName) =>
+        matched
+            ? true
+            : throw new BallThrow(
+                "TypeError",
+                $"type '{TypeOfName(value)}' is not a subtype of type '{typeName}' in type cast");
 
     /// <summary>
     /// A <c>when</c> guard's result. Only a literal <c>true</c> is a match —

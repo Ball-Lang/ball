@@ -304,6 +304,14 @@ func dartErrorToString(m *Message) (string, bool) {
 		prefix = "FormatException"
 	case "RangeError":
 		prefix = "RangeError"
+	// The empty prefix below is not "unset" — it is Dart's answer. A _TypeError's
+	// toString() IS its message ("type 'int' is not a subtype of type 'String' in
+	// type cast"), with no type-name prefix at all, so this arm was MISSING
+	// rather than merely different: a caught failed cast printed the bare type
+	// tag "TypeError" (issue #641). Verified against the SDK; guard: conformance
+	// 467_caught_type_error_to_string.
+	case "TypeError":
+		prefix = ""
 	default:
 		return "", false
 	}
@@ -314,6 +322,9 @@ func dartErrorToString(m *Message) (string, bool) {
 	s, ok := msg.(string)
 	if !ok {
 		return "", false
+	}
+	if prefix == "" {
+		return s, true
 	}
 	return prefix + ": " + s, true
 }

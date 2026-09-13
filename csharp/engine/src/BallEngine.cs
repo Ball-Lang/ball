@@ -62,12 +62,20 @@ public sealed class BallEngine
     /// <summary>
     /// Run the program, returning its captured stdout lines.
     ///
-    /// <para>The compiled self-hosted engine driver is not yet wired in — the
-    /// generated <c>CompiledEngine.cs</c> does not compile through the current
-    /// Ball → C# compiler (issue #383; a bounded category grind). This method
-    /// therefore throws <see cref="SelfHostPendingException"/>; the loader, the
+    /// <para>The compiled self-hosted engine runs the whole conformance corpus
+    /// at Dart parity (issue #383/#384, closed) — but only in a build that
+    /// defines <c>SELF_HOST</c> (<c>-p:SelfHost=true</c>), because the generated
+    /// <c>CompiledEngine.cs</c> it drives is a gitignored artifact absent from a
+    /// fresh checkout (regenerate it with <c>csharp/engine/tool</c>; see
+    /// <c>csharp/AGENTS.md</c>). In the DEFAULT build this method therefore
+    /// throws <see cref="SelfHostPendingException"/>, while the loader, the
     /// program view, and the <c>ball_proto</c> access patterns this wrapper
-    /// provides are still exercised (see the engine test suite).</para>
+    /// provides remain exercised (see the engine test suite).</para>
+    ///
+    /// <para><c>Run()</c> takes no parameters, and <c>RunSelfHosted</c> fixes
+    /// <c>sandbox=false</c>, permissive limits and a single
+    /// <c>StdModuleHandler</c>, so this wrapper hosts TRUSTED programs only —
+    /// see the per-target table in <c>plugins/ball/skills/embed/SKILL.md</c>.</para>
     /// </summary>
     public IReadOnlyList<string> Run()
     {

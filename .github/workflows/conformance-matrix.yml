@@ -990,7 +990,7 @@ jobs:
       floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
-  # C# round-trip leg — MEASUREMENT ONLY, NO FLOOR (#452 item 1)
+  # C# round-trip leg — FLOORED + RATCHETED (#452 item 1, floored by #642)
   #
   # Ball fixture -> C# (Ball.Compiler) -> re-encode that C# back to Ball
   # (Ball.Encoder / Roslyn) -> run the RE-ENCODED program on the DART reference
@@ -1006,19 +1006,29 @@ jobs:
   # harness could fail to compile, throw, or start reporting a wrong count with
   # no CI signal whatsoever. This row makes that number live.
   #
-  # NO FLOOR GATE, deliberately: the honest baseline is 0/320 BY CONSTRUCTION.
-  # The compiler emits a flat class dispatching through `BallRuntime.*` calls
-  # over `BallValue`; the syntactic Roslyn encoder targets idiomatic hand-written
-  # C# and rejects those shapes (`unsupported method call `.ArgGet(...)``,
-  # `new BallList(...) targets an unknown type`, …). A ratchet on 0 is
-  # meaningless. What this job DOES gate is harness health: a `Results:` line
-  # must be produced, its counts must be bare integers, and total must be >= 1.
-  # The leg's own exit code is EXPECTED to be non-zero while fixtures fail.
+  # This row USED to carry no floor on `passed`, only `total >= 1`. It therefore
+  # printed `Results: 0 passed, N failed, N total` on every run since the day it
+  # shipped and went GREEN every time (#642). A measurement leg that cannot pass
+  # a single fixture is not measuring: the floor below is now a real, measured
+  # count and a ratchet, enforced by tools/ci/roundtrip_floor.sh (unit-tested by
+  # tools/test/test_roundtrip_floor.sh on every PR).
+  #
+  # REMAINING GAP (named, not hidden): the compiler emits a flat class
+  # dispatching through `BallRuntime.*` calls over `BallValue`, and the
+  # syntactic Roslyn encoder targets idiomatic hand-written C#. Closing that for
+  # the whole corpus is per-target encoder feature work tracked in #452/#492 —
+  # the floor records exactly how far it has got, and only rises.
   # ──────────────────────────────────────────────────
   csharp-roundtrip:
     name: C# Round-Trip Leg (measurement)
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> C# -> Ball -> Dart engine.
+      # NEVER lower this to turn a red build green — preventing exactly that is
+      # the whole point of a ratchet. The job prints the exact new value when it
+      # sees an improvement; raise it in the SAME PR as the fix that earned it.
+      CSHARP_ROUNDTRIP_FLOOR: "1"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1045,66 +1055,25 @@ jobs:
         run: |
           cd csharp
           set +e
-          output=$(dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=roundtrip --dart=dart 2>&1)
+          dotnet run --project engine/conformance/Ball.Engine.Conformance.csproj -c Release --no-build -- --leg=roundtrip --dart=dart > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — never a global grep over all
-          # output. A multiline capture makes `[ "$total" -lt 1 ]` exit 2, and a
-          # failing `[` inside an `if` SKIPS the branch and falls through to
-          # exit 0: the gate would be silently DISABLED. `tail -1` makes that
-          # unreachable; the integer guard below asserts it rather than trusting
-          # it. (This leg's line carries a trailing " (N skipped carve-outs)"
-          # suffix — the `(?= total)` lookahead is unaffected.)
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== C# Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          # Positive floor. A harness that printed nothing, or discovered no
-          # fixtures, must NEVER read as a silent pass (#439/#444) — and since
-          # this leg has no ratchet, this is the ONLY thing standing between
-          # "the harness rotted" and a green job.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### C# round-trip leg (measurement only — issue #452 item 1)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> C# -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`BallRuntime.*\`-shaped C# the syntactic Roslyn encoder does not recognise)."
-            echo "This row exists to keep the number live and to catch the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "Remaining gap: the Ball -> C# compiler emits a flat class dispatching"
+            echo "through \`BallRuntime.*\` calls over \`BallValue\`; the syntactic Roslyn"
+            echo "encoder targets idiomatic hand-written C#. Closing that for the whole"
+            echo "corpus is encoder feature work tracked in #452 / #492."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          # The leg's own exit code is expected to be non-zero while fixtures
-          # fail; it is reported, not gated on.
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "C#" "$CSHARP_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
   # Round-trip legs for Python / Go / Rust (#452 item 3) — MEASUREMENT ONLY.
@@ -1118,27 +1087,38 @@ jobs:
   # Running it on the language's own engine would only prove the pipeline agrees
   # with itself; Dart is the ground truth.
   #
-  # NO FLOOR GATE, deliberately: a near-zero baseline is honest and expected
-  # BY CONSTRUCTION. Every one of these compilers emits a flat program
-  # dispatching through its own runtime's helpers over its own Ball-value type,
-  # a shape none of the syntactic/AST-based encoders was built to re-parse.
-  # A ratchet on 0 is meaningless. What these jobs DO gate is harness health: a
-  # `Results:` line must be produced, its counts must be bare integers, and
-  # total must be >= 1. Each leg's own exit code is EXPECTED to be non-zero
-  # while fixtures fail.
+  # FLOORED + RATCHETED SINCE #642. Each of these rows used to gate on harness
+  # health alone (`total >= 1`) and nothing else, so all three printed
+  # `Results: 0 passed, N failed, N total` on every run since they shipped and
+  # went GREEN every time. A measurement leg that cannot round-trip a single
+  # fixture is not measuring anything. Each row now carries a
+  # `<LANG>_ROUNDTRIP_FLOOR` constant and runs tools/ci/roundtrip_floor.sh,
+  # which fails on `passed < 1`, fails on a drop below the floor, and prints the
+  # exact new floor to record on an improvement. That script is unit-tested by
+  # tools/test/test_roundtrip_floor.sh (ci.yml's always-on `proto` job), which
+  # also asserts that all four rows actually invoke it.
+  #
+  # REMAINING GAP (named per row, not hidden): every one of these compilers
+  # emits a flat program dispatching through its own runtime's helpers over its
+  # own Ball-value type, a shape the syntactic/AST-based encoders were not built
+  # to re-parse. Closing that for the whole corpus is per-target encoder feature
+  # work tracked in #452 (and, for Rust's `panic!` sub-case, #632). Each leg's
+  # own exit code is still EXPECTED to be non-zero while any fixture fails; it
+  # is reported, never gated on.
   #
   # THESE ROWS RUN ON PRs SINCE #619: this workflow gained a path-filtered
   # `pull_request:` trigger, so a PR touching any filtered path gets every row —
-  # these measurement legs included — as a PR check, with no dispatch. What is
-  # still deliberately NOT gated is their FAILURE COUNT: each leg's own exit code
-  # is expected to be non-zero, and the assertion stays "the harness produced a
-  # parseable `Results:` line, its counts are bare integers, and total >= 1". A
-  # red row here means the harness broke, never that a fixture regressed.
+  # these measurement legs included — as a PR check, with no dispatch.
   # ──────────────────────────────────────────────────
   python-roundtrip:
     name: Python Round-Trip Leg (measurement)
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> Python -> Ball -> Dart
+      # engine. NEVER lower this to turn a red build green; raise it in the SAME
+      # PR as the fix that earned it (the job prints the exact new value).
+      PYTHON_ROUNDTRIP_FLOOR: "1"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1167,71 +1147,35 @@ jobs:
         id: conformance
         run: |
           set +e
-          output=$(python -m python.engine.conformance.roundtrip 2>&1)
+          python -m python.engine.conformance.roundtrip > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — never a global grep over all
-          # output. A multiline capture makes `[ "$total" -lt 1 ]` exit 2, and a
-          # failing `[` inside an `if` SKIPS the branch and falls through to
-          # exit 0: the gate would be silently DISABLED. `tail -1` makes that
-          # unreachable; the integer guard below asserts it rather than trusting
-          # it. (This leg's line carries a trailing " (N skipped carve-outs)"
-          # suffix — the `(?= total)` lookahead is unaffected.)
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Python Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          # Positive floor. A harness that printed nothing, or discovered no
-          # fixtures, must NEVER read as a silent pass (#439/#444) — and since
-          # this leg has no ratchet, this is the ONLY thing standing between
-          # "the harness rotted" and a green job.
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### Python round-trip leg (measurement only — issue #452 item 3)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> Python -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`ballrt.*\`-shaped Python the syntactic \`ast\` encoder does not recognise)."
-            echo "This row exists to keep the number live and to catch the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "Remaining gap: the Ball -> Python compiler emits a flat module dispatching"
+            echo "through \`ballrt.*\` helpers; the syntactic \`ast\` encoder targets idiomatic"
+            echo "hand-written Python. Closing that for the whole corpus is encoder feature"
+            echo "work tracked in #452."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          # The leg's own exit code is expected to be non-zero while fixtures
-          # fail; it is reported, not gated on.
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Python" "$PYTHON_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   go-roundtrip:
     name: Go Round-Trip Leg (measurement)
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> Go -> Ball -> Dart engine.
+      # NEVER lower this to turn a red build green; raise it in the SAME PR as
+      # the fix that earned it (the job prints the exact new value).
+      GO_ROUNDTRIP_FLOOR: "1"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1256,60 +1200,35 @@ jobs:
         working-directory: go/engine
         run: |
           set +e
-          output=$(go test -v -run TestRoundTrip -timeout 3600s ./conformance/ 2>&1)
+          go test -v -run TestRoundTrip -timeout 3600s ./conformance/ > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — see the Python row above for
-          # why a global grep here is a silently-disabled gate.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Go Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### Go round-trip leg (measurement only — issue #452 item 3)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> Go -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`ballrt.*\`-shaped Go the syntactic \`go/ast\` encoder does not recognise)."
-            echo "This row exists to keep the number live and to catch the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "Remaining gap: the Ball -> Go compiler emits a flat package dispatching"
+            echo "through \`ballrt.*\` helpers over \`ballrt.Value\`; the syntactic \`go/ast\`"
+            echo "encoder targets idiomatic hand-written Go. Closing that for the whole"
+            echo "corpus is encoder feature work tracked in #452."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Go" "$GO_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   rust-roundtrip:
     name: Rust Round-Trip Leg (measurement)
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    env:
+      # Fixtures that currently round-trip Ball -> Rust -> Ball -> Dart engine.
+      # NEVER lower this to turn a red build green; raise it in the SAME PR as
+      # the fix that earned it (the job prints the exact new value).
+      RUST_ROUNDTRIP_FLOOR: "1"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -1341,56 +1260,26 @@ jobs:
         working-directory: rust
         run: |
           set +e
-          output=$(cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture 2>&1)
+          cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture > "$RUNNER_TEMP/roundtrip.log" 2>&1
           exit_code=$?
-          echo "$output"
-
-          # Parse the FINAL `Results:` line ONLY — see the Python row above for
-          # why a global grep here is a silently-disabled gate.
-          summary=$(echo "$output" | grep -E '^Results: [0-9]+ passed' | tail -1 || true)
-          passed=$(echo "$summary" | grep -oP 'Results: \K\d+(?= passed)' | tail -1 || true)
-          failed=$(echo "$summary" | grep -oP ', \K\d+(?= failed)'  | tail -1 || true)
-          total=$(echo "$summary"  | grep -oP ', \K\d+(?= total)'   | tail -1 || true)
-
-          for v in "$passed" "$failed" "$total"; do
-            case "$v" in
-              ''|*[!0-9]*)
-                echo "::error::Could not parse a clean integer count from the Results line (got '$v'). Refusing to report a number this gate cannot trust."
-                exit 1;;
-            esac
-          done
-
-          echo "passed=$passed" >> "$GITHUB_OUTPUT"
-          echo "failed=$failed" >> "$GITHUB_OUTPUT"
-          echo "total=$total"   >> "$GITHUB_OUTPUT"
-
-          echo ""
-          echo "=== Rust Round-Trip Leg (measurement only — no floor) ==="
-          echo "Results: $passed passed, $failed failed, $total total"
-
-          if [ "$total" -lt 1 ]; then
-            echo "::error::The round-trip leg reported no fixtures (total=$total) — it measured nothing. Exit code was $exit_code."
-            exit 1
-          fi
+          set -e
+          cat "$RUNNER_TEMP/roundtrip.log"
 
           {
-            echo "### Rust round-trip leg (measurement only — issue #452 item 3)"
-            echo ""
-            echo "**$passed/$total** fixtures round-trip Ball -> Rust -> Ball -> Dart engine."
-            echo ""
-            echo "No floor is enforced: 0/$total is the expected baseline (the compiler emits"
-            echo "\`ball_lang_shared::runtime::*\`-shaped Rust the syntactic \`syn\` encoder does"
-            echo "not recognise — and it has no \`fn main()\` shape the encoder's default path"
-            echo "accepts). This row keeps the number live and catches the harness itself breaking."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "Remaining gap: the Ball -> Rust compiler emits a flat program dispatching"
+            echo "through \`ball_lang_shared::runtime::*\` helpers over \`BallValue\`; the"
+            echo "syntactic \`syn\` encoder targets idiomatic hand-written Rust. Closing that"
+            echo "for the whole corpus is encoder feature work tracked in #452, with the"
+            echo "method-dispatcher \`panic!\` sub-case tracked separately in #632."
+          } > "$RUNNER_TEMP/roundtrip.note"
 
-          echo "round-trip leg exit code: $exit_code (non-zero is expected at the current baseline)"
-          exit 0
+          bash "$GITHUB_WORKSPACE/tools/ci/roundtrip_floor.sh" "Rust" "$RUST_ROUNDTRIP_FLOOR" "$exit_code" "$RUNNER_TEMP/roundtrip.log" "$RUNNER_TEMP/roundtrip.note"
 
     outputs:
       passed: ${{ steps.conformance.outputs.passed }}
       failed: ${{ steps.conformance.outputs.failed }}
       total: ${{ steps.conformance.outputs.total }}
+      floor: ${{ steps.conformance.outputs.floor }}
 
   # ──────────────────────────────────────────────────
   # Compiler legs — Ball -> <lang> -> build -> run, PER FIXTURE (#452)
@@ -1870,12 +1759,14 @@ jobs:
             fi
           done
 
-          # The round-trip measurement legs have no floor, so each one's RESULT
-          # is the only signal it carries: the job fails solely when the harness
-          # itself broke (no parseable Results line, a non-integer count, or zero
-          # fixtures discovered). Their FAILURE COUNTS are deliberately NOT fed
-          # into the parity loop below — 0/321 passing is the honest, expected
-          # baseline in all four, and wiring that in would hard-red every run.
+          # The round-trip legs are floored and ratcheted since #642 but are
+          # still not PARITY gates: each row fails when its harness broke, when
+          # it round-tripped zero fixtures, or when its count dropped below its
+          # own `<LANG>_ROUNDTRIP_FLOOR`. Their FAILURE COUNTS stay out of the
+          # parity loop below on purpose — most of the corpus does not yet
+          # round-trip on any target, and wiring that in would hard-red every
+          # run. Each row's RESULT is the signal; its floor is what makes a flat
+          # zero red instead of green.
           for leg in \
             "C#:${{ needs.csharp-roundtrip.result }}" \
             "Python:${{ needs.python-roundtrip.result }}" \

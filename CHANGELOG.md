@@ -1,3 +1,10 @@
+## [1.72.2](https://github.com/Ball-Lang/ball/compare/v1.72.1...v1.72.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **csharp:** un-route `.FirstOrDefault()` from `First`'s throwing arms (closes [#588](https://github.com/Ball-Lang/ball/issues/588)) ([#598](https://github.com/Ball-Lang/ball/issues/598)) ([07344ca](https://github.com/Ball-Lang/ball/commit/07344ca9da421588297e94ce48017351508a2e74)), closes [C#-specific](https://github.com/C/issues/-specific)
+
 ## [1.72.1](https://github.com/Ball-Lang/ball/compare/v1.72.0...v1.72.1) (2026-09-13)
 
 

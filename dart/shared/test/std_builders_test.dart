@@ -81,6 +81,53 @@ void main() {
       'ball_proto': buildBallProtoModule,
     };
 
+    // ── The text-sink trio (issue #630) ───────────────────────────────
+    //
+    // `std.sink_create` / `sink_write` / `sink_to_string` are the DECLARED
+    // representation of a mutable output sink (Dart's `StringBuffer`, Rust's
+    // `fmt::Write`, Go's `strings.Builder`, C#'s `StringBuilder`, Python's
+    // `io.StringIO`, C++'s `ostringstream`). Before #630 Ball had an
+    // *undeclared* one: a `__type__`/`__buffer__` map hardcoded by name in the
+    // Dart engine and (twice, with incompatible shapes — issue #633) in the TS
+    // engine, and implemented nowhere in the Rust/C#/Go/Python/C++ compilers.
+    // That is the #505 shape one level up, so the declaration is what every
+    // other gate (the Rust/C# mirror-builder parity tests, `gen_std_coverage`,
+    // `check_encoder_completeness`) hangs off.
+    test('std declares the sink trio', () {
+      final names = buildStdModule().functions.map((f) => f.name).toSet();
+      for (final fn in ['sink_create', 'sink_write', 'sink_to_string']) {
+        expect(
+          names,
+          contains(fn),
+          reason:
+              'std.$fn is not declared — a function implemented by hardcoded '
+              'name but declared nowhere is invisible to every other gate '
+              '(issue #505)',
+        );
+      }
+    });
+
+    test('std declares the sink trio input types', () {
+      final module = buildStdModule();
+      final typeNames = module.typeDefs.map((t) => t.name).toSet();
+      expect(typeNames, contains('SinkCreateInput'));
+      expect(typeNames, contains('SinkWriteInput'));
+      expect(typeNames, contains('SinkToStringInput'));
+
+      final byName = {for (final f in module.functions) f.name: f};
+      expect(byName['sink_create']?.inputType, 'SinkCreateInput');
+      expect(byName['sink_write']?.inputType, 'SinkWriteInput');
+      expect(byName['sink_to_string']?.inputType, 'SinkToStringInput');
+
+      final fields = {
+        for (final t in module.typeDefs)
+          t.name: t.descriptor.field.map((f) => f.name).toList(),
+      };
+      expect(fields['SinkCreateInput'], ['initial']);
+      expect(fields['SinkWriteInput'], ['sink', 'text']);
+      expect(fields['SinkToStringInput'], ['sink']);
+    });
+
     builders.forEach((expectedName, build) {
       test('$expectedName: well-formed module', () {
         final m = build();

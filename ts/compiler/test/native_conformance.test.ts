@@ -67,6 +67,13 @@ const NATIVE_FIXTURES = [
   "113_operator_overloading",
   "394_mappattern_excludes_set",
   "258_logical_and_pattern",
+  // 465_string_sink: the declared text sink (#630). Before it, the TS side had
+  // an UNDECLARED one with three incompatible shapes — preamble.ts joined an
+  // Array `__buffer__` while ts/engine registered `write` twice, once onto an
+  // Array and once onto a String (#633) — so which shape won depended on
+  // registration order. The fixture's `appendWord(out, 'c')` is the
+  // reference-semantics leg.
+  "465_string_sink",
 ];
 
 describe("compiler — native conformance spot checks", () => {

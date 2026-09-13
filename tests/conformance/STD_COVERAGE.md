@@ -93,7 +93,7 @@ Universal standard library base module. Every function here represents a languag
 | `modulo` | ✅ | ✅ 36 fixture(s): `108_class_tostring`, `117_list_generate`, `125_group_by` +33 more | ✅ |
 | `multiply` | ✅ | ✅ 65 fixture(s): `100_complex_control_flow`, `101_simple_class`, `103_abstract_class` +62 more | ✅ |
 | `negate` | ✅ | ✅ 44 fixture(s): `105_static_methods`, `135_linear_search_sentinel`, `170_pattern_switch_expr` +41 more | ✅ |
-| `not` | ✅ | ✅ 13 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +10 more | ✅ |
+| `not` | ✅ | ✅ 14 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +11 more | ✅ |
 | `not_equals` | ✅ | ✅ 14 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +11 more | ✅ |
 | `null_check` | ✅ | ✅ 9 fixture(s): `106_factory_constructor`, `119_nested_maps`, `125_group_by` +6 more | ✅ |
 | `null_coalesce` | ✅ | ✅ 2 fixture(s): `124_frequency_counter`, `401_switch_expr_null_arm` | ✅ |
@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 350 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +347 more | ✅ |
+| `print` | ✅ | ✅ 351 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +348 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -119,7 +119,7 @@ Universal standard library base module. Every function here represents a languag
 | `string_ends_with` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
 | `string_from_char_code` | ❌ | ❌ | ✅ |
 | `string_index_of` | ❌ | ❌ | ✅ |
-| `string_is_empty` | ✅ | ✅ 14 fixture(s): `115_generic_class`, `123_queue_simulation`, `195_deep_nesting` +11 more | ✅ |
+| `string_is_empty` | ✅ | ✅ 15 fixture(s): `115_generic_class`, `123_queue_simulation`, `195_deep_nesting` +12 more | ✅ |
 | `string_last_index_of` | ✅ | ✅ 1 fixture(s): `264_string_replace_ops` | ✅ |
 | `string_length` | ❌ | ❌ | ✅ |
 | `string_pad_left` | ✅ | ✅ 2 fixture(s): `204_string_operations`, `264_string_replace_ops` | ✅ |
@@ -143,7 +143,7 @@ Universal standard library base module. Every function here represents a languag
 | `throw` | ✅ | ✅ 22 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +19 more | ✅ |
 | `to_double` | ✅ | ✅ 4 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +1 more | ✅ |
 | `to_int` | ✅ | ✅ 5 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +2 more | ✅ |
-| `to_string` | ✅ | ✅ 190 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +187 more | ✅ |
+| `to_string` | ✅ | ✅ 191 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +188 more | ✅ |
 | `to_string_as_exponential` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |
 | `to_string_as_fixed` | ✅ | ✅ 1 fixture(s): `316_to_string_as_fixed` | ✅ |
 | `to_string_as_precision` | ✅ | ✅ 1 fixture(s): `357_num_exponential_precision` | ✅ |

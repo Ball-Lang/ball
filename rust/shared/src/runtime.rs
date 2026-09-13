@@ -4092,6 +4092,45 @@ mod dartsdk {
 mod tests {
     use super::*;
 
+    // ── the declared text sink (issue #630) ──
+
+    /// Both properties that fail SILENTLY when a target gets the sink wrong.
+    ///
+    /// 1. `std.type_of` answers `"Sink"` — never the host type. A backing of a
+    ///    bare `String` would answer `"String"` and a program branching on
+    ///    `type_of` would take a different arm here than on every other target.
+    /// 2. The sink is REFERENCE-SEMANTIC: appending inside a callee is visible
+    ///    to the caller. This crate already had to learn that for `BallList`
+    ///    (issue #300 — a by-value `Vec<BallValue>` clone lost every append),
+    ///    which is why the backing is a `BallMap` and not a `String` field.
+    #[test]
+    fn sink_is_a_tagged_reference_value() {
+        let sink = ball_sink_create(BallValue::Null);
+        assert_eq!(
+            ball_type_of(sink.clone()),
+            BallValue::String("Sink".into())
+        );
+
+        ball_sink_write(sink.clone(), BallValue::String("a".into()));
+        // The by-value trap: hand the sink to a callee and append there.
+        fn append(s: BallValue) {
+            ball_sink_write(s, BallValue::String("b".into()));
+        }
+        append(sink.clone());
+
+        assert_eq!(
+            ball_sink_to_string(sink),
+            BallValue::String("ab".into())
+        );
+    }
+
+    #[test]
+    fn sink_create_seeds_from_initial() {
+        let sink = ball_sink_create(BallValue::String("x".into()));
+        ball_sink_write(sink.clone(), BallValue::String("y".into()));
+        assert_eq!(ball_sink_to_string(sink), BallValue::String("xy".into()));
+    }
+
     // ── arithmetic ──
     #[test]
     fn add_promotes_int_and_double() {

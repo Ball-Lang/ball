@@ -5114,6 +5114,29 @@ TEST(cov_map_return_type_unprovable_body_shapes_keep_declared_type) {
 }
 
 // ================================================================
+// The declared text sink (issue #630)
+// ================================================================
+//
+// Before #630 `StringBuffer` was an UNDECLARED representation: a
+// `__type__`/`__buffer__` map special-cased by name in the Dart and TS engines,
+// mapped here to an ad-hoc `BallStringBuffer`, and implemented in NO other
+// compiler. The three declared base functions replace it. Every target must
+// back them with a REFERENCE-SEMANTIC, `__type__`-tagged value so
+// `std.type_of` answers "Sink" and an append inside a callee is visible to the
+// caller — the property that fails silently (`ball_dyn.h`'s `BallDyn` wraps a
+// `BallOrderedMap` in a `shared_ptr`, which is what makes that true here; a
+// by-value `std::ostringstream` copy would not).
+TEST(string_sink_emits_the_runtime_helpers) {
+    auto prog = ball::LoadProgram(
+        (conformance_dir() / "465_string_sink.ball.json").string());
+    CppCompiler compiler(std::move(prog));
+    auto src = compiler.compile();
+    ASSERT_CONTAINS(src, "ball_sink_create(");
+    ASSERT_CONTAINS(src, "ball_sink_write(");
+    ASSERT_CONTAINS(src, "ball_sink_to_string(");
+}
+
+// ================================================================
 // Main
 // ================================================================
 

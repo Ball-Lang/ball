@@ -268,6 +268,25 @@ impl MacroTable {
         self.unreadable_sources.push(format!("{what}: {reason}"));
     }
 
+    /// Why a `<krate>::<name>!` path found nothing in that crate.
+    ///
+    /// Never a flat "it is not there" once part of that crate's sources could
+    /// not be read: the walk has no evidence for that claim, so this carries the
+    /// same "could not be read" clause [`MacroError::Unresolved`]'s `Display`
+    /// appends (issue #678).
+    fn not_found_in_crate_reason(&self) -> String {
+        let base = "no `#[macro_export] macro_rules!` with that name was found in that crate's \
+                    library target";
+        if self.unreadable_sources.is_empty() {
+            return base.to_owned();
+        }
+        format!(
+            "{base}. These sources could not be read, so a definition may be hiding in one of \
+             them: [{}]",
+            self.unreadable_sources.join("; ")
+        )
+    }
+
     /// Every macro name this table can resolve, sorted.
     pub fn names(&self) -> Vec<String> {
         self.defs
@@ -343,9 +362,7 @@ impl MacroTable {
                     Err(MacroError::DependenciesUnavailable {
                         name: path,
                         krate: krate.clone(),
-                        reason: "no `#[macro_export] macro_rules!` with that name was found in \
-                                 that crate's library target"
-                            .to_owned(),
+                        reason: self.not_found_in_crate_reason(),
                     })
                 }
                 None => Err(MacroError::Unresolved {

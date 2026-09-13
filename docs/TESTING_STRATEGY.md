@@ -393,6 +393,50 @@ place: `collection_for`/`collection_if` throw if dispatched outside a literal
 (`engine_std.dart`); the encoder throws on an unknown collection element instead
 of emitting `/* unsupported */`.
 
+### 3a. A leg's verdict must consume the checker's EXIT STATUS, not only its stdout
+Gate-authoring rule, for every shell guard under `tools/` and `cpp/test/`.
+
+A checker that reports "clean" by **printing nothing** and a checker that
+**could not run at all** produce the same stdout. So a leg shaped like
+
+```bash
+probs=()
+while IFS= read -r line; do probs+=("$line"); done < <(check "$file")   # WRONG
+if [ "${#probs[@]}" -eq 0 ]; then ok "…"; fi
+```
+
+reports PASS — and counts +1 toward its own positive floor — when `python3` is
+absent, an import fails, or the checker dies on a traceback (stderr, not
+stdout). That is issue #694, reproduced in PR #662's round-1 review by taking
+`python3` off PATH: the leg printed `PASS` and the sweep reported its usual
+tally, from a check that never happened — while the sibling `--self-test` step,
+which does let the status through, correctly went exit 127. Reachability is not
+the bar; a gate that can be silently disabled is already broken.
+
+One of these three shapes, always:
+
+1. **The checker's status is the step's status** — make the call the script's
+   last command: `check_file "$WORKFLOW"; exit $?`
+   (`tools/ci/check_matrix_paths.sh`, `tools/ci/check_ci_regen_wiring.sh`, and
+   the trailing `python3 - … <<'PY'` heredoc in
+   `tools/ci/check_required_contexts.sh`).
+2. **Capture both and classify the status** —
+   `out="$(check "$f")"; rc=$?`, then treat every status the checker does not
+   define (anything but its clean/found-problems pair) as a **failure that names
+   the status**. `freshness_paths_findings` in
+   `tools/release/check_go_release_wiring.sh` is the worked example; so is
+   `cpp/test/check_compiler_cache_applied.sh`'s `|| requests=""` + `is_uint`.
+3. **Make empty output fail closed, and say why it is closed** — a positive
+   floor (`[ "$checked" -lt 1 ] && exit 1`), an explicit `[ -n "$x" ]` arm, or a
+   comparison against a non-empty expected value, so "nothing came back" cannot
+   reach the `ok` branch. Never `|| true` on the line the verdict reads.
+
+And the negative control belongs to the **leg**, not just the checker: cases
+that only assert what the checker answers about fabricated inputs cannot see a
+checker that answers nothing. Shadow the dependency (a PATH stub that exits 127)
+and assert the leg reports FAIL, paired with a positive control on the real tree
+so the negative case cannot pass for an unrelated reason.
+
 ### 4. A fixture's name must not overstate its coverage
 Enforced by `dart/encoder/bin/check_fixture_names.dart` (CI): a fixture named
 `*comprehension*` / `*spread*` / `*null_aware*` / `*cascade*` must actually use
@@ -764,8 +808,108 @@ repository's `Protect main` ruleset, whose **19 required status check contexts**
 
 A PR is BLOCKED until all 19 report success, so "the checks are green" is a
 mechanical statement about that list, not a judgement call. `Dart Coverage
-Ratchet` is on it too — it is easy to overlook because it lives in
-`coverage.yml`, not `ci.yml`.
+Ratchet` is on it too — it is easy to overlook because it is an independent job
+(`dart-coverage` in `ci.yml`) rather than part of the `Dart` job; the
+`coverage.yml` workflow next to it owns NO required context.
+
+### Per-PR job fan-out (issue #666)
+
+Runner concurrency is the measured bottleneck of this repo's PR sweep. The org
+is on the GitHub Free plan — **20 concurrent jobs, 5 of them macOS**
+(<https://docs.github.com/en/actions/reference/limits>) — and on 2026-09-13, with
+a dozen lanes in flight, `gh run list --status queued` showed **30 runs queued
+and 0 in progress**. Every workflow already carries a `concurrency` group with
+`cancel-in-progress`, so nothing superseded is wasting a slot: the fan-out
+itself is the cost.
+
+**The policy.** Every job reachable on `pull_request` in `ci.yml`,
+`conformance-matrix.yml`, `regression-gates.yml`, `ball-audit.yml` and
+`coverage.yml` must be one of:
+
+1. the owner of one of the 19 required contexts — it has to report anyway;
+2. conditioned by a job-level `if:` on a `changes` output (the
+   `./.github/actions/detect-changed-stacks` composite action, single source of
+   truth since #458);
+3. inside a workflow whose `pull_request:` trigger carries a `paths:` filter;
+4. the `changes` classifier itself;
+5. listed in `tools/ci/pr_job_fanout_allowlist.txt` **with a reason**.
+
+`tools/ci/check_pr_job_fanout.sh` enforces it from the always-on `Proto Checks`
+job, and its `--self-test` drives a fabricated unconditional job as the negative
+control. An exemption without a stated reason is rejected.
+
+**A required context must APPEAR, and a skipped MATRIX job does not report
+one.** This is the sharp edge of "never require path-filtered jobs" above, and
+it is not hypothetical. A job-level `if:` that evaluates false normally still
+satisfies a required check — GitHub records the check as skipped. But when the
+job is a MATRIX job whose `name:` interpolates `${{ matrix.<key> }}`, GitHub
+emits exactly ONE check run, under the **un-expanded** name. `ci.yml`'s `cpp`
+job carried such an `if:`, so a diff that touched neither `cpp/**` nor `infra`
+produced a lone `C++ (${{ matrix.os }})` and **none** of the three required
+`C++ (ubuntu-latest)` / `(windows-latest)` / `(macos-latest)` contexts —
+measured on PR #647 at `bc0c367a`, whose check-run set is exactly that. Such a
+PR can never merge. The fix is to gate the **steps**, never the job: every leg
+starts, reports under its real name, and costs ~20 s when there is nothing to
+do. The guard fails the build if a job-level `if:` is put back on a required
+matrix job.
+
+**What is conditioned on what.**
+
+| Workflow | Conditioning | Notes |
+| --- | --- | --- |
+| `ci.yml` | per-job `if:` on `changes` outputs; `cpp` gates its STEPS | `changes`, `proto`, `cli-verb-parity`, `dart-coverage` are always-on and each owns a required context |
+| `conformance-matrix.yml` | workflow `paths:` filter **and**, since #666, a per-row `if:` | PR runs only the rows the diff can move; push/schedule/dispatch still run the FULL matrix |
+| `regression-gates.yml` | per-job `if:` on `changes` outputs | already so before #666 |
+| `ball-audit.yml` | workflow `paths:` (`**.ball.json`, `**.ball.bin`) | owns no required context |
+| `coverage.yml` | workflow `paths:` (`cpp/**`) + `github.event_name != 'pull_request'` on the other four | owns no required context |
+
+**The conformance matrix's per-row conditions.** Each row runs when the diff
+touches `tests/conformance/**` (`corpus`), any of
+`dart/{engine,shared,compiler,self_host}/**` (`dart_core` — the Dart sources
+every self-hosted engine is compiled from), or that row's own language dir.
+Measured on PR #644 (`d853854b`): 18 matrix jobs ran, 15 of them for languages
+the diff did not touch. The `infra` fail-safe is deliberately NOT part of those
+conditions — it is true for any file outside the language dirs (docs, `tools/`,
+`ci.yml`), which would put all 18 rows back on every CI-lane PR. Leaving it out
+is safe **here and only here** because this workflow's trigger is already
+`paths:`-filtered, so every file that can start it maps onto one of those
+signals. The per-row conditions are all
+`github.event_name != 'pull_request' || …`, so the post-merge and weekly
+full-matrix safety net does not move.
+
+**"Every filter path maps onto a row signal" is a correctness invariant, and it
+is guarded twice.** Leaving `infra` out of the row conditions is only safe while
+that holds. An entry in the filter that lights up no signal a row reads is
+SILENTLY GREEN: the workflow starts (the path matched), all 17 rows evaluate
+false, and a summary that correctly treats `skipped` as benign prints a full
+table of SKIPs and exits 0 — a green Conformance Matrix that executed zero rows.
+So:
+
+- **Statically**, `tools/ci/check_matrix_paths.sh` (always-on `proto` job) now
+  does more than compare the two triggers' lists. For each entry in the filter
+  it synthesizes a concrete path that entry matches, runs the REAL
+  `detect-changed-stacks` classifier over it, and fails unless at least one
+  signal some row's `if:` reads comes back `true`. The signal set is scraped out
+  of `conformance-matrix.yml` itself (`needs.<classifier>.outputs.<name>`), so
+  there is no second table to keep in sync, and `--self-test` drives the
+  negative control — adding `proto/**` to the filter is RED.
+- **At run time**, `conformance-matrix.yml`'s `Parity Matrix` fails a
+  `pull_request` run that executed ZERO engine rows, whatever the cause (an
+  unmapped filter path, a row condition that stopped matching, a classifier that
+  returned all-false). Push, schedule and dispatch runs are exempt because their
+  rows are unconditional. `tools/test/test_parity_matrix_floor.py` (also the
+  `proto` job) renders that summary step out of the workflow and executes it
+  under bash across eight scenarios, including a negative control that strips
+  the floor and asserts the same all-skipped run then goes green.
+
+The detect-changed-stacks truth table pins `corpus`/`dart_core` themselves.
+
+**Known residual.** A PR whose ONLY change is `conformance-matrix.yml` does not
+start that workflow at all — its own path is not in the filter. That predates
+#666 and is unchanged by it. Note the two guards above are what make adding it
+a real decision rather than a one-line edit: `.github/workflows/**` sets only
+`infra`, which no row reads, so adding that path to the filter is RED until it
+is given a signal or an existing signal is added to the row conditions.
 
 **That list is gated, not trusted** (issue #655). It used to be hand-copied
 prose about a setting edited in a web UI: it matched the live ruleset on
@@ -822,9 +966,50 @@ was pointing at a real frame-accounting bug in the engine, see
 ## Coverage ratchet (toward 100% line coverage)
 
 Beyond construct-completeness (§2), we measure **line coverage** and ratchet it
-upward, never down — across **all three stacks**, uploaded to Codecov with
-per-stack flags (`dart`/`typescript`/`cpp`) via OIDC (no token). Gate:
-`.github/workflows/coverage.yml`.
+upward, never down — across **all five stacks**, uploaded to Codecov with
+per-stack flags (`dart`/`typescript`/`cpp`/`rust`/`csharp`) via OIDC (no token).
+Gate: `.github/workflows/coverage.yml`.
+
+**Read a coverage run at the STEP level, and never let transport speak for the
+measurement (#638).** A coverage job used to end by uploading its own lcov to
+Codecov, so one exit code answered two unrelated questions. Run
+[34746079045](https://github.com/Ball-Lang/ball/actions/runs/34746079045) is what
+that cost: its `C++ coverage` job passed step 11 (`C++ line coverage floor`,
+93.9% ≥ 91%) and step 12 (`C++ per-target coverage floors`, 94.6/99.0/94.3 ≥
+92/97/92), then failed step 13 on a `codecov/codecov-action` OIDC
+`Failed to get ID Token … Request timeout`. Result: a red on main's coverage
+history with no coverage regression behind it — on exactly the history the C++
+floor derivation and #599's cache ceiling read as "N consecutive green runs".
+
+Two things changed, and one rule stayed:
+
+- **Transport moved out.** Each language job now publishes its lcov as a
+  `coverage-lcov-<flag>` artifact and **ends on its floor steps**, so the job's
+  conclusion *is* the measurement. A separate `codecov-upload` job `needs:` all
+  five and carries the bytes. (The Dart job measures and gates in one
+  `coverage_dart.dart --floor` invocation, so its artifact is taken after the
+  gate under `if: ${{ !cancelled() }}` — a coverage DROP must still be published,
+  or the report gets a hole exactly at the commit worth looking at.)
+- **The upload retries, then fails loud.** `codecov/codecov-action@fb8b358…` is
+  v7.0.0, a *composite* action: `fail_ci_if_error` only reaches its last step
+  (`dist/codecov.sh`), while the token comes from an earlier, un-retried
+  `Get OIDC token` step, and v7.0.0 exposes no retry input at all. So the upload
+  job fetches the OIDC token itself against `ACTIONS_ID_TOKEN_REQUEST_URL` with a
+  bounded 3-attempt retry and passes it through the action's `token` input, then
+  uploads with `fail_ci_if_error: true`. A transient timeout retries; a
+  persistent failure reds the **upload** job — honest, and distinct from a
+  coverage drop. Never `continue-on-error`.
+- **The rule that outlives the fix:** judge a coverage.yml run by the named floor
+  STEPS and the numbers they print, not by a job or workflow conclusion. That was
+  true before the fix and stays true after it (PR #643's advisory 1: the earlier
+  "judge by the C++ JOB's conclusion" wording would, applied literally, have
+  thrown out the very run it was defending).
+
+`tools/ci/check_coverage_upload_isolation.sh` — ci.yml's always-on `Proto Checks`
+job, 20-case self-test with two positive controls — parses coverage.yml and
+holds all of that in place: measurement and transport in different jobs, the
+flag set matching the artifact set, nothing masking a floor verdict, the bounded
+retry present, and no `continue-on-error`/`|| true` in the upload path.
 
 **The Dart ratchet is a PR gate (#605).** `ci.yml`'s always-on `Dart Coverage
 Ratchet` job runs `dart run tools/coverage_dart.dart --floor 99.9` on every pull
@@ -838,8 +1023,8 @@ whole-workspace, its inputs are not only `dart/**`, and a *skipped* check
 reports **success**, which is the exact failure mode that let the ratchet sit red
 on main for a week (2026-09-06 → 2026-09-13, 17140/17167 = 99.84%) while every
 required check stayed green. `coverage.yml`'s Dart job keeps its own copy of the
-ratchet because it owns the Codecov upload and is the push-to-main measurement;
-the two floors must move together.
+ratchet because it produces the lcov the Codecov upload carries (#638) and is the
+push-to-main measurement; the two floors must move together.
 
 **Completeness is the whole point — measure every package and every file, or the
 number lies.** The Dart tool `tools/coverage_dart.dart`:
@@ -888,10 +1073,14 @@ after merging. The `cpp` job now also runs on `cpp/**`-touching pull requests;
 the other four jobs stay push/dispatch-only so a C++ PR doesn't drag the whole
 cross-stack matrix in. It is deliberately **not** a required check — it makes
 the regression visible pre-merge, it does not block. The finer per-target C++
-floors (`cpp/build-cov-floor.sh`: compiler 88 / encoder 88 / shared 81) are
-**reported, not enforced** — never measured by CI, and a false red on main is
-worse than an unenforced number; they ratchet once two runs establish a
-baseline. That script's parser is pinned by
+floors (`cpp/build-cov-floor.sh`) were **reported, not enforced** while CI had
+never measured them — a false red on main is worse than an unenforced number.
+CI has measured them since, so they are now **gated**: the `C++ per-target
+coverage floors (compiler/encoder/shared — gated)` step runs that script and
+takes its exit code, and the floors have been ratcheted to compiler 92 /
+encoder 97 / shared 92 against six consecutive agreeing main runs (#63; the run
+ids and the derivation live in that script's header, which is where the numbers
+belong). That script's parser is pinned by
 `cpp/test/test_build_cov_floor_parsing.sh` (it used to pass silently when it
 could not parse a summary at all).
 
@@ -925,9 +1114,12 @@ could not parse a summary at all).
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
+| **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
+| **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 8 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The regeneration flow is gated per artifact family, and the family set is DERIVED** (#625/#655) | `tools/ci/check_ci_regen_wiring.sh` — parses `ball-freshness`, derives every family from the `git diff --exit-code` predicate (floored against the six that exist today), and asserts each derived id is in all three `if:` gates AND owns a pathspec block in the collect table that adds a path; plus the loop-breaker call, well-formed `${{ }}`, and no `continue-on-error`/`\|\| true`. `--self-test` drives 21 cases, including a fabricated seventh family broken in each of the four places | every PR (the always-on `proto` job, offline) |
 | **The documented required-status-check list is the LIVE one** (#655) | `tools/ci/check_required_contexts.sh` — the `REQUIRED-CONTEXTS`-marked list in this doc vs. `GET /repos/Ball-Lang/ball/rulesets/17056238`, failing on any difference in either direction, plus the prose counts, sort order, a non-enforcing ruleset and one requiring zero checks; `tools/test/test_check_required_contexts.sh` drives 17 offline negative controls first | every PR (the always-on `proto` job) |
+| **The Go module release lane stays machine-driven, and its own YAML-parsing leg cannot be silently disabled** (#361/#656/#694) | `tools/release/check_go_release_wiring.sh` — 27 legs over the lane's shape (one semantic-release config, the commit carrying every file the bump rewrites, `tag_go_modules.sh` as the single tagging path, no silent v2), of which the go-freshness `pull_request.paths` leg parses YAML rather than grepping because the claim is that a LIST IS EXACTLY A SET. `--self-test` drives 11 cases: 9 on the checker's verdicts (widened, narrowed, unfiltered, `paths-ignore`, no PR trigger, unparseable) and 2 on the **leg**, which run the whole guard with and without a `python3` that works — the §3a control, added after the leg was found reporting PASS with the checker unable to run | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |
 | **The conformance total quoted in the docs is the real one** (#519) | `tools/check_conformance_doc_counts.sh` — derives N from the fixtures that have a golden and fails on any `N passed, 0 failed, N total` in a tracked `.md`/`.yml` that disagrees (so "all the docs agree on the wrong number" still fails); `tools/test/test_check_conformance_doc_counts.sh` pins the guard itself | every PR (both run in the always-on `proto` job — deliberately NOT in `ball-freshness`, which a rust/AGENTS.md-only PR would skip) |
@@ -936,8 +1128,9 @@ could not parse a summary at all).
 | Each coverage-study harness's own correctness | `tools/coverage-study/test/rq1_study_self_test.dart` (Dart), `cargo test -p ball-rq1-study` (Rust), `csharp/coverage-study/test` (C#), `go test ./...` in `tools/coverage-study/go` (Go), `tools/coverage-study/test/rq1_study_py_self_test.py` (Python), `tools/coverage-study/test/rq1_study_ts_self_test.mts` (TypeScript), `tools/coverage-study/test/rq1_tierb_self_test.dart` (Tier B) | every PR (the matching language job) |
 | The coverage-table renderer and its ratchet floors | `tools/coverage-study/test/coverage_table_self_test.py` — below fails and names both numbers, at passes, above raises, a missing artifact fails loud, a non-integer tally fails, a shrunk denominator fails even with a better ratio, and regenerating twice is byte-identical | every PR (`Python`) |
 | **Line coverage ratchet (Dart)** | ci.yml's `Dart Coverage Ratchet` job — `tools/coverage_dart.dart --floor 99.9` over all 9 packages (#605) | **every PR**, always-on (no path filter) |
-| Line coverage ratchet (TS/Rust/C#) + the Dart Codecov upload | `coverage.yml` | push to main + manual — **NOT a PR gate** |
-| Line coverage ratchet (C++) | `coverage.yml`'s `cpp` job | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
+| Line coverage ratchet (Rust/C#) + the Dart push-to-main measurement | `coverage.yml`'s `dart`/`rust`/`csharp` jobs | push to main + manual — **NOT a PR gate** |
+| Line coverage ratchet (C++), aggregate **and** per-target | `coverage.yml`'s `cpp` job — the `C++ line coverage floor` and `C++ per-target coverage floors (compiler/encoder/shared — gated)` steps, the latter taking `cpp/build-cov-floor.sh`'s exit code | push to main + manual, **plus cpp-touching PRs** (#63) — reports, does not block (not a required check) |
+| **The Codecov upload cannot red a green measurement** (#638) | `tools/ci/check_coverage_upload_isolation.sh` — measurement and transport in different jobs, the uploaded flag set equal to the measured artifact set, nothing masking a floor verdict, a bounded-retry OIDC token fetch, `fail_ci_if_error: true`, and neither a `continue-on-error` key nor a short-circuiting `true` guarding the upload path. 20-case self-test with two positive controls | every PR (the always-on `proto` job, no toolchain) |
 | **The artifact an outside consumer gets, not the checkout** — Go modules (#361) | `tools/go-module-proxy/smoke.sh` (synthesized `file://` proxy; every module builds standalone with no `go.work`/siblings, then `go install .../go/cli/cmd/ball@vX.Y.Z` into a clean GOPATH and runs) | every PR (`Go`) |
 | **The artifact an outside consumer gets, not the checkout** — Python wheel (#496) | `python/tool/wheel_smoke.py` (`python -m build python/`, install into a venv OUTSIDE the repo with no `PYTHONPATH`, run `--version`/`check`/`compile`/`encode`/`run`, `run` diffed against a golden as BYTES) | every PR (`Python`) |
 | Compile-on-first-use engine bootstrap (what a pip-installed wheel actually runs) | `python/engine/tests/test_bootstrap.py` (cache hit/miss/invalidation, failure modes, and a conformance fixture through the cache-compiled engine vs. its golden) | every PR (`Python`, with `BALL_REQUIRE_SELFHOST_SOURCE=1` so it cannot silently skip) |

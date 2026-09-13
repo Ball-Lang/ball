@@ -155,8 +155,9 @@ too, without a colour-forced CI leg.
 > *Resolved:* #501 fixed the C++ emitter (a shadowing field now becomes a private
 > renamed backing member plus a public `virtual` accessor pair over a virtualised
 > ancestor getter, so the vtable — not a compile-time type guess — resolves it)
-> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` was empty at that point
-> (see the #695 note below for its one current entry).
+> and 406 is back, unchanged. `CPP_COMPILE_CARVEOUTS` was empty at that point,
+> and it is empty again today (see the #695 note below for the one entry that
+> lived there in between).
 
 > **One fixture per defect, not one per defect *family*.** 406 exercises only the
 > READ side of a shadowed accessor, through a receiver whose static and runtime
@@ -257,24 +258,38 @@ too, without a colour-forced CI leg.
 > `438_ctor_initializer_list_with_body` with #514. All four are listed in
 > `cpp/test/e2e_fixture_list.h` and run on the compiled leg, and
 > `CPP_COMPILE_CARVEOUTS` was EMPTY again at that point (see the #695 note
-> below for its one current entry).
+> below for the one entry that lived there in between).
 >
 > **A carve-out is the honest disposition when the gap is the TARGET, not the
-> fixture.** #651's fixture — `468_initializer_list_field_with_setter`, a class
-> declaring a `final` field and its OWN setter of the same name — is the
+> fixture — and it is a RATCHET, so it comes back out the moment the target
+> catches up.** #651's fixture — `468_initializer_list_field_with_setter`, a
+> class declaring a `final` field and its OWN setter of the same name — is the
 > counter-case to 406 above. 406 was WITHDRAWN because a different fixture could
 > pin the same Dart-side point; 468 cannot be reshaped, because that exact
 > declaration pair IS #651's mechanism (a spurious `late final` hands the field
 > an implicit setter that collides with the declared one). It runs correctly on
 > every engine — Dart, TS, Rust, C#, Go, Python and the C++ self-host engine —
-> and fails only the Ball → C++ **compiled** leg, because C++ has ONE member
-> namespace and the emitted data member and setter collide. That is a C++ target
+> and it failed only the Ball → C++ **compiled** leg, because C++ has ONE member
+> namespace and the emitted data member and setter collided. That was a C++ target
 > gap, filed as [#695](https://github.com/Ball-Lang/ball/issues/695) and parked in
 > `CPP_COMPILE_CARVEOUTS` plus `cpp/test/e2e_fixture_list_known_gaps.txt` — loud,
-> tracked, one entry, and never `continue-on-error`. Delete both entries and list
-> the name in `cpp/test/e2e_fixture_list.h` the moment #695 lands.
+> tracked, one entry, and never `continue-on-error`.
 >
-> C++ is only the loudest target, not the only one:
+> **Both entries are gone again**: `main` landed
+> [#680](https://github.com/Ball-Lang/ball/pull/680) while this branch was open,
+> and its C++ half is exactly the lowering #695 asked for —
+> `class_setter_backed_fields_` in `cpp/compiler`, which gives a field declared
+> beside its own same-named setter the #501 backing-member treatment and
+> synthesizes only the GETTER half, leaving the write side to the declared setter.
+> 468 is now listed in `cpp/test/e2e_fixture_list.h` next to
+> `470_setter_beside_final_field` (#680's own fixture for the identical
+> declaration pair), and `CPP_COMPILE_CARVEOUTS` is empty. **Re-check a carve-out
+> against `main` on every merge**: a carve-out that outlives its gap is a silent
+> coverage hole, and nothing in CI can tell the two apart — the leg is green
+> either way.
+>
+> C++ is no longer among the failing targets, but it was only the loudest, never
+> the only one:
 > [#706](https://github.com/Ball-Lang/ball/issues/706) carries the same fixture on
 > the Rust, Go, Python and C# COMPILER legs, where Rust and Go build and run it
 > and then read the field back as `null`. Those legs are RATCHETED, so they are

@@ -463,10 +463,12 @@ Without it, the only thing exercising the harness is the `C++ Compiled` matrix
 leg, which runs after merge. The two live in one invocation because
 `full_e2e.sh`'s positive floor (`passed == 0 && failed == 0` ⇒ exit 1) is
 per-invocation: a PR whose every changed fixture is a tracked
-`CPP_COMPILE_CARVEOUTS` entry (`468_initializer_list_field_with_setter`, #695)
-would otherwise run nothing and go red naming the wrong cause. Widen the filter
-— which is what the floor's own error message says — never delete the floor or
-the carve-out.
+`CPP_COMPILE_CARVEOUTS` entry would otherwise run nothing and go red naming the
+wrong cause. `468_initializer_list_field_with_setter` was that PR while #695 was
+open; #680 closed #695 and `CPP_COMPILE_CARVEOUTS` is empty again, but the hole
+is structural and outlives any one entry, so the widened filter stays. Widen the
+filter — which is what the floor's own error message says — never delete the
+floor or the carve-out.
 
 ### Fast local `test_compiler` without CMake
 

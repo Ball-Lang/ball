@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 354 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +351 more | ✅ |
+| `print` | ✅ | ✅ 355 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +352 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -143,7 +143,7 @@ Universal standard library base module. Every function here represents a languag
 | `string_trim_start` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
 | `subtract` | ✅ | ✅ 40 fixture(s): `104_getter_setter`, `113_operator_overloading`, `131_insertion_sort` +37 more | ✅ |
 | `switch` | ✅ | ✅ 24 fixture(s): `109_enum_values`, `147_complex_switch`, `150_state_machine` +21 more | ✅ |
-| `throw` | ✅ | ✅ 23 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +20 more | ✅ |
+| `throw` | ✅ | ✅ 24 fixture(s): `146_nested_try_catch_types`, `171_async_error_propagation`, `208_async_chain_rethrow` +21 more | ✅ |
 | `to_double` | ✅ | ✅ 4 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +1 more | ✅ |
 | `to_int` | ✅ | ✅ 5 fixture(s): `216_int_double_truncation`, `259_math_functions`, `320_num_methods_on_double_local` +2 more | ✅ |
 | `to_string` | ✅ | ✅ 192 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +189 more | ✅ |

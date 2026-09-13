@@ -40,18 +40,20 @@
 //    out of THIS fixture is deliberate: what it pins is the Dart COMPILER's
 //    `late` decision and nothing else.
 //
-// A THIRD target gap this shape exposes is #695, and it is the one departure
+// A THIRD target gap this shape exposed is #695, and it is the one departure
 // that could NOT be designed around: C++ has a single member namespace, so the
-// emitted data member and the emitted setter collide and the program does not
-// build. That is the Ball -> C++ COMPILER, not this fixture — every engine,
-// including the C++ self-hosted one, runs this program correctly — so the
-// compiled C++ leg carves it out loudly (`CPP_COMPILE_CARVEOUTS` in
-// cpp/test/full_e2e.sh, plus cpp/test/e2e_fixture_list_known_gaps.txt) until
-// #695 lands. Do not rename or reshape this class to dodge that: the field and
-// its same-named setter ARE the point.
+// emitted data member and the emitted setter collided and the program did not
+// build. That was the Ball -> C++ COMPILER, not this fixture — every engine,
+// including the C++ self-hosted one, always ran this program correctly — so the
+// compiled C++ leg carved it out loudly (`CPP_COMPILE_CARVEOUTS` in
+// cpp/test/full_e2e.sh, plus cpp/test/e2e_fixture_list_known_gaps.txt).
+// #680 closed #695 with the same-class half of #501's backing-member lowering,
+// so BOTH carve-outs are gone and this fixture compiles, builds and runs on the
+// C++ compiled leg. Do not rename or reshape this class to dodge a future target
+// gap either: the field and its same-named setter ARE the point.
 //
-// The remaining four COMPILER targets do not handle this shape either, with at
-// least three different mechanisms, and that is #706: Rust and Go build and RUN
+// Four COMPILER targets still do not handle this shape, with at least three
+// different mechanisms, and that is #706: Rust and Go build and RUN
 // the program and then read `windowSize` back as `null` (the emitted setter
 // shadows the field read — a silent wrong answer, strictly worse than C++'s
 // build failure); Python rejects it loudly at compile time ("setter without

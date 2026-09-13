@@ -122,10 +122,10 @@
 # that lane, 455_ctor_field_writes_that_survive, always passed. All three are
 # listed in e2e_fixture_list.h.
 
-# #695 (split out of #651): 466_initializer_list_field_with_setter declares a
+# #695 (split out of #651): 467_initializer_list_field_with_setter declares a
 # `final` field and its OWN setter of the same name. That is legal Dart and every
 # engine runs it, but C++ has ONE member namespace, so the emitted data member and
 # the emitted setter collide ("conflicts with a previous declaration") and the
 # program does not build. It is carved out of cpp/test/full_e2e.sh's
 # CPP_COMPILE_CARVEOUTS for the same reason. Free both the moment #695 lands.
-466_initializer_list_field_with_setter
+467_initializer_list_field_with_setter

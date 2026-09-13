@@ -526,7 +526,7 @@ void main() {
 
   group('end-to-end: the reported `collection` shape', () {
     // The source is the conformance fixture itself, not a copy of it:
-    // `466_initializer_list_field_with_setter` IS the reduced `ListSlice`
+    // `467_initializer_list_field_with_setter` IS the reduced `ListSlice`
     // shape, and reading it here is what makes that fixture a PR gate for the
     // compiler-lowering point. The corpus runs on every engine, but no engine
     // has a notion of `late` — only the Dart target does, and only the
@@ -537,7 +537,7 @@ void main() {
     setUpAll(() {
       final fixture = File(
         '${_findConformanceDir().path}/src/'
-        '466_initializer_list_field_with_setter.dart',
+        '467_initializer_list_field_with_setter.dart',
       );
       if (!fixture.existsSync()) {
         throw StateError('missing conformance fixture: ${fixture.path}');

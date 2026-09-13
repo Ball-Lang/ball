@@ -450,13 +450,27 @@ void main() {
     });
 
     test('cascade with method-call sections compiles to `..method()`', () {
+      // A user-class receiver, not a `StringBuffer`: since #630 a StringBuffer
+      // cascade routes its sections to `std.sink_write`, a FREE function, so
+      // `..` cannot come back — the encoder deliberately drops the `cascade`
+      // tag for a sink so the compiler lowers it to the ordinary
+      // evaluate-and-return-the-receiver IIFE instead of emitting
+      // `.._ballSinkWrite(__cascade_self__, …)`. The construct under test here
+      // is the `..` recognition; the sink cascade is covered by
+      // `roundtrip_coverage_test.dart`'s own case and by conformance
+      // `466_string_sink`.
       final out = _rt('''
+class Log {
+  void write(String s) { print(s); }
+}
+
 void main() {
-  var sb = StringBuffer()..write('a')..writeln('b');
-  print(sb.toString());
+  var l = Log()..write('a')..write('b');
+  print(l.toString());
 }
 ''');
       expect(out, contains("write('a')"));
+      expect(out, isNot(contains('__cascade_self__')));
     });
   });
 

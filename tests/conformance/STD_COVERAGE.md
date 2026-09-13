@@ -13,13 +13,13 @@ Every base function across the 8 universal std modules, generated directly from 
 
 | Metric | Count |
 |---|---|
-| Total base functions | 271 |
-| Encoder-emittable | 121 |
-| Covered by a conformance fixture | 131 |
-| Dart engine-implemented | 233 |
+| Total base functions | 274 |
+| Encoder-emittable | 126 |
+| Covered by a conformance fixture | 136 |
+| Dart engine-implemented | 236 |
 | Documented carve-outs | 0 |
 
-## `std` (127 functions)
+## `std` (130 functions)
 
 Universal standard library base module. Every function here represents a language-agnostic operation that all target languages implement natively. Types use protobuf descriptors so they map to every target language.
 
@@ -37,7 +37,7 @@ Universal standard library base module. Every function here represents a languag
 | `bitwise_xor` | ✅ | ✅ 5 fixture(s): `113_operator_overloading`, `206_integer_arithmetic_edge`, `251_bitwise_signed_edges` +2 more | ✅ |
 | `break` | ✅ | ✅ 11 fixture(s): `100_complex_control_flow`, `136_string_pattern_match`, `148_labeled_loops` +8 more | ✅ |
 | `compare_to` | ✅ | ✅ 2 fixture(s): `122_list_sort_comparator`, `261_conversion_and_ops` | ✅ |
-| `concat` | ✅ | ✅ 99 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +96 more | ✅ |
+| `concat` | ✅ | ✅ 100 fixture(s): `101_simple_class`, `102_inheritance`, `103_abstract_class` +97 more | ✅ |
 | `continue` | ✅ | ✅ 7 fixture(s): `100_complex_control_flow`, `148_labeled_loops`, `274_enc_nested_control` +4 more | ✅ |
 | `divide` | ✅ | ✅ 18 fixture(s): `108_class_tostring`, `132_merge_sort`, `143_perfect_number` +15 more | ✅ |
 | `divide_double` | ✅ | ✅ 12 fixture(s): `104_getter_setter`, `130_running_average`, `214_nan_propagation` +9 more | ✅ |
@@ -93,7 +93,7 @@ Universal standard library base module. Every function here represents a languag
 | `modulo` | ✅ | ✅ 36 fixture(s): `108_class_tostring`, `117_list_generate`, `125_group_by` +33 more | ✅ |
 | `multiply` | ✅ | ✅ 65 fixture(s): `100_complex_control_flow`, `101_simple_class`, `103_abstract_class` +62 more | ✅ |
 | `negate` | ✅ | ✅ 44 fixture(s): `105_static_methods`, `135_linear_search_sentinel`, `170_pattern_switch_expr` +41 more | ✅ |
-| `not` | ✅ | ✅ 13 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +10 more | ✅ |
+| `not` | ✅ | ✅ 14 fixture(s): `123_queue_simulation`, `125_group_by`, `129_unique_elements` +11 more | ✅ |
 | `not_equals` | ✅ | ✅ 14 fixture(s): `108_class_tostring`, `135_linear_search_sentinel`, `136_string_pattern_match` +11 more | ✅ |
 | `null_check` | ✅ | ✅ 9 fixture(s): `106_factory_constructor`, `119_nested_maps`, `125_group_by` +6 more | ✅ |
 | `null_coalesce` | ✅ | ✅ 2 fixture(s): `124_frequency_counter`, `401_switch_expr_null_arm` | ✅ |
@@ -102,7 +102,7 @@ Universal standard library base module. Every function here represents a languag
 | `post_increment` | ✅ | ✅ 67 fixture(s): `100_complex_control_flow`, `105_static_methods`, `127_zip_lists` +64 more | ✅ |
 | `pre_decrement` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
 | `pre_increment` | ✅ | ✅ 1 fixture(s): `261_conversion_and_ops` | ✅ |
-| `print` | ✅ | ✅ 352 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +349 more | ✅ |
+| `print` | ✅ | ✅ 353 fixture(s): `100_complex_control_flow`, `101_simple_class`, `102_inheritance` +350 more | ✅ |
 | `regex_find` | ❌ | ❌ | ✅ |
 | `regex_find_all` | ❌ | ❌ | ✅ |
 | `regex_match` | ❌ | ❌ | ✅ |
@@ -111,17 +111,20 @@ Universal standard library base module. Every function here represents a languag
 | `rethrow` | ✅ | ✅ 9 fixture(s): `146_nested_try_catch_types`, `208_async_chain_rethrow`, `221_rethrow_preserves_chain` +6 more | ✅ |
 | `return` | ✅ | ✅ 59 fixture(s): `105_static_methods`, `106_factory_constructor`, `109_enum_values` +56 more | ✅ |
 | `right_shift` | ✅ | ✅ 5 fixture(s): `206_integer_arithmetic_edge`, `251_bitwise_signed_edges`, `284_enc_bitwise` +2 more | ✅ |
+| `sink_create` | ✅ | ✅ 3 fixture(s): `140_caesar_cipher`, `150_state_machine`, `466_string_sink` | ✅ |
+| `sink_to_string` | ✅ | ✅ 3 fixture(s): `140_caesar_cipher`, `150_state_machine`, `466_string_sink` | ✅ |
+| `sink_write` | ✅ | ✅ 3 fixture(s): `140_caesar_cipher`, `150_state_machine`, `466_string_sink` | ✅ |
 | `string_char_at` | ❌ | ❌ | ✅ |
 | `string_char_code_at` | ❌ | ❌ | ✅ |
 | `string_code_unit_at` | ✅ | ✅ 4 fixture(s): `140_caesar_cipher`, `151_recursive_descent_parser`, `249_string_control_char_edges` +1 more | ✅ |
 | `string_concat` | ❌ | ❌ | ✅ |
 | `string_contains` | ❌ | ❌ | ✅ |
 | `string_ends_with` | ✅ | ✅ 1 fixture(s): `260_string_functions` | ✅ |
-| `string_from_char_code` | ❌ | ❌ | ✅ |
+| `string_from_char_code` | ✅ | ✅ 2 fixture(s): `140_caesar_cipher`, `466_string_sink` | ✅ |
 | `string_index_of` | ❌ | ❌ | ✅ |
-| `string_is_empty` | ✅ | ✅ 14 fixture(s): `115_generic_class`, `123_queue_simulation`, `195_deep_nesting` +11 more | ✅ |
+| `string_is_empty` | ✅ | ✅ 15 fixture(s): `115_generic_class`, `123_queue_simulation`, `195_deep_nesting` +12 more | ✅ |
 | `string_last_index_of` | ✅ | ✅ 1 fixture(s): `264_string_replace_ops` | ✅ |
-| `string_length` | ❌ | ❌ | ✅ |
+| `string_length` | ✅ | ✅ 1 fixture(s): `466_string_sink` | ✅ |
 | `string_pad_left` | ✅ | ✅ 2 fixture(s): `204_string_operations`, `264_string_replace_ops` | ✅ |
 | `string_pad_right` | ✅ | ✅ 1 fixture(s): `264_string_replace_ops` | ✅ |
 | `string_repeat` | ❌ | ❌ | ✅ |
@@ -348,7 +351,7 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 
 ## Gaps
 
-### Not encoder-emittable (150) — no Dart-source construct routes to this function
+### Not encoder-emittable (148) — no Dart-source construct routes to this function
 
 - `std_memory.address_of`
 - `std_io.args_get`
@@ -491,10 +494,8 @@ Concurrency primitives: threads, mutexes, atomics. Engines may simulate single-t
 - `std.string_char_code_at`
 - `std.string_concat`
 - `std.string_contains`
-- `std.string_from_char_code`
 - `std.string_index_of`
 - `std_collections.string_join`
-- `std.string_length`
 - `std.string_repeat`
 - `std_concurrency.thread_join`
 - `std_concurrency.thread_spawn`

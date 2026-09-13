@@ -29,6 +29,14 @@ func StrUpper(v Value) Value { return strings.ToUpper(ToStr(v)) }
 // StrLower implements std.string_to_lower.
 func StrLower(v Value) Value { return strings.ToLower(ToStr(v)) }
 
+// StrFromCharCode implements std.string_from_char_code — the BASE-function
+// spelling of `String.fromCharCode(n)`. The Dart-SDK method surface has always
+// answered the `String.fromCharCode` METHOD spelling (methods.go), but the base
+// function the Dart encoder emits had no arm in the compiler's dispatch table,
+// so a program using `StringBuffer.writeCharCode` — which #630 desugars into
+// `string_from_char_code` — was refused outright.
+func StrFromCharCode(v Value) Value { return string(rune(asInt64(v))) }
+
 // StrTrim implements std.string_trim.
 func StrTrim(v Value) Value { return strings.TrimSpace(ToStr(v)) }
 

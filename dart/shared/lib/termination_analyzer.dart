@@ -42,7 +42,7 @@ List<Object?> _analyzeTerminationCore(Map ctx) {
   final callGraph = _buildCallGraph({
     'modules': modules,
     'baseModules': baseModules,
-    'customBaseFns': _collectCustomBaseFns(modules),
+    'customBaseFns': _collectCustomBaseFns(modules, buildCapabilityTable()),
   });
   _checkLoops({
     'modules': modules,

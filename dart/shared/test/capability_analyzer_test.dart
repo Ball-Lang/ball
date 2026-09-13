@@ -847,6 +847,283 @@ void main() {
     });
   });
 
+  // ── #683: classify `custom` by (module, function), not by module NAME ────
+  //
+  // #609 keyed `custom` on the MODULE name: any declared base module outside
+  // the eight `std*` names. That left the squatting hole this group pins — a
+  // program-supplied module *named* `std` declaring a function the capability
+  // table does not key was filed as an ordinary user call and audited PURE.
+  group('#683 squatting a std module name', () {
+    /// A program that DECLARES `[module].[function]` as a base function and
+    /// calls it. When [declare] is false the module is absent entirely.
+    Program buildSquatter({
+      required String module,
+      required String function,
+      bool declare = true,
+    }) {
+      return Program()..mergeFromProto3Json({
+        'name': 'squat',
+        'version': '1.0.0',
+        'entryModule': 'main',
+        'entryFunction': 'main',
+        'modules': [
+          if (declare)
+            {
+              'name': module,
+              'functions': [
+                {'name': function, 'isBase': true},
+              ],
+            },
+          {
+            'name': 'main',
+            'functions': [
+              {
+                'name': 'main',
+                'outputType': 'void',
+                'body': {
+                  'call': {
+                    'module': module,
+                    'function': function,
+                    'input': {
+                      'messageCreation': {'fields': <dynamic>[]},
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }, ignoreUnknownFields: true);
+    }
+
+    test('a program-supplied `std.exec_shell` is custom and never pure', () {
+      // THE NEGATIVE CONTROL. `std` is one of the eight universal module
+      // names, but `exec_shell` is in no capability table and resolves to no
+      // base function by bare name either — so the DECLARATION is a host
+      // extension wearing a std costume. Classifying by module name alone
+      // read this program as `NO RISK — pure computation only`.
+      final r = analyzeCapabilities(
+        buildSquatter(module: 'std', function: 'exec_shell'),
+      );
+      expect(_sum(r)['isPure'], isFalse);
+      final entry = _findCap(r, 'custom');
+      expect(entry['riskLevel'], 'unknown');
+      final site = (entry['callSites'] as List).single as Map;
+      expect(site['calleeModule'], 'std');
+      expect(site['calleeFunction'], 'exec_shell');
+
+      final text = formatCapabilityReport(r);
+      expect(text, contains('main.main → std.exec_shell'));
+      expect(text, isNot(contains('NO RISK')));
+      expect(checkPolicy(r, deny: {'custom'}), hasLength(1));
+    });
+
+    test('every std* module name is squattable, and each is caught', () {
+      // Scoped to the module names the table models: the hole is not specific
+      // to `std`, so assert it closes for all eight rather than one sample.
+      for (final module in capabilityModuleNames()) {
+        final r = analyzeCapabilities(
+          buildSquatter(module: module, function: 'exec_shell'),
+        );
+        expect(
+          _caps(r).map((c) => (c as Map)['capability']),
+          contains('custom'),
+          reason: '$module.exec_shell squats undetected',
+        );
+      }
+    });
+
+    test('a REAL std base function under its own module stays non-custom', () {
+      // The over-fire control: `std.type_of` is a genuine std base function,
+      // so declaring and calling it must NOT be custom — otherwise the
+      // name-scoped rule lights up the whole conformance corpus.
+      final r = analyzeCapabilities(
+        buildSquatter(module: 'std', function: 'type_of'),
+      );
+      expect(
+        _caps(r).map((c) => (c as Map)['capability']),
+        isNot(contains('custom')),
+      );
+      expect(_sum(r)['isPure'], isTrue);
+    });
+
+    test('a std base function labelled with ANOTHER std module stays '
+        'non-custom (#402 bare-name resolution)', () {
+      // The corpus really does this: fixtures declare `std.list_push` while
+      // the table keys `std_collections.list_push`. The bare name resolves, so
+      // it is a std call — not a host extension.
+      final r = analyzeCapabilities(
+        buildSquatter(module: 'std', function: 'list_push'),
+      );
+      expect(
+        _caps(r).map((c) => (c as Map)['capability']),
+        isNot(contains('custom')),
+      );
+    });
+
+    test('the termination analyzer sees the squatter too', () {
+      final warnings = analyzeTermination(
+        buildSquatter(module: 'std', function: 'exec_shell'),
+      );
+      expect(warnings, hasLength(1));
+      expect((warnings.single as Map)['category'], 'unknown_termination');
+      expect((warnings.single as Map)['message'], contains('std.exec_shell'));
+    });
+  });
+
+  // ── #682: summary precedence + multi-site rendering ──────────────────────
+  //
+  // `formatCapabilityReport` ranks `REVIEW REQUIRED — calls into custom base
+  // modules` ABOVE `HIGH RISK`. That is a deliberate choice — an effect the
+  // report cannot bound outranks one it can — and until now no test pinned the
+  // combination, so the ordering could have been reversed by an unrelated edit
+  // with every suite still green.
+  group('#682 summary precedence and call-site rendering', () {
+    /// A program with `main.main` calling, in order, every
+    /// `(module, function)` pair in [calls]. Every distinct module named in
+    /// [baseModules] is declared with its functions marked `isBase`.
+    Program buildCombined({
+      required Map<String, List<String>> baseModules,
+      required List<List<String>> calls,
+    }) {
+      return Program()..mergeFromProto3Json({
+        'name': 'combined',
+        'version': '1.0.0',
+        'entryModule': 'main',
+        'entryFunction': 'main',
+        'modules': [
+          for (final e in baseModules.entries)
+            {
+              'name': e.key,
+              'functions': [
+                for (final f in e.value) {'name': f, 'isBase': true},
+              ],
+            },
+          {
+            'name': 'main',
+            'functions': [
+              {
+                'name': 'main',
+                'outputType': 'void',
+                'body': {
+                  'block': {
+                    'statements': [
+                      for (final c in calls)
+                        {
+                          'expression': {
+                            'call': {
+                              'module': c[0],
+                              'function': c[1],
+                              'input': {
+                                'messageCreation': {'fields': <dynamic>[]},
+                              },
+                            },
+                          },
+                        },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }, ignoreUnknownFields: true);
+    }
+
+    /// The program that exercises BOTH a high-risk std capability
+    /// (`std_io.exit` → `process`) and a custom base module.
+    Program combined() => buildCombined(
+      baseModules: {
+        'std_io': ['exit'],
+        'mymodule': ['exec_shell'],
+      },
+      calls: [
+        ['std_io', 'exit'],
+        ['mymodule', 'exec_shell'],
+      ],
+    );
+
+    test('REVIEW REQUIRED outranks HIGH RISK — the pinned precedence', () {
+      // THE DECISION (#682): an unbounded effect outranks a ranked one. A
+      // `custom` call is something the report explicitly cannot bound, so
+      // printing `HIGH RISK` would assert a ceiling the audit has not proven
+      // and would hide that a human must read a module the audit cannot see.
+      // Consumers must therefore NOT grep the summary for `HIGH RISK` — use
+      // `--deny <capability>` or the capability list, both of which are
+      // unaffected by this ordering (asserted below).
+      final text = formatCapabilityReport(analyzeCapabilities(combined()));
+      expect(
+        text,
+        contains('Summary: REVIEW REQUIRED — calls into custom base modules'),
+      );
+      expect(text, isNot(contains('Summary: HIGH RISK')));
+    });
+
+    test('both capabilities are still rendered with their call sites', () {
+      final report = analyzeCapabilities(combined());
+      final text = formatCapabilityReport(report);
+      // The known half is NOT swallowed by the escalated summary.
+      expect(
+        text,
+        contains(
+          '⚠ process (1 call sites: main.main → '
+          'std_io.exit)',
+        ),
+      );
+      expect(
+        text,
+        contains(
+          '⚠ custom (1 call sites: main.main → '
+          'mymodule.exec_shell)',
+        ),
+      );
+      expect(_sum(report)['controlsProcess'], isTrue);
+      expect(_sum(report)['isPure'], isFalse);
+    });
+
+    test('--deny is unaffected by the summary precedence', () {
+      final report = analyzeCapabilities(combined());
+      expect(
+        checkPolicy(report, deny: {'process'}).single,
+        contains('main.main calls std_io.exit'),
+      );
+      expect(
+        checkPolicy(report, deny: {'custom'}).single,
+        contains('main.main calls mymodule.exec_shell'),
+      );
+    });
+
+    test('multiple call sites join with ", " under one capability', () {
+      // Two custom modules, two call sites each — one `custom` entry whose
+      // count is 4 and whose sites render in walk order, comma-joined.
+      final report = analyzeCapabilities(
+        buildCombined(
+          baseModules: {
+            'alpha': ['one', 'two'],
+            'beta': ['three', 'four'],
+          },
+          calls: [
+            ['alpha', 'one'],
+            ['alpha', 'two'],
+            ['beta', 'three'],
+            ['beta', 'four'],
+          ],
+        ),
+      );
+      expect(
+        formatCapabilityReport(report),
+        contains(
+          '⚠ custom (4 call sites: '
+          'main.main → alpha.one, '
+          'main.main → alpha.two, '
+          'main.main → beta.three, '
+          'main.main → beta.four)',
+        ),
+      );
+      expect(checkPolicy(report, deny: {'custom'}), hasLength(4));
+    });
+  });
+
   group('conformance programs', () {
     final conformanceDir = Directory('../../tests/conformance');
     if (!conformanceDir.existsSync()) return;

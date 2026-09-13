@@ -12,12 +12,13 @@ void main() {
   } on StateError catch (e) {
     print('1: right (StateError) - ${e.message}');
   } catch (e) {
-    // Prints a constant, not '$e': a caught exception's string form is not part
-    // of the contract under test, and interpolating it is a separate
-    // cross-target portability question (the C++ compiler has no
-    // `ball_to_string(BallException)` overload, so the emitted program does not
-    // even build).
-    print('1: wrong (untyped fallback ran)');
+    // Interpolating the caught exception is deliberate (issue #640): this is
+    // the corpus's only arm that puts a catch variable bound inside a TYPED
+    // dispatch in a value position — the shape the C++ compiler lowers to
+    // `const BallException& e = __ball_e;`, which had no `ball_to_string`
+    // overload and so did not BUILD at all. The arm never runs in a correct
+    // dispatch, so what it pins is the compile, not the string.
+    print('1: wrong (untyped fallback ran) - $e');
   }
 
   // 2. No typed clause matches — the untyped catch-all is the fallback.

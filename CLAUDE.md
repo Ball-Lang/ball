@@ -626,7 +626,15 @@ Supporting configs:
    Every harness prints `excluded (test-only): N` (always, zero included),
    `summarize.sh` fails a Tier A job whose log lacks that line, `coverage_table.py`
    fails on an artifact without the count, and the number is published in the
-   README table and recorded (NOT floored) in `baseline.json`. The rules and
+   README table and recorded (NOT floored) in `baseline.json`. A count cannot see
+   a PARTIAL readmission (34 -> 31 has the same arithmetic signature as a pin whose
+   test suite shrank by three while its library grew by three), so each harness also
+   writes the exclusions as `{package, file, rule}` and
+   `tools/coverage-study/excluded.json` commits them per language per pin: a path
+   that list excludes and a run SCORED is a BREACH naming the file, and the list is
+   regenerated and committed on main the same way the baseline is raised (#676).
+   When a pin's test population legitimately changes, regenerate `excluded.json` in
+   the same PR. The rules and
    their negative controls are in `tests/conformance/COVERAGE_STUDY.md`.
    `tools/coverage-study/coverage_table.py` is that renderer + floor, and its
    self-test IS gated on every PR in `ci.yml`'s python job. Tier A exists for all six

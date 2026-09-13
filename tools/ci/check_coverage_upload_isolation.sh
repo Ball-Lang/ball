@@ -64,7 +64,7 @@
 # POSITIVE FLOOR: a guard that asserted nothing must not report success. The
 # checker refuses a coverage.yml with fewer than 4 floor steps, 4 measurement
 # jobs, 4 lcov artifacts or 4 codecov steps, and the self-test refuses to pass
-# on fewer than 15 cases.
+# on fewer than 16 cases.
 #
 # Usage:
 #   bash tools/ci/check_coverage_upload_isolation.sh               # gate the repo
@@ -131,6 +131,7 @@ path = sys.argv[1]
 FLOOR_RE = re.compile(r"coverage\s+(floors?|ratchet)", re.I)
 CODECOV = "codecov/codecov-action@"
 UPLOAD_ARTIFACT = "actions/upload-artifact@"
+DOWNLOAD_ARTIFACT = "actions/download-artifact@"
 # The artifact each measurement job hands to the upload job. The suffix is the
 # Codecov flag, which is what ties the two halves together.
 ART_PREFIX = "coverage-lcov-"
@@ -502,6 +503,45 @@ for job_name, by_flag in sorted(artifact_jobs.items()):
         else:
             ok(f"`{job_name}` publishes `{ART_PREFIX}{flag}` with `if-no-files-found: error`")
 
+# The layout the uploader expects must be the layout the downloader produces.
+# This is not hypothetical: a single `pattern: coverage-lcov-*` download step
+# writes into `path/<artifact-name>/` only when MORE THAN ONE artifact matches
+# (download-artifact v8.0.1's `… || artifacts.length === 1 ? resolvedPath :
+# path.join(resolvedPath, artifact.name)`), so on a cpp-only pull_request the
+# file landed one directory above every `files:` path and the upload job went red
+# having published nothing. Assert every `files:` entry sits under a directory
+# some download step in the same job actually writes to.
+for job_name in sorted(codecov_jobs):
+    dests = []
+    for step in steps_of(codecov_jobs[job_name]):
+        if isinstance(step, dict) and uses_of(step).startswith(DOWNLOAD_ARTIFACT):
+            dest = str(with_of(step).get("path", "") or "").strip().strip("/")
+            if dest:
+                dests.append(dest)
+    if not dests:
+        bad(
+            f"job `{job_name}` uploads to Codecov but no `actions/download-artifact` "
+            "step gives the lcov an explicit destination — it would upload whatever "
+            "happened to be in the workspace."
+        )
+        continue
+    for step in steps_of(codecov_jobs[job_name]):
+        if not (isinstance(step, dict) and is_codecov(step)):
+            continue
+        for entry in str(with_of(step).get("files", "") or "").split(","):
+            entry = entry.strip()
+            if not entry:
+                continue
+            norm = entry[2:] if entry.startswith("./") else entry
+            if not any(norm == d or norm.startswith(d + "/") for d in dests):
+                bad(
+                    f"`{job_name}` / `{name_of(step)}` uploads `{entry}`, which is under "
+                    f"none of this job's download destinations ({dests}) — the uploader "
+                    "and the downloader disagree about where the lcov is."
+                )
+            else:
+                ok(f"`{job_name}` / `{name_of(step)}` reads `{entry}` from a downloaded destination")
+
 for job_name, step in codecov_steps:
     w = with_of(step)
     if not truthy(w.get("disable_search")):
@@ -582,7 +622,10 @@ YAML
   printf '  codecov-upload:\n'
   [ "$mut" = "no_needs" ] || printf '    needs: [dart, typescript, cpp, rust, csharp]\n'
   printf '    if: ${{ !cancelled() }}\n    runs-on: ubuntu-latest\n    steps:\n'
-  printf '      - uses: %s\n        with:\n          pattern: coverage-lcov-*\n' "$DA_PIN"
+  for flag in dart typescript cpp rust csharp; do
+    printf '      - uses: %s\n        with:\n          pattern: coverage-lcov-%s\n          merge-multiple: true\n          path: dl/coverage-lcov-%s\n' \
+      "$DA_PIN" "$flag" "$flag"
+  done
   if [ "$mut" != "no_retry" ]; then
     printf '      - name: Fetch the Codecov OIDC token (bounded retry)\n        id: oidc\n        run: |\n'
     if [ "$mut" = "retry_unbounded" ]; then
@@ -628,7 +671,12 @@ fixture_codecov() {
     printf '          token: ${{ steps.oidc.outputs.token }}\n'
   fi
   [ "$mut" = "no_disable_search" ] && [ "$flag" = "rust" ] || printf '          disable_search: true\n'
-  printf '          files: ./x/%s.lcov\n          flags: %s\n' "$flag" "$flag"
+  if [ "$mut" = "files_outside_download" ] && [ "$flag" = "rust" ]; then
+    printf '          files: ./x/%s.lcov\n' "$flag"
+  else
+    printf '          files: ./dl/coverage-lcov-%s/%s.lcov\n' "$flag" "$flag"
+  fi
+  printf '          flags: %s\n' "$flag"
   if [ "$mut" = "fail_ci_false" ] && [ "$flag" = "rust" ]; then
     printf '          fail_ci_if_error: false\n'
   else
@@ -717,6 +765,10 @@ self_test() {
   expect "a || true in the upload job fails" 1 "$(fixture or_true)" \
     "with \`|| true\`"
 
+  expect "an uploaded path outside every download destination fails" 1 \
+    "$(fixture files_outside_download)" \
+    "under none of this job's download destinations"
+
   local too_few='name: Coverage
 on: {push: {branches: [main]}}
 jobs:
@@ -741,8 +793,8 @@ on: {push: {branches: [main]}}
 ' "::error::"
 
   echo "Results: $pass passed, $fail failed, $((pass + fail)) total"
-  if [ "$pass" -lt 15 ]; then
-    echo "::error::self-test executed fewer cases than expected ($pass < 15) — a self-test that ran nothing is not a passing self-test."
+  if [ "$pass" -lt 16 ]; then
+    echo "::error::self-test executed fewer cases than expected ($pass < 16) — a self-test that ran nothing is not a passing self-test."
     return 1
   fi
   [ "$fail" -eq 0 ]

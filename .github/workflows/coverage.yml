@@ -721,15 +721,59 @@ jobs:
       # and to apply path fixes, so the checkout is not optional.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # `pattern:` (not `name:`) so a stack whose job was skipped or died early
-      # is simply absent rather than an error here; the assertion below is what
-      # decides whether an absence is legitimate. Downloaded INTO the workspace
-      # because `hashFiles()` resolves relative to GITHUB_WORKSPACE only.
-      - name: Download every coverage lcov
+      # ONE STEP PER FLAG, each with `pattern:` + `merge-multiple: true` into its
+      # OWN directory. Two properties are needed at once and only this shape has
+      # both:
+      #   * `pattern:` (not `name:`) so a stack whose measurement job was skipped
+      #     or died before producing its lcov is simply absent — with `name:` a
+      #     missing artifact is a hard error, which would red the transport job
+      #     for something that is not a transport problem. The assertion below is
+      #     what decides whether an absence is legitimate.
+      #   * a DETERMINISTIC destination. A single `pattern: coverage-lcov-*` step
+      #     does not give one: download-artifact v8.0.1 writes into
+      #     `path/<artifact-name>/` only when more than one artifact matches
+      #     (`isSingleArtifactDownload || inputs.mergeMultiple ||
+      #     artifacts.length === 1 ? resolvedPath : path.join(resolvedPath,
+      #     artifact.name)` in its src/download-artifact.ts), so on a
+      #     cpp-only pull_request the file landed at `coverage-artifacts/cpp.lcov`
+      #     and every `files:`/`hashFiles()` path below missed it. `merge-multiple:
+      #     true` pins the layout to "straight into `path`" for any match count.
+      # Downloaded INTO the workspace because `hashFiles()` resolves relative to
+      # GITHUB_WORKSPACE only.
+      - name: Download the Dart lcov
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: coverage-lcov-*
-          path: coverage-artifacts
+          pattern: coverage-lcov-dart
+          merge-multiple: true
+          path: coverage-artifacts/coverage-lcov-dart
+
+      - name: Download the TypeScript lcov
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-lcov-typescript
+          merge-multiple: true
+          path: coverage-artifacts/coverage-lcov-typescript
+
+      - name: Download the C++ lcov
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-lcov-cpp
+          merge-multiple: true
+          path: coverage-artifacts/coverage-lcov-cpp
+
+      - name: Download the Rust lcov
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-lcov-rust
+          merge-multiple: true
+          path: coverage-artifacts/coverage-lcov-rust
+
+      - name: Download the C# lcov
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-lcov-csharp
+          merge-multiple: true
+          path: coverage-artifacts/coverage-lcov-csharp
 
       # POSITIVE FLOOR (#439/#444): an exit code cannot tell "every upload
       # succeeded" from "there was nothing to upload". A stack whose measurement

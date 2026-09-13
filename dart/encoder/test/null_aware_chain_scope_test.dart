@@ -241,6 +241,79 @@ void main() {
         expect(_guardsUsedAsReceiver(fn.body), isEmpty);
       });
 
+      test('a promotable LOCAL receiver is named directly, with no temp', () {
+        // The other half of the temp/no-temp branch: with no resolved element
+        // `_nullAwareNeedsTemp` answers false, so the hoisted guard names the
+        // reference twice instead of binding `__nachain_N`.
+        final syntactic = DartEncoder().encode(
+          'void main() {\n'
+          '  final n = make();\n'
+          '  print(n?.leaf.twice(2));\n'
+          '}\n',
+        );
+        final body = syntactic.modules
+            .firstWhere((m) => m.name == 'main')
+            .functions
+            .firstWhere((f) => f.name.endsWith('main'))
+            .body;
+        expect(_guardsUsedAsReceiver(body), isEmpty);
+        expect(body.writeToJson(), isNot(contains('__nachain_')));
+      });
+
+      test('an INDEX link participates in the chain', () {
+        final syntactic = DartEncoder().encode(
+          'void main() {\n'
+          '  final xs = make();\n'
+          '  print(xs?[0].twice(2));\n'
+          '}\n',
+        );
+        final body = syntactic.modules
+            .firstWhere((m) => m.name == 'main')
+            .functions
+            .firstWhere((f) => f.name.endsWith('main'))
+            .body;
+        expect(_guardsUsedAsReceiver(body), isEmpty);
+        // The hoisted `?[` re-encodes as a PLAIN index inside the guard.
+        expect(body.writeToJson(), isNot(contains('null_aware_index')));
+      });
+
+      test('a `?.` on the OUTERMOST link is left to the per-link lowering', () {
+        // links.length >= 2 but the only short-circuiting link is the head, so
+        // its own guard already covers the whole chain — nothing to hoist.
+        final syntactic = DartEncoder().encode(
+          'void main() {\n'
+          '  print(make().leaf?.value);\n'
+          '}\n',
+        );
+        final body = syntactic.modules
+            .firstWhere((m) => m.name == 'main')
+            .functions
+            .firstWhere((f) => f.name.endsWith('main'))
+            .body;
+        expect(_guardsUsedAsReceiver(body), isEmpty);
+        expect(body.writeToJson(), isNot(contains('__nachain_')));
+      });
+
+      test(
+        'a cascade section ends the chain walk at its implicit receiver',
+        () {
+          // `..a.b()` has a link with NO receiver; the walk must stop there
+          // rather than dereferencing it.
+          final syntactic = DartEncoder().encode(
+            'void main() {\n'
+            '  final o = make();\n'
+            '  o..a.b();\n'
+            '}\n',
+          );
+          final body = syntactic.modules
+              .firstWhere((m) => m.name == 'main')
+              .functions
+              .firstWhere((f) => f.name.endsWith('main'))
+              .body;
+          expect(_guardsUsedAsReceiver(body), isEmpty);
+        },
+      );
+
       test('the compiled Dart passes the real `dart analyze`', () async {
         final out = _scratchPackage(
           'null_aware_chain_analyze',

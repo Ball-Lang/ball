@@ -5815,23 +5815,21 @@ class DartEncoder {
   ///
   /// A cascade section (`..foo()`) has a null target and is NOT part of the
   /// chain walk — its receiver is the cascade's own subject.
-  static ast.Expression? _chainReceiver(ast.Expression e) => switch (e) {
-    ast.MethodInvocation() => e.target,
-    ast.PropertyAccess() => e.target,
-    ast.IndexExpression() => e.target,
-    _ => null,
-  };
+  /// Precondition: [_isChainLink] holds for [e] — the final cast fails loud
+  /// rather than inventing a `null` receiver for a node that is not a link.
+  static ast.Expression? _chainReceiver(ast.Expression e) {
+    if (e is ast.MethodInvocation) return e.target;
+    if (e is ast.PropertyAccess) return e.target;
+    return (e as ast.IndexExpression).target;
+  }
 
   /// Whether [e]'s own link operator short-circuits on a null receiver, i.e.
   /// it is `?.` / `?..` / `?[`. False once the link's guard has been hoisted.
   bool _linkShortCircuits(ast.Expression e) {
     if (_hoistedNullAware.contains(e)) return false;
-    return switch (e) {
-      ast.MethodInvocation() => e.operator?.lexeme == '?.',
-      ast.PropertyAccess() => e.operator.lexeme == '?.',
-      ast.IndexExpression() => e.isNullAware,
-      _ => false,
-    };
+    if (e is ast.MethodInvocation) return e.operator?.lexeme == '?.';
+    if (e is ast.PropertyAccess) return e.operator.lexeme == '?.';
+    return (e as ast.IndexExpression).isNullAware;
   }
 
   /// Hoists the guard of the FIRST (deepest) short-circuiting link of the
@@ -5856,8 +5854,13 @@ class DartEncoder {
     while (cur != null &&
         !_chainSubstitutions.containsKey(cur) &&
         _isChainLink(cur)) {
+      final receiver = _chainReceiver(cur);
+      // A link with NO receiver is a cascade section's implicit `this`
+      // (`..foo()`): there is nothing to bind or guard, so the chain ends here
+      // and `_chainReceiver(guarded)` below is guaranteed non-null.
+      if (receiver == null) break;
       links.add(cur);
-      cur = _chainReceiver(cur);
+      cur = receiver;
     }
     // A one-link chain is exactly what the per-link lowerings already model.
     if (links.length < 2) return null;

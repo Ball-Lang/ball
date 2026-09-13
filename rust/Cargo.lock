@@ -167,6 +167,7 @@ dependencies = [
  "ra_ap_span",
  "ra_ap_tt",
  "salsa",
+ "serde_json",
  "syn 2.0.118",
 ]
 

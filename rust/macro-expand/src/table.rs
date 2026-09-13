@@ -164,6 +164,12 @@ pub struct MacroTable {
     /// macro is then a loud [`MacroError::DependenciesUnavailable`] naming this
     /// reason — never a silent skip.
     dependencies_unavailable: Option<String>,
+    /// Sources that were supposed to contribute definitions and could not be
+    /// read — a dependency file `syn` cannot parse, or a definition the engine
+    /// rejects. Named in the diagnostic of any macro that then fails to
+    /// resolve, so "this crate's macro is missing" never reads as "this crate
+    /// has no such macro".
+    unreadable_sources: Vec<String>,
 }
 
 impl Default for MacroTable {
@@ -189,6 +195,7 @@ impl MacroTable {
             defs: BTreeMap::new(),
             aliases: BTreeMap::new(),
             dependencies_unavailable: None,
+            unreadable_sources: Vec::new(),
         }
     }
 
@@ -252,6 +259,13 @@ impl MacroTable {
     /// Record that the dependency graph could not be read, and why.
     pub fn set_dependencies_unavailable(&mut self, reason: String) {
         self.dependencies_unavailable = Some(reason);
+    }
+
+    /// Record a source that should have contributed definitions and could not
+    /// be read. Never fails the caller — it surfaces in the diagnostic of any
+    /// macro that subsequently fails to resolve.
+    pub fn note_unreadable_source(&mut self, what: &str, reason: &str) {
+        self.unreadable_sources.push(format!("{what}: {reason}"));
     }
 
     /// Every macro name this table can resolve, sorted.
@@ -337,6 +351,7 @@ impl MacroTable {
                 None => Err(MacroError::Unresolved {
                     name: path,
                     in_scope: self.names(),
+                    unreadable_sources: self.unreadable_sources.clone(),
                 }),
             };
         }
@@ -351,6 +366,7 @@ impl MacroTable {
             [] => Err(MacroError::Unresolved {
                 name: path,
                 in_scope: self.names(),
+                unreadable_sources: self.unreadable_sources.clone(),
             }),
             [only] => Ok(only),
             many => Err(MacroError::Ambiguous {

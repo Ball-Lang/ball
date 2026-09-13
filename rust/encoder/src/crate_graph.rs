@@ -232,9 +232,7 @@ impl CrateGraph {
                 macro_errors.entry(module.name.clone()).or_insert(err);
             }
         }
-        macros.set_dependencies_unavailable(
-            "dependency crates were not consulted for this encode".to_owned(),
-        );
+        macro_expand::seed_dependency_macros(&root, &mut macros);
         for module in &mut modules {
             if macro_errors.contains_key(&module.name) {
                 continue;

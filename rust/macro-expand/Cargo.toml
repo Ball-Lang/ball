@@ -28,6 +28,12 @@ ra_ap_intern = "=0.0.351"
 # exactly what rust-analyzer's own `crates/mbe/src/tests.rs` does.
 salsa = "0.28"
 
+# Reading `cargo metadata --format-version 1`, which is how a DEPENDENCY-defined
+# `#[macro_export] macro_rules!` is located (`packages[].targets[].src_path` for
+# the sources, `resolve.nodes[].deps[]` for the edges). Already in the
+# workspace's transitive graph via `prost-reflect`.
+serde_json = "1"
+
 [dev-dependencies]
 # Rendering an expanded `syn` node back to tokens, so a test can assert on what
 # came out without re-implementing a printer.

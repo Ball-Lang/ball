@@ -46,6 +46,8 @@
 //! ambiguity, an unparseable definition — is a named [`MacroError`], never
 //! flattened into "unsupported".
 
+use std::path::{Path, PathBuf};
+
 use ball_lang_macro_expand::{Expanded, Expansion, MacroError, MacroOrigin, MacroTable, Route};
 use syn::visit_mut::VisitMut;
 
@@ -115,6 +117,37 @@ fn collect_use_aliases(tree: &syn::UseTree, table: &mut MacroTable) {
             table.insert_alias(rename.rename.to_string(), rename.ident.to_string());
         }
         syn::UseTree::Name(_) | syn::UseTree::Glob(_) => {}
+    }
+}
+
+/// Seed `table` with the `#[macro_export] macro_rules!` items the crate's DIRECT
+/// dependencies export, located through `cargo metadata`.
+///
+/// `root_file` is the crate's root source file; the manifest is the nearest
+/// `Cargo.toml` at or above its directory. A crate with no manifest above it —
+/// which is exactly what the Tier A coverage harness points at, since it names
+/// `<pkg>/src` rather than `<pkg>` — records that reason on the table instead of
+/// failing here: only an invocation that actually needs a dependency macro turns
+/// it into a loud error.
+pub(crate) fn seed_dependency_macros(root_file: &Path, table: &mut MacroTable) {
+    match nearest_manifest(root_file) {
+        Some(manifest) => table.seed_from_cargo_metadata(&manifest),
+        None => table.set_dependencies_unavailable(format!(
+            "no `Cargo.toml` was found at or above `{}`, so this crate's dependencies could not \
+             be resolved",
+            root_file.display()
+        )),
+    }
+}
+
+fn nearest_manifest(root_file: &Path) -> Option<PathBuf> {
+    let mut dir = root_file.parent()?;
+    loop {
+        let candidate = dir.join("Cargo.toml");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        dir = dir.parent()?;
     }
 }
 

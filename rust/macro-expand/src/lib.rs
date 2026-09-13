@@ -46,6 +46,7 @@
 //! silently dropped or partially expanded.
 
 mod bridge;
+mod deps;
 mod hygiene;
 mod table;
 
@@ -66,6 +67,9 @@ pub enum MacroError {
         /// Every macro name that WAS in scope, sorted — the diagnostic that
         /// makes a real-code sweep actionable.
         in_scope: Vec<String>,
+        /// Sources that should have contributed definitions and could not be
+        /// read, so "not in scope" is never mistaken for "does not exist".
+        unreadable_sources: Vec<String>,
     },
     /// A definition's rules could not be parsed by the engine.
     DefinitionNotParseable {
@@ -118,12 +122,27 @@ pub enum MacroError {
 impl fmt::Display for MacroError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MacroError::Unresolved { name, in_scope } => write!(
-                f,
-                "cannot resolve the macro `{name}!` — no `macro_rules!` with that name is in \
-                 scope. In scope here: [{}]",
-                in_scope.join(", ")
-            ),
+            MacroError::Unresolved {
+                name,
+                in_scope,
+                unreadable_sources,
+            } => {
+                write!(
+                    f,
+                    "cannot resolve the macro `{name}!` — no `macro_rules!` with that name is in \
+                     scope. In scope here: [{}]",
+                    in_scope.join(", ")
+                )?;
+                if !unreadable_sources.is_empty() {
+                    write!(
+                        f,
+                        ". These sources could not be read, so a definition may be hiding in one \
+                         of them: [{}]",
+                        unreadable_sources.join("; ")
+                    )?;
+                }
+                Ok(())
+            }
             MacroError::DefinitionNotParseable {
                 name,
                 origin,

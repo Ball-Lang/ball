@@ -329,6 +329,9 @@ inline const std::vector<std::string>& program_names() {
         "463_list_find_no_match",
         "464_typed_catch_clause_dispatch",
         "465_state_error_message",
+        "466_map_contains_value",
+        "467_map_put_if_absent",
+        "468_null_aware_chain_scope",
     };
     return names;
 }

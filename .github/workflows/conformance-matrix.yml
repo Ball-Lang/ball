@@ -60,10 +60,73 @@ concurrency:
 
 jobs:
   # ──────────────────────────────────────────────────
+  # Which rows does THIS diff actually need? (issue #666)
+  # ──────────────────────────────────────────────────
+  # Every row below used to run on every PR that tripped the path filter above,
+  # so a one-line change to a Rust test file ran the C#, Go, Python, TS, C++ and
+  # Dart legs too. Measured on PR #644 (d853854b): 18 matrix jobs, 15 of them for
+  # languages the diff did not touch — on a Free-plan org capped at 20 concurrent
+  # jobs, with 30 runs queued and 0 in progress at the time #666 was filed.
+  #
+  # The classifier is the SAME composite action ci.yml and regression-gates.yml
+  # use (./.github/actions/detect-changed-stacks — single source of truth since
+  # #458), and the two signals that switch EVERY row back on are `corpus` (the
+  # tests/conformance/** fixture corpus) and `dart_core` (dart/engine,
+  # dart/shared, dart/compiler, dart/self_host — the Dart sources every
+  # self-hosted engine is compiled from). A change to either can move any row's
+  # result, so neither may be narrowed to one language.
+  #
+  # WHAT IS DELIBERATELY ABSENT: the `infra` fail-safe. `infra` is true for any
+  # file outside the language dirs — docs, tools/, root configs, ci.yml — and
+  # OR-ing it in here would put all 18 rows back on every CI-lane PR, which is
+  # the exact waste this closes. It is safe to leave out HERE, and only here,
+  # because this workflow's `pull_request:` trigger is already `paths:`-filtered:
+  # every file that can start this workflow at all is one of tests/conformance/**
+  # (-> corpus), the four dart_core dirs, ts/**, cpp/**, rust/**, csharp/**,
+  # go/** or python/** (-> that language's own flag). There is no unmapped path
+  # that can reach these jobs. tools/ci/check_matrix_paths.sh pins that filter.
+  #
+  # PR-ONLY. Every condition below is `github.event_name != 'pull_request' || …`,
+  # so the push-to-main, weekly and dispatch runs still execute the FULL matrix
+  # — that full run is the documented safety net for the per-PR narrowing, and
+  # it does not move.
+  changes:
+    # NOT named "Detect changed stacks": that is one of the 19 required contexts
+    # of ruleset 17056238, and this workflow's `pull_request:` trigger is
+    # `paths:`-filtered — a required context must never live behind a path
+    # filter, because a PR that misses the filter leaves it pending forever
+    # (docs/TESTING_STRATEGY.md, "never require path-filtered jobs").
+    # ci.yml's and regression-gates.yml's identically-bodied jobs own that
+    # context; this one only selects rows.
+    name: Detect matrix rows
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ts: ${{ steps.f.outputs.ts }}
+      cpp: ${{ steps.f.outputs.cpp }}
+      rust: ${{ steps.f.outputs.rust }}
+      csharp: ${{ steps.f.outputs.csharp }}
+      go: ${{ steps.f.outputs.go }}
+      python: ${{ steps.f.outputs.python }}
+      corpus: ${{ steps.f.outputs.corpus }}
+      dart_core: ${{ steps.f.outputs.dart_core }}
+    steps:
+      # fetch-depth: 0 (full history, so the merge-base of the diff is
+      # reachable) is the composite action's documented precondition.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - id: f
+        uses: ./.github/actions/detect-changed-stacks
+
+  # ──────────────────────────────────────────────────
   # Dart engine (reference implementation)
   # ──────────────────────────────────────────────────
   dart-engine:
     name: Dart Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -132,6 +195,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ts-engine:
     name: TS Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.ts == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -208,6 +273,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ts-compiled-engine:
     name: TS Compiled Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.ts == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -280,6 +347,8 @@ jobs:
   # ──────────────────────────────────────────────────
   ts-compiled-direct:
     name: TS Compiled (Direct)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.ts == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -358,6 +427,8 @@ jobs:
   # ──────────────────────────────────────────────────
   cpp-compiled:
     name: C++ Compiled
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.cpp == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -451,6 +522,8 @@ jobs:
   # ──────────────────────────────────────────────────
   rust-engine:
     name: Rust Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.rust == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -541,6 +614,8 @@ jobs:
   # ──────────────────────────────────────────────────
   csharp-engine:
     name: C# Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.csharp == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -633,6 +708,8 @@ jobs:
   # ──────────────────────────────────────────────────
   go-engine:
     name: Go Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -717,6 +794,8 @@ jobs:
   # ──────────────────────────────────────────────────
   python-engine:
     name: Python Self-Hosted Engine
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -879,6 +958,8 @@ jobs:
   # ──────────────────────────────────────────────────
   csharp-compiler:
     name: C# Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.csharp == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1017,6 +1098,8 @@ jobs:
   # ──────────────────────────────────────────────────
   csharp-roundtrip:
     name: C# Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.csharp == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1137,6 +1220,8 @@ jobs:
   # ──────────────────────────────────────────────────
   python-roundtrip:
     name: Python Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1230,6 +1315,8 @@ jobs:
 
   go-roundtrip:
     name: Go Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1308,6 +1395,8 @@ jobs:
 
   rust-roundtrip:
     name: Rust Round-Trip Leg (measurement)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.rust == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1417,6 +1506,8 @@ jobs:
   # ──────────────────────────────────────────────────
   rust-compiler:
     name: Rust Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.rust == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1525,6 +1616,8 @@ jobs:
 
   go-compiler:
     name: Go Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1621,6 +1714,8 @@ jobs:
 
   python-compiler:
     name: Python Compiler Leg (ratcheted)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.corpus == 'true' || needs.changes.outputs.dart_core == 'true' || needs.changes.outputs.python == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -1715,7 +1810,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     if: always()
-    needs: [dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip, python-roundtrip, go-roundtrip, rust-roundtrip]
+    # `changes` is in this list so a BROKEN classifier cannot read as green:
+    # if it fails, every row skips, and without the explicit assertion below
+    # "nothing failed" would be indistinguishable from "everything passed".
+    needs: [changes, dart-engine, ts-engine, ts-compiled-engine, ts-compiled-direct, cpp-compiled, rust-engine, csharp-engine, go-engine, python-engine, csharp-compiler, rust-compiler, go-compiler, python-compiler, csharp-roundtrip, python-roundtrip, go-roundtrip, rust-roundtrip]
     steps:
       - name: Print conformance matrix
         run: |
@@ -1723,10 +1821,17 @@ jobs:
           echo "║ Engine                       ║ Passed ║ Failed ║ Total  ║ Status ║"
           echo "╠══════════════════════════════╬════════╬════════╬════════╬════════╣"
 
+          # A row that did not run for THIS diff reports SKIP, never FAIL
+          # (#666): since the per-row conditions landed, a PR that touches one
+          # language runs that language's rows only, and the rest are skipped
+          # by design. `skipped` is the ONLY non-success result treated as
+          # benign — failure and cancelled still read FAIL.
           print_row() {
             local name="$1" passed="$2" failed="$3" total="$4" result="$5"
             local status="PASS"
-            if [ "$result" != "success" ]; then
+            if [ "$result" = "skipped" ]; then
+              status="SKIP"
+            elif [ "$result" != "success" ]; then
               status="FAIL"
             fi
             printf "║ %-28s ║ %6s ║ %6s ║ %6s ║ %-6s ║\n" \
@@ -1800,16 +1905,16 @@ jobs:
           echo ""
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "FLOOR" "STATUS"
           csc_status="PASS"
-          if [ "${{ needs.csharp-compiler.result }}" != "success" ]; then csc_status="FAIL"; fi
+          if [ "${{ needs.csharp-compiler.result }}" = "skipped" ]; then csc_status="SKIP"; elif [ "${{ needs.csharp-compiler.result }}" != "success" ]; then csc_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "C# Compiler (Ball -> C# -> Roslyn)" "${{ needs.csharp-compiler.outputs.passed }}" "${{ needs.csharp-compiler.outputs.failed }}" "${{ needs.csharp-compiler.outputs.total }}" "${{ needs.csharp-compiler.outputs.floor }}" "$csc_status"
           rust_status="PASS"
-          if [ "${{ needs.rust-compiler.result }}" != "success" ]; then rust_status="FAIL"; fi
+          if [ "${{ needs.rust-compiler.result }}" = "skipped" ]; then rust_status="SKIP"; elif [ "${{ needs.rust-compiler.result }}" != "success" ]; then rust_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Rust Compiler (Ball -> Rust -> cargo)" "${{ needs.rust-compiler.outputs.passed }}" "${{ needs.rust-compiler.outputs.failed }}" "${{ needs.rust-compiler.outputs.total }}" "${{ needs.rust-compiler.outputs.floor }}" "$rust_status"
           go_status="PASS"
-          if [ "${{ needs.go-compiler.result }}" != "success" ]; then go_status="FAIL"; fi
+          if [ "${{ needs.go-compiler.result }}" = "skipped" ]; then go_status="SKIP"; elif [ "${{ needs.go-compiler.result }}" != "success" ]; then go_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Go Compiler (Ball -> Go -> go build)" "${{ needs.go-compiler.outputs.passed }}" "${{ needs.go-compiler.outputs.failed }}" "${{ needs.go-compiler.outputs.total }}" "${{ needs.go-compiler.outputs.floor }}" "$go_status"
           python_status="PASS"
-          if [ "${{ needs.python-compiler.result }}" != "success" ]; then python_status="FAIL"; fi
+          if [ "${{ needs.python-compiler.result }}" = "skipped" ]; then python_status="SKIP"; elif [ "${{ needs.python-compiler.result }}" != "success" ]; then python_status="FAIL"; fi
           printf "  %-38s  %6s  %6s  %6s  %6s  %-6s\n" "Python Compiler (Ball -> Python)" "${{ needs.python-compiler.outputs.passed }}" "${{ needs.python-compiler.outputs.failed }}" "${{ needs.python-compiler.outputs.total }}" "${{ needs.python-compiler.outputs.floor }}" "$python_status"
           echo ""
 
@@ -1822,34 +1927,54 @@ jobs:
           echo ""
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "LEG" "PASSED" "FAILED" "TOTAL" "HARNESS"
           csrt_status="OK"
-          if [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="BROKEN"; fi
+          if [ "${{ needs.csharp-roundtrip.result }}" = "skipped" ]; then csrt_status="SKIP"; elif [ "${{ needs.csharp-roundtrip.result }}" != "success" ]; then csrt_status="BROKEN"; fi
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "C# Round-Trip (Ball -> C# -> Ball)" "${{ needs.csharp-roundtrip.outputs.passed }}" "${{ needs.csharp-roundtrip.outputs.failed }}" "${{ needs.csharp-roundtrip.outputs.total }}" "$csrt_status"
           pyrt_status="OK"
-          if [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="BROKEN"; fi
+          if [ "${{ needs.python-roundtrip.result }}" = "skipped" ]; then pyrt_status="SKIP"; elif [ "${{ needs.python-roundtrip.result }}" != "success" ]; then pyrt_status="BROKEN"; fi
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Python Round-Trip (Ball -> Py -> Ball)" "${{ needs.python-roundtrip.outputs.passed }}" "${{ needs.python-roundtrip.outputs.failed }}" "${{ needs.python-roundtrip.outputs.total }}" "$pyrt_status"
           gort_status="OK"
-          if [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="BROKEN"; fi
+          if [ "${{ needs.go-roundtrip.result }}" = "skipped" ]; then gort_status="SKIP"; elif [ "${{ needs.go-roundtrip.result }}" != "success" ]; then gort_status="BROKEN"; fi
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Go Round-Trip (Ball -> Go -> Ball)" "${{ needs.go-roundtrip.outputs.passed }}" "${{ needs.go-roundtrip.outputs.failed }}" "${{ needs.go-roundtrip.outputs.total }}" "$gort_status"
           rsrt_status="OK"
-          if [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="BROKEN"; fi
+          if [ "${{ needs.rust-roundtrip.result }}" = "skipped" ]; then rsrt_status="SKIP"; elif [ "${{ needs.rust-roundtrip.result }}" != "success" ]; then rsrt_status="BROKEN"; fi
           printf "  %-38s  %6s  %6s  %6s  %-6s\n" "Rust Round-Trip (Ball -> Rust -> Ball)" "${{ needs.rust-roundtrip.outputs.passed }}" "${{ needs.rust-roundtrip.outputs.failed }}" "${{ needs.rust-roundtrip.outputs.total }}" "$rsrt_status"
           echo ""
 
-          # Fail the summary if any engine job did not succeed (primary gate).
           summary_failed=0
-          if [ "${{ needs.dart-engine.result }}" != "success" ] || \
-             [ "${{ needs.ts-engine.result }}" != "success" ] || \
-             [ "${{ needs.ts-compiled-engine.result }}" != "success" ] || \
-             [ "${{ needs.ts-compiled-direct.result }}" != "success" ] || \
-             [ "${{ needs.cpp-compiled.result }}" != "success" ] || \
-             [ "${{ needs.rust-engine.result }}" != "success" ] || \
-             [ "${{ needs.csharp-engine.result }}" != "success" ] || \
-             [ "${{ needs.go-engine.result }}" != "success" ] || \
-             [ "${{ needs.python-engine.result }}" != "success" ]; then
-            echo ""
-            echo "One or more engine jobs did not succeed. See individual job logs above."
+
+          # The classifier itself must have succeeded. Every row's condition
+          # reads its outputs, so a failed `changes` job skips the whole matrix
+          # — and a summary that counted skips as fine would then report a green
+          # parity table for a run that executed nothing (#666).
+          if [ "${{ needs.changes.result }}" != "success" ]; then
+            echo "::error::the Detect changed stacks job did not succeed (${{ needs.changes.result }}) — every row's condition is unevaluated, so this run proves nothing."
             summary_failed=1
           fi
+
+          # Fail the summary if any engine job did not succeed (primary gate).
+          # `skipped` is explicitly permitted — see print_row above; a row that
+          # this diff does not require is not a failure. `failure` and
+          # `cancelled` still fail.
+          engine_not_ok() {
+            [ "$1" != "success" ] && [ "$1" != "skipped" ]
+          }
+          for entry in \
+            "Dart Engine:${{ needs.dart-engine.result }}" \
+            "TS Self-Hosted Engine:${{ needs.ts-engine.result }}" \
+            "TS Compiled Engine:${{ needs.ts-compiled-engine.result }}" \
+            "TS Compiled (Direct):${{ needs.ts-compiled-direct.result }}" \
+            "C++ Compiled:${{ needs.cpp-compiled.result }}" \
+            "Rust Self-Hosted Engine:${{ needs.rust-engine.result }}" \
+            "C# Self-Hosted Engine:${{ needs.csharp-engine.result }}" \
+            "Go Self-Hosted Engine:${{ needs.go-engine.result }}" \
+            "Python Self-Hosted Engine:${{ needs.python-engine.result }}"; do
+            name="${entry%%:*}"; res="${entry##*:}"
+            if engine_not_ok "$res"; then
+              echo ""
+              echo "::error::the $name row did not succeed ($res). See its job log."
+              summary_failed=1
+            fi
+          done
 
           # Each ratcheted compile leg self-gates on its own floor (a DROP fails
           # the job), so its RESULT is the whole signal. They are intentionally
@@ -1863,7 +1988,7 @@ jobs:
             "Go:${{ needs.go-compiler.result }}" \
             "Python:${{ needs.python-compiler.result }}"; do
             name="${leg%%:*}"; res="${leg#*:}"
-            if [ "$res" != "success" ]; then
+            if engine_not_ok "$res"; then
               echo ""
               echo "The $name compiler leg regressed below its floor. See its job log."
               summary_failed=1
@@ -1882,7 +2007,7 @@ jobs:
             "Go:${{ needs.go-roundtrip.result }}" \
             "Rust:${{ needs.rust-roundtrip.result }}"; do
             name="${leg%%:*}"; res="${leg#*:}"
-            if [ "$res" != "success" ]; then
+            if engine_not_ok "$res"; then
               echo ""
               echo "The $name round-trip harness did not report a trustworthy count. See its job log."
               summary_failed=1
@@ -1920,4 +2045,4 @@ jobs:
           fi
 
           echo ""
-          echo "All engines passed conformance."
+          echo "All engines this diff requires passed conformance (a SKIP row is one the diff does not touch; the push-to-main and weekly runs execute the full matrix)."

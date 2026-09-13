@@ -43,6 +43,8 @@ ball_fail_open() {
   echo "python=true"
   echo "infra=true"
   echo "self_host=true"
+  echo "corpus=true"
+  echo "dart_core=true"
   echo "changed_fixtures=ALL"
 }
 
@@ -118,6 +120,30 @@ ball_classify_stacks() {
     sed -E 's#.*/##; s/\.ball\.json$//' |
     sort -u | tr '\n' ' ' | sed -E 's/^ +//; s/ +$//')"
 
+  # corpus = the conformance fixture corpus itself (tests/conformance/**, both
+  # the generated *.ball.json programs and the tests/conformance/src/*.dart
+  # sources they are generated from). dart_core = the Dart sources EVERY
+  # self-hosted engine is compiled from: dart/engine (engine.dart + parts),
+  # dart/shared (std.json/std.bin and cli_core), dart/compiler (the Ball->X
+  # emitters and the gen_*_json tools), dart/self_host (the generated program
+  # inputs). Both are consumed ONLY by conformance-matrix.yml, whose per-row
+  # conditions need to know "does this diff change what EVERY row runs?" (#666).
+  #
+  # These are DELIBERATELY narrower than `infra`: `infra` is the fail-safe that
+  # forces every ci.yml stack to run for any file outside the language dirs
+  # (docs, tools/, root configs, workflows), and using it inside the matrix
+  # would run all 18 legs for a PR that changed one language's test file —
+  # measured on PR #644, where 15 of 18 legs covered untouched languages. The
+  # matrix can afford the narrower signal because its `pull_request:` trigger is
+  # already `paths:`-filtered to exactly {tests/conformance, the dart_core dirs,
+  # ts, cpp, rust, csharp, go, python, conformance-matrix.yml}: every file that
+  # can start that workflow maps onto one of those signals, and
+  # tools/ci/check_matrix_paths.sh fails if a path is added to the filter
+  # without a signal to match.
+  local corpus=false dart_core=false
+  if m '^tests/conformance/'; then corpus=true; fi
+  if m '^dart/(engine|shared|compiler|self_host)/'; then dart_core=true; fi
+
   out dart '^dart/'
   out ts '^ts/'
   # cpp/rust/csharp/go/python run on their own dir changes OR any self-host
@@ -132,6 +158,8 @@ ball_classify_stacks() {
   if m '^python/' || [ "$self_host" = true ]; then echo "python=true"; else echo "python=false"; fi
   echo "infra=$infra"
   echo "self_host=$self_host"
+  echo "corpus=$corpus"
+  echo "dart_core=$dart_core"
   echo "changed_fixtures=$changed_fixtures"
 }
 

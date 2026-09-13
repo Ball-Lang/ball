@@ -30,7 +30,7 @@
 #     never starts the workflow, so the context never reports. (docs/
 #     TESTING_STRATEGY.md, "never require path-filtered jobs".)
 #
-# THE RULE. Every job reachable on `pull_request` in the four PR workflows must
+# THE RULE. Every job reachable on `pull_request` in the five PR workflows must
 # satisfy at least one of:
 #   (a) it owns one of the 19 required contexts — it has to report anyway;
 #   (b) its job-level `if:` references a `changes` job output
@@ -116,13 +116,14 @@ except ImportError:  # pragma: no cover - the runner image ships PyYAML
 
 workflow_dir, allowlist_path = sys.argv[1], sys.argv[2]
 
-# The four workflows that run on `pull_request` and carry the PR fan-out.
-# A new PR workflow must be added here deliberately, with its jobs classified.
+# The workflows that run on `pull_request` and carry the PR fan-out. A new PR
+# workflow must be added here deliberately, with its jobs classified.
 WORKFLOWS = [
     "ci.yml",
     "conformance-matrix.yml",
     "regression-gates.yml",
     "ball-audit.yml",
+    "coverage.yml",
 ]
 
 # The 19 required status contexts of ruleset 17056238 (read back with
@@ -445,6 +446,18 @@ on:
 jobs:
   dart-engine:
     name: Dart Engine
+    runs-on: ubuntu-latest
+    steps: [{ run: "true" }]
+YAML
+    cat >"$dir/coverage.yml" <<'YAML'
+name: Coverage
+on:
+  pull_request:
+    branches: [main]
+    paths: ["cpp/**"]
+jobs:
+  cpp:
+    name: C++ coverage
     runs-on: ubuntu-latest
     steps: [{ run: "true" }]
 YAML

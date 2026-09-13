@@ -708,8 +708,80 @@ repository's `Protect main` ruleset, whose **19 required status check contexts**
 
 A PR is BLOCKED until all 19 report success, so "the checks are green" is a
 mechanical statement about that list, not a judgement call. `Dart Coverage
-Ratchet` is on it too — it is easy to overlook because it lives in
-`coverage.yml`, not `ci.yml`.
+Ratchet` is on it too — it is easy to overlook because it is an independent job
+(`dart-coverage` in `ci.yml`) rather than part of the `Dart` job; the
+`coverage.yml` workflow next to it owns NO required context.
+
+### Per-PR job fan-out (issue #666)
+
+Runner concurrency is the measured bottleneck of this repo's PR sweep. The org
+is on the GitHub Free plan — **20 concurrent jobs, 5 of them macOS**
+(<https://docs.github.com/en/actions/reference/limits>) — and on 2026-09-13, with
+a dozen lanes in flight, `gh run list --status queued` showed **30 runs queued
+and 0 in progress**. Every workflow already carries a `concurrency` group with
+`cancel-in-progress`, so nothing superseded is wasting a slot: the fan-out
+itself is the cost.
+
+**The policy.** Every job reachable on `pull_request` in `ci.yml`,
+`conformance-matrix.yml`, `regression-gates.yml`, `ball-audit.yml` and
+`coverage.yml` must be one of:
+
+1. the owner of one of the 19 required contexts — it has to report anyway;
+2. conditioned by a job-level `if:` on a `changes` output (the
+   `./.github/actions/detect-changed-stacks` composite action, single source of
+   truth since #458);
+3. inside a workflow whose `pull_request:` trigger carries a `paths:` filter;
+4. the `changes` classifier itself;
+5. listed in `tools/ci/pr_job_fanout_allowlist.txt` **with a reason**.
+
+`tools/ci/check_pr_job_fanout.sh` enforces it from the always-on `Proto Checks`
+job, and its `--self-test` drives a fabricated unconditional job as the negative
+control. An exemption without a stated reason is rejected.
+
+**A required context must APPEAR, and a skipped MATRIX job does not report
+one.** This is the sharp edge of "never require path-filtered jobs" above, and
+it is not hypothetical. A job-level `if:` that evaluates false normally still
+satisfies a required check — GitHub records the check as skipped. But when the
+job is a MATRIX job whose `name:` interpolates `${{ matrix.<key> }}`, GitHub
+emits exactly ONE check run, under the **un-expanded** name. `ci.yml`'s `cpp`
+job carried such an `if:`, so a diff that touched neither `cpp/**` nor `infra`
+produced a lone `C++ (${{ matrix.os }})` and **none** of the three required
+`C++ (ubuntu-latest)` / `(windows-latest)` / `(macos-latest)` contexts —
+measured on PR #647 at `bc0c367a`, whose check-run set is exactly that. Such a
+PR can never merge. The fix is to gate the **steps**, never the job: every leg
+starts, reports under its real name, and costs ~20 s when there is nothing to
+do. The guard fails the build if a job-level `if:` is put back on a required
+matrix job.
+
+**What is conditioned on what.**
+
+| Workflow | Conditioning | Notes |
+| --- | --- | --- |
+| `ci.yml` | per-job `if:` on `changes` outputs; `cpp` gates its STEPS | `changes`, `proto`, `cli-verb-parity`, `dart-coverage` are always-on and each owns a required context |
+| `conformance-matrix.yml` | workflow `paths:` filter **and**, since #666, a per-row `if:` | PR runs only the rows the diff can move; push/schedule/dispatch still run the FULL matrix |
+| `regression-gates.yml` | per-job `if:` on `changes` outputs | already so before #666 |
+| `ball-audit.yml` | workflow `paths:` (`**.ball.json`, `**.ball.bin`) | owns no required context |
+| `coverage.yml` | workflow `paths:` (`cpp/**`) + `github.event_name != 'pull_request'` on the other four | owns no required context |
+
+**The conformance matrix's per-row conditions.** Each row runs when the diff
+touches `tests/conformance/**` (`corpus`), any of
+`dart/{engine,shared,compiler,self_host}/**` (`dart_core` — the Dart sources
+every self-hosted engine is compiled from), or that row's own language dir.
+Measured on PR #644 (`d853854b`): 18 matrix jobs ran, 15 of them for languages
+the diff did not touch. The `infra` fail-safe is deliberately NOT part of those
+conditions — it is true for any file outside the language dirs (docs, `tools/`,
+`ci.yml`), which would put all 18 rows back on every CI-lane PR. Leaving it out
+is safe **here and only here** because this workflow's trigger is already
+`paths:`-filtered, so every file that can start it maps onto one of those
+signals; `tools/ci/check_matrix_paths.sh` pins that filter, and the
+detect-changed-stacks truth table pins `corpus`/`dart_core`. The per-row
+conditions are all `github.event_name != 'pull_request' || …`, so the
+post-merge and weekly full-matrix safety net does not move.
+
+**Known residual.** A PR whose ONLY change is `conformance-matrix.yml` does not
+start that workflow at all — its own path is not in the filter. That predates
+#666 and is unchanged by it; `check_matrix_paths.sh` is what keeps the filter
+honest in the meantime.
 
 ## Adding a language construct (the required workflow)
 

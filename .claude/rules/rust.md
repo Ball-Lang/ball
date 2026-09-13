@@ -176,7 +176,8 @@ cargo fmt --check && cargo clippy --workspace
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
   (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the OPEN
   pins with `grep -c '^#\[should_panic' rust/encoder/tests/documented_gaps.rs`, never from
-  prose** — 6 on 2026-09-13, and everything else in that file is a flipped, positive assertion.
+  prose** — 7 on 2026-09-13 (the seventh is #632's sibling, the script-mode entry-point IIFE,
+  tracked as #687), and everything else in that file is a flipped, positive assertion.
   Anchor the pattern at the line start so it counts ATTRIBUTES: the unanchored `grep -c
   should_panic` this line used to prescribe also matches the PROSE mentions in that file's doc
   comments, and answered 13 against 6 open attributes when #626 caught it. A tally in a rule file goes stale the moment a slice lands
@@ -339,6 +340,46 @@ cargo fmt --check && cargo clippy --workspace
   never synthesise a fake entry function to silence it. The C# encoder's `EncodeLibrary` makes the
   identical call; keep the two consistent. Proof: `rust/encoder/tests/library_mode.rs` compiles the
   encoded program through `compile_library` and asserts `cargo build` accepts it as a real `[lib]`.
+
+### Compiler ↔ encoder round trip — an invariant, not a nice-to-have (#632)
+
+**Every construct `ball-lang-compiler` emits must be one `ball-lang-encoder` can read back.**
+Tier A's stage 3 re-encodes this repo's OWN compiler output, so a construct the compiler emits
+and its own encoder refuses caps that column no matter how good either half is on its own.
+
+- It was not hypothetical: `type_emit.rs::compile_method_dispatchers` emitted its fallback arm as
+  a bare `panic!`, `methods.rs::encode_macro` refused `panic!`, and **every** library whose
+  compiled output carries a method dispatcher (i.e. every library with a struct and a method)
+  failed stage 3 with ``unsupported macro invocation `panic!` ``. Neither crate's own tests could
+  see it — `rust/compiler`'s assert on emitted Rust, `rust/encoder`'s start from hand-written
+  Rust.
+- The gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`. Stage 3 is an **encode** gate and
+  says so: the compiler's output names runtime helpers (`ball_field_get`,
+  `ball_message_type_name`, …) that are not user functions, so re-encoding it yields calls that
+  resolve to nothing and **re-compiling that is not a fixpoint** — measured, and neither Tier A
+  nor this test pretends otherwise. The behavioural half sits beside it, on the constructs
+  themselves: two cases compile the compiler's own output, link it against a hand-written `main`,
+  and RUN it, asserting the thrown message as bytes. A shape assertion alone would pass on a
+  throw carrying the wrong message. Extend THAT test when you add a compiler emission shape; do
+  not add a second, weaker round trip.
+- `panic!` encodes to `std.throw` (field `value`), the same shape `dart/encoder`'s
+  `ThrowExpression` arm emits and the same one this crate's `encode_unwrap` already used. The two
+  really are one mechanism on this target: `runtime.rs::ball_throw` IS `std::panic::panic_any`,
+  and `ball_catch_payload` re-wraps a non-Ball payload (what `panic!` carries) as
+  `BallValue::String(message)` — so a `catch` binds the identical value either way. A bare
+  `panic!()` carries Rust's own `explicit panic` message, never `""`.
+- The dispatcher fallback's message is **target-neutral** — `no method '<name>' for <type>`,
+  byte-identical to `go/compiler/library.go`'s `ballrt.Thrown` and
+  `csharp/compiler/src/TypeEmit.cs`'s `BallRuntimeException`. It used to carry a
+  `ball-lang-compiler runtime:` prefix no other target emits, which is the #616/#641
+  error-rendering drift in a spot no fixture observed. Changing that spelling means re-running the
+  round-trip gate, which asserts it on both sides.
+- The same invariant's other OPEN instance is the script-mode entry-point IIFE (`compile()` wraps
+  the entry body in `(|| -> BallValue { … })()`, which the encoder refuses), pinned as
+  `documented_gaps.rs::compiled_entry_point_iife_is_a_documented_gap` and tracked as **#687**. Do
+  not "fix" it by encoding the IIFE as a plain Ball `block`: the wrapper is what makes a `return`
+  in the entry body return from the entry body rather than from `main`, and a Ball block's
+  `return` leaves the enclosing FUNCTION. The faithful shape is `std.invoke` over a `lambda`.
 
 ### Engine
 

@@ -364,6 +364,32 @@ instructions.
   the `rust-compiler` leg that compiles the whole corpus is a PR gate since #619, but it is a
   RATCHET on a passing count (`RUST_COMPILER_FLOOR`), and 146 had been failing there — inside the
   floor, so green — since that leg came online.
+- **Compiler ↔ encoder round trip is an INVARIANT (#632).** Every construct `ball-lang-compiler`
+  emits must be one `ball-lang-encoder` can read back — Tier A's stage 3 re-encodes this repo's
+  own compiler output, so a mismatch caps that column however good either half is alone. The
+  measured instance: `type_emit.rs::compile_method_dispatchers` emitted its fallback arm as a bare
+  `panic!` while `methods.rs::encode_macro` refused `panic!`, so every library whose compiled
+  output carries a method dispatcher — every library with a struct and a method — failed stage 3
+  with ``unsupported macro invocation `panic!` ``. Neither crate's own tests could see it:
+  `rust/compiler`'s assert on emitted Rust, `rust/encoder`'s start from hand-written Rust. The
+  gate is `rust/encoder/tests/compile_reencode_roundtrip.rs`, which runs Tier A's three
+  library-mode stages. Stage 3 is an **encode** gate and says so: the compiler's output names
+  runtime helpers (`ball_field_get`, `ball_message_type_name`, …) that are not user functions, so
+  re-encoding it yields calls resolving to nothing and **re-compiling that is not a fixpoint** —
+  measured, and neither Tier A nor that test pretends otherwise. The behavioural half sits beside
+  it: two cases compile the compiler's own output, link it against a hand-written `main`, and RUN
+  it, asserting the thrown message as bytes. Extend that test when you add a compiler emission
+  shape; never add a second, weaker round trip. The script-mode entry-point IIFE is the same
+  invariant's other open instance — pinned in `documented_gaps.rs`, tracked as **#687**.
+  `panic!` encodes to `std.throw` (field `value`), the shape `dart/encoder`'s
+  `ThrowExpression` arm emits: on this target the two are literally one mechanism
+  (`runtime.rs::ball_throw` IS `std::panic::panic_any`, and `ball_catch_payload` re-wraps a
+  non-Ball payload as `BallValue::String(message)`), so a `catch` binds the identical value either
+  way; a bare `panic!()` carries Rust's own `explicit panic` message, never `""`. The dispatcher
+  fallback's message is target-neutral — `no method '<name>' for <type>`, byte-identical to
+  `go/compiler/library.go` and `csharp/compiler/src/TypeEmit.cs`; the
+  `ball-lang-compiler runtime:` prefix it used to carry was #616/#641 rendering drift in a spot
+  no fixture observed.
 - `rust/compiler/src/lib.rs` and `rust/encoder/src/lib.rs` document their own scope boundaries
   (documented gaps: multi-parameter lambdas, data-carrying enum variants, destructuring patterns,
   unmapped macros, etc.) — read those module doc comments before assuming a

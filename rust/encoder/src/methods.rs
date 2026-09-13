@@ -3,8 +3,22 @@
 //! `std_collections` calls; string methods (`.trim()`, `.contains()`, ...)
 //! desugar into universal `std` string-manipulation calls; `.unwrap()`/
 //! `.unwrap_or()` desugar against the unified Option/Result "outcome" shape
-//! (see `lib.rs::option_result_message`); `println!`/`format!`/`vec!`
-//! desugar into `std.print`/string-concatenation/list-literal trees.
+//! (see `lib.rs::option_result_message`); `println!`/`format!`/`vec!`/`panic!`
+//! desugar into `std.print`/string-concatenation/list-literal/`std.throw`
+//! trees.
+//!
+//! ## The compiler↔encoder round trip (issue #632)
+//!
+//! `panic!` is here because **this crate must be able to read back everything
+//! `ball-lang-compiler` emits**. The compiler's own method dispatchers
+//! (`type_emit.rs::compile_method_dispatchers`) end in a `panic!` fallback arm,
+//! so without this arm every library whose compiled output carries a dispatcher
+//! — i.e. every library with a struct and a method — failed Tier A's stage 3
+//! (re-encode) with ``unsupported macro invocation `panic!` ``. The gate that
+//! keeps the two halves in agreement is
+//! `rust/encoder/tests/compile_reencode_roundtrip.rs`: it runs Tier A's three
+//! library-mode stages, and proves the thrown MESSAGE behaviourally by
+//! compiling and RUNNING the construct with a hand-written driver.
 //!
 //! **No `rust_std` module**: every arm below routes through `std`/
 //! `std_collections` base-function calls — there is no Rust-specific
@@ -334,9 +348,40 @@ impl Encoder {
             }
             "format" => self.build_format_expr(mac),
             "vec" => self.encode_vec_macro(mac),
+            // `panic!` is Rust's spelling of Ball's `std.throw`, and the two are
+            // the SAME mechanism on this target: `runtime.rs::ball_throw` is
+            // literally `std::panic::panic_any`, and `ball_catch_payload` — the
+            // helper every compiled `try` runs on the unwound payload — already
+            // re-wraps a non-Ball panic payload (a `&str`/`String`, i.e. exactly
+            // what `panic!` carries) as `BallValue::String(message)`. So a Ball
+            // `catch` around a `panic!` and around a `throw '<that message>'`
+            // bind the identical value; encoding one as the other preserves the
+            // observable the #616/#641 error-rendering contract governs, rather
+            // than approximating it.
+            //
+            // The Ball shape is the reference encoder's: `dart/encoder`'s
+            // `ThrowExpression` arm emits `std.throw` with a single `value`
+            // field, which is also what this crate's own `encode_unwrap`
+            // already emits for a failed `.unwrap()`.
+            //
+            // The message travels through `build_format_expr`, the same
+            // `std.concat`/`std.to_string` chain `format!` encodes to, so
+            // `panic!("no method '{}' for {}", a, b)` keeps its interpolation.
+            // A bare `panic!()` carries the message Rust itself prints for it —
+            // `core`'s `panic!()` expands to `panic("explicit panic")` (see
+            // `core::panicking::panic`'s callers in the standard library) — never
+            // an empty string, which would silently lose the failure's identity.
+            "panic" => {
+                let message = if mac.tokens.is_empty() {
+                    string_literal("explicit panic")
+                } else {
+                    self.build_format_expr(mac)
+                };
+                std_call("throw", Some(args_message(vec![("value", message)])))
+            }
             other => panic!(
                 "ball-lang-encoder: unsupported macro invocation `{other}!` (only `println!`/\
-                 `format!`/`vec!` are supported — issue #42's scope)"
+                 `format!`/`vec!`/`panic!` are supported — issue #42's scope)"
             ),
         }
     }

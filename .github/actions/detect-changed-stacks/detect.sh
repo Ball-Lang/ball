@@ -135,11 +135,20 @@ ball_classify_stacks() {
   # would run all 18 legs for a PR that changed one language's test file —
   # measured on PR #644, where 15 of 18 legs covered untouched languages. The
   # matrix can afford the narrower signal because its `pull_request:` trigger is
-  # already `paths:`-filtered to exactly {tests/conformance, the dart_core dirs,
-  # ts, cpp, rust, csharp, go, python, conformance-matrix.yml}: every file that
-  # can start that workflow maps onto one of those signals, and
-  # tools/ci/check_matrix_paths.sh fails if a path is added to the filter
-  # without a signal to match.
+  # already `paths:`-filtered to exactly {tests/conformance, the four dart_core
+  # dirs, ts, cpp, rust, csharp, go, python} — NOT conformance-matrix.yml
+  # itself, which is why a PR changing only that workflow does not start it (the
+  # "known residual" in docs/TESTING_STRATEGY.md). Every file that CAN start it
+  # maps onto one of those signals.
+  #
+  # That mapping is a correctness invariant, not a convention, and it is guarded
+  # both ways since #666: tools/ci/check_matrix_paths.sh runs THIS classifier
+  # over a synthesized path for each filter entry and fails on an entry that
+  # lights up no signal any row reads (its `--self-test` drives that negative
+  # control), and conformance-matrix.yml's `Parity Matrix` fails a pull_request
+  # run that executed zero engine rows. Without both, an unmapped path is
+  # silently green: the workflow starts, every row's `if:` is false, and a
+  # summary that treats `skipped` as benign prints a table of SKIPs and exits 0.
   local corpus=false dart_core=false
   if m '^tests/conformance/'; then corpus=true; fi
   if m '^dart/(engine|shared|compiler|self_host)/'; then dart_core=true; fi

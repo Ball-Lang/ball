@@ -773,15 +773,43 @@ conditions — it is true for any file outside the language dirs (docs, `tools/`
 `ci.yml`), which would put all 18 rows back on every CI-lane PR. Leaving it out
 is safe **here and only here** because this workflow's trigger is already
 `paths:`-filtered, so every file that can start it maps onto one of those
-signals; `tools/ci/check_matrix_paths.sh` pins that filter, and the
-detect-changed-stacks truth table pins `corpus`/`dart_core`. The per-row
-conditions are all `github.event_name != 'pull_request' || …`, so the
-post-merge and weekly full-matrix safety net does not move.
+signals. The per-row conditions are all
+`github.event_name != 'pull_request' || …`, so the post-merge and weekly
+full-matrix safety net does not move.
+
+**"Every filter path maps onto a row signal" is a correctness invariant, and it
+is guarded twice.** Leaving `infra` out of the row conditions is only safe while
+that holds. An entry in the filter that lights up no signal a row reads is
+SILENTLY GREEN: the workflow starts (the path matched), all 17 rows evaluate
+false, and a summary that correctly treats `skipped` as benign prints a full
+table of SKIPs and exits 0 — a green Conformance Matrix that executed zero rows.
+So:
+
+- **Statically**, `tools/ci/check_matrix_paths.sh` (always-on `proto` job) now
+  does more than compare the two triggers' lists. For each entry in the filter
+  it synthesizes a concrete path that entry matches, runs the REAL
+  `detect-changed-stacks` classifier over it, and fails unless at least one
+  signal some row's `if:` reads comes back `true`. The signal set is scraped out
+  of `conformance-matrix.yml` itself (`needs.<classifier>.outputs.<name>`), so
+  there is no second table to keep in sync, and `--self-test` drives the
+  negative control — adding `proto/**` to the filter is RED.
+- **At run time**, `conformance-matrix.yml`'s `Parity Matrix` fails a
+  `pull_request` run that executed ZERO engine rows, whatever the cause (an
+  unmapped filter path, a row condition that stopped matching, a classifier that
+  returned all-false). Push, schedule and dispatch runs are exempt because their
+  rows are unconditional. `tools/test/test_parity_matrix_floor.py` (also the
+  `proto` job) renders that summary step out of the workflow and executes it
+  under bash across eight scenarios, including a negative control that strips
+  the floor and asserts the same all-skipped run then goes green.
+
+The detect-changed-stacks truth table pins `corpus`/`dart_core` themselves.
 
 **Known residual.** A PR whose ONLY change is `conformance-matrix.yml` does not
 start that workflow at all — its own path is not in the filter. That predates
-#666 and is unchanged by it; `check_matrix_paths.sh` is what keeps the filter
-honest in the meantime.
+#666 and is unchanged by it. Note the two guards above are what make adding it
+a real decision rather than a one-line edit: `.github/workflows/**` sets only
+`infra`, which no row reads, so adding that path to the filter is RED until it
+is given a signal or an existing signal is added to the row conditions.
 
 ## Adding a language construct (the required workflow)
 
@@ -917,6 +945,8 @@ could not parse a summary at all).
 | Encoder-reads-back-the-compiler measurement (Ball → `<lang>` → Ball → **Dart** engine → golden) | `conformance-matrix.yml`'s `csharp-roundtrip` / `python-roundtrip` / `go-roundtrip` / `rust-roundtrip` rows (#452) | every PR touching a filtered path (#619) + push to main + weekly + dispatch — gated on HARNESS HEALTH only (a parseable `Results:` line, integer counts, `total >= 1`); no floor on the failure count, because an honest 0/321 is the product |
 | Changed-stacks detection (decides which jobs above run at all) | `.github/actions/detect-changed-stacks` + its `test/truth_table.sh` | every PR (the truth table runs in the always-on `proto` job) |
 | **The matrix's two triggers cannot drift apart** (#619) | `tools/ci/check_matrix_paths.sh` — `on.push.paths` and `on.pull_request.paths` compared after the YAML parser expands the `*matrix_paths` alias; a path in one trigger only un-gates exactly the PRs that touch it, and an absent check reads as green. `--self-test` proves the guard bites (anchor form, identical copies, a dropped path, a reordered copy, a missing trigger, an empty filter, unparseable YAML) | every PR (the always-on `proto` job, no toolchain) |
+| **Every path in that filter maps onto a row signal** (#666) | the same `tools/ci/check_matrix_paths.sh` — for each filter entry it synthesizes a matching path, runs the real `detect-changed-stacks` classifier over it, and fails unless a signal some row's `if:` reads comes back true (signal set scraped from the workflow, so there is no second table). Without it a filter entry that maps to nothing starts the workflow with every row skipped — a green matrix that ran nothing. `--self-test` drives the negative control (`proto/**` added ⇒ RED) | every PR (the always-on `proto` job, no toolchain) |
+| **The matrix summary cannot report green on a run that executed nothing** (#666) | `conformance-matrix.yml`'s `Parity Matrix` — on a `pull_request`, ZERO executed engine rows is a hard failure (push/schedule/dispatch are exempt: their rows are unconditional). `tools/test/test_parity_matrix_floor.py` renders that step out of the workflow and runs it under bash across 8 scenarios, with a negative control that strips the floor and asserts the same all-skipped run goes green | every PR (the always-on `proto` job) + every matrix run |
 | **The CI-produced regeneration is applicable** (#619) | `tools/ci/apply_regenerated.sh --self-test` — apply + stage, byte-exact LF, the empty-artifact floor, the path-traversal refusal, and the head-SHA equality guard. The script only ever runs on a RED freshness run, which is exactly when it must not be broken | every PR (the always-on `proto` job, offline) |
 | **The committed TS self-hosted engine is DERIVED, not trusted** (#517) | ci.yml's `typescript` job — regenerate `ts/engine/src/compiled_engine.ts` from `dart/self_host/engine.ball.json` through the current `@ball-lang/compiler`, then `git diff --exit-code`. It is the only committed compiled engine (Rust/Go/C#/Python gitignore theirs and regenerate unconditionally, so they cannot go stale); `npm run build`/`npm run coverage` consume it as an INPUT and stay green on any drift that is behaviour-neutral for the TS suite | every dart/ts/infra-touching PR (`TypeScript`) |
 | **A network command survives a flaky index** (#520) | `.github/actions/dart-pub-get` (bounded retry, loud on exhaustion) + `test/test_dart_pub_get_wiring.sh` — asserts every `dart pub get` in ci.yml routes through it, with a positive invocation-site floor, and drives the retry against stub `dart` binaries | every PR (the wiring test runs in the always-on `proto` job) |

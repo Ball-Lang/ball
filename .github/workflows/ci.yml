@@ -368,10 +368,28 @@ jobs:
       # an absent check reads as green. This compares the two lists AFTER the
       # YAML parser expands the alias, so it still bites on the copy-paste shape.
       # `--self-test` first: a guard that stopped comparing must not pass.
-      - name: Conformance-matrix path-filter drift guard (#619)
+      #
+      # The same script also carries the SECOND invariant that filter acquired
+      # when the matrix rows became conditional (#666): every entry in it must
+      # map onto a classifier signal some row's `if:` reads. It proves that by
+      # running the real detect-changed-stacks classifier over a synthesized
+      # path for each entry — an unmapped entry means a PR that starts the
+      # workflow with every row skipped, i.e. a green matrix that ran nothing.
+      - name: Conformance-matrix path-filter + row-signal guard (#619, #666)
         run: |
           bash tools/ci/check_matrix_paths.sh --self-test
           bash tools/ci/check_matrix_paths.sh
+
+      # The RUN-time half of the same invariant. conformance-matrix.yml's
+      # `Parity Matrix` is ~200 lines of shell that nothing could execute
+      # outside a real Actions run, so every claim about it was prose. This
+      # renders that exact step from the workflow and runs it under bash against
+      # scenarios — including the one the per-row conditions made reachable: a
+      # pull_request on which EVERY row skipped, which must now FAIL. Its
+      # negative control strips the floor block and asserts the same scenario
+      # goes green, so a floor that stops biting cannot pass here.
+      - name: Parity Matrix summary gate self-test (#666)
+        run: python3 tools/test/test_parity_matrix_floor.py
 
       # tools/ci/apply_regenerated.sh is how a lane applies the artifacts the
       # `Ball Artifact Freshness` job regenerates and uploads (#619), i.e. the

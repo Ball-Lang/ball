@@ -21,7 +21,10 @@ name: Conformance Matrix
 # `tools/ci/check_matrix_paths.sh` pins the invariant anyway — it compares the
 # two lists AFTER the YAML parser has expanded the alias, so replacing the alias
 # with a divergent literal list still fails — and runs on every PR from ci.yml's
-# always-on `proto` job.
+# always-on `proto` job. It also enforces the SECOND invariant this filter
+# carries since the per-row conditions landed: every entry in it must map onto a
+# classifier signal that some row's `if:` reads, or a PR touching only that path
+# starts the workflow with every row skipped.
 on:
   push:
     branches: [main]
@@ -83,8 +86,23 @@ jobs:
   # because this workflow's `pull_request:` trigger is already `paths:`-filtered:
   # every file that can start this workflow at all is one of tests/conformance/**
   # (-> corpus), the four dart_core dirs, ts/**, cpp/**, rust/**, csharp/**,
-  # go/** or python/** (-> that language's own flag). There is no unmapped path
-  # that can reach these jobs. tools/ci/check_matrix_paths.sh pins that filter.
+  # go/** or python/** (-> that language's own flag). (NOT this file itself: a
+  # PR whose only change is conformance-matrix.yml does not start the workflow
+  # at all — see the "known residual" in docs/TESTING_STRATEGY.md.)
+  #
+  # "Every file that can start this workflow maps onto a signal some row reads"
+  # is therefore a CORRECTNESS invariant of this matrix, not a convention, and
+  # it is GUARDED BOTH WAYS:
+  #   * statically, by tools/ci/check_matrix_paths.sh, which for each entry in
+  #     the filter synthesizes a path that entry matches, runs the REAL
+  #     detect-changed-stacks classifier over it, and fails unless a signal some
+  #     row condition reads comes back true. Its `--self-test` drives the
+  #     unmapped-path negative control.
+  #   * at run time, by the positive floor in `Parity Matrix` below, which fails
+  #     a pull_request run that executed ZERO engine rows.
+  # Without both, an unmapped path is silently green: the workflow starts, every
+  # row skips, and a summary that (correctly) treats `skipped` as benign prints
+  # a full table of SKIPs and exits 0.
   #
   # PR-ONLY. Every condition below is `github.event_name != 'pull_request' || …`,
   # so the push-to-main, weekly and dispatch runs still execute the FULL matrix
@@ -1948,6 +1966,46 @@ jobs:
           # parity table for a run that executed nothing (#666).
           if [ "${{ needs.changes.result }}" != "success" ]; then
             echo "::error::the Detect changed stacks job did not succeed (${{ needs.changes.result }}) — every row's condition is unevaluated, so this run proves nothing."
+            summary_failed=1
+          fi
+
+          # POSITIVE FLOOR, pull_request ONLY (#666). `skipped` is benign
+          # above — a row this diff does not require is not a failure — so a PR
+          # on which EVERY row's condition evaluated false would print a full
+          # table of SKIPs, find nothing to complain about, and exit 0. That is
+          # a green Conformance Matrix that executed zero rows, and no count of
+          # "nothing failed" can tell it apart from "everything passed".
+          #
+          # It cannot happen while every path in the `&matrix_paths` filter sets
+          # a signal some row reads — tools/ci/check_matrix_paths.sh proves that
+          # statically, by running the real classifier over a probe path for
+          # each filter entry. This is the RUN-time half of the same invariant,
+          # and it does not care WHY the rows were empty: a filter path with no
+          # signal, a row condition that stopped matching, or a classifier that
+          # returned all-false all land here.
+          #
+          # Push, schedule and dispatch runs are exempt because their rows are
+          # unconditional (`github.event_name != 'pull_request' || …`), so the
+          # count is trivially 9 and the floor would say nothing.
+          engine_rows_run=0
+          for res in \
+            "${{ needs.dart-engine.result }}" \
+            "${{ needs.ts-engine.result }}" \
+            "${{ needs.ts-compiled-engine.result }}" \
+            "${{ needs.ts-compiled-direct.result }}" \
+            "${{ needs.cpp-compiled.result }}" \
+            "${{ needs.rust-engine.result }}" \
+            "${{ needs.csharp-engine.result }}" \
+            "${{ needs.go-engine.result }}" \
+            "${{ needs.python-engine.result }}"; do
+            if [ "$res" != "skipped" ]; then
+              engine_rows_run=$((engine_rows_run + 1))
+            fi
+          done
+          echo ""
+          echo "Engine rows executed for this diff: $engine_rows_run of 9 (event: ${{ github.event_name }})"
+          if [ "${{ github.event_name }}" = "pull_request" ] && [ "$engine_rows_run" -lt 1 ]; then
+            echo "::error::this pull_request run executed ZERO engine rows — every row's condition evaluated false, so the table above proves nothing. The workflow started, so some path in the &matrix_paths filter matched this diff; that path must map onto a signal the row conditions read. Run 'bash tools/ci/check_matrix_paths.sh' to find the unmapped entry."
             summary_failed=1
           fi
 

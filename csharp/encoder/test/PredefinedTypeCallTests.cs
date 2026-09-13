@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using System.Linq;
 using Ball.Compiler;
 using Ball.Compiler.Tests;
@@ -36,6 +38,30 @@ namespace Ball.Encoder.Tests;
 /// both must keep failing loud rather than being silently approximated, since
 /// dropping <c>TryParse</c>'s failure branch would compile and run and be wrong,
 /// the exact defect class #492 slice B had to fix once for constructors.</para>
+///
+/// <para><b><c>string.Join</c> (issue #492, slice 4, bucket (k)).</b> The same
+/// function is the only place a <c>string.Join(sep, values)</c> call can be
+/// routed, because <c>string</c> is a <c>PredefinedTypeSyntax</c> keyword exactly
+/// like <c>int</c> — and, unlike <c>Debug</c>/<c>ArgumentNullException</c>, a
+/// keyword can never collide with a user identifier, so this arm needs no
+/// same-file-class guard. The route is the already-declared, already-compiled
+/// <c>std_collections.string_join</c>. Its <c>StringJoinInput</c> field order is
+/// <c>list</c>=1, <c>separator</c>=2 — <b>inverted</b> from C#'s
+/// <c>(separator, values)</c> argument order — which is why the tests below
+/// assert the field VALUES and run the encoded fixture, not merely the module
+/// and function names.</para>
+///
+/// <para><b>Scoped to the measured shape.</b> Only the 2-argument spelling, the
+/// one every occurrence in the Tier A corpus uses. A 1- or 3+-argument
+/// <c>string.Join</c> (the <c>params</c> overloads) keeps failing loud rather
+/// than being approximated, the same discipline <c>TryParse</c> established
+/// above. The one documented divergence inside the routed shape is a
+/// <c>null</c> ELEMENT: C# renders it as the empty string, while Ball's
+/// <c>string_join</c> stringifies every element and so renders <c>null</c>. That
+/// is invisible to a syntax-only encoder (it is an element VALUE, not a syntax
+/// shape), so it is documented here and in <c>csharp/AGENTS.md</c> the same way
+/// <c>EncodeConsoleCall</c>'s <c>Write</c> approximation is, rather than being
+/// silently assumed away.</para>
 /// </summary>
 public class PredefinedTypeCallTests
 {
@@ -237,6 +263,159 @@ public class PredefinedTypeCallTests
         var output = CSharpRunner.Run(CSharpCompiler.Compile(TestHelpers.EncodeProgram(BucketEFixture)));
         Assert.Equal("43\n", output);
     }
+
+    /// <summary>Bucket (k)'s committed fixture text, read from the same file the
+    /// sweep encodes so the end-to-end proof below cannot drift from it.</summary>
+    private static string BucketKFixture =>
+        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "fixtures", "realworld", "k_string_join.cs"));
+
+    private const string JoinPreamble = """
+        using System;
+        using System.Collections.Generic;
+        """;
+
+    /// <summary>
+    /// <c>string.Join(sep, values)</c> routes to <c>std_collections.string_join</c>
+    /// with the two arguments SWAPPED into <c>StringJoinInput</c>'s declared field
+    /// order. Asserting each field's value (not just the module/function names) is
+    /// what makes an inverted construction fail here: a positional build would
+    /// still produce a <c>string_join</c> call carrying two fields.
+    /// </summary>
+    [Fact]
+    public void StringJoinEncodesAsStdCollectionsStringJoinWithSwappedFields()
+    {
+        var value = NthLetValue(OnParts("""        var joined = string.Join(", ", parts);"""), 1);
+
+        Assert.Equal("std_collections", value.Call.Module);
+        Assert.Equal("string_join", value.Call.Function);
+
+        var fields = value.Call.Input.MessageCreation.Fields;
+        Assert.Equal(2, fields.Count);
+        Assert.Equal("parts", fields.Single(f => f.Name == "list").Value.Reference.Name);
+        Assert.Equal(", ", fields.Single(f => f.Name == "separator").Value.Literal.StringValue);
+    }
+
+    /// <summary>A file that reaches <c>string_join</c> must declare the
+    /// <c>std_collections</c> import, or the emitted program names a module it never
+    /// brought in. This is the <c>MarkCollectionsUsed()</c> bookkeeping every other
+    /// <c>std_collections</c> route already performs.</summary>
+    [Fact]
+    public void StringJoinMarksTheCollectionsModuleUsed()
+    {
+        var program = TestHelpers.EncodeProgram(OnParts("""        var joined = string.Join(" ", parts);"""));
+
+        Assert.Contains(TestHelpers.MainModule(program).ModuleImports, i => i.Name == "std_collections");
+    }
+
+    /// <summary>
+    /// Only the 2-argument shape is routed. The <c>params</c> overloads
+    /// (<c>string.Join(sep, a, b)</c>) and the 1-argument spelling must keep
+    /// failing loud rather than being silently approximated into a different
+    /// meaning — the same boundary <see cref="IntTryParseStillFailsLoud"/> pins for
+    /// <c>Parse</c>.
+    /// </summary>
+    [Theory]
+    [InlineData("""string.Join(", ", "a", "b")""")]
+    [InlineData("""string.Join(", ")""")]
+    public void StringJoinAtAnUnroutedArityStaysLoud(string expression)
+    {
+        var ex = Assert.Throws<EncoderException>(() => TestHelpers.EncodeProgram(
+            OnParts($"        var joined = {expression};")));
+
+        Assert.Contains("unsupported static call", ex.Message);
+        Assert.Contains("string.Join", ex.Message);
+    }
+
+    /// <summary>
+    /// The new arm must not capture a same-file user class's own static
+    /// <c>Join</c>. <c>string</c> is a keyword and can never be shadowed, but a
+    /// helper TYPE spelled <c>StringJoinHelper.Join(...)</c> reaches a different
+    /// dispatch path entirely and must keep resolving to the user function — a
+    /// guard against a future edit widening the arm from the keyword to any
+    /// receiver whose method happens to be named <c>Join</c>.
+    /// </summary>
+    [Fact]
+    public void AUserDeclaredStaticJoinIsNotCaptured()
+    {
+        var program = TestHelpers.EncodeProgram($$"""
+            {{JoinPreamble}}
+
+            class StringJoinHelper
+            {
+                public static string Join(string separator, List<string> values)
+                {
+                    return separator;
+                }
+            }
+
+            class Program
+            {
+                static void Main()
+                {
+                    var parts = new List<string> { "a", "b" };
+                    var joined = StringJoinHelper.Join("-", parts);
+                }
+            }
+            """);
+
+        var value = TestHelpers.MainFunction(program).Body.Block.Statements[1].Let.Value;
+        Assert.NotEqual("std_collections", value.Call.Module);
+        Assert.Contains("Join", value.Call.Function);
+    }
+
+    /// <summary>
+    /// The end-to-end proof: bucket (k)'s own fixture, ENCODED, compiled back to C#
+    /// and RUN. It joins the same list with two different separators and then joins
+    /// an empty list, so a swapped <c>list</c>/<c>separator</c> pair, a dropped
+    /// separator, or a dropped receiver all change this string — the shape
+    /// assertions above must not be the only evidence (bucket (e) encoded and
+    /// compiled clean and still crashed at run time).
+    /// </summary>
+    [Fact]
+    public void BucketKFixtureEncodesCompilesAndRuns()
+    {
+        var output = CSharpRunner.Run(CSharpCompiler.Compile(TestHelpers.EncodeProgram(BucketKFixture)));
+
+        Assert.Equal("one hundred twenty\none, hundred, twenty\n\n", output);
+    }
+
+    /// <summary>Neither operand has to be a literal or a bare name: the separator
+    /// and the values are ordinary expressions, joined at run time.</summary>
+    [Fact]
+    public void StringJoinRunsOnComputedOperands()
+    {
+        var compiled = CSharpCompiler.Compile(TestHelpers.EncodeProgram($$"""
+            {{JoinPreamble}}
+
+            class Program
+            {
+                static void Main()
+                {
+                    var parts = new List<string> { "a", "b", "c" };
+                    var sep = "-" + "-";
+                    Console.WriteLine(string.Join(sep, parts));
+                }
+            }
+            """));
+
+        Assert.Equal("a--b--c\n", CSharpRunner.Run(compiled));
+    }
+
+    /// <summary>A snippet whose statement 0 is the <c>parts</c> list every tree
+    /// assertion reads its receiver from, so the expression under test is always
+    /// statement 1.</summary>
+    private static string OnParts(string body) => $$"""
+        {{JoinPreamble}}
+
+        class Program
+        {
+            static void Main()
+            {
+                var parts = new List<string> { "one", "two" };
+        {{body}}
+            }
+        }
+        """;
 
     private static Expression FirstLetValue(string source) => NthLetValue(source, 0);
 

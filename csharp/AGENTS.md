@@ -45,13 +45,15 @@ re-encode**, and the wall is stage 4, `declaration-drift`. Do not "improve" that
 number by changing the pin list. (Re-measured at `origin/main` @ `9ede6466` by
 #492 slice 3; the earlier "74/73/58" sentence had gone stale.)
 
-**A per-shape fix does not have to move this funnel.** Slice E (#578) and slice 3
-(this one) each closed a real, verified encoder gap and each left stage 1 at
+**A per-shape fix does not have to move this funnel.** Slices E (#578), 3, 3b and
+4 each closed a real, verified encoder gap and each left stage 1 at
 exactly 123 — because Tier A reports only a file's FIRST error, so a file with
 two gaps just advances to its next one. Slice 3's eight `ThrowIfNull`/
 `Debug.Assert` files all moved to a *different* first error (`SwitchExpression`,
 `IsPatternExpression`, `string.IsNullOrWhiteSpace`, `out var`, …) and the
-`unsupported method call` bucket fell 104 → 97. Measure per shape; never raise
+`unsupported method call` bucket fell 104 → 97; slice 4's twelve `string.Join`
+files did the same and the `unsupported static call` bucket fell 19 → 8.
+Measure per shape; never raise
 `tools/coverage-study/baseline.json`'s floor to a number the harness did not
 actually print.
 
@@ -658,12 +660,12 @@ purpose: no network fetch and no third-party licensing (vendoring real packages 
 It lives in `Ball.Encoder.Tests`, so it runs inside the existing required `C#` check with no
 workflow edit.
 
-Baseline after slices A, B, C, E, 3 and 3b: **`Results: 8 passed, 2 failed, 10 total`** (slice 1's was
+Baseline after slices A, B, C, E, 3, 3b and 4: **`Results: 9 passed, 2 failed, 11 total`** (slice 1's was
 `0 passed, 7 failed`; slice 2's, `1 passed, 6 failed`; slices A/B's, `4 passed, 3 failed, 7 total`;
 slice C's, `5 passed, 3 failed, 8 total`; slice E's, `6 passed, 2 failed, 8 total`; slice 3's,
-`7 passed, 2 failed, 9 total`).
-Buckets (b), (c) and (g) closed together, then (h), then (e), then (i), then (j); (d) cross-file and
-(f) target-typed `new()` remain open.
+`7 passed, 2 failed, 9 total`; slice 3b's, `8 passed, 2 failed, 10 total`).
+Buckets (b), (c) and (g) closed together, then (h), then (e), then (i), then (j), then (k);
+(d) cross-file and (f) target-typed `new()` remain open.
 
 **The taxonomy is fixed only until a measurement says otherwise.** Rows (a)-(g) were transcribed
 once from #492's original manual study and cannot grow on their own — which is exactly how the
@@ -671,7 +673,12 @@ once from #492's original manual study and cannot grow on their own — which is
 b, c and g. Row (h) was added by slice C from a fresh Tier A measurement (66 of 398 encode errors,
 100% of them enums), row (i) by slice 3 from another (104 of 349, the `unsupported method call`
 fallback throw), and row (j) by slice 3b from a re-measurement of that same bucket after slice 3
-(97 of 349, spread over 84 distinct `(name, argCount)` pairs). When a later measurement shows a new
+(97 of 349, spread over 84 distinct `(name, argCount)` pairs), and row (k) by slice 4 from a
+re-measurement that found the residual `unsupported method call` bucket (96 files, 83 distinct
+pairs) had no routable BCL shape left above 1-2 occurrences — every remaining named shape being
+a documented deferral, another lane's territory, reflection, or a cross-file user helper — while
+the SEPARATE `unsupported static call` bucket held one dominant routable shape, `string.Join`
+(12 of 19). When a later measurement shows a new
 dominant shape, add its row the same way rather than assuming this table still describes reality.
 The **global** passed count is printed, never asserted on —
 asserting `N > 0` against the whole taxonomy would make it a permanently-red gate while buckets
@@ -817,6 +824,60 @@ tests and a round-trip run, NOT a funnel movement; do not write it up as real-wo
 did not buy, and never raise `tools/coverage-study/baseline.json`'s floor to a number the harness
 did not print.
 
+### `string.Join(separator, values)` (issue #492, slice 4, bucket k)
+
+`string` is a Roslyn `PredefinedTypeSyntax` keyword exactly like `int`, so a `string.Join(...)`
+call reaches `EncodePredefinedTypeStaticCall` — the same function `int.Parse`/`double.Parse` use —
+which modelled only `Parse` and threw on everything else. A keyword can never be shadowed by a
+user identifier, so (unlike the `Debug`/`ArgumentNullException` receivers) this arm needs **no**
+same-file-class guard; `Encoder.StaticReceiverName`'s doc comment is the statement of that rule.
+
+The **2-argument** spelling now routes to `std_collections.string_join`, which
+`StdModuleBuilders` already declares (the #505 declared-name rule, name-for-name against
+`dart/shared/lib/std_collections.dart`), `BaseCall` already compiles
+(`BallRuntime.StringJoin(list, separator)`) and every engine already runs
+(`dart/engine/lib/engine_std.dart`'s `string_join`). No proto, `std.json`, builder, compiler or
+engine change — encoder-side dispatch only.
+
+**The argument order is inverted and the construction must be named, never positional.** C# is
+`(separator, values)`; `StringJoinInput` is `list` = 1, `separator` = 2. A positional build would
+still produce a two-field `string_join` call that "encodes" and joins with the wrong operand, so
+`PredefinedTypeCallTests` asserts the field VALUES and then encodes → compiles → **runs** bucket
+(k)'s fixture, which joins one list with two different separators and then joins an empty list.
+
+**Scoped to the measured shape.** Only arity 2 — the spelling all 12 corpus occurrences use.
+The `params` overloads (`string.Join(sep, a, b)`) and the 1-argument spelling keep failing loud
+(`StringJoinAtAnUnroutedArityStaysLoud`). A `char` separator needs no special case: this encoder
+already encodes a character literal as the one-character string it denotes, which is exactly what
+`string_join` consumes. The one divergence INSIDE the routed shape is a `null` **element** — C#
+renders it as the empty string, `string_join` stringifies every element and so renders `null`.
+That is an element value, invisible to a syntax-only encoder, so it is a documented approximation
+of the same class as `EncodeConsoleCall`'s `Write`, not a silently-assumed-away one.
+
+**Yield, measured rather than assumed: zero on the aggregate funnel, 12 files advanced.** On the
+pinned corpus (`tools/coverage-study/packages/csharp.json`, fresh checkouts at the pinned SHAs),
+before and after on this branch: stage 1 `encoded` stayed **123/472**, `encode-error` stayed 349,
+and the `unsupported static call` bucket fell **19 → 8**. All 12 `string.Join` files advanced to a
+*different* first error (`SwitchExpression` ×3, `PredefinedType` ×2, `.ToString(...)` ×2,
+`.TryGetValue(...)`, `.TrimEnd(...)`, `.Matches(...)`, `IsPatternExpression`,
+`string.IsNullOrEmpty`) — none of them had `string.Join` as its only blocker, which is why the
+aggregate did not move and why `tools/coverage-study/baseline.json` is untouched. Same pattern as
+slices E, 3 and 3b; per-shape fixes are justified by correctness plus a round-trip run, never by
+an assumed funnel movement.
+
+**`.Equals(a, b)` is deliberately NOT routed** (recorded here because it was previously only
+implied in a merged PR body, so a later re-measurement would waste effort rediscovering it).
+Every measured 2-argument `.Equals` occurrence in the corpus is comparer- or overload-sensitive —
+`comparer.Equals(a, b)`, `nameComparer.Equals(a, b)`,
+`x.Equals(s, StringComparison.OrdinalIgnoreCase)` — and no `std` function takes an
+`IEqualityComparer`-shaped input, so a bare `std.equals` would silently drop the comparison
+semantics: exactly the "compiles, runs, silently wrong" class slice B had to fix once. There are
+**zero** comparer-free 2-argument occurrences, so there is nothing to partially route either; a
+future attempt needs its own fresh measurement. Likewise the 2-argument
+`ArgumentNullException.ThrowIfNull(value, paramName)` deferred by slice 3 stays deferred: it has
+**zero** occurrences in the current corpus, so the `nameof` model it would need buys no verified
+yield.
+
 The fixture-set check is deliberately a real **directory listing** compared against the taxonomy
 table in both directions, not `Assert.Equal(Fixtures.Length, results.Count)` — a table can only
 ever agree with itself, and an assertion that cannot fail documents an intent without enforcing it.
@@ -858,7 +919,7 @@ makes the identical call (`rust/AGENTS.md`'s "Library mode"), and the two must s
 build on; `EncodeLibrary` is the one that wraps it into a full `Program` with the base modules
 attached.
 
-Still open on #492 after slices A, B, C, D, E, 3 and 3b: **cross-file symbol resolution** (bucket d),
+Still open on #492 after slices A, B, C, D, E, 3, 3b and 4: **cross-file symbol resolution** (bucket d),
 **target-typed `new()`** (bucket f), and the **`FirstOrDefault`-on-empty contract** — the
 `("First" or "FirstOrDefault", 0)` arm routes the default-returning name to the throwing
 `list_first`, so an empty receiver throws where C# returns `default(T)` (**issue #588**). It

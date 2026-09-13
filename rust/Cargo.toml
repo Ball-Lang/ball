@@ -4,6 +4,7 @@ members = [
     "shared",
     "compiler",
     "encoder",
+    "macro-expand",
     "engine",
     "engine/tool",
     "cli",
@@ -18,9 +19,17 @@ members = [
 # manifest inside a workspace directory is otherwise an error ("current package
 # believes it's in a workspace when it's not"). Excluding them says so
 # explicitly instead of leaving cargo to guess.
+# `macro_crate` + `mini_bitflags` (issue #629) are the same idea one step
+# further: `macro_crate` carries a real PATH dependency on `mini_bitflags`,
+# because the dependency is the point — `mini_bitflags` is the
+# `#[macro_export] macro_rules!`-exporting crate the encoder must locate
+# through `cargo metadata`. Both need their own `exclude` entry; excluding a
+# parent directory does not exclude a sibling package beside it.
 exclude = [
     "encoder/tests/fixtures/counter_crate",
     "encoder/tests/fixtures/modgraph_crate",
+    "encoder/tests/fixtures/macro_crate",
+    "encoder/tests/fixtures/mini_bitflags",
 ]
 
 # Phase 1a scaffold (issue #33): no Ball logic yet — just a compiling workspace
@@ -53,6 +62,7 @@ ball-lang-shared = { path = "shared", version = "0.1.1" }
 ball-lang-compiler = { path = "compiler", version = "0.1.1" }
 ball-lang-encoder = { path = "encoder", version = "0.1.1" }
 ball-lang-engine = { path = "engine", version = "0.1.1" }
+ball-lang-macro-expand = { path = "macro-expand", version = "0.1.1" }
 
 # Protobuf runtime (issue #34): pinned to these exact versions because
 # prost-reflect's DescriptorPool/DynamicMessage are required for later
@@ -74,6 +84,11 @@ indexmap = "2"
 # feature set only covers items); `proc-macro2` supplies the `Span`-bearing
 # token types `syn`'s AST nodes are built from (needed to read literal
 # values off `syn::Lit` tokens).
-syn = { version = "2", features = ["full", "extra-traits"] }
+#
+# `visit-mut` (issue #629): `ball-lang-macro-expand`'s hygiene pass rewrites
+# identifiers in binding/variable/label positions across a whole expansion, and
+# `syn::visit_mut::VisitMut` is the only way to do that without hand-writing a
+# match arm per `syn` node kind.
+syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }
 proc-macro2 = "1"
 quote = "1"

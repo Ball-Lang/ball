@@ -1,0 +1,34 @@
+[package]
+name = "ball-lang-macro-expand"
+description = "macro_rules! expansion for the Ball Rust encoder, built on rust-analyzer's macro-by-example engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+proc-macro2 = { workspace = true }
+syn = { workspace = true }
+
+# rust-analyzer's own macro-by-example engine, and the three sibling crates its
+# public API is spelled in. PINNED WITH `=` on purpose: `ra_ap_mbe` itself pins
+# every sibling with `=` (`ra_ap_intern =0.0.351`, `ra_ap_span =0.0.351`,
+# `ra_ap_tt =0.0.351`, …), so a mixed set does not resolve at all. These crates
+# are republished in lockstep with rust-analyzer's weekly release: bump all four
+# together, deliberately, never one at a time and never automatically — see
+# `rust/AGENTS.md` § "macro_rules! expansion" for the dependabot note.
+ra_ap_mbe = "=0.0.351"
+ra_ap_tt = "=0.0.351"
+ra_ap_span = "=0.0.351"
+ra_ap_intern = "=0.0.351"
+
+# `DeclarativeMacro::expand` takes a `&dyn salsa::Database`. `ra_ap_mbe` 0.0.351
+# requires `^0.28.2`; one `salsa::DatabaseImpl::default()` per `MacroTable` is
+# exactly what rust-analyzer's own `crates/mbe/src/tests.rs` does.
+salsa = "0.28"
+
+[dev-dependencies]
+# Rendering an expanded `syn` node back to tokens, so a test can assert on what
+# came out without re-implementing a printer.
+quote = { workspace = true }

@@ -331,6 +331,7 @@ inline const std::vector<std::string>& program_names() {
         "465_state_error_message",
         "466_string_sink",
         "467_caught_type_error_to_string",
+        "470_setter_beside_final_field",
     };
     return names;
 }

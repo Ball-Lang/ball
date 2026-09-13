@@ -1303,6 +1303,46 @@ extension BallEngineEval on BallEngine {
     return kind != null && kind.stringValue == 'setter';
   }
 
+  /// Whether the NEAREST declaration of [fieldName] visible from [object]'s
+  /// class declares it `final` — i.e. whether that declaration contributes no
+  /// setter of its own, leaving an explicitly declared setter as the only one
+  /// (#664).
+  ///
+  /// Walks the instance's `__super__` chain and answers from the FIRST class
+  /// that declares the field, because a subclass's own non-final field
+  /// overrides an ancestor's accessors (that is the #501 shape). Stopping at
+  /// the first `final` declaration anywhere up the chain instead would run an
+  /// ancestor's setter through a subclass's plain field.
+  ///
+  /// Only finality is consulted, never `is_late`, for two independent reasons.
+  /// A `late final` field with no initializer does stay assignable once, so its
+  /// declaration DOES contribute a setter — but Dart rejects that declaration
+  /// next to an explicit setter of the same name outright, so the combination
+  /// cannot reach this branch from legal source. And the Dart compiler emits
+  /// `late final` for a final field the constructor's initializer list assigns
+  /// (#651), so consulting `is_late` would make the engine's answer depend on
+  /// whether the program had been round-tripped through that compiler.
+  ///
+  /// A class with no field metadata on record answers `false`, which is the
+  /// suppress-the-setter behaviour that predates #664.
+  bool _nearestFieldDeclarationIsFinal(
+    Map<String, Object?> object,
+    String fieldName,
+  ) {
+    Map<String, Object?>? current = object;
+    while (current != null) {
+      final typeName = current['__type__'];
+      if (typeName is String) {
+        final declared = _declaredFieldIsFinal[typeName];
+        if (declared != null && declared.containsKey(fieldName)) {
+          return declared[fieldName] == true;
+        }
+      }
+      current = _asMap(current['__super__']);
+    }
+    return false;
+  }
+
   /// Try to dispatch a setter function for [fieldName] on [object].
   /// Returns [_sentinel] if no setter was found, otherwise the setter result.
   Future<Object?> _trySetterDispatch(
@@ -1325,7 +1365,16 @@ extension BallEngineEval on BallEngine {
     // dropped. Returning the sentinel here hands the assignment back to the
     // plain map write, restoring read/write symmetry (#501, conformance
     // 432_shadowed_getter_setter_write).
-    if (object.containsKey(fieldName)) return _sentinel;
+    //
+    // The shadowing is the FIELD DECLARATION's implicit setter, though — not
+    // the mere presence of a key on the instance map. A `final` field
+    // contributes a getter and NOTHING else, so a setter declared beside it is
+    // the only setter for that name and must run (#664, conformance
+    // 470_setter_beside_final_field).
+    if (object.containsKey(fieldName) &&
+        !_nearestFieldDeclarationIsFinal(object, fieldName)) {
+      return _sentinel;
+    }
 
     final colonIdx = typeName.indexOf(':');
     final modPart = colonIdx >= 0

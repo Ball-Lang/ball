@@ -299,9 +299,37 @@ export function createEngineSetup(mod: EngineModule) {
     return -coerced;
   }
 
+  /**
+   * The VIRTUAL `length` / `isEmpty` / `isNotEmpty` of a plain Ball map.
+   *
+   * This runs AHEAD of the compiled engine's own `_evalFieldAccess`, so it must
+   * answer `undefined` for everything that engine resolves first — the Dart
+   * reference engine's order is: the object's own key, then the `__super__`
+   * chain, then methods, then a user getter, and only THEN these virtual map
+   * properties (`engine_eval.dart`'s map field-access block).
+   *
+   * Two deferrals implement that, and both are behavioural, not defensive:
+   *
+   * - **A declared field of that name wins.** A class that declares
+   *   `final int length` answered its instance's ENTRY COUNT here — silently,
+   *   with no error — so `slice.length` read `2` where every other engine read
+   *   the field (found while adding conformance `470_setter_beside_final_field`
+   *   for #664; a plain map that literally carries a `'length'` key had the
+   *   same bug).
+   * - **Any class instance defers wholesale**, because a field the instance
+   *   INHERITS lives on its `__super__` map rather than as an own key, and a
+   *   user getter named `length` must win over this too. A `__type__` marks an
+   *   instance (`BallObject` keeps its bookkeeping as non-enumerable OWN
+   *   properties, so `hasOwnProperty` sees it while `Object.keys` does not).
+   *   An instance that declares none of these still gets the same answer from
+   *   the compiled engine's own virtual-property arm.
+   */
   function _collectionFieldAccess(object: any, fieldName: string): any {
     if (object == null || typeof object !== 'object' || Array.isArray(object)) return undefined;
     if (object instanceof Set || object instanceof Map) return undefined;
+    const own = Object.prototype.hasOwnProperty;
+    if (own.call(object, '__type__')) return undefined;
+    if (own.call(object, fieldName)) return undefined;
     const keys = Object.keys(object).filter((k: string) => !k.startsWith('__'));
     switch (fieldName) {
       case 'isEmpty': return keys.length === 0;

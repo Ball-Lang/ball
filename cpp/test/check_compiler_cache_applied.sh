@@ -607,6 +607,11 @@ self_test() {
     printf 'unsupported_source_language\t0\n'
   }
 
+  # The first line of `ccache --version`, verbatim (`ccache version 4.9.1` on
+  # the ubuntu leg, `ccache version 4.14` on macOS — main run 34749011196, jobs
+  # 103702029894 and 103702029887).
+  ccache_version_line() { printf 'ccache version %s\n' "$1"; }
+
   # One `ccache -s` human summary line, with its two numbers passed as LITERAL
   # strings so a case can render the row in a layout the old parse could not
   # read. (ccache itself always prints bare digits — see the parser's header —
@@ -919,6 +924,7 @@ self_test() {
   cat >"$tmp/bin_s_fails/ccache" <<STUB
 #!/usr/bin/env bash
 case "\$1" in
+  --version) echo "ccache version 4.9.1"; exit 0 ;;
   -s | --show-stats) echo "ccache: error: failed to read stats file" >&2; exit 1 ;;
   --print-stats) cat "$tmp/stub_counters.txt"; exit 0 ;;
 esac
@@ -927,6 +933,7 @@ STUB
   cat >"$tmp/bin_ps_fails/ccache" <<STUB
 #!/usr/bin/env bash
 case "\$1" in
+  --version) echo "ccache version 4.9.1"; exit 0 ;;
   -s | --show-stats) cat "$tmp/stub_human.txt"; exit 0 ;;
   --print-stats) echo "ccache: error: unknown option --print-stats" >&2; exit 1 ;;
 esac
@@ -935,6 +942,7 @@ STUB
   cat >"$tmp/bin_ok/ccache" <<STUB
 #!/usr/bin/env bash
 case "\$1" in
+  --version) echo "ccache version 4.9.1"; exit 0 ;;
   -s | --show-stats) cat "$tmp/stub_human.txt"; exit 0 ;;
   --print-stats) cat "$tmp/stub_counters.txt"; exit 0 ;;
 esac
@@ -975,13 +983,91 @@ STUB
     'non-cacheable compilations: 0' "$tmp/bin_ok" \
     --tool ccache --compiled 322
 
+  # ── 35-39. WHICH ccache produced these counters (#700 item 5) ────────────
+  #
+  # The classification table above is transcribed from `k_statistics_fields` at
+  # two specific ccache releases, and the runner images are free to move off
+  # them at any time: hendrikmuhs/ccache-action installs whatever the OS
+  # package manager has, with no version input to pin. When that happens and
+  # the new release grew a counter, the gate hard-fails all three C++ legs —
+  # correctly, but the message has to make the one-line fix obvious instead of
+  # reading like a cache regression. So the gate records the version it read
+  # the counters from, prints it, and names it in the failure.
+  ccache_version_line 4.14 >"$tmp/ccache_v414.txt"
+
+  # 35. The named failure, at a version the table WAS derived against.
+  {
+    ccache_version_line 4.14
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0
+    printf 'brand_new_uncacheable_reason\t7\n'
+  } >"$tmp/ccache_unknown_id_pinned.txt"
+  run_case_out "an unclassified counter id is a NAMED failure" 1 \
+    'UNCLASSIFIED CCACHE COUNTER ID' \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_unknown_id_pinned.txt"
+
+  # 36. The same defect at a version the table was NOT derived against — the
+  #     runner-image bump this is really about. The message must say so, or the
+  #     reader has no way to tell "ccache grew a counter" from "we forgot one".
+  {
+    ccache_version_line 4.15
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0
+    printf 'brand_new_uncacheable_reason\t7\n'
+  } >"$tmp/ccache_unknown_id_newver.txt"
+  run_case_out "an unclassified counter id names the ccache version drift" 1 \
+    'ccache 4.15 is NOT one of the version(s)' \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_unknown_id_newver.txt"
+
+  # 37. A healthy run RECORDS the version, so a log tells you which table the
+  #     numbers were classified against without re-running anything.
+  {
+    ccache_version_line 4.9.1
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0 omit_encoding
+  } >"$tmp/ccache_v_pinned_ok.txt"
+  run_case_out "a healthy ccache run records the version the counters came from" 0 \
+    'ccache version: 4.9.1 (counter classification derived against: 4.9.1 4.14)' \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_v_pinned_ok.txt"
+
+  # 38. A version off the pinned list, with every counter still classified, is
+  #     NOT a failure — the assertion is the counter set, not the version
+  #     string, and a gate that reddened on an image bump alone would be the
+  #     spurious red this item exists to remove. It must still SAY so.
+  {
+    ccache_version_line 4.15
+    ccache_human_line 322 322
+    ccache_print_stats 322 0 0 0 0
+  } >"$tmp/ccache_v_unpinned_ok.txt"
+  run_case_out "an unpinned ccache version whose counters all classify stays green, loudly" 0 \
+    'ccache version: 4.15 — NOT one of the version(s)' \
+    --tool ccache --compiled 322 --stats-file "$tmp/ccache_v_unpinned_ok.txt"
+
+  # 39. On the branch CI takes, the gate asks ccache itself. A `--version` it
+  #     cannot read is an instrument that will not say what it is, and that is
+  #     a hard, named failure like `ccache -s` and `--print-stats` above.
+  mkdir -p "$tmp/bin_v_fails"
+  cat >"$tmp/bin_v_fails/ccache" <<STUB
+#!/usr/bin/env bash
+case "\$1" in
+  --version) echo "ccache: error: cannot determine version" >&2; exit 1 ;;
+  -s | --show-stats) cat "$tmp/stub_human.txt"; exit 0 ;;
+  --print-stats) cat "$tmp/stub_counters.txt"; exit 0 ;;
+esac
+exit 2
+STUB
+  chmod +x "$tmp/bin_v_fails/ccache"
+  run_case_path "'ccache --version' failure is a hard, named failure" 1 \
+    "::error::'ccache --version' failed" "$tmp/bin_v_fails" \
+    --tool ccache --compiled 322
+
   rm -rf "$tmp"
 
   local total=$((pass + fail))
   # Positive floor: an exit code plus a failure count cannot tell "everything
   # passed" from "nothing ran".
-  if [ "$total" -lt 34 ]; then
-    echo "::error::compiler-cache gate self-test ran only $total case(s) — expected at least 34."
+  if [ "$total" -lt 39 ]; then
+    echo "::error::compiler-cache gate self-test ran only $total case(s) — expected at least 39."
     return 1
   fi
   echo "Results: $pass passed, $fail failed, $total total"

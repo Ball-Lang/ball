@@ -241,11 +241,33 @@ sed 's|- name: "Compiler cache applied (#594)"|- name: "Cache sanity"|' "$WORKFL
 assert_cmd "a ci.yml that renamed the gate step away from the documented name is rejected" 1 \
   check_order "$RENAMED"
 
+# ── the SIGPIPE control (#700 item 4) ──────────────────────────────────────
+#
+# Nothing in this file may pipe into `head`. `head -N` exits as soon as it has
+# its N lines, so the producer upstream takes SIGPIPE, and under
+# `set -o pipefail` the whole pipeline reports 141 — a "failure" with nothing
+# wrong. That is the shape that produced RED run 34755211709, and the same
+# reasoning the `grep -c`, never `grep -q` comment above spells out: the two
+# differ only in WHICH command exits early. Every first-line read here goes
+# through `awk 'NR==1'`, which consumes its whole input, or through a shell
+# variable. This grep is the negative control for that rule.
+no_head_after_a_pipe() {
+  local n
+  n="$(grep -cE '\|[[:space:]]*head([[:space:]]|$)' "${BASH_SOURCE[0]}")"
+  if [ "${n:-1}" -ne 0 ]; then
+    echo "::error::$n pipeline(s) in this file end in \`head\`, which exits early and makes the upstream producer die of SIGPIPE — exit 141 under \`set -o pipefail\`, a failure with nothing wrong (run 34755211709, #700). Use \`awk 'NR==1'\` or read the value into a variable."
+    return 1
+  fi
+  return 0
+}
+assert_cmd "no pipeline in this file ends in head (SIGPIPE 141 under pipefail)" 0 \
+  no_head_after_a_pipe
+
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything
-# passed" from "nothing ran".
-if [ "$total" -lt 6 ]; then
-  echo "::error::cache-gate step-order test ran only $total case(s) — expected at least 6."
+# passed" from "nothing ran". Set AT the number of cases above.
+if [ "$total" -lt 7 ]; then
+  echo "::error::cache-gate step-order test ran only $total case(s) — expected at least 7."
   exit 1
 fi
 echo "Results: $pass passed, $fail failed, $total total"

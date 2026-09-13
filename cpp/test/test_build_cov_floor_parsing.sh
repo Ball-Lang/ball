@@ -250,12 +250,50 @@ if [ "${BALL_COV_FLOOR_TEST_RATCHET_SIM:-}" != "1" ]; then
   rm -rf "$sim"
 fi
 
+# ── 11. The ratchet simulation must simulate a FUTURE ratchet (#700 item 3) ─
+#
+# Case 10 is only a control while its scratch floors sit ABOVE the committed
+# ones. Hard-coded, they stop doing that the moment a real ratchet reaches
+# them: the simulation would then "prove" the suite survives a ratchet to the
+# numbers it is already running at — the staleness class case 1 had, moved one
+# level up.
+#
+# So: fabricate a build-cov-floor.sh whose FLOORS are all 96, drop a scratch
+# copy of this file next to it, and run it. Its case 10 must simulate floors
+# ABOVE 96 (96 + 2 = 98 for every target). The fabricated run is told not to
+# run THIS case again, or it would fabricate 96 forever.
+if [ "${BALL_COV_FLOOR_TEST_RATCHET_SIM:-}" != "1" ] &&
+  [ "${BALL_COV_FLOOR_TEST_FUTURE_SIM:-}" != "1" ]; then
+  fut="$(mktemp -d)"
+  mkdir -p "$fut/cpp/test"
+  awk '
+    /^[[:space:]]*\[compiler\]=/ { print "  [compiler]=96"; next }
+    /^[[:space:]]*\[encoder\]=/  { print "  [encoder]=96";  next }
+    /^[[:space:]]*\[shared\]=/   { print "  [shared]=96";   next }
+    { print }
+  ' "$SCRIPT" >"$fut/cpp/build-cov-floor.sh"
+  cp "${BASH_SOURCE[0]}" "$fut/cpp/test/test_build_cov_floor_parsing.sh"
+  fut_out="$(BALL_COV_FLOOR_TEST_FUTURE_SIM=1 \
+    bash "$fut/cpp/test/test_build_cov_floor_parsing.sh" 2>&1)"
+  fut_rc=$?
+  if [ "$fut_rc" -eq 0 ] && printf '%s' "$fut_out" | grep -q 'ratchet to floors 98/98/98'; then
+    pass=$((pass + 1))
+    echo "PASS  the ratchet simulation moves with the FLOORS table (96/96/96 -> simulated 98/98/98)"
+  else
+    fail=$((fail + 1))
+    echo "FAIL  the ratchet simulation does NOT move with the FLOORS table: against a committed 96/96/96 it must simulate 98/98/98 and pass (exit $fut_rc). Hard-coded scratch floors stop being a FUTURE ratchet the moment a real ratchet reaches them (#700 item 3)."
+    printf '  %s\n' "$fut_out"
+  fi
+  rm -rf "$fut"
+fi
+
 total=$((pass + fail))
 # Positive floor: an exit code plus a failure count cannot tell "everything
-# passed" from "nothing ran".
-# The ratchet simulation below re-runs this file, and that inner run must not
-# recurse into it again — so the inner run has one case fewer.
-min_cases=10
+# passed" from "nothing ran". Set AT the number of cases each mode runs.
+# Case 10 re-runs this file and case 11 re-runs it once more, and neither inner
+# run may recurse into the case that spawned it — so each has fewer cases.
+min_cases=11
+[ "${BALL_COV_FLOOR_TEST_FUTURE_SIM:-}" = "1" ] && min_cases=10
 [ "${BALL_COV_FLOOR_TEST_RATCHET_SIM:-}" = "1" ] && min_cases=9
 if [ "$total" -lt "$min_cases" ]; then
   echo "::error::floor-parsing test ran only $total case(s) — expected at least $min_cases."

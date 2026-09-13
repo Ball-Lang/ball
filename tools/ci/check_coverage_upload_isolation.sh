@@ -612,6 +612,12 @@ YAML
 
     fixture_artifact "$art_name" "$mut" ''
     [ "$flag" = "typescript" ] || fixture_floor "$flag" "$mut"
+    # The real cpp job carries TWO floor steps — `C++ line coverage floor` and
+    # `C++ per-target coverage floors (compiler/encoder/shared - gated)` — so
+    # the fixture carries 5 floor steps across 4 measurement jobs, like the
+    # file it stands in for. That is what lets `floor_renamed` below drop
+    # exactly ONE floor step rather than the job's only one.
+    [ "$flag" = "cpp" ] && fixture_per_target_floor
 
     if [ "$flag" = "cpp" ] && [ "$mut" = "codecov_in_measurement" ]; then
       fixture_codecov cpp
@@ -657,10 +663,27 @@ fixture_artifact() {
 # fixture_floor <flag> <mutation>
 fixture_floor() {
   local flag="$1" mut="$2"
+  # `floor_renamed` renames the cpp job's FIRST floor step — the mutation
+  # measured against the real file in #700 item 1 (`C++ line coverage floor`
+  # -> `C++ line check`). Deliberately not the LAST floor step of its job:
+  # rule 3 below catches that one incidentally, as a plain step trailing a
+  # floor, and the point of this control is the rename nothing else catches.
+  if [ "$mut" = "floor_renamed" ] && [ "$flag" = "cpp" ]; then
+    printf '      - name: %s line check\n' "$flag"
+    printf '        run: echo floor\n'
+    return 0
+  fi
   printf '      - name: %s line coverage floor\n' "$flag"
   [ "$mut" = "floor_if_always" ] && [ "$flag" = "cpp" ] && printf '        if: always()\n'
   [ "$mut" = "continue_on_error" ] && [ "$flag" = "cpp" ] && printf '        continue-on-error: true\n'
   printf '        run: echo floor\n'
+}
+
+# fixture_per_target_floor — the cpp job's SECOND floor step, so the fixture
+# mirrors the real file's 5-floors-across-4-jobs shape.
+fixture_per_target_floor() {
+  printf '      - name: C++ per-target coverage floors\n'
+  printf '        run: echo per-target floor\n'
 }
 
 # fixture_codecov <flag> [mutation]
@@ -770,6 +793,16 @@ self_test() {
   expect "an uploaded path outside every download destination fails" 1 \
     "$(fixture files_outside_download)" \
     "under none of this job's download destinations"
+
+  # The ONE-RENAME mutation (#700 item 1). Every post-floor, masking and
+  # isolation rule above is scoped to the steps FLOOR_RE found, so renaming a
+  # single floor step away from that phrase silently removes it from all of
+  # them. With the floor set AT the measured count that is a refusal, not a
+  # shrug — and the renamed step here is NOT the last of its job, so no other
+  # rule can catch it incidentally.
+  expect "renaming exactly ONE floor step out of the matched set is refused" 1 \
+    "$(fixture floor_renamed)" \
+    "has 4 coverage floor step(s), fewer than the 5"
 
   local too_few='name: Coverage
 on: {push: {branches: [main]}}

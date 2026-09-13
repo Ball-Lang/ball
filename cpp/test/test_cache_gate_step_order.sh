@@ -145,7 +145,11 @@ check_order() {
     return 1
   fi
 
-  if ! gate_step_names "$wf" | grep -q 'Compiler cache applied'; then
+  # `grep -c`, not `grep -q` — see cpp_job_nonempty below for why a `-q` on the
+  # far side of a pipe can report SIGPIPE (141) instead of a real result.
+  local named
+  named="$(gate_step_names "$wf" | grep -c 'Compiler cache applied')"
+  if [ "${named:-0}" -lt 1 ]; then
     echo "::error::the step running check_compiler_cache_applied.sh is no longer named 'Compiler cache applied' — cpp/test/AGENTS.md, .claude/rules/cpp.md and the gate script's own header all quote that name."
     return 1
   fi
@@ -161,7 +165,9 @@ check_order() {
     return 1
   fi
 
-  if slice_cpp_job "$wf" | grep -qE '^[[:space:]]*continue-on-error:'; then
+  local coe
+  coe="$(slice_cpp_job "$wf" | grep -cE '^[[:space:]]*continue-on-error:')"
+  if [ "${coe:-0}" -ge 1 ]; then
     echo "::error::the cpp job declares a continue-on-error step — the compiler-cache gate's exit code would stop reaching the job."
     return 1
   fi
@@ -175,7 +181,16 @@ assert_cmd "the committed ci.yml satisfies the gate/smoke step order" 0 \
 
 # The slice must be non-empty, or every assertion above would run on an empty
 # haystack. (check_order's own counts would catch it, but say so explicitly.)
-cpp_job_nonempty() { slice_cpp_job "$WORKFLOW" | grep -q 'runs-on:'; }
+#
+# `grep -c`, never `grep -q`, on the far side of a pipe: `-q` exits at the FIRST
+# match, and the cpp job slice is far larger than a pipe buffer, so the awk
+# producing it takes SIGPIPE and `set -o pipefail` reports 141 — a "failure"
+# with nothing wrong. ci.yml's own harness-smoke step carries the same warning.
+cpp_job_nonempty() {
+  local n
+  n="$(slice_cpp_job "$WORKFLOW" | grep -c 'runs-on:')"
+  [ "${n:-0}" -ge 1 ]
+}
 assert_cmd "the cpp job slice is non-empty" 0 cpp_job_nonempty
 
 # ── the NEGATIVE CONTROL: the same file, gate step relocated ───────────────

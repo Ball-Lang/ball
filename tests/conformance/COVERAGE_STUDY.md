@@ -367,6 +367,47 @@ This corroborates, on third-party code, what the `csharp-roundtrip` /
 **own** corpus. Tier A is the independent, third-party-code confirmation that
 the encoders cannot read back their own compilers' output.
 
+### Re-baselined for the library-code-only rule (2026-09-14)
+
+Measured by coverage-study run
+[34747754747](https://github.com/Ball-Lang/ball/actions/runs/34747754747), all
+eight jobs green, `Rows checked: 8, breaches: 0`. Dispatched on a topic branch,
+so the `publish` job checked and rendered end-to-end and committed nothing (its
+commit step is guarded `if: github.ref == 'refs/heads/main'`).
+
+| Tier A row | scored | clean | 1 encoded | excluded (test-only) |
+| --- | --- | --- | --- | --- |
+| Dart | 106 → 106 | 65 (61%) | 106 | — → 0 |
+| TypeScript | 48 → 48 | 4 (8%) | 29 | — → 6 |
+| C# | 472 → 472 | 0 (0%) | 141 | — → 0 |
+| Python | 73 → 73 | 0 (0%) | 5 | — → 0 |
+| **Rust** | **110 → 77** | 0 (0%) | 1 | — → **34** |
+| Go | 21 → 21 | 0 (0%) | 0 | — → 13 |
+
+One line per row, because "the denominator moved" and "the denominator was
+always going to move" are different claims:
+
+* **Dart, C#, Python** gained a rule that matches nothing today — both pin lists
+  point at library subtrees. The denominator is untouched; the rule is the guard
+  for the next pin.
+* **TypeScript (6) and Go (13)** were *already* dropping exactly these files.
+  The only change is that the count is now printed, recorded and published;
+  `scored` is unchanged at 48 and 21.
+* **Rust (34)** is the row the decision was written for. 34 of the 119 `.rs`
+  files under the pinned subtrees are `bitflags`' own tests — 33 under
+  `src/tests/`, plus `src/tests.rs`, which is not under a `tests/` directory and
+  is caught only by the `#[cfg(test)]`-reachability half. `clean` and `encoded`
+  are unchanged in absolute terms, so both ratios rose: stage 1 goes 1/110
+  (0.9%) to 1/77 (1.3%). The `encoded: 1` #628's crate-aware slice measured on
+  the library files is not lowered by this.
+
+Tier B has no exclusion rule — it substitutes library files into a package's own
+suite, so tests are structurally out of its file set already, and `rq1_tierb.dart`
+keeps its own walk. Its two rows moved in the same run for unrelated, already-merged
+reasons (per-file 100 → 102, whole-package 2 → 3): the published README table had
+simply not been regenerated on main since those landed. Same for C#'s stage 1, which
+reads 141 here and 123 in the table this run replaced.
+
 ## Tier B — substitution into a package's own test suite (Dart)
 
 Tier A is structural, and it says so: a construct that round-trips syntactically

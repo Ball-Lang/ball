@@ -22,7 +22,7 @@
       "scored": 48,
       "clean": 4,
       "encoded": 29,
-      "excluded": 0
+      "excluded": 6
     },
     {
       "language": "C#",
@@ -62,7 +62,7 @@
       "scored": 21,
       "clean": 0,
       "encoded": 0,
-      "excluded": 0
+      "excluded": 13
     },
     {
       "language": "Dart",
@@ -70,7 +70,7 @@
       "kind": "tier-b",
       "artifact": "coverage-study-tier-b-dart/tier_b.json",
       "scored": 106,
-      "clean": 100
+      "clean": 102
     },
     {
       "language": "Dart",
@@ -78,7 +78,7 @@
       "kind": "tier-b",
       "artifact": "coverage-study-tier-b-dart/tier_b_all.json",
       "scored": 5,
-      "clean": 2
+      "clean": 3
     }
   ]
 }

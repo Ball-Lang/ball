@@ -419,6 +419,28 @@ jobs:
       - name: Regeneration loop-breaker self-test (#625)
         run: bash tools/ci/regen_loop_breaker.sh --self-test
 
+      # docs/TESTING_STRATEGY.md spells out WHICH status checks the `Protect
+      # main` ruleset requires — the list a lane reads to decide "the checks are
+      # green", i.e. a mechanical claim about a live GitHub setting. It was
+      # hand-written and matched the ruleset byte-for-byte on 2026-09-14, with
+      # nothing keeping the two in sync: add or rename a required context in the
+      # ruleset and the doc silently becomes a lie, in the one direction that
+      # matters (a lane concludes a PR is gated on something it is not). This
+      # compares the doc's marked list against the LIVE ruleset over the REST
+      # API — `GET /repos/{owner}/{repo}/rulesets/{ruleset_id}`, which needs only
+      # "Metadata" repository permissions (read) and "can be used without
+      # authentication ... if only public resources are requested"
+      # (https://docs.github.com/en/rest/repos/rules?apiVersion=2022-11-28#get-a-repository-ruleset),
+      # so the job's own GITHUB_TOKEN reads it on this public repo. Offline unit
+      # cases first: a comparator that stopped comparing looks exactly like one
+      # that found no drift.
+      - name: Required status-check contexts doc guard (#655)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bash tools/test/test_check_required_contexts.sh
+          bash tools/ci/check_required_contexts.sh
+
   # ──────────────────────────────────────────────────
   # Cross-CLI verb-set parity (issue #570, epic #361) — ALWAYS ON
   # ──────────────────────────────────────────────────

@@ -104,6 +104,24 @@ Program _program({
 String _flat(Program p) =>
     DartCompiler(p, noFormat: true).compile().replaceAll(RegExp(r'\s+'), ' ');
 
+/// Walks up from the test's CWD to the repo's `tests/conformance` directory,
+/// the same way `conformance_compiler_inprocess_test.dart` locates the corpus.
+Directory _findConformanceDir() {
+  var dir = Directory.current.absolute;
+  while (true) {
+    final candidate = Directory('${dir.path}/tests/conformance');
+    if (candidate.existsSync()) return candidate;
+    final parent = dir.parent;
+    if (parent.path == dir.path) {
+      throw StateError(
+        'could not locate tests/conformance walking up from '
+        '${Directory.current.absolute.path}',
+      );
+    }
+    dir = parent;
+  }
+}
+
 void main() {
   group('a field the constructor definitely assigns drops `late` (#651)', () {
     test('assigned by the constructor\'s own initializer list', () {
@@ -507,37 +525,28 @@ void main() {
   });
 
   group('end-to-end: the reported `collection` shape', () {
-    // `ListSlice`, reduced: a final field only the initializer list assigns,
-    // next to a same-named setter. Legal Dart; must stay legal Dart after a
-    // Dart -> Ball -> Dart round trip.
-    const source = r'''
-class FixedSlice {
-  final List<int> source;
-  final int length;
-
-  FixedSlice(this.source, int end) : length = end;
-
-  set length(int newLength) {
-    throw UnsupportedError('Cannot resize a FixedSlice');
-  }
-
-  int elementAt(int index) {
-    return source[index];
-  }
-}
-
-void main() {
-  final slice = FixedSlice([10, 20, 30], 3);
-  print(slice.length);
-  print(slice.elementAt(1));
-}
-''';
-
+    // The source is the conformance fixture itself, not a copy of it:
+    // `466_initializer_list_field_with_setter` IS the reduced `ListSlice`
+    // shape, and reading it here is what makes that fixture a PR gate for the
+    // compiler-lowering point. The corpus runs on every engine, but no engine
+    // has a notion of `late` — only the Dart target does, and only the
+    // slow-tagged `dart-compiled` leg would otherwise ever try to ANALYZE what
+    // this compiler emits for it.
     late String compiled;
 
     setUpAll(() {
+      final fixture = File(
+        '${_findConformanceDir().path}/src/'
+        '466_initializer_list_field_with_setter.dart',
+      );
+      if (!fixture.existsSync()) {
+        throw StateError('missing conformance fixture: ${fixture.path}');
+      }
       compiled = DartCompiler(
-        DartEncoder().encode(source, name: 'field_finality'),
+        DartEncoder().encode(
+          fixture.readAsStringSync(),
+          name: 'field_finality',
+        ),
       ).compile();
     });
 

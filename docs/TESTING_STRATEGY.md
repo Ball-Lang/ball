@@ -532,11 +532,50 @@ claims even now. When a compiler documents a lowering gap in a doc comment — w
 is how #615 was found, off prose, not off any CI signal — that gap needs a test
 that fails *for that shape*, not a leg whose floor already absorbs it.
 
+#### "Observed" means the VALUE, not the fact that something threw (#616)
+
+463 above is the worked example of the no-match half, and it was still only
+three-quarters of a contract. Its two `on StateError catch` bodies print a
+HARDCODED literal (`"caught StateError: no match"`), so it pins that a throw
+happened and that a typed clause matched it — and pins nothing at all about what
+the catch variable READS. Every target answered that question differently, and
+the corpus stayed green. Measured on `origin/main` before #616, one program,
+`print(to_string(e))` in the catch body:
+
+| target | `to_string(e)` for a caught `list_find` StateError, before #616 |
+|---|---|
+| Dart reference engine | `Bad state: No element` ← canonical (and real Dart's `StateError('No element').toString()`) |
+| TS self-hosted engine | `{message: No element}` |
+| Go self-hosted engine | `main:StateError` |
+| Go / C# / Rust compilers | the bare type tag, or the map form — never Dart's string |
+
+The ROOT CAUSE is structural, not a typo in three literals. `_evalLazyTry` binds
+`e is BallException ? e.value : e.toString()`, and the reference engine raised a
+HOST `StateError`, so the catch variable collapsed to that string. Every
+self-hosted engine is that same source compiled through the Ball pipeline, where
+`StateError('No element')` is a construction of a class the program never
+declares — so its catch variable bound a target-shaped object instead, and each
+target's `to_string` rendered it its own way. The fix makes the engine throw a
+`BallException` whose value IS the canonical string, so the same portable value
+travels every target; each compiled runtime then renders its own typed error
+payload with Dart's `toString()` spelling (`Bad state: <message>`).
+
+`tests/conformance/465_state_error_message` is the guard, and the rule it states
+generalises past StateError: **a fixture that catches must print the caught
+VALUE.** A hardcoded string in a catch body proves only that control reached it.
+The same fixture also covers `list_first` on an empty list, where the bug was
+worse than a message drift — Rust, Go, C# and Python all raised an UNTYPED fault
+there (a bare `panic!`, a `Thrown{Value: string}`, a native
+`BallRuntimeException`, Python's own `IndexError`), so `on StateError catch`
+never ran at all, and the TS engine's `engine_setup.ts` override returned `null`:
+the exact shadowing defect #597 had already removed one line above it, for
+`list_find`.
+
 When a base function's result is meaningful — a predicate, a "was it there"
 answer, anything a caller would branch on — declare the `outputType`, add the
 probe, and write the fixture so the value is PRINTED, not discarded. When it can
 FAIL to produce a result, write the fixture so the failure is OBSERVED, not
-assumed.
+assumed — and observed means printing what the catch variable holds.
 
 ### 6. Engine code must be self-host-portable
 Because the engine is itself encoded to Ball, its Dart source must avoid

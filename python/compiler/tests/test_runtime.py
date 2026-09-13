@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 import ballrt
 
 
@@ -197,3 +199,51 @@ def test_ball_proto_serves_every_presence_check_not_just_the_engine_twelve():
     # Anything that is not a has<Field> still fails LOUD, naming what is missing.
     with pytest.raises(AttributeError, match="not implemented in python/runtime"):
         proto.getStructField  # noqa: B018 - attribute access is the assertion
+
+
+# ── Dart's StateError: typed AND readable (issue #616) ───────────────────────
+#
+# Two halves, and every site used to get exactly one of them right:
+#   * TYPED — the thrown value is a Dart-shaped StateError carried by a
+#     BallThrow, so a compiled program's own `except ballrt.BallThrow` (its
+#     `on StateError catch`) sees it. `list_first`/`list_last`/`list_pop` and
+#     the `.first`/`.last` field getters used to let Python's NATIVE IndexError
+#     escape, which the compiled `try` never catches — the program died instead.
+#   * OBSERVABLE — it stringifies as Dart's own `StateError.toString()`,
+#     "Bad state: No element", so `to_string(e)` in the catch body reads the
+#     same here as on the Dart reference engine. The `.reduce`/`.firstWhere`
+#     method arms threw a bare STRING with that text: right text, no type.
+#
+# The cross-target guard is conformance fixture 465_state_error_message (wired
+# into test_conformance.py's PROVEN list); this is the runtime half.
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda: ballrt.col.list_first([]), id="list_first"),
+        pytest.param(lambda: ballrt.col.list_last([]), id="list_last"),
+        pytest.param(lambda: ballrt.col.list_pop([]), id="list_pop"),
+        pytest.param(lambda: ballrt.col.list_find([1, 2], lambda x: False), id="list_find"),
+        pytest.param(lambda: ballrt.getfield([], "first"), id="getfield_first"),
+        pytest.param(lambda: ballrt.getfield([], "last"), id="getfield_last"),
+        pytest.param(
+            lambda: ballrt.call_method([], "reduce", lambda m: m),
+            id="reduce",
+        ),
+        pytest.param(
+            lambda: ballrt.call_method([1], "firstWhere", lambda x: False),
+            id="firstWhere",
+        ),
+        pytest.param(
+            lambda: ballrt.call_method([], "removeLast"),
+            id="removeLast",
+        ),
+    ],
+)
+def test_state_error_sites_are_typed_and_stringify_like_dart(call):
+    with pytest.raises(ballrt.BallThrow) as caught:
+        call()
+
+    payload = caught.value.value
+    assert type(payload).__name__ == "StateError"
+    assert payload.message == "No element"
+    assert ballrt.to_str(payload) == "Bad state: No element"

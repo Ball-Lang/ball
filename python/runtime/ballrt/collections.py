@@ -9,6 +9,7 @@ collection so the value can flow onward.
 from __future__ import annotations
 
 from . import ops
+from .flow import state_error as _state_error
 from .values import BallSet
 
 
@@ -31,10 +32,23 @@ def list_is_not_empty(lst):
 
 
 def list_first(lst):
+    """``list.first`` — Dart's ``List.first``, which throws ``StateError`` on empty.
+
+    A bare ``lst[0]`` raised Python's native ``IndexError``, which is not a
+    ``BallThrow`` at all: the compiled ``try``'s ``except ballrt.BallThrow``
+    never saw it, so a program's own ``on StateError catch`` could not catch an
+    empty ``.first`` on this target (issue #616).
+    """
+    if not lst:
+        _state_error("No element")
     return lst[0]
 
 
 def list_last(lst):
+    """``list.last`` — empty throws the same typed ``StateError`` as
+    :func:`list_first`."""
+    if not lst:
+        _state_error("No element")
     return lst[-1]
 
 
@@ -100,6 +114,10 @@ def list_push(lst, value):
 
 
 def list_pop(lst):
+    """``list.removeLast()`` — empty throws Dart's typed ``StateError`` (#616),
+    not Python's native ``IndexError`` (which no compiled ``try`` can catch)."""
+    if not lst:
+        _state_error("No element")
     return lst.pop()
 
 
@@ -154,10 +172,7 @@ def list_find(lst, callback):
     for x in lst:
         if ops.truthy(callback(x)):
             return x
-    from .flow import throw
-    from .selfhost import StateError
-
-    throw(StateError("No element"))
+    _state_error("No element")
 
 
 def list_join(lst, separator):

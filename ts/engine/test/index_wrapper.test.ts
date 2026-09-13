@@ -175,12 +175,18 @@ describe("BallEngine end-to-end: std_collections.list_find no-match contract (#5
     // printed "null" and exited 0 while the Dart reference engine (and every
     // other self-hosted engine) threw. Uncaught, the throw must propagate out
     // of run(); tests/conformance/463_list_find_no_match pins the caught half.
+    // Since #616 the thrown value is a `BallException` whose `value` IS the
+    // canonical `StateError.toString()` string, so a Ball program's
+    // `catch (e)` binds exactly what the Dart reference engine binds and
+    // `to_string(e)` reads the same on every target
+    // (tests/conformance/464_state_error_message pins that end-to-end).
     const engine = new BallEngine(listFindProgram(100));
     await assert.rejects(
       () => engine.run(),
       (err: any) => {
-        assert.equal(err?.__type__, "StateError");
-        assert.equal(err?.message, "No element");
+        assert.equal(err?.typeName, "StateError");
+        assert.equal(err?.value, "Bad state: No element");
+        assert.equal(String(err), "Bad state: No element");
         return true;
       },
     );

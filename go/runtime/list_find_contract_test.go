@@ -55,6 +55,13 @@ func TestListFindNoMatchThrowsTypedStateError(t *testing.T) {
 				if got, _ := msg.Fields.Get("message"); got != "No element" {
 					t.Errorf("thrown message: got %#v, want %q", got, "No element")
 				}
+				// …and the value a catch body actually READS (issue #616).
+				// Typing alone was not enough: the caught value used to
+				// stringify as the bare tag "StateError", where the Dart
+				// reference engine prints Dart's own StateError.toString().
+				if got := ToStr(thrown.Value); got != "Bad state: No element" {
+					t.Errorf("to_string(caught): got %q, want %q", got, "Bad state: No element")
+				}
 			}()
 			ListFind(list, gtHundred)
 		})

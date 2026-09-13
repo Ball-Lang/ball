@@ -197,6 +197,18 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   catch` sees it. `tests/conformance/463_list_find_no_match` is the cross-target
   guard; `cpp/test/test_compiler.cpp`'s `list_find` assertions (the emitted lambda throws `BallException("StateError", "Bad state: No element")`, mirroring `list_reduce`; it must never fall off the end with `return BallDyn();`) is this target's half. See `docs/TESTING_STRATEGY.md` §5b.
 
+- **`.first`/`.last`/`.single` guard their own emptiness (#616).**
+  `BallDyn::front()`/`back()` answer a default-constructed (null) `BallDyn` for an
+  empty list and `[0]` answers the FIRST element of a longer one, so the emitted
+  `list_first`/`list_last`/`list_single` wrap an explicit check and throw
+  `BallException("StateError"s, "Bad state: No element"s)` (and
+  `"Bad state: Too many elements"s`) — the same silent-placeholder defect
+  `list_find` had before #597. The runtime helpers are deliberately left alone:
+  the compiled engine reaches them on paths that have already checked. C++ was
+  ALREADY correct on the message text that issue #616's title flagged — it is the
+  only target that spelled Dart's `toString()` all along.
+  See `docs/TESTING_STRATEGY.md` §5b.
+
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)
 - C++ pointer/reference ops are inlined to universal std/std_memory during encoding (no separate normalizer)

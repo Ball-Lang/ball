@@ -339,7 +339,7 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - **Self-hosted engine (Phase 4): complete, at Dart parity** — the compiled
   engine (compiling `dart/self_host/engine.ball.json` through `go/compiler`) runs
   the whole conformance corpus with Dart-identical output
-  (`Results: 349 passed, 0 failed, 349 total`; 4 golden-less
+  (`Results: 350 passed, 0 failed, 350 total`; 4 golden-less
   resource-limit/sandbox carve-outs). `compiled/compiled_engine.go` is a
   COMMITTED generated artifact since #586 (no build tag), kept fresh by ci.yml's
   `Ball Artifact Freshness` regen-and-diff job. See `go/engine/AGENTS.md`.
@@ -375,3 +375,27 @@ BALL_FIXTURE=101_simple_class go test -v -run TestRoundTrip ./conformance/
 - Verify maturity against CI (`.github/workflows/ci.yml`), not this prose.
 - `go/shared/gen/` is generated — regenerate after proto changes, never hand-edit.
 - Follow `.claude/skills/new-ball-language/SKILL.md` for the remaining phases.
+
+### Dart's `StateError`: typed AND readable (issue #616)
+
+#597/#604 settled that `std_collections.list_find`'s no-match THROWS and that the throw is
+typed. Neither settled what the program then OBSERVES — conformance fixture
+`463_list_find_no_match` prints a hardcoded literal from its catch bodies — and every target
+answered differently. Measured on `origin/main` before the fix, one program printing
+`to_string(e)` from its catch: the Dart reference engine `Bad state: No element` (which is also
+real Dart's `StateError('No element').toString()`), the TS self-hosted engine
+`{message: No element}`, the Go self-hosted engine `main:StateError`.
+
+The contract now has two halves at EVERY site that raises Dart's `StateError` — an empty
+`.first`/`.last`/`.single`/`removeLast`/`reduce`, or a `firstWhere` with no match:
+
+1. **TYPED** — the thrown value carries the type name `StateError`, so a program's own
+   `on StateError catch` matches it. Several sites used to raise an untyped native fault that
+   the compiled `try` could not see at all.
+2. **OBSERVABLE** — it stringifies as Dart's own `StateError.toString()`, `Bad state: <message>`,
+   so `to_string(e)` in the catch body reads the same here as on the Dart reference engine.
+
+`tests/conformance/465_state_error_message` is the cross-target guard (it prints the caught
+value for `list_find`'s no match AND `list_first` on an empty list — never a hardcoded string).
+Per-target details are in `.claude/rules/<lang>.md`; the gap class is
+`docs/TESTING_STRATEGY.md` §5b.

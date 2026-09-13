@@ -271,12 +271,51 @@ func ToStr(v Value) string {
 		if u := unwrap(x); u != Value(x) {
 			return ToStr(u)
 		}
+		if s, ok := dartErrorToString(x); ok {
+			return s
+		}
 		return x.TypeName
 	case *Function:
 		return "Closure"
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+// dartErrorToString renders one of the built-in Dart error/exception objects
+// `dartError` raises the way Dart's own `toString()` does, so a program that
+// prints its caught exception reads the same string here as on the Dart
+// reference engine (issue #616). Without it every one of them stringified as
+// the bare type tag — `to_string(e)` printed "StateError" where Dart prints
+// "Bad state: No element".
+//
+// The table is EXPLICIT and closed, listing exactly the type names `dartError`
+// raises. Rendering an arbitrary message-shaped value by a `message` field
+// would reach straight into user classes: a Ball class that happens to declare
+// a `message` field is not a Dart error and must keep printing its type name.
+// `StateError` is the one whose rendering is not `<Type>: <message>` — Dart
+// spells it `Bad state: <message>` (verified against the SDK, not assumed).
+func dartErrorToString(m *Message) (string, bool) {
+	var prefix string
+	switch messageShortName(m.TypeName) {
+	case "StateError":
+		prefix = "Bad state"
+	case "FormatException":
+		prefix = "FormatException"
+	case "RangeError":
+		prefix = "RangeError"
+	default:
+		return "", false
+	}
+	msg, ok := m.Fields.Get("message")
+	if !ok {
+		return "", false
+	}
+	s, ok := msg.(string)
+	if !ok {
+		return "", false
+	}
+	return prefix + ": " + s, true
 }
 
 // formatDouble renders a float64 the way Dart's `toString()` does: an integral

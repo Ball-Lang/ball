@@ -280,7 +280,7 @@ func VirtualProperty(value Value, name string) (Value, bool) {
 			return ListLast(v), true
 		case "single":
 			if v.Len() != 1 {
-				panic(Thrown{Value: "Bad state: too many/few elements"})
+				stateError("Too many elements")
 			}
 			return v.Items[0], true
 		case "reversed":
@@ -296,7 +296,7 @@ func VirtualProperty(value Value, name string) (Value, bool) {
 			return len(v.Items) != 0, true
 		case "first":
 			if len(v.Items) == 0 {
-				panic(Thrown{Value: "Bad state: No element"})
+				stateError("No element")
 			}
 			return v.Items[0], true
 		}

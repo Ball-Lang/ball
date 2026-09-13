@@ -52,9 +52,11 @@ public sealed class BallMessage : BallValue
 
     /// <inheritdoc />
     // An engine scalar value-model wrapper (BallDouble/BallInt/…) renders as its
-    // payload, not the map form `{value: …}` — see ScalarWrapperPayload.
+    // payload, not the map form `{value: …}` — see ScalarWrapperPayload. A
+    // built-in Dart error/exception renders as Dart's own toString() rather than
+    // the map form — see DartErrorToString (issue #616).
     public override string ToString() =>
         ScalarWrapperPayload(this) is { } payload
             ? payload.ToString()!
-            : FormatEntries(Fields.Entries());
+            : DartErrorToString(this) ?? FormatEntries(Fields.Entries());
 }

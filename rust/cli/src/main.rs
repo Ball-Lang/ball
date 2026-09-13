@@ -93,6 +93,15 @@ enum Command {
         /// entry_function".
         #[arg(long)]
         lib: bool,
+        /// Encode a whole CRATE (issue #491): `source` is a crate root — the
+        /// directory holding `Cargo.toml`, the `src` directory, or the root
+        /// `.rs` file — whose `mod` graph is walked so that a call into
+        /// another file of the crate resolves instead of failing. A crate
+        /// whose root declares `fn main` is runnable; one that does not is
+        /// encoded in library mode automatically, so `--lib` is only needed to
+        /// force library mode on a crate that HAS a `fn main`.
+        #[arg(long = "crate")]
+        crate_mode: bool,
     },
     /// Parse and validate a Ball program without running it.
     Check {
@@ -141,7 +150,8 @@ fn main() {
             output,
             format,
             lib,
-        } => commands::encode::encode(&source, output.as_deref(), format, lib),
+            crate_mode,
+        } => commands::encode::encode(&source, output.as_deref(), format, lib, crate_mode),
         Command::Check { program, compile } => commands::check::check(&program, compile),
         Command::Info { program } => commands::info::info(&program),
         Command::Validate { program } => commands::validate::validate(&program),

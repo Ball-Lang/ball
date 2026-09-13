@@ -50,8 +50,9 @@ cargo fmt --check && cargo clippy --workspace
   the off-by-default `self_host` cargo feature.
 - `ball-engine-regen` (`rust/engine/tool/`) — `cargo run -p ball-engine-regen` regenerates
   `compiled_engine.rs` from `dart/self_host/engine.ball.json`.
-- `ball-lang-cli` (`rust/cli/`) — currently a placeholder `main()` printing a scaffold message; no
-  subcommands wired (issue #41).
+- `ball-lang-cli` (`rust/cli/`) — the `ball` CLI (#41/#304): `run`/`compile`/`encode`/`check`
+  plus the cli-core verbs. `encode` takes `--lib` (library mode, #491) and `--crate` (walk a whole
+  crate's `mod` graph, #491).
 
 ## Key Patterns
 
@@ -135,15 +136,13 @@ cargo fmt --check && cargo clippy --workspace
   `const`/`static`/`type` alias (the declaration itself is skipped — see below),
   unmapped macros (`write!` — the measured largest *next* bucket, 9 of the 110 files). Each is
   pinned by a `#[should_panic]` characterization test in `rust/encoder/tests/documented_gaps.rs`
-  (#491) — flip it to a positive assertion in the same PR that closes the gap. Five are flipped
-  that way today: the two cross-file/associated-fn ones (below), the non-`Fn` impl item, and
-  tuple + unit structs. **A pin is owed the moment a gate exists, not the moment it closes** —
-  the 24-file cross-file METHOD-call bucket went three merged #491 PRs with a live gate and no
-  test observing it; `cross_file_method_call_is_a_documented_gap` now pins it, still open.
-  Closing that one needs a multi-file-aware encoding mode (`receiver.method(args)` carries no
-  module-qualifying segment for a syntax-only encoder to attribute the callee to, unlike
-  `other_file::helper(1)`) — an owner design decision, not a dispatch-table arm; see
-  `rust/AGENTS.md`.
+  (#491) — flip it to a positive assertion in the same PR that closes the gap. **Count the
+  flipped ones with `grep -c should_panic rust/encoder/tests/documented_gaps.rs`, never from
+  prose**: this line read "Five are flipped" while eight were, because a tally in a rule file
+  goes stale the moment a slice lands. **A pin is owed the moment a gate exists, not the moment
+  it closes** — the 24-file cross-file METHOD-call bucket went three merged #491 PRs with a live
+  gate and no test observing it before `cross_file_method_call_is_a_documented_gap` pinned it. It
+  is CLOSED now by the crate-aware `encode_crate` (below), and that test is flipped positive.
 - **Tuple + unit structs (#491).** All three `struct` shapes encode to the same class-shaped
   `TypeDefinition`; only the field names differ. A tuple element is declared under its
   **positional index as a decimal string** (`"0"`, `"1"`) — the very name
@@ -214,8 +213,36 @@ cargo fmt --check && cargo clippy --workspace
   `runner.dart`'s `ball build` treats only a source-BEARING import as needing the resolver), and
   the program is not runnable until the module is supplied — the same boundary library mode set
   for an empty `entry_function`. Keep this decision consistent with the C# encoder's eventual
-  cross-file slice (#492 bucket d). Known limitation: a `crate::`/`self::`-qualified call to a
-  same-file function is treated as external too.
+  cross-file slice (#492 bucket d). That known limitation - a `crate::`/`self::`-qualified call
+  treated as external - applies to the SINGLE-FILE entry points only; `encode_crate` resolves
+  both (next bullet).
+- **Crate-aware encoding - `encode_crate` / `ball encode --crate` (#491, owner decision
+  2026-09-13).** `rust/encoder/src/crate_graph.rs` walks a crate's `mod` graph from its root (the
+  `Cargo.toml` directory, the `src` directory, or the root `.rs` file) and encodes every file
+  against ONE crate-wide symbol table - the Rust sibling of
+  `dart/encoder/lib/package_encoder.dart`. That is what closes the largest #491 bucket: a
+  `receiver.method(args)` whose method is declared in another file. Resolution follows the Rust
+  reference (`foo.rs` XOR `foo/mod.rs`; the declaring file's own directory for a mod-rs file and
+  `<dir>/<stem>/` otherwise; `#[path]` relative to the declaring FILE's directory outside an
+  inline block and to the nested directory inside one; an inline `mod` block is its own module);
+  `#[cfg(test)]` modules are not walked, because `cargo build` does not compile them either.
+  **Output is multi-module and needed NO compiler change** - a cross-file call carries
+  `FunctionCall.module`, which `type_emit.rs::resolve_user_call_name` (issue #38's multi-module
+  output) already turns into the `<mod>::` qualifier onto that module's dispatcher. What it
+  narrows rather than removes, each pinned in `rust/encoder/tests/crate_encoding.rs`: a method no
+  file in the crate declares still fails loud; so does a method short name declared in two
+  modules when the call site's own module declares neither (the compiler's dispatcher resolves by
+  short name WITHIN a module, so picking one would silently dispatch to the wrong body); a
+  cross-module enum-variant read is refused by name; a `mod` with no file is a loud panic, never
+  a dropped module. **Indexing must not fail loud where encoding must**: the walk catalogues the
+  whole crate before encoding anything, so it reads parameter names with its own non-panicking
+  `simple_param_names` - reaching for `param_names_and_types`/`method_non_self_params` there
+  turned `itertools`' one `fn cmp(&self, (c, t): ...)` into "no crate-aware measurement for the
+  entire crate". Measured before/after with ONE binary over one checkout (`rq1-study
+  --single-file` reproduces the per-file measurement): stage-1 `1 encoded` **0/110 -> 1/110**,
+  clean unchanged at **0/110**, histogram conserved (`unsupported method call` 18 -> 11,
+  `unsupported call target` 35 -> 32). `tools/coverage-study/baseline.json`'s Rust row is raised
+  to `encoded: 1` and nothing else.
 - **Default-bodied receiver-less `trait` functions (#491).** `trait Maker { fn make(n, m) -> i64
   { n + m } }` encodes as the same `metadata.is_static` class member an `impl`-declared associated
   fn does, and `Maker::make(3, 4)` resolves through the same short-name dispatcher — the compiler
@@ -274,12 +301,18 @@ cargo fmt --check && cargo clippy --workspace
   linted with everything else) runs real pinned crates through
   `encode_library` -> `compile_library` -> `encode_library`, diffs the declaration
   inventory with **`syn` directly** (never the encoder's own walk) and checks a
-  second-generation fixpoint. Honest baseline, **still 0/110 clean, 0 files even
-  encoded** after every #491 slice so far — the encoders' documented gaps
-  (item-level macro invocations, unmapped macros like `write!`, cross-file
-  method calls) are in essentially every real crate file, and a file that clears
-  one lands on the next. A closed gap category moves the histogram, not the
-  aggregate. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
+  second-generation fixpoint. It is CRATE-AWARE since #491's `encode_crate`
+  slice: each package's `mod` graph is walked once and every file it reached is
+  encoded with the crate's symbol table in hand (`rq1-study --single-file`
+  turns that off and reproduces the older per-file measurement, so a
+  before/after is one binary over one checkout; each JSON row's `crateModule`
+  says which way that file was measured). Honest baseline, **0/110 clean,
+  1/110 encoded** — the encoders' documented gaps (item-level macro
+  invocations, unmapped macros like `write!`, `impl` self types that are not a
+  plain named type) are in essentially every real crate file, and a file that
+  clears one lands on the next. A closed gap category usually moves the
+  histogram, not the aggregate; the crate-aware slice is the first one to move
+  the aggregate at all, and it moved it by one file. The 5 pinned crates are `itertools`, `smallvec`, `bitflags`, `heck`,
   `strsim` (`tools/coverage-study/packages/rust.json`), not the original 10-crate
   #491 set. **Always point `CARGO_TARGET_DIR` at a path inside the current
   worktree** — a target dir shared with another lane serves a stale `rlib` and

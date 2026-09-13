@@ -1,0 +1,18 @@
+# A THREE-FILE FIXTURE CRATE for `ball_lang_encoder::encode_crate` (issue #491).
+#
+# Deliberately NOT a workspace member (`rust/Cargo.toml`'s `exclude` list keeps
+# cargo from adopting it): nothing ever builds this package with cargo. It is
+# read as *input* by `rust/encoder/tests/crate_encoding.rs`, which walks its
+# `mod` graph, encodes it into one Ball program, compiles that back to Rust and
+# runs it. The manifest exists so the test can prove the documented
+# "crate root = the directory holding Cargo.toml" entry point, and so the
+# fixture is a real crate rather than a loose pile of files.
+[package]
+name = "ball-fixture-counter-crate"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "ball-fixture-counter-crate"
+path = "src/main.rs"

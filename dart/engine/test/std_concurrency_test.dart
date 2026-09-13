@@ -188,7 +188,7 @@ void main() {
         }),
       ]);
       // The reference engine mints 1, 2, 3…; a portable program may only rely
-      // on distinctness (fixture 466 asserts that), but the FIRST handle must
+      // on distinctness (fixture 467 asserts that), but the FIRST handle must
       // never be the `0` the old placeholder returned.
       expect(out, ['1']);
     });

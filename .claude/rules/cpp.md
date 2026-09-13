@@ -78,6 +78,43 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   (`"main:B"`), so a lookup with `current_class_name_` silently misses. For an
   external receiver, resolve its class with `static_class_of()` and fall back
   EXPLICITLY when it cannot be proven; never guess "not shadowed".
+- **A `final` field declared beside a same-named SETTER reuses the #501
+  backing-member lowering — with only the GETTER half (#664).** Dart allows the
+  pair (a `final` field contributes a getter and nothing else, so the explicit
+  setter is the only setter for that name — `collection`'s `ListSlice`); C++ has
+  no such split, and g++ rejects a data member `length` beside a member function
+  `length(v)` outright ("conflicts with a previous declaration"). The
+  shadowed-field analysis therefore also marks a field whose OWN class declares
+  a setter of that name, so `emit_struct` stores it under
+  `shadow_backing_name()` and re-exposes the name as a public accessor — but
+  `class_setter_backed_fields_` suppresses the implicit SETTER half, which would
+  redefine the user's own member. Two consequences: the read path's
+  receiver-scoped branch now answers "getter" for any
+  `class_field_shadows_getter` field (for a #501 field `class_has_getter`
+  already did, via the ancestor that declares it; here there IS no ancestor
+  getter), and these fields are deliberately NOT added to the program-wide
+  `shadowed_getter_names_` — widening that would reroute an unrelated class's
+  plain `obj.length = v` into a setter it does not have. A write whose receiver
+  class cannot be proven therefore names the private backing member and fails to
+  BUILD: loud, never silent. Conformance `470_setter_beside_final_field` is the
+  guard; the self-hosted engine declares **zero** setters, so `engine_rt.cpp` is
+  provably untouched by this branch.
+- **The `.length` / `.isEmpty` / `.isNotEmpty` shortcuts yield to a receiver
+  whose own class DECLARES that name (#664).** Those three sit near the top of
+  `compile_field_access`, ahead of the getter / struct-field dispatch, and used
+  to fire unconditionally — so a class declaring `final int length` compiled
+  `slice.length` to `ball_length(slice)`, the instance's ELEMENT COUNT, with no
+  error anywhere. They are now skipped when `receiver_class_of` PROVES a class
+  that declares the name as a getter, an own field, or a shadow-backed accessor;
+  an unprovable receiver keeps the virtual property, which is the behaviour that
+  predates this. Scoped exactly like every other receiver-scoped decision here
+  (#515). Note `.isEmpty` rarely reaches this code at all — the Dart encoder's
+  `unaryRoutes` turns it into `std.string_is_empty` (that is why conformance
+  `115_generic_class`'s `Stack.isEmpty` getter never tripped it) — so `length`
+  is the reachable case and `470_setter_beside_final_field` is its guard, with
+  `cpp/test/test_compiler.cpp`'s
+  `length_on_a_class_that_declares_it_is_the_field_not_ball_length` as the fast
+  gate.
 - **A subclassed class is never passed or returned by value (#516).** C++ struct
   value semantics slice the derived part (vtable included) away. Parameters go
   through `map_param_type()` (`T&` when `class_is_subclassed(T)`), and
@@ -231,8 +268,9 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   `_ball_dart_error_to_string` in `cpp/shared/include/ball_emit_runtime.h`
   (#616's closed table: `StateError` → `Bad state`, `FormatException`,
   `RangeError`, nothing else — the same three rows as Go's `dartErrorToString`
-  and C#'s `DartErrorToString`; Rust's `dart_error_to_string` has a fourth
-  `TypeError` row and is the OPEN divergence #641, so do NOT copy it here).
+  and C#'s `DartErrorToString`; the siblings also carry a `TypeError` row, which
+  this table deliberately does not — see the #641 bullet below for why there is
+  no prefix for it to hold).
   Key on the `message` FIELD, never on the type
   name alone: a literal `throw StateError('boom')` keeps its ctor argument in
   `fields` with `what()` = the bare type name, while `_ball_make_exception`
@@ -241,6 +279,31 @@ CMake integrates with `buf` CLI for protobuf code generation, linting, and forma
   header, never the spliced copies (`*_embed.h` are generated at configure time,
   `cpp/shared/ball_protobuf_rt.h` by the compiler). Full table and guards:
   `cpp/AGENTS.md` → "Rendering a CAUGHT exception".
+
+- **A caught `TypeError` reads as Dart's own message, and the rendering table is
+  CLOSED by a test (#641).** A failed cast pattern raises `TypeError`, and Dart
+  spells it
+  `type '<runtime type>' is not a subtype of type '<target>' in type cast` —
+  naming the VALUE's type first, and with **no** `TypeError: ` prefix, because
+  `_TypeError.toString()` IS its message (the odd one out of the four built-ins).
+  Every target used to spell `type cast failed: not a <T>` and then render it a
+  different way; the canonical form is real Dart's because
+  `generate_conformance.dart` builds a golden by RUNNING the fixture's Dart
+  source on the SDK. The emitted `ball_cast_assert` takes the subject as a `BallDyn` now.
+  C++ needs no `TypeError` ROW in the #640 table above: `ball_cast_assert` uses
+  the 2-argument, no-`fields` ctor, so the `message` lookup misses and
+  `ball_to_string(const BallException&)` returns `what()` — the canonical string
+  the THROWER already carried. That also means there is nothing for a row to
+  hold, since Dart spells this one with no prefix at all.
+  `tests/conformance/467_caught_type_error_to_string` is the cross-target guard,
+  and `tools/check_error_rendering_tables.py` (`Proto Checks`, every PR, with its
+  own self-test) is the structural one. C++ is the single target it marks
+  `coverage_exempt`, and that exemption is narrow: it excuses C++ from needing a
+  row for a name whose thrower carries the string, and excuses it from NOTHING
+  else — the three rows the table does hold are checked against Dart's spellings
+  exactly like Go's, C#'s, Rust's and TS's, with a negative control in the
+  self-test proving that check fires. Add a new built-in error here and to that
+  contract in the same PR, or the checker fails.
 
 ### Encoder (`cpp/encoder/`)
 - Clang JSON AST → Ball program (`clang -Xclang -ast-dump=json`)

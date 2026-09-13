@@ -1,0 +1,820 @@
+{
+  "@type": "type.googleapis.com/ball.v1.Program",
+  "name": "encoded",
+  "version": "1.0.0",
+  "modules": [
+    {
+      "name": "std",
+      "functions": [
+        {
+          "name": "throw",
+          "isBase": true
+        },
+        {
+          "name": "assign",
+          "isBase": true
+        },
+        {
+          "name": "multiply",
+          "isBase": true
+        },
+        {
+          "name": "print",
+          "isBase": true
+        },
+        {
+          "name": "try",
+          "isBase": true
+        }
+      ],
+      "description": "Universal standard library base module",
+      "typeDefs": [
+        {
+          "name": "PrintInput",
+          "descriptor": {
+            "name": "PrintInput",
+            "field": [
+              {
+                "name": "message",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        },
+        {
+          "name": "BinaryInput",
+          "descriptor": {
+            "name": "BinaryInput",
+            "field": [
+              {
+                "name": "left",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              },
+              {
+                "name": "right",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          }
+        },
+        {
+          "name": "UnaryInput",
+          "descriptor": {
+            "name": "UnaryInput",
+            "field": [
+              {
+                "name": "value",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_STRING"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "main",
+      "functions": [
+        {
+          "name": "main:FixedSlice.new",
+          "outputType": "main:FixedSlice",
+          "metadata": {
+            "kind": "constructor",
+            "initializers": [
+              {
+                "kind": "field",
+                "name": "length",
+                "value": "end"
+              }
+            ],
+            "params": [
+              {
+                "name": "source",
+                "is_this": true
+              },
+              {
+                "name": "end",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:FixedSlice.length",
+          "inputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "throw",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "value",
+                      "value": {
+                        "messageCreation": {
+                          "typeName": "main:UnsupportedError",
+                          "fields": [
+                            {
+                              "name": "arg0",
+                              "value": {
+                                "literal": {
+                                  "stringValue": "Cannot resize a FixedSlice"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_setter": true,
+            "params": [
+              {
+                "name": "newLength",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:FixedSlice.readLength",
+          "outputType": "int",
+          "body": {
+            "reference": {
+              "name": "length"
+            }
+          },
+          "metadata": {
+            "kind": "method"
+          }
+        },
+        {
+          "name": "main:Scaler.amount",
+          "outputType": "int",
+          "body": {
+            "reference": {
+              "name": "_stored"
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_getter": true,
+            "expression_body": true
+          }
+        },
+        {
+          "name": "main:Scaler.amount",
+          "inputType": "int",
+          "body": {
+            "call": {
+              "module": "std",
+              "function": "assign",
+              "input": {
+                "messageCreation": {
+                  "typeName": "",
+                  "fields": [
+                    {
+                      "name": "target",
+                      "value": {
+                        "reference": {
+                          "name": "_stored"
+                        }
+                      }
+                    },
+                    {
+                      "name": "value",
+                      "value": {
+                        "call": {
+                          "module": "std",
+                          "function": "multiply",
+                          "input": {
+                            "messageCreation": {
+                              "typeName": "",
+                              "fields": [
+                                {
+                                  "name": "left",
+                                  "value": {
+                                    "reference": {
+                                      "name": "value"
+                                    }
+                                  }
+                                },
+                                {
+                                  "name": "right",
+                                  "value": {
+                                    "literal": {
+                                      "intValue": "10"
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "metadata": {
+            "kind": "method",
+            "is_setter": true,
+            "params": [
+              {
+                "name": "value",
+                "type": "int"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main",
+          "outputType": "void",
+          "body": {
+            "block": {
+              "statements": [
+                {
+                  "let": {
+                    "name": "slice",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:FixedSlice",
+                        "fields": [
+                          {
+                            "name": "arg0",
+                            "value": {
+                              "literal": {
+                                "listValue": {
+                                  "elements": [
+                                    {
+                                      "literal": {
+                                        "intValue": "10"
+                                      }
+                                    },
+                                    {
+                                      "literal": {
+                                        "intValue": "20"
+                                      }
+                                    },
+                                    {
+                                      "literal": {
+                                        "intValue": "30"
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "name": "arg1",
+                            "value": {
+                              "literal": {
+                                "intValue": "3"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "slice"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "try",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "body",
+                              "value": {
+                                "block": {
+                                  "statements": [
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "assign",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "",
+                                              "fields": [
+                                                {
+                                                  "name": "target",
+                                                  "value": {
+                                                    "fieldAccess": {
+                                                      "object": {
+                                                        "reference": {
+                                                          "name": "slice"
+                                                        }
+                                                      },
+                                                      "field": "length"
+                                                    }
+                                                  }
+                                                },
+                                                {
+                                                  "name": "value",
+                                                  "value": {
+                                                    "literal": {
+                                                      "intValue": "5"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    {
+                                      "expression": {
+                                        "call": {
+                                          "module": "std",
+                                          "function": "print",
+                                          "input": {
+                                            "messageCreation": {
+                                              "typeName": "PrintInput",
+                                              "fields": [
+                                                {
+                                                  "name": "message",
+                                                  "value": {
+                                                    "literal": {
+                                                      "stringValue": "setter did not throw"
+                                                    }
+                                                  }
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            {
+                              "name": "catches",
+                              "value": {
+                                "literal": {
+                                  "listValue": {
+                                    "elements": [
+                                      {
+                                        "messageCreation": {
+                                          "fields": [
+                                            {
+                                              "name": "variable",
+                                              "value": {
+                                                "literal": {
+                                                  "stringValue": "e"
+                                                }
+                                              }
+                                            },
+                                            {
+                                              "name": "body",
+                                              "value": {
+                                                "call": {
+                                                  "module": "std",
+                                                  "function": "print",
+                                                  "input": {
+                                                    "messageCreation": {
+                                                      "typeName": "PrintInput",
+                                                      "fields": [
+                                                        {
+                                                          "name": "message",
+                                                          "value": {
+                                                            "literal": {
+                                                              "stringValue": "setter threw"
+                                                            }
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "slice"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "call": {
+                                  "function": "readLength",
+                                  "input": {
+                                    "messageCreation": {
+                                      "fields": [
+                                        {
+                                          "name": "self",
+                                          "value": {
+                                            "reference": {
+                                              "name": "slice"
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "fieldAccess": {
+                                      "object": {
+                                        "reference": {
+                                          "name": "slice"
+                                        }
+                                      },
+                                      "field": "source"
+                                    }
+                                  },
+                                  "field": "length"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "scaler",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Scaler"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "scaler"
+                                    }
+                                  },
+                                  "field": "amount"
+                                }
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "3"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "scaler"
+                                    }
+                                  },
+                                  "field": "amount"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "let": {
+                    "name": "plain",
+                    "value": {
+                      "messageCreation": {
+                        "typeName": "main:Plain"
+                      }
+                    },
+                    "metadata": {
+                      "keyword": "final"
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "assign",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "",
+                          "fields": [
+                            {
+                              "name": "target",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "plain"
+                                    }
+                                  },
+                                  "field": "amount"
+                                }
+                              }
+                            },
+                            {
+                              "name": "value",
+                              "value": {
+                                "literal": {
+                                  "intValue": "7"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "expression": {
+                    "call": {
+                      "module": "std",
+                      "function": "print",
+                      "input": {
+                        "messageCreation": {
+                          "typeName": "PrintInput",
+                          "fields": [
+                            {
+                              "name": "message",
+                              "value": {
+                                "fieldAccess": {
+                                  "object": {
+                                    "reference": {
+                                      "name": "plain"
+                                    }
+                                  },
+                                  "field": "amount"
+                                }
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "metadata": {
+            "kind": "function"
+          }
+        }
+      ],
+      "moduleImports": [
+        {
+          "name": "std"
+        }
+      ],
+      "typeDefs": [
+        {
+          "name": "main:FixedSlice",
+          "descriptor": {
+            "name": "main:FixedSlice",
+            "field": [
+              {
+                "name": "source",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_BYTES"
+              },
+              {
+                "name": "length",
+                "number": 2,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:FixedSlice",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "source",
+                "type": "List<int>",
+                "is_final": true
+              },
+              {
+                "name": "length",
+                "type": "int",
+                "is_final": true
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Scaler",
+          "descriptor": {
+            "name": "main:Scaler",
+            "field": [
+              {
+                "name": "_stored",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Scaler",
+          "metadata": {
+            "kind": "class",
+            "fields": [
+              {
+                "name": "_stored",
+                "type": "int",
+                "initializer": "1"
+              }
+            ]
+          }
+        },
+        {
+          "name": "main:Plain",
+          "descriptor": {
+            "name": "main:Plain",
+            "field": [
+              {
+                "name": "amount",
+                "number": 1,
+                "label": "LABEL_OPTIONAL",
+                "type": "TYPE_INT64"
+              }
+            ]
+          },
+          "description": "Class metadata for main:Plain",
+          "metadata": {
+            "kind": "class",
+            "superclass": "Scaler",
+            "fields": [
+              {
+                "name": "amount",
+                "type": "int",
+                "initializer": "5"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "entryModule": "main",
+  "entryFunction": "main"
+}

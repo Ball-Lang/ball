@@ -313,12 +313,21 @@ describe('cli_core.ts — audit (self-hosted capability + termination)', () => {
       const violations = checkPolicy(report, new Set(['custom']));
       assert.ok(violations.length > 0, '--deny custom must trip');
       assert.ok(
-        violations.some((v: string) => v.includes('mymodule.exec_shell')),
+        violations.some((v: string) =>
+          v.includes(
+            `mymodule.exec_shell (call site: ${callModule ?? 'main'}.exec_shell)`,
+          ),
+        ),
         `violation must name the declaring module: ${JSON.stringify(violations)}`,
       );
 
+      // The DECLARING module leads; the call-site spelling follows it.
+      const callSite = `${callModule ?? 'main'}.exec_shell`;
       const text = auditReport(program);
-      assert.ok(text.includes('mymodule.exec_shell'));
+      assert.ok(
+        text.includes(`mymodule.exec_shell (call site: ${callSite})`),
+        `report must name the declaring module and the call site: ${text}`,
+      );
       assert.ok(
         text.includes('REVIEW REQUIRED — calls into custom base modules'),
       );

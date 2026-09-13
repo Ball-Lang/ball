@@ -896,6 +896,10 @@ extension BallEngineInvocation on BallEngine {
     program.modules.add(module);
     for (final td in module.typeDefs) {
       if (td.hasDescriptor()) _types[td.name] = td.descriptor;
+      // Mirror the field-finality registration from _buildLookupTables: a
+      // class reached through a lazily resolved import needs the same
+      // final-field table its eagerly loaded siblings get (#664).
+      _registerDeclaredFieldFinality(td);
     }
     for (final func in module.functions) {
       final key = '${module.name}.${func.name}';

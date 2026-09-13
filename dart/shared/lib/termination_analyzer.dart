@@ -42,7 +42,7 @@ List<Object?> _analyzeTerminationCore(Map ctx) {
   final callGraph = _buildCallGraph({
     'modules': modules,
     'baseModules': baseModules,
-    'customBaseFns': _collectCustomBaseFns(modules),
+    'customBaseFns': _collectCustomBaseFns(modules, buildCapabilityTable()),
     // The same fail-closed guard the capability analyzer applies: a bare name a
     // non-base user function also declares is never resolved to a custom base
     // function (issue #609 / `_resolveCustomBaseFn`).

@@ -794,12 +794,29 @@ class Compiler:
             with self.block():
                 self.line("pass")
             return
-        self.line("try:")
+        # The `except ballrt.BallReturn` wrapper is only reachable when the body
+        # can actually RAISE one — i.e. when something in it compiles to
+        # `ballrt.ret(...)`. Emitting it unconditionally put a dead `try`/`except`
+        # around every function the compiler produced, hello-world included, and
+        # `try` is exactly what the syntactic `ast` encoder refuses when it reads
+        # the compiler's own output back (issue #642). Compile the body first,
+        # then decide.
+        #
+        # The test is deliberately CONSERVATIVE and textual: any `ballrt.ret(` in
+        # the emitted body keeps the wrapper, even one inside a nested `def` that
+        # has a wrapper of its own. It can only ever keep a wrapper that is not
+        # needed, never drop one that is.
+        before = len(self.lines)
         with self.block():
-            before = len(self.lines)
             self.run(body, RETURN)
             if len(self.lines) == before:
                 self.line("pass")
+        emitted = self.lines[before:]
+        if not any("ballrt.ret(" in ln for ln in emitted):
+            # Un-indent the body back to function level: no wrapper needed.
+            self.lines[before:] = [ln[4:] if ln.startswith("    ") else ln for ln in emitted]
+            return
+        self.lines[before:before] = ["    " * self.ind + "try:"]
         self.line("except ballrt.BallReturn as _r:")
         with self.block():
             self.line("return _r.value")

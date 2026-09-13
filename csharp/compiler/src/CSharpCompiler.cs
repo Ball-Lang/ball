@@ -75,6 +75,9 @@ public sealed partial class CSharpCompiler
     /// <summary>Sanitized names of top-level variables/getters (a bare reference invokes the nullary getter, not a function-value tear-off).</summary>
     private readonly HashSet<string> _topLevelVars = new(StringComparer.Ordinal);
 
+    /// <summary>Synthesized oneof-discriminator namespaces the program actually references, so <c>CompileOneofDiscriminators</c> emits only those (issue #642).</summary>
+    private readonly HashSet<string> _usedOneofs = new(StringComparer.Ordinal);
+
     /// <summary>Whether the body currently being compiled is an instance method/constructor (so a bare <c>this.method()</c> call injects the receiver).</summary>
     private bool _inInstanceMethod;
 
@@ -723,6 +726,7 @@ public sealed partial class CSharpCompiler
         // carrying no EnumDescriptorProto; resolve to the emitted namespace.
         if (OneofDiscriminators.ContainsKey(reference.Name))
         {
+            _usedOneofs.Add(reference.Name);
             return $"BallOneofs.{Naming.Sanitize(reference.Name)}";
         }
 

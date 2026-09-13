@@ -397,14 +397,25 @@ cargo fmt --check && cargo clippy --workspace
   no exclusion. Conformance fixture `462_set_mutation_in_place` is the guard.
 - `cargo test --workspace` from `rust/` (via WSL). `ball-lang-engine`'s compiled-engine driver is
   feature-gated off by default, so this stays green without depending on #39.
-- `rust/engine/tests/roundtrip_conformance.rs` is a **measurement-only** whole-corpus sweep
+- `rust/engine/tests/roundtrip_conformance.rs` is a whole-corpus measurement sweep
   (#452 item 3): Ball → Rust → Ball → the **Dart** reference engine → golden diff, all in-process
-  except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). Honest baseline **0/321**,
-  like the C# leg it mirrors. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
-  `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`. Its CI
-  home is the `rust-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** —
-  the row runs automatically on any PR touching a filtered path, gated on harness health (a
-  parseable `Results:` line, integer counts, `total >= 1`), never on the failure count.
+  except the Dart run (no per-fixture `rustc`, ~7 s for 321 fixtures). It measured a flat **0/321**
+  from the day it shipped until #642 — the encoder refused the compiler's own output outright: the
+  unconditional `pub static Expression_Expr: LazyLock<BallValue>` namespaces, the
+  `(|| -> BallValue { … })()` IIFE the entry body is wrapped in, and the
+  `BallValue::String(…)`/`BallValue::Null` constructors every literal becomes. The compiler now
+  emits a oneof namespace only when the compiled text mentions it
+  (`type_emit::oneof_discriminator_enum_defs`), and `lib.rs` recognises the IIFE
+  (`as_zero_arg_closure`) and the `BallValue` constructors; `rust/encoder/tests/compiler_output.rs`
+  is the fast guard. `#[ignore]` so `cargo test --workspace` never picks it up; run it with
+  `cargo test -p ball-lang-engine --test roundtrip_conformance -- --ignored --nocapture`
+  (`BALL_DART` overrides the launcher). Its CI home is the `rust-roundtrip` row in
+  `conformance-matrix.yml`, which **is a PR gate since #619** and **floored + ratcheted since
+  #642**: harness health PLUS `passed >= 1` PLUS `passed >= RUST_ROUNDTRIP_FLOOR`, enforced by
+  `tools/ci/roundtrip_floor.sh`. Still NOT a parity gate — but a flat zero is red, and the floor
+  only rises. **Raise it in the SAME PR as the fix that earned it**; the job prints the exact new
+  value. The remaining gap is the rest of the `ball_lang_shared::runtime::*` dispatch surface, plus
+  the method-dispatcher `panic!` sub-case tracked in #632.
 - `cargo test -p ball-lang-compiler` / `cargo test -p ball-lang-encoder` include `tests/end_to_end.rs`
   suites that compile emitted Rust with the **real `cargo run`/`rustc`** and assert on actual
   stdout — prefer extending these (or, once #40 lands, `tests/conformance/` fixtures) over

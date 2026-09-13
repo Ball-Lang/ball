@@ -1119,6 +1119,19 @@ impl Encoder {
                 return option_result_message(true, null_literal());
             }
         }
+        // `BallValue::Null` — the Ball Rust runtime's spelling of a Ball null
+        // literal, and what `rust/compiler` emits for one (issue #642). The
+        // compiler dispatches every Ball value through `BallValue`, so
+        // recognizing its variants is what lets this encoder read the
+        // compiler's own output back. A file declaring its own `BallValue`
+        // enum still wins: `self.enum_names` is checked first, below.
+        if path.segments.len() == 2
+            && path.segments[0].ident == BALL_VALUE_TYPE
+            && !self.enum_names.contains(BALL_VALUE_TYPE)
+            && path.segments[1].ident == "Null"
+        {
+            return null_literal();
+        }
         // `Color::Red` — a 2-segment path whose first segment names a
         // top-level `enum` this file declared (see the pre-pass in
         // `encode_main_module` that populates `self.enum_names`) — resolves
@@ -1288,10 +1301,44 @@ impl Encoder {
     // ── calls ─────────────────────────────────────────────────
 
     fn encode_call(&mut self, e: &syn::ExprCall) -> Expression {
+        // ── An IMMEDIATELY-INVOKED CLOSURE — `(|| -> BallValue { … })()` ──
+        //
+        // `rust/compiler` wraps a Ball block that lands in value position (the
+        // entry body included) in exactly this shape, and the encoder used to
+        // refuse it outright, which is why not one conformance fixture could
+        // round-trip (issue #642). A 0-argument closure invoked on the spot IS
+        // its body, so inlining it preserves semantics rather than special-casing
+        // a round-trip. A closure that takes parameters is left alone — it is a
+        // real call with arguments to bind.
+        if let Some(closure) = as_zero_arg_closure(e.func.as_ref()) {
+            if e.args.is_empty() {
+                return self.encode_expr(&closure.body);
+            }
+        }
         if let syn::Expr::Path(path_expr) = e.func.as_ref() {
             let path = &path_expr.path;
             if let Some(last) = path.segments.last() {
                 let last_name = last.ident.to_string();
+                // `BallValue::String(x)` / `Int` / `Double` / `Bool` / `Bytes`
+                // — the Ball Rust runtime's value constructors, which
+                // `rust/compiler` emits for every literal (issue #642). Each
+                // wraps one already-encodable operand, so the constructor is
+                // the identity in Ball, where every value is already dynamic.
+                // Checked before the tuple-struct and same-file-function
+                // branches for the same reason those are ordered that way: a
+                // file that declares its own `BallValue` enum wins, via
+                // `self.enum_names`.
+                if path.segments.len() == 2
+                    && path.segments[0].ident == BALL_VALUE_TYPE
+                    && !self.enum_names.contains(BALL_VALUE_TYPE)
+                    && e.args.len() == 1
+                    && matches!(
+                        last_name.as_str(),
+                        "String" | "Int" | "Double" | "Bool" | "Bytes"
+                    )
+                {
+                    return self.encode_expr(&e.args[0]);
+                }
                 // `String::from(x)` / `Box::new(x)` — identity passthroughs
                 // (a Ball value needs no separate "owned"/"boxed"
                 // representation — `BallValue` is already heap-backed for
@@ -2138,6 +2185,24 @@ fn starts_lowercase(ident: &str) -> bool {
 
 fn path_to_string(path: &syn::Path) -> String {
     quote::quote!(#path).to_string()
+}
+
+/// The Ball Rust runtime's dynamic value type. `rust/compiler` dispatches every
+/// literal through its variant constructors (`BallValue::String("x".to_string())`,
+/// `BallValue::Null`, …), so recognizing them is what lets this encoder read the
+/// compiler's own output back (issue #642). A file that declares its own enum by
+/// that name always wins — every site checks `self.enum_names` first.
+const BALL_VALUE_TYPE: &str = "BallValue";
+
+/// The closure of an immediately-invoked `(|| … )()`, when it takes no
+/// parameters — `rust/compiler`'s lowering of a Ball block in value position.
+/// Unwraps the parentheses `syn` keeps as an `ExprParen`.
+fn as_zero_arg_closure(expr: &syn::Expr) -> Option<&syn::ExprClosure> {
+    match expr {
+        syn::Expr::Paren(paren) => as_zero_arg_closure(&paren.expr),
+        syn::Expr::Closure(closure) if closure.inputs.is_empty() => Some(closure),
+        _ => None,
+    }
 }
 
 /// A conservative heuristic used only to disambiguate `/`'s int-truncating

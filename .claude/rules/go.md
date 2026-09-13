@@ -329,11 +329,16 @@ one fixture; `BALL_DEBUG_STACK=1` crashes on the first panic with a Go origin st
   `TestConformance` sweep is what CI gates on; quote its `Results:` line, not a hand-maintained
   count.
 - `go/engine/conformance/roundtrip.go` (`go test -v -run TestRoundTrip ./conformance/`) is a
-  **measurement-only** sweep (#452 item 3): Ball → Go → Ball → the **Dart** reference engine →
+  measurement sweep (#452 item 3): Ball → Go → Ball → the **Dart** reference engine →
   golden diff (it needs `dart` on PATH and skips loudly without it; the shared
-  `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in `support.go`). Honest baseline
-  **0/321**, expected by construction and mirroring
-  `csharp-roundtrip`; gated only on `total >= 1`, never on the failure count. Its CI home is the
-  `go-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate since #619** — the row runs
-  automatically on any PR touching a filtered path, gated on harness health (a parseable `Results:`
-  line, integer counts, `total >= 1`), never on the failure count. No dispatch needed.
+  `Result`/`Summary`/`conformanceDir`/`diffDetail` helpers live in `support.go`). It measured a
+  flat **0/321** from the day it shipped until #642 — the encoder refused the compiler's own
+  output outright (the unconditional `ballOneof_*` top-level vars, the `ballrt.RunEntry` entry
+  wrapper, and every `ballrt.*` base-call helper). `go/encoder/ballrt.go` is the inverse table that
+  closes the dominant part of that, and `go/encoder/ballrt_test.go` is the fast guard on the
+  shape. Its CI home is the `go-roundtrip` row in `conformance-matrix.yml`, which **is a PR gate
+  since #619** and **floored + ratcheted since #642**: harness health (a parseable `Results:` line,
+  integer counts, `total >= 1`) PLUS `passed >= 1` PLUS `passed >= GO_ROUNDTRIP_FLOOR`, enforced by
+  `tools/ci/roundtrip_floor.sh`. It is still NOT a parity gate — most of the corpus does not
+  round-trip yet — but a flat zero is red, and the floor only rises. **Raise the floor in the SAME
+  PR as the fix that earned it**; the job prints the exact new value.

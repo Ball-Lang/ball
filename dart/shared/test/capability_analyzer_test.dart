@@ -864,6 +864,11 @@ void main() {
     ]) {
       final label = spelling[0];
       final callModule = spelling[1];
+      // A call site that named no module reads as the CONTEXT module (`main`);
+      // a spoofed one reads as whatever it lied about. Either way the rendered
+      // callee must lead with the DECLARING module and append this spelling.
+      final callSite = '${callModule.isEmpty ? 'main' : callModule}.exec_shell';
+      final rendered = 'mymodule.exec_shell (call site: $callSite)';
 
       test('a $label call into a declared custom base module is custom', () {
         final r = analyzeCapabilities(buildCustom(callModule: callModule));
@@ -876,7 +881,9 @@ void main() {
         expect(site['module'], 'main');
         expect(site['function'], 'main');
         expect(site['calleeFunction'], 'exec_shell');
-        // The declaring module is named even when the call site did not.
+        // The call site keeps the literal spelling the program wrote …
+        expect(site['calleeModule'], callModule.isEmpty ? 'main' : callModule);
+        // … and the declaring module is named even when the call site did not.
         expect(site['resolvedModule'], 'mymodule');
       });
 
@@ -885,7 +892,7 @@ void main() {
           analyzeCapabilities(buildCustom(callModule: callModule)),
         );
         expect(text, contains('custom (1 call sites:'));
-        expect(text, contains('mymodule.exec_shell'));
+        expect(text, contains('main.main → $rendered'));
         expect(
           text,
           contains('REVIEW REQUIRED — calls into custom base modules'),
@@ -899,7 +906,7 @@ void main() {
           deny: <String>{'custom'},
         );
         expect(violations, hasLength(1));
-        expect(violations.single, contains('mymodule.exec_shell'));
+        expect(violations.single, contains(rendered));
       });
 
       test('the reachable-only analysis sees the $label call too', () {
@@ -923,6 +930,7 @@ void main() {
         expect(w['category'], 'unknown_termination');
         expect(w['location'], 'main.main');
         expect(w['message'], contains('mymodule.exec_shell'));
+        expect(w['message'], isNot(contains('harmless_looking_module')));
       });
     }
 

@@ -86,6 +86,97 @@ case "${1-}" in
   ;;
 esac
 
+# ── go-freshness.yml's pull_request scoping (#656). ───────────────────────
+# go-freshness.yml is the one freshness alarm in this repo with a pull_request
+# trigger, and its own header says why that is acceptable: the paths filter names
+# the alarm's OWN two files, "so no unrelated pull request touches them". Every
+# other freshness lane is schedule-only precisely because a per-PR dependency on
+# an external registry reddens unrelated work on a CDN hiccup. That argument is
+# load-bearing and, until #656, unguarded.
+#
+# WHY THIS PARSES YAML INSTEAD OF GREPPING, unlike the rest of this file: the
+# assertion is that a LIST IS EXACTLY A SET, and the thing it must catch is an
+# entry being ADDED. `grep -qF` on the two expected lines passes just as happily
+# with a third one sitting under them — it cannot see the failure it is for. The
+# python3 + PyYAML dependency is already carried by tools/ci/check_matrix_paths.sh
+# in this same always-on job.
+freshness_paths_problems() {
+  python3 - "$1" <<'PY'
+import sys
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - the runner image ships PyYAML
+    print("PyYAML is required by tools/release/check_go_release_wiring.sh")
+    sys.exit(1)
+
+EXPECTED = {
+    ".github/workflows/go-freshness.yml",
+    "tools/release/check_go_freshness.sh",
+}
+
+path = sys.argv[1]
+
+
+def collect(path):
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = yaml.safe_load(fh)
+    except FileNotFoundError:
+        return [f"{path} does not exist"]
+    except yaml.YAMLError as exc:
+        return [f"{path} is not parseable YAML: {exc}"]
+    if not isinstance(doc, dict):
+        return [f"{path} does not parse to a mapping"]
+    # YAML 1.1 (what PyYAML implements) resolves a bare `on:` key to the BOOLEAN
+    # True, not the string "on".
+    triggers = doc.get(True, doc.get("on"))
+    if not isinstance(triggers, dict):
+        return [f"{path} has no `on:` trigger mapping"]
+    if "pull_request" not in triggers:
+        return [
+            "no pull_request trigger at all: a workflow_dispatch workflow cannot be "
+            "rehearsed before its file is on the default branch (GitHub's events "
+            "reference), and this self-gated PR trigger is the documented way out"
+        ]
+    block = triggers.get("pull_request")
+    problems = []
+    if isinstance(block, dict) and "paths-ignore" in block:
+        problems.append(
+            "`on.pull_request.paths-ignore` is set: an exclusion list runs this alarm on "
+            "every pull request that is not excluded, which is the opposite of scoping it "
+            "to the alarm's own files"
+        )
+    paths = block.get("paths") if isinstance(block, dict) else None
+    if not isinstance(paths, list) or not paths:
+        problems.append(
+            "`on.pull_request.paths` is missing or empty, so this alarm runs on EVERY pull "
+            "request — a live proxy.golang.org dependency on unrelated work, which is the "
+            "one thing its header promises it is not"
+        )
+        return problems
+    got = [str(entry) for entry in paths]
+    for entry in got:
+        if entry not in EXPECTED:
+            problems.append(
+                f"unexpected path in the pull_request filter: {entry} — the filter must name "
+                "ONLY the alarm's own two files"
+            )
+    for entry in sorted(EXPECTED - set(got)):
+        problems.append(
+            f"missing from the pull_request filter: {entry} — a change to the alarm must "
+            "prove itself against the live proxy before it merges"
+        )
+    return problems
+
+
+found = collect(path)
+for problem in found:
+    print(problem)
+sys.exit(1 if found else 0)
+PY
+}
+
 # ── The negative controls for the checker above. ──────────────────────────
 # A guard whose own failure path is never exercised is decoration: the leg would
 # pass identically if `freshness_paths_problems` stopped looking at the list.
@@ -734,6 +825,26 @@ if [ -f "$FRESHWF" ]; then
   else
     no "go-freshness.yml is scheduled, rehearsable, and self-tests before it trusts the network" "${wprobs[@]}"
   fi
+
+  # The scoping of its pull_request trigger is a separate, load-bearing claim:
+  # this is the only freshness alarm in the repo that runs on pull requests at
+  # all, and the header's argument for why that is not a per-PR dependency on
+  # proxy.golang.org is that the filter names the alarm's OWN two files. Widen
+  # it and a CDN hiccup reddens unrelated work; narrow it and a change to the
+  # alarm stops having to prove itself against the live proxy before it merges.
+  pathprobs=()
+  while IFS= read -r pline; do
+    [ -n "$pline" ] && pathprobs+=("$pline")
+  done < <(freshness_paths_problems "$FRESHWF")
+  if [ "${#pathprobs[@]}" -eq 0 ]; then
+    ok "go-freshness.yml's pull_request trigger is scoped to the alarm's own two files"
+  else
+    no "go-freshness.yml's pull_request trigger is scoped to the alarm's own two files" \
+      "${pathprobs[@]}" \
+      "this alarm queries proxy.golang.org; every other freshness lane is schedule-only for" \
+      "exactly that reason, and this one's PR trigger is acceptable ONLY while the filter cannot" \
+      "match a pull request that does not change the alarm (#656)"
+  fi
 else
   no ".github/workflows/go-freshness.yml exists (weekly + dispatch)" \
     "pubdev-freshness.yml is 'the alarm #551 lacked'; the Go lane has no equivalent, so the only" \
@@ -756,10 +867,19 @@ else
     "exercise its budget loop and its conclusion classification before it matters"
 fi
 
+if grep -qF 'tools/release/check_go_release_wiring.sh --self-test' "$CI"; then
+  ok "ci.yml runs this guard's own paths-scoping negative controls"
+else
+  no "ci.yml runs this guard's own paths-scoping negative controls" \
+    "the go-freshness paths leg above is the one leg here that parses YAML rather than grepping," \
+    "and a leg whose failure path is never exercised would pass identically if it stopped looking" \
+    "at the list: bash tools/release/check_go_release_wiring.sh --self-test (#656)"
+fi
+
 total=$((pass + fail))
 # Positive floor (#439/#444): an exit code plus a zero failure count cannot tell
 # "all passed" from "nothing ran".
-MIN=20
+MIN=22
 case "$pass$fail$total" in
 *[!0-9]*)
   echo "::error::Go release wiring guard produced a non-numeric tally"
